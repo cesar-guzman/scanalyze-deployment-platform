@@ -1,0 +1,16 @@
+{
+  "service_name": "ingest-api",
+  "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/scanalyze/ingest-api:latest",
+  "cpu": 512,
+  "memory": 1024,
+  "essential": true,
+  "port_mappings": [{"containerPort": 8080, "protocol": "tcp"}],
+  "environment": [
+    {"name": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID", "value": "cust_example"}
+  ],
+  "secrets": [],
+  "customer_identity": {
+    "canonical_field": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+    "canonical_value_source": "deployment_record"
+  }
+}

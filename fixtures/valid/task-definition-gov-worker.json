@@ -1,0 +1,40 @@
+{
+  "service_name": "gov-worker",
+  "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/scanalyze/gov-worker@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "cpu": 512,
+  "memory": 1024,
+  "essential": true,
+  "port_mappings": [],
+  "environment": [
+    {"name": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID", "value": "cust_example"},
+    {"name": "AWS_REGION", "value": "us-east-1"},
+    {"name": "LOG_LEVEL", "value": "INFO"},
+    {"name": "SERVICE_NAME", "value": "gov-worker"}
+  ],
+  "secrets": [
+    {"name": "DB_CONNECTION_STRING", "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:scanalyze/db-conn"}
+  ],
+  "customer_identity": {
+    "canonical_field": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+    "canonical_value_source": "deployment_record",
+    "legacy_aliases": [
+      {"field": "tenantId", "status": "non_authoritative"},
+      {"field": "SCANALYZE_TENANT", "status": "migration_compatibility_only"}
+    ]
+  },
+  "health_check": {
+    "command": ["CMD-SHELL", "curl -f http://localhost:0/health || exit 1"],
+    "interval": 30,
+    "timeout": 5,
+    "retries": 3,
+    "startPeriod": 60
+  },
+  "log_configuration": {
+    "logDriver": "awslogs",
+    "options": {
+      "awslogs-group": "/ecs/scanalyze/gov-worker",
+      "awslogs-region": "us-east-1",
+      "awslogs-stream-prefix": "ecs"
+    }
+  }
+}

@@ -163,3 +163,93 @@ git-safety:
 		xargs grep -lE 'AKIA[0-9A-Z]{16}' 2>/dev/null && \
 		(echo "FAIL: AWS access key pattern found in worktree" && exit 1) || true
 	@echo "Git safety OK."
+
+# ── Toolchain Status (M1) ────────────────────────────────────────────
+toolchain-status:
+	@echo "=== Toolchain Status ==="
+	@echo "Pin:    Python $(PINNED_PYTHON_VERSION)"
+	@echo "Actual: $$($(PYTHON) --version 2>/dev/null || echo 'not found')"
+	@echo "Pin:    Terraform $(PINNED_TF_VERSION)"
+	@echo "Actual: Terraform $$($(TERRAFORM) version -json 2>/dev/null | $(JQ) -r '.terraform_version' 2>/dev/null || echo 'not found')"
+	@ACTUAL_PY=$$($(PYTHON) -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>/dev/null || echo "not_found"); \
+	ACTUAL_TF=$$($(TERRAFORM) version -json 2>/dev/null | $(JQ) -r '.terraform_version' 2>/dev/null || echo "not_found"); \
+	if [ "$$ACTUAL_PY" != "$(PINNED_PYTHON_VERSION)" ] || [ "$$ACTUAL_TF" != "$(PINNED_TF_VERSION)" ]; then \
+		echo ""; \
+		echo "BLOCKED_TOOLING_REVERIFY: Evidence generated with non-pinned tools."; \
+		echo "  Python tests: locally_passed_on_$$ACTUAL_PY, pending_reverify_on_$(PINNED_PYTHON_VERSION)"; \
+		echo "  HCL tests:    locally_passed_on_$$ACTUAL_TF, pending_reverify_on_$(PINNED_TF_VERSION)"; \
+	else \
+		echo ""; \
+		echo "TOOLCHAIN_MATCHED: All evidence generated with pinned tools."; \
+	fi
+
+# ── Module Check (M1) ───────────────────────────────────────────────
+MODULE_REQUIRED_FILES := README.md versions.tf variables.tf outputs.tf locals.tf contract.tf
+MODULE_DIRS := global network container-platform data-foundation services edge-identity edge addons replicated-data
+
+module-check:
+	@echo "=== Module Skeleton Check ==="
+	@ERRORS=0; \
+	for mod in $(MODULE_DIRS); do \
+		if [ ! -d "modules/$$mod" ]; then \
+			echo "  MISSING: modules/$$mod/"; \
+			ERRORS=$$((ERRORS + 1)); \
+			continue; \
+		fi; \
+		for f in $(MODULE_REQUIRED_FILES); do \
+			if [ ! -f "modules/$$mod/$$f" ]; then \
+				echo "  MISSING: modules/$$mod/$$f"; \
+				ERRORS=$$((ERRORS + 1)); \
+			fi; \
+		done; \
+		echo "  OK: modules/$$mod/ (all required files present)"; \
+	done; \
+	if [ "$$ERRORS" -gt 0 ]; then echo "Module check: $$ERRORS missing" && exit 1; fi
+	@echo "Module check complete."
+
+# ── Root Check (M1) ─────────────────────────────────────────────────
+ROOT_REQUIRED_FILES := README.md versions.tf variables.tf main.tf outputs.tf contract_validation.tf backend.example.hcl
+ROOT_DIRS := account-ready-gate global network platform data-foundation services edge-identity edge addons
+
+root-check:
+	@echo "=== Root Skeleton Check ==="
+	@ERRORS=0; \
+	for root in $(ROOT_DIRS); do \
+		if [ ! -d "roots/$$root" ]; then \
+			echo "  MISSING: roots/$$root/"; \
+			ERRORS=$$((ERRORS + 1)); \
+			continue; \
+		fi; \
+		for f in $(ROOT_REQUIRED_FILES); do \
+			if [ ! -f "roots/$$root/$$f" ]; then \
+				echo "  MISSING: roots/$$root/$$f"; \
+				ERRORS=$$((ERRORS + 1)); \
+			fi; \
+		done; \
+		echo "  OK: roots/$$root/ (all required files present)"; \
+	done; \
+	if [ "$$ERRORS" -gt 0 ]; then echo "Root check: $$ERRORS missing" && exit 1; fi
+	@echo "Root check complete."
+	@echo "Checking forbidden patterns in roots..."
+	@$(PYTHON) $(TOOLING_DIR)/lint_forbidden_patterns.py modules/ roots/
+
+# ── Task Definition Check (M1) ──────────────────────────────────────
+taskdef-check:
+	@echo "=== Task Definition Schema Check ==="
+	@$(PYTHON) -c "import jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: jsonschema not installed."; exit 1; }
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter task-definition
+	@echo "Task definition check complete."
+
+# ── Supply Chain Check (M1) ──────────────────────────────────────────
+supply-chain-check:
+	@echo "=== Supply Chain Policy Gate Check ==="
+	@$(PYTHON) -m pytest $(TESTS_DIR)/test_supply_chain/ -v --tb=short
+	@echo "Supply chain check complete."
+
+# ── Preflight M1 (full M1 gate) ─────────────────────────────────────
+preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check test
+	@echo ""
+	@echo "=== PREFLIGHT-M1 COMPLETE ==="
+	@echo "All M0+M1 required artifacts present and validated."
+	@echo "Status: M1_LOCAL_EVIDENCE_GENERATED"

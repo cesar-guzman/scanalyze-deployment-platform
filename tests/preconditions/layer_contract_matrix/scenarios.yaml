@@ -1,0 +1,159 @@
+# Layer Contract Matrix — Scenario Definitions
+#
+# Each layer pair is tested with a valid scenario plus negative scenarios.
+# The HCL harness uses terraform_data + precondition to validate.
+# State path scope tests verify global vs regional patterns.
+
+layer_pairs:
+  - producer: global
+    consumer: network
+    state_scope: global_to_regional
+    producer_contract: global/v1
+    producer_state_key: "{dep_id}/global/terraform.tfstate"
+    consumer_state_key: "{dep_id}/{region}/network/terraform.tfstate"
+
+  - producer: network
+    consumer: platform
+    state_scope: regional_to_regional
+    producer_contract: network/v1
+    consumer_state_key: "{dep_id}/{region}/platform/terraform.tfstate"
+
+  - producer: platform
+    consumer: data-foundation
+    state_scope: regional_to_regional
+    producer_contract: platform/v1
+    consumer_state_key: "{dep_id}/{region}/data-foundation/terraform.tfstate"
+
+  - producer: data-foundation
+    consumer: services
+    state_scope: regional_to_regional
+    producer_contract: data-foundation/v1
+    consumer_state_key: "{dep_id}/{region}/services/terraform.tfstate"
+
+  - producer: services
+    consumer: edge-identity
+    state_scope: regional_to_regional
+    producer_contract: services/v1
+    consumer_state_key: "{dep_id}/{region}/edge-identity/terraform.tfstate"
+
+  - producer: edge-identity
+    consumer: edge
+    state_scope: regional_to_global
+    producer_contract: edge-identity/v1
+    consumer_state_key: "{dep_id}/edge/terraform.tfstate"
+
+  - producer: edge
+    consumer: addons
+    state_scope: global_to_regional
+    producer_contract: edge/v1
+    consumer_state_key: "{dep_id}/{region}/addons/terraform.tfstate"
+
+scenarios:
+  - name: valid
+    expect: pass
+    description: "All fields correct"
+
+  - name: wrong-deployment-id
+    expect: fail
+    field: deployment_id
+    value: "dep_WRONGWRONGWRONGWRONGWRONG"
+    error_contains: "deployment_id"
+
+  - name: wrong-account-id
+    expect: fail
+    field: account_id
+    value: "WRONG_ACCT"
+    error_contains: "account_id"
+
+  - name: wrong-region
+    expect: fail
+    field: region
+    value: "eu-west-1"
+    error_contains: "region"
+    applies_to: regional_only
+
+  - name: wrong-producer-layer
+    expect: fail
+    field: producer_layer
+    value: "FAKE_LAYER"
+    error_contains: "producer"
+
+  - name: wrong-schema-version
+    expect: fail
+    field: upstream_schema_version
+    value: "99"
+    error_contains: "schema version"
+
+  - name: tampered-digest
+    expect: fail
+    field: upstream_contract_digest
+    value: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    error_contains: "digest"
+
+  - name: stale-contract-version
+    expect: fail
+    field: contract_serial
+    value: "0"
+    error_contains: "serial"
+
+  - name: stale-producer-release
+    expect: fail
+    field: producer_release_version
+    value: "v0.0.0-stale"
+    error_contains: "release"
+
+  - name: stale-release-manifest-digest
+    expect: fail
+    field: release_manifest_digest
+    value: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    error_contains: "release_manifest_digest"
+
+  - name: unknown-critical-field
+    expect: fail
+    field: extra_critical_field
+    value: "unexpected"
+    error_contains: "unexpected"
+
+  - name: consumer-bypass-attempt
+    expect: fail
+    field: upstream_contract_digest
+    value: ""
+    error_contains: "required"
+
+# State path scope tests
+state_path_scope_tests:
+  - layer: global
+    scope: global
+    valid_key: "{dep_id}/global/terraform.tfstate"
+    invalid_key: "{dep_id}/{region}/global/terraform.tfstate"
+    error: "global layer must not include region in state path"
+
+  - layer: edge
+    scope: global
+    valid_key: "{dep_id}/edge/terraform.tfstate"
+    invalid_key: "{dep_id}/{region}/edge/terraform.tfstate"
+    error: "edge layer must not include region in state path"
+
+  - layer: network
+    scope: regional
+    valid_key: "{dep_id}/{region}/network/terraform.tfstate"
+    invalid_key: "{dep_id}/network/terraform.tfstate"
+    error: "regional layer must include region in state path"
+
+  - layer: platform
+    scope: regional
+    valid_key: "{dep_id}/{region}/platform/terraform.tfstate"
+    invalid_key: "{dep_id}/platform/terraform.tfstate"
+    error: "regional layer must include region in state path"
+
+  - layer: services
+    scope: regional
+    valid_key: "{dep_id}/{region}/services/terraform.tfstate"
+    invalid_key: "{dep_id}/services/terraform.tfstate"
+    error: "regional layer must include region in state path"
+
+  - layer: addons
+    scope: regional
+    valid_key: "{dep_id}/{region}/addons/terraform.tfstate"
+    invalid_key: "{dep_id}/addons/terraform.tfstate"
+    error: "regional layer must include region in state path"

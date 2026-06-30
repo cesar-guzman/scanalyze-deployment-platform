@@ -1,0 +1,14 @@
+{
+  "service_name": "ocr-worker",
+  "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/scanalyze/ocr-worker@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "cpu": 1024,
+  "memory": 2048,
+  "essential": true,
+  "port_mappings": [],
+  "environment": [],
+  "secrets": [],
+  "customer_identity": {
+    "canonical_field": "tenantId",
+    "canonical_value_source": "deployment_record"
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.internal/schemas/task-definition-input.v1.schema.json",
+  "title": "Scanalyze ECS Task Definition Input",
+  "description": "Schema for Terraform-owned ECS task definition inputs. Services layer is the SOLE owner of task definitions (ADR-006/ADR-010). No inherited live task definitions, no imagedefinitions.json mutation ownership.",
+  "type": "object",
+  "required": [
+    "service_name",
+    "image",
+    "cpu",
+    "memory",
+    "essential",
+    "port_mappings",
+    "environment",
+    "secrets",
+    "customer_identity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "service_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "description": "Service name (lowercase, alphanumeric with hyphens)"
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$",
+      "description": "Container image pinned by digest. Format: {account}.dkr.ecr.{region}.amazonaws.com/{repo}@sha256:{digest}. MUST NOT use mutable tags like :latest."
+    },
+    "cpu": {
+      "type": "integer",
+      "minimum": 256,
+      "maximum": 4096,
+      "description": "CPU units (256 = 0.25 vCPU)"
+    },
+    "memory": {
+      "type": "integer",
+      "minimum": 512,
+      "maximum": 30720,
+      "description": "Memory in MiB"
+    },
+    "essential": {
+      "type": "boolean",
+      "const": true,
+      "description": "Must be true — each task definition has exactly one essential container"
+    },
+    "port_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["containerPort", "protocol"],
+        "additionalProperties": false,
+        "properties": {
+          "containerPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"]
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Explicit environment variables. All required env vars must be listed — no inheritance from live task definitions."
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "valueFrom"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "valueFrom": {
+            "type": "string",
+            "pattern": "^arn:aws:(secretsmanager|ssm):[a-z0-9-]+:[0-9]{12}:",
+            "description": "Secret/SSM ARN reference. MUST NOT contain the secret value itself."
+          }
+        }
+      }
+    },
+    "customer_identity": {
+      "type": "object",
+      "required": ["canonical_field", "canonical_value_source"],
+      "additionalProperties": false,
+      "properties": {
+        "canonical_field": {
+          "type": "string",
+          "const": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+          "description": "The ONLY canonical customer identity field. NOT tenantId, NOT SCANALYZE_TENANT."
+        },
+        "canonical_value_source": {
+          "type": "string",
+          "enum": ["deployment_record", "contract"],
+          "description": "Source of the canonical customer identity value"
+        },
+        "legacy_aliases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["legacy_operational_alias", "non_authoritative", "migration_compatibility_only"],
+                "description": "Legacy fields are NEVER authoritative"
+              }
+            }
+          }
+        }
+      }
+    },
+    "health_check": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "interval": { "type": "integer", "minimum": 5 },
+        "timeout": { "type": "integer", "minimum": 2 },
+        "retries": { "type": "integer", "minimum": 1 },
+        "startPeriod": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "log_configuration": {
+      "type": "object",
+      "properties": {
+        "logDriver": {
+          "type": "string",
+          "enum": ["awslogs"]
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -37,6 +37,7 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "release-attestation": "release-attestation.v1.schema.json",
         "observability-export": "observability-export.v1.schema.json",
         "region-capability": "region-capability.v1.schema.json",
+        "task-definition": "task-definition-input.v1.schema.json",
     }
 
     for prefix, schema_file in mappings.items():
@@ -77,10 +78,12 @@ def main():
     parser = argparse.ArgumentParser(description="Validate schemas and fixtures")
     parser.add_argument("--schemas-dir", default="schemas", help="Path to schemas directory")
     parser.add_argument("--fixtures-dir", default="fixtures", help="Path to fixtures directory")
+    parser.add_argument("--filter", default="", help="Only validate schemas/fixtures matching this prefix")
     args = parser.parse_args()
 
     schemas_dir = Path(args.schemas_dir)
     fixtures_dir = Path(args.fixtures_dir)
+    name_filter = args.filter
 
     if not HAS_JSONSCHEMA:
         print("WARNING: jsonschema not installed. Performing JSON syntax check only.")
@@ -102,6 +105,8 @@ def main():
     print("=== Validating schema files against JSON Schema Draft 2020-12 ===")
     schema_errors = 0
     for schema_file in sorted(schemas_dir.glob("*.json")):
+        if name_filter and name_filter not in schema_file.stem:
+            continue
         try:
             schema = load_json(schema_file)
             Draft202012Validator.check_schema(schema)
@@ -116,6 +121,8 @@ def main():
     valid_dir = fixtures_dir / "valid"
     if valid_dir.exists():
         for fixture_file in sorted(valid_dir.glob("*.json")):
+            if name_filter and name_filter not in fixture_file.stem:
+                continue
             schema_path = find_schema_for_fixture(fixture_file.stem, schemas_dir)
             if schema_path is None:
                 print(f"  SKIP: {fixture_file.name} — no matching schema found")
@@ -133,6 +140,8 @@ def main():
     invalid_dir = fixtures_dir / "invalid"
     if invalid_dir.exists():
         for fixture_file in sorted(invalid_dir.glob("*.json")):
+            if name_filter and name_filter not in fixture_file.stem:
+                continue
             schema_path = find_schema_for_fixture(fixture_file.stem, schemas_dir)
             if schema_path is None:
                 print(f"  SKIP: {fixture_file.name} — no matching schema found")

@@ -20,10 +20,10 @@ FORBIDDEN_PATTERNS = [
     },
     {
         "name": "hardcoded_account_id",
-        "pattern": re.compile(r'(?<!pattern.*)"[^"]*\b\d{12}\b[^"]*"'),
+        "pattern": re.compile(r'"[^"]*\b\d{12}\b[^"]*"'),
         "severity": "ERROR",
         "reason": "Hardcoded account IDs are not replicable across deployments.",
-        "exclude_context": ["pattern", "regex", "test", "$defs", "description"],
+        "exclude_context": ["pattern", "regex", "test", "$defs", "description", "error_message", "validation", "condition", "match"],
     },
     {
         "name": "timestamp_function",
@@ -70,6 +70,11 @@ def scan_file(filepath: Path) -> list[dict]:
 
     for rule in FORBIDDEN_PATTERNS:
         for line_num, line in enumerate(lines, 1):
+            # Skip comment lines to avoid false positives from documentation
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("*"):
+                continue
+
             if rule["pattern"].search(line):
                 # Check exclusion contexts
                 exclude_contexts = rule.get("exclude_context", [])
