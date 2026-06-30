@@ -17,6 +17,7 @@ venv/
 *.tfstate
 *.tfstate.backup
 *.tfplan
+.terraform.lock.hcl
 crash.log
 override.tf
 override.tf.json

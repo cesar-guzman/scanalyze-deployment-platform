@@ -1,24 +1,16 @@
 variable "deployment_id" {
   type        = string
-  description = "Unique deployment identifier (ULID with dep_ prefix)"
-  validation {
-    condition     = can(regex("^dep_[0-9A-HJKMNP-TV-Z]{26}$", var.deployment_id))
-    error_message = "deployment_id must match ^dep_[0-9A-HJKMNP-TV-Z]{26}$"
-  }
+  description = "Unique deployment identifier"
 }
 
 variable "account_id" {
   type        = string
-  description = "AWS account ID for the customer deployment"
-  validation {
-    condition     = can(regex("^[0-9]{12}$", var.account_id))
-    error_message = "account_id must be a 12-digit AWS account ID"
-  }
+  description = "AWS account ID"
 }
 
 variable "region" {
   type        = string
-  description = "AWS region for this deployment"
+  description = "AWS region"
 }
 
 variable "release_version" {
@@ -29,13 +21,52 @@ variable "release_version" {
 variable "release_manifest_digest" {
   type        = string
   description = "SHA-256 digest of the release manifest"
-  validation {
-    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
-    error_message = "release_manifest_digest must be sha256:<64 hex chars>"
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "CIDR block for the VPC"
+  default     = "10.0.0.0/16"
+}
+
+variable "private_subnet_cidrs" {
+  type        = map(string)
+  description = "Map of AZ ID to CIDR for private subnets"
+  default = {
+    "use1-az1" = "10.0.1.0/24"
+    "use1-az2" = "10.0.2.0/24"
   }
 }
 
-variable "global_contract" {
+variable "public_subnet_cidrs" {
   type        = map(string)
-  description = "Contract payload from global layer (global/v1)"
+  description = "Map of AZ ID to CIDR for public subnets"
+  default = {
+    "use1-az1" = "10.0.101.0/24"
+    "use1-az2" = "10.0.102.0/24"
+  }
+}
+
+variable "vpc_endpoint_services" {
+  type        = list(string)
+  description = "List of AWS services for VPC interface endpoints"
+  default = [
+    "ecr.api",
+    "ecr.dkr",
+    "logs",
+    "sqs",
+    "secretsmanager",
+    "ssm",
+  ]
+}
+
+# Upstream contract from global layer
+variable "upstream_contract_digest" {
+  type        = string
+  description = "SHA-256 digest of upstream global contract"
+}
+
+variable "expected_upstream_digest" {
+  type        = string
+  description = "Expected upstream contract digest"
 }

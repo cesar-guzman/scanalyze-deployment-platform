@@ -96,6 +96,28 @@ variable "expected_region" {
   default     = "us-east-1"
 }
 
+# ── Release manifest digest value-match ──
+
+variable "expected_release_manifest_digest" {
+  type        = string
+  description = "Expected release manifest digest (must match exactly, empty = fail closed)"
+  default     = ""
+}
+
+# ── Raw contract key validation (unknown critical fields) ──
+
+variable "contract_raw_json" {
+  type        = string
+  description = "Raw contract JSON string for key validation (empty = skip)"
+  default     = ""
+}
+
+variable "allowed_contract_keys" {
+  type        = list(string)
+  description = "Exhaustive allowlist of permitted top-level contract keys"
+  default     = []
+}
+
 # ── State path scope ──
 
 variable "state_scope" {
@@ -127,6 +149,13 @@ locals {
 
   # State path pattern validation
   state_has_region = can(regex("/[a-z]{2}-[a-z]+-[0-9]/", var.state_key))
+
+  # Raw contract key validation
+  raw_contract_provided = var.contract_raw_json != ""
+  raw_contract_decoded  = local.raw_contract_provided ? jsondecode(var.contract_raw_json) : {}
+  raw_contract_keys     = local.raw_contract_provided ? keys(local.raw_contract_decoded) : []
+  unknown_keys          = local.raw_contract_provided ? setsubtract(toset(local.raw_contract_keys), toset(var.allowed_contract_keys)) : toset([])
+  has_unknown_keys      = length(local.unknown_keys) > 0
 }
 
 # ── Contract Gate ──
@@ -187,6 +216,29 @@ resource "terraform_data" "contract_gate" {
     precondition {
       condition     = !local.consumer_is_regional || var.region == var.expected_region
       error_message = "region '${var.region}' does not match expected region '${var.expected_region}' for regional layer '${var.consumer_layer}'"
+    }
+
+    # Release manifest digest value-match (not just format)
+    precondition {
+      condition     = var.expected_release_manifest_digest != ""
+      error_message = "expected_release_manifest_digest is empty — fail closed: release freshness cannot be verified"
+    }
+    precondition {
+      condition     = var.release_manifest_digest == var.expected_release_manifest_digest
+      error_message = "release_manifest_digest '${var.release_manifest_digest}' does not match expected '${var.expected_release_manifest_digest}' — possible stale or replayed release"
+    }
+  }
+}
+
+# ── Unknown Critical Field Gate ──
+
+resource "terraform_data" "unknown_field_gate" {
+  count = local.raw_contract_provided ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = !local.has_unknown_keys
+      error_message = "Unknown critical fields in contract: ${join(", ", local.unknown_keys)}. All fields must be in the allowed list."
     }
   }
 }

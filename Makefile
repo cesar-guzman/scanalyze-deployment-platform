@@ -1,4 +1,4 @@
-.PHONY: agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check preflight-core preflight-m0 preflight git-safety required-artifacts-check
+.PHONY: agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -248,8 +248,64 @@ supply-chain-check:
 	@echo "Supply chain check complete."
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
-preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check test
+preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
 	@echo ""
 	@echo "=== PREFLIGHT-M1 COMPLETE ==="
 	@echo "All M0+M1 required artifacts present and validated."
 	@echo "Status: M1_LOCAL_EVIDENCE_GENERATED"
+
+# ── M2 Targets ──────────────────────────────────────────────────────
+
+# Contract Matrix (HCL harness, builtin provider only — no AWS provider)
+contract-matrix:
+	@echo "=== Contract Matrix (builtin provider only) ==="
+	@MATRIX_DIR=tests/preconditions/layer_contract_matrix; \
+	if [ ! -f "$$MATRIX_DIR/main.tf" ]; then \
+		echo "FAIL: $$MATRIX_DIR/main.tf not found"; exit 1; \
+	fi; \
+	cd "$$MATRIX_DIR" && \
+	if grep -q 'required_providers' main.tf 2>/dev/null && grep -q 'hashicorp/aws' main.tf 2>/dev/null; then \
+		echo "BLOCKED_PROVIDER_DOWNLOAD_NOT_APPROVED: harness requires AWS provider"; exit 1; \
+	fi; \
+	$(TERRAFORM) init -input=false -no-color -backend=false > /dev/null 2>&1 && \
+	bash run_matrix.sh
+	@echo "Contract matrix complete."
+
+# Terraform fmt check (no provider download required)
+terraform-fmt-check:
+	@echo "=== Terraform Format Check ==="
+	@$(TERRAFORM) fmt -check -recursive modules/ roots/ 2>&1 || \
+		{ echo "FAIL: terraform fmt check failed. Run 'terraform fmt -recursive modules/ roots/' to fix."; exit 1; }
+	@echo "Terraform fmt check complete."
+
+# Module ownership linter (global must not own baseline resources)
+module-ownership-check:
+	@echo "=== Module Ownership Check ==="
+	@$(PYTHON) $(TOOLING_DIR)/lint_module_ownership.py
+	@echo "Module ownership check complete."
+
+# Edge split linter (edge-identity vs edge resource boundaries)
+edge-split-check:
+	@echo "=== Edge Split Check ==="
+	@$(PYTHON) $(TOOLING_DIR)/lint_edge_split.py
+	@echo "Edge split check complete."
+
+# Services ownership linter (task definition ownership)
+services-ownership-check:
+	@echo "=== Services Ownership Check ==="
+	@$(PYTHON) $(TOOLING_DIR)/lint_services_ownership.py
+	@echo "Services ownership check complete."
+
+# Module interface static check (no provider — validates vars/outputs completeness)
+module-interface-check:
+	@echo "=== Module Interface Check ==="
+	@$(PYTHON) $(TOOLING_DIR)/check_module_interfaces.py
+	@echo "Module interface check complete."
+
+# ── Preflight M2 (full M2 gate) ───────────────────────────────────────
+preflight-m2: preflight-m1 module-ownership-check edge-split-check services-ownership-check module-interface-check terraform-fmt-check contract-matrix
+	@echo ""
+	@echo "=== PREFLIGHT-M2 COMPLETE ==="
+	@echo "All M0+M1+M2 checks passed."
+	@echo "Status: M2_LOCAL_EVIDENCE_GENERATED"
+	@echo "Declarations status: authored_not_provider_validated"

@@ -1,24 +1,16 @@
 variable "deployment_id" {
   type        = string
-  description = "Unique deployment identifier (ULID with dep_ prefix)"
-  validation {
-    condition     = can(regex("^dep_[0-9A-HJKMNP-TV-Z]{26}$", var.deployment_id))
-    error_message = "deployment_id must match ^dep_[0-9A-HJKMNP-TV-Z]{26}$"
-  }
+  description = "Unique deployment identifier"
 }
 
 variable "account_id" {
   type        = string
-  description = "AWS account ID for the customer deployment"
-  validation {
-    condition     = can(regex("^[0-9]{12}$", var.account_id))
-    error_message = "account_id must be a 12-digit AWS account ID"
-  }
+  description = "AWS account ID"
 }
 
 variable "region" {
   type        = string
-  description = "AWS region for this deployment"
+  description = "AWS region"
 }
 
 variable "release_version" {
@@ -29,24 +21,68 @@ variable "release_version" {
 variable "release_manifest_digest" {
   type        = string
   description = "SHA-256 digest of the release manifest"
-  validation {
-    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
-    error_message = "release_manifest_digest must be sha256:<64 hex chars>"
-  }
 }
 
-variable "data_foundation_contract" {
-  type = object({
-    dynamodb_table_arns     = map(string)
-    s3_document_bucket_arns = map(string)
-    sqs_queue_urls          = map(string)
-    sqs_dlq_urls            = map(string)
-    kms_key_arns            = map(string)
-  })
-  description = "Contract payload from data-foundation layer"
+# From upstream contracts
+variable "ecs_cluster_arn" {
+  type        = string
+  description = "ECS cluster ARN from platform contract"
 }
 
-variable "service_image_digests" {
+variable "ecs_task_execution_role_arn" {
+  type        = string
+  description = "ECS task execution role ARN from global contract"
+}
+
+variable "workload_role_arns" {
   type        = map(string)
-  description = "Map of service name to pinned image digest (sha256:...)"
+  description = "Map of service name to workload IAM role ARN from global contract"
+}
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC ID from network contract"
+}
+
+variable "private_subnet_ids" {
+  type        = map(string)
+  description = "Map of AZ ID to private subnet ID from network contract"
+}
+
+variable "alb_listener_arn" {
+  type        = string
+  description = "ALB HTTPS listener ARN from platform contract"
+}
+
+variable "alb_security_group_id" {
+  type        = string
+  description = "ALB security group ID from platform contract"
+}
+
+variable "service_definitions" {
+  type = list(object({
+    name              = string
+    image             = string # Must use @sha256 digest
+    cpu               = number
+    memory            = number
+    port              = optional(number)
+    desired_count     = optional(number, 1)
+    health_check_path = optional(string, "/health")
+    extra_environment = optional(list(object({
+      name  = string
+      value = string
+    })), [])
+  }))
+  description = "Service definitions for ECS tasks (Terraform sole owner)"
+}
+
+# Upstream contract
+variable "upstream_contract_digest" {
+  type        = string
+  description = "SHA-256 digest of upstream data-foundation contract"
+}
+
+variable "expected_upstream_digest" {
+  type        = string
+  description = "Expected upstream contract digest"
 }

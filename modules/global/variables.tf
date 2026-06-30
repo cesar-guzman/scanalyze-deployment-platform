@@ -36,3 +36,25 @@ variable "release_manifest_digest" {
 }
 
 # global-specific: no upstream contract to consume
+
+variable "service_names" {
+  type        = list(string)
+  description = "List of microservice names for per-service workload role creation"
+  default = [
+    "ingest-api",
+    "ocr-worker",
+    "postprocess-worker",
+    "classifier-worker",
+    "bank-worker",
+    "personal-worker",
+    "gov-worker",
+  ]
+}
+
+variable "ecs_task_execution_managed_policies" {
+  type        = list(string)
+  description = "Managed policy ARNs to attach to the ECS task execution role"
+  default = [
+    "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+  ]
+}

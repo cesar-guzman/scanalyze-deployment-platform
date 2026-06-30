@@ -57,6 +57,7 @@ run_scenario() {
   local region="$VALID_REGION"
   local release="$VALID_RELEASE"
   local rel_digest="$VALID_RELEASE_DIGEST"
+  local expected_rel_digest="$VALID_RELEASE_DIGEST"
   local contract_digest="$VALID_CONTRACT_DIGEST"
   local expected_digest="$VALID_CONTRACT_DIGEST"
   local schema_ver="1"
@@ -64,6 +65,8 @@ run_scenario() {
   local min_serial="1"
   local prod_release="$VALID_RELEASE"
   local state_key=""
+  local contract_raw=''
+  local allowed_keys='[]'
 
   # Set state key based on scope
   if [ "$scope" = "global" ]; then
@@ -83,8 +86,25 @@ run_scenario() {
     tampered-digest) contract_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000" ;;
     stale-contract-version) serial="0"; min_serial="1" ;;
     stale-producer-release) prod_release="v0.0.0-stale" ;;
-    stale-release-manifest-digest) rel_digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ;;
+    stale-release-manifest-digest)
+      rel_digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ;;
+    missing-expected-release-digest)
+      expected_rel_digest=""
+      ;;
     consumer-bypass-attempt) contract_digest="" ;;
+    unknown-critical-field)
+      contract_raw='{"deployment_id":"test","account_id":"123456789012","UNKNOWN_FIELD":"bad"}'
+      allowed_keys='["deployment_id", "account_id"]'
+      ;;
+    unknown-non-allowlisted-field)
+      contract_raw='{"deployment_id":"test","sneaky_extension":"not_allowed"}'
+      allowed_keys='["deployment_id", "account_id"]'
+      ;;
+    allowed-extension-field)
+      contract_raw='{"deployment_id":"test","account_id":"123456789012","approved_extension":"ok"}'
+      allowed_keys='["deployment_id", "account_id", "approved_extension"]'
+      ;;
     state-path-global-with-region)
       state_key="${VALID_DEPLOYMENT_ID}/${VALID_REGION}/${consumer}/terraform.tfstate"
       scope="global"
@@ -99,22 +119,30 @@ run_scenario() {
   # Write tfvars
   local tfvars="$fixture_dir/${scenario}.tfvars"
   cat > "$tfvars" << EOF
-producer_layer           = "${producer}"
-consumer_layer           = "${consumer}"
-deployment_id            = "${dep_id}"
-account_id               = "${acct_id}"
-region                   = "${region}"
-release_version          = "${release}"
-release_manifest_digest  = "${rel_digest}"
-upstream_contract_digest = "${contract_digest}"
-expected_upstream_digest = "${expected_digest}"
-upstream_schema_version  = "${schema_ver}"
-contract_serial          = "${serial}"
-expected_minimum_serial  = "${min_serial}"
-producer_release_version = "${prod_release}"
-state_scope              = "${scope}"
-state_key                = "${state_key}"
+producer_layer                    = "${producer}"
+consumer_layer                    = "${consumer}"
+deployment_id                     = "${dep_id}"
+account_id                        = "${acct_id}"
+region                            = "${region}"
+release_version                   = "${release}"
+release_manifest_digest           = "${rel_digest}"
+expected_release_manifest_digest  = "${expected_rel_digest}"
+upstream_contract_digest          = "${contract_digest}"
+expected_upstream_digest          = "${expected_digest}"
+upstream_schema_version           = "${schema_ver}"
+contract_serial                   = "${serial}"
+expected_minimum_serial           = "${min_serial}"
+producer_release_version          = "${prod_release}"
+state_scope                       = "${scope}"
+state_key                         = "${state_key}"
 EOF
+  # Append JSON fields with proper quoting (heredoc can't escape inner double-quotes)
+  if [ -n "$contract_raw" ]; then
+    printf 'contract_raw_json                 = "%s"\n' "$(echo "$contract_raw" | sed 's/"/\\"/g')" >> "$tfvars"
+  else
+    printf 'contract_raw_json                 = ""\n' >> "$tfvars"
+  fi
+  printf 'allowed_contract_keys             = %s\n' "$allowed_keys" >> "$tfvars"
 
   # Run terraform plan
   local result
@@ -167,6 +195,10 @@ for pair in "${LAYER_PAIRS[@]}"; do
     run_scenario "$producer" "$consumer" "$scope" "wrong-region" "fail"
   fi
 
+  # Release freshness scenarios
+  run_scenario "$producer" "$consumer" "$scope" "stale-release-manifest-digest" "fail"
+  run_scenario "$producer" "$consumer" "$scope" "missing-expected-release-digest" "fail"
+
   echo ""
 done
 
@@ -180,6 +212,19 @@ run_scenario "edge-identity" "edge" "global" "state-path-global-with-region" "fa
 # Regional layers without region (should fail)
 run_scenario "global" "network" "regional" "state-path-regional-without-region" "fail"
 run_scenario "network" "platform" "regional" "state-path-regional-without-region" "fail"
+
+# Unknown critical field tests
+echo ""
+echo "--- Unknown Critical Field Tests ---"
+
+# Unknown field in contract → FAIL
+run_scenario "global" "network" "regional" "unknown-critical-field" "fail"
+
+# Non-allowlisted extension → FAIL
+run_scenario "global" "network" "regional" "unknown-non-allowlisted-field" "fail"
+
+# Explicitly allowed extension → PASS
+run_scenario "global" "network" "regional" "allowed-extension-field" "pass"
 
 echo ""
 echo "=== Results ==="

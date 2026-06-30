@@ -1,9 +1,9 @@
 # Architecture Acceptance Gates
 
-> **Status**: M0 — Repository Foundation (IN PROGRESS)  
-> **Date**: 2026-06-28  
+> **Status**: M2 Level A — Local Declarations (authored_not_provider_validated)  
+> **Date**: 2026-06-30  
 > **Format**: Machine-readable YAML blocks + human narrative  
-> **Toolchain**: BLOCKED_TOOLING — actual Python 3.14.2/Terraform 1.14.6 ≠ pinned 3.11.12/1.12.1
+> **Toolchain**: BLOCKED_TOOLING — actual Python 3.11.14/Terraform 1.14.6 ≠ pinned 3.11.12/1.12.1
 
 ---
 
@@ -126,17 +126,21 @@ title: Bad identity, schema, digest, or replay produces plan exit 1
 adr: ADR-006 rev3
 evidence_required: Invalid fixtures fail schema validation; canonicalization tests pass; precondition harness tests exist
 blocks: Layer deployment
-status: partial_local
+status: implemented_locally
 local_progress:
   - Invalid fixtures exist (wrong-digest, missing fields, extra fields)
   - Canonicalization determinism verified
   - Digest computation and verification tool exists
+  - HCL contract harness with terraform_data + precondition: 90/90 scenarios pass
+  - Replay rejection: stale-release-manifest-digest, missing-expected-release-digest fail
+  - Bad identity: wrong-deployment-id, wrong-account-id fail
+  - Unknown field detection: unknown-critical-field, unknown-non-allowlisted-field fail
+  - Release manifest digest value-match (not just format)
+  - Schema validation via jsonschema (Draft 2020-12)
 blockers:
-  - schema-check requires jsonschema (BLOCKED_TOOLING) — invalid fixtures not verified against Draft 2020-12
-  - precondition harness (HCL test-only or Python simulator) not implemented
-  - replay rejection test not implemented
-  - bad identity rejection test not implemented
-verification_level: local_partial
+  - Toolchain version mismatch (Terraform 1.14.6 vs pin 1.12.1)
+  - Provider-backed validation pending
+verification_level: local_full
 ```
 
 ### Gate 6: Contract Canonicalization
@@ -197,11 +201,16 @@ title: Unsigned/unapproved digest cannot reach services plan
 adr: ADR-007 rev3
 evidence_required: Precondition rejects unknown digest in services plan
 blocks: Runtime deployment
-status: pending_design
-evidence_id: null
-verification_level: local_test
+status: partial_local
+local_progress:
+  - Services module implemented with task definition ownership
+  - lint_services_ownership.py validates forbidden patterns
+  - Supply chain policy gate: 13 pytest tests pass
+  - Task definition schema validation: mutable tag rejection, SCANALYZE_TENANT rejection
 blockers:
-  - Services module not implemented
+  - Provider-backed validation pending
+  - AWS deployment not available for live test
+verification_level: local_partial
 ```
 
 ### Gate 10: Strong Write Authority
@@ -291,20 +300,21 @@ blockers:
 
 ---
 
-## M0 Summary
+## M2 Level A Summary
 
-| Category | partial_local | pending_design | Total |
-|---|---|---|---|
-| Identity/IAM | 2 | 0 | 2 |
-| State/Evidence | 2 | 0 | 2 |
-| Contracts | 2 | 0 | 2 |
-| Supply Chain | 0 | 3 | 3 |
-| DR/HA | 0 | 1 | 1 |
-| Migration/Rollout | 1 | 1 | 2 |
-| Threat Model | 1 | 0 | 1 |
-| Organization | 0 | 1 | 1 |
-| **Total** | **8** | **6** | **14** |
+| Category | implemented_locally | partial_local | pending_design | Total |
+|---|---|---|---|---|
+| Identity/IAM | 0 | 2 | 0 | 2 |
+| State/Evidence | 0 | 2 | 0 | 2 |
+| Contracts | 1 | 1 | 0 | 2 |
+| Supply Chain | 0 | 1 | 2 | 3 |
+| DR/HA | 0 | 0 | 1 | 1 |
+| Migration/Rollout | 0 | 1 | 1 | 2 |
+| Threat Model | 0 | 1 | 0 | 1 |
+| Organization | 0 | 0 | 1 | 1 |
+| **Total** | **1** | **8** | **5** | **14** |
 
-> **M0 current**: 0 gates at `implemented_locally`, 8 at `partial_local`, 6 at `pending_design`.  
-> **M0 target**: All 8 `partial_local` gates must reach `implemented_locally` before M0 can close.  
-> **Toolchain**: BLOCKED_TOOLING — verification ran on Python 3.14.2/TF 1.14.6, not pinned 3.11.12/1.12.1.
+> **M2 current**: 1 gate at `implemented_locally`, 8 at `partial_local`, 5 at `pending_design`.  
+> **M2 changes**: Gate 5 (Contract Fail-Closed) promoted to `implemented_locally` (90/90 harness). Gate 9 (Supply-Chain Policy) promoted from `pending_design` to `partial_local`.  
+> **Toolchain**: BLOCKED_TOOLING — verification ran on Python 3.11.14/TF 1.14.6, not pinned 3.11.12/1.12.1.  
+> **All declarations**: authored_not_provider_validated.
