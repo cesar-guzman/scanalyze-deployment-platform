@@ -1,0 +1,6 @@
+{
+  "cognito_user_pool_id": "us-east-1_AbCdEfGh1",
+  "cognito_user_pool_arn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_AbCdEfGh1",
+  "api_gateway_id": "abc123def4",
+  "api_gateway_endpoint": "https://abc123def4.execute-api.us-east-1.amazonaws.com"
+}

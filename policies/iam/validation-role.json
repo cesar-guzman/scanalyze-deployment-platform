@@ -1,0 +1,50 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyHealth",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeServices",
+        "ecs:DescribeTasks",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTasks",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "dynamodb:DescribeTable",
+        "sqs:GetQueueAttributes",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:GetMetricData",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadEvidenceForValidation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*"
+    },
+    {
+      "Sid": "DecryptEvidence",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    },
+    {
+      "Sid": "DecryptContracts",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+    }
+  ]
+}

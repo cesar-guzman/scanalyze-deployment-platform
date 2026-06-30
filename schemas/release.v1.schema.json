@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.release.v1",
+  "title": "Scanalyze Release Manifest v1",
+  "description": "Immutable release manifest. Includes component digests, SBOM/provenance references, signing evidence, and toolchain versions.",
+  "type": "object",
+  "required": ["schema_version", "release_version", "release_id", "created_at", "components", "toolchain"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "release_version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$" },
+    "release_id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "source_revision": { "type": "string", "pattern": "^[a-f0-9]{40}$", "description": "Git commit SHA" },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/component"
+          }
+        },
+        "modules": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/module_component"
+          }
+        },
+        "frontend": { "$ref": "#/$defs/frontend_component" }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "required": ["terraform_version", "python_version"],
+      "additionalProperties": false,
+      "properties": {
+        "terraform_version": { "type": "string" },
+        "python_version": { "type": "string" },
+        "builder_image_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "base_image_digests": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+        "scanner_version": { "type": "string" }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signer_profile_arn": { "type": "string" },
+        "kms_key_arn": { "type": "string" },
+        "signing_algorithm": { "type": "string", "const": "ECDSA_SHA_256" }
+      }
+    },
+    "waiver_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "CVE waiver IDs for acknowledged vulnerabilities"
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["image_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "image_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "image_uri": { "type": "string" },
+        "sbom_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "provenance_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "signature_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "source_revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    },
+    "module_component": {
+      "type": "object",
+      "required": ["module_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "module_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "source_revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    },
+    "frontend_component": {
+      "type": "object",
+      "required": ["bundle_digest", "release_prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "bundle_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "release_prefix": { "type": "string", "description": "Immutable S3 prefix for this release" },
+        "source_revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    }
+  }
+}

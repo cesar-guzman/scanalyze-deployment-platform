@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RestrictSSMWriteToLayerPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:AddTagsToResource"
+      ],
+      "Resource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/services/*"
+    },
+    {
+      "Sid": "DenySSMWriteOutsideLayer",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:DeleteParameter"
+      ],
+      "NotResource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/services/*"
+    }
+  ]
+}

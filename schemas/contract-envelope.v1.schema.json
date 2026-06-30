@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.v1",
+  "title": "Scanalyze Contract Envelope v1",
+  "description": "Generic contract envelope produced by each Terraform root. Integrity is verified by recomputing the embedded digest. Freshness/authorization is verified externally by comparing digest, SSM version, producer_release, and release_manifest_digest against expected values in the deployment record.",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "contract_schema",
+    "deployment_id",
+    "account_id",
+    "region",
+    "layer",
+    "producer_release",
+    "producer_module_digest",
+    "produced_at",
+    "contract_digest",
+    "outputs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Contract envelope format version"
+    },
+    "contract_schema": {
+      "type": "string",
+      "pattern": "^scanalyze\\.contract\\.[a-z-]+\\.v[0-9]+$",
+      "description": "Schema identifier for the outputs section, e.g. scanalyze.contract.network.v1"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Deployment ULID"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$",
+      "description": "AWS account ID"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
+      "description": "AWS region. Omitted for global/edge layers (use 'global')"
+    },
+    "layer": {
+      "type": "string",
+      "enum": ["global", "network", "platform", "data-foundation", "services", "edge-identity", "edge", "addons"],
+      "description": "Producer layer name"
+    },
+    "producer_release": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$",
+      "description": "Release version that produced this contract"
+    },
+    "producer_module_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the producer module source"
+    },
+    "produced_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this contract was produced"
+    },
+    "contract_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the canonicalized outputs object. Used for integrity verification. NOT sufficient for replay/freshness — compare against deployment record."
+    },
+    "outputs": {
+      "type": "object",
+      "description": "Layer-specific output values. Schema determined by contract_schema field."
+    }
+  }
+}

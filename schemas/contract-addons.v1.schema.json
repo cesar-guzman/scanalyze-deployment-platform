@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.addons.v1",
+  "title": "Addons Layer Contract Outputs (Regional)",
+  "type": "object",
+  "required": ["dashboard_names"],
+  "additionalProperties": false,
+  "properties": {
+    "dashboard_names": { "type": "array", "items": { "type": "string" } },
+    "composite_alarm_arns": { "type": "array", "items": { "type": "string", "pattern": "^arn:aws:cloudwatch:.+$" } },
+    "sns_topic_arns": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^arn:aws:sns:.+$" } }
+  }
+}

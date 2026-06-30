@@ -1,0 +1,10 @@
+{
+  "deployment_id": "dep_01J5K8N2PQRS4T6VWXYZ0ABCDE",
+  "timestamp": "2026-06-28T15:30:00Z",
+  "event_type": "metric_aggregate",
+  "region": "us-east-1",
+  "service_name": "scanalyze-ocr-worker",
+  "metric_name": "documents_processed_total",
+  "metric_value": 1523,
+  "metric_unit": "Count"
+}

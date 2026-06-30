@@ -1,0 +1,72 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyNonTLS",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::scanalyze-${account_id}-tf-evidence",
+        "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/*"
+      ],
+      "Principal": "*",
+      "Condition": {
+        "Bool": { "aws:SecureTransport": "false" }
+      }
+    },
+    {
+      "Sid": "AllowPlanWritePlanExecution",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan"
+      }
+    },
+    {
+      "Sid": "AllowApplyReadPlanExecution",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+      }
+    },
+    {
+      "Sid": "AllowApplyWriteEvidence",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+      }
+    },
+    {
+      "Sid": "AllowApplyWriteRecovery",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+      }
+    },
+    {
+      "Sid": "AllowDiagnosticReadEvidence",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic"
+      }
+    },
+    {
+      "Sid": "AllowStateRecoveryReadWriteRecovery",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
+      }
+    }
+  ]
+}

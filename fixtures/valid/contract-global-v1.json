@@ -1,0 +1,7 @@
+{
+  "ecs_execution_role_arn": "arn:aws:iam::123456789012:role/ScanalyzeECSExecution",
+  "ecs_task_role_arns": {
+    "scanalyze-ingest-api": "arn:aws:iam::123456789012:role/ScanalyzeTask-IngestApi",
+    "scanalyze-ocr-worker": "arn:aws:iam::123456789012:role/ScanalyzeTask-OcrWorker"
+  }
+}

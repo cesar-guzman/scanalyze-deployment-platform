@@ -1,0 +1,22 @@
+# Scanalyze Deployment Platform — CODEOWNERS
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner
+*                           @cesar-guzman
+
+# Architecture decisions require architecture review
+ADR/                        @cesar-guzman
+
+# Schemas require platform + architecture review
+schemas/                    @cesar-guzman
+
+# Security policies require security review
+policies/                   @cesar-guzman
+session-policies/           @cesar-guzman
+
+# Infrastructure modules require platform review
+modules/                    @cesar-guzman
+roots/                      @cesar-guzman
+
+# Acceptance gates require architecture + security review
+ARCHITECTURE_ACCEPTANCE_GATES.md  @cesar-guzman

@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.deployment-record.v1",
+  "title": "Scanalyze Deployment Record v1",
+  "description": "Post-provisioning state tracking. Separates desired and observed state. Per-service desired release map. No secrets.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "customer_id",
+    "account_id",
+    "region",
+    "status",
+    "tier",
+    "processing_domains",
+    "created_at",
+    "updated_at",
+    "roles",
+    "state_infrastructure",
+    "desired_release",
+    "observed_release",
+    "services"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
+    "status": {
+      "type": "string",
+      "enum": ["REQUESTED", "PROVISIONING", "READY", "DEPLOYING", "ACTIVE", "UPGRADING", "SUSPENDING", "SUSPENDED", "OFFBOARDING", "ARCHIVED"]
+    },
+    "tier": { "type": "string", "enum": ["internal-demo", "enterprise-standard", "enterprise-ha"] },
+    "processing_domains": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["bank", "personal", "gov"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "version": { "type": "integer", "minimum": 1, "description": "Record version for conditional updates" },
+    "etag": { "type": "string", "description": "ETag for conditional transitions" },
+    "roles": {
+      "type": "object",
+      "required": ["plan", "apply", "promotion", "validation", "diagnostic", "state_recovery"],
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "$ref": "#/$defs/arn" },
+        "apply": { "$ref": "#/$defs/arn" },
+        "promotion": { "$ref": "#/$defs/arn" },
+        "validation": { "$ref": "#/$defs/arn" },
+        "diagnostic": { "$ref": "#/$defs/arn" },
+        "state_recovery": { "$ref": "#/$defs/arn" }
+      }
+    },
+    "state_infrastructure": {
+      "type": "object",
+      "required": ["state_bucket", "evidence_bucket", "contracts_bucket"],
+      "additionalProperties": false,
+      "properties": {
+        "state_bucket": { "$ref": "#/$defs/s3_arn" },
+        "evidence_bucket": { "$ref": "#/$defs/s3_arn" },
+        "contracts_bucket": { "$ref": "#/$defs/s3_arn" }
+      }
+    },
+    "desired_release": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$",
+      "description": "Target platform release version"
+    },
+    "observed_release": {
+      "type": ["string", "null"],
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$",
+      "description": "Last successfully deployed release version"
+    },
+    "release_manifest_digest": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Expected release manifest digest for freshness verification"
+    },
+    "services": {
+      "type": "object",
+      "description": "Per-service desired and observed state. Keys are service names.",
+      "additionalProperties": false,
+      "properties": {
+        "scanalyze-ingest-api": { "$ref": "#/$defs/service_state" },
+        "scanalyze-ocr-worker": { "$ref": "#/$defs/service_state" },
+        "scanalyze-classifier-worker": { "$ref": "#/$defs/service_state" },
+        "scanalyze-bank-worker": { "$ref": "#/$defs/service_state" },
+        "scanalyze-personal-worker": { "$ref": "#/$defs/service_state" },
+        "scanalyze-gov-worker": { "$ref": "#/$defs/service_state" },
+        "scanalyze-postprocess-worker": { "$ref": "#/$defs/service_state" }
+      }
+    },
+    "expected_contracts": {
+      "type": "object",
+      "description": "Expected contract digests and SSM versions per layer for freshness verification",
+      "additionalProperties": false,
+      "properties": {
+        "global": { "$ref": "#/$defs/expected_contract" },
+        "network": { "$ref": "#/$defs/expected_contract" },
+        "platform": { "$ref": "#/$defs/expected_contract" },
+        "data-foundation": { "$ref": "#/$defs/expected_contract" },
+        "services": { "$ref": "#/$defs/expected_contract" },
+        "edge-identity": { "$ref": "#/$defs/expected_contract" },
+        "edge": { "$ref": "#/$defs/expected_contract" },
+        "addons": { "$ref": "#/$defs/expected_contract" }
+      }
+    },
+    "wave_id": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Current active wave. Only authorizes transitions, does not define resource existence."
+    }
+  },
+  "$defs": {
+    "arn": {
+      "type": "string",
+      "pattern": "^arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:.+$"
+    },
+    "s3_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "description": "S3 bucket ARN (global, no region or account in ARN)"
+    },
+    "service_state": {
+      "type": "object",
+      "required": ["desired_release", "desired_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "desired_release": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$"
+        },
+        "desired_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "observed_release": {
+          "type": ["string", "null"],
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$"
+        },
+        "observed_digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "task_definition_arn": {
+          "type": ["string", "null"],
+          "pattern": "^arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task-definition/.+$"
+        },
+        "rollout_status": {
+          "type": "string",
+          "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK", "RECONCILED"]
+        },
+        "wave_id": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 4
+        }
+      }
+    },
+    "expected_contract": {
+      "type": "object",
+      "required": ["digest", "ssm_version", "producer_release"],
+      "additionalProperties": false,
+      "properties": {
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "ssm_version": { "type": "integer", "minimum": 1 },
+        "producer_release": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?$" }
+      }
+    }
+  }
+}

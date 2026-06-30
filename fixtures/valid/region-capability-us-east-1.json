@@ -1,0 +1,19 @@
+{
+  "region": "us-east-1",
+  "services": {
+    "ecs_fargate": { "available": true },
+    "dynamodb": { "available": true },
+    "dynamodb_global_tables": { "available": true },
+    "s3": { "available": true },
+    "sqs": { "available": true },
+    "cognito": { "available": true },
+    "textract": { "available": true },
+    "bedrock": { "available": true },
+    "kms_multi_region": { "available": true },
+    "api_gateway_v2": { "available": true },
+    "cloudfront": { "available": true },
+    "route53": { "available": true },
+    "wafv2": { "available": true },
+    "signer": { "available": true }
+  }
+}

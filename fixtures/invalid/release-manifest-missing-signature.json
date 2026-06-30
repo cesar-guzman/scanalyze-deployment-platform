@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "release_version": "v2.1.0",
+  "release_id": "01J5K8N2PQRS4T6VWXYZ0ABCDE",
+  "created_at": "2026-06-25T10:00:00Z",
+  "components": {},
+  "toolchain": {
+    "terraform_version": "1.12.1",
+    "python_version": "3.11.12"
+  },
+  "signing": {
+    "signing_algorithm": "RSA_PSS_SHA_256",
+    "kms_key_arn": "arn:aws:kms:us-east-1:999999999999:key/mrk-signing-key-id"
+  }
+}

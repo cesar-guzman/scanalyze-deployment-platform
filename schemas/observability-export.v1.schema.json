@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.observability-export.v1",
+  "title": "Scanalyze Observability Export Schema v1",
+  "description": "Schema for operational metadata that may leave the customer account. Strict additionalProperties: false at every level. Enforces forbidden dimensions and content rules per ADR-009.",
+  "type": "object",
+  "required": ["deployment_id", "timestamp", "event_type"],
+  "additionalProperties": false,
+  "properties": {
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "event_type": {
+      "type": "string",
+      "enum": ["health_check", "alarm_state", "metric_aggregate", "service_status", "error_rate", "latency_percentile", "token_count_aggregate", "cost_aggregate", "pipeline_status"]
+    },
+    "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
+    "service_name": { "type": "string" },
+    "metric_name": { "type": "string" },
+    "metric_value": { "type": "number" },
+    "metric_unit": { "type": "string" },
+    "alarm_name": { "type": "string" },
+    "alarm_state": { "type": "string", "enum": ["OK", "ALARM", "INSUFFICIENT_DATA"] },
+    "release_version": { "type": "string" },
+    "pipeline_execution_id": { "type": "string" },
+    "pipeline_status": { "type": "string" }
+  },
+  "$comment": "FORBIDDEN: document_id, batch_id, invocation_id as metric dimensions. FORBIDDEN: document text, OCR output, LLM responses, JWTs, CURP/RFC/NSS/CLABE, raw exception payloads, S3 keys with PII. Primary dimension is deployment_id, NOT customer_id on every metric."
+}

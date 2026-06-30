@@ -1,0 +1,25 @@
+{"import_date":"2026-06-26","agent":"antigravity-platform-engineer","brownfield_head":"9e6a14d240373ced4b23523097b1207982aa6004","sources":[
+{"target":"ADR/ADR-001-tenancy-model.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-001-tenancy-model.md","source_sha256":"8a7ea3e4d9f5127bff7eaecbcc072228305dfa081a77c241155b9a80d76cda6c","patch_applied":false}
+,
+{"target":"ADR/ADR-002-organization-control-tower.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-002-organization-control-tower.md","source_sha256":"b219908b398930f488f6a1a7d03f6e6c774307c77229780741ccbc037c896112","patch_applied":false}
+,
+{"target":"ADR/ADR-003-state-backend.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-003-state-backend.md","source_sha256":"6426fe5afb59933ffff9bf5bcbffa92b021fb3ab313df66a03a52afe797ea1f8","patch_applied":false}
+,
+{"target":"ADR/ADR-004-cross-account-identity.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-004-cross-account-identity.md","source_sha256":"d9693bc46eca8784f04acb97d9dcc9e4ca1d627aa4d4aaeda7b2e5472d423695","patch_applied":false}
+,
+{"target":"ADR/ADR-005-deployment-schemas.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-005-deployment-schemas.md","source_sha256":"4262b544f721f8b5a88abbcfc2b5a485280122d897d4e72b659ea01f52a9f96c","patch_applied":false}
+,
+{"target":"ADR/ADR-006-modules-contracts.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-006-modules-contracts.md","source_sha256":"5008210efea4c8ef6ae771acd64be380cd568e73f7d8d13ff816c22edde2e703","patch_applied":false}
+,
+{"target":"ADR/ADR-007-artifact-supply-chain.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-007-artifact-supply-chain.md","source_sha256":"46ec57625ea76441bfbf7c2b438867be7292567b5fbaad4028f5a48d18fb4418","patch_applied":false}
+,
+{"target":"ADR/ADR-008-region-ha-dr.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-008-region-ha-dr.md","source_sha256":"5531dab05eadb94d221fdd570b8e022be90fa6887990e03f4e4f3b7c0e7bd82e","patch_applied":false}
+,
+{"target":"ADR/ADR-009-threat-model.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-009-threat-model.md","source_sha256":"e83207266d1a53e8e8805af57ee6efbdf1e292dfc31b48e97bc3e39bdb9f031b","patch_applied":true,"patch_date":"2026-06-28","patch_report":"reports/ws8-adr009-patches.md"}
+,
+{"target":"ADR/ADR-010-testing-rollout.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ADR-010-testing-rollout.md","source_sha256":"12dfbe830e335d8b7cfd60907c76c771f42972f36760e6122775db39dc0301fb","patch_applied":false}
+,
+{"target":"ADR/ARCHITECTURE_OWNERSHIP_MATRIX.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/ARCHITECTURE_OWNERSHIP_MATRIX.md","source_sha256":"abf1562787fa0952a1f13d01059b20f79dc1cd637ac3392e7c2ae296af74676c","patch_applied":true,"patch_date":"2026-06-28","patch_report":"reports/ws8-ownership-matrix-patches.md","patch_notes":"all 9 patches (8.7-8.15) verified already present in imported rev2"}
+,
+{"target":"ADR/IMPLEMENTATION_PLAN.md","source":"_NotebookLM_Brain/Platform_V2_SaaS/ADRs/IMPLEMENTATION_PLAN.md","source_sha256":"fdebf64b33c6ffedf21ba6370b57c8466be6bb065c13b61156e9d0a0d1bf2a20","patch_applied":false}
+]}

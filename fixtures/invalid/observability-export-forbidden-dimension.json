@@ -1,0 +1,6 @@
+{
+  "deployment_id": "dep_01J5K8N2PQRS4T6VWXYZ0ABCDE",
+  "timestamp": "2026-06-28T15:30:00Z",
+  "event_type": "metric_aggregate",
+  "document_id": "FORBIDDEN_PII_DIMENSION"
+}

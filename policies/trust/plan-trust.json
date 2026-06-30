@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowOrchestratorAssumeCustomerRoles",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeOrchestrator"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}"
+        },
+        "StringLike": {
+          "sts:SourceIdentity": ["exec_*", "chg_*"]
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["deployment_id", "operation"]
+        }
+      }
+    }
+  ]
+}

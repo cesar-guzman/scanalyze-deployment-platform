@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.release-attestation.v1",
+  "title": "Scanalyze Release Attestation v1",
+  "description": "DSSE/in-toto envelope wrapping the release manifest. Signed with KMS ECDSA_SHA_256.",
+  "type": "object",
+  "required": ["payloadType", "payload", "signatures"],
+  "additionalProperties": false,
+  "properties": {
+    "payloadType": { "type": "string", "const": "application/vnd.in-toto+json" },
+    "payload": { "type": "string", "description": "Base64-encoded release manifest JSON" },
+    "signatures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["keyid", "sig"],
+        "additionalProperties": false,
+        "properties": {
+          "keyid": { "type": "string", "description": "KMS key ARN or alias" },
+          "sig": { "type": "string", "description": "Base64-encoded ECDSA_SHA_256 signature" }
+        }
+      }
+    }
+  }
+}

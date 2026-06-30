@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowBreakGlassAssumeStateRecovery",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeBreakGlass"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/operation": "state-recovery",
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["deployment_id", "operation", "incident_id"]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowBreakGlassAssumeDiagnostic",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeBreakGlass"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/operation": "diagnostic"
+        }
+      }
+    }
+  ]
+}

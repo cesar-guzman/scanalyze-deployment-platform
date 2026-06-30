@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.edge-identity.v1",
+  "title": "Edge-Identity Layer Contract Outputs (Regional)",
+  "type": "object",
+  "required": ["cognito_user_pool_id", "cognito_user_pool_arn", "api_gateway_id", "api_gateway_endpoint"],
+  "additionalProperties": false,
+  "properties": {
+    "cognito_user_pool_id": { "type": "string" },
+    "cognito_user_pool_arn": { "type": "string", "pattern": "^arn:aws:cognito-idp:.+$" },
+    "cognito_spa_client_id": { "type": "string" },
+    "cognito_m2m_client_id": { "type": "string" },
+    "cognito_domain": { "type": "string" },
+    "cognito_issuer_url": { "type": "string", "format": "uri" },
+    "api_gateway_id": { "type": "string" },
+    "api_gateway_endpoint": { "type": "string", "format": "uri" },
+    "api_gateway_stage": { "type": "string" },
+    "authorizer_type": { "type": "string", "enum": ["native_jwt", "lambda"], "description": "native_jwt for normal, lambda for multi-issuer failover per ADR-008" },
+    "lambda_authorizer_arn": { "type": ["string", "null"], "pattern": "^arn:aws:lambda:.+$" }
+  }
+}

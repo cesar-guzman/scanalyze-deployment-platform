@@ -1,0 +1,54 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeCustomerDiagnosticAndStateRecovery",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Diagnostic",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-StateRecovery"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-break-glass"
+        }
+      }
+    },
+    {
+      "Sid": "DenyPlanApplyPromotionAssume",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Plan",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion"
+      ]
+    },
+    {
+      "Sid": "ReadDeploymentRegistry",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query"
+      ],
+      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry"
+    },
+    {
+      "Sid": "DenyEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:CreateRole",
+        "organizations:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "service_arns": {
+    "scanalyze-ingest-api": "arn:aws:ecs:us-east-1:123456789012:service/scanalyze/scanalyze-ingest-api",
+    "scanalyze-ocr-worker": "arn:aws:ecs:us-east-1:123456789012:service/scanalyze/scanalyze-ocr-worker"
+  },
+  "task_definition_arns": {
+    "scanalyze-ingest-api": "arn:aws:ecs:us-east-1:123456789012:task-definition/scanalyze-ingest-api:15",
+    "scanalyze-ocr-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/scanalyze-ocr-worker:12"
+  },
+  "service_endpoints": {
+    "health": "http://scanalyze-alb-internal.us-east-1.elb.amazonaws.com/health",
+    "api_base": "http://scanalyze-alb-internal.us-east-1.elb.amazonaws.com"
+  }
+}

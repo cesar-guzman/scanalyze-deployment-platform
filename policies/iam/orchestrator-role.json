@@ -1,0 +1,81 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadDeploymentRegistry",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry"
+    },
+    {
+      "Sid": "WriteDeploymentRegistry",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "dynamodb:Attributes": [
+            "deployment_id",
+            "account_id",
+            "status",
+            "release_version",
+            "last_updated",
+            "change_id",
+            "wave_status"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AssumeCustomerRoles",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession",
+        "sts:SetSourceIdentity"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Plan",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Validation"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-orchestrator"
+        },
+        "StringLike": {
+          "sts:SourceIdentity": ["exec_*", "chg_*"]
+        }
+      }
+    },
+    {
+      "Sid": "ReadReleaseManifests",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-shared-releases/*"
+    },
+    {
+      "Sid": "DenyEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:CreateRole",
+        "iam:AttachRolePolicy",
+        "iam:PutRolePolicy",
+        "organizations:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

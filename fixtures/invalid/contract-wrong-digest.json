@@ -1,0 +1,23 @@
+{
+  "contract_version": "1",
+  "contract_schema": "scanalyze.contract.network.v1",
+  "deployment_id": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1",
+  "account_id": "111222333444",
+  "region": "us-east-1",
+  "layer": "network",
+  "producer_release": "v1.0.0",
+  "producer_module_digest": "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+  "produced_at": "2026-06-25T12:00:00Z",
+  "contract_digest": "sha256:invalid_not_a_real_digest_aaaa_bbbb_cccc_dddd_eeee_ffff_0000_111",
+  "outputs": {
+    "vpc_id": "vpc-0123456789abcdef0",
+    "private_subnet_ids": ["subnet-0aaaa00000000aaaa", "subnet-0bbbb00000000bbbb"],
+    "public_subnet_ids": ["subnet-0cccc00000000cccc", "subnet-0dddd00000000dddd"],
+    "data_subnet_ids": ["subnet-0eeee00000000eeee", "subnet-0ffff00000000ffff"],
+    "vpc_endpoint_sg_id": "sg-0123456789abcdef0"
+  },
+  "_test_metadata": {
+    "expected_error": "contract_digest pattern does not match sha256:[a-f0-9]{64}",
+    "test_case": "Contract with invalid digest format"
+  }
+}

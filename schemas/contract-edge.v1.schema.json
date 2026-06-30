@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.edge.v1",
+  "title": "Edge Layer Contract Outputs (Global — no region in state key)",
+  "description": "Edge is a SEPARATE lifecycle from edge-identity. Edge manages global resources: CloudFront (frontend only), Route53, WAF (CLOUDFRONT scope), ACM (us-east-1 for CloudFront). API traffic routes through Route53 failover to regional API Gateway, NOT through CloudFront.",
+  "type": "object",
+  "required": ["cloudfront_distribution_id", "cloudfront_domain_name", "route53_hosted_zone_id"],
+  "additionalProperties": false,
+  "properties": {
+    "cloudfront_distribution_id": { "type": "string" },
+    "cloudfront_distribution_arn": { "type": "string", "pattern": "^arn:aws:cloudfront::[0-9]{12}:distribution/.+$" },
+    "cloudfront_domain_name": { "type": "string" },
+    "route53_hosted_zone_id": { "type": "string" },
+    "route53_zone_name": { "type": "string" },
+    "acm_certificate_arn": { "type": "string", "pattern": "^arn:aws:acm:us-east-1:[0-9]{12}:certificate/.+$", "description": "ACM cert in us-east-1 for CloudFront" },
+    "waf_web_acl_arn": { "type": "string", "pattern": "^arn:aws:wafv2:.+$" },
+    "api_failover_record_name": { "type": "string", "description": "Route53 failover record for API traffic" },
+    "frontend_origin_path": { "type": "string", "description": "Current active frontend release prefix in S3" }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": "1",
+  "deployment_id": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1",
+  "account_id": "111222333444",
+  "region": "us-east-1",
+  "baseline_version": "v1.0.0",
+  "provisioned_at": "2026-06-25T00:00:00Z",
+  "roles": {
+    "plan": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-Plan",
+      "deployment_id_tag": "dep_WRONG_DEPLOYMENT_ID_MISMATCH"
+    },
+    "apply": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-Apply",
+      "deployment_id_tag": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+    },
+    "promotion": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-Promotion",
+      "deployment_id_tag": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+    },
+    "validation": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-Validation",
+      "deployment_id_tag": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+    },
+    "diagnostic": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-Diagnostic",
+      "deployment_id_tag": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+    },
+    "state_recovery": {
+      "arn": "arn:aws:iam::111222333444:role/ScanalyzeCustomer-StateRecovery",
+      "deployment_id_tag": "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+    }
+  },
+  "state_infrastructure": {
+    "state_bucket": "arn:aws:s3:::scanalyze-111222333444-tf-state",
+    "evidence_bucket": "arn:aws:s3:::scanalyze-111222333444-tf-evidence",
+    "contracts_bucket": "arn:aws:s3:::scanalyze-111222333444-contracts",
+    "state_kms_key": "arn:aws:kms:us-east-1:111222333444:key/00000000-0000-0000-0000-000000000001",
+    "evidence_kms_key": "arn:aws:kms:us-east-1:111222333444:key/00000000-0000-0000-0000-000000000002",
+    "contracts_kms_key": "arn:aws:kms:us-east-1:111222333444:key/00000000-0000-0000-0000-000000000003"
+  },
+  "contract_digest": "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+  "_test_metadata": {
+    "expected_error": "deployment_id_tag pattern mismatch on plan role",
+    "test_case": "Plan role has mismatched deployment_id_tag"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "dynamodb_table_arns": {
+    "batches": "arn:aws:dynamodb:us-east-1:123456789012:table/scanalyze-batches",
+    "documents": "arn:aws:dynamodb:us-east-1:123456789012:table/scanalyze-documents",
+    "workflows": "arn:aws:dynamodb:us-east-1:123456789012:table/scanalyze-workflows"
+  },
+  "s3_document_bucket_arns": {
+    "bank": "arn:aws:s3:::scanalyze-123456789012-bank-documents",
+    "personal": "arn:aws:s3:::scanalyze-123456789012-personal-documents"
+  },
+  "sqs_queue_urls": {
+    "bank": "https://sqs.us-east-1.amazonaws.com/123456789012/scanalyze-bank-queue",
+    "personal": "https://sqs.us-east-1.amazonaws.com/123456789012/scanalyze-personal-queue"
+  },
+  "sqs_dlq_urls": {
+    "bank": "https://sqs.us-east-1.amazonaws.com/123456789012/scanalyze-bank-dlq",
+    "personal": "https://sqs.us-east-1.amazonaws.com/123456789012/scanalyze-personal-dlq"
+  },
+  "kms_key_arns": {
+    "documents": "arn:aws:kms:us-east-1:123456789012:key/doc-key-id",
+    "queues": "arn:aws:kms:us-east-1:123456789012:key/queue-key-id"
+  }
+}

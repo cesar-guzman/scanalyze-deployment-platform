@@ -1,0 +1,43 @@
+# Sentinel Allowlist — Documented exceptions for PII/secret pattern matches
+#
+# Each entry requires: path, pattern_id, reason, owner
+# The sentinel scanner reads this file and skips only exact matches.
+# ADR/ is NOT globally excluded — only specific documented patterns are allowed.
+
+allowlist:
+  - path: ADR/ADR-005-deployment-schemas.md
+    line_pattern: "RFC"
+    pattern_id: RFC
+    reason: "ADR references 'RFC' as Mexican tax document type name in schema design examples; not real PII"
+    owner: architecture
+
+  - path: ADR/ADR-005-deployment-schemas.md
+    line_pattern: "terraform_version"
+    pattern_id: TFSTATE_CONTENT
+    reason: "ADR documents state backend schema format; contains terraform_version as field name reference"
+    owner: architecture
+
+  - path: ADR/ADR-009-threat-model.md
+    line_pattern: "RFC"
+    pattern_id: RFC
+    reason: "ADR-009 references RFC/CURP/NSS/CLABE as PII categories in threat model; not real data"
+    owner: security
+
+  - path: ADR/ADR-009-threat-model.md
+    line_pattern: "CURP"
+    pattern_id: CURP
+    reason: "ADR-009 references CURP as PII category in threat model; not real data"
+    owner: security
+
+  - path: fixtures/valid/release-manifest-complete.json
+    line_pattern: "terraform_version"
+    pattern_id: TFSTATE_CONTENT
+    reason: "Release manifest fixture contains terraform_version as pinned release metadata, not TF state"
+    owner: testing
+
+  - path: fixtures/invalid/release-manifest-missing-signature.json
+    line_pattern: "terraform_version"
+    pattern_id: TFSTATE_CONTENT
+    reason: "Invalid fixture contains terraform_version as field for testing missing-signature validation"
+    owner: testing
+

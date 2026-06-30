@@ -1,0 +1,112 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAllResources",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "elasticloadbalancing:Describe*",
+        "dynamodb:Describe*",
+        "dynamodb:List*",
+        "s3:GetBucket*",
+        "s3:ListBucket",
+        "s3:GetObject",
+        "sqs:GetQueue*",
+        "sqs:ListQueues",
+        "kms:Describe*",
+        "kms:List*",
+        "iam:Get*",
+        "iam:List*",
+        "logs:Describe*",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "cloudwatch:Describe*",
+        "cloudwatch:GetMetric*",
+        "cloudwatch:ListMetrics",
+        "cognito-idp:Describe*",
+        "apigateway:GET",
+        "lambda:GetFunction",
+        "lambda:GetPolicy",
+        "route53:Get*",
+        "route53:List*",
+        "cloudfront:Get*",
+        "wafv2:Get*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadStateForDiagnostic",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*"
+    },
+    {
+      "Sid": "ReadEvidence",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*"
+    },
+    {
+      "Sid": "DecryptStateKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
+    },
+    {
+      "Sid": "DecryptEvidenceKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    },
+    {
+      "Sid": "DecryptContractsKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+    },
+    {
+      "Sid": "DenyAllWrites",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "ec2:Create*",
+        "ec2:Delete*",
+        "ec2:Modify*",
+        "ecs:Create*",
+        "ecs:Update*",
+        "ecs:Delete*",
+        "dynamodb:Create*",
+        "dynamodb:Update*",
+        "dynamodb:Delete*",
+        "dynamodb:PutItem",
+        "iam:Create*",
+        "iam:Delete*",
+        "iam:Update*",
+        "iam:Put*",
+        "iam:Attach*",
+        "iam:Detach*",
+        "ssm:PutParameter",
+        "ssm:DeleteParameter"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

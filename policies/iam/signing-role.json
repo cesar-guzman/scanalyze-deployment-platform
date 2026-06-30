@@ -1,0 +1,51 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SignReleaseManifests",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Sign",
+        "kms:Verify",
+        "kms:GetPublicKey"
+      ],
+      "Resource": "arn:aws:kms:${region}:${shared_services_account_id}:key/${signing_kms_key_id}"
+    },
+    {
+      "Sid": "ReadReleaseArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-shared-releases/*"
+    },
+    {
+      "Sid": "WriteSignedManifests",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-shared-releases/signed/*"
+    },
+    {
+      "Sid": "SignContainerImages",
+      "Effect": "Allow",
+      "Action": [
+        "signer:StartSigningJob",
+        "signer:DescribeSigningJob",
+        "signer:GetSigningProfile"
+      ],
+      "Resource": "arn:aws:signer:${region}:${shared_services_account_id}:/signing-profiles/ScanalyzeSigner"
+    },
+    {
+      "Sid": "DenyEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "organizations:*",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

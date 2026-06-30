@@ -1,0 +1,13 @@
+contract_deployment_id   = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+contract_account_id      = "111222333444"
+contract_region          = "us-east-1"
+contract_schema_version  = "1"
+contract_digest          = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+contract_producer_release = "v2.1.0"
+
+expected_deployment_id   = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+expected_account_id      = "111222333444"
+expected_region          = "us-east-1"
+expected_schema_version  = "1"
+expected_digest          = "sha256:aabbccdd11223344556677889900aabbccddeeff00112233445566778899aabb"
+expected_release_version = "v2.1.0"

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.deployment-request.v1",
+  "title": "Scanalyze Deployment Request v1",
+  "description": "Input for provisioning a new customer deployment. No secrets. No PII.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "request_id",
+    "customer_id",
+    "deployment_name",
+    "environment",
+    "region",
+    "tier",
+    "processing_domains",
+    "requested_by",
+    "requested_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID request identifier"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Customer ULID"
+    },
+    "deployment_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
+      "description": "Human-friendly deployment name, used in resource naming"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["production", "uat", "staging", "development", "dr"]
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
+      "description": "Primary AWS region"
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["internal-demo", "enterprise-standard", "enterprise-ha"],
+      "description": "Service tier per ADR-008"
+    },
+    "processing_domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["bank", "personal", "gov"]
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Document processing domains to enable"
+    },
+    "requested_by": {
+      "type": "string",
+      "description": "Identity of the requestor (email or principal ID)"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "account_management": {
+      "type": "string",
+      "enum": ["provider-managed", "customer-managed"],
+      "default": "provider-managed",
+      "description": "Account management mode. customer-managed is schema-compatible but rejected by workflow v1 with FEATURE_NOT_IMPLEMENTED"
+    },
+    "custom_domain": {
+      "type": "string",
+      "format": "hostname",
+      "description": "Custom domain for the deployment (optional)"
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Custom tags applied to all resources"
+    }
+  }
+}

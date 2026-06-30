@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.data-foundation.v1",
+  "title": "Data Foundation Layer Contract Outputs",
+  "type": "object",
+  "required": ["dynamodb_table_arns", "s3_document_bucket_arns", "sqs_queue_urls", "sqs_dlq_urls", "kms_key_arns"],
+  "additionalProperties": false,
+  "properties": {
+    "dynamodb_table_arns": {
+      "type": "object", "required": ["batches", "documents", "workflows"],
+      "additionalProperties": false,
+      "properties": {
+        "batches": { "type": "string", "pattern": "^arn:aws:dynamodb:.+$" },
+        "documents": { "type": "string", "pattern": "^arn:aws:dynamodb:.+$" },
+        "workflows": { "type": "string", "pattern": "^arn:aws:dynamodb:.+$" }
+      }
+    },
+    "dynamodb_table_names": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "batches": { "type": "string" },
+        "documents": { "type": "string" },
+        "workflows": { "type": "string" }
+      }
+    },
+    "s3_document_bucket_arns": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "bank": { "type": "string", "pattern": "^arn:aws:s3:::.+$" },
+        "personal": { "type": "string", "pattern": "^arn:aws:s3:::.+$" },
+        "gov": { "type": "string", "pattern": "^arn:aws:s3:::.+$" }
+      }
+    },
+    "sqs_queue_urls": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "bank": { "type": "string", "format": "uri" },
+        "personal": { "type": "string", "format": "uri" },
+        "gov": { "type": "string", "format": "uri" },
+        "ocr": { "type": "string", "format": "uri" },
+        "postprocess": { "type": "string", "format": "uri" },
+        "classifier": { "type": "string", "format": "uri" }
+      }
+    },
+    "sqs_dlq_urls": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "bank": { "type": "string", "format": "uri" },
+        "personal": { "type": "string", "format": "uri" },
+        "gov": { "type": "string", "format": "uri" },
+        "ocr": { "type": "string", "format": "uri" },
+        "postprocess": { "type": "string", "format": "uri" },
+        "classifier": { "type": "string", "format": "uri" }
+      }
+    },
+    "kms_key_arns": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "documents": { "type": "string", "pattern": "^arn:aws:kms:.+$" },
+        "queues": { "type": "string", "pattern": "^arn:aws:kms:.+$" }
+      }
+    }
+  }
+}

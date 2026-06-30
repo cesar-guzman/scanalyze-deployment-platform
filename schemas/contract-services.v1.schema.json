@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.services.v1",
+  "title": "Services Layer Contract Outputs",
+  "type": "object",
+  "required": ["service_arns", "task_definition_arns", "service_endpoints"],
+  "additionalProperties": false,
+  "properties": {
+    "service_arns": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "scanalyze-ingest-api": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-ocr-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-classifier-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-bank-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-personal-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-gov-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" },
+        "scanalyze-postprocess-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+$" }
+      }
+    },
+    "task_definition_arns": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "scanalyze-ingest-api": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-ocr-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-classifier-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-bank-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-personal-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-gov-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" },
+        "scanalyze-postprocess-worker": { "type": "string", "pattern": "^arn:aws:ecs:.+:task-definition/.+$" }
+      }
+    },
+    "service_endpoints": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "health": { "type": "string", "description": "ALB path for health endpoint" },
+        "api_base": { "type": "string", "description": "ALB path for API base" }
+      }
+    }
+  }
+}

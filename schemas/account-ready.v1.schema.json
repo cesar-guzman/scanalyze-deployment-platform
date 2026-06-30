@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.account-ready.v1",
+  "title": "Scanalyze ACCOUNT_READY Contract v1",
+  "description": "Contract produced by AccountVendingProvider after account baseline creation. All 6 scoped roles, state/evidence/contracts infrastructure ready. Validated by orchestrator before any workload deployment.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "account_id",
+    "region",
+    "baseline_version",
+    "provisioned_at",
+    "roles",
+    "state_infrastructure",
+    "contract_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$"
+    },
+    "baseline_version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "provisioned_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "roles": {
+      "type": "object",
+      "required": ["plan", "apply", "promotion", "validation", "diagnostic", "state_recovery"],
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "$ref": "#/$defs/role_info" },
+        "apply": { "$ref": "#/$defs/role_info" },
+        "promotion": { "$ref": "#/$defs/role_info" },
+        "validation": { "$ref": "#/$defs/role_info" },
+        "diagnostic": { "$ref": "#/$defs/role_info" },
+        "state_recovery": { "$ref": "#/$defs/role_info" }
+      }
+    },
+    "state_infrastructure": {
+      "type": "object",
+      "required": ["state_bucket", "evidence_bucket", "contracts_bucket", "state_kms_key", "evidence_kms_key", "contracts_kms_key"],
+      "additionalProperties": false,
+      "properties": {
+        "state_bucket": { "$ref": "#/$defs/s3_arn" },
+        "evidence_bucket": { "$ref": "#/$defs/s3_arn" },
+        "contracts_bucket": { "$ref": "#/$defs/s3_arn" },
+        "state_kms_key": { "$ref": "#/$defs/arn" },
+        "evidence_kms_key": { "$ref": "#/$defs/arn" },
+        "contracts_kms_key": { "$ref": "#/$defs/arn" }
+      }
+    },
+    "contract_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 of canonicalized contract body for integrity verification"
+    }
+  },
+  "$defs": {
+    "arn": {
+      "type": "string",
+      "pattern": "^arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}:.+$"
+    },
+    "s3_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "description": "S3 bucket ARN (global, no region or account in ARN)"
+    },
+    "role_info": {
+      "type": "object",
+      "required": ["arn", "deployment_id_tag"],
+      "additionalProperties": false,
+      "properties": {
+        "arn": { "$ref": "#/$defs/arn" },
+        "deployment_id_tag": {
+          "type": "string",
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "Immutable resource tag on the role, must match deployment_id"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowApplyEncryptDecrypt",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+      }
+    },
+    {
+      "Sid": "AllowPlanDecrypt",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan"
+      }
+    },
+    {
+      "Sid": "AllowValidationDiagnosticDecrypt",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Validation",
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic"
+        ]
+      }
+    },
+    {
+      "Sid": "AllowKeyAdmin",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Create*",
+        "kms:Describe*",
+        "kms:Enable*",
+        "kms:List*",
+        "kms:Put*",
+        "kms:Update*",
+        "kms:Revoke*",
+        "kms:Disable*",
+        "kms:Get*",
+        "kms:TagResource",
+        "kms:UntagResource"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:root"
+      }
+    },
+    {
+      "Sid": "DenyKeyDeletionExceptBreakGlass",
+      "Effect": "Deny",
+      "Action": "kms:ScheduleKeyDeletion",
+      "Resource": "*",
+      "Principal": "*",
+      "Condition": {
+        "StringNotLike": {
+          "aws:PrincipalArn": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
+        }
+      }
+    }
+  ]
+}

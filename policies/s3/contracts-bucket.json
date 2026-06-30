@@ -1,0 +1,63 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowApplyWriteContracts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*",
+      "Principal": {
+        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+      },
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms",
+          "s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+        }
+      }
+    },
+    {
+      "Sid": "AllowPlanValidationReadContracts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan",
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Validation"
+        ]
+      }
+    },
+    {
+      "Sid": "DenyUnencryptedPut",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-contracts/*",
+      "Principal": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms"
+        }
+      }
+    },
+    {
+      "Sid": "DenyNonTLS",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::scanalyze-${account_id}-contracts",
+        "arn:aws:s3:::scanalyze-${account_id}-contracts/*"
+      ],
+      "Principal": "*",
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "false"
+        }
+      }
+    }
+  ]
+}

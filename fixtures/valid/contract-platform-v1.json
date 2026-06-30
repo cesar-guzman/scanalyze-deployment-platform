@@ -1,0 +1,8 @@
+{
+  "ecs_cluster_arn": "arn:aws:ecs:us-east-1:123456789012:cluster/scanalyze",
+  "alb_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/scanalyze-alb/abc123",
+  "alb_dns_name": "scanalyze-alb-123456.us-east-1.elb.amazonaws.com",
+  "alb_listener_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/scanalyze-alb/abc123/def456",
+  "alb_sg_id": "sg-0123456789abcdef0",
+  "ecs_task_sg_id": "sg-0abcdef0123456789"
+}

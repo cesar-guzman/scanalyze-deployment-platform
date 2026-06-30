@@ -1,0 +1,105 @@
+# M0 Required Artifacts Inventory
+# make preflight-m0 MUST FAIL if any listed file is missing.
+# make preflight-core validates only existing artifacts.
+
+required_schemas:
+  - schemas/contract-envelope.v1.schema.json
+  - schemas/contract-global.v1.schema.json
+  - schemas/contract-network.v1.schema.json
+  - schemas/contract-platform.v1.schema.json
+  - schemas/contract-data-foundation.v1.schema.json
+  - schemas/contract-services.v1.schema.json
+  - schemas/contract-edge-identity.v1.schema.json
+  - schemas/contract-edge.v1.schema.json
+  - schemas/contract-addons.v1.schema.json
+  - schemas/deployment-request.v1.schema.json
+  - schemas/deployment-record.v1.schema.json
+  - schemas/account-ready.v1.schema.json
+  - schemas/release.v1.schema.json
+  - schemas/release-attestation.v1.schema.json
+  - schemas/observability-export.v1.schema.json
+  - schemas/region-capability.v1.schema.json
+
+required_policies:
+  iam:
+    - policies/iam/plan-role.json
+    - policies/iam/apply-role.json
+    - policies/iam/promotion-role.json
+    - policies/iam/validation-role.json
+    - policies/iam/diagnostic-role.json
+    - policies/iam/state-recovery-role.json
+    - policies/iam/orchestrator-role.json
+    - policies/iam/break-glass-role.json
+    - policies/iam/signing-role.json
+    - policies/iam/pipeline-build-role.json
+  trust:
+    - policies/trust/plan-trust.json
+    - policies/trust/apply-trust.json
+    - policies/trust/promotion-trust.json
+    - policies/trust/validation-trust.json
+    - policies/trust/diagnostic-trust.json
+    - policies/trust/state-recovery-trust.json
+  s3:
+    - policies/s3/state-bucket.json
+    - policies/s3/evidence-bucket.json
+    - policies/s3/contracts-bucket.json
+    - policies/s3/frontend-bucket.json
+  kms:
+    - policies/kms/state-key.json
+    - policies/kms/evidence-key.json
+    - policies/kms/contracts-key.json
+  session_policies:
+    - session-policies/global-layer.json
+    - session-policies/network-layer.json
+    - session-policies/platform-layer.json
+    - session-policies/data-foundation-layer.json
+    - session-policies/services-layer.json
+    - session-policies/edge-identity-layer.json
+    - session-policies/edge-layer.json
+    - session-policies/addons-layer.json
+
+required_fixtures_valid:
+  # Minimum: 1 valid fixture per schema
+  - fixtures/valid/account-ready-contract.json
+  - fixtures/valid/contract-envelope-network.json
+  - fixtures/valid/deployment-request-enterprise-standard.json
+  - fixtures/valid/deployment-record-active.json
+  - fixtures/valid/release-manifest-complete.json
+  - fixtures/valid/release-attestation-complete.json
+  - fixtures/valid/observability-export-sample.json
+  - fixtures/valid/region-capability-us-east-1.json
+  - fixtures/valid/contract-global-v1.json
+  - fixtures/valid/contract-platform-v1.json
+  - fixtures/valid/contract-data-foundation-v1.json
+  - fixtures/valid/contract-services-v1.json
+  - fixtures/valid/contract-edge-identity-v1.json
+  - fixtures/valid/contract-edge-v1.json
+  - fixtures/valid/contract-addons-v1.json
+
+required_fixtures_invalid:
+  # Minimum: 1 invalid fixture per critical schema
+  - fixtures/invalid/deployment-request-missing-region.json
+  - fixtures/invalid/deployment-request-extra-field.json
+  - fixtures/invalid/account-ready-missing-role.json
+  - fixtures/invalid/account-ready-wrong-binding.json
+  - fixtures/invalid/contract-wrong-digest.json
+  - fixtures/invalid/deployment-record-wrong-account.json
+  - fixtures/invalid/observability-export-forbidden-dimension.json
+  - fixtures/invalid/release-manifest-missing-signature.json
+
+required_documents:
+  - ARCHITECTURE_ACCEPTANCE_GATES.md
+  - ADR/SOURCE_MANIFEST.json
+  - rollback/ROLLBACK_MANIFEST.md
+
+required_tooling:
+  - tooling/validate_schema.py
+  - tooling/validate_digest.py
+  - tooling/validate_policy.py
+  - tooling/security_sentinel.py
+  - tooling/lint_forbidden_patterns.py
+  - tooling/check_required_artifacts.py
+
+sentinel_config:
+  # sentinel_allowlist.yaml is required for PII/secret exceptions
+  allowlist_path: sentinel_allowlist.yaml

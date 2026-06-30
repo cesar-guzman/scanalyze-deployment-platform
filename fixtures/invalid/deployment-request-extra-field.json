@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "request_id": "01J5A1B2C3D4E5F6G7H8J9K0M2",
+  "customer_id": "cust_01J5A1B2C3D4E5F6G7H8J9K0M3",
+  "deployment_name": "acme-prod",
+  "environment": "production",
+  "region": "us-east-1",
+  "tier": "enterprise-standard",
+  "processing_domains": ["bank", "personal", "gov"],
+  "requested_by": "platform-team@example.com",
+  "requested_at": "2026-06-25T00:00:00Z",
+  "unexpected_field": "this should not be here",
+  "_test_metadata": {
+    "expected_error": "Additional properties are not allowed",
+    "test_case": "Deployment request with unexpected additional field"
+  }
+}

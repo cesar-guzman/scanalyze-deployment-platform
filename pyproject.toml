@@ -1,0 +1,20 @@
+[project]
+name = "scanalyze-deployment-platform"
+version = "0.1.0"
+description = "Scanalyze Dedicated Deployment Platform — schemas, policies, tests, and tooling"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = [
+    "jsonschema==4.26.0",
+    "pytest==9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.setuptools.packages.find]
+include = ["tooling*"]
+

@@ -1,0 +1,10 @@
+{
+  "payloadType": "application/vnd.in-toto+json",
+  "payload": "eyJyZWxlYXNlX3ZlcnNpb24iOiJ2Mi4xLjAiLCJhdHRlc3RhdGlvbl90eXBlIjoicmVsZWFzZS12ZXJpZmljYXRpb24ifQ==",
+  "signatures": [
+    {
+      "keyid": "arn:aws:kms:us-east-1:999999999999:key/mrk-signing-key-id",
+      "sig": "MEUCIQC_synthetic_signature_for_testing_only"
+    }
+  ]
+}

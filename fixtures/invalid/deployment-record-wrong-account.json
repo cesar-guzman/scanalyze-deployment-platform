@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "deployment_id": "dep_01J5K8N2PQRS4T6VWXYZ0ABCDE",
+  "customer_id": "cust_01J5K8N2PQRS4T6VWXYZ0ABCDE",
+  "account_id": "WRONG_ACCT",
+  "region": "us-east-1",
+  "status": "ACTIVE",
+  "tier": "enterprise-standard",
+  "processing_domains": ["bank"],
+  "created_at": "2026-06-01T10:00:00Z",
+  "updated_at": "2026-06-28T15:30:00Z",
+  "roles": {
+    "plan": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-Plan",
+    "apply": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-Apply",
+    "promotion": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-Promotion",
+    "validation": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-Validation",
+    "diagnostic": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-Diagnostic",
+    "state_recovery": "arn:aws:iam:us-east-1:123456789012:role/ScanalyzeCustomer-StateRecovery"
+  },
+  "state_infrastructure": {
+    "state_bucket": "arn:aws:s3:::scanalyze-123456789012-tf-state",
+    "evidence_bucket": "arn:aws:s3:::scanalyze-123456789012-tf-evidence",
+    "contracts_bucket": "arn:aws:s3:::scanalyze-123456789012-contracts"
+  },
+  "desired_release": "v2.1.0",
+  "observed_release": null,
+  "services": {}
+}

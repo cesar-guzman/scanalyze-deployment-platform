@@ -1,0 +1,104 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTerraformState",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate"
+    },
+    {
+      "Sid": "ManageTerraformLock",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate.tflock"
+    },
+    {
+      "Sid": "WritePlanExecutionZone",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*"
+    },
+    {
+      "Sid": "ReadContracts",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
+    },
+    {
+      "Sid": "ReadContractPayloads",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*"
+    },
+    {
+      "Sid": "ReadInfrastructure",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "elasticloadbalancing:Describe*",
+        "dynamodb:Describe*",
+        "dynamodb:List*",
+        "s3:GetBucket*",
+        "s3:ListBucket",
+        "sqs:GetQueue*",
+        "sqs:ListQueues",
+        "kms:Describe*",
+        "kms:List*",
+        "kms:GetKeyPolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "logs:Describe*",
+        "cloudwatch:Describe*",
+        "cloudwatch:GetMetric*",
+        "cloudwatch:ListMetrics",
+        "route53:GetHostedZone",
+        "route53:ListResourceRecordSets",
+        "cloudfront:GetDistribution",
+        "wafv2:GetWebACL",
+        "cognito-idp:Describe*",
+        "apigateway:GET",
+        "lambda:GetFunction",
+        "lambda:GetPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DecryptStateKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
+    },
+    {
+      "Sid": "DecryptContractsKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.network.v1",
+  "title": "Network Layer Contract Outputs",
+  "type": "object",
+  "required": ["vpc_id", "private_subnet_ids", "public_subnet_ids", "data_subnet_ids", "vpc_endpoint_sg_id"],
+  "additionalProperties": false,
+  "properties": {
+    "vpc_id": { "type": "string", "pattern": "^vpc-[a-f0-9]+$" },
+    "vpc_cidr": { "type": "string" },
+    "private_subnet_ids": { "type": "array", "items": { "type": "string", "pattern": "^subnet-[a-f0-9]+$" }, "minItems": 2 },
+    "public_subnet_ids": { "type": "array", "items": { "type": "string", "pattern": "^subnet-[a-f0-9]+$" }, "minItems": 2 },
+    "data_subnet_ids": { "type": "array", "items": { "type": "string", "pattern": "^subnet-[a-f0-9]+$" }, "minItems": 2 },
+    "availability_zone_ids": { "type": "array", "items": { "type": "string", "pattern": "^[a-z]{3}[0-9]+-az[0-9]+$" }, "minItems": 2, "description": "AZ IDs (not names) per ADR-008" },
+    "nat_gateway_ids": { "type": "array", "items": { "type": "string", "pattern": "^nat-[a-f0-9]+$" } },
+    "vpc_endpoint_sg_id": { "type": "string", "pattern": "^sg-[a-f0-9]+$" }
+  }
+}

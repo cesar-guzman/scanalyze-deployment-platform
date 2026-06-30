@@ -1,0 +1,5 @@
+{
+  "cloudfront_distribution_id": "E1ABCDEF2GHIJ3",
+  "cloudfront_domain_name": "d123abc456.cloudfront.net",
+  "route53_hosted_zone_id": "Z0123456789ABCDEFGHIJ"
+}

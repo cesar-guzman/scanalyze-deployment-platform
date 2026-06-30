@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.region-capability.v1",
+  "title": "Region Capability Matrix v1",
+  "description": "Documents which AWS services are available in each region and their configuration parameters.",
+  "type": "object",
+  "required": ["region", "services"],
+  "additionalProperties": false,
+  "properties": {
+    "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
+    "services": {
+      "type": "object",
+      "required": ["ecs_fargate", "dynamodb", "s3", "sqs", "cognito", "textract", "bedrock"],
+      "additionalProperties": false,
+      "properties": {
+        "ecs_fargate": { "$ref": "#/$defs/service_capability" },
+        "dynamodb": { "$ref": "#/$defs/service_capability" },
+        "dynamodb_global_tables": { "$ref": "#/$defs/service_capability" },
+        "s3": { "$ref": "#/$defs/service_capability" },
+        "sqs": { "$ref": "#/$defs/service_capability" },
+        "cognito": { "$ref": "#/$defs/service_capability" },
+        "textract": { "$ref": "#/$defs/service_capability" },
+        "bedrock": { "$ref": "#/$defs/service_capability" },
+        "kms_multi_region": { "$ref": "#/$defs/service_capability" },
+        "api_gateway_v2": { "$ref": "#/$defs/service_capability" },
+        "cloudfront": { "$ref": "#/$defs/service_capability" },
+        "route53": { "$ref": "#/$defs/service_capability" },
+        "wafv2": { "$ref": "#/$defs/service_capability" },
+        "signer": { "$ref": "#/$defs/service_capability" }
+      }
+    },
+    "bedrock_models": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" },
+      "description": "Model availability per model ID"
+    }
+  },
+  "$defs": {
+    "service_capability": {
+      "type": "object",
+      "required": ["available"],
+      "additionalProperties": false,
+      "properties": {
+        "available": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}
