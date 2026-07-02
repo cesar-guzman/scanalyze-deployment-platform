@@ -49,3 +49,6 @@ config
 Thumbs.db
 .DS_Store
 ._*
+
+# M3 ephemeral work directory (plans, state, discovery — never committed)
+.work/

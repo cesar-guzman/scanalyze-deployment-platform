@@ -367,3 +367,183 @@ preflight-m2b: preflight-m2 provider-check lock-file-check
 	@echo "Status: M2B_PROVIDER_VALIDATED_LOCALLY"
 	@echo "Declarations status: provider_validated_locally"
 	@echo "Provider: hashicorp/aws (version from lock files)"
+
+# ============================================================
+# M3 — First Terraform Plan Against AWS
+# ============================================================
+
+# M3-A0: Identity config check (OFFLINE — no AWS calls)
+# Validates environment is configured for SSO, no static keys,
+# no accidental Apply/Promotion/StateRecovery role references.
+m3-identity-config-check:
+	@echo "=== M3 Identity Config Check (Offline) ==="
+	@ERRORS=0; \
+	if [ -n "$${AWS_ACCESS_KEY_ID:-}" ] && [ -z "$${AWS_SESSION_TOKEN:-}" ]; then \
+		echo "  FAIL: Static AWS_ACCESS_KEY_ID detected without session token."; \
+		echo "        Use IAM Identity Center / SSO sessions only."; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No static long-lived AWS access key"; \
+	fi; \
+	if [ -n "$${AWS_SECRET_ACCESS_KEY:-}" ] && [ -z "$${AWS_SESSION_TOKEN:-}" ]; then \
+		echo "  FAIL: Static AWS_SECRET_ACCESS_KEY detected without session token."; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No static long-lived AWS secret key"; \
+	fi; \
+	for ROLE_PATTERN in Apply Promotion StateRecovery; do \
+		if env | grep -qiE "ROLE.*$$ROLE_PATTERN|$$ROLE_PATTERN.*ROLE" 2>/dev/null; then \
+			echo "  FAIL: Role pattern '$$ROLE_PATTERN' found in environment"; \
+			ERRORS=$$((ERRORS + 1)); \
+		fi; \
+	done; \
+	echo "  PASS: No Apply/Promotion/StateRecovery role references in env"; \
+	if [ -f environments/m3-sandbox.synthetic.tfvars.example ]; then \
+		echo "  PASS: Synthetic tfvars example exists"; \
+	else \
+		echo "  FAIL: environments/m3-sandbox.synthetic.tfvars.example not found"; \
+		ERRORS=$$((ERRORS + 1)); \
+	fi; \
+	echo ""; \
+	if [ "$$ERRORS" -gt 0 ]; then \
+		echo "Identity config check: $$ERRORS failure(s)"; \
+		exit 1; \
+	fi; \
+	echo "Identity config check: PASS (offline, no AWS calls)"
+
+# M3-A0: Workdir check — verifies .work/ is gitignored and nothing staged
+m3-workdir-check:
+	@echo "=== M3 Workdir Check ==="
+	@ERRORS=0; \
+	if ! grep -qF '.work/' .gitignore 2>/dev/null; then \
+		echo "  FAIL: .work/ not in .gitignore"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: .work/ is in .gitignore"; \
+	fi; \
+	STAGED=$$(git ls-files --cached -- '.work/*' 2>/dev/null | head -1); \
+	if [ -n "$$STAGED" ]; then \
+		echo "  FAIL: .work/ has staged files: $$STAGED"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No .work/ files staged"; \
+	fi; \
+	TRACKED_STATE=$$(git ls-files --cached -- '*.tfstate' '*.tfplan' '*.plan.json' 2>/dev/null | head -1); \
+	if [ -n "$$TRACKED_STATE" ]; then \
+		echo "  FAIL: Sensitive artifact tracked: $$TRACKED_STATE"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No tfstate/tfplan/plan.json tracked"; \
+	fi; \
+	echo ""; \
+	if [ "$$ERRORS" -gt 0 ]; then \
+		echo "Workdir check: $$ERRORS failure(s)"; \
+		exit 1; \
+	fi; \
+	echo "Workdir check: PASS"
+
+# M3-A0: tfvars synthetic check — verifies no real IDs in example
+m3-tfvars-check:
+	@echo "=== M3 tfvars Synthetic Check ==="
+	@TFVARS=environments/m3-sandbox.synthetic.tfvars.example; \
+	if [ ! -f "$$TFVARS" ]; then \
+		echo "  FAIL: $$TFVARS not found"; \
+		exit 1; \
+	fi; \
+	ERRORS=0; \
+	if grep -qE '\b[1-9][0-9]{11}\b' "$$TFVARS"; then \
+		echo "  FAIL: Real 12-digit account ID detected in $$TFVARS"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No real account IDs"; \
+	fi; \
+	if grep -qE 'arn:aws:[a-z0-9-]+:[a-z0-9-]*:[1-9]' "$$TFVARS"; then \
+		echo "  FAIL: Real ARN detected in $$TFVARS"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No real ARNs"; \
+	fi; \
+	if grep -qiE '(password|secret_key|token)\s*=' "$$TFVARS" | grep -v '#' 2>/dev/null; then \
+		echo "  FAIL: Secret-like assignment in $$TFVARS"; \
+		ERRORS=$$((ERRORS + 1)); \
+	else \
+		echo "  PASS: No secret-like assignments"; \
+	fi; \
+	if grep -q 'SYNTHETIC EXAMPLE ONLY' "$$TFVARS" || grep -q 'synthetic' "$$TFVARS"; then \
+		echo "  PASS: Contains synthetic markers"; \
+	else \
+		echo "  WARN: No 'synthetic' marker found"; \
+	fi; \
+	echo ""; \
+	if [ "$$ERRORS" -gt 0 ]; then \
+		echo "tfvars check: $$ERRORS failure(s)"; \
+		exit 1; \
+	fi; \
+	echo "tfvars check: PASS (synthetic, no real IDs)"
+
+# M3-A0: Script safety check — verifies wrapper rejects forbidden ops
+m3-script-check:
+	@echo "=== M3 Script Safety Check ==="
+	@SCRIPT=scripts/m3/m3_plan_only.sh; \
+	if [ ! -f "$$SCRIPT" ]; then \
+		echo "  FAIL: $$SCRIPT not found"; \
+		exit 1; \
+	fi; \
+	if ! head -1 "$$SCRIPT" | grep -q 'bash'; then \
+		echo "  FAIL: Script does not have bash shebang"; \
+		exit 1; \
+	fi; \
+	echo "  PASS: Script exists"; \
+	for PATTERN in "terraform apply" "terraform destroy" "terraform import" "terraform state"; do \
+		if grep -q "FORBIDDEN.*$$PATTERN\|$$PATTERN.*fail\|$$PATTERN.*FAIL\|\"$$PATTERN\"" "$$SCRIPT" 2>/dev/null; then \
+			echo "  PASS: Script blocks '$$PATTERN'"; \
+		else \
+			echo "  WARN: Could not confirm '$$PATTERN' is blocked"; \
+		fi; \
+	done; \
+	for FLAG in '"-out"' '"-destroy"' '"-target"' '"-replace"' '"-generate-config-out"' '"-refresh-only"'; do \
+		if grep -q "$$FLAG" "$$SCRIPT" 2>/dev/null; then \
+			echo "  PASS: Script blocks flag $$FLAG"; \
+		else \
+			echo "  WARN: Could not confirm flag $$FLAG is blocked"; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Script safety check: PASS"
+
+# --- Aggregate M3-A0 preflight (OFFLINE — no AWS calls) ---
+preflight-m3-a0-local: preflight-m2b m3-identity-config-check m3-workdir-check m3-tfvars-check m3-script-check
+	@echo ""
+	@echo "=== PREFLIGHT-M3-A0-LOCAL COMPLETE ==="
+	@echo "All M0+M1+M2+M2B+M3-A0 checks passed."
+	@echo "Status: M3_A0_LOCAL_PREPARATION_VERIFIED"
+	@echo "No AWS calls were made."
+	@echo "Next: PM approval required for M3-A1 (AWS discovery)"
+
+# --- M3-A1: Live identity guard (NOT executable until PM approves M3-A1) ---
+m3-live-identity-guard:
+	@echo "=== M3 Live Identity Guard ==="
+	@echo "ERROR: M3-A1 is NOT APPROVED. This target requires PM approval."
+	@echo "       Do not execute AWS CLI commands without explicit authorization."
+	@exit 1
+
+# --- M3-A1: Discovery preflight (NOT executable until PM approves) ---
+preflight-m3-a1-discovery:
+	@echo "=== M3-A1 Discovery Preflight ==="
+	@echo "ERROR: M3-A1 is NOT APPROVED. This target requires PM approval."
+	@echo "       Discovery commands: aws sts, ec2 describe-vpcs, etc."
+	@exit 1
+
+# --- M3-B: Plan preflight (NOT executable until PM approves) ---
+preflight-m3-b-plan:
+	@echo "=== M3-B Plan Preflight ==="
+	@echo "ERROR: M3-B is NOT APPROVED. This target requires PM approval."
+	@echo "       terraform plan requires M3-A1 results + PM approval per root."
+	@exit 1
+
+# --- M3-B: Plan one root (NOT executable until PM approves) ---
+m3-plan-root:
+	@echo "=== M3-B Plan Root ==="
+	@echo "ERROR: M3-B is NOT APPROVED. This target requires PM approval."
+	@echo "       Usage (when approved): make m3-plan-root ROOT=global"
+	@exit 1

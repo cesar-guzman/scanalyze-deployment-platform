@@ -176,6 +176,46 @@ All paths relative to `scanalyze-deployment-platform/`:
 - `reports/m2b-provider-validation-report.md`
 - `reports/platform-v2-discrepancy-register.md` (updated)
 
+---
+
+## M3-A0 Additions (Local Preparation)
+
+### Environments (M3-A0)
+- `environments/m3-sandbox.synthetic.tfvars.example` — synthetic-only, no real IDs
+
+### Scripts (M3-A0)
+- `scripts/m3/m3_plan_only.sh` — fail-closed plan wrapper
+
+### Tooling (M3-A0)
+- `tooling/sanitize_plan_summary.py` — conservative plan sanitizer
+
+### Makefile Targets (M3-A0)
+- `m3-identity-config-check` — offline identity validation
+- `m3-workdir-check` — .work/ gitignore audit
+- `m3-tfvars-check` — synthetic tfvars validation
+- `m3-script-check` — script safety verification
+- `preflight-m3-a0-local` — aggregate M3-A0 preflight
+- `m3-live-identity-guard` — stub, blocked until M3-A1 approved
+- `preflight-m3-a1-discovery` — stub, blocked until M3-A1 approved
+- `preflight-m3-b-plan` — stub, blocked until M3-B approved
+- `m3-plan-root` — stub, blocked until M3-B approved
+
+### Configuration (M3-A0)
+- `.gitignore` — added `.work/` directory
+
+### Ephemeral (not committed, M3-A0)
+- `.work/m3/plans/` — for raw plan output (gitignored)
+- `.work/m3/state/` — for local tfstate if generated (gitignored)
+- `.work/m3/discovery/` — for raw discovery output (gitignored)
+
+### Rollback procedure for M3-A0
+1. Remove files listed above from repo.
+2. Remove `.work/` line from `.gitignore`.
+3. Remove M3 targets from `Makefile` (everything after `# M3 —` marker).
+4. Delete `.work/` directory entirely.
+5. Run `make git-safety` and `make security-check`.
+6. Do NOT use `git stash`, `git reset`, `git clean`, or `git checkout -- .`
+
 ## Explicitly NOT Modified
 
 - `scanalyze-micros/` — brownfield, untouched
@@ -202,4 +242,7 @@ find . -name '.env'
 
 # Confirm no provider caches committed
 git ls-files .terraform/
+
+# Confirm no .work/ artifacts committed
+git ls-files .work/
 ```

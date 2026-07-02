@@ -1,0 +1,89 @@
+# ============================================================================
+# SYNTHETIC EXAMPLE ONLY — DO NOT USE FOR PLAN/APPLY WITHOUT PM APPROVAL
+# ============================================================================
+#
+# This file contains SYNTHETIC placeholder values for structural plan testing.
+# It does NOT contain:
+#   - Real AWS account IDs
+#   - Real domain names
+#   - Real ARNs or resource IDs
+#   - Brownfield resource references
+#   - Customer data, PII, secrets, or credentials
+#
+# Purpose:
+#   M3-B speculative plan verification (terraform plan -refresh=false)
+#   to confirm declaration correctness against provider schema.
+#
+# Usage:
+#   terraform plan -var-file=environments/m3-sandbox.synthetic.tfvars.example \
+#     -refresh=false -no-color -input=false
+#
+# Status: SYNTHETIC — not connected to any AWS account
+# ============================================================================
+
+# --- Common variables (all roots) ---
+
+deployment_id          = "dep_00SYNTHETIC000000000000000"
+account_id             = "000000000000"
+region                 = "us-east-1"
+release_version        = "v0.0.0-m3-synthetic"
+release_manifest_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# --- Contract chain variables ---
+# These values form a synthetic contract chain for structural testing.
+# Real values would come from the deployment record and inter-layer contracts.
+
+upstream_contract_digest = "sha256:synthetic-upstream-digest-for-structural-plan-testing-only-000000"
+expected_upstream_digest = "sha256:synthetic-upstream-digest-for-structural-plan-testing-only-000000"
+upstream_schema_version  = "1"
+accepted_schema_versions = ["1"]
+
+# --- account-ready-gate specific ---
+
+account_ready_contract_digest = "sha256:synthetic-account-ready-digest-for-testing-only-0000000000000"
+expected_contract_digest      = "sha256:synthetic-account-ready-digest-for-testing-only-0000000000000"
+
+# --- platform root (VPC/network outputs from upstream) ---
+
+vpc_id               = "vpc-00synthetic000"
+private_subnet_ids   = { "a" = "subnet-00syntha000", "b" = "subnet-00synthb000" }
+vpc_cidr_block       = "10.0.0.0/16"
+internal_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000"
+
+# --- services root (ECS/ALB outputs from upstream) ---
+
+ecs_cluster_arn            = "arn:aws:ecs:us-east-1:000000000000:cluster/synthetic-cluster"
+ecs_task_execution_role_arn = "arn:aws:iam::000000000000:role/synthetic-task-execution-role"
+workload_role_arns = {
+  "scanalyze-ingest-api"       = "arn:aws:iam::000000000000:role/synthetic-ingest-api"
+  "scanalyze-classifier-worker" = "arn:aws:iam::000000000000:role/synthetic-classifier"
+  "scanalyze-ocr-worker"       = "arn:aws:iam::000000000000:role/synthetic-ocr"
+  "scanalyze-postprocess-worker" = "arn:aws:iam::000000000000:role/synthetic-postprocess"
+  "scanalyze-bank-worker"      = "arn:aws:iam::000000000000:role/synthetic-bank"
+  "scanalyze-personal-worker"  = "arn:aws:iam::000000000000:role/synthetic-personal"
+  "scanalyze-gov-worker"       = "arn:aws:iam::000000000000:role/synthetic-gov"
+}
+alb_listener_arn      = "arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/synthetic-alb/0000000000000000/0000000000000000"
+alb_security_group_id = "sg-00synthetic000"
+
+service_definitions = {
+  "scanalyze-ingest-api" = {
+    cpu    = 512
+    memory = 1024
+    port   = 8000
+    desired_count = 1
+    health_check_path = "/health"
+    environment = {}
+  }
+}
+
+# --- edge-identity root ---
+
+domain_name             = "synthetic.example.invalid"
+api_access_log_group_arn = "arn:aws:logs:us-east-1:000000000000:log-group:/synthetic/api-access"
+
+# --- edge root ---
+
+route53_zone_id              = "Z00SYNTHETIC0000"
+api_gateway_endpoint         = "https://synthetic-api.execute-api.us-east-1.amazonaws.com"
+frontend_bucket_domain_name  = "synthetic-frontend-000000000000.s3.amazonaws.com"
