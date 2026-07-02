@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.14.6, < 1.15.0"
 
   # NOTE: No provider block in module skeletons.
   # Provider configuration is injected by the calling root.

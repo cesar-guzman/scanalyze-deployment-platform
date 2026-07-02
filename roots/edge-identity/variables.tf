@@ -55,3 +55,35 @@ variable "accepted_schema_versions" {
   default     = ["1"]
   description = "List of accepted upstream contract schema versions"
 }
+
+# --- Variables consumed by modules/edge-identity ---
+
+variable "domain_name" {
+  type        = string
+  description = "Primary domain name for Cognito and API Gateway"
+}
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC ID from network contract"
+}
+
+variable "private_subnet_ids" {
+  type        = map(string)
+  description = "Map of AZ ID to private subnet ID from network contract"
+}
+
+variable "alb_listener_arn" {
+  type        = string
+  description = "Internal ALB listener ARN from platform contract"
+}
+
+variable "alb_security_group_id" {
+  type        = string
+  description = "ALB security group ID from platform contract"
+}
+
+variable "api_access_log_group_arn" {
+  type        = string
+  description = "CloudWatch log group ARN for API Gateway access logs"
+}

@@ -55,3 +55,25 @@ variable "accepted_schema_versions" {
   default     = ["1"]
   description = "List of accepted upstream contract schema versions"
 }
+
+# --- Variables consumed by modules/edge ---
+
+variable "domain_name" {
+  type        = string
+  description = "Primary domain name for CloudFront and ACM"
+}
+
+variable "route53_zone_id" {
+  type        = string
+  description = "Route53 hosted zone ID for DNS records"
+}
+
+variable "api_gateway_endpoint" {
+  type        = string
+  description = "API Gateway endpoint URL from edge-identity contract"
+}
+
+variable "frontend_bucket_domain_name" {
+  type        = string
+  description = "S3 bucket regional domain name for frontend assets"
+}

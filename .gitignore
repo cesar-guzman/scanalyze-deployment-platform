@@ -17,7 +17,7 @@ venv/
 *.tfstate
 *.tfstate.backup
 *.tfplan
-.terraform.lock.hcl
+# NOTE: .terraform.lock.hcl is NOT ignored — committed as reproducibility evidence
 crash.log
 override.tf
 override.tf.json

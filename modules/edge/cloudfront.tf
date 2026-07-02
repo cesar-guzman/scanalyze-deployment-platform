@@ -6,6 +6,7 @@
 # Frontend S3 bucket is consumed from contract/input (NOT created here).
 
 resource "aws_cloudfront_distribution" "main" {
+  provider            = aws.us_east_1
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
@@ -102,6 +103,7 @@ resource "aws_cloudfront_distribution" "main" {
 }
 
 resource "aws_cloudfront_origin_access_control" "s3" {
+  provider                          = aws.us_east_1
   name                              = "${var.deployment_id}-oac"
   description                       = "OAC for frontend S3 bucket"
   origin_access_control_origin_type = "s3"

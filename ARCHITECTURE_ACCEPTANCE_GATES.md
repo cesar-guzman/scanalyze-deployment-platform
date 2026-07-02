@@ -1,9 +1,9 @@
 # Architecture Acceptance Gates
 
-> **Status**: M2 Level A — Local Declarations (authored_not_provider_validated)  
-> **Date**: 2026-06-30  
-> **Format**: Machine-readable YAML blocks + human narrative  
-> **Toolchain**: BLOCKED_TOOLING — actual Python 3.11.14/Terraform 1.14.6 ≠ pinned 3.11.12/1.12.1
+> **Status**: M2 Level B — Provider Validated Locally (provider_validated_locally)
+> **Date**: 2026-07-02
+> **Format**: Machine-readable YAML blocks + human narrative
+> **Toolchain**: Python 3.11.14 / Terraform 1.14.6 / AWS Provider 5.100.0
 
 ---
 
@@ -314,7 +314,7 @@ blockers:
 | Organization | 0 | 0 | 1 | 1 |
 | **Total** | **1** | **8** | **5** | **14** |
 
-> **M2 current**: 1 gate at `implemented_locally`, 8 at `partial_local`, 5 at `pending_design`.  
-> **M2 changes**: Gate 5 (Contract Fail-Closed) promoted to `implemented_locally` (90/90 harness). Gate 9 (Supply-Chain Policy) promoted from `pending_design` to `partial_local`.  
-> **Toolchain**: BLOCKED_TOOLING — verification ran on Python 3.11.14/TF 1.14.6, not pinned 3.11.12/1.12.1.  
-> **All declarations**: authored_not_provider_validated.
+> **M2B current**: 1 gate at `implemented_locally`, 8 at `partial_local`, 5 at `pending_design`.
+> **M2B changes**: Toolchain pins resolved (D-001, D-001b). All 9/9 roots `terraform validate` pass. Provider aws 5.100.0 locked.
+> **Toolchain**: Python 3.11.14 / Terraform 1.14.6 (pins match actuals).
+> **All declarations**: provider_validated_locally.

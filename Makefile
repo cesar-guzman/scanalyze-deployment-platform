@@ -309,3 +309,61 @@ preflight-m2: preflight-m1 module-ownership-check edge-split-check services-owne
 	@echo "All M0+M1+M2 checks passed."
 	@echo "Status: M2_LOCAL_EVIDENCE_GENERATED"
 	@echo "Declarations status: authored_not_provider_validated"
+
+# ============================================================
+# M2 Level B — Provider Validation
+# ============================================================
+
+ROOT_DIRS = account-ready-gate global network platform data-foundation services edge-identity edge addons
+
+aws-credentials-guard:
+	@echo "=== AWS Credentials Guard ==="
+	@if env | grep -qE '^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_WEB_IDENTITY_TOKEN_FILE)='; then \
+		echo "FAIL: AWS credentials/profile found in environment. Refusing to proceed."; \
+		exit 1; \
+	fi
+	@echo "PASS: No AWS credentials in environment"
+
+provider-init: aws-credentials-guard
+	@echo "=== Provider Init (backend=false) ==="
+	@for root in $(ROOT_DIRS); do \
+		echo "  Initializing roots/$$root..."; \
+		$(TERRAFORM) -chdir=roots/$$root init -backend=false -input=false -no-color 2>&1 | tail -1; \
+	done
+	@echo "Provider init complete."
+
+provider-validate: aws-credentials-guard
+	@echo "=== Provider Validate ==="
+	@ERRORS=0; \
+	for root in $(ROOT_DIRS); do \
+		RESULT=$$($(TERRAFORM) -chdir=roots/$$root validate -no-color 2>&1); \
+		if echo "$$RESULT" | grep -q "Success"; then \
+			echo "  PASS: roots/$$root"; \
+		else \
+			echo "  FAIL: roots/$$root"; \
+			echo "$$RESULT" | head -5; \
+			ERRORS=$$((ERRORS + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	if [ "$$ERRORS" -gt 0 ]; then \
+		echo "Provider validate: $$ERRORS failures"; \
+		exit 1; \
+	fi; \
+	echo "Provider validate: ALL PASS (9/9)"
+
+provider-check: provider-init provider-validate
+	@echo ""
+	@echo "=== Provider Check Complete ==="
+
+lock-file-check:
+	@echo "=== Lock File Check ==="
+	@$(PYTHON) tooling/check_lock_files.py
+
+preflight-m2b: preflight-m2 provider-check lock-file-check
+	@echo ""
+	@echo "=== PREFLIGHT-M2B COMPLETE ==="
+	@echo "All M0+M1+M2+M2B checks passed."
+	@echo "Status: M2B_PROVIDER_VALIDATED_LOCALLY"
+	@echo "Declarations status: provider_validated_locally"
+	@echo "Provider: hashicorp/aws (version from lock files)"

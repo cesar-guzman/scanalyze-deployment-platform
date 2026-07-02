@@ -3,16 +3,11 @@
 # State key: {dep_id}/{region}/network/terraform.tfstate
 # Module: modules/network
 #
-# This root calls the network module and publishes its
-# contract to SSM (when providers are configured in M2+).
-#
 # Rules:
 # - No terraform_remote_state
 # - No workspaces for customer isolation
 # - No hardcoded account IDs
 # - No external modules
-# - No :latest in any image reference
-# - No timestamp()
 
 module "network" {
   source = "../../modules/network"
@@ -22,4 +17,9 @@ module "network" {
   region                  = var.region
   release_version         = var.release_version
   release_manifest_digest = var.release_manifest_digest
+
+  upstream_contract_digest = var.upstream_contract_digest
+  expected_upstream_digest = var.expected_upstream_digest
+
+  # vpc_cidr, private/public_subnet_cidrs, vpc_endpoint_services have defaults
 }

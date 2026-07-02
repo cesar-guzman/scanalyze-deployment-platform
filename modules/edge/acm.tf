@@ -3,6 +3,7 @@
 # Status: authored_not_provider_validated
 
 resource "aws_acm_certificate" "main" {
+  provider                  = aws.us_east_1
   domain_name               = var.domain_name
   subject_alternative_names = var.domain_aliases
   validation_method         = "DNS"
@@ -19,6 +20,7 @@ resource "aws_acm_certificate" "main" {
 }
 
 resource "aws_acm_certificate_validation" "main" {
+  provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.main.arn
   validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
 }

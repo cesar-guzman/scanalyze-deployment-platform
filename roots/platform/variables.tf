@@ -55,3 +55,25 @@ variable "accepted_schema_versions" {
   default     = ["1"]
   description = "List of accepted upstream contract schema versions"
 }
+
+# --- Variables consumed by modules/container-platform ---
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC ID from network layer"
+}
+
+variable "private_subnet_ids" {
+  type        = map(string)
+  description = "Map of AZ ID to private subnet ID from network contract"
+}
+
+variable "vpc_cidr_block" {
+  type        = string
+  description = "VPC CIDR block for security group rules"
+}
+
+variable "internal_certificate_arn" {
+  type        = string
+  description = "ACM certificate ARN for internal ALB HTTPS listener"
+}

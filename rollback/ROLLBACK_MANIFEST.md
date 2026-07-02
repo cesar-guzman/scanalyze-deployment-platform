@@ -1,9 +1,9 @@
-# Rollback Manifest — M2 Level A
+# Rollback Manifest — M2 Level B
 
-> **Purpose**: Manifest-based rollback for M0+M1+M2 scaffold and declarations.
+> **Purpose**: Manifest-based rollback for M0+M1+M2+M2B scaffold, declarations, and provider validation.
 > All changes are additive within `scanalyze-deployment-platform/`.
 > No files outside this repository were modified.
-> No AWS resources were created (all declarations are `authored_not_provider_validated`).
+> No AWS resources were created. All declarations are `provider_validated_locally`.
 
 ## Verification Before Rollback
 
@@ -139,12 +139,51 @@ All paths relative to `scanalyze-deployment-platform/`:
 - `reports/m2-final-report.md`
 - `reports/platform-v2-discrepancy-register.md` (updated)
 
+## M2 Level B Additions
+
+### Provider Configuration (per root)
+- `roots/*/providers.tf` — provider aws with skip_credentials_validation (9 files)
+- `roots/edge/providers.tf` — includes aws.us_east_1 alias
+
+### Lock Files (committed for reproducibility)
+- `roots/*/.terraform.lock.hcl` — hashicorp/aws 5.100.0 (9 files)
+
+### Version Pin Updates
+- `.terraform-version` — 1.12.1 → 1.14.6
+- `.tool-versions` — terraform 1.14.6, python 3.11.14
+- `modules/*/versions.tf` — required_version >= 1.14.6, < 1.15.0 (9 files)
+- `roots/*/versions.tf` — required_version + required_providers aws ~> 5.80 (9 files)
+- `modules/edge/versions.tf` — configuration_aliases = [aws.us_east_1]
+
+### Root Wiring Updates
+- `roots/*/main.tf` — module blocks now pass all required variables (8 files)
+- `roots/platform/variables.tf` — vpc_id, private_subnet_ids, vpc_cidr_block, internal_certificate_arn
+- `roots/services/variables.tf` — ecs vars, vpc/subnet/alb vars, service_definitions
+- `roots/edge-identity/variables.tf` — domain_name, vpc/subnet/alb vars, api_access_log_group_arn
+- `roots/edge/variables.tf` — domain_name, route53_zone_id, api_gateway_endpoint, frontend_bucket_domain_name
+
+### Module Fixes Found by Provider Validation
+- `modules/edge-identity/api_gateway.tf` — added required `format` in access_log_settings
+- `modules/edge/*.tf` — added `provider = aws.us_east_1` to all resources
+
+### Gitignore
+- `.gitignore` — removed `.terraform.lock.hcl` (now committed)
+
+### Tooling (M2B)
+- `tooling/check_lock_files.py` — lock file integrity checker
+
+### Reports (M2B)
+- `reports/m2b-provider-validation-report.md`
+- `reports/platform-v2-discrepancy-register.md` (updated)
+
 ## Explicitly NOT Modified
 
 - `scanalyze-micros/` — brownfield, untouched
 - System Python / Terraform installations
 - Any AWS resources
 - Any git remote state
+- No terraform plan or apply executed
+- No AWS credentials used
 
 ## Post-Rollback Verification
 
@@ -160,4 +199,7 @@ find . -name '*.tfstate'
 
 # Confirm no .env files
 find . -name '.env'
+
+# Confirm no provider caches committed
+git ls-files .terraform/
 ```

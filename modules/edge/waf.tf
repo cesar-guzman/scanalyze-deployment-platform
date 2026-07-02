@@ -3,8 +3,9 @@
 # Status: authored_not_provider_validated
 
 resource "aws_wafv2_web_acl" "cloudfront" {
-  name  = "${var.deployment_id}-waf-cloudfront"
-  scope = "CLOUDFRONT"
+  provider = aws.us_east_1
+  name     = "${var.deployment_id}-waf-cloudfront"
+  scope    = "CLOUDFRONT"
 
   default_action {
     allow {}
