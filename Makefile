@@ -185,7 +185,7 @@ toolchain-status:
 
 # ── Module Check (M1) ───────────────────────────────────────────────
 MODULE_REQUIRED_FILES := README.md versions.tf variables.tf outputs.tf locals.tf contract.tf
-MODULE_DIRS := global network container-platform data-foundation services edge-identity edge addons replicated-data
+MODULE_DIRS := global network container-platform data-foundation services edge-identity edge addons replicated-data cicd
 
 module-check:
 	@echo "=== Module Skeleton Check ==="
@@ -209,7 +209,7 @@ module-check:
 
 # ── Root Check (M1) ─────────────────────────────────────────────────
 ROOT_REQUIRED_FILES := README.md versions.tf variables.tf main.tf outputs.tf contract_validation.tf backend.example.hcl
-ROOT_DIRS := account-ready-gate global network platform data-foundation services edge-identity edge addons
+ROOT_DIRS := account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
 
 root-check:
 	@echo "=== Root Skeleton Check ==="
@@ -296,6 +296,12 @@ services-ownership-check:
 	@$(PYTHON) $(TOOLING_DIR)/lint_services_ownership.py
 	@echo "Services ownership check complete."
 
+# CI/CD safety linter (blocks ECS deploy, ecs:*, PassRole *, hardcoded IDs)
+cicd-safety-check:
+	@echo "=== CI/CD Safety Check ==="
+	@$(PYTHON) $(TOOLING_DIR)/lint_cicd_safety.py
+	@echo "CI/CD safety check complete."
+
 # Module interface static check (no provider — validates vars/outputs completeness)
 module-interface-check:
 	@echo "=== Module Interface Check ==="
@@ -314,7 +320,7 @@ preflight-m2: preflight-m1 module-ownership-check edge-split-check services-owne
 # M2 Level B — Provider Validation
 # ============================================================
 
-ROOT_DIRS = account-ready-gate global network platform data-foundation services edge-identity edge addons
+ROOT_DIRS = account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
 
 aws-credentials-guard:
 	@echo "=== AWS Credentials Guard ==="
@@ -547,3 +553,49 @@ m3-plan-root:
 	@echo "ERROR: M3-B is NOT APPROVED. This target requires PM approval."
 	@echo "       Usage (when approved): make m3-plan-root ROOT=global"
 	@exit 1
+
+# ============================================================
+# Sandbox Lifecycle — Up / Down / Status / Cost
+# ============================================================
+# These targets orchestrate terraform apply and destroy across
+# all layers in dependency order. Designed for sandbox environments
+# where full teardown is used to minimize costs.
+#
+# IMPORTANT: apply and destroy are NOT approved until PM authorizes.
+# The cost and status targets are informational and safe to run.
+#
+# Usage:
+#   make sandbox-up      SANDBOX_APPROVED=true SANDBOX_ACCOUNT_ID=... SANDBOX_REGION=... SANDBOX_TFVARS=...
+#   make sandbox-down    SANDBOX_APPROVED=true SANDBOX_ACCOUNT_ID=... SANDBOX_REGION=... SANDBOX_TFVARS=...
+#   make sandbox-status  SANDBOX_REGION=us-west-2
+#   make sandbox-cost
+
+sandbox-up:
+	@echo "=== Sandbox UP ==="
+	@if [ "$${SANDBOX_APPROVED:-}" != "true" ]; then \
+		echo "ERROR: terraform apply is NOT APPROVED."; \
+		echo "       Set SANDBOX_APPROVED=true only when PM has explicitly authorized."; \
+		echo "       Required: SANDBOX_ACCOUNT_ID, SANDBOX_REGION, SANDBOX_TFVARS"; \
+		exit 1; \
+	fi
+	@chmod +x scripts/m3/sandbox_lifecycle.sh
+	@scripts/m3/sandbox_lifecycle.sh up
+
+sandbox-down:
+	@echo "=== Sandbox DOWN ==="
+	@if [ "$${SANDBOX_APPROVED:-}" != "true" ]; then \
+		echo "ERROR: terraform destroy is NOT APPROVED."; \
+		echo "       Set SANDBOX_APPROVED=true only when PM has explicitly authorized."; \
+		echo "       This will destroy ALL resources in the sandbox account."; \
+		exit 1; \
+	fi
+	@chmod +x scripts/m3/sandbox_lifecycle.sh
+	@scripts/m3/sandbox_lifecycle.sh down
+
+sandbox-status:
+	@chmod +x scripts/m3/sandbox_lifecycle.sh
+	@scripts/m3/sandbox_lifecycle.sh status
+
+sandbox-cost:
+	@chmod +x scripts/m3/sandbox_lifecycle.sh
+	@scripts/m3/sandbox_lifecycle.sh cost
