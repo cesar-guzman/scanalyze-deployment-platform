@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cicd-contract.v1.schema.json",
+  "title": "CI/CD Contract v1",
+  "description": "Contract output for the cicd layer. Consumed by services layer for digest-pinned images and by deployment orchestrator for pipeline status.",
+  "type": "object",
+  "required": [
+    "layer",
+    "schema_version",
+    "state_scope",
+    "artifact_bucket_name",
+    "artifact_kms_key_arn",
+    "codebuild_role_arn",
+    "codepipeline_role_arn",
+    "ecr_repositories",
+    "pipelines"
+  ],
+  "properties": {
+    "layer": {
+      "type": "string",
+      "const": "cicd"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "state_scope": {
+      "type": "string",
+      "enum": ["regional"]
+    },
+    "artifact_bucket_name": {
+      "type": "string",
+      "description": "S3 bucket for CI/CD artifacts"
+    },
+    "artifact_kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:kms:",
+      "description": "KMS key ARN for artifact encryption"
+    },
+    "codebuild_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam:",
+      "description": "IAM role ARN for CodeBuild projects"
+    },
+    "codepipeline_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam:",
+      "description": "IAM role ARN for CodePipeline"
+    },
+    "ecr_repositories": {
+      "type": "object",
+      "description": "Map of service name to ECR repository metadata",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["repository_url", "repository_arn"],
+        "properties": {
+          "repository_url": {
+            "type": "string",
+            "description": "Full ECR repository URL (account.dkr.ecr.region.amazonaws.com/name)"
+          },
+          "repository_arn": {
+            "type": "string",
+            "pattern": "^arn:aws:ecr:"
+          }
+        }
+      }
+    },
+    "pipelines": {
+      "type": "object",
+      "description": "Map of service name to pipeline metadata",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["pipeline_arn", "pipeline_name"],
+        "properties": {
+          "pipeline_arn": {
+            "type": "string",
+            "pattern": "^arn:aws:codepipeline:"
+          },
+          "pipeline_name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "release_metadata": {
+      "type": "object",
+      "description": "SSM parameter paths for image metadata",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "image_tag_parameter": {
+            "type": "string",
+            "description": "SSM parameter path for latest image tag"
+          },
+          "image_digest_parameter": {
+            "type": "string",
+            "description": "SSM parameter path for latest image digest"
+          }
+        }
+      }
+    },
+    "source_repositories": {
+      "type": "object",
+      "description": "Map of service name to source repository metadata",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["codecommit", "codestar", "github", "artifact_bundle"]
+          },
+          "repository_arn": {
+            "type": "string"
+          },
+          "clone_url": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
