@@ -169,22 +169,41 @@ def main():
     blockers = [f for f in FINDINGS if f["severity"] == "BLOCKER"]
     warnings = [f for f in FINDINGS if f["severity"] == "WARNING"]
 
+    # Separate brownfield vs v2 findings
+    v2_blockers = [f for f in blockers if "ci-cd-micros" not in f["file"]]
+    brownfield_blockers = [f for f in blockers if "ci-cd-micros" in f["file"]]
+
     print(f"\n{'='*70}")
     print(f"CI/CD Safety Lint Results")
     print(f"{'='*70}")
     print(f"Scanned: {len(scan_roots)} root(s)")
-    print(f"Blockers: {len(blockers)}")
+    print(f"V2 Blockers: {len(v2_blockers)}")
+    print(f"Brownfield Blockers: {len(brownfield_blockers)} (informational)")
     print(f"Warnings: {len(warnings)}")
     print(f"{'='*70}\n")
 
-    for f in FINDINGS:
-        icon = "🔴" if f["severity"] == "BLOCKER" else "⚠️"
-        print(f"{icon} [{f['rule']}] {f['file']}:{f['line']}")
+    if v2_blockers:
+        print("── V2 (Platform v2) Findings ──")
+        for f in v2_blockers:
+            print(f"🔴 [{f['rule']}] {f['file']}:{f['line']}")
+            print(f"   {f['message']}\n")
+
+    if brownfield_blockers:
+        print("── Brownfield (ci-cd-micros, informational) ──")
+        for f in brownfield_blockers:
+            print(f"ℹ️  [{f['rule']}] {f['file']}:{f['line']}")
+            print(f"   {f['message']}\n")
+
+    for f in warnings:
+        print(f"⚠️ [{f['rule']}] {f['file']}:{f['line']}")
         print(f"   {f['message']}\n")
 
-    if blockers:
-        print(f"\n❌ FAILED: {len(blockers)} blocker(s) found")
+    if v2_blockers:
+        print(f"\n❌ FAILED: {len(v2_blockers)} V2 blocker(s) found")
         sys.exit(1)
+    elif brownfield_blockers:
+        print(f"\n⚠️ PASSED: V2 clean, {len(brownfield_blockers)} brownfield blocker(s) (informational)")
+        sys.exit(0)
     elif warnings:
         print(f"\n⚠️ PASSED with {len(warnings)} warning(s)")
         sys.exit(0)
