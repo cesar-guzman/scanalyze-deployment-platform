@@ -29,11 +29,9 @@
 module "cicd" {
   source = "../../modules/cicd"
 
-  deployment_id           = var.deployment_id
-  account_id              = var.account_id
-  region                  = var.region
-  release_version         = var.release_version
-  release_manifest_digest = var.release_manifest_digest
+  deployment_id = var.deployment_id
+  account_id    = var.account_id
+  region        = var.region
 
   # From platform contract
   ecs_cluster_name = var.ecs_cluster_name
@@ -54,3 +52,4 @@ module "cicd" {
   upstream_contract_digest = var.upstream_contract_digest
   expected_upstream_digest = var.expected_upstream_digest
 }
+

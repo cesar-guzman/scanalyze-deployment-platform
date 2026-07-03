@@ -123,6 +123,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   rule {
     id     = "expire-old-artifacts"
     status = "Enabled"
+    filter {}
     expiration { days = 30 }
     noncurrent_version_expiration { noncurrent_days = 7 }
     abort_incomplete_multipart_upload { days_after_initiation = 1 }
@@ -492,7 +493,7 @@ resource "aws_codepipeline" "this" {
         RepositoryName       = aws_codecommit_repository.service[each.key].repository_name
         BranchName           = each.value.source.branch
         PollForSourceChanges = "false"
-      } : {
+        } : {
         ConnectionArn    = each.value.source.connection_arn
         FullRepositoryId = each.value.source.full_repo_id
         BranchName       = each.value.source.branch

@@ -21,29 +21,18 @@ variable "region" {
   description = "AWS region for this deployment"
 }
 
-variable "release_version" {
-  type        = string
-  description = "Release version being deployed"
-}
-
-variable "release_manifest_digest" {
-  type        = string
-  description = "SHA-256 digest of the release manifest"
-  validation {
-    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
-    error_message = "release_manifest_digest must be sha256:<64 hex chars>"
-  }
-}
-
 variable "upstream_contract_digest" {
   type        = string
   description = "SHA-256 digest of the upstream contract being consumed"
+  default     = ""
 }
 
 variable "expected_upstream_digest" {
   type        = string
   description = "Expected upstream contract digest from deployment record"
+  default     = ""
 }
+
 
 # --- From platform contract ---
 

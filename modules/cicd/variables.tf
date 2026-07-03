@@ -13,16 +13,6 @@ variable "region" {
   description = "AWS region"
 }
 
-variable "release_version" {
-  type        = string
-  description = "Release version being deployed"
-}
-
-variable "release_manifest_digest" {
-  type        = string
-  description = "SHA-256 digest of the release manifest"
-}
-
 variable "upstream_contract_digest" {
   type        = string
   description = "SHA-256 digest of the upstream contract"
