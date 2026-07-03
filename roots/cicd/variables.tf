@@ -101,3 +101,9 @@ variable "enable_release_metadata_ssm" {
   description = "Write image tag/digest to SSM parameters for release tracking"
   default     = true
 }
+
+variable "enable_codecommit" {
+  type        = bool
+  description = "Create CodeCommit repos and pipelines. Disable when permission set lacks codecommit:*"
+  default     = true
+}

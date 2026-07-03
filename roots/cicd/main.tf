@@ -47,6 +47,7 @@ module "cicd" {
   enable_ecr_lifecycle_policy = var.enable_ecr_lifecycle_policy
   ecr_lifecycle_keep_last     = var.ecr_lifecycle_keep_last
   enable_release_metadata_ssm = var.enable_release_metadata_ssm
+  enable_codecommit           = var.enable_codecommit
 
   # Upstream contract
   upstream_contract_digest = var.upstream_contract_digest

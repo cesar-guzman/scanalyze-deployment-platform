@@ -26,7 +26,10 @@ locals {
   # Naming convention: {deployment_id}-{service_name}
   name_prefix = var.deployment_id
 
-  artifact_bucket_name = "${var.deployment_id}-cicd-artifacts"
+  # ECR/S3 require lowercase, no underscores
+  sanitized_deployment_id = lower(replace(var.deployment_id, "_", "-"))
+
+  artifact_bucket_name = "${local.sanitized_deployment_id}-cicd-artifacts"
 
   microservices = {
     for name, svc in var.microservices : name => {
@@ -51,10 +54,10 @@ locals {
     for name, svc in local.microservices : svc.ecr_repo_name
   ])
 
-  codecommit_repos = {
+  codecommit_repos = var.enable_codecommit ? {
     for name, svc in local.microservices : name => svc.source.repo_name
     if svc.source.provider == "codecommit"
-  }
+  } : {}
 
   release_metadata_namespace = "/${var.deployment_id}/cicd/images"
 }
@@ -137,7 +140,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 resource "aws_ecr_repository" "service" {
   for_each = toset(local.ecr_repo_names)
 
-  name                 = "${var.deployment_id}/${each.value}"
+  name                 = "${local.sanitized_deployment_id}/${each.value}"
   image_tag_mutability = "IMMUTABLE" # Enforced: no tag overwrites
 
   image_scanning_configuration {
@@ -225,7 +228,8 @@ resource "aws_iam_role" "codebuild" {
 
 # CodePipeline policy — Source + Build ONLY
 resource "aws_iam_policy" "codepipeline" {
-  name = "${local.name_prefix}-codepipeline-policy"
+  count = var.enable_codecommit ? 1 : 0
+  name  = "${local.name_prefix}-codepipeline-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -285,8 +289,9 @@ resource "aws_iam_policy" "codepipeline" {
 }
 
 resource "aws_iam_role_policy_attachment" "codepipeline" {
+  count      = var.enable_codecommit ? 1 : 0
   role       = aws_iam_role.codepipeline.name
-  policy_arn = aws_iam_policy.codepipeline.arn
+  policy_arn = aws_iam_policy.codepipeline[0].arn
 }
 
 # CodeBuild policy — Build + Push to ECR + SSM metadata
@@ -383,14 +388,14 @@ resource "aws_iam_role_policy_attachment" "codebuild" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "codebuild" {
-  for_each          = local.microservices
+  for_each          = var.enable_codecommit ? local.microservices : {}
   name              = "/aws/codebuild/${local.name_prefix}-${each.key}"
   retention_in_days = 14
   tags              = { layer = "cicd" }
 }
 
 resource "aws_codebuild_project" "build" {
-  for_each = local.microservices
+  for_each = var.enable_codecommit ? local.microservices : {}
 
   name          = "${local.name_prefix}-${each.key}"
   description   = "Build ${each.value.service_name} for ${var.deployment_id}"
@@ -464,7 +469,7 @@ resource "aws_codebuild_project" "build" {
 # ---------------------------------------------------------------------------
 
 resource "aws_codepipeline" "this" {
-  for_each = local.microservices
+  for_each = var.enable_codecommit ? local.microservices : {}
 
   name     = "${local.name_prefix}-${each.key}"
   role_arn = aws_iam_role.codepipeline.arn

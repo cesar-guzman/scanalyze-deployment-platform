@@ -78,3 +78,9 @@ variable "enable_release_metadata_ssm" {
   type    = bool
   default = true
 }
+
+variable "enable_codecommit" {
+  type        = bool
+  default     = true
+  description = "Create CodeCommit repos. Disable when permission set lacks codecommit:*"
+}
