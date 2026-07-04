@@ -54,4 +54,4 @@ microservices = {
 enable_ecr_lifecycle_policy  = true
 ecr_lifecycle_keep_last      = 20
 enable_release_metadata_ssm  = true
-enable_codecommit            = false  # sandbox permission set lacks codecommit:*
+enable_codecommit            = true   # P4: permission set updated with scoped CodeCommit/Build/Pipeline
