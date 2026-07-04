@@ -1,8 +1,9 @@
 # Scanalyze Platform v2 — Enterprise Client Deployment Playbook
 
-**Version: 1.0**
+**Version: 1.1**
 **Date: 2026-07-03**
 **Audience: Platform Engineers, SREs, DevOps**
+**Status: DRAFT — Accepted for sandbox, not final enterprise pattern**
 
 ---
 
@@ -14,10 +15,12 @@ This playbook documents the end-to-end procedure for deploying a new Scanalyze c
 ┌─────────────────────────────────────────────────────────────────┐
 │                    DEPLOYMENT ORDER                             │
 │                                                                 │
-│  Step 0: Bootstrap (CloudFormation)                             │
+│  Step 0: Account Baseline (bootstrap)                           │
 │     ├── S3 state bucket                                         │
-│     ├── DynamoDB lock table                                     │
-│     └── KMS key for state encryption                            │
+│     ├── Lock mechanism (DynamoDB or S3 lockfile)                │
+│     ├── KMS key for state encryption (if applicable)            │
+│     ├── Evidence / recovery prefix                              │
+│     └── ACCOUNT_READY contract                                  │
 │                                                                 │
 │  Step 1: Terraform Layers (sequential)                          │
 │     ├── 1a. global         → account-level resources            │
@@ -70,9 +73,30 @@ This playbook documents the end-to-end procedure for deploying a new Scanalyze c
 
 ---
 
-## Step 0: Bootstrap — Terraform State Backend
+## Step 0: Account Baseline — Terraform State Backend
 
 > **Run ONCE per account, FIRST before any Terraform.**
+
+### Ownership Model
+
+The state backend is **account baseline infrastructure**, not workload infrastructure.
+
+| Aspect | Enterprise (preferred) | Sandbox (exception) |
+|--------|----------------------|---------------------|
+| **Owner** | AccountVendingProvider / Organization Team | Deploy role (temporary) |
+| **Mechanism** | CloudFormation with scoped permissions | AWS CLI manual |
+| **Repeatable** | Yes — StackSets across accounts | No — manual per account |
+| **Permission** | Scoped `cloudformation:CreateStack` for approved stack name + template | Direct `s3:CreateBucket`, `dynamodb:CreateTable` |
+| **Status** | Target architecture | Accepted for sandbox only |
+
+> **⚠️ CloudFormation Permission Scope**
+>
+> Do NOT grant broad `cloudformation:*` or unscoped `cloudformation:CreateStack` to the workload deploy role.
+> For enterprise accounts, CloudFormation bootstrap requires **scoped** permission:
+> - `cloudformation:CreateStack` / `UpdateStack` / `DescribeStacks` / `DeleteStack`
+> - Only for approved stack name prefix: `scanalyze-<deployment_id>-tf-state-backend`
+> - Only for approved template: `bootstrap/cfn-tf-state-backend.yaml`
+> - Tags required: `deployment_id`, `owner=account-baseline`, `managed_by=cloudformation`
 
 ### 0.1 Generate Deployment Variables
 
@@ -86,11 +110,22 @@ export ENVIRONMENT="sandbox"  # or staging, production
 
 ### 0.2 Deploy State Backend
 
-#### Option A: CloudFormation (recommended for automation)
+#### Option A: AccountVendingProvider / CloudFormation (preferred enterprise)
+
+The Organization Team or AccountVendingProvider creates the state backend as part of account baseline. This creates:
+- State bucket
+- Lock mechanism
+- Evidence bucket
+- Recovery prefix/bucket
+- Contracts bucket
+- Required roles
+- KMS keys as applicable
+- ACCOUNT_READY contract
 
 ```bash
+# Run by AccountVendingProvider / account baseline role (NOT workload deploy role)
 aws cloudformation create-stack \
-  --stack-name scanalyze-tf-state-backend \
+  --stack-name scanalyze-${SANITIZED_ID}-tf-state-backend \
   --template-body file://bootstrap/cfn-tf-state-backend.yaml \
   --parameters \
     ParameterKey=DeploymentId,ParameterValue=$DEPLOYMENT_ID \
@@ -98,23 +133,28 @@ aws cloudformation create-stack \
     ParameterKey=Environment,ParameterValue=$ENVIRONMENT \
   --tags \
     Key=deployment_id,Value=$DEPLOYMENT_ID \
+    Key=owner,Value=account-baseline \
     Key=managed_by,Value=cloudformation \
     Key=layer,Value=bootstrap \
   --region $AWS_REGION
 
 # Wait for completion
 aws cloudformation wait stack-create-complete \
-  --stack-name scanalyze-tf-state-backend \
+  --stack-name scanalyze-${SANITIZED_ID}-tf-state-backend \
   --region $AWS_REGION
 
 # Get outputs
 aws cloudformation describe-stacks \
-  --stack-name scanalyze-tf-state-backend \
+  --stack-name scanalyze-${SANITIZED_ID}-tf-state-backend \
   --query "Stacks[0].Outputs" \
   --output table
 ```
 
-#### Option B: AWS CLI (for restricted permission sets)
+#### Option B: AWS CLI — Sandbox Exception Only
+
+> **⚠️ This is NOT the final enterprise mechanism.**
+> Allowed only under explicit sandbox/bootstrap exception.
+> Must be replaced by the baseline/CFN path before repeatable enterprise onboarding.
 
 ```bash
 BUCKET="scanalyze-${SANITIZED_ID}-tf-state"
@@ -141,7 +181,26 @@ aws dynamodb create-table \
   --region $AWS_REGION
 ```
 
-### 0.3 Verify Bootstrap
+### 0.3 Locking Strategy
+
+> **Decision Record: D-CICD-STATE-001**
+>
+> Current sandbox uses DynamoDB lock table. Terraform documentation marks
+> DynamoDB-based locking as **deprecated** and scheduled for removal in a future
+> minor release. The newer S3 lockfile mechanism uses `<state>.tflock` objects
+> with S3 conditional writes.
+>
+> **For Terraform 1.14.x+**, evaluate S3 lockfile via `use_lockfile = true`
+> in the backend configuration. DynamoDB lock table remains supported for
+> current sandbox but is **not preferred** for future enterprise accounts
+> unless explicitly justified by tooling compatibility.
+>
+> | Mechanism | Status | When to use |
+> |-----------|--------|-------------|
+> | S3 lockfile (`use_lockfile`) | Preferred (future) | Terraform >= 1.14, new accounts |
+> | DynamoDB lock table | Accepted (current) | Sandbox, legacy compatibility |
+
+### 0.4 Verify Bootstrap
 
 ```bash
 # S3
@@ -149,7 +208,7 @@ aws s3api head-bucket --bucket "$BUCKET"
 aws s3api get-bucket-versioning --bucket "$BUCKET"
 aws s3api get-public-access-block --bucket "$BUCKET"
 
-# DynamoDB
+# DynamoDB (if used)
 aws dynamodb describe-table --table-name "$TABLE" \
   --query "Table.TableStatus" --output text
 # Expected: ACTIVE
@@ -199,6 +258,8 @@ terraform plan -var-file=../../environments/${ENVIRONMENT}.tfvars -out=plan.tfpl
 # Review plan, then apply
 terraform apply plan.tfplan
 ```
+
+**State key pattern**: `{deployment_id}/{region}/{layer}/terraform.tfstate`
 
 ### 1.2 Layer Deployment Order
 
@@ -349,12 +410,18 @@ After all Terraform resources destroyed:
 
 ```bash
 # Delete state backend (bootstrap)
+# NOTE: State bucket has DeletionPolicy: Retain in CloudFormation.
+# Must be emptied and deleted manually or via separate cleanup.
+
+# Empty and delete state bucket
 aws s3 rm s3://${BUCKET} --recursive
 aws s3api delete-bucket --bucket "$BUCKET"
+
+# Delete lock table
 aws dynamodb delete-table --table-name "$TABLE"
 
-# Or delete CloudFormation stack
-aws cloudformation delete-stack --stack-name scanalyze-tf-state-backend
+# If using CloudFormation, delete stack (bucket will remain due to Retain):
+aws cloudformation delete-stack --stack-name scanalyze-${SANITIZED_ID}-tf-state-backend
 ```
 
 ---
@@ -371,6 +438,19 @@ aws cloudformation delete-stack --stack-name scanalyze-tf-state-backend
 - [ ] Cognito as auth authority
 - [ ] Runtime config (not build-time env vars) for frontend
 - [ ] PII masking for CLABE, NSS, RFC, CURP
+- [ ] State backend owner is account baseline, not workload deploy role
+- [ ] CloudFormation permissions scoped to approved stack name/template
+- [ ] Lock mechanism documented (DynamoDB or S3 lockfile)
+
+---
+
+## Discrepancy Register
+
+| ID | Description | Impact | Resolution |
+|----|-------------|--------|------------|
+| D-CICD-STATE-001 | Current sandbox uses DynamoDB lock table; Terraform docs mark DynamoDB-based locking deprecated. | Future incompatibility | Enterprise backend design must choose S3 lockfile (`use_lockfile`) or justify DynamoDB compatibility |
+| D-CICD-BOOTSTRAP-001 | Sandbox state backend was created via AWS CLI, not CloudFormation. | Not repeatable via StackSets | Must be replaced by baseline/CFN path before enterprise onboarding |
+| D-CICD-CFN-001 | ScanalyzeSandboxDeploy and ScanalyzeSandboxDestroy lack `cloudformation:CreateStack`. | Cannot deploy CFN template from workload role | Enterprise: use AccountVendingProvider role; Sandbox: use CLI fallback |
 
 ---
 
@@ -385,3 +465,4 @@ aws cloudformation delete-stack --stack-name scanalyze-tf-state-backend
 | `modules/` | Reusable Terraform modules |
 | `tooling/` | Validation scripts (linters, safety checks) |
 | `reports/` | Audit and reconciliation reports |
+| `playbooks/` | Deployment and operational playbooks |

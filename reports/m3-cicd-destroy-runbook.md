@@ -1,8 +1,9 @@
 # M3-CICD Destroy Runbook
 
 **Status: PREPARED — NOT EXECUTED**
-**Date: 2026-07-03**
+**Date: 2026-07-03 (updated 2026-07-03T18:12Z)**
 **Requires: PM approval before execution**
+**State: Remote S3 backend (post R2 migration)**
 
 ---
 
@@ -17,7 +18,8 @@ Complete rollback of the `roots/cicd` layer. Destroys all resources created by t
 - [ ] No images exist in ECR repos (or force delete is acceptable)
 - [ ] No objects exist in S3 artifact bucket (or force delete is acceptable)
 - [ ] No other layer depends on SSM parameters from cicd
-- [ ] State file `roots/cicd/terraform.tfstate` exists and is valid
+- [ ] Remote state in S3 is accessible (`terraform state list` works)
+- [ ] `backend.tfvars` exists in `roots/cicd/` for S3 backend config
 
 ## Resources That Will Be Destroyed
 
@@ -36,11 +38,10 @@ Complete rollback of the `roots/cicd` layer. Destroys all resources created by t
 | IAM attachments | 1 | codebuild |
 | SSM params | 14 | `/dep.../cicd/images/{service}/{type}` |
 
-### Orphan Resources (NOT in state)
+### Orphan Resources — CLEANED (R1 2026-07-03)
 
-| Resource Type | Count | Names |
-|--------------|-------|-------|
-| CW log groups | 7 | `/aws/codebuild/dep_01KWM...-{service}` |
+~~7 CloudWatch log groups~~ — **Deleted** in M3-CICD-R1.
+No remaining orphan resources.
 
 ---
 
@@ -94,6 +95,9 @@ aws s3 ls s3://dep-01kwm783e0s1fzvam8frdv1hr2-cicd-artifacts/ --recursive --summ
 ```bash
 cd roots/cicd
 
+# Ensure remote backend is configured
+terraform init -backend-config=backend.tfvars
+
 # Dry run — review what will be destroyed
 terraform plan -destroy \
   -var-file=../../environments/cicd.tfvars \
@@ -107,17 +111,15 @@ terraform destroy \
 
 ### Step 5: Clean Orphan Log Groups
 
-```bash
-# These are NOT in Terraform state, must be deleted manually
-DEP_ID="dep_01KWM783E0S1FZVAM8FRDV1HR2"
-SERVICES="bank-worker classifier-worker gov-worker ingest-api ocr-worker personal-worker postprocess-worker"
+> **ALREADY DONE** — M3-CICD-R1 cleaned all 7 orphan log groups on 2026-07-03.
+> This step is retained for reference in case orphans appear in future applies.
 
-for svc in $SERVICES; do
-  aws logs delete-log-group \
-    --log-group-name "/aws/codebuild/${DEP_ID}-${svc}" \
-    --region us-east-1
-  echo "Deleted: ${svc}"
-done
+```bash
+# Verify no orphans exist
+aws logs describe-log-groups \
+  --log-group-name-prefix "/aws/codebuild/dep_01KWM783E0S1FZVAM8FRDV1HR2" \
+  --query "length(logGroups)" --output text
+# Expected: 0
 ```
 
 ### Step 6: Verify Post-Destroy
@@ -152,17 +154,23 @@ aws logs describe-log-groups \
   --query "length(logGroups)" --output text
 # Expected: 0
 
-# 7. Terraform state is empty
+# 7. Terraform state is empty (remote)
 terraform state list
 # Expected: empty or error (no state)
+
+# 8. State in S3 is empty/gone
+aws s3 ls s3://scanalyze-dep-01kwm783e0s1fzvam8frdv1hr2-tf-state/dep_01KWM783E0S1FZVAM8FRDV1HR2/us-east-1/cicd/
+# Expected: empty or no output
 ```
 
-### Step 7: Clean Local State
+### Step 7: Clean State Artifacts
 
 ```bash
-# Remove local state files
-rm -f roots/cicd/terraform.tfstate
-rm -f roots/cicd/terraform.tfstate.backup
+# Local state is already empty (migrated to S3).
+# Remote state will be empty after destroy.
+# Optionally remove local backend config:
+rm -f roots/cicd/backend.tfvars
+# NOTE: Do NOT delete the S3 state bucket — it serves all layers.
 ```
 
 ---
@@ -174,12 +182,15 @@ If destroy was premature and resources need to be recreated:
 ```bash
 # Re-apply from the same commit
 cd roots/cicd
-terraform init
+terraform init -backend-config=backend.tfvars
 terraform apply -var-file=../../environments/cicd.tfvars
 
 # NOTE: KMS key scheduled for deletion cannot be reused.
 # A new key will be created with a new KeyId.
 # The old alias will be reassigned to the new key.
+#
+# NOTE: State is remote. If S3 backend still exists, state
+# history (versioned) is available for forensics.
 ```
 
 ## Risk Assessment
@@ -190,5 +201,6 @@ terraform apply -var-file=../../environments/cicd.tfvars
 | ECR images lost | Low | Currently 0 images in all repos |
 | S3 artifacts lost | Low | Currently 0 objects |
 | SSM params lost | Low | All values are "UNSET" |
-| CW log data lost | None | All groups have 0 bytes |
+| CW log data lost | N/A | Orphan log groups already cleaned (R1) |
 | IAM roles in use by other services | None | Roles only referenced by cicd pipelines (which don't exist) |
+| Remote state orphaned | Low | S3 versioning preserves history; bucket shared across layers |
