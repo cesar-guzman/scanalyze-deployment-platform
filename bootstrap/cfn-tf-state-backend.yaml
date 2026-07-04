@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze Platform v2 — Terraform State Backend Bootstrap.
+  Creates S3 bucket + DynamoDB lock table for Terraform remote state.
+  Deploy this FIRST in every new customer account before any Terraform root.
+  Replicable across accounts via CloudFormation StackSets or manual deploy.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  DeploymentId:
+    Type: String
+    Description: >
+      Unique deployment identifier for this customer (e.g., dep_01KWM783E0S1FZVAM8FRDV1HR2).
+      Used as prefix for bucket, table, and KMS alias names.
+    AllowedPattern: '^[a-zA-Z0-9_-]+$'
+    ConstraintDescription: Must contain only alphanumeric characters, hyphens, and underscores.
+
+  SanitizedDeploymentId:
+    Type: String
+    Description: >
+      Lowercase, hyphenated version of DeploymentId for S3/DynamoDB naming.
+      Example: dep_01KWM783E0S1FZVAM8FRDV1HR2 becomes dep-01kwm783e0s1fzvam8frdv1hr2.
+      S3 bucket names require lowercase + hyphens only.
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must be lowercase alphanumeric with hyphens only.
+
+  Environment:
+    Type: String
+    Default: sandbox
+    AllowedValues:
+      - sandbox
+      - staging
+      - production
+    Description: Environment name for tagging.
+
+  StateBucketRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 30
+    MaxValue: 365
+    Description: Days to retain non-current state versions before deletion.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mappings — sanitize deployment_id for S3 (lowercase, no underscores)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── KMS Key for state encryption ──────────────────────────────────────────
+  StateKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub 'Terraform state encryption key for ${DeploymentId}'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowRootFullAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+      Tags:
+        - Key: deployment_id
+          Value: !Ref DeploymentId
+        - Key: managed_by
+          Value: cloudformation
+        - Key: layer
+          Value: bootstrap
+        - Key: environment
+          Value: !Ref Environment
+
+  StateKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${DeploymentId}-tf-state'
+      TargetKeyId: !Ref StateKmsKey
+
+  # ── S3 Bucket for Terraform state ─────────────────────────────────────────
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'scanalyze-${SanitizedDeploymentId}-tf-state'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'aws:kms'
+              KMSMasterKeyID: !GetAtt StateKmsKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNonCurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref StateBucketRetentionDays
+          - Id: AbortIncompleteMultipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: deployment_id
+          Value: !Ref DeploymentId
+        - Key: managed_by
+          Value: cloudformation
+        - Key: layer
+          Value: bootstrap
+        - Key: environment
+          Value: !Ref Environment
+        - Key: purpose
+          Value: terraform-state
+
+  # ── S3 Bucket Policy — deny unencrypted and non-HTTPS ─────────────────────
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyUnencryptedUploads
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Sub '${StateBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'aws:kms'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub '${StateBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  # ── DynamoDB Lock Table ───────────────────────────────────────────────────
+  StateLockTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub 'scanalyze-${SanitizedDeploymentId}-tf-lock'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: LockID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: LockID
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt StateKmsKey.Arn
+      Tags:
+        - Key: deployment_id
+          Value: !Ref DeploymentId
+        - Key: managed_by
+          Value: cloudformation
+        - Key: layer
+          Value: bootstrap
+        - Key: environment
+          Value: !Ref Environment
+        - Key: purpose
+          Value: terraform-lock
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Outputs — consumed by Terraform backend configuration
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+  StateBucketName:
+    Description: S3 bucket name for Terraform state
+    Value: !Ref StateBucket
+    Export:
+      Name: !Sub '${DeploymentId}-tf-state-bucket'
+
+  StateBucketArn:
+    Description: S3 bucket ARN
+    Value: !GetAtt StateBucket.Arn
+
+  LockTableName:
+    Description: DynamoDB table name for Terraform state locking
+    Value: !Ref StateLockTable
+    Export:
+      Name: !Sub '${DeploymentId}-tf-lock-table'
+
+  LockTableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt StateLockTable.Arn
+
+  KmsKeyArn:
+    Description: KMS key ARN for state encryption
+    Value: !GetAtt StateKmsKey.Arn
+    Export:
+      Name: !Sub '${DeploymentId}-tf-state-kms-key'
+
+  KmsKeyAlias:
+    Description: KMS key alias
+    Value: !Ref StateKmsAlias
+
+  BackendConfig:
+    Description: >
+      Terraform backend configuration values.
+      Use these in backend.tfvars or -backend-config flags.
+    Value: !Sub |
+      bucket         = "${StateBucket}"
+      dynamodb_table = "${StateLockTable}"
+      region         = "${AWS::Region}"
+      encrypt        = true
+      kms_key_id     = "${StateKmsKey.Arn}"
+
+  StateKeyPattern:
+    Description: Key pattern for each Terraform root
+    Value: !Sub '${DeploymentId}/${AWS::Region}/{layer}/terraform.tfstate'

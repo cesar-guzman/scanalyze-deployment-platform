@@ -8,9 +8,9 @@ terraform {
     }
   }
 
-  # Backend S3 is NOT active yet — see backend.example.hcl
-  # Activate only after PM approval for remote state.
-  # backend "s3" {}
+  # Remote state backend — activated after bootstrap.
+  # Configure via: terraform init -backend-config=backend.tfvars
+  backend "s3" {}
 }
 
 provider "aws" {
