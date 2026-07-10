@@ -5,7 +5,7 @@
 schema_version: "1"
 
 customer_id: "__CUSTOMER_ID__"
-deployment_id: "dep___CLEAN_CUSTOMER_ID__000000000000"
+deployment_id: "dep___RANDOM_ULID__"
 environment: "dev"
 
 aws_account_id: "__ACCOUNT_ID__"

@@ -24,6 +24,10 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/n
 
 CLEAN_CUSTOMER_ID="$(echo "$CUSTOMER_ID" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c 1-14)"
 
+# Generate a 26-character Crockford Base32 string for the deployment_id validation
+VALID_CHARS="0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+RANDOM_ULID="$(env LC_CTYPE=C tr -dc "$VALID_CHARS" < /dev/urandom | head -c 26)"
+
 OUTPUT_FILE="${REPO_ROOT}/examples/deployments/${CUSTOMER_ID}.generated.yaml"
 
 # Replace variables
@@ -31,6 +35,7 @@ sed -e "s/__ACCOUNT_ID__/${ACCOUNT_ID}/g" \
     -e "s/__REGION__/${REGION}/g" \
     -e "s/__CUSTOMER_ID__/${CUSTOMER_ID}/g" \
     -e "s/__CLEAN_CUSTOMER_ID__/${CLEAN_CUSTOMER_ID}/g" \
+    -e "s/__RANDOM_ULID__/${RANDOM_ULID}/g" \
     "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
 echo "✅ Generated manifest for account $ACCOUNT_ID at:"
