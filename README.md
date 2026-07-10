@@ -28,6 +28,7 @@ supported.
 ```text
 backend/workers/        Canonical source for all seven microservices
 .github/workflows/      Path-aware validation and protected image publishing
+deployment/             Canonical GitOps stage graph and orchestration metadata
 scripts/microservices/  Reusable build/push and change-detection entrypoints
 ADR/                    Architecture decisions
 schemas/                Canonical JSON schemas and contracts
@@ -95,6 +96,7 @@ plan must remove it to reach the no-source-in-customer target state.
 make microservices-check
 make security-check
 make git-safety
+make gitops-orchestrator-check
 make preflight-core
 make preflight-m1
 make preflight-m2
@@ -127,6 +129,7 @@ plan, and residual risks are documented in
 ## Deployment documentation
 
 - Canonical operator source: [`playbooks/enterprise-client-deployment.md`](playbooks/enterprise-client-deployment.md)
+- GitOps orchestrator architecture: [`docs/deployment/gitops-orchestrator.md`](docs/deployment/gitops-orchestrator.md)
 - Enterprise Word deliverable: [`docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx`](docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx)
 - Curated NotebookLM corpus: [`_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`](_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md)
 

@@ -1,6 +1,6 @@
 # ADR-012: Autonomous Deployment Orchestrator
 
-- **Status**: Accepted
+- **Status**: Accepted; live-apply path refined by ADR-017
 - **Date**: 2026-07-10
 - **Deciders**: César Guzmán, Platform Engineering
 
@@ -24,6 +24,11 @@ Introduce `scripts/deployment/scanalyze-deploy.sh` as the single autonomous orch
 - No accidental production mutations.
 - Clean separation between offline validation and live operations.
 - Existing Makefile targets and scripts remain functional independently.
+
+> **2026-07-10 clarification:** ADR-017 makes GitHub Actions the authoritative
+> live deployment control plane. This Bash entrypoint remains supported for
+> local validation, dry-runs, diagnostics, and explicitly approved recovery
+> tooling. Its `apply-all` path is not an authorized GitOps deployment path.
 
 ## Alternatives Considered
 

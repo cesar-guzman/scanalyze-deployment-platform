@@ -1,32 +1,65 @@
-name: Non-production release
+name: Non-production GitOps release
 
 on:
   workflow_dispatch:
     inputs:
-      manifest_path:
-        description: "Path to deployment manifest (outside repo, uploaded via artifact)"
+      request_path:
+        description: Repository-relative Git-safe deployment request
         required: true
+        default: examples/gitops/deployment-request.synthetic.json
+        type: string
+      deployment_id:
+        description: Deployment ID from the Git-safe request
+        required: true
+        type: string
       environment:
-        description: "Target environment"
+        description: Protected non-production GitHub Environment
         required: true
+        default: sandbox
         type: choice
         options:
           - sandbox
           - dev
           - staging
+      aws_region:
+        description: Region used for concurrency and future account binding
+        required: true
+        default: us-east-1
+        type: string
+      release_digest:
+        description: Immutable release manifest digest from the Git-safe request
+        required: true
+        type: string
+      dry_run:
+        description: Validate the orchestrator without AWS, plans, or applies
+        required: true
+        default: true
+        type: boolean
+      allow_live:
+        description: Reserved; true is deliberately rejected as NO-GO in this revision
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: nonprod-release-${{ inputs.deployment_id }}-${{ inputs.aws_region }}
+  cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Pre-release validation
+  preflight:
+    name: Validate GitOps release request
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -35,50 +68,436 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install dependencies
-        run: python -m pip install '.[test]'
+      - name: Install validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install '.[test]'
 
-      - name: Repro check
-        run: make repro-check
+      - name: Validate offline-only execution mode
+        env:
+          ALLOW_LIVE: ${{ inputs.allow_live }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "::error::This release orchestrator can only be dispatched manually"
+            exit 1
+          fi
+          if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
+            echo "::error::Exactly one of dry_run or allow_live must be true"
+            exit 1
+          fi
 
-      - name: Validate manifest
-        run: python scripts/deployment/validate-manifest.py "${{ inputs.manifest_path }}"
+      - name: Validate canonical layer DAG
+        run: |
+          set -euo pipefail
+          python scripts/deployment/validate-layer-dag.py deployment/layers.yaml
+
+      - name: Validate request and input binding
+        env:
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
+          REQUEST_PATH: ${{ inputs.request_path }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          git ls-files --error-unmatch -- "$REQUEST_PATH" >/dev/null
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          import jsonschema
+          import yaml
+
+          deployment_id = os.environ["DEPLOYMENT_ID"]
+          release_digest = os.environ["RELEASE_DIGEST"]
+          region = os.environ["AWS_REGION_INPUT"]
+          environment = os.environ["TARGET_ENVIRONMENT"]
+
+          if not re.fullmatch(r"dep_[0-9A-HJKMNP-TV-Z]{26}", deployment_id):
+              raise SystemExit("ERROR: deployment_id is not a valid Scanalyze deployment ULID")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", release_digest):
+              raise SystemExit("ERROR: release_digest must be a lowercase SHA-256 digest")
+          if not re.fullmatch(r"[a-z]{2}(-gov)?-[a-z]+-[0-9]+", region):
+              raise SystemExit("ERROR: aws_region is invalid")
+          if environment not in {"sandbox", "dev", "staging"}:
+              raise SystemExit("ERROR: production is not supported by this workflow")
+
+          repo = Path.cwd().resolve()
+          supplied = Path(os.environ["REQUEST_PATH"])
+          if supplied.is_absolute():
+              raise SystemExit("ERROR: request_path must be repository-relative")
+          request_path = (repo / supplied).resolve()
+          try:
+              request_path.relative_to(repo)
+          except ValueError as exc:
+              raise SystemExit("ERROR: request_path escapes the repository") from exc
+          if not request_path.is_file():
+              raise SystemExit("ERROR: deployment request does not exist")
+
+          schema = json.loads(
+              (repo / "schemas" / "deployment-request.schema.json").read_text(encoding="utf-8")
+          )
+          if request_path.suffix == ".json":
+              request = json.loads(request_path.read_text(encoding="utf-8"))
+          else:
+              request = yaml.safe_load(request_path.read_text(encoding="utf-8"))
+
+          validator = jsonschema.Draft202012Validator(
+              schema,
+              format_checker=jsonschema.FormatChecker(),
+          )
+          errors = list(validator.iter_errors(request))
+          if errors:
+              location = ".".join(str(part) for part in errors[0].absolute_path) or "root"
+              raise SystemExit(f"ERROR: deployment request schema validation failed at {location}")
+
+          expected = {
+              "deployment_id": deployment_id,
+              "environment": environment,
+              "release_digest": release_digest,
+          }
+          for field, value in expected.items():
+              if request.get(field) != value:
+                  raise SystemExit(f"ERROR: deployment request {field} does not match workflow input")
+
+          selectors = request.get("non_sensitive_selectors", {})
+          if selectors.get("region") != region:
+              raise SystemExit("ERROR: deployment request region does not match workflow input")
+          if request.get("full_deployment") is not True:
+              raise SystemExit("ERROR: this workflow revision only supports full_deployment requests")
+
+          print("PASS: request is Git-safe, schema-valid, and bound to dispatch inputs")
+          PY
 
   go-no-go:
-    name: GO/NO-GO gate
-    needs: validate
+    name: Protected non-production gate
+    needs: preflight
     runs-on: ubuntu-24.04
-    environment: "${{ inputs.environment }}"
+    timeout-minutes: 5
+    environment:
+      name: ${{ inputs.environment }}
+    permissions: {}
     steps:
-      - name: GO/NO-GO
-        run: echo "✅ GO/NO-GO gate approved for ${{ inputs.environment }}"
+      - name: Enforce dry-run authorization boundary
+        env:
+          ALLOW_LIVE: ${{ inputs.allow_live }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "$ALLOW_LIVE" == "true" ]]; then
+            echo "::error::NO-GO: live AWS access, artifact publication, and Terraform apply are intentionally disabled"
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" ]]; then
+            echo "::error::Only dry-run mode is authorized"
+            exit 1
+          fi
+          echo "GO: protected environment approved offline orchestration only"
 
-  publish:
-    name: Build and publish images
+  account-ready-gate:
+    name: 01 / Account readiness gate
     needs: go-no-go
-    runs-on: ubuntu-24.04
-    environment: "${{ inputs.environment }}"
     permissions:
       contents: read
-      id-token: write
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: account-ready-gate
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  global:
+    name: 02 / Global
+    needs: account-ready-gate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: global
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  network:
+    name: 03 / Network
+    needs: global
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: network
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  platform:
+    name: 04 / Platform
+    needs: network
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: platform
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  data-foundation:
+    name: 05 / Data foundation
+    needs: platform
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: data-foundation
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  cicd:
+    name: 06 / CI/CD foundation
+    needs: data-foundation
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: cicd
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  artifact-publication:
+    name: 07 / Artifact publication (dry-run)
+    needs: cicd
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - name: Check out source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
         with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          persist-credentials: false
 
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-
-      - name: Build, scan, sign, and push
+      - name: Validate publication boundary
         env:
-          SCANALYZE_ALLOW_LIVE: "1"
+          ALLOW_LIVE: ${{ inputs.allow_live }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
         run: |
-          echo "🚧 Non-production release pipeline"
-          echo "This step requires the orchestrator to be connected to the manifest."
-          echo "Implementation depends on live AWS access authorization."
-          echo "BLOCKED: Awaiting live AWS authorization from deployment owner."
+          set -euo pipefail
+          if [[ "$ALLOW_LIVE" != "false" || "$DRY_RUN" != "true" ]]; then
+            echo "::error::Artifact publication is not authorized"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::release_digest is invalid"
+            exit 1
+          fi
+          test -f scripts/supply-chain/release-graph.py
+          test -x scripts/supply-chain/generate-sbom.sh
+          test -x scripts/supply-chain/scan-image.sh
+          test -x scripts/supply-chain/sign-image.sh
+          test -x scripts/supply-chain/verify-image.sh
+          {
+            echo "### Artifact publication"
+            echo '- Registry login: not performed'
+            echo '- Build/push/sign: not performed'
+            echo '- AWS access: none'
+            echo '- Status: `DRY_RUN_VALIDATED`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  services:
+    name: 08 / Services
+    needs: artifact-publication
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: services
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  edge-identity:
+    name: 09 / Edge identity
+    needs: services
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: edge-identity
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  edge:
+    name: 10 / Edge
+    needs: edge-identity
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: edge
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  addons:
+    name: 11 / Addons
+    needs: edge
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      environment: ${{ inputs.environment }}
+      layer: addons
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  synthetic-validation:
+    name: 12 / Synthetic validation and evidence
+    needs: addons
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install '.[test]'
+
+      - name: Revalidate DAG and repository safety
+        run: |
+          set -euo pipefail
+          python scripts/deployment/validate-layer-dag.py deployment/layers.yaml
+          make git-safety
+
+      - name: Generate sanitized evidence
+        env:
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          evidence_path="$RUNNER_TEMP/nonprod-dry-run-evidence.json"
+          export EVIDENCE_PATH="$evidence_path"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = {
+              "schema_version": "1",
+              "workflow": "nonprod-release",
+              "mode": "dry-run",
+              "environment": os.environ["TARGET_ENVIRONMENT"],
+              "region": os.environ["AWS_REGION_INPUT"],
+              "deployment_id_sha256": hashlib.sha256(
+                  os.environ["DEPLOYMENT_ID"].encode("utf-8")
+              ).hexdigest(),
+              "release_digest": os.environ["RELEASE_DIGEST"],
+              "commit": os.environ["GITHUB_SHA"],
+              "stages": [
+                  "account-ready-gate",
+                  "global",
+                  "network",
+                  "platform",
+                  "data-foundation",
+                  "cicd",
+                  "artifact-publication",
+                  "services",
+                  "edge-identity",
+                  "edge",
+                  "addons",
+                  "synthetic-validation",
+              ],
+              "aws_api_calls": False,
+              "terraform_backend": False,
+              "terraform_plan": False,
+              "terraform_apply": False,
+              "artifact_publication": False,
+              "live_validation": "PENDING",
+              "production_readiness": "NO-GO",
+          }
+          output = Path(os.environ["EVIDENCE_PATH"])
+          output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+          output.chmod(0o600)
+          PY
+          {
+            echo "### Non-production orchestration result"
+            echo '- Canonical stages: 12/12 offline validations completed'
+            echo '- AWS API calls: none'
+            echo '- Artifact publication: not executed'
+            echo '- Terraform plan/apply: not executed'
+            echo '- Live validation: `PENDING`'
+            echo '- Production readiness: `NO-GO`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nonprod-dry-run-evidence
+          path: ${{ runner.temp }}/nonprod-dry-run-evidence.json
+          if-no-files-found: error
+          retention-days: 14

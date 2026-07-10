@@ -92,8 +92,13 @@ AccountVendingProvider
   → registers in deployment registry
   → Orchestrator reads registry
   → Orchestrator assumes Plan (account is now ready for workload)
-  → global layer → network → platform → data-foundation → services → edge-identity → addons
+  → global → network → platform → data-foundation → cicd
+  → artifact-publication → services → edge-identity → edge → addons
+  → synthetic-validation
 ```
+
+ADR-017 defines this canonical stage order; the account-ready transition above
+remains the authorization prerequisite for entering that graph.
 
 ### 3. Role Purpose and Permissions Summary
 

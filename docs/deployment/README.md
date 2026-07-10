@@ -19,6 +19,8 @@ evidence.
 
 - `Scanalyze_Enterprise_Deployment_Guide.docx`: stable enterprise handoff file.
 - `../../playbooks/enterprise-client-deployment.md`: canonical runbook.
+- `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
+  contracts, stage graph, and live-enablement boundary.
 - `../../_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`: curated knowledge-base
   entry point and source hierarchy.
 

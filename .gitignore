@@ -56,6 +56,8 @@ deployment.tfvars
 *.auto.tfvars.json
 **/.generated/
 *.generated.json
+*.generated.yaml
+*.generated.yml
 
 # Operational output and client material
 *.log

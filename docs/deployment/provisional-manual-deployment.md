@@ -1,114 +1,40 @@
-# Guía Provisional: Despliegue Manual Non-Production
+# Guía Provisional de Validación Manual Non-Production
 
 > [!WARNING]
-> **USO PROVISIONAL ÚNICAMENTE.** Esta guía bypasses the CI/CD pipeline (GitHub Actions) y el mecanismo de OIDC. Se asume que estás ejecutando los comandos con tus credenciales AWS locales activas. Nunca usar este flujo para producción.
+> Esta guía histórica fue reemplazada por
+> [`colleague-deployment-guide.md`](colleague-deployment-guide.md) y ADR-017.
+> El flujo local ya no autoriza `terraform apply`, publicación de imágenes ni
+> escrituras en SSM/ECR/ECS.
 
-## Requisitos previos
+## Estado
 
-1. **Autenticación en AWS:** Debes tener tus credenciales locales activas y apuntando a la cuenta non-prod (ej: `aws sso login`).
-2. **Dependencias:** Python 3.11+, Terraform, Docker y las herramientas de línea de comandos estándar.
-3. **Manifiesto:** Un archivo `manifest.yaml` válido para tu entorno non-prod.
+El intento de usar `apply-all` desde localhost demostró que los planes de capas
+downstream se construían con mocks antes de que existieran los outputs reales de
+las capas upstream. Esos planes no son artefactos válidos para un apply.
 
----
+Por lo tanto:
 
-## 1. Preparar el entorno
+- GitHub Actions es el orquestador live objetivo;
+- `deployment/layers.yaml` define el orden canónico;
+- contratos SSM versionados serán el bus autoritativo entre capas;
+- el manifest real permanece cifrado fuera de Git;
+- la terminal local termina en validación y dry-run;
+- producción permanece **NO-GO**.
 
-Activa el entorno virtual y autoriza la ejecución "live" (non-dry-run) exportando la variable de seguridad.
+## Ruta autorizada actual
 
-```bash
-source .venv/bin/activate
+Sigue la [guía de preparación GitOps](colleague-deployment-guide.md) para:
 
-# DESACTIVA EL DRY-RUN GLOBAL
-export SCANALYZE_ALLOW_LIVE=1
-```
+1. crear el manifest real fuera del checkout;
+2. ejecutar validaciones offline;
+3. validar el DAG y los schemas;
+4. ejecutar sólo el dry-run local;
+5. crear una solicitud de despliegue Git-safe;
+6. abrir un Pull Request.
 
-Crea directorios temporales fuera del repositorio para los planes de Terraform y la evidencia.
+No exportes `SCANALYZE_ALLOW_LIVE` y no ejecutes `apply-all`, `apply-layer`,
+`publish-images` ni `deploy-services` desde esta guía.
 
-```bash
-mkdir -p ../scanalyze-plans ../scanalyze-evidence
-```
-
----
-
-## 2. Validar credenciales y cuenta
-
-Asegúrate de que estás en la cuenta correcta y que el manifiesto es válido.
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh account-preflight \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --no-dry-run
-```
-
----
-
-## 3. Planificar toda la infraestructura
-
-Ejecuta el plan de todas las capas de Terraform en orden (global, network, platform, data-foundation, etc.). 
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh plan-all \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --plan-dir ../scanalyze-plans \
-  --no-dry-run
-```
-
-> [!IMPORTANT]
-> Revisa los planes generados en la terminal o en la carpeta `../scanalyze-plans`. Si todo está correcto, procede a aplicar.
-
----
-
-## 4. Aplicar la infraestructura (Infra Layer)
-
-Aplica los planes generados anteriormente. Esto creará la VPC, bases de datos, ECR, ECS clusters y KMS keys.
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh apply-all \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --plan-dir ../scanalyze-plans \
-  --no-dry-run \
-  --approve
-```
-
----
-
-## 5. Compilar y publicar imágenes de Docker
-
-Una vez que el registro ECR existe, compila y empuja las imágenes de los microservicios.
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh publish-images \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --no-dry-run \
-  --approve
-```
-*(Nota: Si usas la base image `CI_BASE_IMAGE`, asegúrate de tenerla exportada en tu shell).*
-
----
-
-## 6. Desplegar los servicios (App Layer)
-
-Esto tomará los digests de las imágenes recién publicadas (registrados en SSM) y aplicará la capa `services` de Terraform para actualizar ECS.
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh deploy-services \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --plan-dir ../scanalyze-plans \
-  --no-dry-run \
-  --approve
-```
-
----
-
-## 7. Validar el entorno (Smoke Test)
-
-Ejecuta las pruebas de humo para asegurar que los microservicios levantan correctamente y tienen conectividad.
-
-```bash
-./scripts/deployment/scanalyze-deploy.sh smoke-e2e \
-  --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --evidence-dir ../scanalyze-evidence \
-  --no-dry-run
-```
-
-Si este paso es exitoso, el despliegue manual non-prod está completo.
+La primera ejecución live non-production requiere un cambio separado, OIDC y
+roles revisados, protected Environment, backend/locking aprobado, saved plans,
+contratos reales y autorización explícita.

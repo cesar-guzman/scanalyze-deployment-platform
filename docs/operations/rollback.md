@@ -4,7 +4,7 @@
 
 1. **Rollback = new Terraform plan, not state revert.**
 2. Rollback target is always a previously-validated set of image digests.
-3. No rollback is automatic; all require explicit approval.
+3. No rollback is automatic; all require explicit GitOps approval.
 4. The `rollback` section of the deployment manifest defines the target state.
 
 ## Rollback Strategy: Digest Revert
@@ -16,23 +16,14 @@ The default rollback strategy (`digest-revert`) works by:
 3. Reviewing the plan for unexpected changes.
 4. Applying the plan with `--approve`.
 
-```bash
-# Generate rollback plan
-scripts/deployment/scanalyze-deploy.sh plan-layer \
-  --manifest /path/to/manifest.yaml \
-  --layer services \
-  --plan-dir /path/outside/repo/plans
+The live rollback entrypoint is the GitHub Actions orchestrator described in
+[`gitops-orchestrator.md`](../deployment/gitops-orchestrator.md). An operator
+submits a Git-safe rollback request referencing the approved known-good release
+digest. The orchestrator resolves the real deployment record outside Git,
+creates a new saved plan, obtains approval, and applies that exact plan.
 
-# Review the plan
-cat /path/outside/repo/plans/services-plan-summary.txt
-
-# Apply with approval
-SCANALYZE_ALLOW_LIVE=1 scripts/deployment/scanalyze-deploy.sh apply-layer \
-  --manifest /path/to/manifest.yaml \
-  --layer services \
-  --plan-dir /path/outside/repo/plans \
-  --approve --no-dry-run
-```
+Local tooling may validate the request and generate a dry-run summary. It does
+not apply the rollback from an operator laptop.
 
 ## What Can Be Rolled Back
 

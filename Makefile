@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -17,6 +17,7 @@ help:
 	@echo "Scanalyze validation targets:"
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
+	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make preflight-core       Run safe incremental validation"
@@ -138,6 +139,13 @@ microservices-check:
 	@echo "Checking monorepo microservice portability and safety..."
 	@$(PYTHON) $(TOOLING_DIR)/check_microservices.py
 	@echo "Microservices check complete."
+
+# ── GitOps Orchestrator Check ─────────────────────────────────────────
+gitops-orchestrator-check:
+	@echo "=== GitOps Orchestrator Check (offline, no AWS) ==="
+	@$(PYTHON) scripts/deployment/validate-layer-dag.py deployment/layers.yaml
+	@$(PYTHON) -m pytest $(TESTS_DIR)/test_deployment/ $(TESTS_DIR)/test_gitops_schemas.py -v --tb=short
+	@echo "GitOps orchestrator check complete. Status: LOCALLY_VALIDATED_DRY_RUN_ONLY"
 
 # ── Required Artifacts Inventory ─────────────────────────────────────
 required-artifacts-check:
@@ -460,7 +468,7 @@ provider-validate: aws-credentials-guard
 		echo "Provider validate: $$ERRORS failures"; \
 		exit 1; \
 	fi; \
-	echo "Provider validate: ALL PASS (9/9)"
+	echo "Provider validate: ALL PASS ($(words $(ROOT_DIRS))/$(words $(ROOT_DIRS)))"
 
 provider-check: provider-init provider-validate
 	@echo ""
@@ -713,13 +721,13 @@ bootstrap-local: toolchain-check
 	@echo "=== Bootstrap Local ==="
 	@if [ ! -d ".venv" ]; then \
 		echo "Creating virtual environment..."; \
-		python3 -m venv .venv; \
+		$(PYTHON) -m venv .venv; \
 	fi
 	@echo "Installing dependencies..."
-	@.venv/bin/pip install -q -e '.[test]' 2>/dev/null || \
+	@.venv/bin/python -m pip install -q -e '.[test]' 2>/dev/null || \
 		echo "WARN: pip install failed — dependencies may be missing"
 	@echo "Verifying toolchain..."
-	@$(MAKE) --no-print-directory toolchain-check
+	@$(MAKE) --no-print-directory PYTHON=.venv/bin/python toolchain-check
 	@echo "Validating JSON schemas..."
 	@$(MAKE) --no-print-directory json-syntax-check
 	@echo "Bootstrap complete."
@@ -730,6 +738,7 @@ repro-check: bootstrap-local
 	@$(MAKE) --no-print-directory microservices-check
 	@$(MAKE) --no-print-directory security-check
 	@$(MAKE) --no-print-directory json-syntax-check
+	@$(MAKE) --no-print-directory gitops-orchestrator-check
 	@$(MAKE) --no-print-directory terraform-fmt-check
 	@$(MAKE) --no-print-directory test
 	@echo "Checking for forbidden artifacts..."
@@ -746,7 +755,9 @@ repro-check: bootstrap-local
 docs-check:
 	@echo "=== Documentation Check ==="
 	@ERRORS=0; \
-	for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md; do \
+		for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md \
+			ADR/ADR-017-github-actions-release-orchestrator.md \
+			docs/deployment/gitops-orchestrator.md deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \
 			ERRORS=$$((ERRORS + 1)); \
@@ -787,6 +798,7 @@ nonprod-readiness-check: release-dry-run
 	@echo "repro-check:        PASSED"
 	@echo "manifest-validation: PASSED"
 	@echo "release-dry-run:    PASSED"
+	@echo "gitops-orchestrator: LOCALLY_VALIDATED_DRY_RUN_ONLY"
 	@echo "live-validation:    BLOCKED (requires AWS credentials + PM approval)"
 	@echo "production-ready:   NO-GO (requires live validation)"
 	@echo ""
