@@ -114,33 +114,19 @@ Calcula todo lo que se va a crear en AWS. **No hace cambios reales todavía.**
 ```
 > **Check con tu coach:** Revisen juntos el resumen del plan (ej. *Plan: 45 to add, 0 to change, 0 to destroy*).
 
-### Paso 5: Terraform Apply (Creación de Infraestructura)
-Aplica los planes generados. Esto creará VPC, ECR, ECS, bases de datos, etc.
-```bash
-./scripts/deployment/scanalyze-deploy.sh apply-all \
-  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
-  --plan-dir ../scanalyze-plans \
-  --no-dry-run
-```
-> **Check con tu coach:** Este paso puede tardar varios minutos. Avisa cuando termine exitosamente.
+> **Check con tu coach:** Revisen juntos el resumen del plan (ej. *Plan: 45 to add, 0 to change, 0 to destroy*).
 
-### Paso 6: Construcción y Publicación Docker
-Construye las imágenes de los 7 microservicios y las sube a ECR.
-```bash
-./scripts/deployment/scanalyze-deploy.sh publish-images \
-  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
-  --no-dry-run \
-  --approve
-```
-> ⚠️ El flag `--approve` es obligatorio porque subir imágenes es una operación mutante.
+### Paso 5: Push a GitHub (GitOps)
+¡Has validado exitosamente de manera local que tu contrato de infraestructura y tu manifiesto son correctos! En este repositorio, **no ejecutamos `terraform apply` desde las computadoras locales**. 
 
-### Paso 7: Sincronización de Configuración (SSM)
-Sube los parámetros de configuración al AWS Systems Manager Parameter Store.
+El paso final es subir tus cambios y dejar que el pipeline de GitHub Actions se encargue de orquestar el despliegue real en AWS, garantizando trazabilidad y seguridad.
+
 ```bash
-./scripts/deployment/scanalyze-deploy.sh sync-ssm \
-  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
-  --no-dry-run
+git add examples/deployments/mi-nonprod.generated.yaml
+git commit -m "feat: deploy mi-nonprod environment"
+git push origin tu-rama
 ```
+> **Check con tu coach:** Abran el Pull Request en GitHub y revisen juntos la ejecución del pipeline `nonprod-release.yml`.
 
 ---
-🎉 **¡Felicidades!** Si llegaste hasta aquí, toda la infraestructura, las imágenes de los microservicios y la configuración están desplegadas en AWS.
+🎉 **¡Felicidades!** Has completado el ciclo de preparación y validación local de un entorno bajo las mejores prácticas de la plataforma.
