@@ -12,8 +12,8 @@ aws_account_id: "__ACCOUNT_ID__"
 aws_region: "__REGION__"
 
 terraform_backend:
-  bucket: "dep-__CLEAN_CUSTOMER_ID__000000000000-tfstate"
-  lock_table: "dep___CLEAN_CUSTOMER_ID__000000000000-tflock"
+  bucket: "dep-__LOWER_ULID__-tfstate"
+  lock_table: "dep___LOWER_ULID__-tflock"
   key_prefix: "scanalyze/dev"
   kms_key_alias: "alias/scanalyze-tfstate"
 
@@ -22,11 +22,11 @@ github:
   oidc_role_arn: "arn:aws:iam::__ACCOUNT_ID__:role/github-oidc-scanalyze-deploy"
 
 ecr:
-  prefix: "dep-__CLEAN_CUSTOMER_ID__000000000000/scanalyze"
+  prefix: "dep-__LOWER_ULID__/scanalyze"
   immutable_tags: true
   scan_on_push: true
 
-base_image_uri: "__ACCOUNT_ID__.dkr.ecr.__REGION__.amazonaws.com/dep-__CLEAN_CUSTOMER_ID__000000000000/scanalyze/base:3.11-slim@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+base_image_uri: "__ACCOUNT_ID__.dkr.ecr.__REGION__.amazonaws.com/dep-__LOWER_ULID__/scanalyze/base:3.11-slim@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 enabled_domains:
   - bank
@@ -48,7 +48,7 @@ identity:
   deployment_claim: "custom:deployment_id"
 
 frontend:
-  asset_bucket: "dep-__CLEAN_CUSTOMER_ID__000000000000-frontend"
+  asset_bucket: "dep-__LOWER_ULID__-frontend"
   cloudfront_distribution_id: "E0DEV00001"
   api_endpoint: "https://api.__CUSTOMER_ID__.example.com"
 
