@@ -2,19 +2,7 @@ name: Microservices build
 
 on:
   pull_request:
-    paths:
-      - "backend/workers/scanalyze-ingest-api/**"
-      - "backend/workers/scanalyze-ocr-worker/**"
-      - "backend/workers/scanalyze-postprocess-worker/**"
-      - "backend/workers/scanalyze-classifier-worker/**"
-      - "backend/workers/scanalyze-bank-worker/**"
-      - "backend/workers/scanalyze-personal-worker/**"
-      - "backend/workers/scanalyze-gov-worker/**"
-      - "scripts/microservices/**"
-      - "tests/test_microservices/**"
-      - "tooling/check_microservices.py"
-      - "pyproject.toml"
-      - ".github/workflows/microservices-build.yml"
+    branches: [main]
   push:
     branches:
       - main
