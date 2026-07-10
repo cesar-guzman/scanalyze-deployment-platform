@@ -1,0 +1,19 @@
+# Safe first-stage overlay for moving source/build ownership to GitHub.
+#
+# Apply after the deployment's existing base tfvars and only after reviewing a
+# live Terraform plan with the explicit customer profile and region. This
+# overlay changes only legacy pipeline execution; it preserves the deployment's
+# existing CodeCommit and release-metadata choices.
+# Before applying, export any pipeline/build log evidence required by the
+# customer's audit or retention policy; disabling the pipeline removes its
+# Terraform-owned log groups.
+
+enable_codepipeline = false
+
+# ECR repositories and image metadata SSM parameters are not controlled by the
+# legacy pipeline flag.
+
+# If the base deployment currently enables CodeCommit, repositories are retained
+# for source retention. After export has been reviewed and approved, a separate
+# change may set enable_codecommit=false. That change destroys legacy repositories
+# and must never be combined with an unreviewed production apply.

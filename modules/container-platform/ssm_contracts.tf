@@ -44,7 +44,7 @@ resource "aws_ssm_parameter" "alb_dns_name" {
 resource "aws_ssm_parameter" "alb_listener_arn" {
   name      = "/${var.deployment_id}/layers/platform/outputs/alb_listener_arn"
   type      = "String"
-  value     = aws_lb_listener.main.arn
+  value     = aws_lb_listener.https.arn
   overwrite = true
 
   tags = {

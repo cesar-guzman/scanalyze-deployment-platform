@@ -82,5 +82,12 @@ variable "enable_release_metadata_ssm" {
 variable "enable_codecommit" {
   type        = bool
   default     = true
-  description = "Create CodeCommit repos. Disable when permission set lacks codecommit:*"
+  description = "Create legacy CodeCommit source repositories"
+}
+
+variable "enable_codepipeline" {
+  type        = bool
+  default     = null
+  nullable    = true
+  description = "Create legacy CodeBuild/CodePipeline resources. Null preserves the previous behavior by inheriting enable_codecommit"
 }

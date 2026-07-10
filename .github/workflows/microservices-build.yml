@@ -1,0 +1,392 @@
+name: Microservices build
+
+on:
+  pull_request:
+    paths:
+      - "backend/workers/scanalyze-ingest-api/**"
+      - "backend/workers/scanalyze-ocr-worker/**"
+      - "backend/workers/scanalyze-postprocess-worker/**"
+      - "backend/workers/scanalyze-classifier-worker/**"
+      - "backend/workers/scanalyze-bank-worker/**"
+      - "backend/workers/scanalyze-personal-worker/**"
+      - "backend/workers/scanalyze-gov-worker/**"
+      - "scripts/microservices/**"
+      - "tests/test_microservices/**"
+      - "tooling/check_microservices.py"
+      - "pyproject.toml"
+      - ".github/workflows/microservices-build.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/workers/scanalyze-ingest-api/**"
+      - "backend/workers/scanalyze-ocr-worker/**"
+      - "backend/workers/scanalyze-postprocess-worker/**"
+      - "backend/workers/scanalyze-classifier-worker/**"
+      - "backend/workers/scanalyze-bank-worker/**"
+      - "backend/workers/scanalyze-personal-worker/**"
+      - "backend/workers/scanalyze-gov-worker/**"
+      - "scripts/microservices/**"
+      - "tests/test_microservices/**"
+      - "tooling/check_microservices.py"
+      - "pyproject.toml"
+      - ".github/workflows/microservices-build.yml"
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: Protected GitHub Environment for the customer deployment
+        required: true
+        type: environment
+      service:
+        description: Service selection
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ingest-api
+          - ocr-worker
+          - postprocess-worker
+          - classifier-worker
+          - bank-worker
+          - personal-worker
+          - gov-worker
+      deployment_id:
+        description: Deployment ID (must match the selected environment)
+        required: true
+        type: string
+      aws_account_id:
+        description: AWS account ID (must match the selected environment)
+        required: true
+        type: string
+      aws_region:
+        description: AWS region (must match the selected environment)
+        required: true
+        type: string
+      ecr_prefix:
+        description: Full ECR namespace, for example dep-.../scanalyze
+        required: true
+        type: string
+      tag:
+        description: Immutable tag; empty uses sha-<commit>
+        required: false
+        default: ""
+        type: string
+      push_images:
+        description: Push images after validation
+        required: true
+        default: false
+        type: boolean
+      write_ssm:
+        description: Write image tag and digest metadata after push
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Select services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.select.outputs.services }}
+      publish_services: ${{ steps.select.outputs.publish_services }}
+      has_changes: ${{ steps.select.outputs.has_changes }}
+      publishable: ${{ steps.select.outputs.publishable }}
+    steps:
+      - name: Validate dispatch safety
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CURRENT_REF: ${{ github.ref }}
+          PUSH_IMAGES: ${{ inputs.push_images }}
+          WRITE_SSM: ${{ inputs.write_ssm }}
+        run: |
+          set -euo pipefail
+          if [[ "$WRITE_SSM" == "true" && "$PUSH_IMAGES" != "true" ]]; then
+            echo "::error::write_ssm requires push_images"
+            exit 1
+          fi
+          if [[ "$PUSH_IMAGES" == "true" && "$CURRENT_REF" != "refs/heads/main" ]]; then
+            echo "::error::Publishing is restricted to refs/heads/main"
+            exit 1
+          fi
+
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve service matrix
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SERVICE: ${{ inputs.service }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          publishable=false
+          publish_services='[]'
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$DISPATCH_SERVICE" == "all" ]]; then
+              services="$(scripts/microservices/changed-services.sh --all)"
+            else
+              services="$(scripts/microservices/changed-services.sh --service "$DISPATCH_SERVICE")"
+            fi
+            publish_services="$services"
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            services="$(scripts/microservices/changed-services.sh --diff "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          else
+            base_sha="$PUSH_BASE_SHA"
+            if [[ "$base_sha" =~ ^0+$ ]]; then
+              services="$(scripts/microservices/changed-services.sh --all)"
+              publish_services="$services"
+              publishable=true
+            else
+              services="$(scripts/microservices/changed-services.sh --diff "$base_sha" "$PUSH_HEAD_SHA")"
+              publish_services="$(scripts/microservices/changed-services.sh --service-diff "$base_sha" "$PUSH_HEAD_SHA")"
+              if [[ "$publish_services" != "[]" ]]; then
+                publishable=true
+              fi
+            fi
+          fi
+
+          printf 'services=%s\n' "$services" >> "$GITHUB_OUTPUT"
+          printf 'publish_services=%s\n' "$publish_services" >> "$GITHUB_OUTPUT"
+          printf 'publishable=%s\n' "$publishable" >> "$GITHUB_OUTPUT"
+          if [[ "$services" == "[]" ]]; then
+            printf 'has_changes=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'has_changes=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  validate:
+    name: Validate ${{ matrix.service }}
+    needs: changes
+    if: needs.changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11.14"
+          cache: pip
+          cache-dependency-path: backend/workers/scanalyze-${{ matrix.service }}/requirements.txt
+
+      - name: Validate repository policy
+        run: python tooling/check_microservices.py
+
+      - name: Compile and test service
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_EC2_METADATA_DISABLED: "true"
+          AWS_REGION: us-east-1
+          SCANALYZE_ENV: ci
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          service_dir="backend/workers/scanalyze-${SERVICE}"
+          case "$SERVICE" in
+            bank-worker) service_tenant="bank" ;;
+            personal-worker) service_tenant="personal" ;;
+            gov-worker) service_tenant="gov" ;;
+            *) service_tenant="platform" ;;
+          esac
+          export SCANALYZE_TENANT="$service_tenant"
+          export SCANALYZE_TENANTS="$service_tenant"
+          python -m compileall -q "$service_dir"
+          python -m pip install -r "$service_dir/requirements.txt" 'pytest==9.1.1'
+          PYTHONPATH="$service_dir/src:$service_dir" python -m pytest "$service_dir/tests" -q
+
+      - name: Build without publishing
+        env:
+          CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CI_BASE_IMAGE" ]]; then
+            echo "::notice::Skipping Docker build: repository variable CI_BASE_IMAGE is not configured"
+            echo "Code validation was performed by the compile-and-test step above"
+            exit 0
+          fi
+          scripts/microservices/build-push.sh \
+            --service "$SERVICE" \
+            --tag "sha-${GITHUB_SHA:0:12}" \
+            --base-image "$CI_BASE_IMAGE" \
+            --no-push \
+            --no-write-ssm
+
+  tooling:
+    name: Validate build tooling
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Run build-tool tests
+        run: |
+          set -euo pipefail
+          python -m pip install '.[test]'
+          python -m pytest tests/test_microservices -q
+
+  publish:
+    name: Publish ${{ matrix.service }}
+    needs:
+      - changes
+      - tooling
+      - validate
+    if: >-
+      needs.changes.outputs.has_changes == 'true' &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.push_images && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'push' && needs.changes.outputs.publishable == 'true' && vars.MAIN_PUBLISH_ENABLED == 'true')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}
+    concurrency:
+      group: microservices-publish-${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}-${{ matrix.service }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.publish_services) }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Verify protected deployment inputs
+        id: deployment
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ACCOUNT_ID: ${{ inputs.aws_account_id }}
+          INPUT_REGION: ${{ inputs.aws_region }}
+          INPUT_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          INPUT_ECR_PREFIX: ${{ inputs.ecr_prefix }}
+          INPUT_TAG: ${{ inputs.tag }}
+          EXPECTED_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          EXPECTED_REGION: ${{ vars.AWS_REGION }}
+          EXPECTED_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+          EXPECTED_ECR_PREFIX: ${{ vars.ECR_PREFIX }}
+          EXPECTED_BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
+        run: |
+          set -euo pipefail
+
+          for value in \
+            "$EXPECTED_ROLE_ARN" \
+            "$EXPECTED_ACCOUNT_ID" \
+            "$EXPECTED_REGION" \
+            "$EXPECTED_DEPLOYMENT_ID" \
+            "$EXPECTED_ECR_PREFIX" \
+            "$EXPECTED_BASE_IMAGE"; do
+            if [[ -z "$value" ]]; then
+              echo "::error::Selected environment is missing a required deployment variable"
+              exit 1
+            fi
+          done
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            [[ "$INPUT_ACCOUNT_ID" == "$EXPECTED_ACCOUNT_ID" ]] || {
+              echo "::error::aws_account_id does not match the selected environment"
+              exit 1
+            }
+            [[ "$INPUT_REGION" == "$EXPECTED_REGION" ]] || {
+              echo "::error::aws_region does not match the selected environment"
+              exit 1
+            }
+            [[ "$INPUT_DEPLOYMENT_ID" == "$EXPECTED_DEPLOYMENT_ID" ]] || {
+              echo "::error::deployment_id does not match the selected environment"
+              exit 1
+            }
+            [[ "$INPUT_ECR_PREFIX" == "$EXPECTED_ECR_PREFIX" ]] || {
+              echo "::error::ecr_prefix does not match the selected environment"
+              exit 1
+            }
+          fi
+
+          tag="$INPUT_TAG"
+          if [[ -z "$tag" ]]; then
+            tag="sha-${GITHUB_SHA:0:12}"
+          fi
+          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ || "${tag,,}" == "latest" ]]; then
+            echo "::error::tag is not a valid immutable OCI/ECR tag"
+            exit 1
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Configure temporary AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@acca2b1b2070338fb9fd1ca27ecee81d687e58e5 # v6.1.2
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: scanalyze-${{ github.run_id }}-${{ strategy.job-index }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Build, push, and optionally record digest
+        env:
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION_VALUE: ${{ vars.AWS_REGION }}
+          BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
+          DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+          ECR_PREFIX: ${{ vars.ECR_PREFIX }}
+          SERVICE: ${{ matrix.service }}
+          TAG: ${{ steps.deployment.outputs.tag }}
+          DISPATCH_WRITE_SSM: ${{ inputs.write_ssm }}
+          MAIN_WRITE_SSM: ${{ vars.MAIN_WRITE_SSM }}
+        run: |
+          set -euo pipefail
+
+          ssm_mode="--no-write-ssm"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            [[ "$DISPATCH_WRITE_SSM" == "true" ]] && ssm_mode="--write-ssm"
+          elif [[ "$MAIN_WRITE_SSM" == "true" ]]; then
+            ssm_mode="--write-ssm"
+          fi
+
+          scripts/microservices/build-push.sh \
+            --service "$SERVICE" \
+            --account-id "$ACCOUNT_ID" \
+            --region "$AWS_REGION_VALUE" \
+            --deployment-id "$DEPLOYMENT_ID" \
+            --ecr-prefix "$ECR_PREFIX" \
+            --tag "$TAG" \
+            --base-image "$BASE_IMAGE" \
+            --push \
+            "$ssm_mode"

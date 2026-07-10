@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/identity-contract.v1.schema.json",
+  "title": "Scanalyze Identity Contract",
+  "description": "Canonical contract aligning customer identity, deployment identity, Cognito claims, API authorization, and ECS runtime configuration.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "customer_id",
+    "cognito",
+    "authorization",
+    "claim_mapping"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
+    },
+    "cognito": {
+      "type": "object",
+      "required": ["user_pool_id", "client_ids", "allowed_token_uses"],
+      "properties": {
+        "user_pool_id": {
+          "type": "string",
+          "pattern": "^[a-z]{2}-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+        },
+        "client_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "allowed_token_uses": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["access", "id"] },
+          "minItems": 1
+        },
+        "m2m_client_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Machine-to-machine client IDs for service accounts"
+        }
+      },
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "required": ["mode", "deployment_claim"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["cognito_jwt", "iam", "api_key"],
+          "description": "Primary authorization mode"
+        },
+        "deployment_claim": {
+          "type": "string",
+          "default": "custom:deployment_id",
+          "description": "JWT claim that must match the deployment_id"
+        },
+        "enforce_deployment_binding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reject requests where claim does not match deployment_id"
+        },
+        "customer_id_source": {
+          "type": "string",
+          "enum": ["claim", "client_id_map", "static"],
+          "default": "claim",
+          "description": "How customer_id is resolved; never from untrusted payload"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claim_mapping": {
+      "type": "object",
+      "required": ["deployment_id", "customer_id"],
+      "properties": {
+        "deployment_id": {
+          "type": "string",
+          "description": "JWT claim path for deployment_id"
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "JWT claim path for customer_id"
+        },
+        "tenant": {
+          "type": "string",
+          "description": "JWT claim path for tenant/domain"
+        },
+        "roles": {
+          "type": "string",
+          "description": "JWT claim path for user roles"
+        }
+      },
+      "additionalProperties": true
+    },
+    "allowed_domains": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["bank", "personal", "gov"] },
+      "minItems": 1,
+      "description": "Document domains accessible to this identity contract"
+    },
+    "synthetic_users": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether synthetic users are allowed (non-production only)"
+        },
+        "prefix": {
+          "type": "string",
+          "default": "synthetic-",
+          "description": "Required prefix for synthetic user identifiers"
+        }
+      }
+    },
+    "restrictions": {
+      "type": "object",
+      "properties": {
+        "cross_account_access": {
+          "type": "boolean",
+          "default": false,
+          "description": "Must be false — no cross-account identity access"
+        },
+        "cross_deployment_access": {
+          "type": "boolean",
+          "default": false,
+          "description": "Must be false — no cross-deployment identity access"
+        },
+        "password_in_docs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Must be false — no passwords in documentation"
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "properties": {
+        "restrictions": {
+          "properties": {
+            "cross_account_access": { "const": false },
+            "cross_deployment_access": { "const": false },
+            "password_in_docs": { "const": false }
+          }
+        }
+      }
+    }
+  ]
+}

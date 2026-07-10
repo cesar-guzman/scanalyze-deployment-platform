@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/ssm-contract.v1.schema.json",
+  "title": "Scanalyze SSM Contract",
+  "description": "Defines the schema for SSM Parameter Store contracts between Terraform layers. Each contract has exactly one producer (layer owner) and one or more consumers.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "aws_account_id",
+    "region",
+    "layer",
+    "contracts"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "aws_account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+    },
+    "layer": {
+      "type": "string",
+      "enum": ["account-ready-gate", "global", "network", "platform", "data-foundation", "edge-identity", "edge", "cicd", "services", "addons"]
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ssm_path", "type", "producer", "consumers", "description"],
+        "properties": {
+          "ssm_path": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "SSM parameter path; must start with /<deployment_id>/"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["String", "SecureString", "StringList"],
+            "description": "SSM parameter type"
+          },
+          "producer": {
+            "type": "string",
+            "description": "Layer that owns and writes this parameter"
+          },
+          "consumers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Layers that read this parameter"
+          },
+          "description": { "type": "string" },
+          "resource_type": {
+            "type": "string",
+            "description": "AWS resource type the value refers to (e.g., ecs_cluster, alb, sqs_queue)"
+          },
+          "required_for_deploy": {
+            "type": "boolean",
+            "default": true,
+            "description": "If true, absence blocks downstream deployment"
+          },
+          "digest_verified": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, value is verified by digest (e.g., image digest)"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

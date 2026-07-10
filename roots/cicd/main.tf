@@ -1,4 +1,4 @@
-# Root: cicd (layer 6)
+# Root: cicd (layer 8)
 # Scope: regional
 # State key: {dep_id}/{region}/cicd/terraform.tfstate
 # Module: modules/cicd
@@ -48,9 +48,9 @@ module "cicd" {
   ecr_lifecycle_keep_last     = var.ecr_lifecycle_keep_last
   enable_release_metadata_ssm = var.enable_release_metadata_ssm
   enable_codecommit           = var.enable_codecommit
+  enable_codepipeline         = var.enable_codepipeline
 
   # Upstream contract
   upstream_contract_digest = var.upstream_contract_digest
   expected_upstream_digest = var.expected_upstream_digest
 }
-

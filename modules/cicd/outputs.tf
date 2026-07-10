@@ -44,9 +44,11 @@ output "release_metadata" {
 }
 
 output "codebuild_role_arn" {
-  value = aws_iam_role.codebuild.arn
+  description = "CodeBuild role ARN when legacy pipeline IAM is retained"
+  value       = try(aws_iam_role.codebuild[0].arn, null)
 }
 
 output "codepipeline_role_arn" {
-  value = aws_iam_role.codepipeline.arn
+  description = "CodePipeline role ARN when legacy pipeline IAM is retained"
+  value       = try(aws_iam_role.codepipeline[0].arn, null)
 }
