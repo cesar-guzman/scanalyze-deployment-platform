@@ -16,14 +16,17 @@ variable "account_id" {
   }
 }
 
+variable "region" {
+  type        = string
+  description = "AWS region for deployment"
+}
+
 variable "account_ready_contract_digest" {
   type        = string
   description = "SHA-256 digest of the ACCOUNT_READY contract"
-  default     = ""
 }
 
 variable "expected_contract_digest" {
   type        = string
   description = "Expected contract digest from deployment record"
-  default     = ""
 }
