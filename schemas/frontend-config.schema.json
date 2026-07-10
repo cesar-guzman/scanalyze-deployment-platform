@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/frontend-config.v1.schema.json",
+  "title": "Scanalyze Frontend Configuration",
+  "description": "Declarative schema for frontend config.json. Terraform is the single owner. No ClickOps, no hardcoded values.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "environment",
+    "api_endpoint",
+    "cognito",
+    "region"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["sandbox", "dev", "staging", "production"]
+    },
+    "api_endpoint": {
+      "type": "string",
+      "format": "uri",
+      "description": "Full API Gateway or ALB endpoint URL"
+    },
+    "cognito": {
+      "type": "object",
+      "required": ["user_pool_id", "client_id", "region"],
+      "properties": {
+        "user_pool_id": { "type": "string", "minLength": 1 },
+        "client_id": { "type": "string", "minLength": 1 },
+        "region": { "type": "string", "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$" },
+        "domain": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+    },
+    "asset_bucket": {
+      "type": "string",
+      "description": "S3 bucket for frontend assets"
+    },
+    "cloudfront_distribution_id": {
+      "type": "string"
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" },
+      "description": "Feature flags exposed to the frontend"
+    },
+    "version": {
+      "type": "string",
+      "description": "Config version for cache invalidation"
+    }
+  },
+  "additionalProperties": false
+}

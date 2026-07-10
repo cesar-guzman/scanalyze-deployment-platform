@@ -1,4 +1,4 @@
-.PHONY: agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status
+.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -11,6 +11,18 @@ FIXTURES_DIR := fixtures
 POLICIES_DIR := policies
 TOOLING_DIR  := tooling
 TESTS_DIR    := tests
+
+# ── Help ─────────────────────────────────────────────────────────────
+help:
+	@echo "Scanalyze validation targets:"
+	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
+	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
+	@echo "  make git-safety           Check staged/worktree Git safety"
+	@echo "  make test                 Run platform tests (fail closed)"
+	@echo "  make preflight-core       Run safe incremental validation"
+	@echo "  make preflight-m1         Run M0+M1 gates"
+	@echo "  make preflight-m2         Run M0+M1+M2 gates"
+	@echo "  make terraform-fmt-check  Check Terraform formatting"
 
 # Pinned versions from .tool-versions / .terraform-version
 PINNED_PYTHON_VERSION  := $(shell head -1 .tool-versions 2>/dev/null | grep python | awk '{print $$2}' || echo "3.11.12")
@@ -81,7 +93,7 @@ json-syntax-check:
 
 lint-forbidden-patterns:
 	@echo "Checking forbidden patterns in platform code..."
-	@$(PYTHON) $(TOOLING_DIR)/lint_forbidden_patterns.py modules/ roots/ 2>/dev/null || true
+	@$(PYTHON) $(TOOLING_DIR)/lint_forbidden_patterns.py modules/ roots/
 	@echo "Forbidden pattern check complete."
 
 # ── Schema Check (Draft 2020-12 — requires jsonschema) ───────────────
@@ -104,20 +116,28 @@ policy-check:
 # ── Contract Check ───────────────────────────────────────────────────
 contract-check:
 	@echo "Running contract canonicalization and digest tests..."
-	@$(PYTHON) -m pytest $(TESTS_DIR)/contracts/ -v 2>/dev/null || $(PYTHON) $(TOOLING_DIR)/validate_digest.py $(FIXTURES_DIR)/valid/
+	@$(PYTHON) -m pytest $(TESTS_DIR)/test_account_ready/ -v --tb=short
+	@$(PYTHON) $(TOOLING_DIR)/validate_digest.py $(FIXTURES_DIR)/valid/
 	@echo "Contract check complete."
 
 # ── Test ─────────────────────────────────────────────────────────────
 test:
 	@echo "Running all tests..."
-	@$(PYTHON) -m pytest $(TESTS_DIR)/ -v --tb=short 2>/dev/null || echo "pytest not available or no tests found"
+	@$(PYTHON) -m pytest $(TESTS_DIR)/ -v --tb=short
 	@echo "Test run complete."
 
 # ── Security Check ───────────────────────────────────────────────────
 security-check:
 	@echo "Running security sentinel (with allowlist)..."
-	@$(PYTHON) -m pytest $(TESTS_DIR)/sentinel/ -v 2>/dev/null || $(PYTHON) $(TOOLING_DIR)/security_sentinel.py
+	@$(PYTHON) $(TOOLING_DIR)/security_sentinel.py
+	@$(PYTHON) -m pytest $(TESTS_DIR)/sentinel/ -v
 	@echo "Security check complete."
+
+# ── Microservices Check ──────────────────────────────────────────────
+microservices-check:
+	@echo "Checking monorepo microservice portability and safety..."
+	@$(PYTHON) $(TOOLING_DIR)/check_microservices.py
+	@echo "Microservices check complete."
 
 # ── Required Artifacts Inventory ─────────────────────────────────────
 required-artifacts-check:
@@ -126,7 +146,7 @@ required-artifacts-check:
 
 # ── Preflight Core (validates existing artifacts only) ────────────────
 # Use this for incremental work. Does NOT claim M0 completeness.
-preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check
+preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check
 	@echo ""
 	@echo "=== PREFLIGHT-CORE COMPLETE ==="
 	@echo "Existing artifacts validated. This does NOT mean M0 is complete."
@@ -134,7 +154,7 @@ preflight-core: agent-context lint json-syntax-check policy-check contract-check
 
 # ── Preflight M0 (full milestone gate — fails if anything missing) ────
 # This is the real M0 gate. Must pass before M0 can be declared complete.
-preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check
+preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check microservices-check
 	@echo ""
 	@echo "=== PREFLIGHT-M0 COMPLETE ==="
 	@echo "All M0 required artifacts present and validated."
@@ -146,23 +166,107 @@ preflight: preflight-core
 git-safety:
 	@echo "=== Git Safety Check ==="
 	@echo "Branch: $$(git branch --show-current 2>/dev/null || echo 'unknown')"
-	@echo "Checking for secrets in staged files..."
-	@STAGED=$$(git diff --cached --diff-filter=ACM --name-only 2>/dev/null); \
-	if [ -n "$$STAGED" ]; then \
-		echo "$$STAGED" | xargs grep -lE '(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]+\.eyJ)' 2>/dev/null && \
-		(echo "FAIL: Potential secrets detected in staged files" && exit 1) || true; \
-	fi
-	@echo "Checking for .tfstate files..."
-	@find . -name '*.tfstate' -not -path './.git/*' | grep -q . && \
-		(echo "FAIL: .tfstate files found in repo" && exit 1) || true
-	@echo "Checking for .env files..."
-	@find . -name '.env' -not -path './.git/*' | grep -q . && \
-		(echo "FAIL: .env files found in repo" && exit 1) || true
-	@echo "Checking worktree for secrets (not just staged)..."
-	@find . -type f -name '*.json' -not -path './.git/*' | \
-		xargs grep -lE 'AKIA[0-9A-Z]{16}' 2>/dev/null && \
-		(echo "FAIL: AWS access key pattern found in worktree" && exit 1) || true
-	@echo "Git safety OK."
+	@set -u; \
+	GIT_SAFETY_TMP=$$(mktemp -d) || { echo "FAIL: unable to create Git safety workspace"; exit 1; }; \
+	trap 'rm -rf "$$GIT_SAFETY_TMP"' EXIT HUP INT TERM; \
+	SECRET_PATTERN="(AKIA|ASIA)[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]+[.]eyJ[A-Za-z0-9_-]+|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9/+=_-]{8,}"; \
+	echo "Checking tracked index content for secrets..."; \
+	if ! git ls-files --cached -z > "$$GIT_SAFETY_TMP/index-files"; then \
+		echo "FAIL: unable to enumerate tracked index files"; \
+		exit 1; \
+	fi; \
+	INDEX_FORBIDDEN=0; \
+	INDEX_MATCH=0; \
+	while IFS= read -r -d '' file; do \
+		case "$$file" in \
+			*.tfstate|*.tfstate.*|*.tfplan|tfplan|*/tfplan|tfplan.*|*/tfplan.*|*.plan.json|\
+			.env|*/.env|.env.*|*/.env.*|\
+			.terraform/*|*/.terraform/*|.work/*|*/.work/*|.venv/*|*/.venv/*|\
+			.aws/*|*/.aws/*|credentials|*/credentials|*.pem|*.key|*.p12|*.crt) \
+				INDEX_FORBIDDEN=1 ;; \
+		esac; \
+		if ! git show ":./$$file" > "$$GIT_SAFETY_TMP/content" 2>/dev/null; then \
+			echo "FAIL: unable to read tracked index content"; \
+			exit 1; \
+		fi; \
+		grep -aiEq "$$SECRET_PATTERN" "$$GIT_SAFETY_TMP/content" 2>/dev/null; \
+		GREP_STATUS=$$?; \
+		if [ "$$GREP_STATUS" -eq 0 ]; then \
+			INDEX_MATCH=1; \
+		elif [ "$$GREP_STATUS" -ne 1 ]; then \
+			echo "FAIL: unable to scan tracked index content"; \
+			exit 1; \
+		fi; \
+	done < "$$GIT_SAFETY_TMP/index-files"; \
+	if [ "$$INDEX_FORBIDDEN" -ne 0 ]; then \
+		echo "FAIL: Prohibited file type detected in tracked index"; \
+		exit 1; \
+	fi; \
+	if [ "$$INDEX_MATCH" -ne 0 ]; then \
+		echo "FAIL: Potential secrets detected in tracked index content"; \
+		exit 1; \
+	fi; \
+	echo "Checking for Terraform state/plan files outside ignored workdirs..."; \
+	if ! find . -type f \
+		\( -name '*.tfstate' -o -name '*.tfstate.*' -o -name '*.tfplan' -o -name 'tfplan' -o -name 'tfplan.*' -o -name '*.plan.json' \) \
+		-not -path '*/.git/*' -not -path '*/.terraform/*' -not -path '*/.venv/*' -not -path '*/.work/*' \
+		-print0 > "$$GIT_SAFETY_TMP/state-files"; then \
+		echo "FAIL: unable to inspect Terraform state/plan files"; \
+		exit 1; \
+	fi; \
+	if IFS= read -r -d '' _ < "$$GIT_SAFETY_TMP/state-files"; then \
+		echo "FAIL: Terraform state/plan files found outside ignored workdirs"; \
+		exit 1; \
+	fi; \
+	echo "Checking for local environment files outside ignored workdirs..."; \
+	if ! find . -type f \( -name '.env' -o -name '.env.*' \) \
+		-not -path '*/.git/*' -not -path '*/.venv/*' -not -path '*/.work/*' \
+		-print0 > "$$GIT_SAFETY_TMP/env-files"; then \
+		echo "FAIL: unable to inspect local environment files"; \
+		exit 1; \
+	fi; \
+	if IFS= read -r -d '' _ < "$$GIT_SAFETY_TMP/env-files"; then \
+		echo "FAIL: Local environment files found in repo"; \
+		exit 1; \
+	fi; \
+	echo "Checking tracked and untracked worktree content for secrets..."; \
+	if ! git ls-files --cached --others --exclude-standard -z > "$$GIT_SAFETY_TMP/worktree-files"; then \
+		echo "FAIL: unable to enumerate tracked and untracked worktree files"; \
+		exit 1; \
+	fi; \
+	WORKTREE_MATCH=0; \
+	while IFS= read -r -d '' file; do \
+		WORKTREE_PATH="./$$file"; \
+		if [ -L "$$WORKTREE_PATH" ]; then \
+			if ! readlink "$$WORKTREE_PATH" > "$$GIT_SAFETY_TMP/content"; then \
+				echo "FAIL: unable to read tracked or untracked symlink"; \
+				exit 1; \
+			fi; \
+			SCAN_PATH="$$GIT_SAFETY_TMP/content"; \
+		elif [ -f "$$WORKTREE_PATH" ]; then \
+			SCAN_PATH="$$WORKTREE_PATH"; \
+		elif [ ! -e "$$WORKTREE_PATH" ]; then \
+			continue; \
+		elif [ -d "$$WORKTREE_PATH" ]; then \
+			continue; \
+		else \
+			echo "FAIL: unsupported tracked or untracked worktree file type"; \
+			exit 1; \
+		fi; \
+		grep -aiEq "$$SECRET_PATTERN" "$$SCAN_PATH" 2>/dev/null; \
+		GREP_STATUS=$$?; \
+		if [ "$$GREP_STATUS" -eq 0 ]; then \
+			WORKTREE_MATCH=1; \
+		elif [ "$$GREP_STATUS" -ne 1 ]; then \
+			echo "FAIL: unable to scan tracked or untracked worktree content"; \
+			exit 1; \
+		fi; \
+	done < "$$GIT_SAFETY_TMP/worktree-files"; \
+	if [ "$$WORKTREE_MATCH" -ne 0 ]; then \
+		echo "FAIL: Potential secrets detected in tracked or untracked worktree content"; \
+		exit 1; \
+	fi; \
+	echo "Git safety OK."
 
 # ── Toolchain Status (M1) ────────────────────────────────────────────
 toolchain-status:
@@ -599,3 +703,97 @@ sandbox-status:
 sandbox-cost:
 	@chmod +x scripts/m3/sandbox_lifecycle.sh
 	@scripts/m3/sandbox_lifecycle.sh cost
+
+# ============================================================
+# Autonomous Deployment Platform Targets
+# ============================================================
+
+# Bootstrap local development environment (no AWS)
+bootstrap-local: toolchain-check
+	@echo "=== Bootstrap Local ==="
+	@if [ ! -d ".venv" ]; then \
+		echo "Creating virtual environment..."; \
+		python3 -m venv .venv; \
+	fi
+	@echo "Installing dependencies..."
+	@.venv/bin/pip install -q -e '.[test]' 2>/dev/null || \
+		echo "WARN: pip install failed — dependencies may be missing"
+	@echo "Verifying toolchain..."
+	@$(MAKE) --no-print-directory toolchain-check
+	@echo "Validating JSON schemas..."
+	@$(MAKE) --no-print-directory json-syntax-check
+	@echo "Bootstrap complete."
+
+# Reproducibility check (offline, no AWS)
+repro-check: bootstrap-local
+	@echo "=== Reproducibility Check ==="
+	@$(MAKE) --no-print-directory microservices-check
+	@$(MAKE) --no-print-directory security-check
+	@$(MAKE) --no-print-directory json-syntax-check
+	@$(MAKE) --no-print-directory terraform-fmt-check
+	@$(MAKE) --no-print-directory test
+	@echo "Checking for forbidden artifacts..."
+	@FOUND=$$(find . -type f \( -name '*.tfstate' -o -name '*.tfstate.*' -o -name '*.tfplan' -o -name '.env' -o -name '*.pem' -o -name '*.key' \) -not -path '*/.git/*' -not -path '*/.venv/*' -not -path '*/.work/*' -not -path '*/.terraform/*' | head -1); \
+	if [ -n "$$FOUND" ]; then \
+		echo "FAIL: Forbidden artifact found: $$FOUND"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "=== REPRO-CHECK COMPLETE ==="
+	@echo "Status: REPRO_CHECK_PASSED"
+
+# Documentation check
+docs-check:
+	@echo "=== Documentation Check ==="
+	@ERRORS=0; \
+	for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md; do \
+		if [ ! -f "$$f" ]; then \
+			echo "  MISSING: $$f"; \
+			ERRORS=$$((ERRORS + 1)); \
+		else \
+			echo "  OK: $$f"; \
+		fi; \
+	done; \
+	for d in docs/operations docs/deployment; do \
+		if [ ! -d "$$d" ]; then \
+			echo "  MISSING: $$d/"; \
+			ERRORS=$$((ERRORS + 1)); \
+		else \
+			echo "  OK: $$d/"; \
+		fi; \
+	done; \
+	if [ "$$ERRORS" -gt 0 ]; then echo "Docs check: $$ERRORS missing" && exit 1; fi
+	@echo "Docs check complete."
+
+# Full release dry-run (offline, no AWS)
+release-dry-run: repro-check
+	@echo "=== Release Dry-Run ==="
+	@echo "Validating deployment manifest schema..."
+	@$(PYTHON) scripts/deployment/validate-manifest.py examples/deployments/synthetic-nonprod.yaml
+	@echo "Generating release graph (dry-run)..."
+	@$(PYTHON) scripts/supply-chain/release-graph.py --dry-run 2>&1 | tail -5
+	@echo "Running orchestrator doctor..."
+	@bash scripts/deployment/scanalyze-deploy.sh doctor
+	@$(MAKE) --no-print-directory docs-check
+	@echo ""
+	@echo "=== RELEASE-DRY-RUN COMPLETE ==="
+	@echo "Status: RELEASE_DRY_RUN_PASSED"
+	@echo "Ready for: PR submission, code review"
+	@echo "Not ready for: live deployment, production"
+
+# Non-production readiness check
+nonprod-readiness-check: release-dry-run
+	@echo "=== Non-Production Readiness Check ==="
+	@echo "repro-check:        PASSED"
+	@echo "manifest-validation: PASSED"
+	@echo "release-dry-run:    PASSED"
+	@echo "live-validation:    BLOCKED (requires AWS credentials + PM approval)"
+	@echo "production-ready:   NO-GO (requires live validation)"
+	@echo ""
+	@echo "=== NONPROD-READINESS: PREPARED ==="
+
+# Clean clone verification
+clone-check:
+	@echo "=== Clean Clone Check ==="
+	@chmod +x scripts/repro/verify-clean-clone.sh
+	@scripts/repro/verify-clean-clone.sh --ref HEAD

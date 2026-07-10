@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-manifest.v1.schema.json",
+  "title": "Scanalyze Deployment Manifest",
+  "description": "Declarative manifest for a single customer deployment. Real manifests live outside Git; only synthetic examples are committed.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "environment",
+    "aws_account_id",
+    "aws_region",
+    "terraform_backend",
+    "github",
+    "ecr",
+    "base_image_uri",
+    "enabled_domains"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Schema version for forward compatibility"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
+      "description": "Customer identifier; must be lowercase alphanumeric with hyphens"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Deployment ULID in dep_<ULID> format"
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["sandbox", "dev", "staging", "production"],
+      "description": "Target environment; controls safety gates"
+    },
+    "aws_account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$",
+      "description": "12-digit AWS account ID; must not be 000000000000"
+    },
+    "aws_region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$",
+      "description": "AWS region identifier"
+    },
+    "terraform_backend": {
+      "type": "object",
+      "required": ["bucket", "lock_table", "key_prefix"],
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "minLength": 3,
+          "description": "S3 bucket for Terraform state"
+        },
+        "lock_table": {
+          "type": "string",
+          "minLength": 1,
+          "description": "DynamoDB table for state locking"
+        },
+        "key_prefix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "S3 key prefix for state files"
+        },
+        "kms_key_alias": {
+          "type": "string",
+          "description": "KMS key alias for state encryption"
+        }
+      },
+      "additionalProperties": false
+    },
+    "github": {
+      "type": "object",
+      "required": ["environment", "oidc_role_arn"],
+      "properties": {
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GitHub Environment name for protected deployments"
+        },
+        "oidc_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$",
+          "description": "IAM role ARN for GitHub OIDC federation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ecr": {
+      "type": "object",
+      "required": ["prefix"],
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+([._/-][a-z0-9]+)*$",
+          "description": "ECR repository namespace prefix"
+        },
+        "immutable_tags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enforce immutable image tags"
+        },
+        "scan_on_push": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable ECR scan-on-push"
+        }
+      },
+      "additionalProperties": false
+    },
+    "base_image_uri": {
+      "type": "string",
+      "pattern": "@sha256:[0-9a-f]{64}$",
+      "description": "Digest-pinned base image URI; 'latest' is forbidden"
+    },
+    "enabled_domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["bank", "personal", "gov"]
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Document domains enabled for this deployment"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Custom domain for the deployment (optional)"
+    },
+    "hosted_zone_id": {
+      "type": "string",
+      "description": "Route 53 hosted zone ID (optional)"
+    },
+    "feature_flags": {
+      "type": "object",
+      "properties": {
+        "bedrock_classification": { "type": "boolean", "default": false },
+        "multi_tenant": { "type": "boolean", "default": false },
+        "batch_processing": { "type": "boolean", "default": true }
+      },
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "cognito_user_pool_id": { "type": "string" },
+        "cognito_client_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "allowed_token_uses": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["access", "id"] },
+          "default": ["access"]
+        },
+        "deployment_claim": {
+          "type": "string",
+          "default": "custom:deployment_id",
+          "description": "JWT claim containing the deployment_id"
+        }
+      },
+      "description": "Identity/Cognito configuration (populated after edge-identity layer)"
+    },
+    "frontend": {
+      "type": "object",
+      "properties": {
+        "asset_bucket": { "type": "string" },
+        "cloudfront_distribution_id": { "type": "string" },
+        "api_endpoint": { "type": "string" }
+      },
+      "description": "Frontend configuration bindings (populated after edge layer)"
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "log_retention_days": { "type": "integer", "minimum": 1, "default": 90 },
+        "alarm_sns_topic_arn": { "type": "string" },
+        "enable_container_insights": { "type": "boolean", "default": true }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["digest-revert", "terraform-plan"],
+          "default": "digest-revert"
+        },
+        "last_known_good_tag": { "type": "string" },
+        "last_known_good_digests": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "change_id": { "type": "string" },
+        "approved_by": { "type": "string" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "not": {
+        "properties": {
+          "aws_account_id": { "const": "000000000000" }
+        }
+      }
+    }
+  ]
+}
