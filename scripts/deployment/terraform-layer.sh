@@ -66,6 +66,7 @@ export TF_VAR_expected_contract_digest="${TF_VAR_expected_contract_digest:-sha25
 export TF_VAR_release_manifest_digest="${TF_VAR_release_manifest_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_upstream_contract_digest="${TF_VAR_upstream_contract_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_expected_upstream_digest="${TF_VAR_expected_upstream_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
+export TF_VAR_upstream_schema_version="${TF_VAR_upstream_schema_version:-1}"
 
 PLAN_FILE="${ABS_PLAN_DIR}/${LAYER}.tfplan"
 
