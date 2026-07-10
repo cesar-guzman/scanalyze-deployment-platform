@@ -69,33 +69,18 @@ Debes ver tu Account ID y ARN. **Anota tu Account ID** — lo necesitarás en el
 
 Sigue estos pasos en orden. Después de cada paso, **pausa y confirma con tu coach** antes de avanzar al siguiente.
 
-### Paso 1: Crear tu manifiesto de despliegue
+### Paso 1: Generar tu manifiesto de despliegue
 
-El repositorio incluye un manifiesto de ejemplo con valores ficticios. Necesitas crear una copia con los datos reales de **tu cuenta de AWS**.
+El repositorio incluye un script que detecta tu cuenta de AWS y genera un manifiesto válido de forma automática.
 
+Ejecuta este comando (puedes cambiar `mi-nonprod` por tu nombre):
 ```bash
-cp examples/deployments/synthetic-nonprod.yaml examples/deployments/mi-nonprod.yaml
+./scripts/deployment/generate-dev-manifest.sh mi-nonprod
 ```
 
-Abre el archivo con tu editor favorito:
-```bash
-nano examples/deployments/mi-nonprod.yaml
-# o: vim, code, etc.
-```
+> **Check con tu coach:** Revisa que el output del comando haya mostrado tu Account ID correcto y que el archivo `mi-nonprod.generated.yaml` se haya creado exitosamente.
 
-Cambia estos valores (reemplaza `TU_ACCOUNT_ID` por el Account ID que obtuviste en `aws sts get-caller-identity`):
-
-| Campo | Valor ficticio (cambiar) | Tu valor real |
-|---|---|---|
-| `customer_id` (línea 14) | `synthetic-acme` | Un nombre para tu cliente (ej. `bcm-nonprod`) |
-| `aws_account_id` (línea 18) | `123456789012` | `TU_ACCOUNT_ID` |
-| `aws_region` (línea 19) | `us-east-1` | Tu región real (ej. `us-east-1`) |
-
-> ⚠️ **Busca y reemplaza** todas las ocurrencias de `123456789012` en el archivo (hay ~5 más en ARNs y URIs). Usa `Ctrl+\` en nano para buscar y reemplazar.
-
-Guarda el archivo y cierra el editor.
-
-> **Check con tu coach:** Muéstrale el manifiesto editado antes de continuar.
+A partir de este momento, usaremos el archivo generado (`examples/deployments/mi-nonprod.generated.yaml`) para todos los comandos.
 
 ### Paso 2: Preparar el Entorno
 Activa el entorno virtual de Python y habilita la bandera de seguridad.
@@ -114,7 +99,7 @@ mkdir -p ../scanalyze-plans ../scanalyze-evidence
 Valida que el manifiesto es correcto y que tus credenciales de AWS coinciden con la cuenta declarada.
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh account-preflight \
-  --manifest ./examples/deployments/mi-nonprod.yaml \
+  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
   --no-dry-run
 ```
 > **Check con tu coach:** Debe terminar con `PASS` sin errores de account mismatch.
@@ -123,7 +108,7 @@ Valida que el manifiesto es correcto y que tus credenciales de AWS coinciden con
 Calcula todo lo que se va a crear en AWS. **No hace cambios reales todavía.**
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh plan-all \
-  --manifest ./examples/deployments/mi-nonprod.yaml \
+  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
   --plan-dir ../scanalyze-plans \
   --no-dry-run
 ```
@@ -133,7 +118,7 @@ Calcula todo lo que se va a crear en AWS. **No hace cambios reales todavía.**
 Aplica los planes generados. Esto creará VPC, ECR, ECS, bases de datos, etc.
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh apply-all \
-  --manifest ./examples/deployments/mi-nonprod.yaml \
+  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
   --plan-dir ../scanalyze-plans \
   --no-dry-run
 ```
@@ -143,7 +128,7 @@ Aplica los planes generados. Esto creará VPC, ECR, ECS, bases de datos, etc.
 Construye las imágenes de los 7 microservicios y las sube a ECR.
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh publish-images \
-  --manifest ./examples/deployments/mi-nonprod.yaml \
+  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
   --no-dry-run \
   --approve
 ```
@@ -153,7 +138,7 @@ Construye las imágenes de los 7 microservicios y las sube a ECR.
 Sube los parámetros de configuración al AWS Systems Manager Parameter Store.
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh sync-ssm \
-  --manifest ./examples/deployments/mi-nonprod.yaml \
+  --manifest ./examples/deployments/mi-nonprod.generated.yaml \
   --no-dry-run
 ```
 
