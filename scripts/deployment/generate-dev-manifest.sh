@@ -26,7 +26,7 @@ CLEAN_CUSTOMER_ID="$(echo "$CUSTOMER_ID" | tr '[:upper:]' '[:lower:]' | tr -cd '
 
 # Generate a 26-character Crockford Base32 string for the deployment_id validation
 VALID_CHARS="0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-RANDOM_ULID="$(env LC_CTYPE=C tr -dc "$VALID_CHARS" < /dev/urandom | head -c 26)"
+RANDOM_ULID="$(openssl rand -base64 64 | env LC_CTYPE=C tr -dc "$VALID_CHARS" | head -c 26)"
 
 OUTPUT_FILE="${REPO_ROOT}/examples/deployments/${CUSTOMER_ID}.generated.yaml"
 
