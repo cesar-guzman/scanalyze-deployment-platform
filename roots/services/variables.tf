@@ -24,11 +24,13 @@ variable "region" {
 variable "release_version" {
   type        = string
   description = "Release version being deployed"
+  default     = ""
 }
 
 variable "release_manifest_digest" {
   type        = string
   description = "SHA-256 digest of the release manifest"
+  default     = ""
   validation {
     condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
     error_message = "release_manifest_digest must be sha256:<64 hex chars>"
@@ -38,16 +40,19 @@ variable "release_manifest_digest" {
 variable "upstream_contract_digest" {
   type        = string
   description = "SHA-256 digest of the upstream contract being consumed"
+  default     = ""
 }
 
 variable "expected_upstream_digest" {
   type        = string
   description = "Expected upstream contract digest from deployment record"
+  default     = ""
 }
 
 variable "upstream_schema_version" {
   type        = string
   description = "Schema version of the upstream contract"
+  default     = ""
 }
 
 variable "accepted_schema_versions" {
