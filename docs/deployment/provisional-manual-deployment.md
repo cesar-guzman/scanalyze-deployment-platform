@@ -79,7 +79,8 @@ Una vez que el registro ECR existe, compila y empuja las imágenes de los micros
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh publish-images \
   --manifest ./examples/deployments/synthetic-nonprod.yaml \
-  --no-dry-run
+  --no-dry-run \
+  --approve
 ```
 *(Nota: Si usas la base image `CI_BASE_IMAGE`, asegúrate de tenerla exportada en tu shell).*
 
@@ -106,6 +107,7 @@ Ejecuta las pruebas de humo para asegurar que los microservicios levantan correc
 ```bash
 ./scripts/deployment/scanalyze-deploy.sh smoke-e2e \
   --manifest ./examples/deployments/synthetic-nonprod.yaml \
+  --evidence-dir ../scanalyze-evidence \
   --no-dry-run
 ```
 
