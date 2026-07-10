@@ -1,6 +1,6 @@
 # CI/CD Module — Build-Only Pipelines
 #
-# Status: authored_not_provider_validated
+# Status: locally_provider_validated; no_live_plan
 #
 # OWNERSHIP RULES:
 # - This module owns: CodePipeline, CodeBuild, CodeCommit, ECR, S3/KMS artifacts
@@ -59,6 +59,20 @@ locals {
     if svc.source.provider == "codecommit"
   } : {}
 
+  # Backwards compatibility: callers that omit enable_codepipeline retain the
+  # historical coupling between CodeCommit and the legacy build pipeline.
+  enable_codepipeline_effective = coalesce(var.enable_codepipeline, var.enable_codecommit)
+
+  # The old module retained pipeline IAM when CodeCommit was disabled. Preserve
+  # that state graph while the new variable is omitted; an explicit false opts
+  # into least-privilege retirement under a reviewed plan.
+  enable_legacy_pipeline_iam = var.enable_codepipeline == null ? true : var.enable_codepipeline
+
+  codestar_connection_arns = toset([
+    for svc in values(local.microservices) : svc.source.connection_arn
+    if svc.source.provider != "codecommit" && svc.source.connection_arn != null
+  ])
+
   release_metadata_namespace = "/${var.deployment_id}/cicd/images"
 }
 
@@ -74,6 +88,13 @@ resource "aws_kms_key" "artifacts" {
   tags = {
     Name  = "${local.name_prefix}-cicd-artifacts"
     layer = "cicd"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = data.aws_caller_identity.current.account_id == var.account_id
+      error_message = "The AWS caller account does not match account_id for this deployment."
+    }
   }
 }
 
@@ -196,8 +217,29 @@ resource "aws_codecommit_repository" "service" {
 # IAM — Build-Only Roles (NO ecs:*, NO iam:PassRole "*")
 # ---------------------------------------------------------------------------
 
+moved {
+  from = aws_iam_role.codepipeline
+  to   = aws_iam_role.codepipeline[0]
+}
+
+moved {
+  from = aws_iam_role.codebuild
+  to   = aws_iam_role.codebuild[0]
+}
+
+moved {
+  from = aws_iam_policy.codebuild
+  to   = aws_iam_policy.codebuild[0]
+}
+
+moved {
+  from = aws_iam_role_policy_attachment.codebuild
+  to   = aws_iam_role_policy_attachment.codebuild[0]
+}
+
 resource "aws_iam_role" "codepipeline" {
-  name = "${local.name_prefix}-codepipeline-role"
+  count = local.enable_legacy_pipeline_iam ? 1 : 0
+  name  = "${local.name_prefix}-codepipeline-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -212,7 +254,8 @@ resource "aws_iam_role" "codepipeline" {
 }
 
 resource "aws_iam_role" "codebuild" {
-  name = "${local.name_prefix}-codebuild-role"
+  count = local.enable_legacy_pipeline_iam ? 1 : 0
+  name  = "${local.name_prefix}-codebuild-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -228,75 +271,88 @@ resource "aws_iam_role" "codebuild" {
 
 # CodePipeline policy — Source + Build ONLY
 resource "aws_iam_policy" "codepipeline" {
-  count = var.enable_codecommit ? 1 : 0
+  count = local.enable_codepipeline_effective ? 1 : 0
   name  = "${local.name_prefix}-codepipeline-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "ArtifactBucket"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:PutObject",
-          "s3:GetBucketLocation",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          aws_s3_bucket.artifacts.arn,
-          "${aws_s3_bucket.artifacts.arn}/*"
-        ]
-      },
-      {
-        Sid    = "ArtifactKMS"
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:Encrypt",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = [aws_kms_key.artifacts.arn]
-      },
-      {
-        Sid    = "CodeBuildStart"
-        Effect = "Allow"
-        Action = [
-          "codebuild:BatchGetBuilds",
-          "codebuild:StartBuild"
-        ]
-        Resource = [for p in aws_codebuild_project.build : p.arn]
-      },
-      {
-        Sid    = "CodeCommitSource"
-        Effect = "Allow"
-        Action = [
-          "codecommit:GetBranch",
-          "codecommit:GetCommit",
-          "codecommit:UploadArchive",
-          "codecommit:GetUploadArchiveStatus",
-          "codecommit:CancelUploadArchive"
-        ]
-        Resource = [for r in aws_codecommit_repository.service : r.arn]
-      }
+    Statement = concat(
+      [
+        {
+          Sid    = "ArtifactBucket"
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:GetObjectVersion",
+            "s3:PutObject",
+            "s3:GetBucketLocation",
+            "s3:ListBucket"
+          ]
+          Resource = [
+            aws_s3_bucket.artifacts.arn,
+            "${aws_s3_bucket.artifacts.arn}/*"
+          ]
+        },
+        {
+          Sid    = "ArtifactKMS"
+          Effect = "Allow"
+          Action = [
+            "kms:Decrypt",
+            "kms:Encrypt",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+          ]
+          Resource = [aws_kms_key.artifacts.arn]
+        },
+        {
+          Sid    = "CodeBuildStart"
+          Effect = "Allow"
+          Action = [
+            "codebuild:BatchGetBuilds",
+            "codebuild:StartBuild"
+          ]
+          Resource = [for p in aws_codebuild_project.build : p.arn]
+        }
+      ],
+      length(aws_codecommit_repository.service) > 0 ? [
+        {
+          Sid    = "CodeCommitSource"
+          Effect = "Allow"
+          Action = [
+            "codecommit:GetBranch",
+            "codecommit:GetCommit",
+            "codecommit:UploadArchive",
+            "codecommit:GetUploadArchiveStatus",
+            "codecommit:CancelUploadArchive"
+          ]
+          Resource = [for r in aws_codecommit_repository.service : r.arn]
+        }
+      ] : [],
+      length(local.codestar_connection_arns) > 0 ? [
+        {
+          Sid      = "CodeStarConnection"
+          Effect   = "Allow"
+          Action   = ["codestar-connections:UseConnection"]
+          Resource = local.codestar_connection_arns
+        }
+      ] : []
       # NOTE: NO ecs:* statement
       # NOTE: NO iam:PassRole "*" statement
       # NOTE: NO codedeploy statement
-    ]
+    )
   })
 }
 
 resource "aws_iam_role_policy_attachment" "codepipeline" {
-  count      = var.enable_codecommit ? 1 : 0
-  role       = aws_iam_role.codepipeline.name
+  count      = local.enable_codepipeline_effective ? 1 : 0
+  role       = aws_iam_role.codepipeline[0].name
   policy_arn = aws_iam_policy.codepipeline[0].arn
 }
 
 # CodeBuild policy — Build + Push to ECR + SSM metadata
 resource "aws_iam_policy" "codebuild" {
-  name = "${local.name_prefix}-codebuild-policy"
+  count = local.enable_legacy_pipeline_iam ? 1 : 0
+  name  = "${local.name_prefix}-codebuild-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -379,8 +435,9 @@ resource "aws_iam_policy" "codebuild" {
 }
 
 resource "aws_iam_role_policy_attachment" "codebuild" {
-  role       = aws_iam_role.codebuild.name
-  policy_arn = aws_iam_policy.codebuild.arn
+  count      = local.enable_legacy_pipeline_iam ? 1 : 0
+  role       = aws_iam_role.codebuild[0].name
+  policy_arn = aws_iam_policy.codebuild[0].arn
 }
 
 # ---------------------------------------------------------------------------
@@ -388,19 +445,19 @@ resource "aws_iam_role_policy_attachment" "codebuild" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "codebuild" {
-  for_each          = var.enable_codecommit ? local.microservices : {}
+  for_each          = local.enable_codepipeline_effective ? local.microservices : {}
   name              = "/aws/codebuild/${local.name_prefix}-${each.key}"
   retention_in_days = 14
   tags              = { layer = "cicd" }
 }
 
 resource "aws_codebuild_project" "build" {
-  for_each = var.enable_codecommit ? local.microservices : {}
+  for_each = local.enable_codepipeline_effective ? local.microservices : {}
 
   name          = "${local.name_prefix}-${each.key}"
   description   = "Build ${each.value.service_name} for ${var.deployment_id}"
   build_timeout = 30
-  service_role  = aws_iam_role.codebuild.arn
+  service_role  = aws_iam_role.codebuild[0].arn
 
   artifacts { type = "CODEPIPELINE" }
 
@@ -424,7 +481,7 @@ resource "aws_codebuild_project" "build" {
     }
     environment_variable {
       name  = "ECR_REPO_NAME"
-      value = "${var.deployment_id}/${each.value.ecr_repo_name}"
+      value = "${local.sanitized_deployment_id}/${each.value.ecr_repo_name}"
     }
     environment_variable {
       name  = "CONTAINER_NAME"
@@ -469,10 +526,10 @@ resource "aws_codebuild_project" "build" {
 # ---------------------------------------------------------------------------
 
 resource "aws_codepipeline" "this" {
-  for_each = var.enable_codecommit ? local.microservices : {}
+  for_each = local.enable_codepipeline_effective ? local.microservices : {}
 
   name     = "${local.name_prefix}-${each.key}"
-  role_arn = aws_iam_role.codepipeline.arn
+  role_arn = aws_iam_role.codepipeline[0].arn
 
   artifact_store {
     location = aws_s3_bucket.artifacts.id
@@ -527,6 +584,20 @@ resource "aws_codepipeline" "this" {
   # NOTE: NO Deploy stage
   # Terraform services layer owns ECS task definitions and services.
   # Build output (digest) goes to SSM. Services layer consumes it.
+
+  lifecycle {
+    precondition {
+      condition     = each.value.source.provider != "codecommit" || var.enable_codecommit
+      error_message = "CodeCommit-backed pipelines require enable_codecommit=true."
+    }
+    precondition {
+      condition = each.value.source.provider == "codecommit" || (
+        each.value.source.connection_arn != null &&
+        each.value.source.full_repo_id != null
+      )
+      error_message = "External CodeStar-backed pipelines require connection_arn and full_repo_id."
+    }
+  }
 
   tags = { layer = "cicd" }
 }

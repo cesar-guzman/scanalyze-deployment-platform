@@ -1,10 +1,17 @@
 # Scanalyze Environment Destroy Playbook
 
-> **Clasificación:** Operaciones · Infraestructura  
+> **STATUS: HISTORICAL EVIDENCE — DO NOT EXECUTE.** This report preserves a
+> legacy destroy record. It contains `-auto-approve`, imperative cleanup,
+> outdated layer inputs/order, and state-surgery guidance that conflicts with
+> current ownership and safety policy. A new decommissioning runbook requires
+> separate design, approval, non-production validation, and review of every
+> destructive plan. Terraform state is not rollback.
+
+> **Clasificación:** Archivo histórico · No operativo
 > **Versión:** 2.0  
 > **Fecha:** 2026-07-07  
 > **Autor:** Equipo de Plataforma Scanalyze  
-> **Validado con:** 2 destroys reales en cuenta 905418363887 (Sandbox, Jul-05 y Jul-07)
+> **Validado con:** 2 destroys reales en cuenta <ACCOUNT_ID> (Sandbox, Jul-05 y Jul-07)
 
 ---
 
@@ -51,8 +58,8 @@ Layer 9: Global        → IAM Roles, Permissions Boundary Policy
 
 | Credential | Cuenta | Uso |
 |-----------|--------|-----|
-| `ScanalyzeSandboxDestroy` | Target (ej: 905418363887) | Ejecutar `terraform destroy` |
-| `AWSAdministratorAccess` | Management (ej: 839393571433) | Modificar Permission Sets si hay AccessDenied |
+| `ScanalyzeSandboxDestroy` | Target (ej: <ACCOUNT_ID>) | Ejecutar `terraform destroy` |
+| `AWSAdministratorAccess` | Management (ej: <MANAGEMENT_ACCOUNT_ID>) | Modificar Permission Sets si hay AccessDenied |
 
 ### 3.3 Permisos del Permission Set `ScanalyzeSandboxDestroy`
 
@@ -60,19 +67,19 @@ Layer 9: Global        → IAM Roles, Permissions Boundary Policy
 
 | SID | Acciones Clave | Resource Scope |
 |-----|---------------|----------------|
-| NetworkDestroy | `ec2:*` | `*` (us-east-1) |
-| ECSDestroy | `ecs:DeleteCluster`, `ecs:PutClusterCapacityProviders`, etc. | `*` (us-east-1) |
-| LoadBalancerDestroy | `elasticloadbalancing:*` | `*` (us-east-1) |
+| NetworkDestroy | `ec2:*` | `*` (`<AWS_REGION>`) |
+| ECSDestroy | `ecs:DeleteCluster`, `ecs:PutClusterCapacityProviders`, etc. | `*` (`<AWS_REGION>`) |
+| LoadBalancerDestroy | `elasticloadbalancing:*` | `*` (`<AWS_REGION>`) |
 | DataFoundationDestroy | `s3:*`, `dynamodb:*`, `sqs:*` | `*` |
 | S3BucketConfigDestroy | `s3:PutBucketVersioning`, `s3:PutBucketPublicAccessBlock`, `s3:PutEncryptionConfiguration`, `s3:PutLifecycleConfiguration`, `s3:DeleteBucket*` | `arn:aws:s3:::dep-*` |
-| KMSDestroy | `kms:*` | `*` (us-east-1) |
-| EdgeIdentityDestroy | `cognito-idp:*`, `apigateway:*`, `execute-api:*` | `*` (us-east-1) |
+| KMSDestroy | `kms:*` | `*` (`<AWS_REGION>`) |
+| EdgeIdentityDestroy | `cognito-idp:*`, `apigateway:*`, `execute-api:*` | `*` (`<AWS_REGION>`) |
 | EdgeGlobalDestroy | `cloudfront:*`, `wafv2:*` | `*` (global) |
-| KMSRetireGrant | `kms:RetireGrant` | `*` (us-east-1) — **Requerido para eliminar ECR repos con KMS encryption** |
+| KMSRetireGrant | `kms:RetireGrant` | `*` (`<AWS_REGION>`) — **Requerido para eliminar ECR repos con KMS encryption** |
 | IAMDestroy | `iam:*` | `arn:aws:iam::*:role/dep_*`, `arn:aws:iam::*:policy/dep_*` |
-| MonitoringDestroy | `logs:*`, `cloudwatch:*` | `*` (us-east-1) |
-| SNSDestroy | `sns:*` | `*` (us-east-1) |
-| CICDDestroy | `codepipeline:*`, `codebuild:*`, `codecommit:*`, `ecr:*`, `ssm:*` | `*` (us-east-1) |
+| MonitoringDestroy | `logs:*`, `cloudwatch:*` | `*` (`<AWS_REGION>`) |
+| SNSDestroy | `sns:*` | `*` (`<AWS_REGION>`) |
+| CICDDestroy | `codepipeline:*`, `codebuild:*`, `codecommit:*`, `ecr:*`, `ssm:*` | `*` (`<AWS_REGION>`) |
 | TerraformStateAccess | `s3:*`, `dynamodb:*` | `scanalyze-*-tf-state`, `scanalyze-*-tf-locks` |
 
 ---
@@ -84,21 +91,20 @@ Layer 9: Global        → IAM Roles, Permissions Boundary Policy
 #### 0.1 Configurar credenciales
 
 ```bash
-export AWS_ACCESS_KEY_ID=<key>
-export AWS_SECRET_ACCESS_KEY=<secret>
-export AWS_SESSION_TOKEN=<token>
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_PROFILE="<APPROVED_DESTROY_PROFILE>"
+export AWS_REGION="<AWS_REGION>"
+aws sso login --profile "$AWS_PROFILE"
 
 # Verificar identidad y cuenta
-aws sts get-caller-identity
+aws sts get-caller-identity --query Account --output text
 ```
 
 #### 0.2 Definir variables del deployment
 
 ```bash
-export DEPLOYMENT_ID="dep_01KWM783E0S1FZVAM8FRDV1HR2"
-export ACCOUNT_ID="905418363887"
-export REGION="us-east-1"
+export DEPLOYMENT_ID="dep_<ULID>"
+export ACCOUNT_ID="<ACCOUNT_ID>"
+export REGION="<AWS_REGION>"
 export ROOTS="/path/to/scanalyze-deployment-platform/roots"
 ```
 
@@ -241,7 +247,9 @@ terraform destroy "${COMMON_VARS[@]}" \
   -auto-approve 2>&1
 ```
 
-> CICD usa remote state en S3. Si hay state lock stale: `terraform force-unlock -force <LOCK_ID>`
+> CICD usa remote state en S3. Un lock aparentemente stale requiere investigar
+> primero al owner y la ejecución activa; no usar `force-unlock` como operación
+> rutinaria ni manipular state sin un procedimiento break-glass aprobado.
 
 #### Step 3: Edge (~3 min)
 
@@ -250,7 +258,7 @@ cd "$ROOTS/edge"
 terraform destroy "${COMMON_VARS[@]}" \
   -var="domain_name=" \
   -var="route53_zone_id=" \
-  -var="api_gateway_endpoint=https://placeholder.execute-api.us-east-1.amazonaws.com" \
+  -var="api_gateway_endpoint=https://placeholder.execute-api.${REGION}.amazonaws.com" \
   -var="frontend_bucket_domain_name=placeholder.s3.amazonaws.com" \
   -var="frontend_bucket_arn=arn:aws:s3:::placeholder" \
   -var="cognito_domain=placeholder" \
@@ -442,8 +450,8 @@ sleep 15  # Esperar propagación
 
 | Campo | Valor |
 |-------|-------|
-| Cuenta | 905418363887 |
-| Deployment ID | dep_01KWM783E0S1FZVAM8FRDV1HR2 |
+| Cuenta | <ACCOUNT_ID> |
+| Deployment ID | dep_<ULID> |
 | Inicio | 2026-07-07 05:05 UTC |
 | Fin | 2026-07-07 05:44 UTC |
 | Duración | ~39 minutos |
@@ -473,8 +481,8 @@ Pre-destroy cleanup adicional requerido:
 
 | Campo | Valor |
 |-------|-------|
-| Cuenta | 905418363887 |
-| Deployment ID | dep_01KWM783E0S1FZVAM8FRDV1HR2 |
+| Cuenta | <ACCOUNT_ID> |
+| Deployment ID | dep_<ULID> |
 | Inicio | 2026-07-04 13:30 UTC |
 | Fin | 2026-07-05 16:35 UTC |
 | Resources destruidos | 165/165 (100%) |

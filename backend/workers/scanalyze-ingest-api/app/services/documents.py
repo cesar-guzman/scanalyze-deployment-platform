@@ -1,0 +1,451 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+import re
+import uuid
+import structlog
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from botocore.exceptions import ClientError
+
+from ..aws_clients import s3_client, sqs_client
+from ..config import get_settings
+from ..errors import AppError
+from ..logging import bind_context, get_logger
+from ..repositories.documents import DocumentsRepository
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
+
+filename_re = re.compile(r"[^A-Za-z0-9.-]+")
+
+def sanitize_filename(name: str) -> str:
+    # Evita path traversal y caracteres raros
+    name = (name or "").strip()
+    name = name.split("/")[-1].split("\\")[-1]
+    name = filename_re.sub("", name)
+    if not name:
+        return "upload.bin"
+    if len(name) > 128:
+        # Trunca conservador
+        parts = name.split(".")
+        if len(parts) > 1:
+            ext = parts[-1][:10]
+            base = "_".join(parts[:-1])[:100]
+            return f"{base}.{ext}"
+        return name[:128]
+    return name
+
+def _b64url_encode(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode("utf-8")).decode("utf-8").rstrip("=")
+
+def _b64url_decode(s: str) -> str:
+    pad_len = (-len(s)) % 4
+    return base64.urlsafe_b64decode(s + ("=" * pad_len)).decode("utf-8")
+
+@dataclass(frozen=True)
+class ArtifactRef:
+    artifact_id: str
+    bucket: str
+    key: str
+    uri: str
+    bucket_alias: str
+
+class DocumentsService:
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self.repo = DocumentsRepository()
+        self.s3 = s3_client()
+        self.sqs = sqs_client()
+        self.logger = get_logger()
+
+    def _require(self, cond: bool, code: str, message: str, status: int = 500, details: Optional[Dict[str, Any]] = None) -> None:
+        if not cond:
+            raise AppError(code=code, message=message, status_code=status, details=details or {})
+
+    def create_document(
+        self,
+        tenant: str,
+        subject: Optional[str],
+        email: Optional[str],
+        name: Optional[str],
+        filename: Optional[str],
+        content_type: str,
+        content_length: Optional[int] = None,
+        batch_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        # Requiere buckets/table
+        table = self.settings.documents_table_name
+        raw_bucket = self.settings.get_bucket("raw")
+
+        self._require(bool(table), "CONFIG_ERROR", "DOCUMENTS_TABLE_NAME is required", 500)
+        self._require(bool(raw_bucket), "CONFIG_ERROR", "RAW_BUCKET/BUCKETS_JSON.raw is required", 500)
+
+        doc_id = uuid.uuid4().hex
+        bind_context(documentId=doc_id, tenant=tenant)
+        if subject:
+            bind_context(uploaderUserId=subject)
+
+        safe_name = sanitize_filename(filename or "upload.bin")
+
+        prefix = self.settings.s3_prefix_for(tenant=tenant, document_id=doc_id)
+        raw_key = f"{prefix}{safe_name}"
+
+        now = _utc_now()
+        expires_at = now + timedelta(seconds=self.settings.upload_url_ttl_seconds)
+
+        # Presigned PUT. Forzamos Content-Type (cliente debe enviar el mismo header).
+        try:
+            params = {
+                "Bucket": raw_bucket,
+                "Key": raw_key,
+                "ContentType": content_type,
+            }
+            upload_url = self.s3.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=self.settings.upload_url_ttl_seconds,
+            )
+        except ClientError as e:
+            self.logger.error("presign_put_failed", errorType=type(e).__name__)
+            raise AppError(code="S3_PRESIGN_FAILED", message="Failed to generate upload URL", status_code=502, details={})
+
+        ctx = structlog.contextvars.get_contextvars()
+        correlation_id = ctx.get("correlationId", uuid.uuid4().hex)
+        trace_id = ctx.get("traceId", "")
+
+        item: Dict[str, Any] = {
+            # Guardamos documentId siempre (útil para lectura humana)
+            "documentId": doc_id,
+            "tenantId": tenant,
+            "createdAt": _iso(now),
+            "updatedAt": _iso(now),
+            "status": "CREATED",
+            "version": 1,
+            "traceId": trace_id,
+            "correlationId": correlation_id,
+            "input": {
+                "filename": safe_name,
+                "contentType": content_type,
+                "contentLength": int(content_length) if content_length is not None else None,
+                "bucket": raw_bucket,
+                "key": raw_key,
+            },
+            "stages": {},
+            "artifacts": {},
+        }
+
+        # Si hay subject, lo guardamos como createdBy y uploaderUserId
+        if subject:
+            item["createdBy"] = subject
+            item["uploaderUserId"] = subject
+            item["createdByUserSub"] = subject
+        if email:
+            item["createdByEmail"] = email
+        if name:
+            item["createdByDisplayName"] = name
+            
+        if batch_id:
+            item["batchId"] = batch_id
+            item["source"] = "web-bulk-upload"
+        else:
+            item["source"] = "web-single-upload"
+
+        # Limpia None en input
+        if item["input"]["contentLength"] is None:
+            del item["input"]["contentLength"]
+
+        # El repo decide PK/SK reales; nosotros duplicamos campos si hace falta.
+        # Repo usa PutItem; debemos incluir PK/SK con template si el schema lo requiere.
+        # Como el repo no expone schema públicamente, replicamos la key via get_document fallback:
+        # - Simplificación: en la mayoría de despliegues, PK = documentId y no hay SK.
+        # Si tu tabla usa PK/SK distinto, setea DOCUMENTS_TABLE_PK_NAME/PK_TEMPLATE/SK_NAME/SK_TEMPLATE en ECS.
+        pk_name = os.getenv("DOCUMENTS_TABLE_PK_NAME", "documentId")
+        pk_template = os.getenv("DOCUMENTS_TABLE_PK_TEMPLATE", "{document_id}")
+        item[pk_name] = pk_template.format(document_id=doc_id)
+        sk_name = os.getenv("DOCUMENTS_TABLE_SK_NAME")
+        if sk_name:
+            sk_template = os.getenv("DOCUMENTS_TABLE_SK_TEMPLATE", "METADATA")
+            item[sk_name] = sk_template.format(document_id=doc_id)
+
+        self.repo.create_document(item)
+
+        return {
+            "documentId": doc_id,
+            "uploadUrl": upload_url,
+            "expiresAt": _iso(expires_at),
+            "uploadMethod": "PUT",
+            "requiredHeaders": {
+                "Content-Type": content_type,
+            },
+        }
+
+    def submit_document(self, tenant: str, document_id: str, stage: Optional[str] = None) -> Dict[str, Any]:
+        bind_context(documentId=document_id, tenant=tenant)
+        doc = self.repo.get_document(document_id)
+        if not doc:
+            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+
+        # Tenant guard (document-scoped)
+        doc_tenant = doc.get("tenantId")
+        if doc_tenant and doc_tenant != tenant:
+            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+
+        stage_name = (stage or self.settings.first_stage).lower().strip()
+        bind_context(stage=stage_name)
+
+        queue_url = self.settings.get_queue_url(stage_name)
+        self._require(bool(queue_url), "CONFIG_ERROR", f"SQS queue URL for stage '{stage_name}' is not configured", 500)
+
+        enqueue_id = uuid.uuid4().hex
+
+        # Idempotencia por stage usando Dynamo condition
+        can_enqueue = self.repo.set_stage_enqueue_pending(document_id=document_id, stage=stage_name, enqueue_id=enqueue_id)
+        if not can_enqueue:
+            # Ya estaba encolado o en progreso
+            return {
+                "documentId": document_id,
+                "stage": stage_name,
+                "enqueued": False,
+                "message": "Already submitted for this stage",
+            }
+
+        # Construye mensaje SQS (sin PII)
+        input_info = doc.get("input") or {}
+        ctx = structlog.contextvars.get_contextvars()
+        
+        body = {
+            "schemaVersion": f"scanalyze.{stage_name}.v1",
+            "documentId": document_id,
+            "tenantId": tenant,
+            "stage": stage_name,
+            "enqueueId": enqueue_id,
+            "_metadata": {
+                "correlationId": ctx.get("correlationId", doc.get("correlationId", uuid.uuid4().hex)),
+                "traceId": ctx.get("traceId", doc.get("traceId", "")),
+                "uploaderUserId": doc.get("uploaderUserId", ""),
+                "route": tenant,
+                "customerStack": os.environ.get("SCANALYZE_TENANT", tenant),
+            },
+            "raw": {
+                "bucket": input_info.get("bucket"),
+                "key": input_info.get("key"),
+            },
+            "contentType": input_info.get("contentType"),
+            "input": {
+                "bucket": input_info.get("bucket"),
+                "key": input_info.get("key"),
+                "contentType": input_info.get("contentType"),
+            },
+        }
+
+        try:
+            resp = self.sqs.send_message(
+                QueueUrl=queue_url,
+                MessageBody=json.dumps(body),
+                MessageAttributes={
+                    "tenantId": {"DataType": "String", "StringValue": tenant},
+                    "documentId": {"DataType": "String", "StringValue": document_id},
+                    "stage": {"DataType": "String", "StringValue": stage_name},
+                    "enqueueId": {"DataType": "String", "StringValue": enqueue_id},
+                },
+            )
+            message_id = resp.get("MessageId", "")
+            self.repo.set_stage_enqueued(document_id=document_id, stage=stage_name, queue_url=queue_url, message_id=message_id)
+
+            return {
+                "documentId": document_id,
+                "stage": stage_name,
+                "enqueued": True,
+                "sqsMessageId": message_id,
+            }
+
+        except ClientError as e:
+            err_code = e.response.get("Error", {}).get("Code", "SQS_ERROR")
+            self.repo.set_stage_enqueue_failed(document_id=document_id, stage=stage_name, error_code=err_code, error_message="Failed to enqueue message")
+            self.logger.error("sqs_send_failed", sqsErrorCode=err_code, errorType=type(e).__name__)
+            raise AppError(code="SQS_ENQUEUE_FAILED", message="Failed to enqueue document", status_code=502, details={"stage": stage_name})
+
+    def get_document_status(self, tenant: str, document_id: str) -> Dict[str, Any]:
+        bind_context(documentId=document_id, tenant=tenant)
+        doc = self.repo.get_document(document_id)
+        if not doc:
+            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+
+        doc_tenant = doc.get("tenantId")
+        if doc_tenant and doc_tenant != tenant:
+            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+
+        # Metadata mínima, evitando exponer buckets/keys salvo en artifacts endpoints
+        input_info = doc.get("input") or {}
+        stages = doc.get("stages") or {}
+
+        return {
+            "documentId": doc.get("documentId", document_id),
+            "tenantId": doc_tenant,
+            "batchId": doc.get("batchId"),
+            "status": doc.get("status"),
+            "createdAt": doc.get("createdAt"),
+            "updatedAt": doc.get("updatedAt"),
+            "uploaderUserId": doc.get("uploaderUserId"),
+            "correlationId": doc.get("correlationId"),
+            "input": {
+                "filename": input_info.get("filename"),
+                "contentType": input_info.get("contentType"),
+            },
+            "stages": stages,
+        }
+
+    def _doc_prefix(self, doc: Dict[str, Any]) -> str:
+        input_info = doc.get("input") or {}
+        prefix = input_info.get("prefix")
+        if prefix:
+            if not prefix.endswith("/"):
+                prefix += "/"
+            return prefix
+
+        # fallback: deriva del key
+        k = input_info.get("key") or ""
+        if "/" in k:
+            return k.rsplit("/", 1)[0] + "/"
+        return ""
+
+    def _resolve_final_artifact(self, doc: Dict[str, Any]) -> Tuple[str, str, str]:
+        """
+        Unified resolver for the FINAL structured artifact.
+        Implements the formal Result contract:
+        1. Checks stages.persist.artifactRef (v1.0.0 explicit contract)
+        2. Fallback to artifacts.structured (legacy anchor / backward compatibility)
+        3. Fallback to artifacts.result
+        """
+        # 1. New formal contract source of truth
+        stages = doc.get("stages", {})
+        persist_stage = stages.get("persist", {})
+        artifact_ref = persist_stage.get("artifactRef")
+        if artifact_ref and artifact_ref.get("bucket") and artifact_ref.get("key"):
+            return artifact_ref["bucket"], artifact_ref["key"], artifact_ref.get("alias", "structured")
+
+        # 2. Backward compatible anchors
+        artifacts_dict = doc.get("artifacts", {})
+        
+        # 2a. Default structured
+        structured = artifacts_dict.get("structured")
+        if structured and structured.get("bucket") and structured.get("key"):
+            return structured["bucket"], structured["key"], "structured"
+            
+        # 2b. Legacy result
+        result = artifacts_dict.get("result")
+        if result and result.get("bucket") and result.get("key"):
+            return result["bucket"], result["key"], "result"
+            
+        raise AppError(code="RESULT_NOT_READY", message="Final result artifact not found in manifest", status_code=404, details={})
+
+    def _get_artifact_locator(self, doc: Dict[str, Any], artifact_id: str) -> Tuple[str, str, str]:
+        if artifact_id in ("structured", "result", "final"):
+            try:
+                return self._resolve_final_artifact(doc)
+            except AppError:
+                pass # fall through to explicit check if needed
+
+        artifacts_dict = doc.get("artifacts", {})
+        artifact_info = artifacts_dict.get(artifact_id)
+
+        if not artifact_info or not artifact_info.get("bucket") or not artifact_info.get("key"):
+            raise AppError(code="NOT_FOUND", message=f"Artifact '{artifact_id}' not found in manifest", status_code=404, details={})
+
+        return artifact_info["bucket"], artifact_info["key"], artifact_id
+
+    def list_artifacts(self, tenant: str, document_id: str) -> Dict[str, Any]:
+        bind_context(documentId=document_id, tenant=tenant)
+        doc = self.repo.get_document(document_id)
+        if not doc:
+            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+
+        doc_tenant = doc.get("tenantId")
+        if doc_tenant and doc_tenant != tenant:
+            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+
+        artifacts_dict = doc.get("artifacts", {})
+        artifacts = []
+
+        for alias, info in artifacts_dict.items():
+            bucket = info.get("bucket")
+            key = info.get("key")
+            if not bucket or not key:
+                continue
+
+            # The artifact_id is just the alias itself
+            artifacts.append({
+                "artifactId": alias,
+                "bucketAlias": alias,
+                "uri": f"s3://{bucket}/{key}"
+            })
+
+        prefix = self._doc_prefix(doc)
+        return {
+            "documentId": document_id,
+            "prefix": prefix,
+            "artifacts": artifacts,
+        }
+
+    def _generate_presigned_download(self, document_id: str, artifact_id: str, bucket: str, key: str) -> Dict[str, Any]:
+        expires_at = _utc_now() + timedelta(seconds=self.settings.download_url_ttl_seconds)
+        try:
+            url = self.s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={
+                    "Bucket": bucket,
+                    "Key": key,
+                    "ResponseContentDisposition": "attachment",
+                },
+                ExpiresIn=self.settings.download_url_ttl_seconds,
+            )
+        except ClientError as e:
+            self.logger.error("presign_get_failed", errorType=type(e).__name__)
+            raise AppError(code="S3_PRESIGN_FAILED", message="Failed to generate download URL", status_code=502, details={})
+
+        return {
+            "documentId": document_id,
+            "artifactId": artifact_id,
+            "downloadUrl": url,
+            "expiresAt": _iso(expires_at),
+        }
+
+    def presign_artifact_download(self, tenant: str, document_id: str, artifact_id: str) -> Dict[str, Any]:
+        bind_context(documentId=document_id, tenant=tenant)
+
+        doc = self.repo.get_document(document_id)
+        if not doc:
+            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+
+        doc_tenant = doc.get("tenantId")
+        if doc_tenant and doc_tenant != tenant:
+            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+
+        bucket, key, resolved_alias = self._get_artifact_locator(doc, artifact_id)
+        
+        return self._generate_presigned_download(document_id, resolved_alias, bucket, key)
+
+    def get_result(self, tenant: str, document_id: str) -> Dict[str, Any]:
+        bind_context(documentId=document_id, tenant=tenant)
+        doc = self.repo.get_document(document_id)
+        if not doc:
+            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+
+        doc_tenant = doc.get("tenantId")
+        if doc_tenant and doc_tenant != tenant:
+            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+
+        status = doc.get("status")
+        if status != "COMPLETED":
+            raise AppError(code="RESULT_NOT_READY", message=f"Result not ready, status is {status}", status_code=409, details={})
+
+        bucket, key, resolved_alias = self._resolve_final_artifact(doc)
+        return self._generate_presigned_download(document_id, resolved_alias, bucket, key)

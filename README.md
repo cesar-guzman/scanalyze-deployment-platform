@@ -1,66 +1,137 @@
 # Scanalyze Deployment Platform
 
-> Track B — Greenfield Customer Factory
+> Dedicated, account-per-deployment enterprise platform
 
 ## Purpose
 
-This repository contains the Scanalyze Dedicated Deployment Platform v2:
-the infrastructure, schemas, policies, tests, and tooling required to deploy
-isolated Scanalyze environments into dedicated AWS accounts.
+This repository is the Scanalyze monorepo for infrastructure, deployment
+contracts, security policy, validation tooling, and the seven application
+microservices used by every customer deployment.
+
+One source tree and one release train serve every customer. Customer-specific
+behavior is injected through reviewed contracts, safe Terraform inputs, SSM
+parameters, and declarative runtime configuration; customer forks are not
+supported.
 
 ## Architecture
 
-- **One source code + one release train**
-- **One shared control plane** (Shared Services account)
-- **One dedicated AWS account per customer deployment**
-- **Customer-local data, compute, identity, encryption, runtime observability, and ECR**
+- One dedicated AWS account per customer deployment
+- Customer-local data, compute, identity, encryption, observability, and ECR
+- Terraform layers with one declarative owner per resource
+- Application source is canonical only in this repository; the target state
+  delivers images, not source, to customer accounts
+- Immutable OCI images delivered through ECR and consumed by digest
+- GitHub OIDC for automated AWS access; no static AWS keys
 
-## Repository Structure
+## Repository structure
 
-```
-ADR/                    Architecture Decision Records (imported, patched)
-schemas/                Canonical JSON Schemas for all contracts
-fixtures/               Valid and invalid golden test fixtures
-policies/               IAM, S3, KMS policy fixtures
+```text
+backend/workers/        Canonical source for all seven microservices
+.github/workflows/      Path-aware validation and protected image publishing
+scripts/microservices/  Reusable build/push and change-detection entrypoints
+ADR/                    Architecture decisions
+schemas/                Canonical JSON schemas and contracts
+fixtures/               Synthetic valid/invalid test fixtures
+policies/               IAM, S3, and KMS policy fixtures
 session-policies/       Per-layer session policy documents
-modules/                Terraform modules (scaffold only until acceptance gates pass)
-roots/                  Terraform roots (scaffold only until acceptance gates pass)
-tooling/                Validation and canonicalization utilities
-tests/                  All test suites
-reports/                Implementation and progress reports
+modules/                Terraform modules
+roots/                  Deployable Terraform roots
+environments/           Safe tracked examples and reviewed deployment inputs
+tooling/                Validation and security utilities
+tests/                  Platform test suites
+playbooks/              Operator procedures
+reports/                Historical implementation evidence
 ```
 
-## Current Milestone
+## Microservices
 
-**M0 — Repository Foundation & Executable Evidence**
+| Service | Path | Role |
+|---|---|---|
+| ingest-api | `backend/workers/scanalyze-ingest-api` | Authenticated ingest/API surface |
+| ocr-worker | `backend/workers/scanalyze-ocr-worker` | Textract submission and polling |
+| postprocess-worker | `backend/workers/scanalyze-postprocess-worker` | Validation, persistence, notification |
+| classifier-worker | `backend/workers/scanalyze-classifier-worker` | Document classification |
+| bank-worker | `backend/workers/scanalyze-bank-worker` | Bank-document extraction |
+| personal-worker | `backend/workers/scanalyze-personal-worker` | Personal-document extraction |
+| gov-worker | `backend/workers/scanalyze-gov-worker` | Government-document extraction |
 
-No AWS mutations. No Terraform modules. Schemas, fixtures, policy fixtures,
-tests, and acceptance gates only.
+See [`backend/workers/README.md`](backend/workers/README.md) for local tests and
+image-build instructions.
 
-## Make Targets
+## Build entrypoint
+
+All Dockerfiles require an explicit `BASE_IMAGE`. A public image can be passed
+explicitly for local development only:
 
 ```bash
-make agent-context    # Print repo baseline
-make fmt              # Format all files
-make lint             # Lint all source files
-make schema-check     # Validate schemas + fixtures
-make policy-check     # Validate policy fixtures
-make contract-check   # Contract canonicalization + digest + replay
-make test             # Run all tests
-make security-check   # PII + secret + state/plan sentinel
-make preflight        # All non-mutating checks
-make git-safety       # Branch safety + secret scan
+scripts/microservices/build-push.sh \
+  --service ingest-api \
+  --tag local-dev \
+  --base-image python:3.11-slim \
+  --no-push \
+  --no-write-ssm
 ```
 
-## Principles
+Enterprise publication uses a digest-pinned base image from the target customer
+ECR and a protected GitHub Environment. The workflow resolves the pushed digest
+and may write only these release metadata parameters when explicitly enabled:
 
-1. Security and correctness before speed
-2. Evidence before claims
-3. One declarative owner per resource
-4. No customer-specific code forks
-5. Customer documents and PII remain inside the customer deployment account
-6. Build once, deploy many
-7. Terraform state is not a release rollback mechanism
-8. No accepted write may be discarded
-9. No manual AWS configuration as source of truth
-10. No unverified multi-region promises
+```text
+/<deployment_id>/cicd/images/<service>/image_tag
+/<deployment_id>/cicd/images/<service>/image_digest
+```
+
+ECS promotion remains Terraform-owned and uses the verified image digest; an SSM
+metadata update is not itself a deployment.
+
+Some existing deployments may temporarily retain a non-canonical legacy
+CodeCommit mirror while source retention is reviewed. It is excluded from the
+build path; access must be restricted separately by IAM. A reviewed Terraform
+plan must remove it to reach the no-source-in-customer target state.
+
+## Validation
+
+```bash
+make microservices-check
+make security-check
+make git-safety
+make preflight-core
+make preflight-m1
+make preflight-m2
+```
+
+Run the narrowest relevant gate first, then the broader gates before review.
+No validation target authorizes AWS mutation.
+Passing local gates does not replace a real image build and reviewed Terraform
+plan in non-production before any production release.
+
+## Safety principles
+
+1. Evidence before claims
+2. One declarative owner per resource
+3. No customer-specific source forks
+4. Customer documents and PII remain inside the customer account
+5. Build from one reviewed source line and deploy immutable artifacts by digest
+6. Terraform state is not a release rollback mechanism
+7. No state, plans, local deployment inputs, credentials, or client material in Git
+8. No manual AWS configuration as source of truth
+9. No production apply, push, SSM write, or ECS mutation without explicit approval
+10. No unverified multi-region or supply-chain claims
+
+## Migration record
+
+The monorepo source decision, source revision, exclusions, Terraform compatibility
+plan, and residual risks are documented in
+[`docs/migration/monorepo-microservices-migration.md`](docs/migration/monorepo-microservices-migration.md).
+
+## Deployment documentation
+
+- Canonical operator source: [`playbooks/enterprise-client-deployment.md`](playbooks/enterprise-client-deployment.md)
+- Enterprise Word deliverable: [`docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx`](docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx)
+- Curated NotebookLM corpus: [`_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`](_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md)
+
+The current guide is intentionally marked **DRAFT / NON-EXECUTABLE / NO-GO**.
+Local gates validate repository behavior, but production deployment remains
+blocked until the account-bound Terraform execution path, runtime contracts,
+complete OCI supply chain, identity contract, declarative frontend configuration
+and live non-production evidence are implemented and approved.

@@ -1,43 +1,118 @@
-# Sentinel Allowlist — Documented exceptions for PII/secret pattern matches
+# Sentinel Allowlist — exact documented exceptions only
 #
-# Each entry requires: path, pattern_id, reason, owner
-# The sentinel scanner reads this file and skips only exact matches.
-# ADR/ is NOT globally excluded — only specific documented patterns are allowed.
+# Every entry is bound to an exact repository-relative path, detector, regex that
+# must match the concrete source line, and SHA-256 fingerprints of the permitted
+# matched values. A new value in an otherwise allowlisted file remains blocked.
 
 allowlist:
   - path: ADR/ADR-005-deployment-schemas.md
-    line_pattern: "RFC"
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
     pattern_id: RFC
-    reason: "ADR references 'RFC' as Mexican tax document type name in schema design examples; not real PII"
+    match_sha256: 1ba47097000e97fe0684a1749ddaa576b3d6541dfda1baa5ddf891fe10418d0e,d339cc43e176b05233699080b930c47f10a1a4e68bae1604e6cc9d9a8ea69d6d
+    reason: "Synthetic schema examples; fingerprints prevent any new identifier from being accepted"
     owner: architecture
 
   - path: ADR/ADR-005-deployment-schemas.md
-    line_pattern: "terraform_version"
+    line_pattern: '"terraform_version"\s*:\s*"[0-9]+\.[0-9]+\.[0-9]+"'
     pattern_id: TFSTATE_CONTENT
-    reason: "ADR documents state backend schema format; contains terraform_version as field name reference"
+    match_sha256: 1bec98842318b2600e19e418e24a8ba5d588572bdd5d2471579703d1928e6d7f
+    reason: "Documented state schema example, not Terraform state"
     owner: architecture
 
-  - path: ADR/ADR-009-threat-model.md
-    line_pattern: "RFC"
-    pattern_id: RFC
-    reason: "ADR-009 references RFC/CURP/NSS/CLABE as PII categories in threat model; not real data"
-    owner: security
-
-  - path: ADR/ADR-009-threat-model.md
-    line_pattern: "CURP"
-    pattern_id: CURP
-    reason: "ADR-009 references CURP as PII category in threat model; not real data"
-    owner: security
-
   - path: fixtures/valid/release-manifest-complete.json
-    line_pattern: "terraform_version"
+    line_pattern: '"terraform_version"\s*:\s*"[0-9]+\.[0-9]+\.[0-9]+"'
     pattern_id: TFSTATE_CONTENT
-    reason: "Release manifest fixture contains terraform_version as pinned release metadata, not TF state"
+    match_sha256: e3ff317047902e25faf15ebc983395db60aff5afc6a766cb3ebf78c909616f5f
+    reason: "Pinned release metadata fixture, not Terraform state"
     owner: testing
 
   - path: fixtures/invalid/release-manifest-missing-signature.json
-    line_pattern: "terraform_version"
+    line_pattern: '"terraform_version"\s*:\s*"[0-9]+\.[0-9]+\.[0-9]+"'
     pattern_id: TFSTATE_CONTENT
-    reason: "Invalid fixture contains terraform_version as field for testing missing-signature validation"
+    match_sha256: e3ff317047902e25faf15ebc983395db60aff5afc6a766cb3ebf78c909616f5f
+    reason: "Pinned release metadata fixture, not Terraform state"
     owner: testing
 
+  - path: backend/workers/scanalyze-bank-worker/tests/test_normalize.py
+    line_pattern: '\b[0-9]{18}\b'
+    pattern_id: CLABE
+    match_sha256: 77f585bc684c998af836af7a61514cc5ff029c97bcd3dbb7b659fa07e42af57d,817103f0a778069b7848dc5de18b0dbf65c5a7de0f6dda6c47d8b8ba7a1ce5af
+    reason: "Synthetic CLABE-format validation fixtures"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-ingest-api/app/services/employee_profiles_masking.py
+    line_pattern: '\b[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}\b'
+    pattern_id: CURP
+    match_sha256: 62a1ee8830b1a0ec9a88fccd0e0ec07c0a1ed317624823693cf21c4b16431274
+    reason: "Synthetic masking example"
+    owner: backend-security
+
+  - path: backend/workers/scanalyze-ingest-api/app/services/employee_profiles_masking.py
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
+    pattern_id: RFC
+    match_sha256: 0c5c16a5b9eeaee98765b5cfafaa55399412f58b6819cf7d78268df32866f4cc,59b4c9f9bd417b42c225331c535c208b78b36cd7e609843ae34dc0bcd9d673ae
+    reason: "Synthetic masking examples"
+    owner: backend-security
+
+  - path: backend/workers/scanalyze-ingest-api/tests/test_employee_profiles.py
+    line_pattern: '\b[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}\b'
+    pattern_id: CURP
+    match_sha256: 38843105c97f34017ffdf49ed8802b9d28aaf40e5602d0ec7544af0decc1383c,44954fad310024bfd6590410f72587db7b05f7c0602f6bd9ca016bb73fbdb653,62a1ee8830b1a0ec9a88fccd0e0ec07c0a1ed317624823693cf21c4b16431274,8c1b64f348b5446f2b3f0ca6f63dd026d8909f1db6c2bb235087963b1cef48c3
+    reason: "Synthetic employee-profile fixtures"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-ingest-api/tests/test_employee_profiles.py
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
+    pattern_id: RFC
+    match_sha256: 0c5c16a5b9eeaee98765b5cfafaa55399412f58b6819cf7d78268df32866f4cc,59b4c9f9bd417b42c225331c535c208b78b36cd7e609843ae34dc0bcd9d673ae,769f2e647251b3633fe49c9376950fbb7b943c53ffaaf3436e2f31b17f01c44d,7866ee43a2b262727deb5b875614a9910b22330fb94463d852fea28251525057,90bb03d0d87d50c4b85d6debecedd54886b97c663ade420009e9e75f99ce7dba,ffbeb55a5f805125618ebc6c9f1e552700bd1221f522b3b145746506d7f26206
+    reason: "Synthetic employee-profile fixtures"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-personal-worker/src/personal_worker/bedrock.py
+    line_pattern: '\b[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}\b'
+    pattern_id: CURP
+    match_sha256: 6a9dcce3561e4a1d8532dd2c4da60300f9c7a7c64966f853497524beecc28ed1
+    reason: "Synthetic extraction-prompt format example"
+    owner: backend-security
+
+  - path: backend/workers/scanalyze-personal-worker/src/personal_worker/bedrock.py
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
+    pattern_id: RFC
+    match_sha256: 7abf2435cb8e7bf804eac54a103208b7ab6501752585f50a413b5edffbd24115
+    reason: "Synthetic extraction-prompt format example"
+    owner: backend-security
+
+  - path: backend/workers/scanalyze-personal-worker/tests/test_contracts.py
+    line_pattern: '\b[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}\b'
+    pattern_id: CURP
+    match_sha256: 1a34d00d5576d3a0152b916789e24bfc7e97c54826093abfc9da0d28aa2ff032
+    reason: "Synthetic contract fixture"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-personal-worker/tests/test_contracts.py
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
+    pattern_id: RFC
+    match_sha256: f797abb4323f0d009bf3389d360e2ece1aecb35ed32392646087859ae0e819f2
+    reason: "Synthetic contract fixture"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-personal-worker/tests/test_normalize.py
+    line_pattern: '\b[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9]{2}\b'
+    pattern_id: CURP
+    match_sha256: 0fe4679727816fa11838b73400dd6973a239ed2b415a85e18e5a8fe56a534ad0,1a34d00d5576d3a0152b916789e24bfc7e97c54826093abfc9da0d28aa2ff032,1c433dda564832f1018ceae156c4653bf0ecbc8c9c68c3b94ecebf3305d4639b,4e717461222838617fab4430acd46011f1e22d1b564d04b09be52a4db06f1ad5,546868cb92dac23ad1e6f101a95ad7baecfd28e995a8505e87f6ca5abbcebf3e,6a9dcce3561e4a1d8532dd2c4da60300f9c7a7c64966f853497524beecc28ed1,b71d8c00ee5c1a1e8870e1b491fd493b6ff18af46d99de167e5c97ebb5d24560,c7944684a920ecac5c18a35e7a27efc3162f289a302836e06d411ef5a8c88910
+    reason: "Synthetic normalization fixtures"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-personal-worker/tests/test_normalize.py
+    line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
+    pattern_id: RFC
+    match_sha256: 06488a9f1ee1e3879df2489d6106354b09ab2f9a6e8027005f81acccd06e27a1,0d91c75363b886e6c10b9f4d34b66a8d67957a2bf6ac2556d145e49f51480930,170701721bc0ce99a33daeb13183a1daa7b781cdcb83443b6d37b5f5736d980a,2453e10e88830f6f4d75808209d562ea57fe5d3d6e91007371d076ccd431a88c,40df075675422d9d3e3624ba7201aab0af4debc80787bd37dc44075346250eb0,5acafc01a1836d0f78ee10934dd8e4b1459fc4bbde3f7b8444434e7bcf90d75a,619b51d6ed61beb398dde1929d066c27c54becdfd1686ddd7265b24bae48e802,7abf2435cb8e7bf804eac54a103208b7ab6501752585f50a413b5edffbd24115,8f9586f8bb5bc0b2342b7b0c9e771cfbce9c0e6129587e5936f8e65c6b0b60aa,d6da4321203efccc42e4203a15bd065b360773319d9c1b155ca53e89ac66b886,e2395d4dbdb92064fb7bd84f99a36a6f9132dd043ae57950266a966b1f98391d,f797abb4323f0d009bf3389d360e2ece1aecb35ed32392646087859ae0e819f2,ff4442d2e087a0d2e8589fb2e76edee8b17dc1b722c8bbf6ee1410ba28771c21
+    reason: "Synthetic normalization fixtures"
+    owner: backend-testing
+
+  - path: backend/workers/scanalyze-personal-worker/tests/test_normalize.py
+    line_pattern: '\b[0-9]{11}\b'
+    pattern_id: NSS
+    match_sha256: 254aa248acb47dd654ca3ea53f48c2c26d641d23d7e2e93a1ec56258df7674c4
+    reason: "Synthetic NSS-format validation fixture"
+    owner: backend-testing

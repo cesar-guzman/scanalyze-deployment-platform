@@ -3,6 +3,8 @@
 # Python
 __pycache__/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.py[cod]
 *.egg-info/
 dist/
@@ -16,7 +18,11 @@ venv/
 .terraform/
 *.tfstate
 *.tfstate.backup
+*.tfstate.*
 *.tfplan
+tfplan
+tfplan.*
+*.plan.json
 # NOTE: .terraform.lock.hcl is NOT ignored — committed as reproducibility evidence
 crash.log
 override.tf
@@ -40,10 +46,32 @@ tests/preconditions/layer_contract_matrix/fixtures/
 .env.*
 *.pem
 *.key
+*.crt
+*.p12
+
+# Local/generated deployment inputs (safe examples remain trackable)
+deployment.tfvars
+*.local.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+**/.generated/
+*.generated.json
+
+# Operational output and client material
+*.log
+logs/
+dumps/
+uploads/
+raw-documents/
+customer-documents/
+~$*.docx
+~$*.xlsx
+~$*.pptx
 
 # AWS
+.aws/
+**/.aws/
 credentials
-config
 
 # OS
 Thumbs.db
