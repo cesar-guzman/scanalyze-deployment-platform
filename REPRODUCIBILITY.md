@@ -79,6 +79,9 @@ initialization is part of the required evidence.
 5. Runs `plan-all --dry-run` with the synthetic manifest across every canonical
    DAG layer, using a temporary plan directory outside the repository that is
    removed on exit.
+   The wrapper prefers the repository `.venv` locally and otherwise accepts the
+   `python3` provisioned by CI only after verifying that `PyYAML` and
+   `jsonschema` are importable.
 6. Validates the required documentation inventory.
 7. The deployment dry-run stage does **not** touch AWS, Docker, ECR, or SSM.
    Its bootstrap prerequisite may contact the configured Python package source,

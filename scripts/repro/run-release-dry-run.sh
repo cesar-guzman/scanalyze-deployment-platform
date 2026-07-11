@@ -7,13 +7,23 @@ IFS=$'\n\t'
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 readonly MANIFEST="${REPO_ROOT}/examples/deployments/synthetic-nonprod.yaml"
-readonly VENV_BIN="${REPO_ROOT}/.venv/bin"
+readonly DEFAULT_VENV_BIN="${REPO_ROOT}/.venv/bin"
+readonly VENV_BIN="${SCANALYZE_VENV_BIN:-${DEFAULT_VENV_BIN}}"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-[[ -x "${VENV_BIN}/python3" ]] \
-  || die "local virtual environment is missing; run make bootstrap-local first"
-export PATH="${VENV_BIN}:${PATH}"
+if [[ -x "${VENV_BIN}/python3" ]]; then
+  PYTHON_BIN="${VENV_BIN}/python3"
+else
+  PYTHON_BIN="$(command -v python3 || true)"
+  [[ -n "$PYTHON_BIN" ]] \
+    || die "python3 is unavailable; run make bootstrap-local first"
+fi
+readonly PYTHON_BIN
+
+"$PYTHON_BIN" -c 'import jsonschema, yaml' >/dev/null 2>&1 \
+  || die "selected Python is missing jsonschema or PyYAML; run make bootstrap-local first"
+export PATH="$(dirname "$PYTHON_BIN"):${PATH}"
 
 TMP_BASE="${TMPDIR:-/tmp}"
 [[ -d "$TMP_BASE" ]] || die "temporary directory base does not exist: $TMP_BASE"

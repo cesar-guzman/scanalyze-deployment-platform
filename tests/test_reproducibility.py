@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -216,6 +217,30 @@ def test_release_dry_run_covers_all_layers_and_cleans_temp_dir(
         result.stdout.index(f"Planning layer: {layer}") for layer in expected_layers
     ]
     assert positions == sorted(positions)
+    assert not list(tmp_path.glob("scanalyze-release-dry-run.*"))
+
+
+def test_release_dry_run_accepts_setup_python_without_repository_venv(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "setup-python-bin"
+    fake_bin.mkdir()
+    setup_python = fake_bin / "python3"
+    setup_python.write_text(
+        f'#!/usr/bin/env bash\nexec "{sys.executable}" "$@"\n',
+        encoding="utf-8",
+    )
+    setup_python.chmod(0o700)
+
+    env = os.environ.copy()
+    env["TMPDIR"] = str(tmp_path)
+    env["SCANALYZE_VENV_BIN"] = str(tmp_path / "missing-venv" / "bin")
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = _run("bash", str(RELEASE_DRY_RUN_SCRIPT), env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "All layers planned" in result.stdout
     assert not list(tmp_path.glob("scanalyze-release-dry-run.*"))
 
 
