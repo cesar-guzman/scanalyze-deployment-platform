@@ -48,6 +48,9 @@ jobs:
       - name: Microservices structure check
         run: make microservices-check
 
+      - name: GitHub governance contract
+        run: make github-governance-check
+
       - name: Terraform format check
         run: make terraform-fmt-check
 

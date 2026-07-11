@@ -61,9 +61,9 @@ Subcommands:
   repro-check          Run reproducibility checks
   account-preflight    Read-only AWS account verification
   plan-layer           Terraform plan for a single layer
-  apply-layer          Terraform apply from a saved plan
+  apply-layer          BLOCKED locally; future GitHub orchestrator only
   plan-all             Plan all layers in dependency order
-  apply-all            Apply all layers from saved plans
+  apply-all            BLOCKED locally; future GitHub orchestrator only
   publish-images       Build and push OCI images to ECR
   deploy-services      Plan/apply services layer with image digests
   validate-live        Validate deployed resources
@@ -334,40 +334,26 @@ cmd_plan_layer() {
 }
 
 cmd_apply_layer() {
-  load_manifest
-  guard_plan_dir
+  die "Local apply-layer is disabled by ADR-017. The future live path is the protected GitHub Actions orchestrator; this PR is dry-run only."
+}
 
-  if [[ -z "$LAYER" ]]; then
-    die "--layer is required for apply-layer"
-  fi
+canonical_plan_layers() {
+  local dag_file="${REPO_ROOT}/deployment/layers.yaml"
+  python3 "$SCRIPT_DIR/validate-layer-dag.py" "$dag_file" >/dev/null \
+    || die "Canonical deployment DAG validation failed"
 
-  local plan_file="${PLAN_DIR}/${LAYER}.tfplan"
-  if [[ ! -f "$plan_file" ]]; then
-    die "Saved plan not found: ${plan_file}. Run plan-layer first."
-  fi
+  python3 - "$dag_file" <<'PY'
+import sys
 
-  info "Applying layer: ${LAYER}"
+import yaml
 
-  if [[ "$DRY_RUN" == true ]]; then
-    info "[DRY-RUN] Would run: terraform -chdir=roots/${LAYER} apply ${plan_file}"
-    pass "Apply layer dry-run complete"
-    return
-  fi
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = yaml.safe_load(handle)
 
-  guard_live
-  guard_prod
-  guard_account_binding
-
-  if [[ "$APPROVE" != true ]]; then
-    die "Apply requires --approve"
-  fi
-
-  bash "$SCRIPT_DIR/terraform-layer.sh" apply \
-    --layer "$LAYER" \
-    --plan-dir "$PLAN_DIR" \
-    --account-id "$ACCOUNT_ID" \
-    --region "$REGION" \
-    --deployment-id "$DEPLOYMENT_ID"
+for stage in document["layers"]:
+    if stage["kind"] in {"gate", "terraform"}:
+        print(stage["layer"])
+PY
 }
 
 cmd_plan_all() {
@@ -375,7 +361,15 @@ cmd_plan_all() {
   guard_plan_dir
 
   info "Planning all layers in dependency order..."
-  local layers=(account-ready-gate global network platform data-foundation edge-identity edge cicd services addons)
+  local layer_output
+  layer_output="$(canonical_plan_layers)" \
+    || die "Unable to resolve the canonical deployment DAG"
+  local layers=()
+  local layer
+  while IFS= read -r layer; do
+    [[ -n "$layer" ]] && layers+=("$layer")
+  done <<< "$layer_output"
+  [[ "${#layers[@]}" -gt 0 ]] || die "Canonical deployment DAG contains no plan stages"
 
   for layer in "${layers[@]}"; do
     if [[ ! -d "${REPO_ROOT}/roots/${layer}" ]]; then
@@ -389,26 +383,7 @@ cmd_plan_all() {
 }
 
 cmd_apply_all() {
-  load_manifest
-  guard_plan_dir
-
-  if [[ "$APPROVE" != true ]]; then
-    die "apply-all requires --approve"
-  fi
-
-  info "Applying all layers from saved plans..."
-  local layers=(account-ready-gate global network platform data-foundation edge-identity edge cicd services addons)
-
-  for layer in "${layers[@]}"; do
-    local plan_file="${PLAN_DIR}/${layer}.tfplan"
-    if [[ ! -f "$plan_file" ]]; then
-      warn "No saved plan for ${layer}, skipping"
-      continue
-    fi
-    LAYER="$layer" cmd_apply_layer
-  done
-
-  pass "All layers applied"
+  die "Local apply-all is disabled by ADR-017. Mock-backed plans are never authorized for apply."
 }
 
 cmd_publish_images() {

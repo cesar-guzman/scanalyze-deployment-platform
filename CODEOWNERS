@@ -7,6 +7,12 @@
 # Architecture decisions require architecture review
 ADR/                        @cesar-guzman
 
+# CI/CD and governance controls require platform review
+.github/workflows/          @cesar-guzman
+governance/                 @cesar-guzman
+scripts/governance/         @cesar-guzman
+tooling/validate_github_policy.py  @cesar-guzman
+
 # Schemas require platform + architecture review
 schemas/                    @cesar-guzman
 

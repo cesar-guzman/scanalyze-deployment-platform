@@ -1,0 +1,373 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/layer-contract.v1.schema.json",
+  "title": "Scanalyze Terraform Layer Contract Envelope v1",
+  "description": "Atomic contract envelope published by one Terraform root. Integrity is checked by recomputing contract_digest with Scanalyze deterministic JSON encoding; freshness and authorization must also be checked against the deployment record and the authenticated AWS session.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "aws_account_id",
+    "region",
+    "scope",
+    "layer",
+    "producer",
+    "release_digest",
+    "output_schema_version",
+    "outputs",
+    "contract_digest",
+    "produced_at",
+    "terraform_workspace",
+    "state_key"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "aws_account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$",
+      "description": "Expected AWS account binding. The live consumer must compare this value with its authenticated STS identity."
+    },
+    "region": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+        }
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "global",
+        "regional"
+      ]
+    },
+    "layer": {
+      "type": "string",
+      "enum": [
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons"
+      ]
+    },
+    "producer": {
+      "type": "string",
+      "pattern": "^roots/(global|network|platform|data-foundation|cicd|services|edge-identity|edge|addons)$"
+    },
+    "release_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "output_schema_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*/v[1-9][0-9]*$",
+      "description": "Layer output schema identifier, for example network/v1."
+    },
+    "outputs": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Layer-specific Terraform outputs. The corresponding output_schema_version supplies their detailed schema."
+    },
+    "contract_digest": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 digest of outputs encoded as UTF-8 JSON with recursively sorted keys, compact separators, ASCII escaping, and array order preserved."
+    },
+    "produced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "terraform_workspace": {
+      "type": "string",
+      "const": "default",
+      "description": "Terraform workspaces are prohibited for deployment isolation; each layer uses a dedicated backend state key."
+    },
+    "state_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "module_source_digest": {
+      "$ref": "#/$defs/sha256",
+      "description": "Optional SHA-256 digest of the producer module source when the release process can calculate it reproducibly."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "scope": {
+            "const": "global"
+          }
+        },
+        "required": [
+          "scope"
+        ]
+      },
+      "then": {
+        "properties": {
+          "region": {
+            "const": "global"
+          },
+          "layer": {
+            "enum": [
+              "global",
+              "edge"
+            ]
+          },
+          "state_key": {
+            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/(global|edge)/terraform\\.tfstate$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "scope": {
+            "const": "regional"
+          }
+        },
+        "required": [
+          "scope"
+        ]
+      },
+      "then": {
+        "properties": {
+          "region": {
+            "type": "string",
+            "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+          },
+          "layer": {
+            "enum": [
+              "network",
+              "platform",
+              "data-foundation",
+              "cicd",
+              "services",
+              "edge-identity",
+              "addons"
+            ]
+          },
+          "state_key": {
+            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/(network|platform|data-foundation|cicd|services|edge-identity|addons)/terraform\\.tfstate$"
+          }
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/global_producer"
+        },
+        {
+          "$ref": "#/$defs/network_producer"
+        },
+        {
+          "$ref": "#/$defs/platform_producer"
+        },
+        {
+          "$ref": "#/$defs/data_foundation_producer"
+        },
+        {
+          "$ref": "#/$defs/cicd_producer"
+        },
+        {
+          "$ref": "#/$defs/services_producer"
+        },
+        {
+          "$ref": "#/$defs/edge_identity_producer"
+        },
+        {
+          "$ref": "#/$defs/edge_producer"
+        },
+        {
+          "$ref": "#/$defs/addons_producer"
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "global_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "global"
+        },
+        "producer": {
+          "const": "roots/global"
+        },
+        "output_schema_version": {
+          "const": "global/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/global/terraform\\.tfstate$"
+        }
+      }
+    },
+    "network_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "network"
+        },
+        "producer": {
+          "const": "roots/network"
+        },
+        "output_schema_version": {
+          "const": "network/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/network/terraform\\.tfstate$"
+        }
+      }
+    },
+    "platform_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "platform"
+        },
+        "producer": {
+          "const": "roots/platform"
+        },
+        "output_schema_version": {
+          "const": "platform/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/platform/terraform\\.tfstate$"
+        }
+      }
+    },
+    "data_foundation_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "data-foundation"
+        },
+        "producer": {
+          "const": "roots/data-foundation"
+        },
+        "output_schema_version": {
+          "const": "data-foundation/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/data-foundation/terraform\\.tfstate$"
+        }
+      }
+    },
+    "cicd_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "cicd"
+        },
+        "producer": {
+          "const": "roots/cicd"
+        },
+        "output_schema_version": {
+          "const": "cicd/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/cicd/terraform\\.tfstate$"
+        }
+      }
+    },
+    "services_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "services"
+        },
+        "producer": {
+          "const": "roots/services"
+        },
+        "output_schema_version": {
+          "const": "services/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/services/terraform\\.tfstate$"
+        }
+      }
+    },
+    "edge_identity_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "edge-identity"
+        },
+        "producer": {
+          "const": "roots/edge-identity"
+        },
+        "output_schema_version": {
+          "const": "edge-identity/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/edge-identity/terraform\\.tfstate$"
+        }
+      }
+    },
+    "edge_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "edge"
+        },
+        "producer": {
+          "const": "roots/edge"
+        },
+        "output_schema_version": {
+          "const": "edge/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/edge/terraform\\.tfstate$"
+        }
+      }
+    },
+    "addons_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "addons"
+        },
+        "producer": {
+          "const": "roots/addons"
+        },
+        "output_schema_version": {
+          "const": "addons/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/addons/terraform\\.tfstate$"
+        }
+      }
+    },
+    "producer_binding": {
+      "type": "object",
+      "required": [
+        "layer",
+        "producer",
+        "output_schema_version"
+      ]
+    }
+  }
+}

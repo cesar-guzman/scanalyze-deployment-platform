@@ -1,0 +1,344 @@
+schema_version: "1"
+
+layers:
+  - layer: account-ready-gate
+    kind: gate
+    depends_on: []
+    root: roots/account-ready-gate
+    scope: regional
+    state_key: null
+    requires_contracts:
+      - account-ready/v1
+    produces_contract: null
+    plan_role: ScanalyzeCustomer-Validation
+    apply_role: null
+    allowed_operations:
+      - validate-account-binding
+      - validate-contracts
+      - terraform-init-backendless
+      - terraform-validate
+      - terraform-plan
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - account-binding
+      - account-ready-contract-validation
+
+  - layer: global
+    kind: terraform
+    depends_on:
+      - account-ready-gate
+    root: roots/global
+    scope: global
+    state_key: "{deployment_id}/global/terraform.tfstate"
+    requires_contracts:
+      - account-ready/v1
+    produces_contract: global/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: network
+    kind: terraform
+    depends_on:
+      - global
+    root: roots/network
+    scope: regional
+    state_key: "{deployment_id}/{region}/network/terraform.tfstate"
+    requires_contracts:
+      - global/v1
+    produces_contract: network/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: platform
+    kind: terraform
+    depends_on:
+      - network
+    root: roots/platform
+    scope: regional
+    state_key: "{deployment_id}/{region}/platform/terraform.tfstate"
+    requires_contracts:
+      - network/v1
+    produces_contract: platform/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: data-foundation
+    kind: terraform
+    depends_on:
+      - platform
+    root: roots/data-foundation
+    scope: regional
+    state_key: "{deployment_id}/{region}/data-foundation/terraform.tfstate"
+    requires_contracts:
+      - platform/v1
+    produces_contract: data-foundation/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: cicd
+    kind: terraform
+    depends_on:
+      - data-foundation
+    root: roots/cicd
+    scope: regional
+    state_key: "{deployment_id}/{region}/cicd/terraform.tfstate"
+    requires_contracts:
+      - data-foundation/v1
+    produces_contract: cicd/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: artifact-publication
+    kind: artifact
+    depends_on:
+      - cicd
+    root: null
+    scope: regional
+    state_key: null
+    requires_contracts:
+      - cicd/v1
+    # Release artifact contract; this is not an SSM layer-contract envelope.
+    produces_contract: release-manifest/v1
+    plan_role: ScanalyzeCustomer-Validation
+    apply_role: ScanalyzeCustomer-Promotion
+    allowed_operations:
+      - validate-release-inputs
+      - publish-approved-artifacts
+      - publish-release-manifest
+    destroy_policy: deny
+    artifact_dependencies:
+      - service-images
+      - base-image
+      - sboms
+      - vulnerability-scan-reports
+      - signatures
+      - provenance
+    produces_artifacts:
+      - release-manifest
+      - service-image-digests
+    evidence_requirements:
+      - release-manifest-sha256
+      - sbom-status
+      - scan-status
+      - signature-status
+      - provenance-status
+
+  - layer: services
+    kind: terraform
+    depends_on:
+      - artifact-publication
+    root: roots/services
+    scope: regional
+    state_key: "{deployment_id}/{region}/services/terraform.tfstate"
+    requires_contracts:
+      - platform/v1
+      - data-foundation/v1
+      - cicd/v1
+      - release-manifest/v1
+    produces_contract: services/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies:
+      - release-manifest
+      - service-image-digests
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+      - image-digest-binding
+
+  - layer: edge-identity
+    kind: terraform
+    depends_on:
+      - services
+    root: roots/edge-identity
+    scope: regional
+    state_key: "{deployment_id}/{region}/edge-identity/terraform.tfstate"
+    requires_contracts:
+      - services/v1
+    produces_contract: edge-identity/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+      - authorization-boundary-validation
+
+  - layer: edge
+    kind: terraform
+    depends_on:
+      - edge-identity
+    root: roots/edge
+    scope: global
+    state_key: "{deployment_id}/edge/terraform.tfstate"
+    requires_contracts:
+      - edge-identity/v1
+    produces_contract: edge/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+      - edge-security-validation
+
+  - layer: addons
+    kind: terraform
+    depends_on:
+      - edge
+    root: roots/addons
+    scope: regional
+    state_key: "{deployment_id}/{region}/addons/terraform.tfstate"
+    requires_contracts:
+      - edge/v1
+    produces_contract: addons/v1
+    plan_role: ScanalyzeCustomer-Plan
+    apply_role: ScanalyzeCustomer-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies: []
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+
+  - layer: synthetic-validation
+    kind: validation
+    depends_on:
+      - addons
+    root: null
+    scope: regional
+    state_key: null
+    requires_contracts:
+      - release-manifest/v1
+      - services/v1
+      - edge-identity/v1
+      - edge/v1
+      - addons/v1
+    produces_contract: null
+    plan_role: ScanalyzeCustomer-Validation
+    apply_role: null
+    allowed_operations:
+      - validate-contracts
+      - run-synthetic-tests
+      - publish-sanitized-evidence
+      - record-operational-handoff
+    destroy_policy: deny
+    artifact_dependencies:
+      - release-manifest
+    produces_artifacts:
+      - synthetic-validation-report
+      - operational-handoff-summary
+    evidence_requirements:
+      - synthetic-test-results
+      - release-digest-binding
+      - operational-handoff-summary

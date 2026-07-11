@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-request.v1.schema.json",
+  "title": "Scanalyze Git-safe Non-production Deployment Request v1",
+  "description": "Non-sensitive GitOps intent record. It is not a resolved deployment manifest and must never contain AWS account IDs, ARNs, credentials, tfvars, Terraform plans/state, raw layer outputs, or generated manifests.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "environment",
+    "release_digest",
+    "requested_by",
+    "requested_at",
+    "change_ticket",
+    "approval",
+    "non_sensitive_selectors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "sandbox",
+        "dev",
+        "staging"
+      ],
+      "description": "Production is intentionally unsupported by this schema version."
+    },
+    "release_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "requested_by": {
+      "$ref": "#/$defs/non_sensitive_identity"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "change_ticket": {
+      "type": "string",
+      "pattern": "^([A-Z][A-Z0-9]{1,15}-[0-9]{1,12}|NO-TICKET)$"
+    },
+    "target_layer": {
+      "type": "string",
+      "enum": [
+        "account-ready-gate",
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "artifact-publication",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons",
+        "synthetic-validation"
+      ],
+      "description": "Terminal stage for a dependency-complete partial run."
+    },
+    "full_deployment": {
+      "type": "boolean",
+      "const": true
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "requested_reviewers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/non_sensitive_identity"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "decided_by": {
+          "$ref": "#/$defs/non_sensitive_identity"
+        },
+        "decided_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "approved",
+                  "rejected"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "decided_by",
+              "decided_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pending"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "decided_by"
+                  ]
+                },
+                {
+                  "required": [
+                    "decided_at"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "non_sensitive_selectors": {
+      "type": "object",
+      "required": [
+        "region"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "internal-demo",
+            "enterprise-standard",
+            "enterprise-ha"
+          ]
+        },
+        "processing_domains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "bank",
+              "personal",
+              "gov"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "full_deployment"
+      ],
+      "not": {
+        "required": [
+          "target_layer"
+        ]
+      }
+    },
+    {
+      "required": [
+        "target_layer"
+      ],
+      "not": {
+        "required": [
+          "full_deployment"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "non_sensitive_identity": {
+      "type": "string",
+      "pattern": "^(github:[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?|team:[a-z0-9][a-z0-9-]{1,62}|service:[a-z0-9][a-z0-9-]{1,62})$",
+      "description": "Non-sensitive principal alias; email addresses and opaque external identifiers are intentionally disallowed."
+    }
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/release-manifest.v1.schema.json",
+  "title": "Scanalyze Immutable Release Manifest v1",
+  "description": "Git-safe description of an immutable release artifact set. Supply-chain status fields describe observed evidence; policy gates decide whether a release is eligible for promotion.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "commit",
+    "release_digest",
+    "service_image_digests",
+    "base_image_digest",
+    "sbom_status",
+    "scan_status",
+    "signature_status",
+    "provenance_status",
+    "generated_at",
+    "source_repository",
+    "source_ref",
+    "immutable_artifact_identity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Immutable Git commit SHA used to build the release."
+    },
+    "release_digest": {
+      "$ref": "#/$defs/sha256",
+      "description": "Digest of the canonical release artifact graph."
+    },
+    "service_image_digests": {
+      "type": "object",
+      "required": [
+        "scanalyze-ingest-api",
+        "scanalyze-ocr-worker",
+        "scanalyze-classifier-worker",
+        "scanalyze-bank-worker",
+        "scanalyze-personal-worker",
+        "scanalyze-gov-worker",
+        "scanalyze-postprocess-worker"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scanalyze-ingest-api": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-ocr-worker": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-classifier-worker": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-bank-worker": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-personal-worker": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-gov-worker": {
+          "$ref": "#/$defs/sha256"
+        },
+        "scanalyze-postprocess-worker": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "base_image_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sbom_status": {
+      "type": "string",
+      "enum": [
+        "not-generated",
+        "generated",
+        "verified"
+      ]
+    },
+    "scan_status": {
+      "type": "string",
+      "enum": [
+        "not-run",
+        "passed",
+        "failed"
+      ]
+    },
+    "signature_status": {
+      "type": "string",
+      "enum": [
+        "not-signed",
+        "signed",
+        "verified",
+        "failed"
+      ]
+    },
+    "provenance_status": {
+      "type": "string",
+      "enum": [
+        "not-generated",
+        "generated",
+        "verified",
+        "failed"
+      ]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+      "description": "GitHub owner/repository slug without credentials or URL query data."
+    },
+    "source_ref": {
+      "type": "string",
+      "pattern": "^refs/(heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$"
+    },
+    "immutable_artifact_identity": {
+      "type": "string",
+      "pattern": "^scanalyze-release@sha256:[a-f0-9]{64}$"
+    },
+    "sbom_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "scan_report_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "signature_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "provenance_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "sbom_status": {
+            "enum": [
+              "generated",
+              "verified"
+            ]
+          }
+        },
+        "required": [
+          "sbom_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "sbom_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "scan_status": {
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          }
+        },
+        "required": [
+          "scan_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "scan_report_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "signature_status": {
+            "enum": [
+              "signed",
+              "verified"
+            ]
+          }
+        },
+        "required": [
+          "signature_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "signature_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provenance_status": {
+            "enum": [
+              "generated",
+              "verified"
+            ]
+          }
+        },
+        "required": [
+          "provenance_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "provenance_digest"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

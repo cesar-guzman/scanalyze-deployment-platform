@@ -444,7 +444,9 @@ run "rejects_tampered_digest" {
 
 ```
 For each layer in dependency order:
-  global → network → platform → data-foundation → services → edge-identity → addons
+  global → network → platform → data-foundation → cicd
+    → artifact-publication → services → edge-identity → edge → addons
+    → synthetic-validation
 
   PRE-DEPLOY (orchestrator logic):
     1. Read deployment record from registry

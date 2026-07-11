@@ -208,21 +208,14 @@ Un ticket abierto no equivale a aprobación.
 ### 5.2 Contract graph canónico
 
 ```text
-ACCOUNT_READY
-    │
-    ▼
-global → network → platform → data-foundation → services
-                                             │
-                                             ▼
-                                      edge-identity → edge
-                                             │          │
-                                             └────┬─────┘
-                                                  ▼
-                                               addons
+ACCOUNT_READY → global → network → platform → data-foundation → cicd
+  → artifact-publication → services → edge-identity → edge → addons
+  → synthetic-validation
 ```
 
-`cicd` es una fase operacional para ECR/release metadata. No debe alterar el
-contract graph ni desplegar ECS.
+`cicd` provisiona ECR/release metadata y no despliega ECS. La publicación de
+artefactos es una fase operacional no Terraform entre `cicd` y `services`. La
+fuente machine-readable de esta secuencia es `deployment/layers.yaml`.
 
 ### 5.3 Secuencia target-state
 

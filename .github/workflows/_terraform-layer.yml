@@ -1,0 +1,286 @@
+name: Reusable Terraform layer validation
+
+on:
+  workflow_call:
+    inputs:
+      deployment_id:
+        description: Git-safe deployment identifier
+        required: true
+        type: string
+      logical_environment:
+        description: Logical non-production stage from the Git-safe request
+        required: true
+        type: string
+      layer:
+        description: Terraform root to validate
+        required: true
+        type: string
+      release_digest:
+        description: Immutable release manifest digest
+        required: true
+        type: string
+      request_path:
+        description: Repository-relative Git-safe deployment request
+        required: true
+        type: string
+      aws_region:
+        description: Non-production AWS region binding
+        required: true
+        type: string
+      dry_run:
+        description: Run offline init and validation only
+        required: false
+        default: true
+        type: boolean
+      allow_live:
+        description: Reserved live mode; deliberately NO-GO in this change
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      validation_status:
+        description: Sanitized offline validation status
+        value: ${{ jobs.offline_validation.outputs.validation_status }}
+
+permissions:
+  contents: read
+
+jobs:
+  offline_validation:
+    name: Validate ${{ inputs.layer }} offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      validation_status: ${{ steps.evidence.outputs.validation_status }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.14.6"
+          terraform_wrapper: false
+
+      - name: Prepare Terraform plugin cache
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugin-cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: Restore Terraform plugin cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ runner.temp }}/terraform-plugin-cache
+          key: terraform-${{ runner.os }}-${{ runner.arch }}-1.14.6-${{ hashFiles('roots/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-${{ runner.os }}-${{ runner.arch }}-1.14.6-
+
+      - name: Install validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install '.[test]'
+
+      - name: Validate execution mode and identifiers
+        env:
+          ALLOW_LIVE: ${{ inputs.allow_live }}
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          TARGET_LAYER: ${{ inputs.layer }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
+            echo "::error::Exactly one of dry_run or allow_live must be true"
+            exit 1
+          fi
+
+          case "$LOGICAL_ENVIRONMENT" in
+            sandbox|dev|staging) ;;
+            *)
+              echo "::error::Only sandbox, dev, and staging are supported"
+              exit 1
+              ;;
+          esac
+
+          case "$TARGET_LAYER" in
+            account-ready-gate|global|network|platform|data-foundation|cicd|services|edge-identity|edge|addons) ;;
+            *)
+              echo "::error::Layer is not an approved Terraform root"
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+            echo "::error::deployment_id is not a valid Scanalyze deployment ULID"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::release_digest must be a lowercase SHA-256 digest"
+            exit 1
+          fi
+          if [[ ! "$AWS_REGION_INPUT" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "::error::aws_region is invalid"
+            exit 1
+          fi
+
+      - name: Validate canonical layer DAG
+        run: |
+          set -euo pipefail
+          python scripts/deployment/validate-layer-dag.py deployment/layers.yaml
+
+      - name: Validate Git-safe deployment request
+        env:
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
+          REQUEST_PATH: ${{ inputs.request_path }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+        run: |
+          set -euo pipefail
+          git ls-files --error-unmatch -- "$REQUEST_PATH" >/dev/null
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import jsonschema
+          import yaml
+
+          repo = Path.cwd().resolve()
+          supplied = Path(os.environ["REQUEST_PATH"])
+          if supplied.is_absolute():
+              raise SystemExit("ERROR: request_path must be repository-relative")
+
+          request_path = (repo / supplied).resolve()
+          try:
+              request_path.relative_to(repo)
+          except ValueError as exc:
+              raise SystemExit("ERROR: request_path escapes the repository") from exc
+          if not request_path.is_file():
+              raise SystemExit("ERROR: deployment request does not exist")
+
+          schema_path = repo / "schemas" / "deployment-request.schema.json"
+          schema = json.loads(schema_path.read_text(encoding="utf-8"))
+          if request_path.suffix == ".json":
+              request = json.loads(request_path.read_text(encoding="utf-8"))
+          else:
+              request = yaml.safe_load(request_path.read_text(encoding="utf-8"))
+
+          validator = jsonschema.Draft202012Validator(
+              schema,
+              format_checker=jsonschema.FormatChecker(),
+          )
+          errors = list(validator.iter_errors(request))
+          if errors:
+              location = ".".join(str(part) for part in errors[0].absolute_path) or "root"
+              raise SystemExit(f"ERROR: deployment request schema validation failed at {location}")
+
+          expected = {
+              "deployment_id": os.environ["DEPLOYMENT_ID"],
+              "environment": os.environ["LOGICAL_ENVIRONMENT"],
+              "release_digest": os.environ["RELEASE_DIGEST"],
+          }
+          for field, value in expected.items():
+              if request.get(field) != value:
+                  raise SystemExit(f"ERROR: deployment request {field} does not match workflow input")
+
+          selectors = request.get("non_sensitive_selectors", {})
+          if selectors.get("region") != os.environ["AWS_REGION_INPUT"]:
+              raise SystemExit("ERROR: deployment request region does not match workflow input")
+          if request.get("full_deployment") is not True:
+              raise SystemExit("ERROR: this workflow revision only supports full_deployment requests")
+
+          print("PASS: Git-safe deployment request is valid and bound to workflow inputs")
+          PY
+
+      - name: Refuse ambient AWS credentials in dry-run
+        if: ${{ inputs.dry_run && !inputs.allow_live }}
+        run: |
+          set -euo pipefail
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_WEB_IDENTITY_TOKEN_FILE; do
+            if [[ -n "${!name:-}" ]]; then
+              echo "::error::AWS credential material is not permitted in the offline validation job"
+              exit 1
+            fi
+          done
+
+      - name: Initialize and validate Terraform without backend
+        if: ${{ inputs.dry_run && !inputs.allow_live }}
+        env:
+          AWS_EC2_METADATA_DISABLED: "true"
+          TARGET_LAYER: ${{ inputs.layer }}
+          TF_IN_AUTOMATION: "true"
+          TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugin-cache
+        run: |
+          set -euo pipefail
+          root_dir="roots/${TARGET_LAYER}"
+          terraform -chdir="$root_dir" init -backend=false -input=false -no-color
+          terraform -chdir="$root_dir" validate -no-color
+
+      - name: Record sanitized evidence
+        id: evidence
+        if: ${{ inputs.dry_run && !inputs.allow_live }}
+        env:
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          COMMIT_SHA: ${{ github.sha }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          TARGET_LAYER: ${{ inputs.layer }}
+        run: |
+          set -euo pipefail
+          printf 'validation_status=DRY_RUN_VALIDATED\n' >> "$GITHUB_OUTPUT"
+          {
+            echo "### Terraform layer validation"
+            printf -- '- Layer: `%s`\n' "$TARGET_LAYER"
+            printf -- '- Logical environment: `%s`\n' "$LOGICAL_ENVIRONMENT"
+            printf -- '- Region: `%s`\n' "$AWS_REGION_INPUT"
+            printf -- '- Commit: `%.12s`\n' "$COMMIT_SHA"
+            echo '- Backend: disabled'
+            echo '- AWS access: none'
+            echo '- Terraform plan/apply: not executed'
+            echo '- Status: `DRY_RUN_VALIDATED`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  live_no_go:
+    name: Live ${{ inputs.layer }} is NO-GO
+    needs: offline_validation
+    if: ${{ inputs.allow_live && !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Block live Terraform execution
+        env:
+          TARGET_LAYER: ${{ inputs.layer }}
+        run: |
+          set -euo pipefail
+          echo "::error::NO-GO: live AWS access and Terraform apply are not enabled in this workflow revision"
+          {
+            echo "### Live Terraform gate"
+            printf -- '- Layer: `%s`\n' "$TARGET_LAYER"
+            echo '- Status: `NO-GO`'
+            echo '- OIDC token requested: no'
+            echo '- AWS API calls: none'
+            echo '- Terraform apply: not executed'
+            echo '- Account binding: `PENDING`'
+            echo '- Remote backend and state lock: `PENDING`'
+            echo '- Saved plan and policy gate: `PENDING`'
+            echo '- Saved-plan apply: `PENDING`'
+            echo '- Contract publication and validation: `PENDING`'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1

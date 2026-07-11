@@ -53,6 +53,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Dónde vive el código de servicios? | [README de microservicios](../backend/workers/README.md) |
 | ¿Cómo se construyen y publican imágenes? | [README de microservicios](../backend/workers/README.md), [script de build/push](../scripts/microservices/build-push.sh) y [workflow de GitHub](../.github/workflows/microservices-build.yml) |
 | ¿Cómo se despliega una cuenta enterprise? | [Playbook enterprise](../playbooks/enterprise-client-deployment.md) |
+| ¿Cuál es el DAG y límite de ejecución del orquestador GitOps? | [ADR-017](../ADR/ADR-017-github-actions-release-orchestrator.md), [GitOps orchestrator](../docs/deployment/gitops-orchestrator.md) y `deployment/layers.yaml` |
 | ¿Por qué existe account-per-deployment? | [ADR-001](../ADR/ADR-001-tenancy-model.md) |
 | ¿Cuál es la fuente de los microservicios? | [ADR-011](../ADR/ADR-011-monorepo-microservices-source.md) |
 | ¿Quién es dueño de cada recurso? | [Architecture Ownership Matrix](../ADR/ARCHITECTURE_OWNERSHIP_MATRIX.md) |
@@ -69,6 +70,7 @@ Cuando dos documentos difieran, usar este orden:
 | Build parametrizado con base image explícita | **Implemented**, **Locally validated** | No hubo build real contra una base ECR aprobada durante la migración. |
 | Publicación por GitHub OIDC a ECR del deployment | **Implemented**, **Locally validated** | El workflow y script existen; el flujo monorepo no está **Live validated**. |
 | Metadatos de tag y digest en SSM | **Implemented**, **Locally validated** | Es metadata de release; no despliega ECS por sí sola. |
+| DAG GitOps y workflow non-production reusable | **Implemented** como dry-run | Requiere CI verde; no solicita OIDC, no ejecuta apply y no constituye evidencia live. |
 | Consumo de imagen inmutable por digest | **Implemented** como contrato de despliegue | Requiere plan y validación non-production antes de una promoción real. |
 | Build central firmado y promoción verificable cross-account | **Target** | No es el flujo implementado actual. |
 | SBOM, firma, provenance y vulnerability gate completos | **Target** | ADR-007 describe el objetivo; ADR-011 registra los gaps. |

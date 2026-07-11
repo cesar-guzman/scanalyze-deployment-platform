@@ -1,0 +1,23 @@
+{
+  "schema_version": "1",
+  "commit": "0000000000000000000000000000000000000000",
+  "release_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "service_image_digests": {
+    "scanalyze-ingest-api": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "scanalyze-ocr-worker": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-classifier-worker": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "scanalyze-bank-worker": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "scanalyze-personal-worker": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "scanalyze-gov-worker": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "scanalyze-postprocess-worker": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "base_image_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "sbom_status": "not-generated",
+  "scan_status": "not-run",
+  "signature_status": "not-signed",
+  "provenance_status": "not-generated",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "source_repository": "synthetic-org/scanalyze-deployment-platform-monorepo",
+  "source_ref": "refs/tags/v0.0.0-synthetic",
+  "immutable_artifact_identity": "scanalyze-release@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+}

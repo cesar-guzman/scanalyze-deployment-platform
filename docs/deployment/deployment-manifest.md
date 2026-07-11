@@ -4,6 +4,11 @@
 
 A deployment manifest is a declarative YAML file that defines all the inputs needed to deploy Scanalyze for a specific customer in a specific AWS account.
 
+It is not the GitOps request. A deployment request contains only non-sensitive
+desired intent and may be reviewed in Git; the resolved manifest contains
+account-specific bindings and always remains outside the repository. See
+[`gitops-orchestrator.md`](gitops-orchestrator.md).
+
 **Schema**: `schemas/deployment-manifest.schema.json`
 **Synthetic example**: `examples/deployments/synthetic-nonprod.yaml`
 
@@ -37,3 +42,7 @@ python scripts/deployment/validate-manifest.py examples/deployments/synthetic-no
 3. Store securely (encrypted at rest, access-controlled).
 4. Never commit to Git.
 5. Pass to the orchestrator: `scanalyze-deploy.sh validate-manifest --manifest /path/to/real-manifest.yaml`
+
+Do not pass a local manifest path through a GitHub workflow input. A future live
+workflow resolves the approved manifest from access-controlled storage using the
+Git-safe deployment request.
