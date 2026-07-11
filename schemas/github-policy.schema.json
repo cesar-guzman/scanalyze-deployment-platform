@@ -86,7 +86,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^(?!.*\\$\\{\\{).+$"
+      "pattern": "^(?!.*\\$\\{\\{)[\\u0021-\\u007E](?:[\\u0020-\\u007E]*[\\u0021-\\u007E])?$"
     },
     "required_check": {
       "type": "object",

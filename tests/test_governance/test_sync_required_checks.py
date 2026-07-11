@@ -707,6 +707,197 @@ def test_apply_rejects_offline_job_mapping_mismatch(
     assert fake.patch_calls == []
 
 
+def test_offline_mapping_allows_unrelated_dynamic_job_names() -> None:
+    source = (
+        "name: Policy workflow\n"
+        "on:\n"
+        "  pull_request:\n"
+        "jobs:\n"
+        "  required_gate:\n"
+        "    name: Stable required gate\n"
+        "  diagnostic_matrix:\n"
+        "    name: Service matrix evidence / ${{ matrix.service }}\n"
+    )
+
+    names = sync._workflow_job_names(source, ".github/workflows/policy.yml")
+
+    assert names == {
+        "required_gate": "Stable required gate",
+        "diagnostic_matrix": "Service matrix evidence / ${{ matrix.service }}",
+    }
+
+
+def test_dynamic_job_name_matcher_covers_multiline_context() -> None:
+    assert sync._dynamic_job_name_matches_context(
+        "${{ matrix.context }}",
+        "gate\nspoof",
+    )
+
+
+@pytest.mark.parametrize(
+    "dynamic_name",
+    [
+        "${{ matrix.context }}",
+        "${{ matrix.prefix }}services validation gate",
+        '"Microservices ${{ matrix.kind }}"',
+        "${{ '}}' && matrix.context }}",
+    ],
+)
+def test_apply_rejects_dynamic_job_name_collision_without_patch(
+    dynamic_name: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = workflow_source() + (
+        "  diagnostic_matrix:\n"
+        f"    name: {dynamic_name}\n"
+        "    runs-on: ubuntu-latest\n"
+    )
+    monkeypatch.setattr(sync, "read_git_blob", lambda revision, path: source)
+    fake = FakeGitHub(make_policy(LEGACY_CONTEXTS))
+    snapshot = tmp_path / "snapshot.json"
+
+    with patch.object(sync, "run_gh", side_effect=fake):
+        with pytest.raises(sync.GovernanceError, match="another job name"):
+            sync.apply_policy(
+                REPOSITORY,
+                make_manifest(),
+                evidence_sha=EVIDENCE_SHA,
+                snapshot_out=snapshot,
+                confirm_repository=REPOSITORY,
+            )
+
+    assert fake.patch_calls == []
+    assert not snapshot.exists()
+
+
+@pytest.mark.parametrize(
+    ("diagnostic_yaml", "expected_error"),
+    [
+        (
+            '  diagnostic_spoof: {name: "${{ matrix.context }}", '
+            "runs-on: ubuntu-latest}\n",
+            "another job name",
+        ),
+        (
+            "  diagnostic_spoof:\n"
+            "    name: Microservices validation gate\n"
+            "    runs-on: ubuntu-latest\n",
+            "another job name",
+        ),
+        (
+            "  diagnostic_spoof:\n"
+            "    <<: &diagnostic_defaults\n"
+            '      name: "${{ matrix.context }}"\n'
+            "    runs-on: ubuntu-latest\n",
+            "prohibits YAML merge keys",
+        ),
+        (
+            '  diagnostic_spoof: !custom {name: "${{ matrix.context }}", '
+            "runs-on: ubuntu-latest}\n",
+            "prohibits custom YAML tag",
+        ),
+        (
+            "---\n"
+            "jobs:\n"
+            "  diagnostic_spoof:\n"
+            '    name: "${{ matrix.context }}"\n',
+            "cannot parse",
+        ),
+    ],
+    ids=[
+        "flow-dynamic",
+        "static-duplicate",
+        "merge-key",
+        "custom-tag",
+        "multiple-documents",
+    ],
+)
+def test_apply_rejects_ambiguous_yaml_job_mapping_without_patch(
+    diagnostic_yaml: str,
+    expected_error: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sync,
+        "read_git_blob",
+        lambda revision, path: workflow_source() + diagnostic_yaml,
+    )
+    fake = FakeGitHub(make_policy(LEGACY_CONTEXTS))
+    snapshot = tmp_path / "snapshot.json"
+
+    with patch.object(sync, "run_gh", side_effect=fake):
+        with pytest.raises(sync.GovernanceError, match=expected_error):
+            sync.apply_policy(
+                REPOSITORY,
+                make_manifest(),
+                evidence_sha=EVIDENCE_SHA,
+                snapshot_out=snapshot,
+                confirm_repository=REPOSITORY,
+            )
+
+    assert fake.patch_calls == []
+    assert not snapshot.exists()
+
+
+def test_offline_mapping_rejects_implicit_job_id_context_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = sync.PolicyManifest(
+        schema_version="1",
+        default_branch=BRANCH,
+        strict=True,
+        expected_app_slug=APP_SLUG,
+        checks=(sync.ManifestCheck("gate", WORKFLOW_PATH, "required"),),
+        added_contexts=frozenset({"gate"}),
+        retired_contexts=frozenset({"old-gate"}),
+    )
+    source = (
+        "name: Policy workflow\n"
+        "on:\n"
+        "  pull_request:\n"
+        "jobs:\n"
+        "  required:\n"
+        "    name: gate\n"
+        "  gate:\n"
+        "    runs-on: ubuntu-latest\n"
+    )
+    monkeypatch.setattr(sync, "read_git_blob", lambda revision, path: source)
+
+    with pytest.raises(sync.GovernanceError, match="another job name"):
+        sync._validate_offline_manifest_job_mapping(manifest, EVIDENCE_SHA)
+
+
+def test_offline_mapping_uses_semantic_multiline_job_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = sync.PolicyManifest(
+        schema_version="1",
+        default_branch=BRANCH,
+        strict=True,
+        expected_app_slug=APP_SLUG,
+        checks=(sync.ManifestCheck("Stable gate", WORKFLOW_PATH, "required"),),
+        added_contexts=frozenset({"Stable gate"}),
+        retired_contexts=frozenset({"Old gate"}),
+    )
+    source = (
+        "name: Policy workflow\n"
+        "on:\n"
+        "  pull_request:\n"
+        "jobs:\n"
+        "  required:\n"
+        "    name: Stable gate\n"
+        "      suffix\n"
+        "  diagnostic_spoof:\n"
+        "    name: Stable gate\n"
+    )
+    monkeypatch.setattr(sync, "read_git_blob", lambda revision, path: source)
+
+    with pytest.raises(sync.GovernanceError, match="does not bind"):
+        sync._validate_offline_manifest_job_mapping(manifest, EVIDENCE_SHA)
+
+
 def test_apply_aborts_on_optimistic_concurrency_drift(tmp_path: Path) -> None:
     manifest = make_manifest()
     legacy = make_policy(LEGACY_CONTEXTS)
@@ -1137,6 +1328,43 @@ def test_manifest_requires_string_schema_version(tmp_path: Path) -> None:
     assert manifest.schema_version == "1"
 
 
+@pytest.mark.parametrize(
+    "context",
+    [
+        "gate\nspoof",
+        "gate\tspoof",
+        " gate",
+        "gate ",
+        "x" * 129,
+        "gate\x7fspoof",
+        "gate\u0085spoof",
+        "gáte",
+    ],
+    ids=[
+        "newline",
+        "tab",
+        "leading-space",
+        "trailing-space",
+        "too-long",
+        "del",
+        "c1-control",
+        "non-ascii",
+    ],
+)
+def test_manifest_rejects_noncanonical_required_context(
+    context: str,
+    tmp_path: Path,
+) -> None:
+    document = canonical_manifest_document()
+    document["required_status_checks"]["checks"][0]["context"] = context
+    document["migration"]["added_contexts"] = [context]
+    manifest_path = tmp_path / "github-policy.json"
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(sync.GovernanceError, match="check context"):
+        sync.load_manifest(manifest_path)
+
+
 def test_repository_manifest_matches_reconciler_contract() -> None:
     manifest = sync.load_manifest(REPO_ROOT / "governance" / "github-policy.json")
 
@@ -1144,6 +1372,19 @@ def test_repository_manifest_matches_reconciler_contract() -> None:
     assert manifest.default_branch == "main"
     assert manifest.added_contexts <= manifest.target_contexts
     assert not (manifest.retired_contexts & manifest.target_contexts)
+
+
+def test_repository_manifest_maps_to_real_workflow_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = sync.load_manifest(REPO_ROOT / "governance" / "github-policy.json")
+    monkeypatch.setattr(
+        sync,
+        "read_git_blob",
+        lambda revision, path: (REPO_ROOT / path).read_text(encoding="utf-8"),
+    )
+
+    sync._validate_offline_manifest_job_mapping(manifest, EVIDENCE_SHA)
 
 
 def canonical_manifest_document() -> dict[str, object]:

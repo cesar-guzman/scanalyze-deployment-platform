@@ -238,6 +238,24 @@ def test_dynamic_job_name_that_can_resolve_to_required_context_is_rejected(
         _validate_fixture(tmp_path, workflow)
 
 
+def test_dynamic_name_with_embedded_closing_delimiter_is_rejected(
+    tmp_path: Path,
+) -> None:
+    workflow = _valid_workflow() + """\
+  spoof:
+    name: ${{ '}}' && matrix.context }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: exit 0
+"""
+
+    with pytest.raises(
+        GitHubPolicyError,
+        match="dynamic job name could resolve to required context 'Stable gate'",
+    ):
+        _validate_fixture(tmp_path, workflow)
+
+
 @pytest.mark.parametrize("trigger", ["push", "workflow_dispatch", "workflow_call"])
 def test_dynamic_name_collision_is_rejected_in_every_workflow(
     tmp_path: Path,
@@ -287,6 +305,72 @@ def test_noncolliding_dynamic_diagnostic_name_remains_valid(tmp_path: Path) -> N
     assert _validate_fixture(tmp_path, workflow)["_derived"]["target_contexts"] == [
         "Stable gate"
     ]
+
+
+def test_implicit_job_id_collision_is_rejected(tmp_path: Path) -> None:
+    workflow = (
+        _valid_workflow()
+        .replace("  gate:\n", "  required:\n")
+        .replace("    name: Stable gate\n", "    name: gate\n")
+    ) + """\
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: exit 0
+"""
+    policy_path, schema_path, workflow_dir = _write_fixture(tmp_path, workflow)
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["required_status_checks"]["checks"][0].update(
+        {"context": "gate", "job": "required"}
+    )
+    policy["migration"]["added_contexts"] = ["gate"]
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="exactly one static producer"):
+        validate_policy(
+            repo_root=tmp_path,
+            policy_path=policy_path,
+            schema_path=schema_path,
+            workflows_dir=workflow_dir,
+        )
+
+
+@pytest.mark.parametrize(
+    ("workflow", "error"),
+    [
+        (
+            _valid_workflow().replace(
+                "    name: Stable gate\n",
+                "    name: Stable gate\n    name: Spoofed gate\n",
+            ),
+            "duplicate key 'name'",
+        ),
+        (
+            _valid_workflow().replace(
+                "  gate:\n",
+                "  gate:\n    <<: &merged_job\n      name: Stable gate\n",
+            ),
+            "YAML merge keys are not permitted",
+        ),
+        (
+            _valid_workflow().replace("  gate:\n", "  gate: !custom\n"),
+            "custom YAML tag",
+        ),
+        (
+            _valid_workflow()
+            + "---\njobs:\n  spoof:\n    name: Stable gate\n",
+            "expected a single document",
+        ),
+    ],
+    ids=["duplicate-key", "merge-key", "custom-tag", "multiple-documents"],
+)
+def test_ambiguous_yaml_mapping_is_rejected(
+    tmp_path: Path,
+    workflow: str,
+    error: str,
+) -> None:
+    with pytest.raises(GitHubPolicyError, match=error):
+        _validate_fixture(tmp_path, workflow)
 
 
 @pytest.mark.parametrize(
@@ -345,6 +429,37 @@ def test_dynamic_required_context_is_rejected_by_schema(tmp_path: Path) -> None:
     policy["required_status_checks"]["checks"][0]["context"] = (
         "Validate ${{ matrix.service }}"
     )
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="schema validation failed"):
+        validate_policy(
+            repo_root=tmp_path,
+            policy_path=policy_path,
+            schema_path=schema_path,
+            workflows_dir=workflow_dir,
+        )
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        "gate\nspoof",
+        "gate\tspoof",
+        "gate\x7fspoof",
+        "gate\u0085spoof",
+        " gate",
+        "gate ",
+        "gáte",
+    ],
+)
+def test_noncanonical_required_context_is_rejected_by_schema(
+    context: str,
+    tmp_path: Path,
+) -> None:
+    policy_path, schema_path, workflow_dir = _write_fixture(tmp_path, _valid_workflow())
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["required_status_checks"]["checks"][0]["context"] = context
+    policy["migration"]["added_contexts"] = [context]
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
 
     with pytest.raises(GitHubPolicyError, match="schema validation failed"):

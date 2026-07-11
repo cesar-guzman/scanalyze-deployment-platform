@@ -32,6 +32,65 @@ class GitHubPolicyError(ValueError):
     """Raised when the declared policy and workflow implementation diverge."""
 
 
+class UniqueBaseLoader(yaml.BaseLoader):
+    """String-only loader that rejects ambiguous YAML mappings and merges."""
+
+
+def _construct_unique_mapping(
+    loader: yaml.BaseLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, str):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "workflow mapping keys must be strings",
+                key_node.start_mark,
+            )
+        if key == "<<":
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "YAML merge keys are not permitted",
+                key_node.start_mark,
+            )
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+def _reject_custom_tag(loader: yaml.BaseLoader, node: yaml.Node) -> Any:
+    raise yaml.constructor.ConstructorError(
+        None,
+        None,
+        f"custom YAML tag {node.tag!r} is not permitted",
+        node.start_mark,
+    )
+
+
+UniqueBaseLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+UniqueBaseLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_SCALAR_TAG,
+    lambda loader, node: loader.construct_scalar(node),
+)
+UniqueBaseLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_SEQUENCE_TAG,
+    lambda loader, node: loader.construct_sequence(node),
+)
+UniqueBaseLoader.add_constructor(None, _reject_custom_tag)
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -46,7 +105,7 @@ def _load_workflow(path: Path) -> dict[str, Any]:
     try:
         # BaseLoader preserves the key `on` instead of applying YAML 1.1 boolean
         # coercion. GitHub Actions owns the final workflow syntax validation.
-        document = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=UniqueBaseLoader)
     except (OSError, yaml.YAMLError) as exc:
         raise GitHubPolicyError(f"unable to load workflow {path}: {exc}") from None
     if not isinstance(document, dict):
@@ -146,24 +205,13 @@ def _required_job_closure(
 def _dynamic_name_matches_context(name: str, context: str) -> bool:
     """Conservatively model every GitHub expression as an arbitrary string."""
 
-    if "${{" not in name:
+    start = name.find("${{")
+    if start < 0:
         return False
-
-    parts: list[str] = []
-    cursor = 0
-    while True:
-        start = name.find("${{", cursor)
-        if start < 0:
-            parts.append(re.escape(name[cursor:]))
-            break
-        parts.append(re.escape(name[cursor:start]))
-        parts.append(".*")
-        end = name.find("}}", start + 3)
-        if end < 0:
-            cursor = len(name)
-            break
-        cursor = end + 2
-    return re.fullmatch("".join(parts), context) is not None
+    end = name.rfind("}}")
+    suffix = name[end + 2 :] if end >= start + 3 else ""
+    pattern = f"{re.escape(name[:start])}.*{re.escape(suffix)}"
+    return re.fullmatch(pattern, context, flags=re.DOTALL) is not None
 
 
 def _as_string_list(value: object) -> list[str]:
@@ -267,12 +315,15 @@ def validate_policy(
         for job_id, job in jobs.items():
             if not isinstance(job, dict):
                 continue
-            name = str(job.get("name", "")).strip()
-            if name and "${{" not in name:
-                static_producers[name].append((workflow_path.resolve(), str(job_id)))
-            elif name:
+            explicit_name = str(job.get("name", "")).strip()
+            effective_name = explicit_name or str(job_id)
+            if "${{" not in effective_name:
+                static_producers[effective_name].append(
+                    (workflow_path.resolve(), str(job_id))
+                )
+            else:
                 dynamic_producers.append(
-                    (workflow_path.resolve(), str(job_id), name)
+                    (workflow_path.resolve(), str(job_id), effective_name)
                 )
 
     errors: list[str] = []

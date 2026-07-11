@@ -141,8 +141,8 @@ The tool:
 2. verifies the exact legacy/transition state and absence of active rulesets;
 3. resolves the full SHA to exactly one current open pull request against the
    default branch;
-4. reads each workflow from the local Git object at that SHA and verifies the
-   manifest's exact workflow/job/context mapping;
+4. reads each workflow from the local Git object at that SHA, parses its YAML
+   semantically, and verifies the manifest's exact workflow/job/context mapping;
 5. binds every successful CheckRun to the expected GitHub App, head SHA, pull
    request, canonical Actions job URL, workflow path, `pull_request` event,
    numeric workflow run, and numeric Actions job;
@@ -166,6 +166,24 @@ the runtime side with exact context/name and numeric API links, and separately
 proves the YAML job ID by reading the committed workflow offline at the same
 evidence SHA. This is deliberately not represented as an API-level YAML job-ID
 guarantee.
+
+The offline parser is intentionally fail-closed. It inventories block and flow
+job mappings, quoted job keys, aliases, multiline scalars, and jobs without an
+explicit `name` (whose effective name can be the job ID). Duplicate YAML keys
+and merge keys, custom tags, and multi-document workflows are rejected as
+ambiguous. Required contexts are exact, 1–128-character printable ASCII values
+with no surrounding whitespace. For every required context, any other job whose
+static name, implicit job-ID name, or dynamic `${{ ... }}` pattern could resolve
+to that context aborts the operation before the snapshot or PATCH. Dynamic
+diagnostic jobs remain valid only when their fixed prefix/suffix cannot produce
+a required context.
+
+If apply reports `offline workflow mapping`, do not bypass the check. Confirm
+that dependencies are installed from the pinned project environment, run
+`make github-governance-check`, and inspect the committed workflow at the exact
+evidence SHA. Correct the workflow or parser under review, push a new commit,
+wait for all target checks, and obtain authorization for the new SHA. Never run
+an uncommitted reconciler against evidence from an older commit.
 
 Never commit the snapshot.
 

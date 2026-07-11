@@ -248,7 +248,14 @@ def _require_string(value: Any, field: str) -> str:
 
 def _require_static_context(value: Any, field: str) -> str:
     context = _require_string(value, field)
-    if "${{" in context:
+    if value != context or len(context) > 128:
+        raise GovernanceError(
+            f"manifest field {field} must be an exact 1-128 character check context"
+        )
+    has_non_printable_ascii = any(
+        not 0x20 <= ord(character) <= 0x7E for character in context
+    )
+    if "${{" in context or has_non_printable_ascii:
         raise GovernanceError(f"manifest field {field} must be a static check context")
     return context
 
@@ -635,74 +642,107 @@ def _validate_apply_manifest_binding(
         )
 
 
-def _decode_static_yaml_scalar(value: str, workflow: str, job: str) -> str:
-    scalar = value.strip()
-    if not scalar:
+def _dynamic_job_name_matches_context(name: str, context: str) -> bool:
+    """Conservatively model every GitHub expression as an arbitrary string."""
+
+    start = name.find("${{")
+    if start < 0:
+        return False
+    end = name.rfind("}}")
+    suffix = name[end + 2 :] if end >= start + 3 else ""
+    pattern = f"{re.escape(name[:start])}.*{re.escape(suffix)}"
+    return re.fullmatch(pattern, context, flags=re.DOTALL) is not None
+
+
+def _workflow_job_names(source: str, workflow: str) -> dict[str, str | None]:
+    try:
+        import yaml
+    except ModuleNotFoundError as exc:
         raise GovernanceError(
-            f"offline workflow mapping has an empty name for {workflow}:{job}"
+            "PyYAML is required to verify workflow job names before apply"
+        ) from exc
+
+    class UniqueBaseLoader(yaml.BaseLoader):
+        """String-only YAML loader that rejects ambiguous mappings and merges."""
+
+    def construct_unique_mapping(
+        loader: yaml.BaseLoader, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[str, Any]:
+        mapping: dict[str, Any] = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if not isinstance(key, str):
+                raise GovernanceError(
+                    f"offline workflow mapping has a non-string key in {workflow!r}"
+                )
+            if key == "<<":
+                raise GovernanceError(
+                    f"offline workflow mapping prohibits YAML merge keys in {workflow!r}"
+                )
+            if key in mapping:
+                raise GovernanceError(
+                    f"offline workflow mapping contains duplicate key {key!r} "
+                    f"in {workflow!r}"
+                )
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    def reject_custom_tag(loader: yaml.BaseLoader, node: yaml.Node) -> Any:
+        raise GovernanceError(
+            f"offline workflow mapping prohibits custom YAML tag {node.tag!r} "
+            f"in {workflow!r}"
         )
-    if scalar.startswith("'"):
-        if len(scalar) < 2 or not scalar.endswith("'"):
-            raise GovernanceError("offline workflow mapping has an unsupported YAML name")
-        return scalar[1:-1].replace("''", "'")
-    if scalar.startswith('"'):
-        try:
-            decoded = json.loads(scalar)
-        except json.JSONDecodeError as exc:
-            raise GovernanceError(
-                "offline workflow mapping has an unsupported YAML name"
-            ) from exc
-        if not isinstance(decoded, str):
-            raise GovernanceError("offline workflow mapping job name must be a string")
-        return decoded
-    if scalar in {"|", ">"} or scalar.startswith(("&", "*", "!", "{", "[")):
-        raise GovernanceError("offline workflow mapping requires a static scalar job name")
-    if " #" in scalar:
-        scalar = scalar.split(" #", 1)[0].rstrip()
-    if not scalar or "${{" in scalar:
-        raise GovernanceError("offline workflow mapping requires a static scalar job name")
-    return scalar
 
-
-def _static_workflow_job_names(source: str, workflow: str) -> dict[str, str | None]:
-    lines = source.splitlines()
-    jobs_markers = [
-        index
-        for index, line in enumerate(lines)
-        if re.fullmatch(r"jobs:\s*(?:#.*)?", line)
-    ]
-    if len(jobs_markers) != 1:
+    UniqueBaseLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+        construct_unique_mapping,
+    )
+    UniqueBaseLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_SCALAR_TAG,
+        lambda loader, node: loader.construct_scalar(node),
+    )
+    UniqueBaseLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_SEQUENCE_TAG,
+        lambda loader, node: loader.construct_sequence(node),
+    )
+    UniqueBaseLoader.add_constructor(None, reject_custom_tag)
+    try:
+        document = yaml.load(source, Loader=UniqueBaseLoader)
+    except GovernanceError:
+        raise
+    except yaml.YAMLError as exc:
         raise GovernanceError(
-            f"offline workflow mapping requires one top-level jobs block in {workflow!r}"
+            f"offline workflow mapping cannot parse {workflow!r} as YAML"
+        ) from exc
+    if not isinstance(document, dict):
+        raise GovernanceError(
+            f"offline workflow mapping requires a YAML object in {workflow!r}"
+        )
+    jobs = document.get("jobs")
+    if not isinstance(jobs, dict):
+        raise GovernanceError(
+            f"offline workflow mapping requires one jobs object in {workflow!r}"
         )
 
     names: dict[str, str | None] = {}
-    current_job: str | None = None
-    for line in lines[jobs_markers[0] + 1 :]:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if not line.startswith((" ", "\t")):
-            break
-        job_match = re.fullmatch(
-            r"  ([A-Za-z_][A-Za-z0-9_-]{0,99}):\s*(?:#.*)?", line
-        )
-        if job_match:
-            current_job = job_match.group(1)
-            if current_job in names:
-                raise GovernanceError(
-                    f"offline workflow mapping contains duplicate job {current_job!r}"
-                )
-            names[current_job] = None
-            continue
-        name_match = re.fullmatch(r"    name:\s*(.+?)\s*", line)
-        if name_match and current_job is not None:
-            if names[current_job] is not None:
-                raise GovernanceError(
-                    f"offline workflow mapping contains duplicate names for {current_job!r}"
-                )
-            names[current_job] = _decode_static_yaml_scalar(
-                name_match.group(1), workflow, current_job
+    for job, definition in jobs.items():
+        if not isinstance(job, str) or not JOB_ID_RE.fullmatch(job):
+            raise GovernanceError(
+                f"offline workflow mapping has an invalid job ID in {workflow!r}"
             )
+        if not isinstance(definition, dict):
+            raise GovernanceError(
+                f"offline workflow mapping requires a job object for {workflow}:{job}"
+            )
+        name = definition.get("name")
+        if name is None:
+            names[job] = None
+        elif not isinstance(name, str) or not name:
+            raise GovernanceError(
+                f"offline workflow mapping has an invalid name for {workflow}:{job}"
+            )
+        else:
+            names[job] = name
     return names
 
 
@@ -712,7 +752,7 @@ def _validate_offline_manifest_job_mapping(
     mappings: dict[str, dict[str, str | None]] = {}
     for check in manifest.checks:
         if check.workflow not in mappings:
-            mappings[check.workflow] = _static_workflow_job_names(
+            mappings[check.workflow] = _workflow_job_names(
                 read_git_blob(evidence_sha, check.workflow), check.workflow
             )
         actual_context = mappings[check.workflow].get(check.job)
@@ -721,6 +761,18 @@ def _validate_offline_manifest_job_mapping(
                 "offline workflow mapping does not bind "
                 f"{check.workflow}:{check.job} to context {check.context!r}"
             )
+        for job, job_name in mappings[check.workflow].items():
+            if job == check.job:
+                continue
+            effective_name = job_name if job_name is not None else job
+            if effective_name == check.context or _dynamic_job_name_matches_context(
+                effective_name, check.context
+            ):
+                raise GovernanceError(
+                    "offline workflow mapping contains another job name that could "
+                    f"resolve to required context {check.context!r}: "
+                    f"{check.workflow}:{job}"
+                )
 
 
 def _resolve_evidence_pull_request(
