@@ -1,11 +1,12 @@
 # Scanalyze Deployment Manifest — Generated Local Dev Manifest
 #
-# DO NOT COMMIT THIS FILE — It is generated dynamically for local non-prod deployments.
+# DO NOT COMMIT THIS FILE — It is generated for local non-prod validation from
+# an identity already allocated by the approved deployment registry.
 
 schema_version: "1"
 
 customer_id: "__CUSTOMER_ID__"
-deployment_id: "dep___RANDOM_ULID__"
+deployment_id: "__DEPLOYMENT_ID__"
 environment: "dev"
 
 aws_account_id: "__ACCOUNT_ID__"
@@ -18,7 +19,7 @@ terraform_backend:
   kms_key_alias: "alias/scanalyze-tfstate"
 
 github:
-  environment: "__CUSTOMER_ID__-dev"
+  environment: "__GITHUB_ENVIRONMENT__"
   oidc_role_arn: "arn:aws:iam::__ACCOUNT_ID__:role/github-oidc-scanalyze-deploy"
 
 ecr:

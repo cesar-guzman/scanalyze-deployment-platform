@@ -181,6 +181,45 @@ validated before the disabled live workflow path can be enabled.
 The repository currently describes this as a target model. It does not claim
 that all terminal roles or protections are deployed.
 
+## Repository Governance And Multi-Client Authorization
+
+Repository merge governance and deployment authorization are deliberately
+separate:
+
+```text
+pull request
+  -> static, client-independent required checks
+  -> reviewed main branch
+  -> deployment request
+  -> deployment-scoped GitHub Environment
+  -> deployment/account/region-bound authorization
+```
+
+The repository-wide required-check contract lives in
+`governance/github-policy.json`. Matrix legs such as
+`Service matrix evidence / ingest-api` are conditional evidence and must never
+be configured directly as required status checks. `Microservices validation
+gate` is the stable, fail-closed aggregate. Manual dispatch validates all seven
+services before producing that aggregate; the service input scopes only the
+publication matrix.
+
+For non-production orchestration, `logical_environment` is the request stage
+(`sandbox`, `dev`, or `staging`) and `github_environment` is a distinct protected
+deployment boundary. The selected GitHub Environment must define matching
+`DEPLOYMENT_ID`, `LOGICAL_ENVIRONMENT`, and `AWS_REGION` variables. A deployment
+cannot borrow another client's approval or configuration boundary.
+
+The current comparison is only a dry-run consistency guard: the merged `vars`
+context does not prove that a value originated at Environment scope or that the
+selected Environment has protection rules. Before live enablement, an external
+governance control must verify the pre-existing Environment, reviewer and branch
+policy, reserved variable scope, and registry bindings. A future live job must
+target that same verified Environment itself; an earlier approval job does not
+delegate OIDC authority to downstream jobs.
+
+Operational reconciliation, drift detection, rollback, and onboarding are
+defined in [GitHub governance operations](../operations/github-governance.md).
+
 ## Fail-Fast And Recovery
 
 Every stage depends explicitly on its predecessor. A failure blocks downstream
@@ -237,4 +276,5 @@ credentials in the environment. No command in this list performs an AWS write.
 - [ADR-013](../../ADR/ADR-013-deployment-manifest-and-contracts.md)
 - [ADR-016](../../ADR/ADR-016-release-graph-and-supply-chain.md)
 - [ADR-017](../../ADR/ADR-017-github-actions-release-orchestrator.md)
+- [ADR-018](../../ADR/ADR-018-stable-ci-governance.md)
 - [Rollback procedures](../operations/rollback.md)

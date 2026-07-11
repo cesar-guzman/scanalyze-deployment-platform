@@ -80,12 +80,25 @@ Después genera el archivo en una ubicación privada fuera del repositorio:
 mkdir -p "$HOME/.config/scanalyze/manifests"
 chmod 700 "$HOME/.config/scanalyze/manifests"
 
+# El registry/bootstrap aprobado debe haber exportado ambos valores exactos.
+: "${SCANALYZE_DEPLOYMENT_ID:?falta deployment_id del registry aprobado}"
+: "${SCANALYZE_GITHUB_ENVIRONMENT:?falta Environment protegido del deployment}"
+
 ./scripts/deployment/generate-dev-manifest.sh mi-nonprod \
+  --deployment-id "$SCANALYZE_DEPLOYMENT_ID" \
+  --github-environment "$SCANALYZE_GITHUB_ENVIRONMENT" \
   --output "$HOME/.config/scanalyze/manifests/mi-nonprod.yaml"
 
 chmod 600 "$HOME/.config/scanalyze/manifests/mi-nonprod.yaml"
 export SCANALYZE_MANIFEST="$HOME/.config/scanalyze/manifests/mi-nonprod.yaml"
 ```
+
+El generador no crea identidades: falla si no recibe el `deployment_id`
+preasignado o el nombre operativo del GitHub Environment. Registra ese nombre en
+`github.environment`, campo admitido por el schema; no agrega un campo superior
+`github_environment`. El control externo descrito en
+`docs/operations/github-governance.md` sigue siendo responsable de comprobar que
+el Environment existe, es exclusivo, está protegido y coincide con el registry.
 
 Confirma que `$SCANALYZE_MANIFEST` no esté dentro del repositorio antes de
 continuar.
@@ -169,6 +182,30 @@ El PR debe ejecutar validación de schemas, DAG, seguridad, provider y estructur
 del workflow. En esta fase `nonprod-release.yml` sólo demuestra la orquestación
 dry-run y debe rechazar cualquier solicitud live.
 
+La protección de `main` debe requerir únicamente los contextos estáticos
+declarados en `governance/github-policy.json`. Los jobs dinámicos
+`Service matrix evidence / <service>` no son checks requeridos; su resultado se
+consolida en `Microservices validation gate`. Una ejecución manual valida los
+siete servicios antes de producir ese mismo gate, aunque `service` siga
+limitando cuáles imágenes se publican. Si GitHub espera un nombre diagnóstico
+como check requerido, hay drift de branch protection: no esperes ni omitas
+controles, ejecuta el procedimiento de
+`docs/operations/github-governance.md`.
+
+Para ejecutar el dry-run manual selecciona por separado:
+
+- `logical_environment`: `sandbox`, `dev` o `staging` del request Git-safe;
+- `github_environment`: Environment protegido y exclusivo del deployment.
+
+Ese GitHub Environment debe declarar `DEPLOYMENT_ID`, `LOGICAL_ENVIRONMENT` y
+`AWS_REGION` con valores que coincidan exactamente. El workflow falla cerrado
+si falta un binding o si se intenta reutilizar el Environment de otro cliente.
+En este dry-run la comparación es sólo una verificación de consistencia: no
+demuestra el scope de `vars` ni que el Environment tenga reviewers o política de
+ramas. Antes de habilitar OIDC/live, un control externo debe auditar el
+Environment contra el registry aprobado y confirmar que esos nombres no existen
+como variables de organización o repositorio.
+
 Una ejecución verde significa **Locally validated**, no **Live validated** y no
 autoriza producción.
 
@@ -180,6 +217,7 @@ Detén el proceso si ocurre cualquiera de estas condiciones:
 - aparece un `.tfstate`, `.tfplan`, `.env`, tfvars real o backend generado;
 - el DAG, schema, security check o provider check falla;
 - el workflow solicita OIDC o credenciales durante un dry-run;
+- el GitHub Environment no está vinculado al deployment, ambiente lógico y región;
 - se intenta publicar artefactos o escribir en AWS;
 - se propone producción sin evidencia live non-production aprobada.
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,7 @@ SCHEMA_DIR = REPO_ROOT / "schemas"
 EXAMPLE_DIR = REPO_ROOT / "examples" / "gitops"
 LAYERS_PATH = REPO_ROOT / "deployment" / "layers.yaml"
 NONPROD_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "nonprod-release.yml"
+LAYER_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "_terraform-layer.yml"
 
 SCHEMA_EXAMPLES = {
     "layer-contract.schema.json": "layer-contract.synthetic.json",
@@ -66,6 +69,15 @@ def _load_json(path: Path) -> dict:
 def _validator(schema_name: str) -> Draft202012Validator:
     schema = _load_json(SCHEMA_DIR / schema_name)
     return Draft202012Validator(schema, format_checker=FormatChecker())
+
+
+def _load_workflow(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _workflow_trigger(workflow: dict) -> dict:
+    # PyYAML 1.1 parses the unquoted Actions key `on` as boolean true.
+    return workflow.get("on", workflow.get(True, {}))
 
 
 @pytest.mark.parametrize("schema_name", SCHEMA_EXAMPLES)
@@ -209,7 +221,7 @@ def test_artifact_publication_produces_release_artifact_contract() -> None:
 
 
 def test_nonprod_workflow_matches_canonical_stage_order() -> None:
-    workflow = yaml.safe_load(NONPROD_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
     jobs = workflow["jobs"]
 
     assert jobs[EXPECTED_LAYER_ORDER[0]]["needs"] == "go-no-go"
@@ -217,12 +229,175 @@ def test_nonprod_workflow_matches_canonical_stage_order() -> None:
         assert jobs[stage]["needs"] == predecessor
 
 
+def test_nonprod_workflow_separates_logical_and_github_environments() -> None:
+    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
+    dispatch_inputs = _workflow_trigger(workflow)["workflow_dispatch"]["inputs"]
+
+    assert "environment" not in dispatch_inputs
+    assert dispatch_inputs["logical_environment"] == {
+        "description": "Logical non-production stage recorded in the Git-safe request",
+        "required": True,
+        "default": "sandbox",
+        "type": "choice",
+        "options": ["sandbox", "dev", "staging"],
+    }
+    assert dispatch_inputs["github_environment"] == {
+        "description": "Deployment-scoped protected GitHub Environment",
+        "required": True,
+        "type": "environment",
+    }
+
+    jobs = workflow["jobs"]
+    protected_jobs = {
+        job_id: job["environment"]["name"]
+        for job_id, job in jobs.items()
+        if "environment" in job
+    }
+    assert protected_jobs == {"go-no-go": "${{ inputs.github_environment }}"}
+
+    reusable_jobs = [
+        job
+        for job in jobs.values()
+        if job.get("uses") == "./.github/workflows/_terraform-layer.yml"
+    ]
+    assert len(reusable_jobs) == 10
+    for job in reusable_jobs:
+        assert job["with"]["logical_environment"] == "${{ inputs.logical_environment }}"
+        assert "environment" not in job["with"]
+        assert "github_environment" not in job["with"]
+
+
+def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
+    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
+    gate = workflow["jobs"]["go-no-go"]
+    step = next(
+        item
+        for item in gate["steps"]
+        if item["name"] == "Enforce dry-run authorization boundary"
+    )
+
+    assert step["env"] == {
+        "ALLOW_LIVE": "${{ inputs.allow_live }}",
+        "DRY_RUN": "${{ inputs.dry_run }}",
+        "DISPATCH_AWS_REGION": "${{ inputs.aws_region }}",
+        "DISPATCH_DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
+        "DISPATCH_LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
+        "ENVIRONMENT_AWS_REGION": "${{ vars.AWS_REGION }}",
+        "ENVIRONMENT_DEPLOYMENT_ID": "${{ vars.DEPLOYMENT_ID }}",
+        "ENVIRONMENT_LOGICAL_ENVIRONMENT": "${{ vars.LOGICAL_ENVIRONMENT }}",
+    }
+
+    script = step["run"]
+    for binding in (
+        "ENVIRONMENT_AWS_REGION",
+        "ENVIRONMENT_DEPLOYMENT_ID",
+        "ENVIRONMENT_LOGICAL_ENVIRONMENT",
+    ):
+        assert f'"${binding}"' in script
+    assert 'if [[ -z "$binding" ]]; then' in script
+    assert '"$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID"' in script
+    assert (
+        '"$ENVIRONMENT_LOGICAL_ENVIRONMENT" != '
+        '"$DISPATCH_LOGICAL_ENVIRONMENT"'
+    ) in script
+    assert '"$ENVIRONMENT_AWS_REGION" != "$DISPATCH_AWS_REGION"' in script
+
+    error_lines = [line for line in script.splitlines() if "::error::" in line]
+    assert error_lines
+    assert all("$ENVIRONMENT_" not in line for line in error_lines)
+    assert all("$DISPATCH_" not in line for line in error_lines)
+
+
+def _run_environment_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
+    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
+    gate = workflow["jobs"]["go-no-go"]
+    script = next(
+        item["run"]
+        for item in gate["steps"]
+        if item["name"] == "Enforce dry-run authorization boundary"
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "ALLOW_LIVE": "false",
+            "DRY_RUN": "true",
+            "DISPATCH_AWS_REGION": "us-east-1",
+            "DISPATCH_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "DISPATCH_LOGICAL_ENVIRONMENT": "dev",
+            "ENVIRONMENT_AWS_REGION": "us-east-1",
+            "ENVIRONMENT_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "ENVIRONMENT_LOGICAL_ENVIRONMENT": "dev",
+        }
+    )
+    env.update(overrides)
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_protected_environment_gate_accepts_exact_bindings() -> None:
+    result = _run_environment_gate()
+    assert result.returncode == 0, result.stderr
+    assert "approved offline orchestration only" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ENVIRONMENT_DEPLOYMENT_ID": ""},
+        {"ENVIRONMENT_LOGICAL_ENVIRONMENT": ""},
+        {"ENVIRONMENT_AWS_REGION": ""},
+        {"ENVIRONMENT_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"},
+        {"ENVIRONMENT_LOGICAL_ENVIRONMENT": "staging"},
+        {"ENVIRONMENT_AWS_REGION": "us-west-2"},
+        {"ALLOW_LIVE": "true", "DRY_RUN": "false"},
+        {"DRY_RUN": "false"},
+    ],
+)
+def test_protected_environment_gate_rejects_missing_or_mismatched_bindings(
+    overrides: dict[str, str],
+) -> None:
+    result = _run_environment_gate(**overrides)
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW" not in combined
+    assert "us-west-2" not in combined
+
+
+def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
+    workflow = _load_workflow(LAYER_WORKFLOW_PATH)
+    call_inputs = _workflow_trigger(workflow)["workflow_call"]["inputs"]
+
+    assert "logical_environment" in call_inputs
+    assert "environment" not in call_inputs
+    assert "github_environment" not in call_inputs
+    assert all("environment" not in job for job in workflow["jobs"].values())
+
+    validation_step = next(
+        item
+        for item in workflow["jobs"]["offline_validation"]["steps"]
+        if item["name"] == "Validate execution mode and identifiers"
+    )
+    assert validation_step["env"]["LOGICAL_ENVIRONMENT"] == (
+        "${{ inputs.logical_environment }}"
+    )
+    assert "sandbox|dev|staging" in validation_step["run"]
+    assert "sandbox|dev|staging|production" not in validation_step["run"]
+
+
 def test_dry_run_workflows_have_no_oidc_permission() -> None:
     for workflow_path in (
         NONPROD_WORKFLOW_PATH,
-        REPO_ROOT / ".github" / "workflows" / "_terraform-layer.yml",
+        LAYER_WORKFLOW_PATH,
     ):
-        assert "id-token: write" not in workflow_path.read_text(encoding="utf-8")
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        assert "id-token: write" not in workflow_text
+        assert "aws-actions/configure-aws-credentials" not in workflow_text
 
 
 def test_git_safe_examples_contain_no_arns() -> None:

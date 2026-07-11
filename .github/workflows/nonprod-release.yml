@@ -12,8 +12,8 @@ on:
         description: Deployment ID from the Git-safe request
         required: true
         type: string
-      environment:
-        description: Protected non-production GitHub Environment
+      logical_environment:
+        description: Logical non-production stage recorded in the Git-safe request
         required: true
         default: sandbox
         type: choice
@@ -21,6 +21,10 @@ on:
           - sandbox
           - dev
           - staging
+      github_environment:
+        description: Deployment-scoped protected GitHub Environment
+        required: true
+        type: environment
       aws_region:
         description: Region used for concurrency and future account binding
         required: true
@@ -100,7 +104,7 @@ jobs:
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           RELEASE_DIGEST: ${{ inputs.release_digest }}
           REQUEST_PATH: ${{ inputs.request_path }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
         run: |
           set -euo pipefail
           git ls-files --error-unmatch -- "$REQUEST_PATH" >/dev/null
@@ -116,7 +120,7 @@ jobs:
           deployment_id = os.environ["DEPLOYMENT_ID"]
           release_digest = os.environ["RELEASE_DIGEST"]
           region = os.environ["AWS_REGION_INPUT"]
-          environment = os.environ["TARGET_ENVIRONMENT"]
+          logical_environment = os.environ["LOGICAL_ENVIRONMENT"]
 
           if not re.fullmatch(r"dep_[0-9A-HJKMNP-TV-Z]{26}", deployment_id):
               raise SystemExit("ERROR: deployment_id is not a valid Scanalyze deployment ULID")
@@ -124,7 +128,7 @@ jobs:
               raise SystemExit("ERROR: release_digest must be a lowercase SHA-256 digest")
           if not re.fullmatch(r"[a-z]{2}(-gov)?-[a-z]+-[0-9]+", region):
               raise SystemExit("ERROR: aws_region is invalid")
-          if environment not in {"sandbox", "dev", "staging"}:
+          if logical_environment not in {"sandbox", "dev", "staging"}:
               raise SystemExit("ERROR: production is not supported by this workflow")
 
           repo = Path.cwd().resolve()
@@ -158,7 +162,7 @@ jobs:
 
           expected = {
               "deployment_id": deployment_id,
-              "environment": environment,
+              "environment": logical_environment,
               "release_digest": release_digest,
           }
           for field, value in expected.items():
@@ -180,13 +184,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment:
-      name: ${{ inputs.environment }}
+      name: ${{ inputs.github_environment }}
     permissions: {}
     steps:
       - name: Enforce dry-run authorization boundary
         env:
           ALLOW_LIVE: ${{ inputs.allow_live }}
           DRY_RUN: ${{ inputs.dry_run }}
+          DISPATCH_AWS_REGION: ${{ inputs.aws_region }}
+          DISPATCH_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          DISPATCH_LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          ENVIRONMENT_AWS_REGION: ${{ vars.AWS_REGION }}
+          ENVIRONMENT_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+          ENVIRONMENT_LOGICAL_ENVIRONMENT: ${{ vars.LOGICAL_ENVIRONMENT }}
         run: |
           set -euo pipefail
           if [[ "$ALLOW_LIVE" == "true" ]]; then
@@ -195,6 +205,23 @@ jobs:
           fi
           if [[ "$DRY_RUN" != "true" ]]; then
             echo "::error::Only dry-run mode is authorized"
+            exit 1
+          fi
+
+          for binding in \
+            "$ENVIRONMENT_DEPLOYMENT_ID" \
+            "$ENVIRONMENT_LOGICAL_ENVIRONMENT" \
+            "$ENVIRONMENT_AWS_REGION"; do
+            if [[ -z "$binding" ]]; then
+              echo "::error::Selected GitHub Environment is missing a required deployment binding"
+              exit 1
+            fi
+          done
+
+          if [[ "$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID" ]] || \
+             [[ "$ENVIRONMENT_LOGICAL_ENVIRONMENT" != "$DISPATCH_LOGICAL_ENVIRONMENT" ]] || \
+             [[ "$ENVIRONMENT_AWS_REGION" != "$DISPATCH_AWS_REGION" ]]; then
+            echo "::error::Selected GitHub Environment does not match the requested deployment bindings"
             exit 1
           fi
           echo "GO: protected environment approved offline orchestration only"
@@ -207,7 +234,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: account-ready-gate
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -223,7 +250,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: global
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -239,7 +266,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: network
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -255,7 +282,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: platform
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -271,7 +298,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: data-foundation
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -287,7 +314,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: cicd
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -344,7 +371,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: services
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -360,7 +387,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: edge-identity
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -376,7 +403,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: edge
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -392,7 +419,7 @@ jobs:
     uses: ./.github/workflows/_terraform-layer.yml
     with:
       deployment_id: ${{ inputs.deployment_id }}
-      environment: ${{ inputs.environment }}
+      logical_environment: ${{ inputs.logical_environment }}
       layer: addons
       release_digest: ${{ inputs.release_digest }}
       request_path: ${{ inputs.request_path }}
@@ -436,7 +463,7 @@ jobs:
           AWS_REGION_INPUT: ${{ inputs.aws_region }}
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           RELEASE_DIGEST: ${{ inputs.release_digest }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
         run: |
           set -euo pipefail
           evidence_path="$RUNNER_TEMP/nonprod-dry-run-evidence.json"
@@ -451,7 +478,7 @@ jobs:
               "schema_version": "1",
               "workflow": "nonprod-release",
               "mode": "dry-run",
-              "environment": os.environ["TARGET_ENVIRONMENT"],
+              "environment": os.environ["LOGICAL_ENVIRONMENT"],
               "region": os.environ["AWS_REGION_INPUT"],
               "deployment_id_sha256": hashlib.sha256(
                   os.environ["DEPLOYMENT_ID"].encode("utf-8")

@@ -95,6 +95,13 @@ distinction explicitly.
 - Destroy operations are denied unless a future, separately approved policy and
   workflow explicitly authorizes them.
 
+Repository merge governance is client-independent and uses only static required
+check contexts. Dynamic matrix legs are evidence behind a stable aggregate gate;
+they are never branch-protection interfaces. Deployment authorization is a
+separate control plane: every deployment selects a protected GitHub Environment
+whose non-secret deployment, logical-environment, and region bindings must match
+the request. See ADR-018.
+
 ## This Change's Execution Boundary
 
 The first implementation of this ADR is intentionally dry-run only:
@@ -142,3 +149,7 @@ that the AWS role model and live controls are ready.
 4. **Enable production in the first workflow change.** Rejected because the role,
    contract, supply-chain, and non-production evidence gates are not live
    validated.
+
+## Related Decisions
+
+- [ADR-018: Stable CI Governance and Deployment-Scoped Environments](ADR-018-stable-ci-governance.md)

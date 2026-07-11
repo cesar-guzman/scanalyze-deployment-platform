@@ -7,8 +7,8 @@ on:
         description: Git-safe deployment identifier
         required: true
         type: string
-      environment:
-        description: Protected non-production GitHub Environment
+      logical_environment:
+        description: Logical non-production stage from the Git-safe request
         required: true
         type: string
       layer:
@@ -99,7 +99,7 @@ jobs:
           AWS_REGION_INPUT: ${{ inputs.aws_region }}
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           DRY_RUN: ${{ inputs.dry_run }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
           TARGET_LAYER: ${{ inputs.layer }}
           RELEASE_DIGEST: ${{ inputs.release_digest }}
         run: |
@@ -110,7 +110,7 @@ jobs:
             exit 1
           fi
 
-          case "$TARGET_ENVIRONMENT" in
+          case "$LOGICAL_ENVIRONMENT" in
             sandbox|dev|staging) ;;
             *)
               echo "::error::Only sandbox, dev, and staging are supported"
@@ -150,7 +150,7 @@ jobs:
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           RELEASE_DIGEST: ${{ inputs.release_digest }}
           REQUEST_PATH: ${{ inputs.request_path }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
         run: |
           set -euo pipefail
           git ls-files --error-unmatch -- "$REQUEST_PATH" >/dev/null
@@ -193,7 +193,7 @@ jobs:
 
           expected = {
               "deployment_id": os.environ["DEPLOYMENT_ID"],
-              "environment": os.environ["TARGET_ENVIRONMENT"],
+              "environment": os.environ["LOGICAL_ENVIRONMENT"],
               "release_digest": os.environ["RELEASE_DIGEST"],
           }
           for field, value in expected.items():
@@ -239,7 +239,7 @@ jobs:
         env:
           AWS_REGION_INPUT: ${{ inputs.aws_region }}
           COMMIT_SHA: ${{ github.sha }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
           TARGET_LAYER: ${{ inputs.layer }}
         run: |
           set -euo pipefail
@@ -247,7 +247,7 @@ jobs:
           {
             echo "### Terraform layer validation"
             printf -- '- Layer: `%s`\n' "$TARGET_LAYER"
-            printf -- '- Environment: `%s`\n' "$TARGET_ENVIRONMENT"
+            printf -- '- Logical environment: `%s`\n' "$LOGICAL_ENVIRONMENT"
             printf -- '- Region: `%s`\n' "$AWS_REGION_INPUT"
             printf -- '- Commit: `%.12s`\n' "$COMMIT_SHA"
             echo '- Backend: disabled'
@@ -262,8 +262,6 @@ jobs:
     if: ${{ inputs.allow_live && !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    environment:
-      name: ${{ inputs.environment }}
     permissions: {}
     steps:
       - name: Block live Terraform execution

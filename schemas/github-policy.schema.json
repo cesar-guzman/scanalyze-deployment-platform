@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/github-policy.v1.schema.json",
+  "title": "Scanalyze GitHub Repository Governance Policy v1",
+  "description": "Repository-global, client-independent required-check contract. Real client inventory and credentials are prohibited.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope",
+    "default_branch",
+    "required_status_checks",
+    "migration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "scope": {
+      "type": "string",
+      "const": "repository"
+    },
+    "default_branch": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+    },
+    "required_status_checks": {
+      "type": "object",
+      "required": [
+        "strict",
+        "expected_app_slug",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "strict": {
+          "type": "boolean",
+          "const": true
+        },
+        "expected_app_slug": {
+          "type": "string",
+          "const": "github-actions"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/required_check"
+          }
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "required": [
+        "added_contexts",
+        "retired_contexts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "added_contexts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/static_context"
+          }
+        },
+        "retired_contexts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/static_context"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "static_context": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?!.*\\$\\{\\{).+$"
+    },
+    "required_check": {
+      "type": "object",
+      "required": [
+        "context",
+        "workflow",
+        "job"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/static_context"
+        },
+        "workflow": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$"
+        },
+        "job": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,99}$"
+        }
+      }
+    }
+  }
+}

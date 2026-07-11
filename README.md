@@ -28,6 +28,7 @@ supported.
 ```text
 backend/workers/        Canonical source for all seven microservices
 .github/workflows/      Path-aware validation and protected image publishing
+governance/             Declarative, client-independent repository policy
 deployment/             Canonical GitOps stage graph and orchestration metadata
 scripts/microservices/  Reusable build/push and change-detection entrypoints
 ADR/                    Architecture decisions
@@ -94,6 +95,7 @@ plan must remove it to reach the no-source-in-customer target state.
 
 ```bash
 make microservices-check
+make github-governance-check
 make security-check
 make git-safety
 make gitops-orchestrator-check
@@ -119,6 +121,8 @@ plan in non-production before any production release.
 8. No manual AWS configuration as source of truth
 9. No production apply, push, SSM write, or ECS mutation without explicit approval
 10. No unverified multi-region or supply-chain claims
+11. Required CI contexts are static and client-independent; dynamic matrix jobs are evidence, not branch-protection APIs
+12. Every deployment uses its own protected GitHub Environment and binding variables
 
 ## Migration record
 
@@ -130,6 +134,7 @@ plan, and residual risks are documented in
 
 - Canonical operator source: [`playbooks/enterprise-client-deployment.md`](playbooks/enterprise-client-deployment.md)
 - GitOps orchestrator architecture: [`docs/deployment/gitops-orchestrator.md`](docs/deployment/gitops-orchestrator.md)
+- GitHub CI governance and multi-client Environment runbook: [`docs/operations/github-governance.md`](docs/operations/github-governance.md)
 - Enterprise Word deliverable: [`docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx`](docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx)
 - Curated NotebookLM corpus: [`_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`](_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md)
 

@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -16,6 +16,7 @@ TESTS_DIR    := tests
 help:
 	@echo "Scanalyze validation targets:"
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
+	@echo "  make github-governance-check Validate stable required-check policy offline"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make git-safety           Check staged/worktree Git safety"
@@ -66,7 +67,8 @@ toolchain-check:
 		echo ""; \
 		echo "BLOCKED_TOOLING: M0 evidence CANNOT be verified with mismatched tools."; \
 		echo "Install pinned versions or update .tool-versions/.terraform-version."; \
-		echo "Proceeding with WARNING — M0 gates requiring tool verification are BLOCKED."; \
+		echo "Toolchain verification fails closed."; \
+		exit 1; \
 	fi
 
 # ── Format ───────────────────────────────────────────────────────────
@@ -140,6 +142,12 @@ microservices-check:
 	@$(PYTHON) $(TOOLING_DIR)/check_microservices.py
 	@echo "Microservices check complete."
 
+# ── GitHub Governance Check ──────────────────────────────────────────
+github-governance-check:
+	@echo "Checking repository-global GitHub required-check governance..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_github_policy.py
+	@echo "GitHub governance check complete."
+
 # ── GitOps Orchestrator Check ─────────────────────────────────────────
 gitops-orchestrator-check:
 	@echo "=== GitOps Orchestrator Check (offline, no AWS) ==="
@@ -154,7 +162,7 @@ required-artifacts-check:
 
 # ── Preflight Core (validates existing artifacts only) ────────────────
 # Use this for incremental work. Does NOT claim M0 completeness.
-preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check
+preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check github-governance-check
 	@echo ""
 	@echo "=== PREFLIGHT-CORE COMPLETE ==="
 	@echo "Existing artifacts validated. This does NOT mean M0 is complete."
@@ -724,18 +732,19 @@ bootstrap-local: toolchain-check
 		$(PYTHON) -m venv .venv; \
 	fi
 	@echo "Installing dependencies..."
-	@.venv/bin/python -m pip install -q -e '.[test]' 2>/dev/null || \
-		echo "WARN: pip install failed — dependencies may be missing"
+	@.venv/bin/python -m pip install -q -e '.[test]' || \
+		{ echo "BLOCKED_TOOLING: dependency installation failed."; exit 1; }
 	@echo "Verifying toolchain..."
 	@$(MAKE) --no-print-directory PYTHON=.venv/bin/python toolchain-check
 	@echo "Validating JSON schemas..."
 	@$(MAKE) --no-print-directory json-syntax-check
 	@echo "Bootstrap complete."
 
-# Reproducibility check (offline, no AWS)
+# Reproducibility check (bootstrap may use package network; no AWS)
 repro-check: bootstrap-local
 	@echo "=== Reproducibility Check ==="
 	@$(MAKE) --no-print-directory microservices-check
+	@$(MAKE) --no-print-directory github-governance-check
 	@$(MAKE) --no-print-directory security-check
 	@$(MAKE) --no-print-directory json-syntax-check
 	@$(MAKE) --no-print-directory gitops-orchestrator-check
@@ -757,7 +766,10 @@ docs-check:
 	@ERRORS=0; \
 		for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md \
 			ADR/ADR-017-github-actions-release-orchestrator.md \
-			docs/deployment/gitops-orchestrator.md deployment/layers.yaml; do \
+			ADR/ADR-018-stable-ci-governance.md \
+			docs/deployment/gitops-orchestrator.md \
+			docs/operations/github-governance.md \
+			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \
 			ERRORS=$$((ERRORS + 1)); \
@@ -776,15 +788,17 @@ docs-check:
 	if [ "$$ERRORS" -gt 0 ]; then echo "Docs check: $$ERRORS missing" && exit 1; fi
 	@echo "Docs check complete."
 
-# Full release dry-run (offline, no AWS)
+# Full release dry-run (bootstrap may use package network; no AWS)
 release-dry-run: repro-check
 	@echo "=== Release Dry-Run ==="
 	@echo "Validating deployment manifest schema..."
 	@$(PYTHON) scripts/deployment/validate-manifest.py examples/deployments/synthetic-nonprod.yaml
 	@echo "Generating release graph (dry-run)..."
-	@$(PYTHON) scripts/supply-chain/release-graph.py --dry-run 2>&1 | tail -5
+	@$(PYTHON) scripts/supply-chain/release-graph.py --dry-run
 	@echo "Running orchestrator doctor..."
 	@bash scripts/deployment/scanalyze-deploy.sh doctor
+	@echo "Exercising the complete orchestrator DAG (dry-run)..."
+	@bash scripts/repro/run-release-dry-run.sh
 	@$(MAKE) --no-print-directory docs-check
 	@echo ""
 	@echo "=== RELEASE-DRY-RUN COMPLETE ==="

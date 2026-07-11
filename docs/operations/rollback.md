@@ -1,62 +1,90 @@
 # Rollback Procedures
 
-## Principles
+> [!CAUTION]
+> **TARGET-STATE / LIVE ROLLBACK NO-GO.** This repository does not currently
+> implement an executable live deployment rollback. The local `rollback`,
+> `validate-live`, and `smoke-e2e` commands are scaffolding only, and the GitHub
+> Actions Terraform workflow intentionally rejects live execution. Do not use
+> this document as an incident command sequence.
+
+## Current Executable Status
+
+- `scanalyze-deploy.sh rollback --dry-run` can describe the intended operation;
+  it does not create or apply a Terraform plan.
+- `scanalyze-deploy.sh validate-live` and `smoke-e2e` do not validate deployed
+  resources yet.
+- No GitHub Actions workflow resolves a rollback record, creates an approved
+  saved plan, or applies it.
+- Operator-laptop apply remains prohibited by ADR-017.
+
+Live rollback remains blocked until the workflow, deployment registry lookup,
+saved-plan approval, apply, and post-change verification are implemented and
+tested in non-production. No recovery-time objective has been demonstrated.
+
+## Target-State Principles
+
+These are design requirements for the future implementation, not runnable steps:
 
 1. **Rollback = new Terraform plan, not state revert.**
-2. Rollback target is always a previously-validated set of image digests.
-3. No rollback is automatic; all require explicit GitOps approval.
-4. The `rollback` section of the deployment manifest defines the target state.
+2. The target is a previously validated set of immutable image digests.
+3. Rollback is never automatic and requires explicit GitOps approval.
+4. The approved deployment record is authoritative for the known-good release.
+5. The exact reviewed saved plan is the only plan eligible for apply.
 
-## Rollback Strategy: Digest Revert
+## Target-State Digest Revert
 
-The default rollback strategy (`digest-revert`) works by:
+The planned `digest-revert` flow must:
 
-1. Reading `rollback.last_known_good_digests` from the deployment manifest.
-2. Generating a new `services` layer Terraform plan with those digest values.
-3. Reviewing the plan for unexpected changes.
-4. Applying the plan with `--approve`.
+1. Resolve an approved known-good release from the deployment registry outside
+   Git.
+2. Create a new `services` layer Terraform plan using those image digests.
+3. Reject unexpected changes outside the approved rollback scope.
+4. Retain a sanitized plan digest and review evidence.
+5. Obtain protected GitHub Environment approval.
+6. Apply exactly the reviewed saved plan through the future GitHub orchestrator.
+7. Verify running digests and execute a synthetic smoke test before declaring
+   recovery.
 
-The live rollback entrypoint is the GitHub Actions orchestrator described in
-[`gitops-orchestrator.md`](../deployment/gitops-orchestrator.md). An operator
-submits a Git-safe rollback request referencing the approved known-good release
-digest. The orchestrator resolves the real deployment record outside Git,
-creates a new saved plan, obtains approval, and applies that exact plan.
+A Git-safe request may reference the approved release digest, but it must never
+contain a real manifest, account bindings, Terraform inputs, plans, state, or
+customer data.
 
-Local tooling may validate the request and generate a dry-run summary. It does
-not apply the rollback from an operator laptop.
+## Intended Rollback Coverage
 
-## What Can Be Rolled Back
-
-| Component | Rollback Method |
+| Component | Target-state method |
 |---|---|
-| ECS service images | Digest revert via Terraform plan |
-| ECS task definitions | Terraform plan (new revision with old digest) |
-| ALB listener rules | Terraform plan |
-| SQS configuration | Terraform plan |
+| ECS service images | Digest revert via a new Terraform plan |
+| ECS task definitions | New revision referencing the approved old digest |
+| ALB listener rules | Explicitly reviewed Terraform plan |
+| SQS configuration | Explicitly reviewed Terraform plan |
 
-## What Cannot Be Rolled Back Easily
+## Components Requiring Separate Assessment
 
-| Component | Reason | Mitigation |
+| Component | Reason | Mitigation direction |
 |---|---|---|
-| DynamoDB schema changes | Additive-only by convention | Schema changes are append-only |
-| S3 object deletions | Versioning helps but not instant | Enable versioning |
+| DynamoDB schema changes | Additive-only by convention | Keep schema changes append-only |
+| S3 object deletions | Versioning is not an instant application rollback | Enable and test version recovery |
 | Cognito user pool changes | Some changes are irreversible | Test in non-production first |
 
-## Rollback Timing
+## Enablement Evidence Required
 
-- **Target**: < 15 minutes from decision to completion.
-- **ECS service update**: ~5 minutes (new task definition, rolling deployment).
-- **Terraform plan + apply**: ~5-10 minutes.
+Before replacing the NO-GO status, retain evidence of:
 
-## Post-Rollback Verification
+- one successful non-production deploy and rollback using immutable digests;
+- exact saved-plan identity from review through apply;
+- protected Environment approval and registry binding;
+- verified running digests after the change;
+- a working synthetic smoke test with no sensitive payloads; and
+- an exercised incident runbook with measured timings.
 
-1. Run `scanalyze-deploy.sh validate-live` to verify running digests.
-2. Run `scanalyze-deploy.sh smoke-e2e` with synthetic document.
-3. Update `rollback.last_known_good_digests` in manifest if the rolled-back state is confirmed stable.
+## Prohibited Actions
 
-## Anti-Patterns
+- Reverting Terraform state.
+- Force-stopping ECS tasks as a substitute for a plan.
+- Running local `apply-layer`, `apply-all`, or a locally invented rollback.
+- Treating the current stub commands as live validation.
+- Rolling back infrastructure layers without a separate impact assessment.
 
-- ❌ Reverting Terraform state (use new plan instead)
-- ❌ Force-stopping ECS tasks without plan
-- ❌ Rolling back infrastructure layers (global, network, platform) without full assessment
-- ❌ Rollback without updating the deployment manifest
+GitHub branch-protection rollback is a separate repository-governance operation;
+it never uses Terraform state. Follow the snapshot and verified restore procedure
+in [`github-governance.md`](github-governance.md).

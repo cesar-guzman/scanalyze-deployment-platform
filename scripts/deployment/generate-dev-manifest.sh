@@ -16,7 +16,14 @@ fi
 
 usage() {
   cat >&2 <<'EOF'
-Usage: generate-dev-manifest.sh <customer-id> --output <path-outside-repository>
+Usage: generate-dev-manifest.sh <customer-id> \
+  --deployment-id <registry-assigned-dep_ULID> \
+  --github-environment <deployment-scoped-environment> \
+  --output <path-outside-repository>
+
+Required operational inputs:
+  --deployment-id       Immutable deployment ID allocated by the approved registry
+  --github-environment  Pre-created, protected Environment for this deployment/stage
 
 Required environment:
   AWS_PROFILE  Explicit approved non-production profile
@@ -29,9 +36,21 @@ EOF
 CUSTOMER_ID="$1"
 shift
 OUTPUT_FILE=""
+DEPLOYMENT_ID=""
+GITHUB_ENVIRONMENT=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+    --deployment-id)
+      [[ -n "${2:-}" ]] || { echo "ERROR: --deployment-id requires a value" >&2; exit 2; }
+      DEPLOYMENT_ID="$2"
+      shift 2
+      ;;
+    --github-environment)
+      [[ -n "${2:-}" ]] || { echo "ERROR: --github-environment requires a value" >&2; exit 2; }
+      GITHUB_ENVIRONMENT="$2"
+      shift 2
+      ;;
     --output)
       [[ -n "${2:-}" ]] || { echo "ERROR: --output requires a path" >&2; exit 2; }
       OUTPUT_FILE="$2"
@@ -51,6 +70,26 @@ done
 }
 [[ -n "$OUTPUT_FILE" ]] || {
   echo "ERROR: --output is required; real manifests must be outside the repository" >&2
+  exit 2
+}
+[[ -n "$DEPLOYMENT_ID" ]] || {
+  echo "ERROR: --deployment-id is required and must come from the approved registry" >&2
+  exit 2
+}
+[[ "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]] || {
+  echo "ERROR: --deployment-id must be a dep_<ULID> allocated by the approved registry" >&2
+  exit 2
+}
+[[ -n "$GITHUB_ENVIRONMENT" ]] || {
+  echo "ERROR: --github-environment is required and must name the protected deployment Environment" >&2
+  exit 2
+}
+[[ "$GITHUB_ENVIRONMENT" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$ ]] || {
+  echo "ERROR: --github-environment has an invalid format" >&2
+  exit 2
+}
+[[ "$GITHUB_ENVIRONMENT" == *"$DEPLOYMENT_ID"* ]] || {
+  echo "ERROR: --github-environment must be deployment-scoped and include the exact --deployment-id" >&2
   exit 2
 }
 [[ -n "${AWS_PROFILE:-}" ]] || {
@@ -93,12 +132,8 @@ ACCOUNT_ID="$(aws --profile "$AWS_PROFILE" --region "$REGION" sts get-caller-ide
   exit 1
 }
 
-CLEAN_CUSTOMER_ID="$(echo "$CUSTOMER_ID" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c 1-14)"
-
-# Generate a 26-character Crockford Base32 string for the deployment_id validation
-VALID_CHARS="0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-RANDOM_ULID="$(openssl rand -base64 64 | env LC_CTYPE=C tr -dc "$VALID_CHARS" | head -c 26)"
-LOWER_ULID="$(echo "$RANDOM_ULID" | tr '[:upper:]' '[:lower:]')"
+DEPLOYMENT_ULID="${DEPLOYMENT_ID#dep_}"
+LOWER_ULID="$(echo "$DEPLOYMENT_ULID" | tr '[:upper:]' '[:lower:]')"
 
 # Replace variables
 umask 077
@@ -108,8 +143,8 @@ trap 'rm -f "$TEMP_OUTPUT"' EXIT HUP INT TERM
 sed -e "s/__ACCOUNT_ID__/${ACCOUNT_ID}/g" \
     -e "s/__REGION__/${REGION}/g" \
     -e "s/__CUSTOMER_ID__/${CUSTOMER_ID}/g" \
-    -e "s/__CLEAN_CUSTOMER_ID__/${CLEAN_CUSTOMER_ID}/g" \
-    -e "s/__RANDOM_ULID__/${RANDOM_ULID}/g" \
+    -e "s/__DEPLOYMENT_ID__/${DEPLOYMENT_ID}/g" \
+    -e "s/__GITHUB_ENVIRONMENT__/${GITHUB_ENVIRONMENT}/g" \
     -e "s/__LOWER_ULID__/${LOWER_ULID}/g" \
     "$TEMPLATE_FILE" > "$TEMP_OUTPUT"
 

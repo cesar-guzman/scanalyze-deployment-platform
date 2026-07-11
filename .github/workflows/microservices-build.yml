@@ -123,12 +123,12 @@ jobs:
           publish_services='[]'
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            services="$(scripts/microservices/changed-services.sh --all)"
             if [[ "$DISPATCH_SERVICE" == "all" ]]; then
-              services="$(scripts/microservices/changed-services.sh --all)"
+              publish_services="$services"
             else
-              services="$(scripts/microservices/changed-services.sh --service "$DISPATCH_SERVICE")"
+              publish_services="$(scripts/microservices/changed-services.sh --service "$DISPATCH_SERVICE")"
             fi
-            publish_services="$services"
           elif [[ "$EVENT_NAME" == "pull_request" ]]; then
             services="$(scripts/microservices/changed-services.sh --diff "$PR_BASE_SHA" "$PR_HEAD_SHA")"
           else
@@ -156,7 +156,7 @@ jobs:
           fi
 
   validate:
-    name: Validate ${{ matrix.service }}
+    name: Service matrix evidence / ${{ matrix.service }}
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-24.04
@@ -245,13 +245,73 @@ jobs:
           python -m pip install '.[test]'
           python -m pytest tests/test_microservices -q
 
-  publish:
-    name: Publish ${{ matrix.service }}
+  validation_gate:
+    name: Microservices validation gate
     needs:
       - changes
       - tooling
       - validate
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Enforce aggregate validation result
+        env:
+          SELECTION_RESULT: ${{ needs.changes.result }}
+          SERVICES_JSON: ${{ needs.changes.outputs.services }}
+          HAS_CHANGES: ${{ needs.changes.outputs.has_changes }}
+          TOOLING_RESULT: ${{ needs.tooling.result }}
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -euo pipefail
+
+          summary_file="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          {
+            printf '### Microservices validation gate\n\n'
+            printf -- '- Service selection: `%s`\n' "$SELECTION_RESULT"
+            printf -- '- Selected services: `%s`\n' "$SERVICES_JSON"
+            printf -- '- Has service changes: `%s`\n' "$HAS_CHANGES"
+            printf -- '- Build tooling: `%s`\n' "$TOOLING_RESULT"
+            printf -- '- Service matrix: `%s`\n' "$VALIDATION_RESULT"
+          } >> "$summary_file"
+
+          fail() {
+            printf '::error::%s\n' "$1"
+            exit 1
+          }
+
+          [[ "$SELECTION_RESULT" == "success" ]] ||
+            fail "service selection did not succeed: $SELECTION_RESULT"
+          [[ "$TOOLING_RESULT" == "success" ]] ||
+            fail "build tooling validation did not succeed: $TOOLING_RESULT"
+
+          case "$HAS_CHANGES" in
+            true)
+              [[ -n "$SERVICES_JSON" && "$SERVICES_JSON" != "[]" ]] ||
+                fail "has_changes=true requires a non-empty service matrix"
+              [[ "$VALIDATION_RESULT" == "success" ]] ||
+                fail "selected service validation did not succeed: $VALIDATION_RESULT"
+              ;;
+            false)
+              [[ "$SERVICES_JSON" == "[]" ]] ||
+                fail "has_changes=false requires an empty service matrix"
+              [[ "$VALIDATION_RESULT" == "skipped" ]] ||
+                fail "an empty service matrix must be skipped, got: $VALIDATION_RESULT"
+              ;;
+            *)
+              fail "service selection produced an invalid has_changes value"
+              ;;
+          esac
+
+  publish:
+    name: Publish ${{ matrix.service }}
+    needs:
+      - changes
+      - validation_gate
     if: >-
+      needs.changes.result == 'success' &&
+      needs.validation_gate.result == 'success' &&
       needs.changes.outputs.has_changes == 'true' &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.push_images && github.ref == 'refs/heads/main') ||
