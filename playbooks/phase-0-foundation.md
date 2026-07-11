@@ -165,7 +165,8 @@ The reviewer confirms:
 - evidence states are used correctly;
 - production and GUG-128 remain NO-GO;
 - no test, scanner, branch rule, or gate was weakened; and
-- no AWS, deploy, Terraform apply/destroy, commit, push, PR, or merge occurred.
+- before explicit publication authorization, no AWS, deploy, Terraform
+  apply/destroy, commit, push, PR, or merge occurred.
 
 Do not use `make preflight-m0` as evidence for GUG-116; it is the older
 repository-foundation milestone. Do not use `release-dry-run` as deployment
@@ -199,14 +200,28 @@ the blocker.
 | Repository documentation check | PASS | Locally validated only |
 | Security sentinel and tests | PASS — zero unallowlisted findings, 192 unchanged allowlisted findings, six sentinel tests | Locally validated only |
 | Git safety | PASS | Locally validated only |
-| Relevant/full tests | PASS — 336 tests in the final suite | Locally validated only |
+| Relevant/full tests | PASS — 337 tests in the final suite | Locally validated only |
 | Offline reproducibility | PASS — `REPRO_CHECK_PASSED`; dry-run only | Locally validated dry-run only |
 | Diff checks and full review | PASS — staged, unstaged, and 13 untracked paths reviewed separately; independent peer findings resolved | Local review |
 | Fresh-agent positive/negative dry-run | PASS — production NO-GO, GUG-128 blocked, 12-stage ownership correct, and eight fail-closed controls passed | Independent local review only |
-| NotebookLM ingestion/questions | PASS — existing notebook has one sanitized source; all six fail-closed answers passed | Derived-source consistency only |
+| NotebookLM ingestion/questions | PASS — existing notebook has one sanitized source named `Scanalyze Phase 0 Foundation — GUG-116 — 2026-07-11`; source SHA-256 `242d374c2db10b9f2291465adc291ca03f720ce707d868c29676770a86d6199b`; all six fail-closed answers passed | Derived-source consistency only |
 | CI | Not run in this task | Not `CI validated` |
 | AWS/live validation | Prohibited and not run | Not `Live validated` |
-| Prohibited-action audit | PASS — no AWS, deployment, Terraform apply/destroy, IAM/OIDC/GitHub-governance mutation, commit, push, PR, or merge | Local observation |
+| Prohibited-action audit | PASS — no AWS, deployment, Terraform apply/destroy, IAM/OIDC/GitHub-governance mutation, or merge; documentation-only commit, push, and PR publication are separately authorized repository actions and are not runtime evidence | Local observation plus Git/GitHub readback |
+
+### Publication reconciliation
+
+Local validation was completed before repository publication. Commit, push,
+and PR creation are documentation-delivery actions performed only after explicit
+authorization; they do not authorize AWS, live execution, production, or the
+start of Phase 1. The final branch SHA, upstream readback, PR URL, and CI result
+belong in GitHub and the sanitized GUG-116 closeout rather than in a
+self-referential commit.
+
+NotebookLM readback on 2026-07-11 confirmed that the existing notebook contains
+the single Phase 0 source named above and returns all six expected fail-closed
+answers. The recorded SHA-256 binds that readback to the reviewed local source;
+it is derived-source consistency evidence only.
 
 ## Local rollback of Phase 0 changes
 

@@ -6,7 +6,7 @@
 >
 > **Audiencia:** Platform Engineering, DevSecOps, SRE, arquitectura y revisores
 >
-> **Línea de trabajo:** feat/production-readiness-foundation, cambios locales sin commit ni PR
+> **Línea de trabajo:** `feat/production-readiness-foundation`; cambios publicados para revisión, sin merge ni autoridad live
 
 ## Propósito
 
