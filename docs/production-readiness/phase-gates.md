@@ -1,8 +1,8 @@
 # Production Readiness GO/NO-GO Matrix
 
-> **Program:** GUG-115  
-> **Phase 0:** GUG-116  
-> **Production gate:** GUG-128 — **Blocked / NO-GO**  
+> **Program:** GUG-115\
+> **Phase 0:** GUG-116\
+> **Production gate:** GUG-128 — **Blocked / NO-GO**\
 > **Policy:** a gate unlocks only the next eligible work package
 
 ## Gate semantics

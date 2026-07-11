@@ -1,9 +1,9 @@
 # Phase 0 Production Readiness Threat Model
 
-> **Status:** Accepted Phase 0 governance supplement  
-> **Scope:** repository and delivery control plane for GUG-115 / GUG-116  
-> **Relationship to ADR-009:** supplements ADR-009; does not change its `DRAFT rev3` status  
-> **Evidence boundary:** repository baseline only; no GitHub or AWS live evidence was collected  
+> **Status:** Accepted Phase 0 governance supplement\
+> **Scope:** repository and delivery control plane for GUG-115 / GUG-116\
+> **Relationship to ADR-009:** supplements ADR-009; does not change its `DRAFT rev3` status\
+> **Evidence boundary:** repository baseline only; no GitHub or AWS live evidence was collected\
 > **Production:** **NO-GO**
 
 ## Overview

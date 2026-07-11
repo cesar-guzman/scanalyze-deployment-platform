@@ -191,6 +191,22 @@ def find_contradictions(text: str) -> set[str]:
     }
 
 
+def document_hygiene_errors(path: Path) -> list[str]:
+    """Return line-ending errors without exposing document content."""
+
+    text = path.read_text(encoding="utf-8")
+    errors = [
+        f"trailing whitespace at line {line_number}"
+        for line_number, line in enumerate(text.splitlines(), start=1)
+        if line.endswith((" ", "\t"))
+    ]
+    if text and not text.endswith("\n"):
+        errors.append("missing final newline")
+    elif text.endswith("\n\n"):
+        errors.append("extra blank line at EOF")
+    return errors
+
+
 def added_or_new_text(relative: Path) -> str:
     """Return added lines for baseline files or full content for new files."""
 
@@ -354,6 +370,13 @@ def validate() -> list[str]:
         if link_lines:
             rendered = ",".join(str(line) for line in link_lines)
             errors.append(f"broken or escaping relative link: {relative}:{rendered}")
+
+    for relative in scanned_change_scope:
+        path = REPO_ROOT / relative
+        if not path.is_file():
+            continue
+        for error in document_hygiene_errors(path):
+            errors.append(f"document hygiene error in {relative}: {error}")
 
     for relative in scanned_change_scope:
         path = REPO_ROOT / relative

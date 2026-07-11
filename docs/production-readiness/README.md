@@ -1,9 +1,9 @@
 # Scanalyze Production Readiness Foundation
 
-> **Program:** GUG-115  
-> **Phase gate:** GUG-116  
-> **Repository baseline:** `7dd9647d93bbf2fd88dfdada97ece95f93e81eaf`  
-> **Production:** **NO-GO**  
+> **Program:** GUG-115\
+> **Phase gate:** GUG-116\
+> **Repository baseline:** `7dd9647d93bbf2fd88dfdada97ece95f93e81eaf`\
+> **Production:** **NO-GO**\
 > **Live execution:** disabled
 
 This directory is the canonical documentation set for Phase 0 of the Scanalyze
@@ -79,4 +79,3 @@ ingestion. Do not ingest this directory wholesale. Never publish credentials,
 real identifiers, resolved manifests, state, plans, real variable files, raw
 outputs, logs, customer material, PII, or unsanitized historical reports to Git,
 Linear, or NotebookLM.
-

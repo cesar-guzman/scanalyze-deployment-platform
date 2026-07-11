@@ -1,9 +1,9 @@
 # Scanalyze — Foundation de Production Readiness (Fase 0)
 
-> **Fuente derivada y sanitizada**  
-> **Programa:** GUG-115  
-> **Gate:** GUG-116  
-> **Última revisión:** 2026-07-11  
+> **Fuente derivada y sanitizada**\
+> **Programa:** GUG-115\
+> **Gate:** GUG-116\
+> **Última revisión:** 2026-07-11\
 > **Producción:** **NO-GO**
 
 ## Límite de esta fuente

@@ -1,8 +1,8 @@
 # Production Readiness Evidence Policy
 
-> **Owner:** Technical Program Owner  
-> **Control owner:** Platform Security  
-> **Cross-cutting risk:** GUG-120  
+> **Owner:** Technical Program Owner\
+> **Control owner:** Platform Security\
+> **Cross-cutting risk:** GUG-120\
 > **Production:** **NO-GO**
 
 ## Purpose
@@ -182,4 +182,3 @@ The Phase 0 documents and validators can be `Implemented`, `Locally validated`,
 and later `CI validated`. They are not AWS or `Live validated` evidence. The
 NotebookLM question results prove only that the curated source was ingested and
 answered consistently; they do not prove a deployment or security control.
-

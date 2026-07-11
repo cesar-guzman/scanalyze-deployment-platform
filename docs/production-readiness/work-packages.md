@@ -1,8 +1,8 @@
 # Production Readiness Work Packages and Linear Map
 
-> **Linear source of truth:** Scanalyze — Product & Platform Delivery  
-> **Program parent:** GUG-115  
-> **Phase 0 gate:** GUG-116  
+> **Linear source of truth:** Scanalyze — Product & Platform Delivery\
+> **Program parent:** GUG-115\
+> **Phase 0 gate:** GUG-116\
 > **Production pilot:** GUG-128 — **Blocked / NO-GO**
 
 ## Mapping rules

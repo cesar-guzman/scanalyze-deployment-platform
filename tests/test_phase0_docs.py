@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tooling.validate_phase0_docs import (
+    document_hygiene_errors,
     find_forbidden,
     find_contradictions,
     missing_required_terms,
@@ -26,6 +27,22 @@ def test_readiness_claim_checker_rejects_production_go() -> None:
     assert find_contradictions("Production is GO.") == {"production_go_claim"}
     assert find_contradictions("Producción está GO.") == {"produccion_go_claim"}
     assert find_contradictions("Production is NO-GO.") == set()
+
+
+def test_document_hygiene_checker_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "phase0.md"
+    path.write_text("alpha  \nbeta\t\n\n", encoding="utf-8")
+    assert document_hygiene_errors(path) == [
+        "trailing whitespace at line 1",
+        "trailing whitespace at line 2",
+        "extra blank line at EOF",
+    ]
+
+    path.write_text("alpha\\\nbeta\n", encoding="utf-8")
+    assert document_hygiene_errors(path) == []
+
+    path.write_text("alpha", encoding="utf-8")
+    assert document_hygiene_errors(path) == ["missing final newline"]
 
 
 def test_relative_link_checker_rejects_escape(tmp_path: Path) -> None:

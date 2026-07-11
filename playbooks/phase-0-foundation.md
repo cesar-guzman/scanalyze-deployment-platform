@@ -1,10 +1,10 @@
 # Phase 0 Production Readiness Foundation Playbook
 
-> **Program:** GUG-115  
-> **Gate:** GUG-116  
-> **Authorized workspace:** `scanalyze-production-readiness-foundation`  
-> **Authorized branch:** `feat/production-readiness-foundation`  
-> **Required baseline:** `7dd9647d93bbf2fd88dfdada97ece95f93e81eaf`  
+> **Program:** GUG-115\
+> **Gate:** GUG-116\
+> **Authorized workspace:** `scanalyze-production-readiness-foundation`\
+> **Authorized branch:** `feat/production-readiness-foundation`\
+> **Required baseline:** `7dd9647d93bbf2fd88dfdada97ece95f93e81eaf`\
 > **Production:** **NO-GO**
 
 ## Purpose and execution boundary

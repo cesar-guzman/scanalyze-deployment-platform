@@ -1,8 +1,8 @@
 # Phase 0 Architecture Foundation
 
-> **Decision source:** [ADR-019](../../ADR/ADR-019-production-readiness-foundation.md)  
-> **Stage graph:** [`deployment/layers.yaml`](../../deployment/layers.yaml)  
-> **Evidence boundary:** repository and local validation only  
+> **Decision source:** [ADR-019](../../ADR/ADR-019-production-readiness-foundation.md)\
+> **Stage graph:** [`deployment/layers.yaml`](../../deployment/layers.yaml)\
+> **Evidence boundary:** repository and local validation only\
 > **Production:** **NO-GO**
 
 ## Current state versus target state
@@ -155,4 +155,3 @@ missing or ambiguous. Stop promotion on missing tooling/evidence, a mutable
 reference, invalid signature, or digest mismatch. Stop production if independent
 approval is absent, a rebuild is attempted, GUG-128 is not manually unblocked,
 or any Critical/High readiness risk remains untreated.
-

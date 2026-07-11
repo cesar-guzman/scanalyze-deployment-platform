@@ -1,7 +1,7 @@
 # Phase 0 Ownership, RACI, and Segregation of Duties
 
-> **Program:** GUG-115 / GUG-116  
-> **Decision source:** [ADR-019](../../ADR/ADR-019-production-readiness-foundation.md)  
+> **Program:** GUG-115 / GUG-116\
+> **Decision source:** [ADR-019](../../ADR/ADR-019-production-readiness-foundation.md)\
 > **Production:** **NO-GO**
 
 ## Roles
