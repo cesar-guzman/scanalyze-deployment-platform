@@ -1,5 +1,13 @@
 # Architecture Acceptance Gates
 
+> [!IMPORTANT]
+> This is a dated repository-foundation gate inventory, not the GUG-115
+> Production Readiness phase model. Some status details may be stale relative to
+> the current repository. For Phase 0-11 entry, exit, evidence, dependency, and
+> NO-GO criteria, use
+> [`docs/production-readiness/phase-gates.md`](docs/production-readiness/phase-gates.md).
+> Do not use `preflight-m0` or this summary to claim that GUG-116 is complete.
+
 > **Status**: M2 Level B — Provider Validated Locally (provider_validated_locally)
 > **Date**: 2026-07-02
 > **Format**: Machine-readable YAML blocks + human narrative

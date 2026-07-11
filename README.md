@@ -132,10 +132,12 @@ plan, and residual risks are documented in
 
 ## Deployment documentation
 
+- Production Readiness Phase 0: [`docs/production-readiness/README.md`](docs/production-readiness/README.md)
 - Canonical operator source: [`playbooks/enterprise-client-deployment.md`](playbooks/enterprise-client-deployment.md)
 - GitOps orchestrator architecture: [`docs/deployment/gitops-orchestrator.md`](docs/deployment/gitops-orchestrator.md)
 - GitHub CI governance and multi-client Environment runbook: [`docs/operations/github-governance.md`](docs/operations/github-governance.md)
-- Enterprise Word deliverable: [`docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx`](docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx)
+- Enterprise Word deliverable: generated locally from the canonical playbook;
+  the binary is not versioned in this repository.
 - Curated NotebookLM corpus: [`_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`](_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md)
 
 The current guide is intentionally marked **DRAFT / NON-EXECUTABLE / NO-GO**.
@@ -143,3 +145,7 @@ Local gates validate repository behavior, but production deployment remains
 blocked until the account-bound Terraform execution path, runtime contracts,
 complete OCI supply chain, identity contract, declarative frontend configuration
 and live non-production evidence are implemented and approved.
+
+The Phase 0 foundation is planning and governance evidence only. It does not
+change production NO-GO, enable the live Terraform path, or make a dry-run AWS
+evidence.

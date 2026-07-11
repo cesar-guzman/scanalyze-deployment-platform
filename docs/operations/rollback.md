@@ -1,5 +1,11 @@
 # Rollback Procedures
 
+The authoritative distinction between application rollback, infrastructure
+rollback, and incident-only Terraform state recovery is defined in
+[`rollback-recovery-boundaries.md`](rollback-recovery-boundaries.md). This file
+provides the existing release-specific target procedure and remains
+non-executable.
+
 > [!CAUTION]
 > **TARGET-STATE / LIVE ROLLBACK NO-GO.** This repository does not currently
 > implement an executable live deployment rollback. The local `rollback`,
