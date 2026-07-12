@@ -394,7 +394,26 @@ def validate_auth_config(settings: Settings | None = None) -> None:
                 "Deprecated env var TENANT_HEADER_NAME is set but IGNORED."
             )
 
-    # ── For local_mock, no further config validation needed ──
+    # Object authorization always requires an explicit deployment binding,
+    # including local/test/ci. Never infer a shared local deployment.
+    if auth_mode == "local_mock":
+        deployment_id_value = getattr(settings, "scanalyze_deployment_id", None)
+        deployment_id = (
+            deployment_id_value.strip()
+            if isinstance(deployment_id_value, str)
+            else ""
+        )
+        if not deployment_id:
+            raise RuntimeError(
+                "SCANALYZE_DEPLOYMENT_ID is required for AUTH_MODE=local_mock."
+            )
+        if not _DEPLOYMENT_ULID_PATTERN.fullmatch(deployment_id):
+            raise RuntimeError(
+                "SCANALYZE_DEPLOYMENT_ID must match "
+                "^dep_[0-9A-HJKMNP-TV-Z]{26}$ for AUTH_MODE=local_mock."
+            )
+
+    # ── For local_mock, no Cognito config validation needed ──
     if auth_mode != "cognito_jwt":
         return
 

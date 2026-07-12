@@ -760,6 +760,15 @@ def _resolve_local_mock_auth(settings: Any) -> AuthContext:
         )
 
     tenant_id = _validate_tenant_id(mock_tenant, source="local_mock")
+    deployment_id = getattr(settings, "scanalyze_deployment_id", None)
+    if (
+        not isinstance(deployment_id, str)
+        or not _DEPLOYMENT_ULID_PATTERN.fullmatch(deployment_id)
+    ):
+        raise RuntimeError(
+            "AUTH_MODE=local_mock requires an explicit valid "
+            "SCANALYZE_DEPLOYMENT_ID; no deployment default is inferred."
+        )
     mock_subject = getattr(settings, "local_mock_subject", "local-dev-user")
 
     logger.info(
@@ -769,7 +778,7 @@ def _resolve_local_mock_auth(settings: Any) -> AuthContext:
     )
     return AuthContext(
         customer_id=tenant_id,
-        deployment_id=None,
+        deployment_id=deployment_id,
         principal_type="local_mock",
         subject=mock_subject,
         client_id=None,

@@ -5,15 +5,21 @@ Microservicio de ingestión para Scanalyze (ECS Fargate) basado en FastAPI.
 ## Endpoints mínimos
 Public:
 - `GET /health`
-- `GET /v1/health`
+- `GET /api/v1/health`
 
-Auth (protegidos por API Gateway JWT Authorizer en `/v1/*`):
-- `POST /v1/documents`
-- `POST /v1/documents/{id}/submit`
-- `GET /v1/documents/{id}`
-- `GET /v1/documents/{id}/result`
-- `GET /v1/documents/{id}/artifacts`
-- `POST /v1/documents/{id}/artifacts/{artifactId}/download`
+Auth (protegidos en `/api/v1/*`):
+- `POST /api/v1/documents`
+- `POST /api/v1/documents/{id}/submit`
+- `GET /api/v1/documents/{id}`
+- `GET /api/v1/documents/{id}/result`
+- `GET /api/v1/documents/{id}/artifacts`
+- `GET /api/v1/documents/{id}/download`
+- `GET /api/v1/documents/{id}/artifacts/{artifactId}/download`
+- `POST /api/v1/batches`
+- `GET /api/v1/batches/{id}`
+- `GET /api/v1/batches/{id}/documents`
+- `GET /api/v1/batches/{id}/manifest`
+- `GET /api/v1/batches/{id}/exports/{json|csv|zip}`
 
 ## Configuración (ENV)
 Soporta:
@@ -61,6 +67,60 @@ evidencia general. Consulte `ADR/ADR-020-versioned-m2m-identity-binding.md` y
 
 `AUTH_MODE=local_mock` sólo es válido para `APP_ENV=local|test|ci` y usa
 fixtures explícitamente sintéticos.
+
+### Autorización de objetos
+
+Autenticación y policy de ruta no prueban por sí solas acceso a un documento o
+batch concreto. Cada operación protegida conserva el `AuthContext` completo y
+debe autorizar el objeto mediante igualdad exacta de los campos canónicos:
+
+```text
+record.customer_id == auth.customer_id
+record.deployment_id == auth.deployment_id
+```
+
+Para registros nuevos, ambos campos son obligatorios, provienen exclusivamente
+del `AuthContext` validado y son inmutables. `tenantId` es una interfaz legacy y
+no prueba ownership. Ownership ausente, parcial, malformado, contradictorio o
+legacy-only se rechaza; nunca se completa desde headers, query parameters,
+payload, metadata, un batch accesible, un mapa tenant o un prefijo S3.
+
+`AUTH_MODE=local_mock` también requiere un `SCANALYZE_DEPLOYMENT_ID` sintético,
+explícito y válido. No existe un deployment local compartido o inferido.
+
+El batch y cada documento miembro se autorizan por separado. Una membresía mixta
+o inconsistente bloquea la operación completa, incluidos manifest y exports. Las
+consultas de lista o membresía deben vincular customer y deployment en el patrón
+de acceso DynamoDB; un scan o fetch-then-filter no es un control aceptable.
+
+Bucket y key de un artifact se obtienen sólo de metadata almacenada del documento
+ya autorizado. La API autoriza antes de generar una URL prefirmada y nunca acepta
+bucket, key o prefix desde la solicitud. Result, exports y downloads protegidos
+conservan la policy M2M `read+admin` de GUG-102.
+
+Mientras GUG-89 migra los producers asíncronos, se admite únicamente su contrato
+exacto y revisado: `platform|bank|personal|gov/<documentId>/ocr.json` en el bucket
+OCR configurado y `bank|personal|gov/<documentId>/result.json` en el bucket
+structured configurado. Route, document id, filename y bucket deben coincidir;
+no se aceptan prefijos legacy arbitrarios ni valores enviados por el request.
+El worker OCR todavía no valida el tuple de ownership del mensaje contra DynamoDB
+y por ello esa frontera asíncrona permanece **Blocked** para GUG-89.
+
+Los jobs, manifests y perfiles del add-on Employee Profiles autorizan cualquier
+objeto preexistente incluso con `force=true`. Creación usa `If-None-Match: *` y
+reemplazo usa `If-Match` sobre la versión leída, por lo que ownership legacy,
+conflictivo o una actualización concurrente fallan cerrados.
+
+Objeto inexistente, extranjero o sin ownership usa una respuesta externa
+sanitizada que no revela existencia. Los fallos no registran contenido, PII,
+JWTs, S3 keys, URLs prefirmadas ni payloads.
+
+Consulte `ADR/ADR-021-object-level-authorization.md` y
+`docs/deployment/object-ownership-migration-quarantine.md`. La presencia de esos
+documentos no demuestra implementación ni validación: **Implemented**, **Locally
+validated**, **CI validated** y **Live validated** requieren evidencia separada
+para la revisión exacta. La migración y validación live continúan **Blocked** y
+producción permanece **NO-GO**.
 
 ## Local run
 ```bash

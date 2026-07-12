@@ -29,7 +29,7 @@ def get_dashboard(
 ) -> dict:
     bind_context(tenant=auth.tenant)
     return svc.get_dashboard(
-        tenant=auth.tenant,
+        auth=auth,
         start_date=startDate,
         end_date=endDate,
         doc_type=docType,
@@ -46,7 +46,7 @@ def get_overview(
     svc: AnalyticsService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
-    return svc.get_overview(tenant=auth.tenant)
+    return svc.get_overview(auth=auth)
 
 @router.get(
     "/pages-by-user",
@@ -57,7 +57,7 @@ def get_by_user(
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
-    return svc.get_by_user(tenant=auth.tenant)
+    return svc.get_by_user(auth=auth)
 
 @router.get(
     "/by-day",
@@ -68,7 +68,7 @@ def get_by_day(
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
-    return svc.get_by_day(tenant=auth.tenant)
+    return svc.get_by_day(auth=auth)
 
 @router.get(
     "/by-batch",
@@ -79,7 +79,7 @@ def get_by_batch(
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
-    return svc.get_by_batch(tenant=auth.tenant)
+    return svc.get_by_batch(auth=auth)
 
 @router.get(
     "/by-doc-type",
@@ -90,7 +90,7 @@ def get_by_doc_type(
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
-    return svc.get_by_doc_type(tenant=auth.tenant)
+    return svc.get_by_doc_type(auth=auth)
 
 @router.get(
     "/costs",
@@ -101,7 +101,7 @@ def get_costs_dashboard(
     svc: AnalyticsService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
-    return svc.get_costs_dashboard(tenant=auth.tenant)
+    return svc.get_costs_dashboard(auth=auth)
 
 @router.get(
     "/export-ine",
@@ -121,7 +121,7 @@ def export_ine(
 ):
     bind_context(tenant=auth.tenant)
     return svc.export_ine_data(
-        tenant=auth.tenant,
+        auth=auth,
         start_date=startDate,
         end_date=endDate,
         user_id=userId

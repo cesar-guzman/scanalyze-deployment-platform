@@ -36,7 +36,7 @@ def create_batch(
 ) -> dict:
     bind_context(tenant=auth.tenant)
     return svc.create_batch(
-        tenant=auth.tenant,
+        auth=auth,
         subject=auth.subject,
         email=auth.email,
         name=auth.name,
@@ -53,7 +53,7 @@ def get_batch(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.get_batch(tenant=auth.tenant, batch_id=batch_id)
+    return svc.get_batch(auth=auth, batch_id=batch_id)
 
 @router.get(
     "/{batch_id}/documents",
@@ -65,7 +65,7 @@ def get_batch_documents(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.get_batch_documents(tenant=auth.tenant, batch_id=batch_id)
+    return svc.get_batch_documents(auth=auth, batch_id=batch_id)
 
 @router.get(
     "/{batch_id}/manifest",
@@ -77,7 +77,7 @@ def export_manifest(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.export_manifest(tenant=auth.tenant, batch_id=batch_id)
+    return svc.export_manifest(auth=auth, batch_id=batch_id)
 
 @router.get(
     "/{batch_id}/exports/json",
@@ -89,7 +89,7 @@ def export_json(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> StreamingResponse:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.export_json(tenant=auth.tenant, batch_id=batch_id)
+    return svc.export_json(auth=auth, batch_id=batch_id)
 
 @router.get(
     "/{batch_id}/exports/csv",
@@ -101,7 +101,7 @@ def export_csv(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> StreamingResponse:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.export_csv(tenant=auth.tenant, batch_id=batch_id)
+    return svc.export_csv(auth=auth, batch_id=batch_id)
 
 @router.get(
     "/{batch_id}/exports/zip",
@@ -113,4 +113,4 @@ def export_zip(
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> FileResponse:
     bind_context(tenant=auth.tenant, batchId=batch_id)
-    return svc.export_zip(tenant=auth.tenant, batch_id=batch_id)
+    return svc.export_zip(auth=auth, batch_id=batch_id)

@@ -429,6 +429,53 @@ or incomplete scope set is treated as sufficient authority.
   M2M is enabled with an ambiguous binding**. **Owner:** Application Security
   and Platform Engineering.
 
+### TM-20: Document or batch object authorization bypass
+
+**Attacker story:** An authenticated user or machine principal supplies a known
+document, batch, artifact, or continuation identifier and receives another
+customer's or deployment's data because a route checks only authentication,
+action, a legacy tenant field, an accessible batch, or an unbound storage lookup.
+The same bypass can expose a presigned URL, full-PII result, or batch export, or
+can add a foreign document to an authorized batch.
+
+- **Preventive:** centralized typed document, batch, and membership
+  authorization; exact `customer_id` and `deployment_id` equality with the
+  validated `AuthContext`; mandatory immutable ownership on new writes;
+  ownership-bound DynamoDB keys, queries, conditions, and pagination; no
+  protected scans or fetch-then-filter authorization; independent authorization
+  of every batch member; stored-metadata-only S3 locators; authorization before
+  presigning; and the GUG-102 `read+admin` requirement for export, full PII, and
+  protected downloads.
+- **Detective:** synthetic cross-customer, cross-deployment, missing-ownership,
+  mixed-membership, query-boundary, presign, export, enumeration, and logging
+  negative tests; route-policy inventory; conditional-write assertions; and
+  reason-only authorization diagnostics without object or locator data.
+- **Recovery:** disable the affected object path, preserve deny/quarantine
+  treatment for unbound records, revert the reviewed application change if
+  necessary, and reconcile ownership only through the approved report-only and
+  migration procedure. Never restore legacy `tenantId`, infer ownership from a
+  batch or S3 prefix, return a partial export, or weaken conditions.
+- **Async/artifact boundary:** current worker-v1 artifact keys are accepted only
+  as exact route/document/file contracts in the deployment-configured OCR or
+  structured bucket after object authorization. Arbitrary prefixes remain
+  denied. The OCR consumer does not yet require and reconcile the ownership-v1
+  tuple before using its message locator; that worker/message control is
+  **Blocked** on GUG-89 and prevents end-to-end or live claims.
+- **Concurrent child writes:** Employee Profile force regeneration never skips
+  authorization of existing jobs/profiles. S3 creation and replacement use
+  `If-None-Match`/`If-Match` preconditions so legacy, foreign, malformed, or
+  concurrently replaced state cannot be silently adopted.
+- **Evidence:** ADR-021 and the migration/quarantine runbook establish the
+  repository decision only. The control is `Implemented` and `Locally validated`
+  only for a reviewed revision containing the enforcement and passing named
+  tests; passing PR checks are separate `CI validated` evidence. No live legacy
+  inventory, migration, AWS behavior, or two-deployment isolation is established
+  by repository artifacts. Those remain `Blocked` on GUG-117 and separately
+  authorized non-production evidence.
+- **Residual risk:** **High until reviewed CI and non-production isolation
+  evidence; Critical if any normal path accepts foreign, ambiguous, or unbound
+  ownership**. **Owner:** Application Security and Backend Engineering.
+
 ## Severity Calibration (Critical, High, Medium, Low)
 
 | Severity | Repository-context calibration | Examples |

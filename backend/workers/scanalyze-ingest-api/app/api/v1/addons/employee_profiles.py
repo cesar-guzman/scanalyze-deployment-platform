@@ -50,7 +50,7 @@ def get_feature_status(
 
     Requires JWT. Does not expose tenant list.
     """
-    return svc.get_status(auth.tenant)
+    return svc.get_status(auth)
 
 
 # ─────────────────────────────────────────────────
@@ -76,14 +76,7 @@ def export_csv_batch(
             content={"code": "VALIDATION_ERROR", "message": "batchId query param is required", "details": {}},
         )
 
-    # Load full profiles from batch manifest
-    bucket = svc._structured_bucket()
-    profiles_key = svc._batch_profiles_key(auth.tenant, batchId)
-    data = svc._read_s3_json(bucket, profiles_key)
-    profiles = data if isinstance(data, list) else []
-
-    # Tenant guard
-    profiles = [p for p in profiles if p.get("tenantId") == auth.tenant]
+    profiles = svc.get_batch_profiles(auth=auth, batch_id=batchId)
 
     csv_str = export_profiles_csv(profiles, mask_pii=masked)
     safe_batch = batchId[:24].replace("/", "_")
@@ -124,7 +117,7 @@ def generate_profiles(
 
     options = body.get("options") or {}
     result = svc.generate_profiles(
-        tenant=auth.tenant,
+        auth=auth,
         batch_id=batch_id,
         requested_by=auth.subject,
         options=options,
@@ -147,7 +140,7 @@ def get_job_status(
 ) -> dict:
     """Get generation job status."""
     bind_context(tenant=auth.tenant)
-    return svc.get_job(tenant=auth.tenant, job_id=job_id, batch_id=batchId)
+    return svc.get_job(auth=auth, job_id=job_id, batch_id=batchId)
 
 
 # ─────────────────────────────────────────────────
@@ -168,7 +161,7 @@ def list_profiles(
     """
     bind_context(tenant=auth.tenant)
     return svc.list_profiles(
-        tenant=auth.tenant,
+        auth=auth,
         batch_id=batchId,
         status_filter=status,
         q=q,
@@ -193,7 +186,7 @@ def export_json(
     """
     bind_context(tenant=auth.tenant)
     profile = svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )
@@ -226,7 +219,7 @@ def export_csv_individual(
     """P1.4: Export a single profile as downloadable CSV."""
     bind_context(tenant=auth.tenant)
     profile = svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )
@@ -254,7 +247,7 @@ def get_profile(
     """Get full profile detail. P0.2: No batchId required (direct S3 lookup)."""
     bind_context(tenant=auth.tenant)
     return svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )

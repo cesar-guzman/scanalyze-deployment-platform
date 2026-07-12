@@ -65,6 +65,8 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cuál es la foundation y secuencia de Production Readiness? | [ADR-019](../ADR/ADR-019-production-readiness-foundation.md) y [índice de Fase 0](../docs/production-readiness/README.md) |
 | ¿Cómo se vincula un cliente M2M con customer y deployment? | [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md), [Identity Contract Reference](../docs/deployment/identity-contract.md) y tests GUG-102 |
 | ¿Cómo se migra un deployment al binding M2M v2? | [Runbook M2M v2](../docs/deployment/m2m-identity-v2-migration.md); el inventario live permanece fuera de Git y NotebookLM |
+| ¿Cómo se autoriza un documento, batch o artifact concreto? | [ADR-021](../ADR/ADR-021-object-level-authorization.md), código y tests GUG-114 del commit revisado |
+| ¿Cómo se clasifican registros sin ownership canónico? | [Runbook de ownership y cuarentena](../docs/deployment/object-ownership-migration-quarantine.md); el inventario live y referencias reales permanecen fuera de Git y NotebookLM |
 
 ## Estado de evidencia al 2026-07-12
 
@@ -81,6 +83,7 @@ Cuando dos documentos difieran, usar este orden:
 | SBOM, firma, provenance y vulnerability gate completos | **Target** | ADR-007 describe el objetivo; ADR-011 registra los gaps. |
 | Configuración declarativa final del frontend | **Blocked** | Falta un dueño declarativo único y bindings exactos. |
 | Binding M2M customer/deployment v2 en repositorio | **Implemented** cuando existe en el commit revisado; **Locally validated** sólo con gates verdes | No es evidencia Cognito/AWS. La habilitación live sigue **Blocked** por GUG-93/GUG-117. |
+| Autorización de objetos customer/deployment | **Implemented** sólo cuando el commit revisado contiene enforcement central, rutas y storage protegidos; **Locally validated** sólo con gates verdes identificados | ADR-021 y el runbook por sí solos son decisiones. CI, inventario legacy, migración y aislamiento live requieren evidencia separada; producción sigue **NO-GO**. |
 | Contrato completo de identidad y onboarding | **Blocked** | Claims, scope taxonomy, control-plane handoff, object authorization y evidencia live siguen pendientes. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
@@ -126,6 +129,8 @@ Cuando dos documentos difieran, usar este orden:
 10. ¿La promoción intenta reconstruir en vez de reutilizar el release inmutable?
 11. ¿Falta algún binding de cliente, deployment, cuenta, región o ambiente?
 12. ¿Se está tratando state restore como rollback rutinario?
+13. ¿El documento, batch y cada membership prueban customer y deployment exactos
+    sin fallback legacy, scan ni filtrado posterior?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

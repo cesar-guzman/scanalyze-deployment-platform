@@ -40,7 +40,7 @@ def create_document(
     bind_context(tenant=auth.tenant)
 
     return svc.create_document(
-        tenant=auth.tenant,
+        auth=auth,
         subject=auth.subject,
         email=auth.email,
         name=auth.name,
@@ -62,7 +62,7 @@ def submit_document(
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id, stage=req.stage or None)
-    return svc.submit_document(tenant=auth.tenant, document_id=document_id, stage=req.stage)
+    return svc.submit_document(auth=auth, document_id=document_id, stage=req.stage)
 
 @router.get(
     "/{document_id}",
@@ -74,7 +74,7 @@ def get_document(
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id)
-    return svc.get_document_status(tenant=auth.tenant, document_id=document_id)
+    return svc.get_document_status(auth=auth, document_id=document_id)
 
 @router.get(
     "/{document_id}/result",
@@ -86,7 +86,7 @@ def get_result(
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id)
-    return svc.get_result(tenant=auth.tenant, document_id=document_id)
+    return svc.get_result(auth=auth, document_id=document_id)
 
 @router.get(
     "/{document_id}/artifacts",
@@ -98,7 +98,7 @@ def list_artifacts(
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id)
-    return svc.list_artifacts(tenant=auth.tenant, document_id=document_id)
+    return svc.list_artifacts(auth=auth, document_id=document_id)
 
 @router.get(
     "/{document_id}/download",
@@ -111,7 +111,7 @@ def download_generic(
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id)
-    return svc.presign_artifact_download(tenant=auth.tenant, document_id=document_id, artifact_id=artifactId)
+    return svc.presign_artifact_download(auth=auth, document_id=document_id, artifact_id=artifactId)
 
 
 @router.get(
@@ -125,4 +125,4 @@ def presign_download(
     artifact_id: str = Path(..., min_length=2, max_length=2048),
 ) -> dict:
     bind_context(tenant=auth.tenant, documentId=document_id)
-    return svc.presign_artifact_download(tenant=auth.tenant, document_id=document_id, artifact_id=artifact_id)
+    return svc.presign_artifact_download(auth=auth, document_id=document_id, artifact_id=artifact_id)

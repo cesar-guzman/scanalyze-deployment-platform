@@ -165,6 +165,49 @@ el handoff del DAG y Cognito/API Gateway, GUG-92/GUG-93 aporten los valores de
 scope aprobados, y GUG-117 demuestre aislamiento entre dos deployments no
 productivos. Producción continúa **NO-GO**.
 
+### Autorización de documentos y batches
+
+GUG-114 define autorización de objeto además de autenticación y policy de ruta.
+Cada documento y batch nuevo necesita dos campos canónicos e inmutables:
+`customer_id` y `deployment_id`. Ambos proceden únicamente del `AuthContext`
+validado. La autorización requiere igualdad exacta con el customer y deployment
+autenticados; `tenantId`, headers, parámetros, payload, metadata, mapas legacy y
+prefijos S3 nunca crean autoridad.
+
+Un registro con ownership faltante, parcial, malformado, ambiguo, inconsistente o
+sólo legacy se rechaza y requiere clasificación de migración o cuarentena. No se
+infiere el owner actual, no se elige automáticamente entre valores conflictivos y
+no se copian los datos del batch a todos sus documentos.
+
+El batch y cada documento miembro se autorizan de forma independiente. Un
+documento extranjero dentro de un batch autorizado bloquea membership, lectura y
+export completos; no se entrega un resultado parcial. Lista, búsqueda, índices y
+paginación deben conservar customer y deployment en el boundary de consulta. Un
+scan o filtrar después de recuperar datos no constituye aislamiento.
+
+Una URL prefirmada sólo se genera después de autorizar el documento. Bucket y key
+se obtienen de metadata almacenada bajo el contrato revisado, nunca de una ruta o
+prefijo enviado por el cliente. Export, full PII, result y downloads protegidos
+conservan `read+admin`. Las respuestas no distinguen un objeto extranjero de uno
+ausente cuando esa diferencia permitiría enumeración, y los logs no contienen
+contenido, PII, JWTs, S3 keys, URLs prefirmadas ni payloads.
+
+El contrato transitorio de artifacts admite solamente las claves exactas que
+producen hoy los workers, vinculadas al document id y al bucket configurado del
+deployment; no acepta prefijos libres. Employee Profiles autoriza estado
+preexistente aun con `force=true` y usa precondiciones de versión S3. El consumidor
+OCR todavía no reconcilia obligatoriamente el tuple de ownership antes de usar el
+locator del mensaje: esa frontera asíncrona continúa **Blocked** para GUG-89 y no
+forma parte de una afirmación end-to-end o live de GUG-114.
+
+ADR-021 y el runbook de ownership son decisiones de repositorio. La capacidad es
+**Implemented** sólo cuando el commit revisado contiene enforcement central,
+rutas y storage protegidos. Es **Locally validated** sólo con tests sintéticos y
+gates verdes identificados, y **CI validated** sólo con checks verdes del commit
+exacto. No existe evidencia **Live validated** de inventario legacy, migración ni
+aislamiento entre dos deployments. Esas actividades siguen **Blocked** por
+GUG-117 y autorización non-production separada. Producción continúa **NO-GO**.
+
 ## Rollback y respuesta
 
 - Una release se revierte seleccionando digests previamente aprobados mediante
