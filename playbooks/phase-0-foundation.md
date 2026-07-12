@@ -200,7 +200,7 @@ the blocker.
 | Repository documentation check | PASS | Locally validated only |
 | Security sentinel and tests | PASS — zero unallowlisted findings, 192 unchanged allowlisted findings, six sentinel tests | Locally validated only |
 | Git safety | PASS | Locally validated only |
-| Relevant/full tests | PASS — 337 tests in the final suite | Locally validated only |
+| Relevant/full tests | PASS — full suite at the published revision; the exact count belongs to the validating run | Locally validated only |
 | Offline reproducibility | PASS — `REPRO_CHECK_PASSED`; dry-run only | Locally validated dry-run only |
 | Diff checks and full review | PASS — staged, unstaged, and 13 untracked paths reviewed separately; independent peer findings resolved | Local review |
 | Fresh-agent positive/negative dry-run | PASS — production NO-GO, GUG-128 blocked, 12-stage ownership correct, and eight fail-closed controls passed | Independent local review only |

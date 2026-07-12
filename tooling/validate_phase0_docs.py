@@ -171,6 +171,10 @@ INLINE_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_LINK = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)")
 
 
+class BaselineUnavailableError(RuntimeError):
+    """Raised when the immutable Phase 0 baseline is absent locally."""
+
+
 def find_forbidden(text: str) -> set[str]:
     """Return detector names without exposing matching content."""
 
@@ -207,17 +211,33 @@ def document_hygiene_errors(path: Path) -> list[str]:
     return errors
 
 
-def added_or_new_text(relative: Path) -> str:
+def added_or_new_text(
+    relative: Path,
+    repo_root: Path = REPO_ROOT,
+    baseline: str = PHASE0_BASELINE,
+) -> str:
     """Return added lines for baseline files or full content for new files."""
 
-    baseline_object = subprocess.run(
-        ["git", "cat-file", "-e", f"{PHASE0_BASELINE}:{relative.as_posix()}"],
-        cwd=REPO_ROOT,
+    baseline_commit = subprocess.run(
+        ["git", "cat-file", "-e", f"{baseline}^{{commit}}"],
+        cwd=repo_root,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    path = REPO_ROOT / relative
+    if baseline_commit.returncode != 0:
+        raise BaselineUnavailableError(
+            f"phase0 baseline unavailable: {baseline}; fetch repository history"
+        )
+
+    baseline_object = subprocess.run(
+        ["git", "cat-file", "-e", f"{baseline}:{relative.as_posix()}"],
+        cwd=repo_root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    path = repo_root / relative
     if baseline_object.returncode != 0:
         return path.read_text(encoding="utf-8")
 
@@ -227,11 +247,11 @@ def added_or_new_text(relative: Path) -> str:
             "diff",
             "--no-ext-diff",
             "--unified=0",
-            PHASE0_BASELINE,
+            baseline,
             "--",
             relative.as_posix(),
         ],
-        cwd=REPO_ROOT,
+        cwd=repo_root,
         check=True,
         stdout=subprocess.PIPE,
     )
@@ -382,7 +402,12 @@ def validate() -> list[str]:
         path = REPO_ROOT / relative
         if not path.is_file():
             continue
-        detectors = sorted(find_forbidden(added_or_new_text(relative)))
+        try:
+            added_text = added_or_new_text(relative)
+        except BaselineUnavailableError as error:
+            errors.append(str(error))
+            break
+        detectors = sorted(find_forbidden(added_text))
         if detectors:
             errors.append(
                 f"prohibited content class in {relative}: {','.join(detectors)}"
