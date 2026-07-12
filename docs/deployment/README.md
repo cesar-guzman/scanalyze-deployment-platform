@@ -17,7 +17,11 @@ evidence.
 
 ## Artifacts
 
-- `Scanalyze_Enterprise_Deployment_Guide.docx`: stable enterprise handoff file.
+- `../production-readiness/README.md`: Phase 0 architecture, threat model,
+  ownership, evidence, gates, work packages, and recovery boundaries.
+- `Scanalyze_Enterprise_Deployment_Guide.docx`: generated locally from the
+  canonical playbook when a Word handoff is required; the binary is not
+  versioned in this repository.
 - `../../playbooks/enterprise-client-deployment.md`: canonical runbook.
 - `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
   contracts, stage graph, and live-enablement boundary.
@@ -80,3 +84,8 @@ execution engine or evidence store. Never ingest credentials, tokens, plans,
 state, customer documents, raw logs, screenshots or unredacted audit bundles.
 Any claim lacking repository or approved live evidence must be labeled
 `Target`, `Blocked` or `Unknown`, never inferred as implemented.
+
+For GUG-116, ingest only
+`../../_NotebookLM_Brain/10_Production_Readiness_Foundation.md`; do not ingest
+the repository, `reports/`, operational artifacts, or the full documentation
+tree as a convenience bundle.

@@ -1,4 +1,6 @@
-# M0 Required Artifacts Inventory
+# Legacy M0 Repository Foundation Required Artifacts Inventory
+# This inventory is not GUG-116 Phase 0 Production Readiness evidence.
+# GUG-116 is validated by `make phase0-docs-check` and its reviewed gate record.
 # make preflight-m0 MUST FAIL if any listed file is missing.
 # make preflight-core validates only existing artifacts.
 

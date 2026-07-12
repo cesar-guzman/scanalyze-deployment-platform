@@ -1,12 +1,12 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-10
+> **Última revisión editorial:** 2026-07-11
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
 > **Audiencia:** Platform Engineering, DevSecOps, SRE, arquitectura y revisores
 >
-> **Línea de trabajo:** feat/monorepo-microservices, pendiente de PR y merge
+> **Línea de trabajo:** `feat/production-readiness-foundation`; cambios publicados para revisión, sin merge ni autoridad live
 
 ## Propósito
 
@@ -24,13 +24,14 @@ implementación local y una validación live son evidencias diferentes.
 |---|---|
 | **Implemented** | El comportamiento está representado en código o configuración del repositorio. No implica que esté desplegado. |
 | **Locally validated** | Existen pruebas o gates locales exitosas sobre la implementación. No implica acceso ni ejecución en AWS. |
+| **CI validated** | Existen checks exitosos para un commit y workflow identificados. No implica AWS salvo evidencia live explícita y autorizada. |
 | **Live validated** | Existe evidencia revisable de ejecución en una cuenta y ambiente explícitos. No equivale automáticamente a aprobación de producción. |
 | **Target** | Es el estado arquitectónico deseado, normalmente descrito por un ADR. Puede estar parcial o totalmente pendiente. |
 | **Blocked** | No debe continuarse con la operación dependiente hasta cerrar la condición indicada y producir evidencia. |
 
 No se debe convertir **Accepted**, **Draft** o **Proposed** de un ADR en
-**Implemented** sin revisar el código, ni convertir **Locally validated** en
-**Live validated**.
+**Implemented** sin revisar el código, ni convertir **Locally validated** o
+**CI validated** en **Live validated**.
 
 ## Jerarquía de fuentes
 
@@ -60,8 +61,9 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Qué se migró y qué quedó pendiente? | [Registro de migración](../docs/migration/monorepo-microservices-migration.md) |
 | ¿Qué gates existen realmente? | [Makefile](../Makefile) y sus tests |
 | ¿Qué políticas de seguridad aplican? | ADR-004, ADR-007, ADR-009, código, policies y session-policies |
+| ¿Cuál es la foundation y secuencia de Production Readiness? | [ADR-019](../ADR/ADR-019-production-readiness-foundation.md) y [índice de Fase 0](../docs/production-readiness/README.md) |
 
-## Estado de evidencia al 2026-07-10
+## Estado de evidencia al 2026-07-11
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -77,6 +79,7 @@ Cuando dos documentos difieran, usar este orden:
 | Configuración declarativa final del frontend | **Blocked** | Falta un dueño declarativo único y bindings exactos. |
 | Contrato canónico de identidad de cliente y onboarding | **Blocked** | No crear usuarios ni afirmar E2E hasta resolverlo. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
+| Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
 
 ## Inventario del Brain
 
@@ -91,6 +94,7 @@ Cuando dos documentos difieran, usar este orden:
 | [07 — AI Agents and Automation Tooling](07_AI_Agents_and_Automation_Tooling.md) | Operación segura de agentes |
 | [08 — Monorepo and Supply Chain](08_Monorepo_Microservices_and_Supply_Chain.md) | Código, imágenes, ECR, SSM, ECS y gaps de supply chain |
 | [09 — Production Readiness and Handoff](09_Production_Readiness_and_Operational_Handoff.md) | Readiness, stop gates y operación |
+| [10 — Production Readiness Foundation](10_Production_Readiness_Foundation.md) | Fase 0, arquitectura GitOps, evidencia, gates, riesgos y respuestas fail-closed |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -113,6 +117,11 @@ Cuando dos documentos difieran, usar este orden:
 5. ¿La acción requiere una aprobación o credencial que no fue proporcionada?
 6. ¿La evidencia es local, live o solamente un target?
 7. ¿Existe un blocker de identidad, frontend o supply chain?
+8. ¿Producción continúa NO-GO y GUG-128 bloqueado?
+9. ¿La afirmación confunde Fase 0, CI o dry-run con evidencia AWS?
+10. ¿La promoción intenta reconstruir en vez de reutilizar el release inmutable?
+11. ¿Falta algún binding de cliente, deployment, cuenta, región o ambiente?
+12. ¿Se está tratando state restore como rollback rutinario?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

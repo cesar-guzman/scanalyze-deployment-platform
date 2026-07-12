@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -760,15 +760,24 @@ repro-check: bootstrap-local
 	@echo "=== REPRO-CHECK COMPLETE ==="
 	@echo "Status: REPRO_CHECK_PASSED"
 
+# Phase 0 documentation control (offline, no AWS)
+phase0-docs-check:
+	@echo "=== Phase 0 Documentation Control ==="
+	@$(PYTHON) tooling/validate_phase0_docs.py
+
 # Documentation check
-docs-check:
+docs-check: phase0-docs-check
 	@echo "=== Documentation Check ==="
 	@ERRORS=0; \
 		for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md \
 			ADR/ADR-017-github-actions-release-orchestrator.md \
 			ADR/ADR-018-stable-ci-governance.md \
+			ADR/ADR-019-production-readiness-foundation.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/operations/github-governance.md \
+			docs/production-readiness/README.md \
+			playbooks/phase-0-foundation.md \
+			_NotebookLM_Brain/10_Production_Readiness_Foundation.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \
