@@ -6,6 +6,7 @@ import pytest
 
 from tooling.validate_phase0_docs import (
     BaselineUnavailableError,
+    REPO_ROOT,
     added_or_new_text,
     document_hygiene_errors,
     find_forbidden,
@@ -129,10 +130,115 @@ def test_phase0_ci_jobs_fetch_baseline_history(
     assert "fetch-depth: 0" in job
 
 
-def test_readiness_claim_checker_rejects_production_go() -> None:
-    assert find_contradictions("Production is GO.") == {"production_go_claim"}
-    assert find_contradictions("Producción está GO.") == {"produccion_go_claim"}
-    assert find_contradictions("Production is NO-GO.") == set()
+@pytest.mark.parametrize(
+    ("claim", "detector"),
+    (
+        ("Production is GO.", "production_go_claim"),
+        ("Production: GO.", "production_go_claim"),
+        ("**Production:** **GO**", "production_go_claim"),
+        ("`Production`: `GO`", "production_go_claim"),
+        ("Production status: GO.", "production_go_claim"),
+        ("Production is approved to GO.", "production_go_claim"),
+        ("Production is ready for deployment.", "production_go_claim"),
+        ("GO for production.", "production_go_claim"),
+        ("Production approved to GO.", "production_go_claim"),
+        ("Production is a GO.", "production_go_claim"),
+        ("Production — GO.", "production_go_claim"),
+        ("Production = GO.", "production_go_claim"),
+        ("[Production](./status.md): GO.", "production_go_claim"),
+        ("[Production][status]: GO.", "production_go_claim"),
+        ("<strong>Production:</strong> GO.", "production_go_claim"),
+        ("Production:\nGO.", "production_go_claim"),
+        ("The production environment is GO.", "production_go_claim"),
+        ("| Production | GO |", "production_go_claim"),
+        ("Production status: blocked but GO.", "production_go_claim"),
+        ("Production: disabled; production is GO.", "production_go_claim"),
+        ("Production status: blocked. Production is GO.", "production_go_claim"),
+        ("Production status: blocked although GO.", "production_go_claim"),
+        ("Production status: blocked yet production is GO.", "production_go_claim"),
+        ("Production status: disabled nevertheless approved.", "production_go_claim"),
+        ("Production status: disabled and production is GO.", "production_go_claim"),
+        ("Production status: blocked and GO.", "production_go_claim"),
+        ("Production status: blocked while production is GO.", "production_go_claim"),
+        ("Production status: blocked / GO.", "production_go_claim"),
+        ("Production status: blocked/GO.", "production_go_claim"),
+        ("Production status: blocked! Production is GO.", "production_go_claim"),
+        ("Production status: blocked — Production is GO.", "production_go_claim"),
+        ("Production status: pending -> GO.", "production_go_claim"),
+        ("Producción está GO.", "produccion_go_claim"),
+        ("Producción: GO.", "produccion_go_claim"),
+        ("**Producción:** **GO**", "produccion_go_claim"),
+        ("Producción lista para desplegar.", "produccion_go_claim"),
+        ("Producción aprobada para GO.", "produccion_go_claim"),
+        ("[Producción](./estado.md): GO.", "produccion_go_claim"),
+        ("Producción: bloqueada pero GO.", "produccion_go_claim"),
+        ("Producción: bloqueada y GO.", "produccion_go_claim"),
+        (
+            "Producción: bloqueada mientras producción está GO.",
+            "produccion_go_claim",
+        ),
+        ("Producción estado: pendiente. Producción está GO.", "produccion_go_claim"),
+    ),
+)
+def test_readiness_claim_checker_rejects_production_go(
+    claim: str,
+    detector: str,
+) -> None:
+    assert find_contradictions(claim) == {detector}
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "Production is NO-GO.",
+        "> **Production:** **NO-GO**",
+        "> **Producción:** **NO-GO**",
+        "# Production Readiness GO/NO-GO Matrix",
+        "A successful workflow alone is not a production GO.",
+        "Detect contradictory production-GO claims.",
+        "Production is not approved to GO.",
+        "Production requires independent GO approval.",
+        "Production decision: GO/NO-GO.",
+        "If production is ready for deployment, keep the gate closed.",
+        "Production status: pending independent GO approval.",
+        "Production status: not yet approved to GO.",
+        "Production status: never approved to GO.",
+        "Production status: blocked until independent GO approval.",
+        "Production: disabled; independent GO is required.",
+        "Production status: blocked, GO approval required.",
+        "Production status: pending; GO requires independent approval.",
+        "Production status: disabled, ready only after independent approval.",
+        "Production status: pending; approved plan required.",
+        "Production status: pending and independent GO approval is required.",
+        "Production decision: GO / NO-GO.",
+        (
+            "| Production | Workflow disabled; no authorized pilot | "
+            "Limited pilot after independent GO | Phase 10 |"
+        ),
+    ),
+)
+def test_readiness_claim_checker_preserves_non_go_policy_text(claim: str) -> None:
+    assert find_contradictions(claim) == set()
+
+
+def test_phase0_validation_rejects_contradictory_production_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = REPO_ROOT / "docs/production-readiness/README.md"
+    original_read_text = Path.read_text
+
+    def read_text_with_contradiction(path: Path, *args: object, **kwargs: object) -> str:
+        text = original_read_text(path, *args, **kwargs)
+        if path == target:
+            return text + "Production: GO.\n"
+        return text
+
+    monkeypatch.setattr(Path, "read_text", read_text_with_contradiction)
+
+    assert (
+        "contradictory readiness claim in "
+        "docs/production-readiness/README.md: production_go_claim"
+    ) in validate()
 
 
 def test_document_hygiene_checker_fails_closed(tmp_path: Path) -> None:
@@ -193,12 +299,190 @@ def test_required_decision_checker_fails_closed_on_missing_decision() -> None:
     ) == ["exact saved-plan policy"]
 
 
-def test_raci_checker_rejects_dual_accountability() -> None:
+def _raci_document(
+    header: str = "| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |",
+    separator: str = "|---|---|---|---|---|---|---|---|---|",
+    rows: tuple[str, ...] = (
+        "| Approve a phase | A | R | C | I | I | I | I | I |",
+    ),
+) -> str:
+    table = "\n".join((header, separator, *rows))
+    return f"## Organizational RACI\n\n{table}\n\n## Next section\n"
+
+
+@pytest.mark.parametrize(
+    "header",
+    (
+        "| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |",
+        "|Activity|TPO|PE|PS|RE|SRE|APP|COPS|IPA|",
+        "  | activity | tpo | pe | ps | re | sre | app | cops | ipa |",
+        "Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA",
+    ),
+)
+def test_raci_checker_rejects_dual_accountability_for_supported_headers(
+    header: str,
+) -> None:
+    raci = _raci_document(
+        header=header,
+        rows=("| Ambiguous approval | A | A | C | I | I | I | I | I |",),
+    )
+    assert raci_accountability_errors(raci) == [
+        "RACI activity must have exactly one accountable role: Ambiguous approval"
+    ]
+
+
+@pytest.mark.parametrize(
+    "header",
+    (
+        "| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |",
+        "|Activity|TPO|PE|PS|RE|SRE|APP|COPS|IPA|",
+        "  | activity | tpo | pe | ps | re | sre | app | cops | ipa |",
+        "Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA",
+    ),
+)
+def test_raci_checker_accepts_supported_markdown_headers(header: str) -> None:
+    assert raci_accountability_errors(_raci_document(header=header)) == []
+
+
+@pytest.mark.parametrize(
+    "rendered_accountable",
+    (
+        "**A**",
+        "_A_",
+        "`A`",
+        "[A](#accountable)",
+        "<strong>A</strong>",
+    ),
+)
+def test_raci_checker_rejects_formatted_accountability_bypass(
+    rendered_accountable: str,
+) -> None:
+    raci = _raci_document(
+        rows=(
+            "| Ambiguous approval | A | "
+            f"{rendered_accountable} | C | I | I | I | I | I |",
+        ),
+    )
+    assert raci_accountability_errors(raci) == [
+        "RACI activity has unsupported role value: Ambiguous approval"
+    ]
+
+
+@pytest.mark.parametrize("secondary_accountable", ("R/A", "C/A", "I/A"))
+def test_raci_checker_counts_accountable_code_on_either_side_of_slash(
+    secondary_accountable: str,
+) -> None:
+    raci = _raci_document(
+        rows=(
+            "| Ambiguous approval | A | "
+            f"{secondary_accountable} | C | I | I | I | I | I |",
+        ),
+    )
+    assert raci_accountability_errors(raci) == [
+        "RACI activity must have exactly one accountable role: Ambiguous approval"
+    ]
+
+
+@pytest.mark.parametrize(
+    "unsupported_qualifier",
+    ("R when A", "C for A", "I when accountable"),
+)
+def test_raci_checker_rejects_open_ended_role_qualifiers(
+    unsupported_qualifier: str,
+) -> None:
+    raci = _raci_document(
+        rows=(
+            "| Ambiguous approval | A | "
+            f"{unsupported_qualifier} | C | I | I | I | I | I |",
+        ),
+    )
+    assert raci_accountability_errors(raci) == [
+        "RACI activity has unsupported role value: Ambiguous approval"
+    ]
+
+
+def test_raci_checker_fails_closed_without_organizational_section() -> None:
     raci = """\
+| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |
+|---|---|---|---|---|---|---|---|---|
+| Approve a phase | A | R | C | I | I | I | I | I |
+"""
+    assert raci_accountability_errors(raci) == [
+        "organizational RACI section missing"
+    ]
+
+
+def test_raci_checker_rejects_tab_indented_decoy_heading() -> None:
+    raci = """\
+\t## Organizational RACI
+
+| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |
+|---|---|---|---|---|---|---|---|---|
+| Decoy approval | A | R | C | I | I | I | I | I |
+
+## Actual approval matrix
+
 | Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |
 |---|---|---|---|---|---|---|---|---|
 | Ambiguous approval | A | A | C | I | I | I | I | I |
 """
     assert raci_accountability_errors(raci) == [
-        "RACI activity must have exactly one accountable role: Ambiguous approval"
+        "organizational RACI section missing"
     ]
+
+
+def test_raci_checker_fails_closed_on_invalid_or_empty_table() -> None:
+    invalid_header = _raci_document(
+        header="| Responsibility | TPO | PE | PS | RE | SRE | APP | COPS | IPA |"
+    )
+    assert raci_accountability_errors(invalid_header) == [
+        "organizational RACI header does not match required role columns"
+    ]
+
+    empty = _raci_document(rows=())
+    assert raci_accountability_errors(empty) == [
+        "organizational RACI table must contain at least one activity"
+    ]
+
+
+def test_raci_checker_fails_closed_on_duplicate_table() -> None:
+    first = _raci_document().removesuffix("## Next section\n")
+    duplicate = """\
+| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |
+|---|---|---|---|---|---|---|---|---|
+| Approve production | C | I | C | I | I | I | I | A |
+
+## Next section
+"""
+    assert raci_accountability_errors(first + duplicate) == [
+        "organizational RACI table must appear exactly once"
+    ]
+
+
+def test_phase0_validation_rejects_raci_header_bypass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = REPO_ROOT / "docs/production-readiness/ownership-raci.md"
+    original_read_text = Path.read_text
+
+    def read_text_with_raci_bypass(path: Path, *args: object, **kwargs: object) -> str:
+        text = original_read_text(path, *args, **kwargs)
+        if path != target:
+            return text
+        text = text.replace(
+            "| Activity | TPO | PE | PS | RE | SRE | APP | COPS | IPA |",
+            "|Activity|TPO|PE|PS|RE|SRE|APP|COPS|IPA|",
+            1,
+        )
+        return text.replace(
+            "| Accept architecture and phase-gate contract | A | R | C | I | C | C | I | I |",
+            "| Accept architecture and phase-gate contract | A | A | C | I | C | C | I | I |",
+            1,
+        )
+
+    monkeypatch.setattr(Path, "read_text", read_text_with_raci_bypass)
+
+    assert (
+        "RACI activity must have exactly one accountable role: "
+        "Accept architecture and phase-gate contract"
+    ) in validate()

@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from html import unescape
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -156,16 +157,126 @@ FORBIDDEN_PATTERNS = {
     ),
 }
 
-CONTRADICTORY_PATTERNS = {
+STATUS_ASSIGNMENT_PATTERNS = {
+    "production_go_claim": (
+        re.compile(
+            r"^\|?\s*(?:the\s+)?production"
+            r"(?:\s+(?:environment|status|decision|readiness|gate))?"
+            r"\s*(?:\||:|=|[-–—]|\bis\b)\s*(?P<value>.+?)\s*\|?$",
+            re.I,
+        ),
+        re.compile(
+            r"^\|?\s*(?:the\s+)?production(?:\s+environment)?\s+"
+            r"(?P<value>(?:a\s+)?go\b.*|approved\b.*|ready\b.*|"
+            r"live\b.*|enabled\b.*|deployed\b.*|released\b.*)\s*\|?$",
+            re.I,
+        ),
+    ),
+    "produccion_go_claim": (
+        re.compile(
+            r"^\|?\s*(?:la\s+)?producci[oó]n"
+            r"(?:\s+(?:estado|decisi[oó]n|preparaci[oó]n|gate))?"
+            r"\s*(?:\||:|=|[-–—]|\best[aá]\b|\bes\b)\s*"
+            r"(?P<value>.+?)\s*\|?$",
+            re.I,
+        ),
+        re.compile(
+            r"^\|?\s*(?:la\s+)?producci[oó]n\s+"
+            r"(?P<value>go\b.*|aprobad[ao]\b.*|list[ao]\b.*|activ[ao]\b.*|"
+            r"habilitad[ao]\b.*|desplegad[ao]\b.*|liberad[ao]\b.*)\s*\|?$",
+            re.I,
+        ),
+    ),
+}
+DIRECT_STATUS_PATTERNS = {
     "production_go_claim": re.compile(
-        r"\bproduction\s+(?:is|:)\s+(?:\*\*)?go\b", re.I
+        r"(?:go\s+for\s+production|ready\s+for\s+production)[.!]?", re.I
     ),
     "produccion_go_claim": re.compile(
-        r"\bproducci[oó]n\s+(?:est[aá]|:)\s+(?:\*\*)?go\b", re.I
+        r"(?:go\s+para\s+producci[oó]n|list[ao]\s+para\s+producci[oó]n)[.!]?",
+        re.I,
     ),
+}
+STATUS_CONTINUATION_LABELS = (
+    re.compile(
+        r"^\|?\s*(?:the\s+)?production"
+        r"(?:\s+(?:environment|status|decision|readiness|gate))?"
+        r"\s*(?:\||:|=|[-–—]|\bis\b)\s*\|?$",
+        re.I,
+    ),
+    re.compile(
+        r"^\|?\s*(?:la\s+)?producci[oó]n"
+        r"(?:\s+(?:estado|decisi[oó]n|preparaci[oó]n|gate))?"
+        r"\s*(?:\||:|=|[-–—]|\best[aá]\b|\bes\b)\s*\|?$",
+        re.I,
+    ),
+)
+TERMINAL_STATUS_PATTERNS = {
+    "production_go_claim": re.compile(
+        r"^(?:(?:a\s+)?go|"
+        r"ready(?:\s+(?:for\s+(?:deployment|production|launch)|to\s+go))?|"
+        r"approved(?:\s+(?:to\s+go|for\s+(?:deployment|production|launch)))?|"
+        r"live(?:\s+validated)?|enabled|deployed|released)$",
+        re.I,
+    ),
+    "produccion_go_claim": re.compile(
+        r"^(?:go|"
+        r"list[ao](?:\s+para\s+(?:desplegar|producci[oó]n|go))?|"
+        r"aprobad[ao](?:\s+para\s+(?:go|despliegue|producci[oó]n))?|"
+        r"activ[ao]|habilitad[ao]|desplegad[ao]|liberad[ao])$",
+        re.I,
+    ),
+}
+STATUS_CLAUSE_SPLIT = re.compile(
+    r"(?:\s*[.!;,/]\s*|\s*(?:->|→)\s*|[ \t]+[-–—][ \t]+|"
+    r"\s*\b(?:and|but|although|while|however|nevertheless|y|pero|aunque)\b\s*|"
+    r"\s*\bmientras(?:\s+que)?\b\s*|\s*(?<!not )\byet\b\s*|"
+    r"\s*\bsin\s+embargo\b\s*)",
+    re.I,
+)
+STATUS_MATRIX_VALUE = re.compile(r"^go\s*/\s*no-go$", re.I)
+MARKDOWN_LINK_TEXT = re.compile(r"!?\[([^\]]+)\]\([^)]*\)")
+MARKDOWN_REFERENCE_LINK_TEXT = re.compile(r"!?\[([^\]]+)\]\[[^\]]*\]")
+HTML_TAG = re.compile(r"<[^>]+>")
+PRODUCTION_TABLE_LABELS = {
+    "production": "production_go_claim",
+    "the production": "production_go_claim",
+    "production environment": "production_go_claim",
+    "production status": "production_go_claim",
+    "production decision": "production_go_claim",
+    "production readiness": "production_go_claim",
+    "production gate": "production_go_claim",
+    "producción": "produccion_go_claim",
+    "produccion": "produccion_go_claim",
+    "la producción": "produccion_go_claim",
+    "la produccion": "produccion_go_claim",
+    "producción estado": "produccion_go_claim",
+    "produccion estado": "produccion_go_claim",
+    "producción decisión": "produccion_go_claim",
+    "produccion decision": "produccion_go_claim",
 }
 
 RACI_ROLE_CODES = {"TPO", "PE", "PS", "RE", "SRE", "APP", "COPS", "IPA"}
+RACI_HEADER_COLUMNS = (
+    "activity",
+    "tpo",
+    "pe",
+    "ps",
+    "re",
+    "sre",
+    "app",
+    "cops",
+    "ipa",
+)
+RACI_ROLE_VALUE = re.compile(r"^(?:A|R|C|I)(?:/(?:A|R|C|I))?$")
+RACI_QUALIFIED_ROLE_VALUES = {
+    "A for execution control",
+    "C for production prerequisites",
+    "C when production",
+}
+MARKDOWN_H2 = re.compile(r"^ {0,3}##(?!#)[ \t]+(.+?)[ \t]*#*[ \t]*$")
+MARKDOWN_H1_OR_H2 = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+")
+MARKDOWN_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
 
 INLINE_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_LINK = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)")
@@ -185,14 +296,86 @@ def find_forbidden(text: str) -> set[str]:
     }
 
 
-def find_contradictions(text: str) -> set[str]:
-    """Return fail-open readiness claims without exposing matching content."""
+def _plain_inline_text(value: str) -> str:
+    """Normalize rendered inline Markdown and HTML without changing semantics."""
 
-    return {
-        detector
-        for detector, pattern in CONTRADICTORY_PATTERNS.items()
-        if pattern.search(text)
-    }
+    normalized = unescape(value)
+    normalized = MARKDOWN_LINK_TEXT.sub(r"\1", normalized)
+    normalized = MARKDOWN_REFERENCE_LINK_TEXT.sub(r"\1", normalized)
+    normalized = HTML_TAG.sub("", normalized)
+    normalized = re.sub(r"[*_`]", "", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _normalized_claim_lines(text: str) -> tuple[str, ...]:
+    """Return normalized lines plus supported label/value continuations."""
+
+    normalized_lines: list[str] = []
+    for line in text.splitlines():
+        normalized = _plain_inline_text(line)
+        normalized = re.sub(r"^\s*(?:>\s*)?(?:[-+]\s+)?", "", normalized)
+        normalized = re.sub(r"^#{1,6}\s+", "", normalized)
+        if normalized:
+            normalized_lines.append(normalized)
+
+    candidates = list(normalized_lines)
+    for index, line in enumerate(normalized_lines[:-1]):
+        if any(pattern.fullmatch(line) for pattern in STATUS_CONTINUATION_LABELS):
+            candidates.append(f"{line} {normalized_lines[index + 1]}")
+    return tuple(dict.fromkeys(candidates))
+
+
+def _is_positive_status_value(value: str, detector: str) -> bool:
+    """Classify explicit terminal status clauses without keyword inference."""
+
+    normalized = _plain_inline_text(value).strip(" |").strip()
+    if STATUS_MATRIX_VALUE.fullmatch(normalized.strip(".!?:")):
+        return False
+    clauses = tuple(
+        clause.strip(" |.!?:")
+        for clause in STATUS_CLAUSE_SPLIT.split(normalized)
+        if clause.strip(" |.!?:")
+    )
+    for clause in clauses:
+        if TERMINAL_STATUS_PATTERNS[detector].fullmatch(clause):
+            return True
+        for pattern in STATUS_ASSIGNMENT_PATTERNS[detector]:
+            match = pattern.fullmatch(clause)
+            if match and TERMINAL_STATUS_PATTERNS[detector].fullmatch(
+                _plain_inline_text(match.group("value")).strip(" |.!?:")
+            ):
+                return True
+        if DIRECT_STATUS_PATTERNS[detector].fullmatch(clause):
+            return True
+    return False
+
+
+def find_contradictions(text: str) -> set[str]:
+    """Return direct production-GO assertions without exposing matched content."""
+
+    findings: set[str] = set()
+    for line in _normalized_claim_lines(text):
+        if line.lstrip().startswith("|"):
+            cells = _markdown_table_cells(line)
+            if cells is not None and len(cells) >= 2:
+                label = _plain_inline_text(cells[0]).casefold()
+                detector = PRODUCTION_TABLE_LABELS.get(label)
+                if detector is not None:
+                    if _is_positive_status_value(cells[1], detector):
+                        findings.add(detector)
+                    continue
+        for detector, patterns in STATUS_ASSIGNMENT_PATTERNS.items():
+            for pattern in patterns:
+                match = pattern.fullmatch(line)
+                if (
+                    match
+                    and _is_positive_status_value(match.group("value"), detector)
+                ):
+                    findings.add(detector)
+                    break
+            if DIRECT_STATUS_PATTERNS[detector].fullmatch(line):
+                findings.add(detector)
+    return findings
 
 
 def document_hygiene_errors(path: Path) -> list[str]:
@@ -340,33 +523,113 @@ def stage_ownership_errors(text: str) -> list[str]:
     return errors
 
 
+def _normalized_h2_title(line: str) -> str | None:
+    """Return a normalized level-two Markdown heading, if present."""
+
+    match = MARKDOWN_H2.match(line)
+    if match is None:
+        return None
+    title = re.sub(r"[*_`]", "", match.group(1))
+    return re.sub(r"\s+", " ", title).strip().casefold()
+
+
+def _markdown_table_cells(line: str) -> tuple[str, ...] | None:
+    """Parse a simple rendered Markdown table row with optional outer pipes."""
+
+    indentation = len(line) - len(line.lstrip(" "))
+    if indentation > 3 or "\t" in line:
+        return None
+    stripped = line.strip()
+    if "|" not in stripped:
+        return None
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells = tuple(cell.strip() for cell in stripped.split("|"))
+    return cells if len(cells) > 1 else None
+
+
+def _is_markdown_separator(cells: tuple[str, ...]) -> bool:
+    """Return whether every cell renders as a Markdown table separator."""
+
+    return bool(cells) and all(MARKDOWN_SEPARATOR_CELL.fullmatch(cell) for cell in cells)
+
+
 def raci_accountability_errors(text: str) -> list[str]:
-    """Require exactly one accountable role for every organizational activity."""
+    """Validate the single organizational RACI table and its accountability."""
 
     errors: list[str] = []
-    in_table = False
-    for line in text.splitlines():
-        if line.startswith("| Activity |"):
-            in_table = True
-            continue
-        if not in_table:
-            continue
-        if not line.startswith("|"):
+    lines = text.splitlines()
+    section_indexes = [
+        index
+        for index, line in enumerate(lines)
+        if _normalized_h2_title(line) == "organizational raci"
+    ]
+    if not section_indexes:
+        return ["organizational RACI section missing"]
+    if len(section_indexes) != 1:
+        return ["organizational RACI section must appear exactly once"]
+
+    section_start = section_indexes[0] + 1
+    section_end = len(lines)
+    for index in range(section_start, len(lines)):
+        if MARKDOWN_H1_OR_H2.match(lines[index]):
+            section_end = index
             break
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if not cells or set(cells[0]) <= {"-", ":"}:
+
+    tables: list[tuple[int, tuple[str, ...], tuple[str, ...]]] = []
+    for index in range(section_start, max(section_start, section_end - 1)):
+        header = _markdown_table_cells(lines[index])
+        separator = _markdown_table_cells(lines[index + 1])
+        if header is not None and separator is not None and _is_markdown_separator(separator):
+            tables.append((index, header, separator))
+
+    if not tables:
+        return ["organizational RACI table missing or malformed"]
+    if len(tables) != 1:
+        return ["organizational RACI table must appear exactly once"]
+
+    header_index, header, separator = tables[0]
+    normalized_header = tuple(cell.casefold() for cell in header)
+    if normalized_header != RACI_HEADER_COLUMNS:
+        return ["organizational RACI header does not match required role columns"]
+    if len(separator) != len(RACI_HEADER_COLUMNS):
+        return ["organizational RACI table separator has wrong column count"]
+
+    activity_count = 0
+    for line in lines[header_index + 2:section_end]:
+        cells = _markdown_table_cells(line)
+        if cells is None:
+            break
+        if _is_markdown_separator(cells):
+            errors.append("organizational RACI table has an unexpected separator row")
             continue
         activity = cells[0]
         if len(cells) != 9:
             errors.append(f"RACI row has wrong column count: {activity}")
+            activity_count += 1
+            continue
+        activity_count += 1
+        if not activity:
+            errors.append("organizational RACI activity name must not be empty")
+            continue
+        if any(
+            RACI_ROLE_VALUE.fullmatch(value) is None
+            and value not in RACI_QUALIFIED_ROLE_VALUES
+            for value in cells[1:]
+        ):
+            errors.append(f"RACI activity has unsupported role value: {activity}")
             continue
         accountable = sum(
-            bool(re.match(r"^A(?:$|/|\s)", value)) for value in cells[1:]
+            "A" in value.split(maxsplit=1)[0].split("/") for value in cells[1:]
         )
         if accountable != 1:
             errors.append(
                 f"RACI activity must have exactly one accountable role: {activity}"
             )
+    if activity_count == 0:
+        errors.append("organizational RACI table must contain at least one activity")
     return errors
 
 
