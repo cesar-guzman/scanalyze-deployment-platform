@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/object-ownership.v1.schema.json",
+  "title": "Scanalyze Object Ownership Binding v1",
+  "description": "Canonical fail-closed ownership fields for documents, batches, and derived protected objects.",
+  "type": "object",
+  "required": [
+    "customer_id",
+    "deployment_id",
+    "ownership_schema_version",
+    "ownership_key"
+  ],
+  "properties": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{1,127}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ownership_schema_version": {
+      "const": 1
+    },
+    "ownership_key": {
+      "type": "string",
+      "pattern": "^CUSTOMER#[^#]+#DEPLOYMENT#dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "ownership_batch_key": {
+      "type": "string",
+      "pattern": "^CUSTOMER#[^#]+#DEPLOYMENT#dep_[0-9A-HJKMNP-TV-Z]{26}#BATCH#[^#]+$"
+    }
+  },
+  "additionalProperties": true
+}

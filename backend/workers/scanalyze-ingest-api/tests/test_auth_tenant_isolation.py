@@ -598,10 +598,11 @@ class TestXTenantIdIgnored:
                 headers={"X-Tenant-Id": "tenant-b"},
             )
             assert resp.status_code == 200
-            # The service was called with tenant-a, not tenant-b
-            MockSvc.return_value.get_document_status.assert_called_once_with(
-                tenant="tenant-a", document_id="doc-123456"
-            )
+            # The complete trusted context is passed; the legacy header is never authority.
+            call = MockSvc.return_value.get_document_status.call_args
+            assert call.kwargs["auth"].customer_id == "tenant-a"
+            assert call.kwargs["auth"].customer_id != "tenant-b"
+            assert call.kwargs["document_id"] == "doc-123456"
         get_settings.cache_clear()
 
 

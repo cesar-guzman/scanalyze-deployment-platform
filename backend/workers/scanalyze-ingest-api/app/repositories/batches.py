@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 
 from ..aws_clients import dynamodb_client, dynamodb_resource
+from ..authorization import ObjectOwnership
 from ..config import get_settings
 from ..errors import AppError
 from ..logging import get_logger
@@ -42,10 +43,17 @@ class BatchesRepository:
     def _key_for(self, batch_id: str) -> Dict[str, Any]:
         return {self.pk_name: batch_id}
 
-    def create_batch(self, item: Dict[str, Any]) -> None:
+    def create_batch(
+        self,
+        item: Dict[str, Any],
+        *,
+        ownership: ObjectOwnership,
+    ) -> None:
         self._ensure_ready()
         assert self.table is not None
 
+        item = dict(item)
+        item.update(ownership.record_fields())
         condition = "attribute_not_exists(#pk)"
         expr_names = {"#pk": self.pk_name}
 

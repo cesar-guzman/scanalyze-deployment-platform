@@ -8,7 +8,12 @@ from app.errors import AppError
 
 # Override Auth dependency to simulate a logged-in user for "tenant-a"
 def override_get_auth_context():
-    return AuthContext(tenant_id="tenant-a", subject="test-user", auth_source="cognito_jwt")
+    return AuthContext(
+        customer_id="cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        deployment_id="dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        subject="test-user",
+        auth_source="cognito_jwt",
+    )
 
 app.dependency_overrides[get_auth_context] = override_get_auth_context
 
@@ -37,7 +42,7 @@ def test_download_generic_happy_path(mock_svc):
         "expiresAt": "2026-03-08T20:00:00Z"
     }
     mock_svc.presign_artifact_download.assert_called_once_with(
-        tenant="tenant-a", document_id="doc-123456", artifact_id="structured"
+        auth=override_get_auth_context(), document_id="doc-123456", artifact_id="structured"
     )
 
 def test_download_specific_artifact_happy_path(mock_svc):
@@ -58,7 +63,7 @@ def test_download_specific_artifact_happy_path(mock_svc):
         "expiresAt": "2026-03-08T20:00:00Z"
     }
     mock_svc.presign_artifact_download.assert_called_once_with(
-        tenant="tenant-a", document_id="doc-123456", artifact_id="structured"
+        auth=override_get_auth_context(), document_id="doc-123456", artifact_id="structured"
     )
 
 def test_download_missing_artifact_id():
@@ -106,4 +111,3 @@ def test_download_and_result_resolve_to_same_contract(mock_svc):
     
     # Prove they return identical valid bodies mapped to the same S3 object 
     assert resp_download_query.json() == resp_download_path.json() == resp_result.json()
-

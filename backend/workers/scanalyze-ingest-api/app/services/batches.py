@@ -8,11 +8,19 @@ import tempfile
 import uuid
 import zipfile
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Generator
+from typing import Any, Dict, List, Optional, Generator, Tuple
 
 from fastapi.responses import StreamingResponse, FileResponse
 from starlette.background import BackgroundTask
 
+from ..auth import AuthContext
+from ..authorization import (
+    ObjectAction,
+    ObjectOwnership,
+    authorize_batch,
+    authorize_batch_membership,
+    authorize_document,
+)
 from ..aws_clients import s3_client
 from ..repositories.batches import BatchesRepository
 from ..repositories.documents import DocumentsRepository
@@ -41,7 +49,17 @@ class BatchesService:
         self.s3 = s3_client()
         self.logger = get_logger()
 
-    def create_batch(self, tenant: str, subject: Optional[str], email: Optional[str], name: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def create_batch(
+        self,
+        auth: AuthContext,
+        subject: Optional[str],
+        email: Optional[str],
+        name: Optional[str],
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        ownership = ObjectOwnership.from_auth(auth)
+        authorize_batch(auth, ownership.record_fields(), ObjectAction.WRITE)
+        tenant = ownership.customer_id
         batch_id = uuid.uuid4().hex
         bind_context(batchId=batch_id, tenant=tenant)
         
@@ -50,6 +68,7 @@ class BatchesService:
             "batch_id": batch_id,
             "batchId": batch_id,
             "tenantId": tenant,
+            **ownership.record_fields(),
             "createdAt": now,
             "status": "OPEN",
             "metadata": metadata,
@@ -63,20 +82,64 @@ class BatchesService:
         if name:
             item["createdByDisplayName"] = name
             
-        self.repo.create_batch(item)
+        self.repo.create_batch(item, ownership=ownership)
         return item
 
-    def get_batch(self, tenant: str, batch_id: str) -> Dict[str, Any]:
-        bind_context(batchId=batch_id, tenant=tenant)
+    def _load_batch(
+        self,
+        auth: AuthContext,
+        batch_id: str,
+        action: ObjectAction,
+    ) -> Tuple[Dict[str, Any], ObjectOwnership]:
         batch = self.repo.get_batch(batch_id)
-        if not batch:
+        ownership = authorize_batch(auth, batch, action)
+        return batch, ownership
+
+    def _load_batch_documents(
+        self,
+        auth: AuthContext,
+        batch: Dict[str, Any],
+        ownership: ObjectOwnership,
+        action: ObjectAction,
+    ) -> List[Dict[str, Any]]:
+        batch_id = batch.get("batchId")
+        if not isinstance(batch_id, str) or not batch_id:
             raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
-        
-        if batch.get("tenantId") and batch.get("tenantId") != tenant:
-            raise AppError(code="FORBIDDEN", message="Batch does not belong to tenant", status_code=403, details={})
-            
+        sparse_docs = self.docs_repo.get_documents_by_batch(
+            batch_id,
+            ownership=ownership,
+        )
+        authorize_batch_membership(auth, batch, sparse_docs, action)
+
+        full_docs: List[Dict[str, Any]] = []
+        for sparse in sparse_docs:
+            doc_id = sparse.get("documentId")
+            if not isinstance(doc_id, str) or not doc_id:
+                raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
+            full = self.docs_repo.get_document(doc_id)
+            if not full:
+                raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
+            try:
+                authorize_document(auth, full, action)
+            except AppError:
+                raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
+            if full.get("batchId") != batch_id:
+                raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
+            full_docs.append(full)
+        authorize_batch_membership(auth, batch, full_docs, action)
+        return full_docs
+
+    def get_batch(self, auth: AuthContext, batch_id: str) -> Dict[str, Any]:
+        tenant = auth.customer_id
+        bind_context(batchId=batch_id, tenant=tenant)
+        batch, ownership = self._load_batch(auth, batch_id, ObjectAction.READ)
         # Compute counters and aggregated status
-        docs = self.docs_repo.get_documents_by_batch(batch_id)
+        docs = self._load_batch_documents(
+            auth,
+            batch,
+            ownership,
+            ObjectAction.READ,
+        )
         counters = {}
         for d in docs:
             st = d.get("status") or "UNKNOWN"
@@ -102,52 +165,51 @@ class BatchesService:
                 
         return batch
 
-    def get_batch_documents(self, tenant: str, batch_id: str) -> List[Dict[str, Any]]:
+    def get_batch_documents(self, auth: AuthContext, batch_id: str) -> List[Dict[str, Any]]:
+        tenant = auth.customer_id
         bind_context(batchId=batch_id, tenant=tenant)
-        # Verify batch exists and belongs to tenant
-        batch = self.repo.get_batch(batch_id)
-        if not batch or batch.get("tenantId") != tenant:
-            raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
-        
-        docs = self.docs_repo.get_documents_by_batch(batch_id)
-        
+        batch, ownership = self._load_batch(auth, batch_id, ObjectAction.READ)
+        docs = self._load_batch_documents(
+            auth,
+            batch,
+            ownership,
+            ObjectAction.READ,
+        )
         result = []
-        for d in docs:
-            doc_id = d.get("documentId")
-            if not doc_id: continue
-            
-            # Fetch full document to ensure createdAt and input payload are intact
-            full_doc = self.docs_repo.get_document(doc_id)
-            if not full_doc: continue
-            
+        for full_doc in docs:
+            doc_id = full_doc.get("documentId")
+            input_info = full_doc.get("input") or {}
             result.append({
                 "documentId": doc_id,
                 "status": full_doc.get("status"),
                 "createdAt": full_doc.get("createdAt") or full_doc.get("created_at") or _utc_now_iso(),
-                "input": full_doc.get("input", {})
+                "input": {
+                    "filename": input_info.get("filename"),
+                    "contentType": input_info.get("contentType"),
+                },
             })
         return result
 
-    def _iter_full_documents(self, batch_id: str) -> Generator[Dict[str, Any], None, None]:
-        docs = self.docs_repo.get_documents_by_batch(batch_id)
-        for d in docs:
-            doc_id = d.get("documentId")
-            if not doc_id:
-                continue
-            full = self.docs_repo.get_document(doc_id)
-            if full:
-                yield full
-
-    def export_manifest(self, tenant: str, batch_id: str) -> Dict[str, Any]:
+    def _build_manifest(
+        self,
+        auth: AuthContext,
+        batch_id: str,
+    ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+        tenant = auth.customer_id
         bind_context(batchId=batch_id, tenant=tenant)
-        batch = self.repo.get_batch(batch_id)
-        if not batch or batch.get("tenantId") != tenant:
-            raise AppError(code="NOT_FOUND", message="Batch not found", status_code=404, details={})
+        batch, ownership = self._load_batch(auth, batch_id, ObjectAction.EXPORT)
+        full_docs = self._load_batch_documents(
+            auth,
+            batch,
+            ownership,
+            ObjectAction.EXPORT,
+        )
 
         summary = {"total": 0, "completed": 0, "failed": 0, "pending": 0}
         documents = []
+        auth_ownership = ObjectOwnership.from_auth(auth)
 
-        for doc in self._iter_full_documents(batch_id):
+        for doc in full_docs:
             st = doc.get("status", "UNKNOWN")
             summary["total"] += 1
             if st in ("COMPLETED", "SUCCESS"):
@@ -161,6 +223,12 @@ class BatchesService:
             artifacts_dict = doc.get("artifacts", {})
             for alias, info in artifacts_dict.items():
                 if info.get("bucket") and info.get("key"):
+                    self.doc_service._validate_artifact_locator(
+                        auth_ownership,
+                        doc["documentId"],
+                        info.get("bucket"),
+                        info.get("key"),
+                    )
                     refs.append({
                         "artifactType": alias,
                         "fileName": info.get("key").split("/")[-1],
@@ -195,16 +263,21 @@ class BatchesService:
                 "errorMessage": err_msg
             })
 
-        return {
+        manifest = {
             "manifestVersion": "1.0",
             "batchId": batch_id,
             "generatedAt": _utc_now_iso(),
             "summary": summary,
             "documents": documents
         }
+        return manifest, {doc["documentId"]: doc for doc in full_docs}
 
-    def export_json(self, tenant: str, batch_id: str) -> StreamingResponse:
-        manifest = self.export_manifest(tenant, batch_id)
+    def export_manifest(self, auth: AuthContext, batch_id: str) -> Dict[str, Any]:
+        manifest, _documents = self._build_manifest(auth, batch_id)
+        return manifest
+
+    def export_json(self, auth: AuthContext, batch_id: str) -> StreamingResponse:
+        manifest, authorized_documents = self._build_manifest(auth, batch_id)
 
         def stream_generator() -> Generator[str, None, None]:
             yield "{\n"
@@ -224,13 +297,19 @@ class BatchesService:
                 result_payload = None
 
                 if doc_meta["status"] == "COMPLETED":
-                    full_doc = self.docs_repo.get_document(doc_meta["documentId"])
+                    full_doc = authorized_documents.get(doc_meta["documentId"])
                     if full_doc:
                         try:
-                            bucket, key, _alias = self.doc_service._resolve_final_artifact(full_doc)
+                            bucket, key, _alias = self.doc_service.get_trusted_artifact_locator(
+                                auth,
+                                full_doc,
+                                "final",
+                            )
                             s3_resp = self.s3.get_object(Bucket=bucket, Key=key)
                             body_str = s3_resp["Body"].read().decode("utf-8")
                             result_payload = _normalize_nulls(json.loads(body_str))
+                        except AppError:
+                            raise
                         except Exception as e:
                             self.logger.warning("export_json_artifact_fetch_failed", errorType=type(e).__name__)
                             result_payload = {"error": "Failed to load result blob"}
@@ -242,8 +321,8 @@ class BatchesService:
 
         return StreamingResponse(stream_generator(), media_type="application/json")
 
-    def export_csv(self, tenant: str, batch_id: str) -> StreamingResponse:
-        manifest = self.export_manifest(tenant, batch_id)
+    def export_csv(self, auth: AuthContext, batch_id: str) -> StreamingResponse:
+        manifest, _authorized_documents = self._build_manifest(auth, batch_id)
 
         def stream_generator() -> Generator[str, None, None]:
             output = io.StringIO()
@@ -280,8 +359,8 @@ class BatchesService:
 
         return StreamingResponse(stream_generator(), media_type="text/csv; charset=utf-8")
 
-    def export_zip(self, tenant: str, batch_id: str) -> FileResponse:
-        manifest = self.export_manifest(tenant, batch_id)
+    def export_zip(self, auth: AuthContext, batch_id: str) -> FileResponse:
+        manifest, authorized_documents = self._build_manifest(auth, batch_id)
         
         # Build CSV and JSON synchronously for the ZIP to save time
         # (This momentarily keeps data in memory or /tmp, but it's isolated per request)
@@ -331,10 +410,14 @@ class BatchesService:
                     ])
 
                     if doc_meta["status"] == "COMPLETED":
-                        full_doc = self.docs_repo.get_document(doc_meta["documentId"])
+                        full_doc = authorized_documents.get(doc_meta["documentId"])
                         if full_doc:
                             try:
-                                bucket, key, _alias = self.doc_service._resolve_final_artifact(full_doc)
+                                bucket, key, _alias = self.doc_service.get_trusted_artifact_locator(
+                                    auth,
+                                    full_doc,
+                                    "final",
+                                )
                                 s3_resp = self.s3.get_object(Bucket=bucket, Key=key)
                                 body_bytes = s3_resp["Body"].read()
                                 result_payload = _normalize_nulls(json.loads(body_bytes.decode("utf-8")))
@@ -342,6 +425,8 @@ class BatchesService:
                                 # Export raw normalized file to ZIP
                                 zf.writestr(f"documents/{doc_meta['documentId']}/result.json", json.dumps(result_payload))
                                 
+                            except AppError:
+                                raise
                             except Exception as e:
                                 self.logger.warning("export_zip_artifact_fetch_failed", errorType=type(e).__name__)
                                 result_payload = {"error": "Failed to load result blob"}
@@ -366,6 +451,9 @@ class BatchesService:
                 background=BackgroundTask(cleanup)
             )
 
+        except AppError:
+            cleanup()
+            raise
         except Exception:
             cleanup()
             raise AppError(code="INTERNAL_ERROR", message="Failed to build ZIP export", status_code=500, details={})

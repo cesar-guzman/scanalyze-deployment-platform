@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from botocore.exceptions import ClientError
 
 from ..aws_clients import dynamodb_client, dynamodb_resource
+from ..authorization import ObjectOwnership
 from ..config import get_settings
 from ..errors import AppError
 from ..logging import get_logger
@@ -86,10 +87,21 @@ class DocumentsRepository:
 
         return key
 
-    def create_document(self, item: Dict[str, Any]) -> None:
+    def create_document(
+        self,
+        item: Dict[str, Any],
+        *,
+        ownership: ObjectOwnership,
+    ) -> None:
         self._ensure_ready()
         assert self.table is not None
         assert self.schema is not None
+
+        item = dict(item)
+        item.update(ownership.record_fields())
+        batch_id = item.get("batchId")
+        if batch_id is not None:
+            item["ownership_batch_key"] = ownership.batch_partition(batch_id)
 
         # Condición: no sobrescribir
         condition = "attribute_not_exists(#pk)"
@@ -116,7 +128,14 @@ class DocumentsRepository:
         resp = self.table.get_item(Key=key)
         return resp.get("Item")
 
-    def set_stage_enqueue_pending(self, document_id: str, stage: str, enqueue_id: str) -> bool:
+    def set_stage_enqueue_pending(
+        self,
+        document_id: str,
+        stage: str,
+        enqueue_id: str,
+        *,
+        ownership: ObjectOwnership,
+    ) -> bool:
         """
         Idempotencia por stage:
         - Si no existe enqueuedAt, permite.
@@ -135,6 +154,10 @@ class DocumentsRepository:
 
         # Dynamo expressions
         expr_names = {
+            "#pk": self.schema.pk_name if self.schema else "documentId",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_schema_version": "ownership_schema_version",
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
@@ -144,6 +167,9 @@ class DocumentsRepository:
         }
 
         expr_values = {
+            ":customer_id": ownership.customer_id,
+            ":deployment_id": ownership.deployment_id,
+            ":ownership_schema_version": 1,
             ":failed": "ENQUEUE_FAILED",
             ":now": now,
             ":docSubmitted": "SUBMITTED",
@@ -155,7 +181,17 @@ class DocumentsRepository:
         }
 
         # condition: attribute_not_exists(stages.stage.enqueuedAt) OR stages.stage.status == ENQUEUE_FAILED
-        condition = "attribute_not_exists(#stages.#stage.#enqueuedAt) OR #stages.#stage.#status = :failed"
+        transition_condition = (
+            "attribute_not_exists(#stages.#stage.#enqueuedAt) "
+            "OR #stages.#stage.#status = :failed"
+        )
+        condition = (
+            "attribute_exists(#pk) AND "
+            "#customer_id = :customer_id AND "
+            "#deployment_id = :deployment_id AND "
+            "#ownership_schema_version = :ownership_schema_version AND "
+            f"({transition_condition})"
+        )
 
         update = (
             "SET #stages.#stage = :stageData, "
@@ -178,7 +214,15 @@ class DocumentsRepository:
                 return False
             raise
 
-    def set_stage_enqueued(self, document_id: str, stage: str, queue_url: str, message_id: str) -> None:
+    def set_stage_enqueued(
+        self,
+        document_id: str,
+        stage: str,
+        queue_url: str,
+        message_id: str,
+        *,
+        ownership: ObjectOwnership,
+    ) -> None:
         self._ensure_ready()
         assert self.table is not None
 
@@ -186,6 +230,10 @@ class DocumentsRepository:
         key = self._key_for(document_id)
 
         expr_names = {
+            "#pk": self.schema.pk_name if self.schema else "documentId",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_schema_version": "ownership_schema_version",
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
@@ -194,6 +242,9 @@ class DocumentsRepository:
             "#updatedAt": "updatedAt",
         }
         expr_values = {
+            ":customer_id": ownership.customer_id,
+            ":deployment_id": ownership.deployment_id,
+            ":ownership_schema_version": 1,
             ":enqueued": "ENQUEUED",
             ":queueUrl": queue_url,
             ":mid": message_id,
@@ -207,14 +258,38 @@ class DocumentsRepository:
             "#updatedAt = :now"
         )
 
-        self.table.update_item(
-            Key=key,
-            UpdateExpression=update,
-            ExpressionAttributeNames=expr_names,
-            ExpressionAttributeValues=expr_values,
-        )
+        try:
+            self.table.update_item(
+                Key=key,
+                ConditionExpression=(
+                    "attribute_exists(#pk) AND "
+                    "#customer_id = :customer_id AND "
+                    "#deployment_id = :deployment_id AND "
+                    "#ownership_schema_version = :ownership_schema_version"
+                ),
+                UpdateExpression=update,
+                ExpressionAttributeNames=expr_names,
+                ExpressionAttributeValues=expr_values,
+            )
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise AppError(
+                    code="NOT_FOUND",
+                    message="Document not found",
+                    status_code=404,
+                    details={},
+                )
+            raise
 
-    def set_stage_enqueue_failed(self, document_id: str, stage: str, error_code: str, error_message: str) -> None:
+    def set_stage_enqueue_failed(
+        self,
+        document_id: str,
+        stage: str,
+        error_code: str,
+        error_message: str,
+        *,
+        ownership: ObjectOwnership,
+    ) -> None:
         self._ensure_ready()
         assert self.table is not None
 
@@ -222,6 +297,10 @@ class DocumentsRepository:
         key = self._key_for(document_id)
 
         expr_names = {
+            "#pk": self.schema.pk_name if self.schema else "documentId",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_schema_version": "ownership_schema_version",
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
@@ -230,6 +309,9 @@ class DocumentsRepository:
             "#updatedAt": "updatedAt",
         }
         expr_values = {
+            ":customer_id": ownership.customer_id,
+            ":deployment_id": ownership.deployment_id,
+            ":ownership_schema_version": 1,
             ":failed": "ENQUEUE_FAILED",
             ":code": error_code,
             ":msg": error_message,
@@ -243,33 +325,96 @@ class DocumentsRepository:
             "#updatedAt = :now"
         )
 
-        self.table.update_item(
-            Key=key,
-            UpdateExpression=update,
-            ExpressionAttributeNames=expr_names,
-            ExpressionAttributeValues=expr_values,
-        )
+        try:
+            self.table.update_item(
+                Key=key,
+                ConditionExpression=(
+                    "attribute_exists(#pk) AND "
+                    "#customer_id = :customer_id AND "
+                    "#deployment_id = :deployment_id AND "
+                    "#ownership_schema_version = :ownership_schema_version"
+                ),
+                UpdateExpression=update,
+                ExpressionAttributeNames=expr_names,
+                ExpressionAttributeValues=expr_values,
+            )
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise AppError(
+                    code="NOT_FOUND",
+                    message="Document not found",
+                    status_code=404,
+                    details={},
+                )
+            raise
 
-    def get_documents_by_batch(self, batch_id: str) -> List[Dict[str, Any]]:
+    def get_documents_by_batch(
+        self,
+        batch_id: str,
+        *,
+        ownership: ObjectOwnership,
+    ) -> List[Dict[str, Any]]:
         self._ensure_ready()
         assert self.table is not None
 
+        query_kwargs: Dict[str, Any] = {
+            "IndexName": "BatchOwnershipIndex",
+            "KeyConditionExpression": "#ownership_batch_key = :ownership_batch_key",
+            "ExpressionAttributeNames": {
+                "#ownership_batch_key": "ownership_batch_key",
+            },
+            "ExpressionAttributeValues": {
+                ":ownership_batch_key": ownership.batch_partition(batch_id),
+            },
+        }
+        items: List[Dict[str, Any]] = []
         try:
-            resp = self.table.query(
-                IndexName="BatchIndex",
-                KeyConditionExpression="#batchId = :batchId",
-                ExpressionAttributeNames={"#batchId": "batchId"},
-                ExpressionAttributeValues={":batchId": batch_id}
-            )
-            items = resp.get("Items", [])
-            
-            # Resolve documentId from document_id (if not fully projected)
-            for it in items:
-                if "documentId" not in it and "document_id" in it:
-                    it["documentId"] = it["document_id"]
-                    
+            while True:
+                resp = self.table.query(**query_kwargs)
+                items.extend(resp.get("Items", []))
+                last_key = resp.get("LastEvaluatedKey")
+                if not last_key:
+                    break
+                query_kwargs["ExclusiveStartKey"] = last_key
+
+            for item in items:
+                if "documentId" not in item and "document_id" in item:
+                    item["documentId"] = item["document_id"]
             return items
-            
         except ClientError as e:
             self.logger.error("query_batch_index_failed", errorType=type(e).__name__)
             raise AppError(code="QUERY_FAILED", message="Failed to query batch documents", status_code=500, details={})
+
+    def list_owned_documents(
+        self,
+        *,
+        ownership: ObjectOwnership,
+    ) -> List[Dict[str, Any]]:
+        """Query the exact ownership partition; protected table scans are forbidden."""
+
+        self._ensure_ready()
+        assert self.table is not None
+        query_kwargs: Dict[str, Any] = {
+            "IndexName": "OwnershipIndex",
+            "KeyConditionExpression": "#ownership_key = :ownership_key",
+            "ExpressionAttributeNames": {"#ownership_key": "ownership_key"},
+            "ExpressionAttributeValues": {":ownership_key": ownership.partition},
+        }
+        items: List[Dict[str, Any]] = []
+        try:
+            while True:
+                response = self.table.query(**query_kwargs)
+                items.extend(response.get("Items", []))
+                last_key = response.get("LastEvaluatedKey")
+                if not last_key:
+                    break
+                query_kwargs["ExclusiveStartKey"] = last_key
+            return items
+        except ClientError as exc:
+            self.logger.error("query_ownership_index_failed", errorType=type(exc).__name__)
+            raise AppError(
+                code="QUERY_FAILED",
+                message="Failed to query documents",
+                status_code=500,
+                details={},
+            )
