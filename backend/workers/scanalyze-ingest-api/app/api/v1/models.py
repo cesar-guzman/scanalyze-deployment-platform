@@ -1,15 +1,42 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+_NORMALIZED_IDENTITY_AUTHORITY_FIELDS = frozenset({
+    "customerid",
+    "deploymentid",
+    "tenantid",
+    "xtenantid",
+})
+
+
+class _IdentitySafeRequestModel(BaseModel):
+    """Reject identity authority while preserving unrelated extension fields."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_identity_authority(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            normalized_keys = {
+                key.replace("_", "").replace("-", "").lower()
+                for key in value
+                if isinstance(key, str)
+            }
+            if _NORMALIZED_IDENTITY_AUTHORITY_FIELDS.intersection(normalized_keys):
+                raise ValueError("Request payload must not contain identity authority fields")
+        return value
+
 
 class ErrorEnvelope(BaseModel):
     code: str
     message: str
     details: Dict[str, Any] = Field(default_factory=dict)
 
-class CreateDocumentRequest(BaseModel):
+class CreateDocumentRequest(_IdentitySafeRequestModel):
     filename: Optional[str] = Field(default=None, description="Original filename (optional)")
     contentType: str = Field(..., description="MIME type, e.g. application/pdf")
     contentLength: Optional[int] = Field(default=None, ge=0, description="Bytes (optional)")
@@ -22,7 +49,7 @@ class CreateDocumentResponse(BaseModel):
     uploadMethod: str = "PUT"
     requiredHeaders: Dict[str, str] = Field(default_factory=dict)
 
-class SubmitDocumentRequest(BaseModel):
+class SubmitDocumentRequest(_IdentitySafeRequestModel):
     stage: Optional[str] = Field(default=None, description="Override FIRST_STAGE (optional)")
 
 class SubmitDocumentResponse(BaseModel):
@@ -44,7 +71,7 @@ class DocumentStatusResponse(BaseModel):
     input: Dict[str, Any] = Field(default_factory=dict)
     stages: Dict[str, Any] = Field(default_factory=dict)
 
-class BatchCreateRequest(BaseModel):
+class BatchCreateRequest(_IdentitySafeRequestModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the batch")
 
 class BatchResponse(BaseModel):

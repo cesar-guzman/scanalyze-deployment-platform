@@ -31,6 +31,9 @@ Para responder una pregunta arquitectónica:
 | ADR-009 | Threat model | **DRAFT rev3** | Es una amenaza/base de control, no una certificación. |
 | ADR-010 | Testing y rollout | **DRAFT rev3** | Las gates implementadas son las del código y Makefile actuales. |
 | ADR-011 | Fuente monorepo | **Accepted** | GitHub monorepo es source canónico; ECR recibe imágenes, no source. |
+| ADR-015 | Identity contract v1 | **Accepted / legacy** | Conserva semántica v1; no reinterpretar slugs como IDs v2. |
+| ADR-019 | Production-readiness foundation | **Accepted** | Define gates y evidencia; no constituye aprobación productiva. |
+| ADR-020 | Binding M2M versionado | **Accepted** | Customer, deployment, client y scopes se vinculan en v2; live enablement sigue bloqueado. |
 
 ## Decisiones que gobiernan el cambio de monorepo
 
@@ -94,6 +97,7 @@ legado no lo convierte en canónico.
 | Supply chain SLSA/signing/SBOM/provenance completa | **Target** |
 | Multi-region y DR probados | **Target** |
 | Frontend config e identidad para onboarding | **Blocked** |
+| Binding M2M v2 en repositorio | **Implemented** sólo en el commit revisado; requiere gates locales y no es evidencia live |
 
 ## Reglas para propuestas nuevas
 
@@ -118,3 +122,4 @@ Una propuesta debe rechazarse o marcarse **Blocked** cuando:
 - [ADR-009: threat model](../ADR/ADR-009-threat-model.md)
 - [ADR-010: testing and rollout](../ADR/ADR-010-testing-rollout.md)
 - [ADR-011: monorepo source](../ADR/ADR-011-monorepo-microservices-source.md)
+- [ADR-020: versioned M2M identity binding](../ADR/ADR-020-versioned-m2m-identity-binding.md)

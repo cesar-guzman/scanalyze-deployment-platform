@@ -2,7 +2,7 @@
 
 Tests cover:
   - JWT without signature verification is rejected
-  - X-Tenant-Id header is ignored in protected routes
+  - X-Tenant-Id header is rejected in protected routes
   - Fallback "default" tenant is prohibited
   - Cross-tenant access is blocked
   - M2M client_credentials without tenant claim fails closed
@@ -38,9 +38,13 @@ def _make_settings(**overrides: Any) -> MagicMock:
         "tenant_claim_name": "custom:customerId",
         "m2m_tenant_resolution": "disabled",
         "m2m_client_tenant_map": None,
+        "m2m_client_identity_bindings_v1": None,
+        "m2m_action_scope_sets_v1": None,
+        "deployment_claim_name": "custom:deployment_id",
         "local_mock_tenant_id": None,
         "local_mock_subject": "local-dev-user",
         "scanalyze_deployment_customer_id": None,
+        "scanalyze_deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     }
     defaults.update(overrides)
     mock = MagicMock()
@@ -61,6 +65,7 @@ def _fake_jwt_claims(**overrides: Any) -> Dict[str, Any]:
         "exp": now + 3600,
         "iat": now,
         "custom:customerId": "tenant-alpha",
+        "cognito:username": "user-abc-123",
         "email": "user@example.com",
         "name": "Test User",
     }
@@ -272,14 +277,16 @@ class TestTenantResolution:
         assert ctx.auth_source == "cognito_jwt"
 
     @patch("app.auth._verify_cognito_jwt")
-    def test_x_tenant_id_ignored_when_jwt_has_tenant(self, mock_verify):
-        """P0-001 core: X-Tenant-Id: tenant-b + JWT tenant=tenant-a → uses tenant-a"""
+    def test_x_tenant_id_rejected_when_jwt_has_tenant(self, mock_verify):
+        """Identity-bearing legacy headers are rejected rather than ignored."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
         mock_verify.return_value = _fake_jwt_claims(**{"custom:customerId": "tenant-a"})
         settings = _make_settings()
 
-        ctx = _resolve_cognito_auth("token", settings, legacy_tenant_header="tenant-b", request_path="/test")
-        assert ctx.tenant_id == "tenant-a"
+        with pytest.raises(AppError) as captured:
+            _resolve_cognito_auth("token", settings, legacy_tenant_header="tenant-b", request_path="/test")
+        assert captured.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
     def test_missing_tenant_claim_fails_403(self, mock_verify):
@@ -324,6 +331,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="m2m-client-id")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -341,6 +349,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="unknown-m2m-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -355,12 +364,14 @@ class TestM2MTenantResolution:
         assert exc.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
-    def test_m2m_mapped_client_id_resolves_tenant(self, mock_verify):
-        """M2M token, client_id in map → resolves to mapped tenant"""
+    def test_legacy_m2m_customer_only_map_is_rejected(self, mock_verify):
+        """Legacy client_id_map cannot authorize a machine principal."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
 
         claims = _fake_jwt_claims(token_use="access", client_id="mapped-m2m-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -370,9 +381,9 @@ class TestM2MTenantResolution:
             m2m_client_tenant_map={"mapped-m2m-client": "tenant-from-map"},
         )
 
-        ctx = _resolve_cognito_auth("token", settings, None, "/test")
-        assert ctx.tenant_id == "tenant-from-map"
-        assert ctx.auth_source == "m2m_client_map"
+        with pytest.raises(AppError) as captured:
+            _resolve_cognito_auth("token", settings, None, "/test")
+        assert captured.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
     def test_m2m_mapped_to_default_tenant_rejected(self, mock_verify):
@@ -382,6 +393,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="bad-map-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims

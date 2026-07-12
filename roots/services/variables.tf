@@ -1,9 +1,21 @@
 variable "deployment_id" {
   type        = string
   description = "Unique deployment identifier (ULID with dep_ prefix)"
+  nullable    = false
   validation {
     condition     = can(regex("^dep_[0-9A-HJKMNP-TV-Z]{26}$", var.deployment_id))
     error_message = "deployment_id must match ^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+  }
+}
+
+variable "customer_id" {
+  type        = string
+  description = "Immutable customer identifier resolved from the deployment record"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^cust_[0-9A-HJKMNP-TV-Z]{26}$", var.customer_id))
+    error_message = "customer_id must match ^cust_[0-9A-HJKMNP-TV-Z]{26}$"
   }
 }
 
@@ -108,4 +120,26 @@ variable "service_definitions" {
     })), [])
   }))
   description = "Service definitions for ECS tasks (Terraform sole owner)"
+
+  validation {
+    condition = alltrue([
+      for svc in var.service_definitions :
+      length(distinct([for item in svc.extra_environment : upper(item.name)])) == length(svc.extra_environment)
+    ])
+    error_message = "extra_environment variable names must be case-insensitively unique within each service definition"
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for svc in var.service_definitions : [
+        for item in svc.extra_environment : !contains([
+          "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+          "SCANALYZE_DEPLOYMENT_ID",
+          "AWS_REGION",
+          "RELEASE_VERSION",
+        ], upper(item.name))
+      ]
+    ]))
+    error_message = "extra_environment cannot override Terraform-owned identity or release variables"
+  }
 }

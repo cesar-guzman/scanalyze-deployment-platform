@@ -4,7 +4,8 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Query, status
 
-from ...auth import AuthContext, get_auth_context
+from ...auth import AuthContext
+from ...authorization import require_export_access, require_read_access
 from ...logging import bind_context
 from ...services.analytics import AnalyticsService
 
@@ -23,7 +24,7 @@ def get_dashboard(
     docType: str = Query(None, alias="docType"),
     batchId: str = Query(None, alias="batchId"),
     status: str = Query(None, alias="status"),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
@@ -41,7 +42,7 @@ def get_dashboard(
     response_model=Dict[str, Any],
 )
 def get_overview(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
@@ -52,7 +53,7 @@ def get_overview(
     response_model=List[Dict[str, Any]],
 )
 def get_by_user(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
@@ -63,7 +64,7 @@ def get_by_user(
     response_model=List[Dict[str, Any]],
 )
 def get_by_day(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
@@ -74,7 +75,7 @@ def get_by_day(
     response_model=List[Dict[str, Any]],
 )
 def get_by_batch(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
@@ -85,7 +86,7 @@ def get_by_batch(
     response_model=List[Dict[str, Any]],
 )
 def get_by_doc_type(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> List[Dict[str, Any]]:
     bind_context(tenant=auth.tenant)
@@ -96,7 +97,7 @@ def get_by_doc_type(
     response_model=Dict[str, Any],
 )
 def get_costs_dashboard(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: AnalyticsService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
@@ -115,7 +116,7 @@ def export_ine(
     startDate: str = Query(None, alias="startDate"),
     endDate: str = Query(None, alias="endDate"),
     userId: str = Query(None, alias="userId"),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: AnalyticsService = Depends(_svc),
 ):
     bind_context(tenant=auth.tenant)

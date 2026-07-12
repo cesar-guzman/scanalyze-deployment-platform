@@ -9,6 +9,7 @@ import json
 import sys
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 try:
@@ -27,6 +28,19 @@ def load_json(path: Path) -> dict:
 
 def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None:
     """Map a fixture filename to its schema."""
+    # Additive versioned schemas must be selected before the legacy prefix
+    # mappings below. For example, task-definition-v2-* must never fall back to
+    # task-definition-input.v1.schema.json.
+    versioned_mappings = {
+        "identity-contract": "identity-contract.v{version}.schema.json",
+        "task-definition": "task-definition-input.v{version}.schema.json",
+    }
+    for prefix, template in versioned_mappings.items():
+        match = re.match(rf"^{re.escape(prefix)}-v([0-9]+)(?:-|$)", fixture_name)
+        if match:
+            schema_path = schemas_dir / template.format(version=match.group(1))
+            return schema_path if schema_path.exists() else None
+
     # Direct mapping rules
     mappings = {
         "account-ready": "account-ready.v1.schema.json",
@@ -57,6 +71,167 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
     return None
 
 
+def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
+    """Validate cross-field invariants not expressible in Draft 2020-12.
+
+    Messages intentionally name fields without echoing rejected identity values.
+    JSON Schema remains the first validation layer; this function only evaluates
+    well-shaped portions that are present.
+    """
+    errors: list[str] = []
+    schema_name = schema_path.name
+
+    if schema_name == "identity-contract.v2.schema.json":
+        expected_customer = instance.get("customer_id")
+        expected_deployment = instance.get("deployment_id")
+        cognito = instance.get("cognito")
+        declared_clients = (
+            cognito.get("m2m_client_ids", []) if isinstance(cognito, dict) else []
+        )
+        action_scope_sets_raw = instance.get("action_scope_sets")
+        action_scope_sets = (
+            {
+                action: set(scopes)
+                for action, scopes in action_scope_sets_raw.items()
+                if isinstance(action, str)
+                and isinstance(scopes, list)
+                and all(isinstance(scope, str) for scope in scopes)
+            }
+            if isinstance(action_scope_sets_raw, dict)
+            else {}
+        )
+        action_names = ("read", "write", "admin")
+        for index, action in enumerate(action_names):
+            for other_action in action_names[index + 1:]:
+                if action_scope_sets.get(action, set()) & action_scope_sets.get(
+                    other_action, set()
+                ):
+                    errors.append("action_scope_sets must be pairwise disjoint")
+        scope_universe = (
+            set().union(*action_scope_sets.values())
+            if action_scope_sets
+            else set()
+        )
+
+        bindings = instance.get("m2m_bindings", [])
+        if isinstance(bindings, list):
+            bound_clients: list[str] = []
+            for binding in bindings:
+                if not isinstance(binding, dict):
+                    continue
+                client_id = binding.get("client_id")
+                if isinstance(client_id, str):
+                    bound_clients.append(client_id)
+                if binding.get("customer_id") != expected_customer:
+                    errors.append(
+                        "m2m_bindings.customer_id must match the contract customer_id"
+                    )
+                if binding.get("deployment_id") != expected_deployment:
+                    errors.append(
+                        "m2m_bindings.deployment_id must match the contract deployment_id"
+                    )
+                required_scopes_raw = binding.get("required_scopes", [])
+                required_scopes = (
+                    set(required_scopes_raw)
+                    if isinstance(required_scopes_raw, list)
+                    and all(isinstance(scope, str) for scope in required_scopes_raw)
+                    else set()
+                )
+                if not required_scopes <= scope_universe:
+                    errors.append(
+                        "m2m_bindings.required_scopes must be within the action scope universe"
+                    )
+                granted_actions = 0
+                for action in action_names:
+                    action_scopes = action_scope_sets.get(action, set())
+                    selected = required_scopes & action_scopes
+                    if selected and selected != action_scopes:
+                        errors.append(
+                            "m2m_bindings must grant each action scope set all-or-none"
+                        )
+                    if action_scopes and action_scopes <= required_scopes:
+                        granted_actions += 1
+                if granted_actions == 0:
+                    errors.append("each m2m binding must grant at least one action")
+
+            duplicate_clients = [
+                client_id
+                for client_id, count in Counter(bound_clients).items()
+                if count > 1
+            ]
+            if duplicate_clients:
+                errors.append("m2m_bindings client_id values must be unique")
+            if set(bound_clients) != set(declared_clients):
+                errors.append(
+                    "m2m_bindings must cover each declared m2m_client_id exactly once"
+                )
+
+    if schema_name == "task-definition-input.v2.schema.json":
+        environment = instance.get("environment", [])
+        entries = [entry for entry in environment if isinstance(entry, dict)]
+        names = [entry.get("name") for entry in entries]
+        normalized_names = [
+            name.upper() for name in names if isinstance(name, str)
+        ]
+        counts = Counter(normalized_names)
+        canonical_names = {
+            "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+            "SCANALYZE_DEPLOYMENT_ID",
+        }
+        for canonical_name in (
+            "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+            "SCANALYZE_DEPLOYMENT_ID",
+        ):
+            if counts[canonical_name] != 1:
+                errors.append(
+                    f"environment must contain exactly one {canonical_name} entry"
+                )
+        if any(count > 1 for count in counts.values()):
+            errors.append("environment variable names must be case-insensitively unique")
+        if any(
+            isinstance(name, str)
+            and name.upper() in canonical_names
+            and name != name.upper()
+            for name in names
+        ):
+            errors.append(
+                "canonical environment variable names must use exact uppercase spelling"
+            )
+
+        environment_by_name = {
+            entry.get("name", "").upper(): entry.get("value")
+            for entry in entries
+            if isinstance(entry.get("name"), str)
+        }
+        customer_identity = instance.get("customer_identity")
+        deployment_identity = instance.get("deployment_identity")
+        customer_value = (
+            customer_identity.get("canonical_value")
+            if isinstance(customer_identity, dict)
+            else None
+        )
+        deployment_value = (
+            deployment_identity.get("canonical_value")
+            if isinstance(deployment_identity, dict)
+            else None
+        )
+        if (
+            environment_by_name.get("SCANALYZE_DEPLOYMENT_CUSTOMER_ID")
+            != customer_value
+        ):
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_CUSTOMER_ID must match customer_identity.canonical_value"
+            )
+        if environment_by_name.get("SCANALYZE_DEPLOYMENT_ID") != deployment_value:
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_ID must match deployment_identity.canonical_value"
+            )
+        if customer_value is not None and customer_value == deployment_value:
+            errors.append("customer and deployment canonical values must be distinct")
+
+    return errors
+
+
 def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
     """Validate a fixture against a schema. Returns (passed, message)."""
     fixture = load_json(fixture_path)
@@ -68,6 +243,9 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
     try:
         validator = Draft202012Validator(schema)
         validator.validate(fixture_clean)
+        semantic_errors = validate_semantics(fixture_clean, schema_path)
+        if semantic_errors:
+            return False, f"FAIL: {semantic_errors[0]}"
         return True, "PASS"
     except ValidationError as e:
         return False, f"FAIL: {e.message}"

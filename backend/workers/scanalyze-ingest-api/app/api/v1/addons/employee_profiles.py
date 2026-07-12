@@ -20,7 +20,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import JSONResponse, Response
 
-from ....auth import AuthContext, get_auth_context
+from ....auth import AuthContext
+from ....authorization import (
+    require_export_access,
+    require_read_access,
+    require_write_access,
+)
 from ....logging import bind_context, get_logger
 from ....services.employee_profiles import EmployeeProfileService
 from ....services.employee_profiles_export import export_profile_json, export_profiles_csv
@@ -38,7 +43,7 @@ def _svc() -> EmployeeProfileService:
 # ─────────────────────────────────────────────────
 @router.get("/status")
 def get_feature_status(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """P0.4: Check if employee profiles feature is enabled for this tenant.
@@ -55,7 +60,7 @@ def get_feature_status(
 def export_csv_batch(
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P0.8: Export all profiles for a batch as downloadable CSV.
@@ -97,7 +102,7 @@ def export_csv_batch(
 @router.post("/generate", status_code=202)
 def generate_profiles(
     body: dict,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_write_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Generate employee profiles for a batch.
@@ -137,7 +142,7 @@ def generate_profiles(
 def get_job_status(
     job_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Get generation job status."""
@@ -154,7 +159,7 @@ def list_profiles(
     status: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None, description="Search by name only"),
     limit: int = Query(default=50, ge=1, le=200),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """List employee profiles, filtered by batch/status/name.
@@ -179,7 +184,7 @@ def export_json(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P0.8: Export a single profile as downloadable JSON.
@@ -215,7 +220,7 @@ def export_csv_individual(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P1.4: Export a single profile as downloadable CSV."""
@@ -243,7 +248,7 @@ def export_csv_individual(
 def get_profile(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Get full profile detail. P0.2: No batchId required (direct S3 lookup)."""

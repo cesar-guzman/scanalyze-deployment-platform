@@ -3,6 +3,10 @@
 - **Status**: Accepted
 - **Date**: 2026-07-10
 
+> **Versioning note:** this ADR defines the legacy v1 contract. ADR-020 adds a
+> strict v2 contract for M2M customer/deployment binding without changing v1
+> semantics in place.
+
 ## Context
 
 Scanalyze uses Amazon Cognito for authentication. The mapping between Cognito claims, deployment_id, customer_id, and allowed domains was implicit. Cross-deployment and cross-account access were not explicitly prevented by contract.

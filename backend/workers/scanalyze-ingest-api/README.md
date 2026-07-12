@@ -27,7 +27,40 @@ Otros:
 - `DOWNLOAD_URL_TTL_SECONDS` (default 600)
 - `FIRST_STAGE` (default `ocr`)
 - `S3_KEY_PREFIX_TEMPLATE` (default `{tenant}/{document_id}/`)
-- `ENFORCE_AUTH_HEADER` (default false) para exigir Authorization incluso si el auth lo hace APIGW.
+
+### Identidad y autenticación
+
+Las rutas protegidas usan `AUTH_MODE=cognito_jwt`. La API verifica firma,
+issuer, token type y client/audience; nunca toma customer o deployment de un
+header, query parameter o payload. `ENFORCE_AUTH_HEADER` y `X-Tenant-Id` son
+interfaces legacy rechazadas y no deben configurarse.
+
+Toda configuración remota requiere dos identidades distintas:
+
+- `SCANALYZE_DEPLOYMENT_CUSTOMER_ID`
+- `SCANALYZE_DEPLOYMENT_ID`
+
+Un cliente M2M nuevo sólo se habilita mediante:
+
+- `M2M_TENANT_RESOLUTION=client_identity_bindings_v1`
+- `M2M_CLIENT_IDENTITY_BINDINGS_V1`, un objeto versionado que vincula cada
+  client ID con customer, deployment y scopes requeridos.
+- `M2M_ACTION_SCOPE_SETS_V1`, un objeto versionado con conjuntos exactos,
+  no vacíos y disjuntos para `read`, `write` y `admin`.
+
+Las acciones se derivan únicamente de los scopes del binding revisado; scopes
+adicionales presentes sólo en el token no elevan permisos. Cada ruta protegida
+declara una política M2M explícita de lectura, escritura o exportación
+(`read+admin`). Los nombres concretos de scopes proceden de la configuración
+aprobada, no de constantes hardcodeadas.
+
+`M2M_CLIENT_TENANT_MAP` no constituye autorización y no es un fallback. Los
+identificadores y bindings reales deben permanecer fuera de Git, logs y
+evidencia general. Consulte `ADR/ADR-020-versioned-m2m-identity-binding.md` y
+`docs/deployment/identity-contract.md`.
+
+`AUTH_MODE=local_mock` sólo es válido para `APP_ENV=local|test|ci` y usa
+fixtures explícitamente sintéticos.
 
 ## Local run
 ```bash

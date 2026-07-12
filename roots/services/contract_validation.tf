@@ -20,6 +20,14 @@ resource "terraform_data" "contract_gate" {
       error_message = "deployment_id format invalid"
     }
     precondition {
+      condition     = can(regex("^cust_[0-9A-HJKMNP-TV-Z]{26}$", var.customer_id))
+      error_message = "customer_id format invalid"
+    }
+    precondition {
+      condition     = var.customer_id != var.deployment_id
+      error_message = "customer_id and deployment_id must remain distinct"
+    }
+    precondition {
       condition     = can(regex("^[0-9]{12}$", var.account_id))
       error_message = "account_id must be a 12-digit AWS account ID"
     }

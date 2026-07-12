@@ -2,11 +2,91 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_CUSTOMER_ULID_PATTERN = re.compile(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")
+_DEPLOYMENT_ULID_PATTERN = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
+
+
+class M2MClientIdentityBindingV1(BaseModel):
+    """Versioned, deployment-local authority for one machine principal."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    customer_id: str
+    deployment_id: str
+    required_scopes: tuple[str, ...]
+
+    @field_validator("customer_id")
+    @classmethod
+    def _validate_customer_id(cls, value: str) -> str:
+        if not isinstance(value, str) or not _CUSTOMER_ULID_PATTERN.fullmatch(value):
+            raise ValueError("customer_id must match ^cust_[0-9A-HJKMNP-TV-Z]{26}$")
+        return value
+
+    @field_validator("deployment_id")
+    @classmethod
+    def _validate_deployment_id(cls, value: str) -> str:
+        if not isinstance(value, str) or not _DEPLOYMENT_ULID_PATTERN.fullmatch(value):
+            raise ValueError("deployment_id must match ^dep_[0-9A-HJKMNP-TV-Z]{26}$")
+        return value
+
+    @field_validator("required_scopes", mode="before")
+    @classmethod
+    def _validate_required_scopes(cls, value: Any) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or not value:
+            raise ValueError("required_scopes must be a non-empty array")
+        normalized = tuple(scope.strip() for scope in value if isinstance(scope, str) and scope.strip())
+        if len(normalized) != len(value) or len(set(normalized)) != len(normalized):
+            raise ValueError("required_scopes must contain unique, non-empty strings")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_distinct_identities(self) -> "M2MClientIdentityBindingV1":
+        if self.customer_id == self.deployment_id:
+            raise ValueError("customer_id and deployment_id must be distinct")
+        return self
+
+
+class M2MActionScopeSetsV1(BaseModel):
+    """Versioned mapping from logical actions to exact OAuth scope sets."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    read: tuple[str, ...]
+    write: tuple[str, ...]
+    admin: tuple[str, ...]
+
+    @field_validator("read", "write", "admin", mode="before")
+    @classmethod
+    def _validate_scope_set(cls, value: Any) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)) or not value:
+            raise ValueError("action scope sets must be non-empty arrays")
+        normalized = tuple(scope.strip() for scope in value if isinstance(scope, str) and scope.strip())
+        if len(normalized) != len(value) or len(set(normalized)) != len(normalized):
+            raise ValueError("action scope sets must contain unique, non-empty strings")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_disjoint_scope_sets(self) -> "M2MActionScopeSetsV1":
+        action_sets = {
+            "read": set(self.read),
+            "write": set(self.write),
+            "admin": set(self.admin),
+        }
+        actions = tuple(action_sets)
+        for index, action in enumerate(actions):
+            for other_action in actions[index + 1:]:
+                if action_sets[action].intersection(action_sets[other_action]):
+                    raise ValueError("read, write, and admin scope sets must be disjoint")
+        return self
+
 
 class Settings(BaseSettings):
     """
@@ -62,6 +142,10 @@ class Settings(BaseSettings):
         default=None,
         alias="SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
     )
+    scanalyze_deployment_id: Optional[str] = Field(
+        default=None,
+        alias="SCANALYZE_DEPLOYMENT_ID",
+    )
 
     # Cognito JWT verification
     cognito_user_pool_id: Optional[str] = Field(default=None, alias="COGNITO_USER_POOL_ID")
@@ -82,9 +166,21 @@ class Settings(BaseSettings):
 
     # M2M (client_credentials) tenant resolution
     m2m_tenant_resolution: str = Field(default="disabled", alias="M2M_TENANT_RESOLUTION")
-    # ^ "disabled" (default, fail-closed) or "client_id_map"
+    # ^ "disabled" (default) or the versioned "client_identity_bindings_v1" mode.
     m2m_client_tenant_map: Optional[Dict[str, str]] = Field(default=None, alias="M2M_CLIENT_TENANT_MAP")
-    # ^ JSON map: {"cognito_client_id": "tenant_id", ...}
+    # ^ Legacy customer-only map. It is retained only to reject stale config.
+    m2m_client_identity_bindings_v1: Optional[Dict[str, M2MClientIdentityBindingV1]] = Field(
+        default=None,
+        alias="M2M_CLIENT_IDENTITY_BINDINGS_V1",
+    )
+    m2m_action_scope_sets_v1: Optional[M2MActionScopeSetsV1] = Field(
+        default=None,
+        alias="M2M_ACTION_SCOPE_SETS_V1",
+    )
+    deployment_claim_name: str = Field(
+        default="custom:deployment_id",
+        alias="DEPLOYMENT_CLAIM_NAME",
+    )
 
     # Local/test/ci mock auth (only works with AUTH_MODE=local_mock AND APP_ENV∈{local,test,ci})
     # Legacy name retained for compatibility. Semantics are customer_id, not tenant header.
@@ -115,7 +211,14 @@ class Settings(BaseSettings):
     # CORS (normalmente APIGW maneja CORS, pero lo dejamos configurable)
     cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")
 
-    @field_validator("buckets_json", "sqs_queue_urls_json", "m2m_client_tenant_map", mode="before")
+    @field_validator(
+        "buckets_json",
+        "sqs_queue_urls_json",
+        "m2m_client_tenant_map",
+        "m2m_client_identity_bindings_v1",
+        "m2m_action_scope_sets_v1",
+        mode="before",
+    )
     @classmethod
     def _parse_optional_json(cls, v: Any) -> Any:
         if v is None:
@@ -213,6 +316,7 @@ _VALID_AUTH_MODES = frozenset({"cognito_jwt", "local_mock"})
 # auth configuration.
 # NOTE: "dev" is NOT here — it is a cloud deployment with real Cognito/ECS.
 _LOCAL_TEST_ENVS = frozenset({"local", "test", "ci"})
+_VALID_M2M_RESOLUTION_MODES = frozenset({"disabled", "client_identity_bindings_v1"})
 
 
 def validate_auth_config(settings: Settings | None = None) -> None:
@@ -234,6 +338,8 @@ def validate_auth_config(settings: Settings | None = None) -> None:
 
     env = (settings.env or "").lower().strip()
     auth_mode = (settings.auth_mode or "").lower().strip()
+    raw_m2m_mode = getattr(settings, "m2m_tenant_resolution", "disabled")
+    m2m_mode = raw_m2m_mode.lower().strip() if isinstance(raw_m2m_mode, str) else "disabled"
     is_local_test = env in _LOCAL_TEST_ENVS
     is_customer_deployment = not is_local_test
 
@@ -242,6 +348,13 @@ def validate_auth_config(settings: Settings | None = None) -> None:
         raise RuntimeError(
             f"Invalid AUTH_MODE='{auth_mode}'. "
             f"Allowed values: {sorted(_VALID_AUTH_MODES)}"
+        )
+
+    if m2m_mode not in _VALID_M2M_RESOLUTION_MODES:
+        raise RuntimeError(
+            f"Invalid M2M_TENANT_RESOLUTION='{m2m_mode}'. "
+            "Legacy client_id_map authorization is forbidden; use "
+            "client_identity_bindings_v1 with M2M_CLIENT_IDENTITY_BINDINGS_V1."
         )
 
     # ── P0-002 Rule 2: local_mock only in local/test/ci ──
@@ -297,6 +410,19 @@ def validate_auth_config(settings: Settings | None = None) -> None:
                 "for this dedicated deployment (e.g. customer-example)."
             )
 
+        deployment_id_value = getattr(settings, "scanalyze_deployment_id", None)
+        deployment_id = deployment_id_value.strip() if isinstance(deployment_id_value, str) else ""
+        if not deployment_id:
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_ID is required in non-local deployments "
+                f"(APP_ENV='{env}')."
+            )
+        elif not _DEPLOYMENT_ULID_PATTERN.fullmatch(deployment_id):
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_ID must match "
+                "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+            )
+
     # ── Cognito config validation ──
     if not settings.cognito_user_pool_id:
         errors.append(
@@ -330,12 +456,138 @@ def validate_auth_config(settings: Settings | None = None) -> None:
 
     # In customer deployments, COGNITO_ALLOWED_CLIENT_IDS must not be empty
     allowed_clients = (settings.cognito_allowed_client_ids or "").strip()
+    allowed_client_ids = {
+        client_id.strip()
+        for client_id in allowed_clients.split(",")
+        if client_id.strip()
+    }
     if is_customer_deployment and not allowed_clients:
         errors.append(
             "COGNITO_ALLOWED_CLIENT_IDS must not be empty in customer deployments "
             f"(APP_ENV='{env}'). "
             "Set it to the comma-separated list of allowed Cognito app client IDs."
         )
+
+    legacy_m2m_map = getattr(settings, "m2m_client_tenant_map", None)
+    if isinstance(legacy_m2m_map, dict) and legacy_m2m_map:
+        errors.append(
+            "M2M_CLIENT_TENANT_MAP is a legacy customer-only mapping and must be removed; "
+            "use M2M_CLIENT_IDENTITY_BINDINGS_V1"
+        )
+
+    if m2m_mode == "client_identity_bindings_v1":
+        expected_customer_value = getattr(settings, "scanalyze_deployment_customer_id", None)
+        expected_customer = (
+            expected_customer_value.strip()
+            if isinstance(expected_customer_value, str)
+            else ""
+        )
+        expected_deployment_value = getattr(settings, "scanalyze_deployment_id", None)
+        expected_deployment = (
+            expected_deployment_value.strip()
+            if isinstance(expected_deployment_value, str)
+            else ""
+        )
+        raw_action_scope_sets = getattr(settings, "m2m_action_scope_sets_v1", None)
+        action_scope_sets: M2MActionScopeSetsV1 | None = None
+        if raw_action_scope_sets is None:
+            errors.append(
+                "M2M_ACTION_SCOPE_SETS_V1 is required when M2M_TENANT_RESOLUTION="
+                "client_identity_bindings_v1"
+            )
+        else:
+            try:
+                action_scope_sets = (
+                    raw_action_scope_sets
+                    if isinstance(raw_action_scope_sets, M2MActionScopeSetsV1)
+                    else M2MActionScopeSetsV1.model_validate(raw_action_scope_sets)
+                )
+            except Exception:
+                errors.append(
+                    "M2M_ACTION_SCOPE_SETS_V1 must define exact, non-empty, unique, "
+                    "disjoint read/write/admin scope sets"
+                )
+
+        bindings = getattr(settings, "m2m_client_identity_bindings_v1", None) or {}
+        if not isinstance(bindings, dict) or not bindings:
+            errors.append(
+                "M2M_CLIENT_IDENTITY_BINDINGS_V1 must contain at least one "
+                "versioned client identity binding when M2M_TENANT_RESOLUTION="
+                "client_identity_bindings_v1"
+            )
+        else:
+            for client_id, binding in bindings.items():
+                if not isinstance(client_id, str) or not client_id.strip():
+                    errors.append(
+                        "M2M_CLIENT_IDENTITY_BINDINGS_V1 client IDs must be non-empty strings"
+                    )
+                    continue
+                if client_id not in allowed_client_ids:
+                    errors.append(
+                        "M2M_CLIENT_IDENTITY_BINDINGS_V1 client must be present in "
+                        "COGNITO_ALLOWED_CLIENT_IDS"
+                    )
+                try:
+                    parsed_binding = (
+                        binding
+                        if isinstance(binding, M2MClientIdentityBindingV1)
+                        else M2MClientIdentityBindingV1.model_validate(binding)
+                    )
+                except Exception:
+                    errors.append(
+                        "M2M_CLIENT_IDENTITY_BINDINGS_V1 contains an invalid binding"
+                    )
+                    continue
+                if parsed_binding.customer_id != expected_customer:
+                    errors.append(
+                        "M2M_CLIENT_IDENTITY_BINDINGS_V1 customer_id must exactly match "
+                        "SCANALYZE_DEPLOYMENT_CUSTOMER_ID"
+                    )
+                if parsed_binding.deployment_id != expected_deployment:
+                    errors.append(
+                        "M2M_CLIENT_IDENTITY_BINDINGS_V1 deployment_id must exactly match "
+                        "SCANALYZE_DEPLOYMENT_ID"
+                    )
+                if action_scope_sets is not None:
+                    binding_scopes = set(parsed_binding.required_scopes)
+                    action_sets = {
+                        "read": set(action_scope_sets.read),
+                        "write": set(action_scope_sets.write),
+                        "admin": set(action_scope_sets.admin),
+                    }
+                    policy_scope_union = set().union(*action_sets.values())
+                    if not binding_scopes.issubset(policy_scope_union):
+                        errors.append(
+                            "M2M_CLIENT_IDENTITY_BINDINGS_V1 required_scopes must be "
+                            "contained in M2M_ACTION_SCOPE_SETS_V1"
+                        )
+                    granted_actions = 0
+                    for action_scopes in action_sets.values():
+                        overlap = binding_scopes.intersection(action_scopes)
+                        if overlap and overlap != action_scopes:
+                            errors.append(
+                                "M2M_CLIENT_IDENTITY_BINDINGS_V1 required_scopes must "
+                                "contain all or none of each action scope set"
+                            )
+                        if action_scopes.issubset(binding_scopes):
+                            granted_actions += 1
+                    if granted_actions == 0:
+                        errors.append(
+                            "M2M_CLIENT_IDENTITY_BINDINGS_V1 must grant at least one "
+                            "read, write, or admin action"
+                        )
+
+        if not _CUSTOMER_ULID_PATTERN.fullmatch(expected_customer):
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_CUSTOMER_ID must match "
+                "^cust_[0-9A-HJKMNP-TV-Z]{26}$ when versioned M2M binding is enabled"
+            )
+
+        if not _DEPLOYMENT_ULID_PATTERN.fullmatch(expected_deployment):
+            errors.append(
+                "SCANALYZE_DEPLOYMENT_ID must match "
+                "^dep_[0-9A-HJKMNP-TV-Z]{26}$ when versioned M2M binding is enabled"
+            )
 
     if errors:
         msg = (
