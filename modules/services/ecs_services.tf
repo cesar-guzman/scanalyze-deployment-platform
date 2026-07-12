@@ -41,6 +41,10 @@ resource "aws_ecs_task_definition" "service" {
         [
           {
             name  = "SCANALYZE_DEPLOYMENT_CUSTOMER_ID"
+            value = var.customer_id
+          },
+          {
+            name  = "SCANALYZE_DEPLOYMENT_ID"
             value = var.deployment_id
           },
           {

@@ -25,6 +25,9 @@ evidence.
 - `../../playbooks/enterprise-client-deployment.md`: canonical runbook.
 - `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
   contracts, stage graph, and live-enablement boundary.
+- `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
+- `m2m-identity-v2-migration.md`: sanitized, repeatable migration inventory and
+  per-deployment sequence; live identity inventories stay outside Git.
 - `../operations/github-governance.md`: stable CI contract, required-check drift
   reconciliation, deployment-scoped GitHub Environments, and rollback.
 - `../../_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`: curated knowledge-base

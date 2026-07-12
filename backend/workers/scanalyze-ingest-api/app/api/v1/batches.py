@@ -5,7 +5,12 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, Path, status
 from fastapi.responses import StreamingResponse, FileResponse
 
-from ...auth import AuthContext, get_auth_context
+from ...auth import AuthContext
+from ...authorization import (
+    require_export_access,
+    require_read_access,
+    require_write_access,
+)
 from ...logging import bind_context
 from ...services.batches import BatchesService
 from .models import (
@@ -26,7 +31,7 @@ def _svc() -> BatchesService:
 )
 def create_batch(
     req: BatchCreateRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_write_access),
     svc: BatchesService = Depends(_svc),
 ) -> dict:
     bind_context(tenant=auth.tenant)
@@ -43,7 +48,7 @@ def create_batch(
     response_model=BatchResponse,
 )
 def get_batch(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -55,7 +60,7 @@ def get_batch(
     response_model=List[Dict[str, Any]],
 )
 def get_batch_documents(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> List[Dict[str, Any]]:
@@ -67,7 +72,7 @@ def get_batch_documents(
     response_model=BatchManifestResponse,
 )
 def export_manifest(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -79,7 +84,7 @@ def export_manifest(
     response_class=StreamingResponse,
 )
 def export_json(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> StreamingResponse:
@@ -91,7 +96,7 @@ def export_json(
     response_class=StreamingResponse,
 )
 def export_csv(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> StreamingResponse:
@@ -103,7 +108,7 @@ def export_csv(
     response_class=FileResponse,
 )
 def export_zip(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: BatchesService = Depends(_svc),
     batch_id: str = Path(..., min_length=8, max_length=128),
 ) -> FileResponse:

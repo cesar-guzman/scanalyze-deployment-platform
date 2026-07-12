@@ -13,6 +13,7 @@ module "services" {
   source = "../../modules/services"
 
   deployment_id           = var.deployment_id
+  customer_id             = var.customer_id
   account_id              = var.account_id
   region                  = var.region
   release_version         = var.release_version

@@ -9,7 +9,7 @@ Tests cover:
   - SCANALYZE_DEPLOYMENT_CUSTOMER_ID optional in local/test/ci
   - Verified JWT customer mismatch → 403
   - Verified JWT customer match → success
-  - X-Tenant-Id does not affect customer identity
+  - X-Tenant-Id is rejected and cannot affect customer identity
   - ENFORCE_AUTH_HEADER=false fails startup in non-local
   - ENFORCE_AUTH_HEADER warns in local
   - ENFORCE_AUTH_HEADER=false does not disable auth
@@ -47,7 +47,9 @@ def clean_env_vars(monkeypatch):
         "COGNITO_USER_POOL_ID", "COGNITO_REGION",
         "COGNITO_ALLOWED_CLIENT_IDS", "TENANT_CLAIM_NAME",
         "LOCAL_MOCK_TENANT_ID", "LOCAL_MOCK_SUBJECT",
-        "M2M_TENANT_RESOLUTION",
+        "M2M_TENANT_RESOLUTION", "M2M_CLIENT_TENANT_MAP",
+        "M2M_CLIENT_IDENTITY_BINDINGS_V1", "M2M_ACTION_SCOPE_SETS_V1",
+        "SCANALYZE_DEPLOYMENT_ID", "DEPLOYMENT_CLAIM_NAME",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -64,9 +66,13 @@ def _make_settings(**overrides: Any) -> MagicMock:
         "tenant_claim_name": "custom:customerId",
         "m2m_tenant_resolution": "disabled",
         "m2m_client_tenant_map": None,
+        "m2m_client_identity_bindings_v1": None,
+        "m2m_action_scope_sets_v1": None,
+        "deployment_claim_name": "custom:deployment_id",
         "local_mock_tenant_id": None,
         "local_mock_subject": "local-dev-user",
         "scanalyze_deployment_customer_id": None,
+        "scanalyze_deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "enforce_auth_header": None,
         "tenant_header_name": None,
     }
@@ -89,6 +95,7 @@ def _fake_jwt_claims(**overrides: Any) -> Dict[str, Any]:
         "exp": now + 3600,
         "iat": now,
         "custom:customerId": "customer-example",
+        "cognito:username": "user-abc-123",
         "email": "user@example.com",
         "name": "Test User",
     }
@@ -309,10 +316,11 @@ class TestDeploymentCustomerBinding:
             assert ctx.auth_source == "cognito_jwt"
 
 
-class TestXTenantIdIgnored:
-    def test_x_tenant_id_does_not_affect_customer_identity(self):
-        """X-Tenant-Id: evil-corp + JWT custom:customerId=customer-example → uses customer-example."""
+class TestXTenantIdRejected:
+    def test_x_tenant_id_is_rejected(self):
+        """X-Tenant-Id is forbidden even when the verified JWT is otherwise valid."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
 
         settings = _make_settings(
             env="test",
@@ -322,13 +330,14 @@ class TestXTenantIdIgnored:
         claims = _fake_jwt_claims(**{"custom:customerId": "customer-example"})
 
         with patch("app.auth._verify_cognito_jwt", return_value=claims):
-            ctx = _resolve_cognito_auth(
-                token="fake-token",
-                settings=settings,
-                legacy_tenant_header="evil-corp",  # X-Tenant-Id spoof
-                request_path="/api/v1/test",
-            )
-            assert ctx.customer_id == "customer-example"  # JWT wins, not header
+            with pytest.raises(AppError) as captured:
+                _resolve_cognito_auth(
+                    token="fake-token",
+                    settings=settings,
+                    legacy_tenant_header="evil-corp",
+                    request_path="/api/v1/test",
+                )
+        assert captured.value.status_code == 403
 
 
 # ══════════════════════════════════════════════════════════

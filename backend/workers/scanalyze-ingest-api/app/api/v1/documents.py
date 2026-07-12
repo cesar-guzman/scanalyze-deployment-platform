@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Path, status
 
-from ...auth import AuthContext, get_auth_context
+from ...auth import AuthContext
+from ...authorization import (
+    require_export_access,
+    require_read_access,
+    require_write_access,
+)
 from ...logging import bind_context
 from ...services.documents import DocumentsService
 from .models import (
@@ -28,7 +33,7 @@ def _svc() -> DocumentsService:
 )
 def create_document(
     req: CreateDocumentRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_write_access),
     svc: DocumentsService = Depends(_svc),
 ) -> dict:
     # bind tenant en logs
@@ -52,7 +57,7 @@ def create_document(
 )
 def submit_document(
     req: SubmitDocumentRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_write_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -64,7 +69,7 @@ def submit_document(
     response_model=DocumentStatusResponse,
 )
 def get_document(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -76,7 +81,7 @@ def get_document(
     response_model=ResultResponse,
 )
 def get_result(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -88,7 +93,7 @@ def get_result(
     response_model=ListArtifactsResponse,
 )
 def list_artifacts(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_read_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -101,7 +106,7 @@ def list_artifacts(
 )
 def download_generic(
     artifactId: str,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -114,7 +119,7 @@ def download_generic(
     response_model=PresignDownloadResponse,
 )
 def presign_download(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(require_export_access),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
     artifact_id: str = Path(..., min_length=2, max_length=2048),

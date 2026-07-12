@@ -3,7 +3,8 @@
 > **Fuentes:** [ADR-004](../ADR/ADR-004-cross-account-identity.md),
 > [ADR-007](../ADR/ADR-007-artifact-supply-chain.md),
 > [ADR-009](../ADR/ADR-009-threat-model.md) y
-> [ADR-011](../ADR/ADR-011-monorepo-microservices-source.md)
+> [ADR-011](../ADR/ADR-011-monorepo-microservices-source.md),
+> [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md)
 
 ## Frontera de seguridad
 
@@ -131,6 +132,38 @@ Hasta cerrarlo:
 
 El frontend también está **Blocked** hasta que una capa Terraform tenga
 ownership único de config.json y bindings exactos de CloudFront, API y S3.
+
+### Binding M2M versionado
+
+GUG-102 WP1 introduce en el repositorio un camino M2M fail-closed y versionado.
+No cambia silenciosamente el contrato v1 que todavía acepta customer slugs.
+El contrato v2 exige identidades sintácticamente separadas:
+
+- `cust_<ULID>` para el cliente;
+- `dep_<ULID>` para el deployment; y
+- un binding explícito de client ID, customer, deployment y scopes requeridos;
+- conjuntos versionados, exactos y disjuntos de scopes para las acciones
+  `read`, `write` y `admin`.
+
+La decisión de autorización M2M debe comprobar el issuer y firma ya verificados,
+el client permitido, `token_use=access`, todos los scopes del binding, el
+customer esperado y el deployment esperado. Las acciones autorizadas se
+derivan sólo del binding: scopes adicionales presentes únicamente en el token
+no elevan permisos. Cada ruta M2M declara lectura, escritura o exportación
+(`read+admin`). Un claim firmado opcional también debe coincidir. Un header o
+payload nunca selecciona identidad.
+
+Terraform entrega `SCANALYZE_DEPLOYMENT_CUSTOMER_ID` y
+`SCANALYZE_DEPLOYMENT_ID` como valores distintos y bloquea overrides desde
+configuración adicional del servicio. El mapa customer-only legado no prueba
+autorización de deployment.
+
+Esta capacidad sólo puede clasificarse como **Implemented** y **Locally
+validated** después de que pasen los tests del commit revisado. No es **Live
+validated**. La habilitación real continúa **Blocked** hasta que GUG-93 resuelva
+el handoff del DAG y Cognito/API Gateway, GUG-92/GUG-93 aporten los valores de
+scope aprobados, y GUG-117 demuestre aislamiento entre dos deployments no
+productivos. Producción continúa **NO-GO**.
 
 ## Rollback y respuesta
 

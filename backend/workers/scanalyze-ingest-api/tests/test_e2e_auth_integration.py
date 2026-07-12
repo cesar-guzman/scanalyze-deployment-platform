@@ -36,9 +36,13 @@ def _make_settings(**overrides: Any) -> MagicMock:
         "tenant_claim_name": "custom:customerId",
         "m2m_tenant_resolution": "disabled",
         "m2m_client_tenant_map": None,
+        "m2m_client_identity_bindings_v1": None,
+        "m2m_action_scope_sets_v1": None,
+        "deployment_claim_name": "custom:deployment_id",
         "local_mock_tenant_id": None,
         "local_mock_subject": "local-dev-user",
         "scanalyze_deployment_customer_id": None,
+        "scanalyze_deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "service_name": "scanalyze-ingest-api",
         "log_level": "INFO",
         "cors_allow_origins": "*",
@@ -243,8 +247,8 @@ class TestE2EHttpRequestFlow:
         assert resp.status_code == 401
 
     @patch("app.auth._jwks_cache")
-    def test_jwt_tenant_overrides_x_tenant_id_header(self, mock_cache):
-        """E2E: X-Tenant-Id=bad-tenant but JWT has tenant-alpha → uses JWT tenant."""
+    def test_x_tenant_id_header_is_rejected(self, mock_cache):
+        """E2E: identity-bearing legacy headers are rejected."""
         client, settings = self._create_test_app()
         claims = _fake_jwt_claims()
         mock_key = MagicMock()
@@ -259,11 +263,7 @@ class TestE2EHttpRequestFlow:
                         "X-Tenant-Id": "attacker-tenant",
                     },
                 )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["tenant_id"] == "tenant-alpha"
-        # Must NOT use the attacker's X-Tenant-Id
-        assert body["tenant_id"] != "attacker-tenant"
+        assert resp.status_code == 403
 
     @patch("app.auth._jwks_cache")
     def test_jwt_without_tenant_claim_returns_403(self, mock_cache):
@@ -305,12 +305,29 @@ class TestE2EHttpRequestFlow:
 
     @patch("app.auth._jwks_cache")
     def test_m2m_token_with_valid_mapping_succeeds(self, mock_cache):
-        """E2E: M2M token + client_id_map with valid mapping → 200."""
+        """E2E: versioned M2M identity binding with exact tuple → 200."""
         client, settings = self._create_test_app({
-            "m2m_tenant_resolution": "client_id_map",
-            "m2m_client_tenant_map": {"test-spa-client": "mapped-tenant"},
+            "cognito_allowed_client_ids": "test-spa-client,synthetic-m2m-client",
+            "scanalyze_deployment_customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+            "scanalyze_deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "m2m_tenant_resolution": "client_identity_bindings_v1",
+            "m2m_client_identity_bindings_v1": {
+                "synthetic-m2m-client": {
+                    "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+                    "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "required_scopes": [
+                        "scanalyze-ingest/ingest.read",
+                        "scanalyze-ingest/ingest.write",
+                    ],
+                }
+            },
+            "m2m_action_scope_sets_v1": {
+                "read": ["scanalyze-ingest/ingest.read"],
+                "write": ["scanalyze-ingest/ingest.write"],
+                "admin": ["scanalyze-ingest/ingest.admin"],
+            },
         })
-        claims = _fake_jwt_claims()
+        claims = _fake_jwt_claims(client_id="synthetic-m2m-client")
         del claims["custom:customerId"]
         del claims["cognito:username"]
         del claims["email"]
@@ -326,8 +343,8 @@ class TestE2EHttpRequestFlow:
                 )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["tenant_id"] == "mapped-tenant"
-        assert body["auth_source"] == "m2m_client_map"
+        assert body["tenant_id"] == "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+        assert body["auth_source"] == "m2m_identity_binding_v1"
 
     @patch("app.auth._jwks_cache")
     def test_demo_env_empty_allowlist_runtime_500(self, mock_cache):
@@ -394,8 +411,9 @@ class TestE2ECrossTenantIsolation:
 
     @patch("app.auth._jwks_cache")
     def test_attacker_x_tenant_id_cannot_override_jwt_tenant(self, mock_cache):
-        """E2E: Attacker sends X-Tenant-Id=admin but JWT says tenant-user → uses JWT."""
+        """E2E: Attacker-supplied X-Tenant-Id is rejected."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
 
         settings = _make_settings(cognito_allowed_client_ids="test-spa-client")
         claims = _fake_jwt_claims(**{"custom:customerId": "tenant-user"})
@@ -403,15 +421,14 @@ class TestE2ECrossTenantIsolation:
         mock_cache.get_signing_key.return_value = mock_key
 
         with patch("app.auth.jwt.decode", return_value=claims):
-            ctx = _resolve_cognito_auth(
-                "token",
-                settings,
-                legacy_tenant_header="admin",  # Attacker's header
-                request_path="/api/v1/test",
-            )
-
-        assert ctx.tenant_id == "tenant-user"
-        assert ctx.tenant_id != "admin"
+            with pytest.raises(AppError) as captured:
+                _resolve_cognito_auth(
+                    "token",
+                    settings,
+                    legacy_tenant_header="admin",
+                    request_path="/api/v1/test",
+                )
+        assert captured.value.status_code == 403
 
 
 # ── E2E: Env Classification Matrix ──────────────────────
@@ -538,7 +555,7 @@ class TestE2ESecurityAttackVectors:
     @patch("app.auth._jwks_cache")
     def test_attack_header_injection_tenant(self, mock_cache):
         """Attack: Inject X-Tenant-Id=admin with valid JWT for tenant-user.
-        Expected: JWT tenant (tenant-user) is used, NOT the header."""
+        Expected: 403 because request identity headers are forbidden."""
         from app.auth import get_auth_context, AuthContext
         from app.errors import register_exception_handlers
         from fastapi import Depends
@@ -566,8 +583,7 @@ class TestE2ESecurityAttackVectors:
                         "X-Tenant-Id": "admin",
                     },
                 )
-        assert resp.status_code == 200
-        assert resp.json()["tenant_id"] == "tenant-user"
+        assert resp.status_code == 403
 
     @patch("app.auth._jwks_cache")
     def test_attack_default_tenant_in_jwt_rejected(self, mock_cache):

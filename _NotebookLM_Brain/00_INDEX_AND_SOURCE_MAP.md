@@ -1,12 +1,13 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-11
+> **Última revisión editorial:** 2026-07-12
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
 > **Audiencia:** Platform Engineering, DevSecOps, SRE, arquitectura y revisores
 >
-> **Línea de trabajo:** `feat/production-readiness-foundation`; cambios publicados para revisión, sin merge ni autoridad live
+> **Línea de trabajo:** programa de production readiness; cada work package usa
+> branch y PR aislados, sin merge ni autoridad live implícita
 
 ## Propósito
 
@@ -62,8 +63,10 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Qué gates existen realmente? | [Makefile](../Makefile) y sus tests |
 | ¿Qué políticas de seguridad aplican? | ADR-004, ADR-007, ADR-009, código, policies y session-policies |
 | ¿Cuál es la foundation y secuencia de Production Readiness? | [ADR-019](../ADR/ADR-019-production-readiness-foundation.md) y [índice de Fase 0](../docs/production-readiness/README.md) |
+| ¿Cómo se vincula un cliente M2M con customer y deployment? | [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md), [Identity Contract Reference](../docs/deployment/identity-contract.md) y tests GUG-102 |
+| ¿Cómo se migra un deployment al binding M2M v2? | [Runbook M2M v2](../docs/deployment/m2m-identity-v2-migration.md); el inventario live permanece fuera de Git y NotebookLM |
 
-## Estado de evidencia al 2026-07-11
+## Estado de evidencia al 2026-07-12
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -77,7 +80,8 @@ Cuando dos documentos difieran, usar este orden:
 | Build central firmado y promoción verificable cross-account | **Target** | No es el flujo implementado actual. |
 | SBOM, firma, provenance y vulnerability gate completos | **Target** | ADR-007 describe el objetivo; ADR-011 registra los gaps. |
 | Configuración declarativa final del frontend | **Blocked** | Falta un dueño declarativo único y bindings exactos. |
-| Contrato canónico de identidad de cliente y onboarding | **Blocked** | No crear usuarios ni afirmar E2E hasta resolverlo. |
+| Binding M2M customer/deployment v2 en repositorio | **Implemented** cuando existe en el commit revisado; **Locally validated** sólo con gates verdes | No es evidencia Cognito/AWS. La habilitación live sigue **Blocked** por GUG-93/GUG-117. |
+| Contrato completo de identidad y onboarding | **Blocked** | Claims, scope taxonomy, control-plane handoff, object authorization y evidencia live siguen pendientes. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
 

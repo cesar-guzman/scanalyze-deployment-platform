@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.internal/schemas/task-definition-input.v2.schema.json",
+  "title": "Scanalyze ECS Task Definition Input v2",
+  "description": "Terraform-owned ECS task definition input with separate, immutable customer and deployment identities.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "service_name",
+    "image",
+    "cpu",
+    "memory",
+    "essential",
+    "port_mappings",
+    "environment",
+    "secrets",
+    "customer_identity",
+    "deployment_identity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2"
+    },
+    "service_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}$"
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$"
+    },
+    "cpu": {
+      "type": "integer",
+      "minimum": 256,
+      "maximum": 4096
+    },
+    "memory": {
+      "type": "integer",
+      "minimum": 512,
+      "maximum": 30720
+    },
+    "essential": {
+      "type": "boolean",
+      "const": true
+    },
+    "port_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "containerPort",
+          "protocol"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "containerPort": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp"
+            ]
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/environment_entry"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "const": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "const": "SCANALYZE_DEPLOYMENT_ID"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "valueFrom"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "not": {
+              "enum": [
+                "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+                "SCANALYZE_DEPLOYMENT_ID"
+              ]
+            }
+          },
+          "valueFrom": {
+            "type": "string",
+            "pattern": "^arn:aws:(secretsmanager|ssm):[a-z0-9-]+:[0-9]{12}:"
+          }
+        }
+      }
+    },
+    "customer_identity": {
+      "$ref": "#/$defs/customer_identity"
+    },
+    "deployment_identity": {
+      "$ref": "#/$defs/deployment_identity"
+    },
+    "health_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startPeriod": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "log_configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logDriver": {
+          "type": "string",
+          "const": "awslogs"
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "environment_entry": {
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "customer_identity": {
+      "type": "object",
+      "required": [
+        "canonical_field",
+        "canonical_value",
+        "canonical_value_source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canonical_field": {
+          "type": "string",
+          "const": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID"
+        },
+        "canonical_value": {
+          "$ref": "#/$defs/customer_id"
+        },
+        "canonical_value_source": {
+          "type": "string",
+          "enum": [
+            "deployment_record",
+            "contract"
+          ]
+        },
+        "legacy_aliases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "field",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "legacy_operational_alias",
+                  "non_authoritative",
+                  "migration_compatibility_only"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "deployment_identity": {
+      "type": "object",
+      "required": [
+        "canonical_field",
+        "canonical_value",
+        "canonical_value_source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canonical_field": {
+          "type": "string",
+          "const": "SCANALYZE_DEPLOYMENT_ID"
+        },
+        "canonical_value": {
+          "$ref": "#/$defs/deployment_id"
+        },
+        "canonical_value_source": {
+          "type": "string",
+          "enum": [
+            "deployment_record",
+            "contract"
+          ]
+        }
+      }
+    }
+  }
+}

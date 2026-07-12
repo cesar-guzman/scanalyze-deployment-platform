@@ -404,6 +404,31 @@ approval bypass, or unproven state restore.
   evidence are absent.
 - **Residual risk:** **High**. **Owner:** SRE / Operations and Platform Security.
 
+### TM-19: M2M customer/deployment confused deputy
+
+**Attacker story:** A valid machine token is mapped to a customer but is used
+against another deployment, or a request-controlled identity field, legacy map,
+or incomplete scope set is treated as sufficient authority.
+
+- **Preventive:** a versioned `client_id`, customer, deployment, and required
+  scope binding; exact comparison with the running deployment; binding-derived
+  `read`/`write`/`admin` actions; explicit per-route authorization; typed
+  internal authorization context; rejection of identity headers and payload
+  fields; and distinct Terraform-owned customer/deployment variables.
+- **Detective:** negative mismatch tests, startup configuration validation,
+  task-definition schema checks, and sanitized reason-only authorization logs.
+- **Recovery:** disable M2M, revert the reviewed implementation if necessary,
+  correct the authoritative binding, and issue new credentials only through the
+  separately approved identity control plane. Never re-enable the legacy
+  customer-only map.
+- **Evidence:** the repository implementation and local synthetic tests may
+  establish fail-closed behavior. The edge-identity/services DAG, Cognito/API
+  Gateway configuration, scope taxonomy, and two-deployment live isolation are
+  blocked on GUG-93 and GUG-117.
+- **Residual risk:** **High until non-production live validation; Critical if
+  M2M is enabled with an ambiguous binding**. **Owner:** Application Security
+  and Platform Engineering.
+
 ## Severity Calibration (Critical, High, Medium, Low)
 
 | Severity | Repository-context calibration | Examples |
@@ -467,5 +492,5 @@ bypass, static credentials, sensitive material in prohibited systems, mutable
 production identity, production rebuild, routine state restore, or weakening a
 required security gate.
 
-Repository: sha256:80c9e3f626290491572781c3723a326dfed0f0d3430aee8493ac7a2383fb2f1c
-Version: 7dd9647d93bbf2fd88dfdada97ece95f93e81eaf
+Phase 0 baseline repository: sha256:80c9e3f626290491572781c3723a326dfed0f0d3430aee8493ac7a2383fb2f1c
+Phase 0 baseline version: 7dd9647d93bbf2fd88dfdada97ece95f93e81eaf
