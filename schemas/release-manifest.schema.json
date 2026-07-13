@@ -247,7 +247,12 @@
         },
         "object_version": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._~-]{1,1024}$"
+          "minLength": 1,
+          "maxLength": 1024,
+          "not": {
+            "pattern": "^[Nn][Uu][Ll][Ll]$"
+          },
+          "description": "Opaque non-null S3 VersionId. Unicode is preserved; operational consumers enforce the 1,024 UTF-8 byte provider limit."
         },
         "sha256_b64": {
           "type": "string",

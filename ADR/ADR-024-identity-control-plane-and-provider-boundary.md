@@ -1,6 +1,7 @@
 # ADR-024: Portable Identity Control Plane and Provider Boundary
 
-- **Status:** Proposed; accepted only after independent review and merge
+- **Status:** Original decision accepted by merged GUG-93 PR; provider-
+  compatibility amendment is a candidate pending review and merge
 - **Date:** 2026-07-13
 - **Scope:** GUG-93 Cognito, API Gateway identity handoff, Terraform ownership,
   bootstrap infrastructure, and runtime provider boundary
@@ -12,6 +13,26 @@
   non-production execution, migration review, and isolation evidence
 
 Production: NO-GO
+
+## Post-merge provider compatibility amendment
+
+Independent review after the original merge identified two repository-to-
+provider contract mismatches. The release-manifest schema accepted a narrower
+S3 object-version alphabet than the Terraform consumer, even though S3
+VersionIds are opaque Unicode values and may contain URL-ready `+`, `/`, and
+`=` characters. The candidate schema preserves Unicode, explicitly rejects the
+unversioned `null` sentinel, and the Terraform module/root enforce the provider
+limit of 1,024 UTF-8 bytes.
+
+The Identity Apply policy originally permitted `PutMetricAlarm` but not the
+tag reconciliation calls required by the tagged Terraform alarm resources.
+The candidate statement now includes `ListTagsForResource`, `TagResource`, and
+`UntagResource`, scoped to the existing exact
+`${deployment_id}-identity-*` alarm ARN family. `DeleteAlarms` remains under
+the explicit destructive-action deny. This amendment adds no wildcard action,
+cross-deployment resource, live execution, or production authorization. This
+amendment becomes accepted only after its own reviewed merge and main
+verification.
 
 ## Context
 
@@ -458,3 +479,5 @@ No live validation was performed by GUG-93 repository work. Production remains
 - [Production-readiness threat model](../docs/production-readiness/threat-model.md)
 - [AWS Cognito pre-token generation](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-pre-token-generation.html)
 - [AWS API Gateway JWT authorizers](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html)
+- [AWS S3 versioning workflows](https://docs.aws.amazon.com/AmazonS3/latest/userguide/versioning-workflows.html)
+- [AWS CloudWatch PutMetricAlarm](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_PutMetricAlarm.html)

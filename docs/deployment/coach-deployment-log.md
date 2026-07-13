@@ -27,13 +27,15 @@ durable debe ser sanitizada y generada por el orquestador protegido.
 
 ## Checkpoint documental GUG-93
 
-- **Implemented:** candidate repository layer/runtime/contracts/docs exist only
-  in the isolated GUG-93 branch until reviewed commit, PR, CI, merge, and main
-  verification provide their separate evidence.
+- **Implemented:** the original repository layer/runtime/contracts/docs were
+  merged to `main` by PR #10. A separate post-merge provider-compatibility
+  amendment remains candidate evidence until its own PR, CI, merge, and main
+  verification complete.
 - **Locally validated:** the focused Python 3.11 identity runtime suite passed
   `96` tests during implementation. Final exact-revision repository/Terraform/
   security results must be recorded separately; this log is not their authority.
-- **CI validated:** `PENDING` for the exact PR commit.
+- **CI validated:** PR #10 required checks passed for the original GUG-93
+  revision. The amendment remains `PENDING` for its own exact PR commit.
 - **Live validated:** `BLOCKED`; no AWS/Cognito, bootstrap, M2M credential,
   migration, state adoption, retirement, or two-deployment execution occurred.
 - **Producción:** `NO-GO`.

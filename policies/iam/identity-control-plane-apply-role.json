@@ -212,7 +212,10 @@
       "Sid": "ManageIdentityAlarms",
       "Effect": "Allow",
       "Action": [
-        "cloudwatch:PutMetricAlarm"
+        "cloudwatch:ListTagsForResource",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource"
       ],
       "Resource": "arn:${aws_partition}:cloudwatch:${region}:${account_id}:alarm:${deployment_id}-identity-*"
     },

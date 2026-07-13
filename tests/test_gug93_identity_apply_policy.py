@@ -35,6 +35,13 @@ DESTRUCTIVE_IDENTITY_ACTIONS = {
     "sqs:PurgeQueue",
 }
 
+CLOUDWATCH_ALARM_MANAGEMENT_ACTIONS = {
+    "cloudwatch:ListTagsForResource",
+    "cloudwatch:PutMetricAlarm",
+    "cloudwatch:TagResource",
+    "cloudwatch:UntagResource",
+}
+
 
 def _load(name: str) -> dict:
     return json.loads((POLICY_DIR / name).read_text(encoding="utf-8"))
@@ -136,6 +143,29 @@ def test_identity_apply_role_denies_destructive_decommission_actions() -> None:
     ]
     assert len(delete_object_statements) == 1
     assert delete_object_statements[0]["Resource"].endswith("terraform.tfstate.tflock")
+
+
+def test_identity_apply_role_can_reconcile_tags_on_exact_alarm_family() -> None:
+    policy = _load("identity-control-plane-apply-role.json")
+    statement = next(
+        item for item in policy["Statement"] if item["Sid"] == "ManageIdentityAlarms"
+    )
+
+    assert statement["Effect"] == "Allow"
+    assert _actions(statement) == CLOUDWATCH_ALARM_MANAGEMENT_ACTIONS
+    assert statement["Resource"] == (
+        "arn:${aws_partition}:cloudwatch:${region}:${account_id}:"
+        "alarm:${deployment_id}-identity-*"
+    )
+
+    destructive_deny = next(
+        item
+        for item in policy["Statement"]
+        if item["Sid"] == "DenyIdentityDestructionOutsideReviewedDecommission"
+    )
+    assert destructive_deny["Effect"] == "Deny"
+    assert destructive_deny["Resource"] == "*"
+    assert "cloudwatch:DeleteAlarms" in _actions(destructive_deny)
 
 
 def test_orchestrator_and_break_glass_treat_identity_roles_explicitly() -> None:

@@ -50,11 +50,11 @@ variables {
   policy_digest                       = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   pre_token_s3_bucket                 = "synthetic-artifacts-bucket"
   pre_token_s3_key                    = "identity/pre-token/sha256-2222222222222222222222222222222222222222222222222222222222222222.zip"
-  pre_token_s3_object_version         = "synthetic-version-1"
+  pre_token_s3_object_version         = "synthetic+provider/version=1"
   pre_token_source_code_hash          = "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI="
   control_processor_s3_bucket         = "synthetic-artifacts-bucket"
   control_processor_s3_key            = "identity/control/sha256-3333333333333333333333333333333333333333333333333333333333333333.zip"
-  control_processor_s3_object_version = "synthetic-version-2"
+  control_processor_s3_object_version = "synthetic+provider/version=2"
   control_processor_source_code_hash  = "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM="
   control_processor_enabled           = true
   m2m_bindings = [{

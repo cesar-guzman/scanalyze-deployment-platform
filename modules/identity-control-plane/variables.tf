@@ -190,12 +190,21 @@ variable "pre_token_s3_object_version" {
   nullable    = false
 
   validation {
+    # Keep the opaque Unicode value while enforcing the provider byte limit.
+    # 1,024 bytes encode to 1,368 Base64 characters ending in "=="; values
+    # of 1,025 or 1,026 bytes have the same length but less/no padding.
     condition = (
-      can(regex("^[-A-Za-z0-9._~+/=]+$", var.pre_token_s3_object_version)) &&
-      length(var.pre_token_s3_object_version) <= 1024 &&
-      lower(var.pre_token_s3_object_version) != "null"
+      length(var.pre_token_s3_object_version) > 0 &&
+      lower(var.pre_token_s3_object_version) != "null" &&
+      (
+        length(base64encode(var.pre_token_s3_object_version)) < 1368 ||
+        (
+          length(base64encode(var.pre_token_s3_object_version)) == 1368 &&
+          endswith(base64encode(var.pre_token_s3_object_version), "==")
+        )
+      )
     )
-    error_message = "pre_token_s3_object_version must be a non-null immutable S3 VersionId using safe opaque characters."
+    error_message = "pre_token_s3_object_version must be a non-null opaque S3 VersionId of at most 1,024 UTF-8 bytes."
   }
 }
 
@@ -252,12 +261,21 @@ variable "control_processor_s3_object_version" {
   nullable    = false
 
   validation {
+    # Keep the opaque Unicode value while enforcing the provider byte limit.
+    # 1,024 bytes encode to 1,368 Base64 characters ending in "=="; values
+    # of 1,025 or 1,026 bytes have the same length but less/no padding.
     condition = (
-      can(regex("^[-A-Za-z0-9._~+/=]+$", var.control_processor_s3_object_version)) &&
-      length(var.control_processor_s3_object_version) <= 1024 &&
-      lower(var.control_processor_s3_object_version) != "null"
+      length(var.control_processor_s3_object_version) > 0 &&
+      lower(var.control_processor_s3_object_version) != "null" &&
+      (
+        length(base64encode(var.control_processor_s3_object_version)) < 1368 ||
+        (
+          length(base64encode(var.control_processor_s3_object_version)) == 1368 &&
+          endswith(base64encode(var.control_processor_s3_object_version), "==")
+        )
+      )
     )
-    error_message = "control_processor_s3_object_version must be a non-null immutable S3 VersionId using safe opaque characters."
+    error_message = "control_processor_s3_object_version must be a non-null opaque S3 VersionId of at most 1,024 UTF-8 bytes."
   }
 }
 
