@@ -126,6 +126,12 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert validate["strategy"]["matrix"]["service"] == (
         "${{ fromJSON(needs.changes.outputs.services) }}"
     )
+    isolated_test_step = next(
+        step
+        for step in validate["steps"]
+        if step.get("name") == "Compile and test service"
+    )
+    assert "'jsonschema==4.26.0'" in isolated_test_step["run"]
 
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == ["changes", "validation_gate"]

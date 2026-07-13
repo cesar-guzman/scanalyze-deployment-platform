@@ -200,7 +200,10 @@ jobs:
           export SCANALYZE_TENANT="$service_tenant"
           export SCANALYZE_TENANTS="$service_tenant"
           python -m compileall -q "$service_dir"
-          python -m pip install -r "$service_dir/requirements.txt" 'pytest==9.1.1'
+          python -m pip install \
+            -r "$service_dir/requirements.txt" \
+            'jsonschema==4.26.0' \
+            'pytest==9.1.1'
           PYTHONPATH="$service_dir/src:$service_dir" python -m pytest "$service_dir/tests" -q
 
       - name: Build without publishing
