@@ -363,9 +363,25 @@ jobs:
             echo '- Status: `DRY_RUN_VALIDATED`'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  services:
-    name: 08 / Services
+  identity-control-plane:
+    name: 08 / Identity control plane
     needs: artifact-publication
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      logical_environment: ${{ inputs.logical_environment }}
+      layer: identity-control-plane
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: ${{ inputs.dry_run }}
+      allow_live: ${{ inputs.allow_live }}
+
+  services:
+    name: 09 / Services
+    needs: identity-control-plane
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -380,7 +396,7 @@ jobs:
       allow_live: ${{ inputs.allow_live }}
 
   edge-identity:
-    name: 09 / Edge identity
+    name: 10 / Edge identity
     needs: services
     permissions:
       contents: read
@@ -396,7 +412,7 @@ jobs:
       allow_live: ${{ inputs.allow_live }}
 
   edge:
-    name: 10 / Edge
+    name: 11 / Edge
     needs: edge-identity
     permissions:
       contents: read
@@ -412,7 +428,7 @@ jobs:
       allow_live: ${{ inputs.allow_live }}
 
   addons:
-    name: 11 / Addons
+    name: 12 / Addons
     needs: edge
     permissions:
       contents: read
@@ -428,7 +444,7 @@ jobs:
       allow_live: ${{ inputs.allow_live }}
 
   synthetic-validation:
-    name: 12 / Synthetic validation and evidence
+    name: 13 / Synthetic validation and evidence
     needs: addons
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -493,6 +509,7 @@ jobs:
                   "data-foundation",
                   "cicd",
                   "artifact-publication",
+                  "identity-control-plane",
                   "services",
                   "edge-identity",
                   "edge",
@@ -513,7 +530,7 @@ jobs:
           PY
           {
             echo "### Non-production orchestration result"
-            echo '- Canonical stages: 12/12 offline validations completed'
+            echo '- Canonical stages: 13/13 offline validations completed'
             echo '- AWS API calls: none'
             echo '- Artifact publication: not executed'
             echo '- Terraform plan/apply: not executed'

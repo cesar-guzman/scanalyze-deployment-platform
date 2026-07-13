@@ -190,6 +190,10 @@ class Settings(BaseSettings):
         default="custom:deployment_id",
         alias="DEPLOYMENT_CLAIM_NAME",
     )
+    human_enterprise_authorization_enabled: bool = Field(
+        default=False,
+        alias="HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED",
+    )
 
     # Local/test/ci mock auth (only works with AUTH_MODE=local_mock AND APP_ENV∈{local,test,ci})
     # Legacy name retained for compatibility. Semantics are customer_id, not tenant header.
@@ -468,6 +472,16 @@ def validate_auth_config(settings: Settings | None = None) -> None:
         errors.append(
             f"TENANT_CLAIM_NAME='{settings.tenant_claim_name}' is not allowed "
             "in customer deployments. Must be 'custom:customerId' per P0-001/P0-002."
+        )
+
+    if (
+        is_customer_deployment
+        and getattr(settings, "human_enterprise_authorization_enabled", False) is True
+    ):
+        errors.append(
+            "HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED must remain false until "
+            "the reviewed downstream role, lifecycle, and step-up enforcement "
+            "package is locally and live validated"
         )
 
     # In customer deployments, COGNITO_ALLOWED_CLIENT_IDS must not be empty

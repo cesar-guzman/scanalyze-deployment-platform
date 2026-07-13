@@ -33,6 +33,7 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
     # task-definition-input.v1.schema.json.
     versioned_mappings = {
         "enterprise-authorization": "enterprise-authorization.v{version}.schema.json",
+        "frontend-config": "frontend-config.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
         "task-definition": "task-definition-input.v{version}.schema.json",
     }
@@ -73,6 +74,167 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
     return None
 
 
+def _aws_dns_suffix(partition: object) -> str | None:
+    if partition in {"aws", "aws-us-gov"}:
+        return "amazonaws.com"
+    if partition == "aws-cn":
+        return "amazonaws.com.cn"
+    return None
+
+
+def _validate_cognito_binding(instance: dict, *, require_arn: bool) -> list[str]:
+    """Validate the provider tuple without echoing rejected identity values."""
+    errors: list[str] = []
+    partition = instance.get("aws_partition")
+    region = instance.get("region")
+    account_id = instance.get("account_id")
+    user_pool_id = instance.get("cognito_user_pool_id")
+    issuer = instance.get("cognito_issuer_url")
+    suffix = _aws_dns_suffix(partition)
+
+    if all(isinstance(value, str) for value in (region, user_pool_id)) and (
+        not user_pool_id.startswith(f"{region}_")
+    ):
+        errors.append("cognito user pool id must match the bound region")
+
+    if all(
+        isinstance(value, str)
+        for value in (region, user_pool_id, issuer, suffix)
+    ):
+        expected_issuer = f"https://cognito-idp.{region}.{suffix}/{user_pool_id}"
+        if issuer != expected_issuer:
+            errors.append("cognito issuer must match the bound pool and region")
+
+    if require_arn:
+        user_pool_arn = instance.get("cognito_user_pool_arn")
+        if all(
+            isinstance(value, str)
+            for value in (
+                partition,
+                region,
+                account_id,
+                user_pool_id,
+                user_pool_arn,
+            )
+        ):
+            expected_arn = (
+                f"arn:{partition}:cognito-idp:{region}:{account_id}:"
+                f"userpool/{user_pool_id}"
+            )
+            if user_pool_arn != expected_arn:
+                errors.append("cognito pool ARN must match the bound provider tuple")
+
+    spa_client = instance.get("cognito_spa_client_id")
+    m2m_clients = instance.get("m2m_client_ids")
+    if isinstance(spa_client, str) and isinstance(m2m_clients, list) and (
+        spa_client in m2m_clients
+    ):
+        errors.append("SPA and M2M client identities must be disjoint")
+    return errors
+
+
+def _validate_m2m_registry(
+    instance: dict,
+    *,
+    declared_clients: object,
+) -> list[str]:
+    """Validate the GUG-102 client-to-tenant binding snapshot.
+
+    An empty client and binding set is the only valid bootstrap state. Once a
+    client is promoted, every client must have one exact ownership binding and
+    every grant must select complete canonical action scope sets.
+    """
+
+    errors: list[str] = []
+    expected_customer = instance.get("customer_id")
+    expected_deployment = instance.get("deployment_id")
+    declared_client_ids = (
+        declared_clients
+        if isinstance(declared_clients, list)
+        and all(isinstance(client, str) for client in declared_clients)
+        else []
+    )
+    action_scope_sets_raw = instance.get("action_scope_sets")
+    action_scope_sets = (
+        {
+            action: set(scopes)
+            for action, scopes in action_scope_sets_raw.items()
+            if isinstance(action, str)
+            and isinstance(scopes, list)
+            and all(isinstance(scope, str) for scope in scopes)
+        }
+        if isinstance(action_scope_sets_raw, dict)
+        else {}
+    )
+    action_names = ("read", "write", "admin")
+    for index, action in enumerate(action_names):
+        for other_action in action_names[index + 1:]:
+            if action_scope_sets.get(action, set()) & action_scope_sets.get(
+                other_action,
+                set(),
+            ):
+                errors.append("action_scope_sets must be pairwise disjoint")
+    scope_universe = (
+        set().union(*action_scope_sets.values()) if action_scope_sets else set()
+    )
+
+    bindings = instance.get("m2m_bindings", [])
+    if not isinstance(bindings, list):
+        return errors
+
+    bound_clients: list[str] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            continue
+        client_id = binding.get("client_id")
+        if isinstance(client_id, str):
+            bound_clients.append(client_id)
+        if binding.get("customer_id") != expected_customer:
+            errors.append(
+                "m2m_bindings.customer_id must match the contract customer_id"
+            )
+        if binding.get("deployment_id") != expected_deployment:
+            errors.append(
+                "m2m_bindings.deployment_id must match the contract deployment_id"
+            )
+        required_scopes_raw = binding.get("required_scopes", [])
+        required_scopes = (
+            set(required_scopes_raw)
+            if isinstance(required_scopes_raw, list)
+            and all(isinstance(scope, str) for scope in required_scopes_raw)
+            else set()
+        )
+        if not required_scopes <= scope_universe:
+            errors.append(
+                "m2m_bindings.required_scopes must be within the action scope universe"
+            )
+        granted_actions = 0
+        for action in action_names:
+            action_scopes = action_scope_sets.get(action, set())
+            selected = required_scopes & action_scopes
+            if selected and selected != action_scopes:
+                errors.append(
+                    "m2m_bindings must grant each action scope set all-or-none"
+                )
+            if action_scopes and action_scopes <= required_scopes:
+                granted_actions += 1
+        if granted_actions == 0:
+            errors.append("each m2m binding must grant at least one action")
+
+    duplicate_clients = [
+        client_id
+        for client_id, count in Counter(bound_clients).items()
+        if count > 1
+    ]
+    if duplicate_clients:
+        errors.append("m2m_bindings client_id values must be unique")
+    if set(bound_clients) != set(declared_client_ids):
+        errors.append(
+            "m2m_bindings must cover each declared m2m_client_id exactly once"
+        )
+    return errors
+
+
 def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
 
@@ -96,89 +258,55 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
         errors.extend(validate_enterprise_authorization(instance))
 
     if schema_name == "identity-contract.v2.schema.json":
-        expected_customer = instance.get("customer_id")
-        expected_deployment = instance.get("deployment_id")
         cognito = instance.get("cognito")
         declared_clients = (
             cognito.get("m2m_client_ids", []) if isinstance(cognito, dict) else []
         )
-        action_scope_sets_raw = instance.get("action_scope_sets")
-        action_scope_sets = (
-            {
-                action: set(scopes)
-                for action, scopes in action_scope_sets_raw.items()
-                if isinstance(action, str)
-                and isinstance(scopes, list)
-                and all(isinstance(scope, str) for scope in scopes)
-            }
-            if isinstance(action_scope_sets_raw, dict)
-            else {}
-        )
-        action_names = ("read", "write", "admin")
-        for index, action in enumerate(action_names):
-            for other_action in action_names[index + 1:]:
-                if action_scope_sets.get(action, set()) & action_scope_sets.get(
-                    other_action, set()
-                ):
-                    errors.append("action_scope_sets must be pairwise disjoint")
-        scope_universe = (
-            set().union(*action_scope_sets.values())
-            if action_scope_sets
-            else set()
+        errors.extend(
+            _validate_m2m_registry(instance, declared_clients=declared_clients)
         )
 
-        bindings = instance.get("m2m_bindings", [])
-        if isinstance(bindings, list):
-            bound_clients: list[str] = []
-            for binding in bindings:
-                if not isinstance(binding, dict):
-                    continue
-                client_id = binding.get("client_id")
-                if isinstance(client_id, str):
-                    bound_clients.append(client_id)
-                if binding.get("customer_id") != expected_customer:
-                    errors.append(
-                        "m2m_bindings.customer_id must match the contract customer_id"
-                    )
-                if binding.get("deployment_id") != expected_deployment:
-                    errors.append(
-                        "m2m_bindings.deployment_id must match the contract deployment_id"
-                    )
-                required_scopes_raw = binding.get("required_scopes", [])
-                required_scopes = (
-                    set(required_scopes_raw)
-                    if isinstance(required_scopes_raw, list)
-                    and all(isinstance(scope, str) for scope in required_scopes_raw)
-                    else set()
-                )
-                if not required_scopes <= scope_universe:
-                    errors.append(
-                        "m2m_bindings.required_scopes must be within the action scope universe"
-                    )
-                granted_actions = 0
-                for action in action_names:
-                    action_scopes = action_scope_sets.get(action, set())
-                    selected = required_scopes & action_scopes
-                    if selected and selected != action_scopes:
-                        errors.append(
-                            "m2m_bindings must grant each action scope set all-or-none"
-                        )
-                    if action_scopes and action_scopes <= required_scopes:
-                        granted_actions += 1
-                if granted_actions == 0:
-                    errors.append("each m2m binding must grant at least one action")
+    if schema_name == "contract-identity-control-plane.v1.schema.json":
+        errors.extend(_validate_cognito_binding(instance, require_arn=True))
+        errors.extend(
+            _validate_m2m_registry(
+                instance,
+                declared_clients=instance.get("m2m_client_ids"),
+            )
+        )
 
-            duplicate_clients = [
-                client_id
-                for client_id, count in Counter(bound_clients).items()
-                if count > 1
-            ]
-            if duplicate_clients:
-                errors.append("m2m_bindings client_id values must be unique")
-            if set(bound_clients) != set(declared_clients):
-                errors.append(
-                    "m2m_bindings must cover each declared m2m_client_id exactly once"
-                )
+    if schema_name == "contract-edge-identity.v2.schema.json":
+        errors.extend(_validate_cognito_binding(instance, require_arn=False))
+        spa_client = instance.get("cognito_spa_client_id")
+        m2m_clients = instance.get("m2m_client_ids")
+        audiences = instance.get("authorizer_audiences")
+        if (
+            isinstance(spa_client, str)
+            and isinstance(m2m_clients, list)
+            and all(isinstance(client, str) for client in m2m_clients)
+            and isinstance(audiences, list)
+            and set(audiences) != {spa_client, *m2m_clients}
+        ):
+            errors.append("JWT authorizer audiences must cover SPA and M2M clients exactly")
+
+        api_id = instance.get("api_gateway_id")
+        region = instance.get("region")
+        partition = instance.get("aws_partition")
+        endpoint = instance.get("api_gateway_endpoint")
+        suffix = _aws_dns_suffix(partition)
+        if all(
+            isinstance(value, str)
+            for value in (api_id, region, endpoint, suffix)
+        ):
+            expected_endpoint = f"https://{api_id}.execute-api.{region}.{suffix}"
+            if endpoint.rstrip("/") != expected_endpoint:
+                errors.append("API endpoint must match the bound API and region")
+
+    if schema_name == "frontend-config.v2.schema.json":
+        cognito = instance.get("cognito")
+        region = instance.get("region")
+        if isinstance(cognito, dict) and cognito.get("region") != region:
+            errors.append("frontend Cognito region must match the deployment region")
 
     if schema_name == "task-definition-input.v2.schema.json":
         environment = instance.get("environment", [])

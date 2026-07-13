@@ -269,7 +269,7 @@ class TestTenantResolution:
     def test_tenant_from_verified_claims(self, mock_verify):
         from app.auth import _resolve_cognito_auth
         mock_verify.return_value = _fake_jwt_claims()
-        settings = _make_settings()
+        settings = _make_settings(human_enterprise_authorization_enabled=True)
 
         ctx = _resolve_cognito_auth("token", settings, legacy_tenant_header=None, request_path="/api/v1/documents")
         assert ctx.tenant_id == "tenant-alpha"

@@ -1,42 +1,25 @@
-# Edge Identity — API Gateway HTTP API
-#
-# Status: authored_not_provider_validated
-#
-# This module owns: HTTP API, JWT authorizer, VPC link, ALB integration, routes.
-# CloudFront / WAF / ACM / Route53 belong to modules/edge/.
-
 resource "aws_apigatewayv2_api" "main" {
   name          = "${var.deployment_id}-api"
   protocol_type = "HTTP"
 
   cors_configuration {
     allow_origins = var.cors_allowed_origins
-    allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allow_headers = ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "x-tenant-id"]
+    allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers = ["Content-Type", "Authorization", "X-Amz-Date"]
     max_age       = 3600
   }
 
-  tags = {
-    deployment_id = var.deployment_id
-    managed_by    = "terraform"
-    layer         = "edge-identity"
-  }
+  tags = local.common_tags
 }
 
-# VPC Link for private ALB integration
 resource "aws_apigatewayv2_vpc_link" "alb" {
   name               = "${var.deployment_id}-vpc-link"
   subnet_ids         = values(var.private_subnet_ids)
   security_group_ids = [var.alb_security_group_id]
 
-  tags = {
-    deployment_id = var.deployment_id
-    managed_by    = "terraform"
-    layer         = "edge-identity"
-  }
+  tags = local.common_tags
 }
 
-# JWT Authorizer — Cognito
 resource "aws_apigatewayv2_authorizer" "jwt" {
   api_id           = aws_apigatewayv2_api.main.id
   authorizer_type  = "JWT"
@@ -44,12 +27,13 @@ resource "aws_apigatewayv2_authorizer" "jwt" {
   name             = "${var.deployment_id}-jwt-authorizer"
 
   jwt_configuration {
-    audience = [aws_cognito_user_pool_client.spa.id]
-    issuer   = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
+    audience = local.authorizer_audiences
+    issuer   = var.cognito_issuer_url
   }
+
+  depends_on = [terraform_data.identity_handoff_gate]
 }
 
-# ALB integration via VPC link
 resource "aws_apigatewayv2_integration" "alb" {
   api_id             = aws_apigatewayv2_api.main.id
   integration_type   = "HTTP_PROXY"
@@ -59,41 +43,62 @@ resource "aws_apigatewayv2_integration" "alb" {
   connection_id      = aws_apigatewayv2_vpc_link.alb.id
 }
 
-# Default route — all requests through JWT authorizer to ALB
-resource "aws_apigatewayv2_route" "default" {
+resource "aws_apigatewayv2_route" "protected" {
+  for_each = var.api_authorization_routes
+
   api_id    = aws_apigatewayv2_api.main.id
-  route_key = "$default"
+  route_key = each.key
   target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
 
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.jwt.id
+  authorization_scopes = each.value
 }
 
-# Stage
+resource "aws_apigatewayv2_deployment" "reviewed" {
+  api_id = aws_apigatewayv2_api.main.id
+
+  triggers = {
+    reviewed_configuration = sha256(jsonencode({
+      routes    = var.api_authorization_routes
+      issuer    = var.cognito_issuer_url
+      audiences = local.authorizer_audiences
+      integration = {
+        listener_arn = var.alb_listener_arn
+        vpc_link_id  = aws_apigatewayv2_vpc_link.alb.id
+      }
+    }))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  depends_on = [
+    aws_apigatewayv2_authorizer.jwt,
+    aws_apigatewayv2_integration.alb,
+    aws_apigatewayv2_route.protected,
+  ]
+}
+
 resource "aws_apigatewayv2_stage" "live" {
-  api_id      = aws_apigatewayv2_api.main.id
-  name        = "$default"
-  auto_deploy = true
+  api_id        = aws_apigatewayv2_api.main.id
+  name          = "$default"
+  auto_deploy   = false
+  deployment_id = aws_apigatewayv2_deployment.reviewed.id
 
   access_log_settings {
     destination_arn = var.api_access_log_group_arn
     format = jsonencode({
       requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      caller         = "$context.identity.caller"
-      user           = "$context.identity.user"
       requestTime    = "$context.requestTime"
       httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
+      routeKey       = "$context.routeKey"
       status         = "$context.status"
       protocol       = "$context.protocol"
       responseLength = "$context.responseLength"
     })
   }
 
-  tags = {
-    deployment_id = var.deployment_id
-    managed_by    = "terraform"
-    layer         = "edge-identity"
-  }
+  tags = local.common_tags
 }

@@ -208,6 +208,7 @@ def test_release_dry_run_covers_all_layers_and_cleans_temp_dir(
         "platform",
         "data-foundation",
         "cicd",
+        "identity-control-plane",
         "services",
         "edge-identity",
         "edge",

@@ -567,6 +567,15 @@ def validate_enterprise_authorization(policy: dict[str, Any]) -> list[str]:
             "sensitive operations require user step-up, fresh grants, and audit",
             errors,
         )
+        if operation.get("user_required_assurance") != "phishing_resistant_mfa" or (
+            operation.get("user_max_auth_age_seconds") != 300
+        ):
+            errors.append("sensitive user operations require recent phishing-resistant MFA")
+        if (
+            operation.get("m2m_required_assurance")
+            != "validated_client_credentials_binding"
+        ):
+            errors.append("sensitive m2m operations require a validated workload binding")
 
     temporary_operations = _sequence(policy.get("temporary_grant_operation_catalog"))
     actual_temporary_operations = {
@@ -582,15 +591,6 @@ def validate_enterprise_authorization(policy: dict[str, Any]) -> list[str]:
         len(temporary_operations) != len(EXPECTED_TEMPORARY_GRANT_OPERATIONS)
     ):
         errors.append("temporary grant operation catalog must remain exact and read-only")
-        if operation.get("user_required_assurance") != "phishing_resistant_mfa" or (
-            operation.get("user_max_auth_age_seconds") != 300
-        ):
-            errors.append("sensitive user operations require recent phishing-resistant MFA")
-        if (
-            operation.get("m2m_required_assurance")
-            != "validated_client_credentials_binding"
-        ):
-            errors.append("sensitive m2m operations require a validated workload binding")
 
     lifecycle = _mapping(policy.get("human_lifecycle"))
     if lifecycle.get("states") != EXPECTED_STATES:

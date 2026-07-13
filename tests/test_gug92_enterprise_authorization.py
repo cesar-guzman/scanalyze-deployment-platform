@@ -696,6 +696,18 @@ def test_bootstrap_support_and_break_glass_are_fail_closed(policy: dict) -> None
             "fresh grants",
         ),
         (
+            lambda p: p["sensitive_operations"][0].__setitem__(
+                "user_required_assurance", "password"
+            ),
+            "recent phishing-resistant MFA",
+        ),
+        (
+            lambda p: p["sensitive_operations"][0].__setitem__(
+                "m2m_required_assurance", "client_id_only"
+            ),
+            "validated workload binding",
+        ),
+        (
             lambda p: p["policy_integrity"].__setitem__(
                 "digest_algorithm", "sha1"
             ),

@@ -1,89 +1,175 @@
+variable "customer_id" {
+  type        = string
+  description = "Immutable customer identifier from the deployment record."
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^cust_[0-9A-HJKMNP-TV-Z]{26}$", var.customer_id))
+    error_message = "customer_id must be a canonical cust_ ULID."
+  }
+}
+
 variable "deployment_id" {
   type        = string
-  description = "Unique deployment identifier (ULID with dep_ prefix)"
+  description = "Immutable deployment identifier from the deployment record."
+  nullable    = false
+
   validation {
     condition     = can(regex("^dep_[0-9A-HJKMNP-TV-Z]{26}$", var.deployment_id))
-    error_message = "deployment_id must match ^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    error_message = "deployment_id must be a canonical dep_ ULID."
   }
 }
 
 variable "account_id" {
   type        = string
-  description = "AWS account ID for the customer deployment"
+  description = "Expected AWS account for this dedicated deployment."
+  nullable    = false
+
   validation {
     condition     = can(regex("^[0-9]{12}$", var.account_id))
-    error_message = "account_id must be a 12-digit AWS account ID"
+    error_message = "account_id must be a 12-digit AWS account ID."
   }
 }
 
 variable "region" {
   type        = string
-  description = "AWS region for this deployment"
+  description = "AWS region for this regional edge."
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]+$", var.region))
+    error_message = "region must be a valid AWS region identifier."
+  }
 }
 
 variable "release_version" {
   type        = string
-  description = "Release version being deployed"
+  description = "Immutable reviewed release version."
+  nullable    = false
+
+  validation {
+    condition     = trimspace(var.release_version) != ""
+    error_message = "release_version must not be empty."
+  }
 }
 
 variable "release_manifest_digest" {
   type        = string
-  description = "SHA-256 digest of the release manifest"
+  description = "Digest of the reviewed release manifest."
+  nullable    = false
+
   validation {
-    condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
-    error_message = "release_manifest_digest must be sha256:<64 hex chars>"
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.release_manifest_digest))
+    error_message = "release_manifest_digest must be sha256:<64 lowercase hex>."
   }
 }
 
-variable "upstream_contract_digest" {
+variable "services_contract" {
+  type = object({
+    contract_id              = string
+    schema_version           = string
+    customer_id              = string
+    deployment_id            = string
+    account_id               = string
+    region                   = string
+    release_version          = string
+    release_manifest_digest  = string
+    contract_digest          = string
+    vpc_id                   = string
+    private_subnet_ids       = map(string)
+    alb_listener_arn         = string
+    alb_security_group_id    = string
+    api_access_log_group_arn = string
+  })
+  description = "Typed verified services/v1 contract projection required by the edge."
+  nullable    = false
+}
+
+variable "expected_services_contract_digest" {
   type        = string
-  description = "SHA-256 digest of the upstream contract being consumed"
+  description = "Expected services/v1 digest from the immutable deployment record."
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.expected_services_contract_digest))
+    error_message = "expected_services_contract_digest must be sha256:<64 lowercase hex>."
+  }
 }
 
-variable "expected_upstream_digest" {
+variable "identity_contract" {
+  type = object({
+    contract_id                = string
+    schema_version             = string
+    contract_digest            = string
+    customer_id                = string
+    deployment_id              = string
+    account_id                 = string
+    region                     = string
+    aws_partition              = string
+    cognito_user_pool_id       = string
+    cognito_issuer_url         = string
+    cognito_spa_client_id      = string
+    m2m_client_ids             = list(string)
+    resource_server_identifier = string
+    allowed_token_uses         = list(string)
+    action_scopes = object({
+      read  = string
+      write = string
+      admin = string
+    })
+    action_scope_sets = object({
+      read  = list(string)
+      write = list(string)
+      admin = list(string)
+    })
+    m2m_bindings = list(object({
+      client_id       = string
+      customer_id     = string
+      deployment_id   = string
+      required_scopes = list(string)
+    }))
+    policy_version                     = string
+    policy_digest                      = string
+    policy_canonicalization            = string
+    human_runtime_provisioning_enabled = bool
+    m2m_runtime_provisioning_enabled   = bool
+    m2m_client_secret_values_exposed   = bool
+  })
+  description = "Typed verified identity-control-plane/v1 contract projection required by the JWT edge."
+  nullable    = false
+}
+
+variable "expected_identity_contract_digest" {
   type        = string
-  description = "Expected upstream contract digest from deployment record"
-}
+  description = "Expected identity-control-plane/v1 digest from the immutable deployment record."
+  nullable    = false
 
-variable "upstream_schema_version" {
-  type        = string
-  description = "Schema version of the upstream contract"
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.expected_identity_contract_digest))
+    error_message = "expected_identity_contract_digest must be sha256:<64 lowercase hex>."
+  }
 }
-
-variable "accepted_schema_versions" {
-  type        = list(string)
-  default     = ["1"]
-  description = "List of accepted upstream contract schema versions"
-}
-
-# --- Variables consumed by modules/edge-identity ---
 
 variable "domain_name" {
   type        = string
-  description = "Primary domain name for Cognito and API Gateway"
+  description = "Deployment DNS name retained as non-authoritative routing metadata."
+  nullable    = false
 }
 
-variable "vpc_id" {
-  type        = string
-  description = "VPC ID from network contract"
+variable "cors_allowed_origins" {
+  type        = list(string)
+  description = "Exact deployment HTTPS origins allowed by CORS."
+  nullable    = false
 }
 
-variable "private_subnet_ids" {
-  type        = map(string)
-  description = "Map of AZ ID to private subnet ID from network contract"
+variable "api_authorization_routes" {
+  type        = map(list(string))
+  description = "Closed API route-key to canonical OAuth scope mapping."
+  nullable    = false
 }
 
-variable "alb_listener_arn" {
-  type        = string
-  description = "Internal ALB listener ARN from platform contract"
-}
-
-variable "alb_security_group_id" {
-  type        = string
-  description = "ALB security group ID from platform contract"
-}
-
-variable "api_access_log_group_arn" {
-  type        = string
-  description = "CloudWatch log group ARN for API Gateway access logs"
+variable "legacy_identity_handoff_complete" {
+  type        = bool
+  description = "Reviewed state-transfer/no-legacy-state assertion required before edge changes."
+  nullable    = false
 }

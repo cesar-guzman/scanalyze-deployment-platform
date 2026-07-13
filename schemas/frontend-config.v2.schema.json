@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/frontend-config.v2.schema.json",
+  "title": "Scanalyze Frontend Configuration v2",
+  "description": "Typed public runtime configuration. Identity values are routing hints only and never establish backend authority.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "api_endpoint",
+    "cognito",
+    "authorization",
+    "identity_values_authoritative"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2" },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": { "$ref": "#/$defs/region" },
+    "environment": {
+      "type": "string",
+      "enum": ["sandbox", "dev", "staging", "production"]
+    },
+    "api_endpoint": { "type": "string", "format": "uri" },
+    "cognito": {
+      "type": "object",
+      "required": [
+        "user_pool_id",
+        "spa_client_id",
+        "issuer_url",
+        "region",
+        "allowed_oauth_flows",
+        "pkce_required",
+        "client_secret_embedded"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "user_pool_id": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+        },
+        "spa_client_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{1,128}$"
+        },
+        "issuer_url": { "type": "string", "format": "uri" },
+        "region": { "$ref": "#/$defs/region" },
+        "hosted_ui_domain": { "type": "string", "minLength": 1 },
+        "allowed_oauth_flows": { "type": "array", "const": ["code"] },
+        "pkce_required": { "type": "boolean", "const": true },
+        "client_secret_embedded": { "type": "boolean", "const": false }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "required": [
+        "allowed_token_uses",
+        "action_scopes",
+        "policy_version",
+        "policy_digest",
+        "policy_canonicalization",
+        "customer_claim_name",
+        "deployment_claim_name",
+        "id_tokens_accepted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowed_token_uses": { "type": "array", "const": ["access"] },
+        "action_scopes": { "$ref": "#/$defs/action_scopes" },
+        "policy_version": { "type": "string", "const": "1.0.0" },
+        "policy_digest": {
+          "type": "string",
+          "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+        },
+        "policy_canonicalization": {
+          "type": "string",
+          "const": "rfc8785_json_canonicalization"
+        },
+        "customer_claim_name": {
+          "type": "string",
+          "const": "custom:customerId"
+        },
+        "deployment_claim_name": {
+          "type": "string",
+          "const": "custom:deployment_id"
+        },
+        "id_tokens_accepted": { "type": "boolean", "const": false }
+      }
+    },
+    "identity_values_authoritative": { "type": "boolean", "const": false },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "document_upload": { "type": "boolean" },
+        "batch_processing": { "type": "boolean" },
+        "audit_view": { "type": "boolean" }
+      }
+    },
+    "config_version": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+  },
+  "$defs": {
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+    },
+    "action_scopes": {
+      "type": "object",
+      "required": ["read", "write", "admin"],
+      "additionalProperties": false,
+      "properties": {
+        "read": { "type": "string", "const": "scanalyze.api.v1/read" },
+        "write": { "type": "string", "const": "scanalyze.api.v1/write" },
+        "admin": { "type": "string", "const": "scanalyze.api.v1/admin" }
+      }
+    }
+  }
+}

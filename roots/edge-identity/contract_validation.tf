@@ -1,49 +1,128 @@
-# Contract consumer validation for edge-identity root.
-# Consumes: services/v1,global/v1
-# Scope: regional
-# State key: {dep_id}/{region}/edge-identity/terraform.tfstate
-#
-# This gate runs BEFORE any resource creation.
-# It validates upstream contract integrity using fail-closed preconditions.
-# Uses terraform_data + precondition (ADR-006 rev3).
-# NEVER uses check {} blocks (can be silently ignored).
-
 resource "terraform_data" "contract_gate" {
+  input = {
+    customer_id              = var.customer_id
+    deployment_id            = var.deployment_id
+    account_id               = var.account_id
+    region                   = var.region
+    services_contract_digest = var.services_contract.contract_digest
+    identity_contract_digest = var.identity_contract.contract_digest
+  }
+
   lifecycle {
-    # ── Identity binding ──
     precondition {
-      condition     = var.deployment_id != ""
-      error_message = "deployment_id is required"
-    }
-    precondition {
-      condition     = can(regex("^dep_[0-9A-HJKMNP-TV-Z]{26}$", var.deployment_id))
-      error_message = "deployment_id format invalid"
-    }
-    precondition {
-      condition     = can(regex("^[0-9]{12}$", var.account_id))
-      error_message = "account_id must be a 12-digit AWS account ID"
+      condition = (
+        var.services_contract.contract_id == "services/v1" &&
+        var.services_contract.schema_version == "1"
+      )
+      error_message = "edge-identity requires the exact services/v1 schema version 1 contract."
     }
 
-    # ── Release manifest binding ──
     precondition {
-      condition     = can(regex("^sha256:[a-f0-9]{64}$", var.release_manifest_digest))
-      error_message = "release_manifest_digest must be sha256:<64 hex chars>"
+      condition = (
+        var.services_contract.customer_id == var.customer_id &&
+        var.services_contract.deployment_id == var.deployment_id &&
+        var.services_contract.account_id == var.account_id &&
+        var.services_contract.region == var.region &&
+        var.services_contract.release_version == var.release_version &&
+        var.services_contract.release_manifest_digest == var.release_manifest_digest
+      )
+      error_message = "services/v1 customer, deployment, account, region, release, and manifest tuple must match exactly."
     }
 
-    # ── Upstream contract digest ──
     precondition {
-      condition     = var.upstream_contract_digest != ""
-      error_message = "upstream contract digest is required — cannot proceed without verified upstream"
-    }
-    precondition {
-      condition     = var.upstream_contract_digest == var.expected_upstream_digest
-      error_message = "upstream contract digest does not match expected value — tampered or stale contract"
+      condition = (
+        can(regex("^sha256:[0-9a-f]{64}$", var.services_contract.contract_digest)) &&
+        var.services_contract.contract_digest == var.expected_services_contract_digest
+      )
+      error_message = "services/v1 contract digest is missing, malformed, stale, or unexpected."
     }
 
-    # ── Schema version ──
     precondition {
-      condition     = contains(var.accepted_schema_versions, var.upstream_schema_version)
-      error_message = "upstream contract schema version is not accepted by this consumer"
+      condition = (
+        var.identity_contract.contract_id == "identity-control-plane/v1" &&
+        var.identity_contract.schema_version == "1"
+      )
+      error_message = "edge-identity requires the exact identity-control-plane/v1 schema version 1 contract."
+    }
+
+    precondition {
+      condition = (
+        var.identity_contract.customer_id == var.customer_id &&
+        var.identity_contract.deployment_id == var.deployment_id &&
+        var.identity_contract.account_id == var.account_id &&
+        var.identity_contract.region == var.region &&
+        contains(["aws", "aws-us-gov", "aws-cn"], var.identity_contract.aws_partition)
+      )
+      error_message = "identity-control-plane/v1 customer, deployment, account, and region tuple must match exactly."
+    }
+
+    precondition {
+      condition = (
+        can(regex("^sha256:[0-9a-f]{64}$", var.identity_contract.contract_digest)) &&
+        var.identity_contract.contract_digest == var.expected_identity_contract_digest
+      )
+      error_message = "identity-control-plane/v1 contract digest is missing, malformed, stale, or unexpected."
+    }
+
+    precondition {
+      condition = (
+        var.identity_contract.resource_server_identifier == "scanalyze.api.v1" &&
+        var.identity_contract.allowed_token_uses == ["access"] &&
+        var.identity_contract.action_scopes == {
+          read  = "scanalyze.api.v1/read"
+          write = "scanalyze.api.v1/write"
+          admin = "scanalyze.api.v1/admin"
+        } &&
+        var.identity_contract.action_scope_sets == {
+          read  = ["scanalyze.api.v1/read"]
+          write = ["scanalyze.api.v1/write"]
+          admin = ["scanalyze.api.v1/admin"]
+        }
+      )
+      error_message = "identity-control-plane/v1 must publish the exact access-token-only canonical scope catalog."
+    }
+
+    precondition {
+      condition = (
+        trimspace(var.identity_contract.policy_version) != "" &&
+        can(regex("^sha256:[0-9a-f]{64}$", var.identity_contract.policy_digest)) &&
+        var.identity_contract.policy_canonicalization == "rfc8785_json_canonicalization"
+      )
+      error_message = "identity-control-plane/v1 must bind an explicit authorization policy version and digest."
+    }
+
+    precondition {
+      condition = (
+        !var.identity_contract.human_runtime_provisioning_enabled &&
+        var.identity_contract.m2m_runtime_provisioning_enabled &&
+        !var.identity_contract.m2m_client_secret_values_exposed
+      )
+      error_message = "human runtime authorization remains blocked until the downstream GUG-153/GUG-94 runtime enforcement package is validated."
+    }
+
+    precondition {
+      condition = (
+        length(distinct(var.identity_contract.m2m_client_ids)) == length(var.identity_contract.m2m_client_ids) &&
+        toset(var.identity_contract.m2m_client_ids) == toset([
+          for binding in var.identity_contract.m2m_bindings : binding.client_id
+        ]) &&
+        length(distinct([
+          for binding in var.identity_contract.m2m_bindings : binding.client_id
+        ])) == length(var.identity_contract.m2m_bindings) &&
+        alltrue([
+          for binding in var.identity_contract.m2m_bindings :
+          trimspace(binding.client_id) != "" &&
+          binding.customer_id == var.customer_id &&
+          binding.deployment_id == var.deployment_id &&
+          length(binding.required_scopes) > 0 &&
+          length(distinct(binding.required_scopes)) == length(binding.required_scopes) &&
+          length(setsubtract(
+            toset(binding.required_scopes),
+            toset(flatten(values(var.identity_contract.action_scope_sets))),
+          )) == 0
+        ])
+      )
+      error_message = "M2M audiences must have exact one-to-one verified bindings for this tuple and canonical required scopes."
     }
   }
 }

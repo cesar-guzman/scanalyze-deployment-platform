@@ -137,6 +137,7 @@ EXPECTED_STAGES = {
     "data-foundation",
     "cicd",
     "artifact-publication",
+    "identity-control-plane",
     "services",
     "edge-identity",
     "edge",

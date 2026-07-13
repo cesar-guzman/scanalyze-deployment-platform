@@ -124,6 +124,14 @@
       "type": "string",
       "pattern": "^scanalyze-release@sha256:[a-f0-9]{64}$"
     },
+    "pre_token_artifact": {
+      "$ref": "#/$defs/immutable_lambda_artifact",
+      "description": "Optional additive locator for the reviewed GUG-93 pre-token Lambda ZIP. The identity-control-plane consumer requires it even though legacy v1 manifests remain schema-valid without it."
+    },
+    "control_processor_artifact": {
+      "$ref": "#/$defs/immutable_lambda_artifact",
+      "description": "Optional additive locator for the reviewed GUG-93 identity control-processor Lambda ZIP. It contains no credential value."
+    },
     "sbom_digest": {
       "$ref": "#/$defs/sha256"
     },
@@ -223,6 +231,29 @@
     "sha256": {
       "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "immutable_lambda_artifact": {
+      "type": "object",
+      "required": ["bucket", "key", "object_version", "sha256_b64"],
+      "additionalProperties": false,
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "pattern": "^(?!xn--)(?!.*[.][.])[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)[.]{1,2}(?:/|$))(?=.*sha256[-/:][a-f0-9]{64})[^\\u0000-\\u001F\\u007F]{1,1024}$"
+        },
+        "object_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._~-]{1,1024}$"
+        },
+        "sha256_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{43}=$"
+        }
+      }
     }
   }
 }

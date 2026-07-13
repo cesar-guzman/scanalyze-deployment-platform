@@ -115,7 +115,13 @@ schema-check:
 enterprise-authorization-check:
 	@echo "Validating portable enterprise authorization policy v1..."
 	@$(PYTHON) $(TOOLING_DIR)/validate_enterprise_authorization.py $(POLICIES_DIR)/authorization/enterprise-authorization.v1.json
-	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_gug92_enterprise_authorization.py
+	@$(PYTHON) $(TOOLING_DIR)/policy_digest.py \
+		$(POLICIES_DIR)/authorization/enterprise-authorization.v1.json \
+		--digest-file $(POLICIES_DIR)/authorization/enterprise-authorization.v1.sha256 \
+		--check
+	@$(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_gug92_enterprise_authorization.py \
+		$(TESTS_DIR)/test_gug93_policy_digest.py
 	@echo "Enterprise authorization check complete."
 
 # ── Policy Check ─────────────────────────────────────────────────────
@@ -313,7 +319,7 @@ toolchain-status:
 
 # ── Module Check (M1) ───────────────────────────────────────────────
 MODULE_REQUIRED_FILES := README.md versions.tf variables.tf outputs.tf locals.tf contract.tf
-MODULE_DIRS := global network container-platform data-foundation services edge-identity edge addons replicated-data cicd
+MODULE_DIRS := global network container-platform data-foundation identity-control-plane services edge-identity edge addons replicated-data cicd
 
 module-check:
 	@echo "=== Module Skeleton Check ==="
@@ -337,7 +343,7 @@ module-check:
 
 # ── Root Check (M1) ─────────────────────────────────────────────────
 ROOT_REQUIRED_FILES := README.md versions.tf variables.tf main.tf outputs.tf contract_validation.tf backend.example.hcl
-ROOT_DIRS := account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
+ROOT_DIRS := account-ready-gate global network platform data-foundation cicd identity-control-plane services edge-identity edge addons
 
 root-check:
 	@echo "=== Root Skeleton Check ==="
@@ -448,7 +454,7 @@ preflight-m2: preflight-m1 module-ownership-check edge-split-check services-owne
 # M2 Level B — Provider Validation
 # ============================================================
 
-ROOT_DIRS = account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
+ROOT_DIRS = account-ready-gate global network platform data-foundation cicd identity-control-plane services edge-identity edge addons
 
 aws-credentials-guard:
 	@echo "=== AWS Credentials Guard ==="

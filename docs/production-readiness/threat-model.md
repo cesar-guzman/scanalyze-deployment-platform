@@ -54,6 +54,8 @@ promotion, ECS runtime, or recovery procedures are live validated.
 | Validation identity | Read health and emit sanitized evidence | Must not mutate runtime resources |
 | Diagnostic / StateRecovery operator | Investigate incidents or repair state | Break-glass authority can be abused as an alternate deployment path |
 | Application or customer operator | Operate the isolated deployment | Must not cross customer or platform control boundaries |
+| Identity provider adapter | Authenticate deployment-local humans and issue tokens after the reviewed hook | Provider groups, metadata, and lifecycle state can be mistaken for application authority |
+| Bootstrap / workload identity processor | Execute one conditionally approved identity transition | Replay, partial effects, dependency failure, or credential exposure can create standing privilege |
 | Malicious insider | Misuse legitimate access | Single-maintainer concentration increases likelihood and reduces challenge |
 | External attacker | Compromise credentials, dependencies, or Actions | Targets the repository-to-customer trust chain |
 
@@ -73,6 +75,11 @@ promotion, ECS runtime, or recovery procedures are live validated.
 - release manifest, attestation, images, base images, SBOMs, scans, signatures,
   and provenance;
 - customer ECR repositories, ECS task definitions, and services;
+- deployment-local user pool, public clients, membership and authorization-audit
+  stores, bootstrap queue/DLQ, runtime identity artifact, and
+  `identity-control-plane/v1` contract;
+- one-use bootstrap approvals/idempotency state and runtime-created M2M
+  credential references, but never credential values in general evidence;
 - sanitized evidence, approval records, and audit events; and
 - last-known-good release and recovery records.
 
@@ -92,6 +99,9 @@ promotion, ECS runtime, or recovery procedures are live validated.
 | TB-10 | Runtime validation -> durable evidence | Only sanitized, integrity-protected evidence crosses the customer boundary |
 | TB-11 | Human incident authority -> Diagnostic / StateRecovery | Incident-bound, dual-approved, time-limited, and audited |
 | TB-12 | Deployment A -> deployment B | No shared approval, role, state, contract namespace, or artifact destination |
+| TB-13 | Provider token event -> pre-token processor -> membership store | Exact pool/client/event and customer/deployment binding; groups and metadata are non-authoritative |
+| TB-14 | Approved bootstrap/M2M command -> conditional runtime -> provider and stores | One-use/idempotent effect, exact binding, sanitized audit, no credential return or logging |
+| TB-15 | Identity Terraform root -> contract -> services/edge consumers | Single writer, exact tuple/digest/versions, access-token-only, and no credential values |
 
 ### Assumptions and invariants
 
@@ -108,6 +118,12 @@ promotion, ECS runtime, or recovery procedures are live validated.
 - Mutable tags are metadata; digests are artifact identity.
 - A saved plan is invalid after any relevant state, contract, release,
   identity, approval, policy, or expiry change.
+- Protected APIs accept access tokens only; provider group names and ID tokens
+  cannot establish Scanalyze authorization.
+- Terraform creates no users and no generated M2M credential values. Bootstrap
+  and workload provisioning remain bounded runtime operations.
+- Existing identity resources are retained and denied when ownership, immutable
+  schema, state, or migration evidence is partial or ambiguous.
 - State restore is only for confirmed state corruption or loss.
 - An accepted ADR or local pass is not live evidence.
 - The current single-maintainer model is a risk, not independent approval.
@@ -594,6 +610,94 @@ or an offboarded user continuing to act.
   Critical if a stale, foreign, or unbound human principal is accepted**.
   **Owner:** Application Security, Identity/Platform Engineering, Backend
   Engineering, and Customer Administration.
+
+### TM-23: Identity-provider authority confusion, bootstrap replay, or credential-state disclosure
+
+**Attacker story:** A provider group, ID token, client metadata value, legacy
+tenant claim, or copied pool/client identifier is accepted as application
+authority. A bootstrap request is replayed or approved by the target, two
+workers execute the same effect, or a partial provider/membership effect is
+retried without reconciliation. Alternatively, Terraform creates an M2M client
+and stores the generated credential in plan/state/output, or a runtime adapter
+returns or logs it. An unsafe import/replacement/deletion can also strand users,
+cross deployment bindings, or destroy the only audit/recovery path.
+
+- **Preventive:** ADR-024's dedicated identity-control-plane stage and exact
+  customer/deployment/account/region/release/policy binding; a deletion-
+  protected deployment-local provider; immutable customer/deployment
+  attributes; admin-only human creation; non-authoritative provider groups;
+  V2 pre-token lookup of one authoritative active membership; suppression of
+  provider group/IAM-role claims; access-token-only route scopes; and exact
+  contract gates before services and edge identity.
+- **Bootstrap:** general human runtime provisioning and self-signup remain
+  disabled. First-administrator bootstrap requires one supported exact record,
+  exactly two independent non-target approvers, current assurance, lifetime no
+  longer than 900 seconds, trusted idempotency, conditional claim and consume,
+  idempotent provider/membership effects, sanitized audit, and SQS partial batch
+  failures. Replay, expiry, ambiguity, stale versions, timeout, or conditional
+  conflict denies.
+- **M2M custody:** Terraform never creates or outputs a generated credential.
+  The runtime provisioner conditionally claims one exact workload binding,
+  calls an idempotent provider adapter, immediately escrows the credential in
+  the approved credential store, conditionally completes the binding, and
+  returns only non-sensitive client/credential references. Human principals,
+  unknown/duplicate/default actions, foreign bindings, conflicting replays, and
+  dependency failures deny. A fresh 300-second claim lease cannot be reused;
+  recovery requires an expired lease and an exact conditional replacement of
+  its token, timestamp, workload, environment, customer, deployment, and action
+  set. Existing custody must read back under the exact deployment KMS key,
+  secret name/ARN, binding tags, current version, and non-deleted state.
+- **Detective:** synthetic group/client-metadata spoof tests; missing,
+  malformed, foreign, inactive, stale-version/digest, unsupported-event, and
+  dependency-timeout tests; bootstrap dual-approval/self-approval/TTL/replay/
+  conditional-write tests; SQS partial failure tests; M2M idempotency and
+  credential-redaction tests; Terraform mock tests for deletion protection,
+  exact IAM, contract restrictions, and no credential output; and reason-only
+  operational logging.
+- **Deferred bootstrap audit closure:** the locally composed bootstrap primitive
+  is unreachable while human runtime is disabled and the runtime role lacks
+  human provider permissions. Its final audit currently follows conditional
+  record consumption, so GUG-94 must add a recoverable outcome-audit protocol
+  before enablement. This deferred item does not authorize bootstrap execution.
+- **Deferred M2M command authority:** no principal in this package receives
+  `sqs:SendMessage` to the provisioning queue. Before adding a producer, bind
+  that permission to one exact reviewed identity and require the consumer to
+  reload an authoritative approved provisioning record for the requested
+  action set. The message body remains untrusted transport and cannot establish
+  authority.
+- **Legacy/migration:** report-only inventory classifies fully bound compatible,
+  partial, ambiguous/shared, provider-only, state-only/orphaned, immutable-
+  incompatible, and inconsistent resources. Only an exactly compatible
+  resource may enter a reviewed replacement-free state-adoption plan. Immutable
+  incompatibility uses an explicitly approved blue/green migration. Names,
+  account proximity, domains, groups, and legacy customer-only claims never
+  infer ownership.
+- **Deferred identity-root adoption gate:** before any apply in an account with
+  pre-existing identity resources, the identity root must require a reviewed
+  `greenfield`, `adopted`, or `migration_required` disposition backed by a
+  sanitized inventory digest. `adopted` also requires replacement-free plan
+  evidence. The downstream edge handoff gate does not authorize creating a
+  parallel pool first.
+- **Recovery/decommission:** freeze new issuance, reconcile partial effects,
+  retain old provider/audit/state resources, revoke sessions/grants, move every
+  consumer through reviewed contracts, wait through retention, and prove
+  successor/rollback independence. Deletion protection, state removal, import,
+  pool deletion, credential disclosure, and legacy fallback are not rollback.
+  Any destructive action is a separate approved change.
+- **Evidence:** repository runtime, Terraform, contracts, tests, ADR-024, and
+  runbooks can establish `Implemented` and named offline results can establish
+  `Locally validated` for an exact revision. Required PR checks remain separate
+  `CI validated` evidence. No AWS/Cognito creation, provider upgrade,
+  bootstrap, credential escrow/rotation, state adoption, user migration,
+  decommission, rollback, or two-deployment isolation is `Live validated` by
+  GUG-93 repository work. Those remain **Blocked**; production remains
+  **NO-GO**.
+- **Residual risk:** **High until reviewed CI and explicitly authorized
+  non-production create/upgrade/bootstrap/M2M/consumer/rollback/isolation
+  evidence; Critical if provider metadata grants authority, a credential enters
+  Terraform/evidence, bootstrap can replay, or identity resources are replaced
+  or deleted without migration proof**. **Owner:** Identity/Platform
+  Engineering, Application Security, Backend Engineering, and SRE.
 
 ## Severity Calibration (Critical, High, Medium, Low)
 

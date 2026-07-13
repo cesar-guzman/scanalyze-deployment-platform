@@ -1,0 +1,43 @@
+{
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "account_id": "123456789012",
+  "region": "us-east-1",
+  "aws_partition": "aws",
+  "identity_control_plane_contract_id": "identity-control-plane/v1",
+  "identity_control_plane_contract_digest": "sha256:b0c09a328754462a21656ed864951bbd985a59ca1c4ad41fcb56a175c75deeb8",
+  "cognito_user_pool_id": "us-east-1_SYNTHETIC01",
+  "cognito_issuer_url": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_SYNTHETIC01",
+  "cognito_spa_client_id": "syntheticspaclient000000000001",
+  "m2m_client_ids": [
+    "syntheticm2mclient00000000001"
+  ],
+  "allowed_token_uses": [
+    "access"
+  ],
+  "action_scopes": {
+    "read": "scanalyze.api.v1/read",
+    "write": "scanalyze.api.v1/write",
+    "admin": "scanalyze.api.v1/admin"
+  },
+  "policy_version": "1.0.0",
+  "policy_digest": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8",
+  "policy_canonicalization": "rfc8785_json_canonicalization",
+  "api_gateway_id": "abc123def4",
+  "api_gateway_endpoint": "https://abc123def4.execute-api.us-east-1.amazonaws.com",
+  "api_gateway_stage": "$default",
+  "api_gateway_authorizer_id": "syntheticauthorizer01",
+  "authorizer_type": "native_jwt",
+  "authorizer_audiences": [
+    "syntheticspaclient000000000001",
+    "syntheticunknownclient0000000001"
+  ],
+  "route_authorization_scopes": {
+    "GET /documents": ["scanalyze.api.v1/read"],
+    "POST /documents": ["scanalyze.api.v1/write"],
+    "POST /documents/export": ["scanalyze.api.v1/admin"]
+  },
+  "id_tokens_accepted": false,
+  "request_identity_headers_authoritative": false,
+  "x_tenant_id_fallback_enabled": false
+}

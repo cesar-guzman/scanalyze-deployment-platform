@@ -56,6 +56,7 @@ resource "aws_ecs_task_definition" "service" {
             value = var.release_version
           },
         ],
+        contains(local.identity_aware_services, each.value.name) ? local.identity_environment : [],
         each.value.extra_environment
       )
 
@@ -76,6 +77,8 @@ resource "aws_ecs_task_definition" "service" {
     layer         = "services"
     service       = each.key
   }
+
+  depends_on = [terraform_data.identity_contract_gate]
 }
 
 resource "aws_ecs_service" "service" {

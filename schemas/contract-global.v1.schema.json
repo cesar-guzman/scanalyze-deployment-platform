@@ -6,21 +6,26 @@
   "required": ["ecs_execution_role_arn", "ecs_task_role_arns"],
   "additionalProperties": false,
   "properties": {
-    "ecs_execution_role_arn": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
+    "ecs_execution_role_arn": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
     "ecs_task_role_arns": {
       "type": "object",
       "description": "Per-service task role ARNs",
       "additionalProperties": false,
       "properties": {
-        "scanalyze-ingest-api": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-ocr-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-classifier-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-bank-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-personal-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-gov-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" },
-        "scanalyze-postprocess-worker": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:role/.+$" }
+        "scanalyze-ingest-api": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-ocr-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-classifier-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-bank-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-personal-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-gov-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" },
+        "scanalyze-postprocess-worker": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/.+$" }
       }
     },
-    "permissions_boundary_arn": { "type": "string", "pattern": "^arn:aws:iam::[0-9]{12}:policy/.+$" }
+    "permissions_boundary_arn": { "type": "string", "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:policy/.+$" },
+    "identity_runtime_permissions_boundary_arn": {
+      "type": "string",
+      "pattern": "^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:policy/.+$",
+      "description": "Dedicated identity-runtime maximum permissions boundary; optional for legacy global/v1 contracts but mandatory for the GUG-93 consumer."
+    }
   }
 }

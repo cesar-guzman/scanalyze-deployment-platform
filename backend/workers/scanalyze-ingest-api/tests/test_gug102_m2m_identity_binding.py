@@ -163,8 +163,10 @@ def test_binding_membership_does_not_reclassify_user_principal(
 ) -> None:
     claims = _claims()
     claims[username_claim] = "synthetic-user"
+    settings = _settings()
+    settings.human_enterprise_authorization_enabled = True
 
-    context = _resolve(claims=claims)
+    context = _resolve(settings=settings, claims=claims)
 
     assert context.principal_type == "user"
     assert context.auth_source == "cognito_jwt"

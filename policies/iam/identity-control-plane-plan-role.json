@@ -1,0 +1,73 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadIdentityLayerState",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/identity-control-plane/terraform.tfstate"
+    },
+    {
+      "Sid": "ManageIdentityLayerLock",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/identity-control-plane/terraform.tfstate.tflock"
+    },
+    {
+      "Sid": "ReadIdentityContractsAndArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/identity-control-plane/*",
+        "arn:${aws_partition}:s3:::scanalyze-shared-releases/${release_digest}/*",
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
+      ]
+    },
+    {
+      "Sid": "ReadDeploymentIdentityResources",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:DescribeUserPoolDomain",
+        "cognito-idp:GetGroup",
+        "cognito-idp:ListGroups",
+        "dynamodb:DescribeTable",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "lambda:GetAlias",
+        "lambda:GetFunction",
+        "lambda:GetPolicy",
+        "logs:DescribeLogGroups",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DecryptIdentityContracts",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${identity_logs_kms_key_id}"
+      ]
+    }
+  ]
+}

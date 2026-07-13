@@ -158,6 +158,7 @@ def test_plan_all_reads_canonical_dag_order(tmp_path: Path) -> None:
         "platform",
         "data-foundation",
         "cicd",
+        "identity-control-plane",
         "services",
         "edge-identity",
         "edge",
@@ -181,6 +182,18 @@ def test_local_plan_uses_v2_metadata_for_data_foundation_consumers(
     }
 
 
+def test_local_plan_uses_edge_identity_v2_metadata_for_edge(
+    tmp_path: Path,
+) -> None:
+    result, captured = _run_layer_plan(tmp_path, "edge")
+
+    assert result.returncode == 0, result.stderr
+    assert captured == {
+        "contract_id": "edge-identity/v2",
+        "schema_version": "2",
+    }
+
+
 @pytest.mark.parametrize(
     "layer",
     [
@@ -189,8 +202,8 @@ def test_local_plan_uses_v2_metadata_for_data_foundation_consumers(
         "network",
         "platform",
         "data-foundation",
+        "identity-control-plane",
         "edge-identity",
-        "edge",
         "addons",
     ],
 )

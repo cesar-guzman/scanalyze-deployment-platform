@@ -50,6 +50,7 @@ def clean_env_vars(monkeypatch):
         "M2M_TENANT_RESOLUTION", "M2M_CLIENT_TENANT_MAP",
         "M2M_CLIENT_IDENTITY_BINDINGS_V1", "M2M_ACTION_SCOPE_SETS_V1",
         "SCANALYZE_DEPLOYMENT_ID", "DEPLOYMENT_CLAIM_NAME",
+        "HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -302,6 +303,7 @@ class TestDeploymentCustomerBinding:
             env="test",
             scanalyze_deployment_customer_id="customer-example",
             cognito_allowed_client_ids="",
+            human_enterprise_authorization_enabled=True,
         )
         claims = _fake_jwt_claims(**{"custom:customerId": "customer-example"})
 
