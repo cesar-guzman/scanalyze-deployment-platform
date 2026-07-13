@@ -20,6 +20,7 @@ NOTE (ADR): custom:customerId represents the SaaS CUSTOMER identity (e.g. custom
 from __future__ import annotations
 
 import json
+import hmac
 import re
 import time
 import urllib.request
@@ -31,8 +32,24 @@ import jwt  # PyJWT
 from fastapi import Header, Request
 
 from .config import get_settings
+from .enterprise_authorization import (
+    AUTHZ_SCHEMA_VERSION,
+    MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS,
+    MEMBERSHIP_SOURCE,
+    POLICY_DIGEST,
+    POLICY_VERSION,
+    ROLE_CATALOG_VERSION,
+    SCOPE_CATALOG_VERSION,
+    AUTHORIZATION_CONTEXT_SCHEMA_VERSION,
+    AuthorizationPath,
+    HumanAuthorizationSnapshot,
+    HumanRole,
+    is_valid_subject_reference,
+    is_valid_version_reference,
+)
 from .errors import AppError
 from .logging import get_logger
+from .middleware import request_route_template
 
 # ── Constants ──────────────────────────────────────────────
 
@@ -42,6 +59,19 @@ _DEPLOYMENT_ULID_PATTERN = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
 _FORBIDDEN_TENANT_VALUES = frozenset({"default", "null", "none", "undefined", ""})
 _JWKS_CACHE_TTL_SECONDS = 300  # 5 min
 _ALLOWED_TENANT_CLAIM_PREFIXES = ("custom:", "tenant", "org")
+_LEGACY_IDENTITY_CLAIMS = frozenset(
+    {
+        "tenant_id",
+        "tenantId",
+        "custom:tenantId",
+        "customer_id",
+        "customerId",
+        "custom:customer_id",
+        "deployment_id",
+        "deploymentId",
+        "custom:deploymentId",
+    }
+)
 _DISALLOWED_TENANT_CLAIM_NAMES = frozenset({
     "sub", "client_id", "username", "email", "scope", "scp",
     "iss", "aud", "exp", "iat", "nbf", "jti", "token_use",
@@ -74,6 +104,7 @@ class AuthContext:
     email: Optional[str]
     name: Optional[str]
     auth_source: str
+    human_authorization: Optional[HumanAuthorizationSnapshot]
 
     def __init__(
         self,
@@ -89,6 +120,7 @@ class AuthContext:
         email: Optional[str] = None,
         name: Optional[str] = None,
         auth_source: str = "cognito_jwt",
+        human_authorization: Optional[HumanAuthorizationSnapshot] = None,
     ) -> None:
         """Build a typed context while retaining the legacy tenant_id keyword."""
         if customer_id and tenant_id and customer_id != tenant_id:
@@ -116,6 +148,7 @@ class AuthContext:
         object.__setattr__(self, "email", email)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "auth_source", auth_source)
+        object.__setattr__(self, "human_authorization", human_authorization)
 
     @property
     def tenant_id(self) -> str:
@@ -364,7 +397,11 @@ def _resolve_tenant_from_claims(claims: Dict[str, Any], settings: Any) -> Option
 
 def _is_human_principal(claims: Dict[str, Any]) -> bool:
     """Recognize both Cognito access-token username claim representations."""
-    return bool(claims.get("cognito:username") or claims.get("username"))
+    return bool(
+        claims.get("cognito:username")
+        or claims.get("username")
+        or claims.get("principal_type") == "user"
+    )
 
 
 def _binding_value(binding: Any, field_name: str) -> Any:
@@ -612,6 +649,189 @@ def _resolve_m2m_identity(
     )
 
 
+def _deny_human_authorization(reason: str, *, status_code: int = 403) -> None:
+    """Deny a human principal without disclosing policy or membership state."""
+    logger.warning("human_enterprise_authorization_denied", reason=reason)
+    raise AppError(
+        code="UNAUTHORIZED" if status_code == 401 else "FORBIDDEN",
+        message=(
+            "Invalid token type"
+            if status_code == 401
+            else "Principal is not authorized for this operation"
+        ),
+        status_code=status_code,
+        details={},
+    )
+
+
+def _constant_time_claim_equal(actual: Any, expected: str) -> bool:
+    return isinstance(actual, str) and hmac.compare_digest(
+        actual.encode("utf-8"),
+        expected.encode("utf-8"),
+    )
+
+
+def _human_runtime_contract(settings: Any) -> int:
+    """Validate the reviewed, provider-neutral human authorization contract."""
+    expected_values = {
+        "enterprise_authorization_schema_version": AUTHZ_SCHEMA_VERSION,
+        "enterprise_scope_catalog_version": SCOPE_CATALOG_VERSION,
+        "enterprise_role_catalog_version": ROLE_CATALOG_VERSION,
+        "enterprise_policy_version": POLICY_VERSION,
+    }
+    for field_name, expected in expected_values.items():
+        if getattr(settings, field_name, None) != expected:
+            _deny_human_authorization("runtime_contract_mismatch")
+
+    if not _constant_time_claim_equal(
+        getattr(settings, "enterprise_policy_digest", None),
+        POLICY_DIGEST,
+    ):
+        _deny_human_authorization("runtime_policy_digest_mismatch")
+
+    max_age = getattr(
+        settings,
+        "enterprise_membership_snapshot_max_age_seconds",
+        None,
+    )
+    if (
+        not isinstance(max_age, int)
+        or isinstance(max_age, bool)
+        or max_age < 1
+        or max_age > MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS
+    ):
+        _deny_human_authorization("invalid_membership_snapshot_max_age")
+
+    if getattr(settings, "tenant_claim_name", None) != "custom:customerId":
+        _deny_human_authorization("noncanonical_customer_claim_configuration")
+    if getattr(settings, "deployment_claim_name", None) != "custom:deployment_id":
+        _deny_human_authorization("noncanonical_deployment_claim_configuration")
+    return max_age
+
+
+def _required_non_empty_claim(claims: Dict[str, Any], claim_name: str) -> str:
+    value = claims.get(claim_name)
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+    ):
+        _deny_human_authorization("missing_or_malformed_authorization_claim")
+    return value
+
+
+def _required_epoch_claim(claims: Dict[str, Any], claim_name: str) -> int:
+    value = claims.get(claim_name)
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value <= 0
+        or value > 9_999_999_999
+    ):
+        _deny_human_authorization("missing_or_malformed_authorization_time")
+    return value
+
+
+def _resolve_human_authorization_snapshot(
+    claims: Dict[str, Any],
+    settings: Any,
+) -> HumanAuthorizationSnapshot:
+    """Build immutable PDP input exclusively from validated access-token claims."""
+    if claims.get("token_use") != "access":
+        _deny_human_authorization("human_access_token_required", status_code=401)
+    if claims.get("principal_type") != "user":
+        _deny_human_authorization("invalid_human_principal_type")
+    if any(claim_name in claims for claim_name in _LEGACY_IDENTITY_CLAIMS):
+        _deny_human_authorization("legacy_identity_claim_present")
+
+    max_age = _human_runtime_contract(settings)
+    subject = _required_non_empty_claim(claims, "sub")
+    customer_id = _required_non_empty_claim(claims, "custom:customerId")
+    deployment_id = _required_non_empty_claim(claims, "custom:deployment_id")
+
+    if not is_valid_subject_reference(subject):
+        _deny_human_authorization("malformed_subject")
+
+    expected_customer = getattr(settings, "scanalyze_deployment_customer_id", None)
+    expected_deployment = getattr(settings, "scanalyze_deployment_id", None)
+    if (
+        not _CUSTOMER_ULID_PATTERN.fullmatch(customer_id)
+        or not isinstance(expected_customer, str)
+        or not _CUSTOMER_ULID_PATTERN.fullmatch(expected_customer)
+        or customer_id != expected_customer
+    ):
+        _deny_human_authorization("customer_binding_mismatch")
+    if (
+        not _DEPLOYMENT_ULID_PATTERN.fullmatch(deployment_id)
+        or not isinstance(expected_deployment, str)
+        or not _DEPLOYMENT_ULID_PATTERN.fullmatch(expected_deployment)
+        or deployment_id != expected_deployment
+    ):
+        _deny_human_authorization("deployment_binding_mismatch")
+
+    if claims.get("membership_state") != "active":
+        _deny_human_authorization("inactive_membership")
+    try:
+        role = HumanRole(claims.get("role_id"))
+    except (TypeError, ValueError):
+        _deny_human_authorization("unknown_role")
+    membership_version = _required_non_empty_claim(claims, "membership_version")
+    if not is_valid_version_reference(membership_version):
+        _deny_human_authorization("malformed_membership_version")
+
+    expected_claims = {
+        "authz_schema_version": AUTHZ_SCHEMA_VERSION,
+        "scope_catalog_version": SCOPE_CATALOG_VERSION,
+        "role_catalog_version": ROLE_CATALOG_VERSION,
+        "policy_version": POLICY_VERSION,
+    }
+    for claim_name, expected in expected_claims.items():
+        if claims.get(claim_name) != expected:
+            _deny_human_authorization("authorization_contract_claim_mismatch")
+    if not _constant_time_claim_equal(claims.get("policy_digest"), POLICY_DIGEST):
+        _deny_human_authorization("policy_digest_claim_mismatch")
+
+    issued_at = _required_epoch_claim(claims, "iat")
+    authenticated_at = _required_epoch_claim(claims, "auth_time")
+    now_epoch = int(time.time())
+    snapshot_age = now_epoch - issued_at
+    if snapshot_age < 0 or snapshot_age > max_age:
+        _deny_human_authorization("stale_membership_snapshot")
+    if authenticated_at > issued_at or authenticated_at > now_epoch:
+        _deny_human_authorization("conflicting_authentication_time")
+
+    return HumanAuthorizationSnapshot(
+        schema_version=AUTHORIZATION_CONTEXT_SCHEMA_VERSION,
+        authorization_path=AuthorizationPath.MEMBERSHIP,
+        authorization_source=MEMBERSHIP_SOURCE,
+        subject=subject,
+        customer_id=customer_id,
+        deployment_id=deployment_id,
+        membership_state="active",
+        role_id=role,
+        membership_version=membership_version,
+        temporary_grant_id=None,
+        temporary_grant_type=None,
+        temporary_grant_state=None,
+        temporary_grant_version=None,
+        allowed_operation_ids=frozenset(),
+        allowed_data_classes=frozenset(),
+        expires_at_epoch=None,
+        authz_schema_version=AUTHZ_SCHEMA_VERSION,
+        scope_catalog_version=SCOPE_CATALOG_VERSION,
+        role_catalog_version=ROLE_CATALOG_VERSION,
+        policy_version=POLICY_VERSION,
+        policy_digest=POLICY_DIGEST,
+        issued_at_epoch=issued_at,
+        assurance=None,
+        authenticated_at_epoch=authenticated_at,
+        grant_issued_at_epoch=None,
+        assurance_source=None,
+        assurance_version=None,
+        authentication_event_reference=None,
+    )
+
+
 # ── Auth Context Resolvers ────────────────────────────────
 
 def _resolve_cognito_auth(
@@ -661,57 +881,25 @@ def _resolve_cognito_auth(
             details={},
         )
 
-    # ── Extract tenant from claims ──
-    tenant_id = _resolve_tenant_from_claims(claims, settings)
-
-    if tenant_id:
-        tenant_id = _validate_tenant_id(tenant_id, source="jwt_claim")
-
-        # P0-002: Validate deployment customer binding AFTER verified JWT
-        _validate_deployment_customer(tenant_id, settings)
-
-        logger.info(
-            "auth_context_resolved",
-            source="cognito_jwt",
-            token_use=token_use,
-            path=request_path,
-        )
-        expected_deployment_value = getattr(settings, "scanalyze_deployment_id", None)
-        expected_deployment = (
-            expected_deployment_value
-            if isinstance(expected_deployment_value, str)
-            and _DEPLOYMENT_ULID_PATTERN.fullmatch(expected_deployment_value)
-            else None
-        )
-        return AuthContext(
-            customer_id=tenant_id,
-            deployment_id=expected_deployment,
-            principal_type="user",
-            subject=subject,
-            client_id=client_id,
-            scopes=scopes,
-            email=email,
-            name=name,
-            auth_source="cognito_jwt",
-        )
-
-    # ── No tenant claim: check if M2M token ──
-    if token_use == "access" and claims.get("client_id") and not _is_human_principal(claims):
-        return _resolve_m2m_identity(claims, settings, scopes)
-
-    # ── User token without tenant claim → fail closed ──
-    logger.warning(
-        "tenant_resolution_failed",
-        reason="missing_tenant_claim",
-        claim_name=settings.tenant_claim_name,
+    snapshot = _resolve_human_authorization_snapshot(claims, settings)
+    logger.info(
+        "auth_context_resolved",
+        source=MEMBERSHIP_SOURCE,
         token_use=token_use,
         path=request_path,
     )
-    raise AppError(
-        code="FORBIDDEN",
-        message="Token does not contain a tenant identifier",
-        status_code=403,
-        details={},
+    return AuthContext(
+        customer_id=snapshot.customer_id,
+        deployment_id=snapshot.deployment_id,
+        principal_type="user",
+        subject=subject,
+        client_id=client_id,
+        scopes=scopes,
+        granted_actions=frozenset(),
+        email=email,
+        name=name,
+        auth_source="cognito_jwt",
+        human_authorization=snapshot,
     )
 
 
@@ -829,7 +1017,7 @@ def get_auth_context(
         if x_tenant_id is not None:
             logger.warning(
                 "legacy_tenant_header_rejected",
-                path=str(request.url.path),
+                route=request_route_template(request),
             )
             raise AppError(
                 code="FORBIDDEN",
@@ -845,7 +1033,7 @@ def get_auth_context(
             logger.warning(
                 "legacy_tenant_header_rejected",
                 reason="no_authorization_header",
-                path=str(request.url.path),
+                route=request_route_template(request),
             )
         raise AppError(
             code="UNAUTHORIZED",
@@ -885,5 +1073,5 @@ def get_auth_context(
         token=token,
         settings=settings,
         legacy_tenant_header=x_tenant_id,
-        request_path=str(request.url.path),
+        request_path=request_route_template(request),
     )

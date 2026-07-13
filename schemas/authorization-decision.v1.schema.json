@@ -1,0 +1,501 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/authorization-decision.v1.schema.json",
+  "title": "Scanalyze Authorization Decision v1",
+  "description": "Sanitized, provider-neutral authorization decision evidence without credentials, object locators, request payloads, or customer data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_schema_version",
+    "timestamp",
+    "decision_id",
+    "principal_type",
+    "principal_reference",
+    "customer_reference",
+    "deployment_reference",
+    "correlation_reference",
+    "action",
+    "operation",
+    "resource_type",
+    "decision",
+    "reason_code",
+    "policy_version",
+    "policy_digest",
+    "assurance"
+  ],
+  "properties": {
+    "event_schema_version": {
+      "const": "authorization-decision.v1"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^decision-[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    },
+    "principal_type": {
+      "type": "string",
+      "enum": [
+        "user",
+        "m2m"
+      ]
+    },
+    "principal_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "customer_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "deployment_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "resource_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "correlation_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "authorization_path": {
+      "type": "string",
+      "enum": [
+        "membership",
+        "temporary_grant",
+        "m2m_binding"
+      ]
+    },
+    "authorization_source": {
+      "type": "string",
+      "enum": [
+        "pre_token_membership_v1",
+        "authoritative_temporary_grant_store_v1",
+        "m2m_identity_binding_v1"
+      ]
+    },
+    "membership_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "role_catalog_version": {
+      "const": "enterprise-roles.v1"
+    },
+    "grant_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "temporary_grant_type": {
+      "type": "string",
+      "enum": [
+        "support",
+        "break_glass"
+      ]
+    },
+    "temporary_grant_state": {
+      "const": "active"
+    },
+    "temporary_grant_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "grant_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "case_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "incident_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "purpose_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "approval_references": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/opaque_reference"
+      }
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "read",
+        "write",
+        "admin",
+        "read+admin"
+      ]
+    },
+    "operation": {
+      "$ref": "#/$defs/operation_id"
+    },
+    "resource_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "data_classes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "metadata",
+          "masked",
+          "content",
+          "pii",
+          "aggregated"
+        ]
+      }
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
+    "policy_digest": {
+      "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+    },
+    "assurance": {
+      "type": "string",
+      "enum": [
+        "phishing_resistant_mfa",
+        "validated_client_credentials_binding",
+        "none"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "allow"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/membership_allow"
+          },
+          {
+            "$ref": "#/$defs/support_allow"
+          },
+          {
+            "$ref": "#/$defs/break_glass_allow"
+          },
+          {
+            "$ref": "#/$defs/m2m_allow"
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "opaque_reference": {
+      "type": "string",
+      "pattern": "^ref_[0-9a-f]{24,64}$"
+    },
+    "version_reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "membership_allow": {
+      "properties": {
+        "principal_type": {
+          "const": "user"
+        },
+        "authorization_path": {
+          "const": "membership"
+        },
+        "authorization_source": {
+          "const": "pre_token_membership_v1"
+        },
+        "assurance": {
+          "enum": [
+            "none",
+            "phishing_resistant_mfa"
+          ]
+        }
+      },
+      "required": [
+        "authorization_path",
+        "authorization_source",
+        "membership_version",
+        "role_catalog_version"
+      ],
+      "not": {
+        "$ref": "#/$defs/has_temporary_or_m2m_evidence"
+      }
+    },
+    "support_allow": {
+      "properties": {
+        "principal_type": {
+          "const": "user"
+        },
+        "authorization_path": {
+          "const": "temporary_grant"
+        },
+        "authorization_source": {
+          "const": "authoritative_temporary_grant_store_v1"
+        },
+        "temporary_grant_type": {
+          "const": "support"
+        },
+        "assurance": {
+          "const": "phishing_resistant_mfa"
+        },
+        "approval_references": {
+          "minItems": 1,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "authorization_path",
+        "authorization_source",
+        "temporary_grant_type",
+        "temporary_grant_state",
+        "temporary_grant_version",
+        "grant_reference",
+        "case_reference",
+        "purpose_reference",
+        "approval_references"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "membership_version"
+            ]
+          },
+          {
+            "required": [
+              "role_catalog_version"
+            ]
+          },
+          {
+            "required": [
+              "grant_version"
+            ]
+          },
+          {
+            "required": [
+              "incident_reference"
+            ]
+          }
+        ]
+      }
+    },
+    "break_glass_allow": {
+      "properties": {
+        "principal_type": {
+          "const": "user"
+        },
+        "authorization_path": {
+          "const": "temporary_grant"
+        },
+        "authorization_source": {
+          "const": "authoritative_temporary_grant_store_v1"
+        },
+        "temporary_grant_type": {
+          "const": "break_glass"
+        },
+        "assurance": {
+          "const": "phishing_resistant_mfa"
+        },
+        "approval_references": {
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "authorization_path",
+        "authorization_source",
+        "temporary_grant_type",
+        "temporary_grant_state",
+        "temporary_grant_version",
+        "grant_reference",
+        "incident_reference",
+        "purpose_reference",
+        "approval_references"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "membership_version"
+            ]
+          },
+          {
+            "required": [
+              "role_catalog_version"
+            ]
+          },
+          {
+            "required": [
+              "grant_version"
+            ]
+          },
+          {
+            "required": [
+              "case_reference"
+            ]
+          }
+        ]
+      }
+    },
+    "m2m_allow": {
+      "properties": {
+        "principal_type": {
+          "const": "m2m"
+        },
+        "authorization_path": {
+          "const": "m2m_binding"
+        },
+        "authorization_source": {
+          "const": "m2m_identity_binding_v1"
+        },
+        "assurance": {
+          "const": "validated_client_credentials_binding"
+        }
+      },
+      "required": [
+        "authorization_path",
+        "authorization_source",
+        "grant_version"
+      ],
+      "not": {
+        "$ref": "#/$defs/has_human_evidence"
+      }
+    },
+    "has_temporary_or_m2m_evidence": {
+      "anyOf": [
+        {
+          "required": [
+            "grant_version"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_type"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_state"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_version"
+          ]
+        },
+        {
+          "required": [
+            "grant_reference"
+          ]
+        },
+        {
+          "required": [
+            "case_reference"
+          ]
+        },
+        {
+          "required": [
+            "incident_reference"
+          ]
+        },
+        {
+          "required": [
+            "purpose_reference"
+          ]
+        },
+        {
+          "required": [
+            "approval_references"
+          ]
+        }
+      ]
+    },
+    "has_human_evidence": {
+      "anyOf": [
+        {
+          "required": [
+            "membership_version"
+          ]
+        },
+        {
+          "required": [
+            "role_catalog_version"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_type"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_state"
+          ]
+        },
+        {
+          "required": [
+            "temporary_grant_version"
+          ]
+        },
+        {
+          "required": [
+            "grant_reference"
+          ]
+        },
+        {
+          "required": [
+            "case_reference"
+          ]
+        },
+        {
+          "required": [
+            "incident_reference"
+          ]
+        },
+        {
+          "required": [
+            "purpose_reference"
+          ]
+        },
+        {
+          "required": [
+            "approval_references"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -194,6 +194,36 @@ class Settings(BaseSettings):
         default=False,
         alias="HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED",
     )
+    enterprise_authorization_schema_version: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_AUTHORIZATION_SCHEMA_VERSION",
+    )
+    enterprise_scope_catalog_version: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_SCOPE_CATALOG_VERSION",
+    )
+    enterprise_role_catalog_version: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_ROLE_CATALOG_VERSION",
+    )
+    enterprise_policy_version: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_POLICY_VERSION",
+    )
+    enterprise_policy_digest: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_POLICY_DIGEST",
+    )
+    enterprise_membership_snapshot_max_age_seconds: Optional[int] = Field(
+        default=None,
+        alias="ENTERPRISE_MEMBERSHIP_SNAPSHOT_MAX_AGE_SECONDS",
+    )
+    enterprise_assurance_claim_name: Optional[str] = Field(
+        default=None,
+        alias="ENTERPRISE_ASSURANCE_CLAIM_NAME",
+    )
+    # Retained only for configuration compatibility. The GUG-153 adapter never
+    # promotes a raw custom claim into phishing-resistant assurance.
 
     # Local/test/ci mock auth (only works with AUTH_MODE=local_mock AND APP_ENV∈{local,test,ci})
     # Legacy name retained for compatibility. Semantics are customer_id, not tenant header.
@@ -474,15 +504,82 @@ def validate_auth_config(settings: Settings | None = None) -> None:
             "in customer deployments. Must be 'custom:customerId' per P0-001/P0-002."
         )
 
-    if (
-        is_customer_deployment
-        and getattr(settings, "human_enterprise_authorization_enabled", False) is True
-    ):
-        errors.append(
-            "HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED must remain false until "
-            "the reviewed downstream role, lifecycle, and step-up enforcement "
-            "package is locally and live validated"
+    if getattr(settings, "human_enterprise_authorization_enabled", False) is True:
+        from .enterprise_authorization import (
+            AUTHZ_SCHEMA_VERSION,
+            MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS,
+            POLICY_DIGEST,
+            POLICY_VERSION,
+            ROLE_CATALOG_VERSION,
+            SCOPE_CATALOG_VERSION,
         )
+
+        expected_contract = {
+            "ENTERPRISE_AUTHORIZATION_SCHEMA_VERSION": (
+                "enterprise_authorization_schema_version",
+                AUTHZ_SCHEMA_VERSION,
+            ),
+            "ENTERPRISE_SCOPE_CATALOG_VERSION": (
+                "enterprise_scope_catalog_version",
+                SCOPE_CATALOG_VERSION,
+            ),
+            "ENTERPRISE_ROLE_CATALOG_VERSION": (
+                "enterprise_role_catalog_version",
+                ROLE_CATALOG_VERSION,
+            ),
+            "ENTERPRISE_POLICY_VERSION": (
+                "enterprise_policy_version",
+                POLICY_VERSION,
+            ),
+            "ENTERPRISE_POLICY_DIGEST": (
+                "enterprise_policy_digest",
+                POLICY_DIGEST,
+            ),
+        }
+        for env_name, (field_name, expected_value) in expected_contract.items():
+            if getattr(settings, field_name, None) != expected_value:
+                errors.append(
+                    f"{env_name} must exactly match the reviewed human "
+                    "authorization contract"
+                )
+
+        snapshot_max_age = getattr(
+            settings,
+            "enterprise_membership_snapshot_max_age_seconds",
+            None,
+        )
+        if (
+            not isinstance(snapshot_max_age, int)
+            or isinstance(snapshot_max_age, bool)
+            or snapshot_max_age < 1
+            or snapshot_max_age > MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS
+        ):
+            errors.append(
+                "ENTERPRISE_MEMBERSHIP_SNAPSHOT_MAX_AGE_SECONDS must be an "
+                f"integer between 1 and {MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS}"
+            )
+
+        # This legacy setting is no longer required and is never promoted by
+        # the runtime adapter. If it remains configured, reject identity
+        # binding claims to prevent a misleading or dangerous configuration.
+        assurance_claim = getattr(
+            settings,
+            "enterprise_assurance_claim_name",
+            None,
+        )
+        if assurance_claim is not None and (
+            not isinstance(assurance_claim, str)
+            or not re.fullmatch(r"custom:[A-Za-z0-9_.-]{1,64}", assurance_claim)
+            or assurance_claim
+            in {
+                "custom:customerId",
+                "custom:deployment_id",
+            }
+        ):
+            errors.append(
+                "ENTERPRISE_ASSURANCE_CLAIM_NAME is deprecated and inert; "
+                "when present it must remain a dedicated non-identity claim"
+            )
 
     # In customer deployments, COGNITO_ALLOWED_CLIENT_IDS must not be empty
     allowed_clients = (settings.cognito_allowed_client_ids or "").strip()

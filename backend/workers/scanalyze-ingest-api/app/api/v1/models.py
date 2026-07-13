@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ...document_contracts import canonical_document_content_type
 
 
 _NORMALIZED_IDENTITY_AUTHORITY_FIELDS = frozenset({
@@ -42,6 +44,13 @@ class CreateDocumentRequest(_IdentitySafeRequestModel):
     contentLength: Optional[int] = Field(default=None, ge=0, description="Bytes (optional)")
     batchId: Optional[str] = Field(default=None, description="Batch ID (optional)")
 
+    @field_validator("contentType")
+    @classmethod
+    def _require_supported_content_type(cls, value: str) -> str:
+        if canonical_document_content_type(value) is None:
+            raise ValueError("Unsupported document content type")
+        return value
+
 class CreateDocumentResponse(BaseModel):
     documentId: str
     uploadUrl: str
@@ -52,6 +61,7 @@ class CreateDocumentResponse(BaseModel):
 class SubmitDocumentRequest(_IdentitySafeRequestModel):
     stage: Optional[str] = Field(
         default=None,
+        max_length=64,
         description="Optional confirmation of the configured canonical FIRST_STAGE",
     )
 
@@ -106,10 +116,17 @@ class DocumentStatusResponse(BaseModel):
     status: Optional[str] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
+    # Retained as null-only compatibility fields. The metadata projection never
+    # exposes stable principal identifiers or legacy raw correlation values.
     uploaderUserId: Optional[str] = None
     correlationId: Optional[str] = None
     input: Dict[str, Any] = Field(default_factory=dict)
     stages: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("uploaderUserId", "correlationId", mode="before")
+    @classmethod
+    def _suppress_legacy_identity_fields(cls, _value: Any) -> None:
+        return None
 
 class BatchCreateRequest(_IdentitySafeRequestModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the batch")
@@ -121,6 +138,16 @@ class BatchResponse(BaseModel):
     createdBy: Optional[str] = None
     status: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("createdBy", mode="before")
+    @classmethod
+    def _suppress_legacy_creator_field(cls, _value: Any) -> None:
+        return None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _suppress_unclassified_metadata(cls, _value: Any) -> Dict[str, Any]:
+        return {}
 
 class ArtifactItem(BaseModel):
     artifactId: str

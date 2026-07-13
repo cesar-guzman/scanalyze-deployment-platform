@@ -5,11 +5,12 @@ import json
 import os
 import re
 import uuid
-import structlog
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import structlog
 from botocore.exceptions import ClientError
 
 from ..auth import AuthContext
@@ -21,6 +22,10 @@ from ..authorization import (
 )
 from ..aws_clients import s3_client, sqs_client
 from ..config import CANONICAL_FIRST_STAGE, get_settings
+from ..document_contracts import (
+    canonical_document_content_type,
+    public_document_content_type,
+)
 from ..errors import AppError
 from ..logging import bind_context, get_logger
 from ..repositories.documents import DocumentsRepository
@@ -35,6 +40,132 @@ def _iso(dt: datetime) -> str:
 
 filename_re = re.compile(r"[^A-Za-z0-9.-]+")
 object_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+_SAFE_STAGE_NAMES = frozenset(
+    {
+        "bank-extract",
+        "bank_extract",
+        "classify",
+        "gov-extract",
+        "gov_extract",
+        "ingest",
+        "notify",
+        "ocr",
+        "persist",
+        "personal-extract",
+        "personal_extract",
+        "validate",
+    }
+)
+_SAFE_STAGE_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    r"(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+)
+_SAFE_STAGE_STATES = frozenset(
+    {
+        "CANCELLED",
+        "COMPLETED",
+        "CREATED",
+        "DONE",
+        "ENQUEUED",
+        "ENQUEUE_FAILED",
+        "ENQUEUE_PENDING",
+        "ERROR",
+        "FAILED",
+        "HANDOFF_ENQUEUED",
+        "IN_PROGRESS",
+        "PASS",
+        "PENDING",
+        "PENDING_HANDOFF",
+        "PROCESSING",
+        "REJECTED",
+        "RETRYING",
+        "SKIPPED",
+        "SUBMITTED",
+        "SUCCESS",
+        "WARN",
+        "WRITING",
+    }
+)
+_SAFE_STAGE_STATE_FIELDS = frozenset(
+    {"status", "state", "finalStatus", "validationStatus"}
+)
+_SAFE_STAGE_TIMESTAMP_FIELDS = frozenset(
+    {
+        "completedAt",
+        "classifiedAt",
+        "createdAt",
+        "endedAt",
+        "enqueuedAt",
+        "failedAt",
+        "lastAttemptAt",
+        "nextAttemptAt",
+        "startedAt",
+        "submittedAt",
+        "updatedAt",
+        "validatedAt",
+    }
+)
+_SAFE_STAGE_COUNTER_FIELDS = frozenset(
+    {
+        "attempt",
+        "attemptCount",
+        "attempts",
+        "durationMs",
+        "failedCount",
+        "pageCount",
+        "pagesProcessed",
+        "processedCount",
+        "retryCount",
+        "successCount",
+        "totalCount",
+    }
+)
+
+
+def _safe_stage_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not _SAFE_STAGE_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _sanitize_stage_metadata(stages: Any) -> Dict[str, Dict[str, Any]]:
+    """Project stored stages onto safe scalar status/timing/counter fields."""
+    if not isinstance(stages, Mapping):
+        return {}
+
+    sanitized: Dict[str, Dict[str, Any]] = {}
+    for stage_name, raw_stage in stages.items():
+        if not isinstance(stage_name, str) or stage_name not in _SAFE_STAGE_NAMES:
+            continue
+
+        safe_stage: Dict[str, Any] = {}
+        if isinstance(raw_stage, Mapping):
+            for field in _SAFE_STAGE_STATE_FIELDS:
+                value = raw_stage.get(field)
+                if isinstance(value, str) and value in _SAFE_STAGE_STATES:
+                    safe_stage[field] = value
+
+            for field in _SAFE_STAGE_TIMESTAMP_FIELDS:
+                value = raw_stage.get(field)
+                if _safe_stage_timestamp(value):
+                    safe_stage[field] = value
+
+            for field in _SAFE_STAGE_COUNTER_FIELDS:
+                value = raw_stage.get(field)
+                if (
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and 0 <= value <= 2**63 - 1
+                ):
+                    safe_stage[field] = value
+
+        sanitized[stage_name] = safe_stage
+    return sanitized
 
 # Active worker-v1 artifact contracts. These are exact producer contracts, not
 # request-controlled prefixes and not an ownership fallback. GUG-89 owns their
@@ -104,6 +235,15 @@ class DocumentsService:
         batch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         ownership = ObjectOwnership.from_auth(auth)
+        canonical_content_type = canonical_document_content_type(content_type)
+        if canonical_content_type is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="Unsupported document content type",
+                status_code=400,
+                details={},
+            )
+        content_type = canonical_content_type
         authorize_document(
             auth,
             ownership.record_fields(),
@@ -120,8 +260,6 @@ class DocumentsService:
 
         doc_id = uuid.uuid4().hex
         bind_context(documentId=doc_id, tenant=tenant)
-        if subject:
-            bind_context(uploaderUserId=subject)
 
         safe_name = sanitize_filename(filename or "upload.bin")
 
@@ -289,6 +427,17 @@ class DocumentsService:
         # state so local contract errors can never strand the document.
         ctx = structlog.contextvars.get_contextvars()
         
+        stored_content_type = canonical_document_content_type(
+            input_info.get("contentType")
+        )
+        if stored_content_type is None:
+            raise AppError(
+                code="INVALID_DOCUMENT_METADATA",
+                message="Document metadata is invalid",
+                status_code=409,
+                details={},
+            )
+
         envelope = IngestEnvelopeV2(
             documentId=document_id,
             customer_id=ownership.customer_id,
@@ -296,7 +445,7 @@ class DocumentsService:
             processing_domain=trusted_processing_domain,
             enqueue_id=enqueue_id,
             raw={"bucket": raw_bucket, "key": raw_key},
-            contentType=input_info.get("contentType"),
+            contentType=stored_content_type,
             _metadata={
                 "correlationId": ctx.get("correlationId", doc.get("correlationId", uuid.uuid4().hex)),
                 "traceId": ctx.get("traceId") or doc.get("traceId") or None,
@@ -409,7 +558,7 @@ class DocumentsService:
 
         # Metadata mínima, evitando exponer buckets/keys salvo en artifacts endpoints
         input_info = doc.get("input") or {}
-        stages = doc.get("stages") or {}
+        stages = _sanitize_stage_metadata(doc.get("stages"))
 
         return {
             "documentId": doc.get("documentId", document_id),
@@ -418,11 +567,11 @@ class DocumentsService:
             "status": doc.get("status"),
             "createdAt": doc.get("createdAt"),
             "updatedAt": doc.get("updatedAt"),
-            "uploaderUserId": doc.get("uploaderUserId"),
-            "correlationId": doc.get("correlationId"),
             "input": {
                 "filename": input_info.get("filename"),
-                "contentType": input_info.get("contentType"),
+                "contentType": public_document_content_type(
+                    input_info.get("contentType")
+                ),
             },
             "stages": stages,
         }

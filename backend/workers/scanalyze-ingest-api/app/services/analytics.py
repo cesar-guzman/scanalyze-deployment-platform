@@ -14,6 +14,8 @@ from ..auth import AuthContext
 from ..authorization import ObjectAction, ObjectOwnership, authorize_document
 from ..aws_clients import s3_client
 from ..config import get_settings
+from ..csv_safety import neutralize_csv_cell
+from ..document_contracts import public_document_content_type
 from ..errors import AppError
 from ..logging import bind_context, get_logger
 from ..repositories.documents import DocumentsRepository
@@ -64,7 +66,9 @@ class AnalyticsService:
             if status and document.get("status") != status:
                 continue
             input_info = document.get("input") or {}
-            current_type = input_info.get("contentType", "") if isinstance(input_info, dict) else ""
+            current_type = public_document_content_type(
+                input_info.get("contentType") if isinstance(input_info, dict) else None
+            )
             if doc_type and current_type != doc_type:
                 continue
             filtered_docs.append(document)
@@ -113,8 +117,9 @@ class AnalyticsService:
                 documents_by_day[day] += 1
 
             input_info = document.get("input") or {}
-            current_type = input_info.get("contentType", "Unknown") if isinstance(input_info, dict) else "Unknown"
-            current_type = current_type or "Unknown"
+            current_type = public_document_content_type(
+                input_info.get("contentType") if isinstance(input_info, dict) else None
+            )
             pages_by_type[current_type] += pages
             documents_by_type[current_type] += 1
 
@@ -215,8 +220,10 @@ class AnalyticsService:
             total_pages += pages
             total_docs += 1
             input_info = document.get("input") or {}
-            doc_type = input_info.get("contentType", "Unknown") if isinstance(input_info, dict) else "Unknown"
-            pages_by_type[doc_type or "Unknown"] += pages
+            doc_type = public_document_content_type(
+                input_info.get("contentType") if isinstance(input_info, dict) else None
+            )
+            pages_by_type[doc_type] += pages
 
         return {
             "summary": {
@@ -301,7 +308,8 @@ class AnalyticsService:
                     person = data.get("person", {})
                     identifiers = data.get("identifiers", {})
                     writer.writerow(
-                        [
+                        neutralize_csv_cell(value)
+                        for value in [
                             document.get("documentId", ""),
                             document.get("createdAt", ""),
                             document.get("uploaderUserId", ""),

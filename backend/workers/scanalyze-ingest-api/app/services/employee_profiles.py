@@ -48,7 +48,7 @@ from .employee_profiles_grouping import (
     group_documents_by_person,
     merge_profile_fields,
 )
-from .employee_profiles_masking import mask_identifier
+from .employee_profiles_masking import mask_identifier, project_masked_profile
 from .employee_profiles_utils import (
     compute_source_fingerprint,
     options_hash,
@@ -61,9 +61,97 @@ from .employee_profiles_eligibility import (
 )
 
 
-
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_JOB_METADATA_STATUS_VALUES = frozenset(
+    {"RUNNING", "COMPLETED", "PARTIAL", "FAILED"}
+)
+_JOB_METADATA_COUNT_FIELDS = (
+    "eligibleDocumentCount",
+    "processedDocumentCount",
+    "profileCount",
+    "warningCount",
+)
+_JOB_METADATA_TIMESTAMP_FIELDS = (
+    "createdAt",
+    "updatedAt",
+    "startedAt",
+    "completedAt",
+)
+_GENERATION_OPTION_NAMES = frozenset({"force", "includeIncomplete"})
+
+
+def _normalize_generation_options(options: Any) -> Dict[str, bool]:
+    """Reject free-form controls before they can affect behavior or logging."""
+    if options is None:
+        return {}
+    if not isinstance(options, Mapping):
+        raise AppError(
+            code="VALIDATION_ERROR",
+            message="Generation options are invalid",
+            status_code=400,
+            details={},
+        )
+    if not set(options).issubset(_GENERATION_OPTION_NAMES):
+        raise AppError(
+            code="VALIDATION_ERROR",
+            message="Generation options are invalid",
+            status_code=400,
+            details={},
+        )
+    normalized: Dict[str, bool] = {}
+    for name, value in options.items():
+        if not isinstance(name, str) or type(value) is not bool:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="Generation options are invalid",
+                status_code=400,
+                details={},
+            )
+        normalized[name] = value
+    return normalized
+
+
+def _is_safe_job_timestamp(value: Any) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _project_job_metadata(job: Mapping[str, Any]) -> Dict[str, Any]:
+    """Project a stored job onto the closed, non-identifying status contract."""
+    projected: Dict[str, Any] = {
+        "jobId": job.get("jobId"),
+        "batchId": job.get("batchId"),
+    }
+    status = job.get("status")
+    if not (isinstance(status, str) and status in _JOB_METADATA_STATUS_VALUES):
+        raise AppError(
+            code="NOT_FOUND",
+            message="Employee profile job not found",
+            status_code=404,
+            details={},
+        )
+    projected["status"] = status
+    for field in _JOB_METADATA_COUNT_FIELDS:
+        value = job.get(field)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            projected[field] = value
+    for field in _JOB_METADATA_TIMESTAMP_FIELDS:
+        value = job.get(field)
+        if _is_safe_job_timestamp(value):
+            projected[field] = value
+    if job.get("errorCode") == "EMPLOYEE_PROFILES_GENERATION_FAILED":
+        projected["errorCode"] = "EMPLOYEE_PROFILES_GENERATION_FAILED"
+    return projected
 
 
 class EmployeeProfileService:
@@ -523,10 +611,10 @@ class EmployeeProfileService:
         Idempotent via sourceFingerprint (P0.7).
         Enforces max document limit (P0.6).
         """
+        opts = _normalize_generation_options(options)
         batch, ownership = self._load_batch(auth, batch_id, ObjectAction.WRITE)
         tenant = ownership.customer_id
         self._check_feature_enabled(tenant)
-        opts = options or {}
         force = opts.get("force", False)
         include_incomplete = opts.get("includeIncomplete", False)
 
@@ -871,7 +959,7 @@ class EmployeeProfileService:
             if job.get("jobId") != job_id or not isinstance(stored_batch_id, str):
                 self._hide_owned_record(auth, ObjectAction.READ, "Employee profile job")
             self._load_batch(auth, stored_batch_id, ObjectAction.READ)
-            return self._validate_batch_child(
+            validated = self._validate_batch_child(
                 auth,
                 job,
                 ownership=ownership,
@@ -879,6 +967,7 @@ class EmployeeProfileService:
                 action=ObjectAction.READ,
                 object_kind="Employee profile job",
             )
+            return _project_job_metadata(validated)
 
         # Fallback to batch-level lookup
         if batch_id:
@@ -894,7 +983,7 @@ class EmployeeProfileService:
             )
             if validated.get("jobId") != job_id:
                 self._hide_owned_record(auth, ObjectAction.READ, "Employee profile job")
-            return validated
+            return _project_job_metadata(validated)
 
         self._hide_owned_record(auth, ObjectAction.READ, "Employee profile job")
         raise AssertionError("unreachable")
@@ -908,12 +997,16 @@ class EmployeeProfileService:
         q: Optional[str] = None,
         limit: int = 50,
     ) -> Dict[str, Any]:
-        """List profiles, optionally filtered by batch, status, or name search.
-
-        P0.5: q is name-only search. No PII matching.
-        """
+        """List profiles with masked identifiers and no identifying name data."""
         tenant = auth.customer_id
         self._check_feature_enabled(tenant)
+        if q is not None:
+            raise AppError(
+                code="UNSUPPORTED_FILTER",
+                message="Profile name search is not supported",
+                status_code=400,
+                details={},
+            )
         ownership = ObjectOwnership.from_auth(auth)
         bucket = self._structured_bucket()
 
@@ -969,33 +1062,13 @@ class EmployeeProfileService:
         if status_filter:
             profiles = [p for p in profiles if p.get("status", "").upper() == status_filter.upper()]
 
-        # P0.5: Search by NAME only (no PII matching)
-        if q:
-            q_upper = q.upper()
-            profiles = [
-                p for p in profiles
-                if q_upper in (p.get("fullName") or "").upper()
-            ]
-
         total = len(profiles)
         profiles = profiles[:limit]
 
         # Build list-safe response (masked identifiers, no raw PII)
         list_profiles = []
         for p in profiles:
-            lp = {
-                "profileId": p.get("profileId"),
-                "fullName": p.get("fullName"),
-                "status": p.get("status"),
-                "completenessScore": p.get("completenessScore"),
-                "maskedIdentifiers": p.get("maskedIdentifiers", {}),
-                "sourceDocumentCount": len(p.get("sourceDocuments") or []),
-                "missingFieldCount": len(p.get("missingFields") or []),
-                "warningCount": len(p.get("warnings") or []),
-                "generatedAt": p.get("generatedAt"),
-                "batchId": p.get("batchId"),
-            }
-            list_profiles.append(lp)
+            list_profiles.append(project_masked_profile(p))
 
         return {"profiles": list_profiles, "total": total, "batchId": batch_id}
 

@@ -24,6 +24,19 @@ from fastapi.testclient import TestClient
 
 # ── Test Helpers ──────────────────────────────────────────
 
+_CUSTOMER_ID_A = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+_CUSTOMER_ID_B = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+_DEPLOYMENT_ID_A = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_DEPLOYMENT_ID_B = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+_AUTHZ_SCHEMA_VERSION = "enterprise-authorization.v1"
+_SCOPE_CATALOG_VERSION = "scanalyze.api.v1"
+_ROLE_CATALOG_VERSION = "enterprise-roles.v1"
+_POLICY_VERSION = "1.0.0"
+_POLICY_DIGEST = (
+    "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+)
+
+
 def _make_settings(**overrides: Any) -> MagicMock:
     """Create a mock Settings object with safe defaults for testing."""
     defaults = {
@@ -81,6 +94,47 @@ def _fake_jwt_claims(**overrides: Any) -> Dict[str, Any]:
     }
     base.update(overrides)
     return base
+
+
+def _make_human_settings(**overrides: Any) -> MagicMock:
+    """Create the exact reviewed runtime contract for a human principal."""
+    human_defaults = {
+        "human_enterprise_authorization_enabled": True,
+        "scanalyze_deployment_customer_id": _CUSTOMER_ID_A,
+        "scanalyze_deployment_id": _DEPLOYMENT_ID_A,
+        "enterprise_authorization_schema_version": _AUTHZ_SCHEMA_VERSION,
+        "enterprise_scope_catalog_version": _SCOPE_CATALOG_VERSION,
+        "enterprise_role_catalog_version": _ROLE_CATALOG_VERSION,
+        "enterprise_policy_version": _POLICY_VERSION,
+        "enterprise_policy_digest": _POLICY_DIGEST,
+        "enterprise_membership_snapshot_max_age_seconds": 300,
+        "enterprise_assurance_claim_name": "custom:authentication_assurance",
+    }
+    human_defaults.update(overrides)
+    return _make_settings(**human_defaults)
+
+
+def _fake_human_jwt_claims(**overrides: Any) -> Dict[str, Any]:
+    """Signed-claim shape emitted by the reviewed GUG-153 pre-token adapter."""
+    now = int(time.time())
+    human_claims = {
+        "principal_type": "user",
+        "custom:customerId": _CUSTOMER_ID_A,
+        "custom:deployment_id": _DEPLOYMENT_ID_A,
+        "membership_state": "active",
+        "role_id": "customer_admin",
+        "membership_version": "membership-v1",
+        "authz_schema_version": _AUTHZ_SCHEMA_VERSION,
+        "scope_catalog_version": _SCOPE_CATALOG_VERSION,
+        "role_catalog_version": _ROLE_CATALOG_VERSION,
+        "policy_version": _POLICY_VERSION,
+        "policy_digest": _POLICY_DIGEST,
+        "iat": now,
+        "auth_time": now,
+        "custom:authentication_assurance": "phishing_resistant_mfa",
+    }
+    human_claims.update(overrides)
+    return _fake_jwt_claims(**human_claims)
 
 
 # ── E2E: Startup Validation → App Lifecycle ──────────────
@@ -211,10 +265,9 @@ class TestE2EHttpRequestFlow:
     @patch("app.auth._jwks_cache")
     def test_valid_jwt_with_tenant_claim_succeeds(self, mock_cache):
         """E2E: Valid JWT with custom:customerId → 200 with correct tenant."""
-        client, settings = self._create_test_app(
-            {"human_enterprise_authorization_enabled": True}
-        )
-        claims = _fake_jwt_claims()
+        client, _ = self._create_test_app()
+        settings = _make_human_settings()
+        claims = _fake_human_jwt_claims()
         mock_key = MagicMock()
         mock_cache.get_signing_key.return_value = mock_key
 
@@ -226,7 +279,7 @@ class TestE2EHttpRequestFlow:
                 )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["tenant_id"] == "tenant-alpha"
+        assert body["tenant_id"] == _CUSTOMER_ID_A
         assert body["subject"] == "user-abc-123"
         assert body["auth_source"] == "cognito_jwt"
 
@@ -270,10 +323,10 @@ class TestE2EHttpRequestFlow:
     @patch("app.auth._jwks_cache")
     def test_jwt_without_tenant_claim_returns_403(self, mock_cache):
         """E2E: JWT valid but missing custom:customerId → 403."""
-        client, settings = self._create_test_app()
-        claims = _fake_jwt_claims()
+        client, _ = self._create_test_app()
+        settings = _make_human_settings()
+        claims = _fake_human_jwt_claims()
         del claims["custom:customerId"]
-        # Simulate user token (has cognito:username, so NOT M2M)
         mock_key = MagicMock()
         mock_cache.get_signing_key.return_value = mock_key
 
@@ -390,28 +443,41 @@ class TestE2ECrossTenantIsolation:
         """E2E: Two different JWTs with different tenants get different AuthContexts."""
         from app.auth import _resolve_cognito_auth
 
-        settings = _make_settings(
+        settings_a = _make_human_settings(
             cognito_allowed_client_ids="test-spa-client",
-            human_enterprise_authorization_enabled=True,
         )
 
-        # Tenant A
-        claims_a = _fake_jwt_claims(**{"custom:customerId": "tenant-a"})
+        # Deployment A
+        claims_a = _fake_human_jwt_claims()
         mock_key = MagicMock()
         mock_cache.get_signing_key.return_value = mock_key
 
         with patch("app.auth.jwt.decode", return_value=claims_a):
-            ctx_a = _resolve_cognito_auth("token-a", settings, None, "/test")
+            ctx_a = _resolve_cognito_auth("token-a", settings_a, None, "/test")
 
-        # Tenant B
-        claims_b = _fake_jwt_claims(**{"custom:customerId": "tenant-b", "sub": "user-xyz"})
+        # Independent deployment B with its own exact runtime binding.
+        settings_b = _make_human_settings(
+            scanalyze_deployment_customer_id=_CUSTOMER_ID_B,
+            scanalyze_deployment_id=_DEPLOYMENT_ID_B,
+            cognito_allowed_client_ids="test-spa-client",
+        )
+        claims_b = _fake_human_jwt_claims(
+            **{
+                "custom:customerId": _CUSTOMER_ID_B,
+                "custom:deployment_id": _DEPLOYMENT_ID_B,
+                "sub": "user-xyz",
+            }
+        )
         with patch("app.auth.jwt.decode", return_value=claims_b):
-            ctx_b = _resolve_cognito_auth("token-b", settings, None, "/test")
+            ctx_b = _resolve_cognito_auth("token-b", settings_b, None, "/test")
 
         # Verify isolation
-        assert ctx_a.tenant_id == "tenant-a"
-        assert ctx_b.tenant_id == "tenant-b"
+        assert ctx_a.tenant_id == _CUSTOMER_ID_A
+        assert ctx_a.deployment_id == _DEPLOYMENT_ID_A
+        assert ctx_b.tenant_id == _CUSTOMER_ID_B
+        assert ctx_b.deployment_id == _DEPLOYMENT_ID_B
         assert ctx_a.tenant_id != ctx_b.tenant_id
+        assert ctx_a.deployment_id != ctx_b.deployment_id
         assert ctx_a.subject != ctx_b.subject
 
     @patch("app.auth._jwks_cache")
@@ -598,8 +664,12 @@ class TestE2ESecurityAttackVectors:
         from app.errors import register_exception_handlers
         from fastapi import Depends
 
-        settings = _make_settings(cognito_allowed_client_ids="test-spa-client")
-        claims = _fake_jwt_claims(**{"custom:customerId": "default"})
+        settings = _make_human_settings(
+            cognito_allowed_client_ids="test-spa-client"
+        )
+        claims = _fake_human_jwt_claims(
+            **{"custom:customerId": "default"}
+        )
         mock_key = MagicMock()
         mock_cache.get_signing_key.return_value = mock_key
 
