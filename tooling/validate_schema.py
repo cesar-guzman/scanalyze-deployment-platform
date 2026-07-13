@@ -61,10 +61,11 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
                 return schema_path
 
     # Try contract-specific schemas
-    contract_match = re.match(r"contract-(\w+[\w-]*)-v1", fixture_name)
+    contract_match = re.match(r"contract-(\w+[\w-]*)-v([0-9]+)", fixture_name)
     if contract_match:
         layer = contract_match.group(1)
-        schema_path = schemas_dir / f"contract-{layer}.v1.schema.json"
+        version = contract_match.group(2)
+        schema_path = schemas_dir / f"contract-{layer}.v{version}.schema.json"
         if schema_path.exists():
             return schema_path
 

@@ -1,5 +1,5 @@
 # Contract consumer validation for services root.
-# Consumes: data-foundation/v1
+# Consumes: data-foundation/v2
 # Scope: regional
 # State key: {dep_id}/{region}/services/terraform.tfstate
 #
@@ -49,6 +49,14 @@ resource "terraform_data" "contract_gate" {
     }
 
     # ── Schema version ──
+    precondition {
+      condition     = var.upstream_contract_id == "data-foundation/v2"
+      error_message = "services requires the exact data-foundation/v2 contract"
+    }
+    precondition {
+      condition     = var.upstream_schema_version == "2"
+      error_message = "services requires data-foundation schema version 2"
+    }
     precondition {
       condition     = contains(var.accepted_schema_versions, var.upstream_schema_version)
       error_message = "upstream contract schema version is not accepted by this consumer"

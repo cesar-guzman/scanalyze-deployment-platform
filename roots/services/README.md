@@ -3,7 +3,7 @@
 > **Layer**: 4  
 > **Scope**: regional  
 > **Module**: `modules/services`  
-> **Consumes**: data-foundation/v1  
+> **Consumes**: data-foundation/v2
 > **Deployable**: true  
 > **State key**: `{dep_id}/{region}/services/terraform.tfstate`
 

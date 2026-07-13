@@ -20,11 +20,12 @@ from ..authorization import (
     authorize_document,
 )
 from ..aws_clients import s3_client, sqs_client
-from ..config import get_settings
+from ..config import CANONICAL_FIRST_STAGE, get_settings
 from ..errors import AppError
 from ..logging import bind_context, get_logger
 from ..repositories.documents import DocumentsRepository
 from ..repositories.batches import BatchesRepository
+from ..api.v1.models import IngestEnvelopeV2
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -40,6 +41,11 @@ object_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 # replacement with the canonical owner-bound prefix across the async pipeline.
 worker_v1_ocr_routes = frozenset({"platform", "bank", "personal", "gov"})
 worker_v1_structured_routes = frozenset({"bank", "personal", "gov"})
+
+
+class _MissingSqsAcknowledgement(RuntimeError):
+    """SQS accepted the API call without returning the required MessageId."""
+
 
 def sanitize_filename(name: str) -> str:
     # Evita path traversal y caracteres raros
@@ -180,6 +186,13 @@ class DocumentsService:
             item["createdByEmail"] = email
         if name:
             item["createdByDisplayName"] = name
+
+        # This value is deployment contract data. The request model exposes no
+        # processing-domain field and customer identity is never used as a route.
+        trusted_processing_domain = getattr(self.settings, "processing_domain", None)
+        item["documentRoute"] = trusted_processing_domain or "platform"
+        if trusted_processing_domain is not None:
+            item["processing_domain"] = trusted_processing_domain
             
         if batch_id:
             item["batchId"] = batch_id
@@ -223,89 +236,118 @@ class DocumentsService:
         document_id: str,
         stage: Optional[str] = None,
     ) -> Dict[str, Any]:
+        configured_stage = getattr(self.settings, "first_stage", None)
+        if configured_stage != CANONICAL_FIRST_STAGE:
+            raise AppError(
+                code="CONFIG_ERROR",
+                message="Canonical ingress stage is not configured",
+                status_code=500,
+                details={},
+            )
+        if stage is not None and (
+            not isinstance(stage, str)
+            or stage.lower().strip() != configured_stage
+        ):
+            raise AppError(
+                code="INVALID_STAGE",
+                message="Requested stage is not available",
+                status_code=400,
+                details={},
+            )
+
+        # The request may confirm the canonical value, but never establishes it.
+        stage_name = configured_stage
         ownership = ObjectOwnership.from_auth(auth)
         tenant = ownership.customer_id
-        bind_context(documentId=document_id, tenant=tenant)
+        bind_context(documentId=document_id, tenant=tenant, stage=stage_name)
         doc = self.repo.get_document(document_id)
         authorize_document(auth, doc, ObjectAction.WRITE)
         input_info = doc.get("input") or {}
-        self._validate_artifact_locator(
+        raw_bucket, raw_key = self._validate_artifact_locator(
             ownership,
             document_id,
             input_info.get("bucket"),
             input_info.get("key"),
         )
 
-        stage_name = (stage or self.settings.first_stage).lower().strip()
-        bind_context(stage=stage_name)
+        trusted_processing_domain = getattr(self.settings, "processing_domain", None)
+        stored_processing_domain = doc.get("processing_domain")
+        if stored_processing_domain != trusted_processing_domain:
+            raise AppError(
+                code="INVALID_PROCESSING_DOMAIN",
+                message="Document processing domain is invalid",
+                status_code=409,
+                details={},
+            )
 
         queue_url = self.settings.get_queue_url(stage_name)
         self._require(bool(queue_url), "CONFIG_ERROR", f"SQS queue URL for stage '{stage_name}' is not configured", 500)
 
         enqueue_id = uuid.uuid4().hex
 
-        # Idempotencia por stage usando Dynamo condition
-        can_enqueue = self.repo.set_stage_enqueue_pending(
-            document_id=document_id,
-            stage=stage_name,
-            enqueue_id=enqueue_id,
-            ownership=ownership,
-        )
-        if not can_enqueue:
-            # Ya estaba encolado o en progreso
-            return {
-                "documentId": document_id,
-                "stage": stage_name,
-                "enqueued": False,
-                "message": "Already submitted for this stage",
-            }
-
-        # Construye mensaje SQS (sin PII)
+        # Build and validate the complete envelope before claiming the pending
+        # state so local contract errors can never strand the document.
         ctx = structlog.contextvars.get_contextvars()
         
-        body = {
-            "schemaVersion": f"scanalyze.{stage_name}.v1",
-            "documentId": document_id,
-            "tenantId": tenant,
-            "customer_id": ownership.customer_id,
-            "deployment_id": ownership.deployment_id,
-            "ownership_schema_version": 1,
-            "stage": stage_name,
-            "enqueueId": enqueue_id,
-            "_metadata": {
+        envelope = IngestEnvelopeV2(
+            documentId=document_id,
+            customer_id=ownership.customer_id,
+            deployment_id=ownership.deployment_id,
+            processing_domain=trusted_processing_domain,
+            enqueue_id=enqueue_id,
+            raw={"bucket": raw_bucket, "key": raw_key},
+            contentType=input_info.get("contentType"),
+            _metadata={
                 "correlationId": ctx.get("correlationId", doc.get("correlationId", uuid.uuid4().hex)),
-                "traceId": ctx.get("traceId", doc.get("traceId", "")),
-                "uploaderUserId": doc.get("uploaderUserId", ""),
-                "route": tenant,
-                "customerStack": os.environ.get("SCANALYZE_TENANT", tenant),
+                "traceId": ctx.get("traceId") or doc.get("traceId") or None,
             },
-            "raw": {
-                "bucket": input_info.get("bucket"),
-                "key": input_info.get("key"),
-            },
-            "contentType": input_info.get("contentType"),
-            "input": {
-                "bucket": input_info.get("bucket"),
-                "key": input_info.get("key"),
-                "contentType": input_info.get("contentType"),
-            },
-        }
+        )
+        body = envelope.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
 
         try:
+            # Idempotency by canonical stage using the owner-bound Dynamo condition.
+            can_enqueue = self.repo.set_stage_enqueue_pending(
+                document_id=document_id,
+                stage=stage_name,
+                enqueue_id=enqueue_id,
+                ownership=ownership,
+            )
+            if not can_enqueue:
+                return {
+                    "documentId": document_id,
+                    "stage": stage_name,
+                    "enqueued": False,
+                    "message": "Already submitted for this stage",
+                }
+
             resp = self.sqs.send_message(
                 QueueUrl=queue_url,
                 MessageBody=json.dumps(body),
                 MessageAttributes={
-                    "tenantId": {"DataType": "String", "StringValue": tenant},
+                    "customer_id": {"DataType": "String", "StringValue": tenant},
+                    "deployment_id": {
+                        "DataType": "String",
+                        "StringValue": ownership.deployment_id,
+                    },
                     "documentId": {"DataType": "String", "StringValue": document_id},
-                    "stage": {"DataType": "String", "StringValue": stage_name},
-                    "enqueueId": {"DataType": "String", "StringValue": enqueue_id},
+                    "pipeline_stage": {"DataType": "String", "StringValue": stage_name},
+                    "enqueue_id": {"DataType": "String", "StringValue": enqueue_id},
                 },
             )
-            message_id = resp.get("MessageId", "")
+            message_id = resp.get("MessageId") if isinstance(resp, dict) else None
+            if not isinstance(message_id, str) or not message_id.strip():
+                raise _MissingSqsAcknowledgement(
+                    "SQS did not acknowledge the message"
+                )
+            message_id = message_id.strip()
             self.repo.set_stage_enqueued(
                 document_id=document_id,
                 stage=stage_name,
+                enqueue_id=enqueue_id,
                 queue_url=queue_url,
                 message_id=message_id,
                 ownership=ownership,
@@ -318,17 +360,45 @@ class DocumentsService:
                 "sqsMessageId": message_id,
             }
 
-        except ClientError as e:
-            err_code = e.response.get("Error", {}).get("Code", "SQS_ERROR")
-            self.repo.set_stage_enqueue_failed(
-                document_id=document_id,
-                stage=stage_name,
-                error_code=err_code,
-                error_message="Failed to enqueue message",
-                ownership=ownership,
+        except Exception as exc:
+            err_code = "SQS_ERROR"
+            if isinstance(exc, ClientError):
+                err_code = exc.response.get("Error", {}).get("Code", err_code)
+            elif isinstance(exc, _MissingSqsAcknowledgement):
+                err_code = "SQS_ACK_MISSING"
+
+            try:
+                self.repo.set_stage_enqueue_failed(
+                    document_id=document_id,
+                    stage=stage_name,
+                    enqueue_id=enqueue_id,
+                    error_code=err_code,
+                    error_message="Failed to enqueue message",
+                    ownership=ownership,
+                )
+            except Exception as recovery_error:
+                self.logger.error(
+                    "sqs_enqueue_recovery_failed",
+                    errorType=type(recovery_error).__name__,
+                )
+                raise AppError(
+                    code="SQS_ENQUEUE_RECOVERY_FAILED",
+                    message="Failed to recover document enqueue state",
+                    status_code=502,
+                    details={"stage": stage_name},
+                ) from exc
+
+            self.logger.error(
+                "sqs_send_failed",
+                sqsErrorCode=err_code,
+                errorType=type(exc).__name__,
             )
-            self.logger.error("sqs_send_failed", sqsErrorCode=err_code, errorType=type(e).__name__)
-            raise AppError(code="SQS_ENQUEUE_FAILED", message="Failed to enqueue document", status_code=502, details={"stage": stage_name})
+            raise AppError(
+                code="SQS_ENQUEUE_FAILED",
+                message="Failed to enqueue document",
+                status_code=502,
+                details={"stage": stage_name},
+            ) from exc
 
     def get_document_status(self, auth: AuthContext, document_id: str) -> Dict[str, Any]:
         tenant = auth.customer_id

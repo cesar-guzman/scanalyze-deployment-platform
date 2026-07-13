@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 import boto3
@@ -22,6 +23,12 @@ class ConfigCache:
         
         self.env = require_nonempty_env("SCANALYZE_ENV")
         self.tenant = require_nonempty_env("SCANALYZE_TENANT")
+        self.customer_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_CUSTOMER_ID")
+        self.deployment_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_ID")
+        if not re.fullmatch(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$", self.customer_id):
+            raise RuntimeError("SCANALYZE_DEPLOYMENT_CUSTOMER_ID is invalid")
+        if not re.fullmatch(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$", self.deployment_id):
+            raise RuntimeError("SCANALYZE_DEPLOYMENT_ID is invalid")
             
         param_root = os.environ.get("SCANALYZE_PARAM_ROOT", f"/scanalyze/{self.env}/tenants")
         if param_root.endswith(f"/{self.tenant}"):

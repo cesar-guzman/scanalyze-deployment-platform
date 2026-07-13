@@ -24,13 +24,21 @@ variable "region" {
 variable "upstream_contract_digest" {
   type        = string
   description = "SHA-256 digest of the upstream contract being consumed"
-  default     = ""
 }
 
 variable "expected_upstream_digest" {
   type        = string
   description = "Expected upstream contract digest from deployment record"
-  default     = ""
+}
+
+variable "upstream_contract_id" {
+  type        = string
+  description = "Exact output schema identifier from the verified upstream envelope"
+}
+
+variable "upstream_schema_version" {
+  type        = string
+  description = "Schema version of the verified upstream contract"
 }
 
 

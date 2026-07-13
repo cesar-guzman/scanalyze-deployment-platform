@@ -218,6 +218,7 @@ class DocumentsRepository:
         self,
         document_id: str,
         stage: str,
+        enqueue_id: str,
         queue_url: str,
         message_id: str,
         *,
@@ -237,6 +238,7 @@ class DocumentsRepository:
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
+            "#enqueueId": "enqueueId",
             "#queueUrl": "queueUrl",
             "#sqsMessageId": "sqsMessageId",
             "#updatedAt": "updatedAt",
@@ -246,6 +248,8 @@ class DocumentsRepository:
             ":deployment_id": ownership.deployment_id,
             ":ownership_schema_version": 1,
             ":enqueued": "ENQUEUED",
+            ":pending": "ENQUEUE_PENDING",
+            ":enqueueId": enqueue_id,
             ":queueUrl": queue_url,
             ":mid": message_id,
             ":now": now,
@@ -265,7 +269,9 @@ class DocumentsRepository:
                     "attribute_exists(#pk) AND "
                     "#customer_id = :customer_id AND "
                     "#deployment_id = :deployment_id AND "
-                    "#ownership_schema_version = :ownership_schema_version"
+                    "#ownership_schema_version = :ownership_schema_version AND "
+                    "#stages.#stage.#status = :pending AND "
+                    "#stages.#stage.#enqueueId = :enqueueId"
                 ),
                 UpdateExpression=update,
                 ExpressionAttributeNames=expr_names,
@@ -285,6 +291,7 @@ class DocumentsRepository:
         self,
         document_id: str,
         stage: str,
+        enqueue_id: str,
         error_code: str,
         error_message: str,
         *,
@@ -304,6 +311,7 @@ class DocumentsRepository:
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
+            "#enqueueId": "enqueueId",
             "#errorCode": "errorCode",
             "#errorMessage": "errorMessage",
             "#updatedAt": "updatedAt",
@@ -313,6 +321,8 @@ class DocumentsRepository:
             ":deployment_id": ownership.deployment_id,
             ":ownership_schema_version": 1,
             ":failed": "ENQUEUE_FAILED",
+            ":pending": "ENQUEUE_PENDING",
+            ":enqueueId": enqueue_id,
             ":code": error_code,
             ":msg": error_message,
             ":now": now,
@@ -332,7 +342,9 @@ class DocumentsRepository:
                     "attribute_exists(#pk) AND "
                     "#customer_id = :customer_id AND "
                     "#deployment_id = :deployment_id AND "
-                    "#ownership_schema_version = :ownership_schema_version"
+                    "#ownership_schema_version = :ownership_schema_version AND "
+                    "#stages.#stage.#status = :pending AND "
+                    "#stages.#stage.#enqueueId = :enqueueId"
                 ),
                 UpdateExpression=update,
                 ExpressionAttributeNames=expr_names,

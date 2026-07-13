@@ -4,7 +4,7 @@ import json
 import os
 import re
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _CUSTOMER_ULID_PATTERN = re.compile(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")
 _DEPLOYMENT_ULID_PATTERN = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
+CANONICAL_FIRST_STAGE = "ingest"
 
 
 class M2MClientIdentityBindingV1(BaseModel):
@@ -125,8 +126,16 @@ class Settings(BaseSettings):
     upload_url_ttl_seconds: int = Field(default=900, alias="UPLOAD_URL_TTL_SECONDS")
     download_url_ttl_seconds: int = Field(default=600, alias="DOWNLOAD_URL_TTL_SECONDS")
 
-    # Primer stage a encolar en /submit
-    first_stage: str = Field(default="ingest", alias="FIRST_STAGE")
+    # /submit has exactly one deployment-configured ingress stage. A request may
+    # confirm this value for compatibility, but can never select another route.
+    first_stage: Literal["ingest"] = Field(
+        default=CANONICAL_FIRST_STAGE,
+        alias="FIRST_STAGE",
+    )
+    processing_domain: Optional[Literal["bank", "personal", "gov"]] = Field(
+        default=None,
+        alias="SCANALYZE_PROCESSING_DOMAIN",
+    )
 
     # S3 key prefix convention
     s3_key_prefix_template: str = Field(default="{tenant}/{document_id}/", alias="S3_KEY_PREFIX_TEMPLATE")
@@ -261,31 +270,19 @@ class Settings(BaseSettings):
         return None
 
     def get_queue_url(self, stage: str) -> Optional[str]:
-        """
-        stage: por ejemplo "ocr", "classify", etc.
-        Prefer JSON mapping SQS_QUEUE_URLS_JSON, fallback a env var {STAGE}_QUEUE_URL
-        y también contempla nombres comunes como OCR_QUEUE_URL, CLASSIFY_QUEUE_URL, etc.
-        """
+        """Resolve only the canonical ingress queue from trusted configuration."""
+        if not isinstance(stage, str):
+            return None
         s = stage.lower().strip()
+        if s != self.first_stage or s != CANONICAL_FIRST_STAGE:
+            return None
 
         if self.sqs_queue_urls_json:
             v = self.sqs_queue_urls_json.get(s)
             if v:
                 return v
 
-        # Fallback dinámico: {STAGE}_QUEUE_URL
-        env_key = f"{s.upper()}_QUEUE_URL"
-        v = os.getenv(env_key)
-        if v:
-            return v
-
-        # Fallback de compatibilidad (si stage ya es ocr/classify no hace falta, pero cubre casos)
-        common = {
-            "ocr": os.getenv("OCR_QUEUE_URL"),
-            "classify": os.getenv("CLASSIFY_QUEUE_URL"),
-            "structured": os.getenv("STRUCTURED_QUEUE_URL"),
-        }
-        return common.get(s)
+        return os.getenv("INGEST_QUEUE_URL")
 
     def s3_prefix_for(self, tenant: str, document_id: str) -> str:
         prefix = self.s3_key_prefix_template.format(tenant=tenant, document_id=document_id)

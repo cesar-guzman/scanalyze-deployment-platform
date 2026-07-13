@@ -455,12 +455,13 @@ can add a foreign document to an authorized batch.
   necessary, and reconcile ownership only through the approved report-only and
   migration procedure. Never restore legacy `tenantId`, infer ownership from a
   batch or S3 prefix, return a partial export, or weaken conditions.
-- **Async/artifact boundary:** current worker-v1 artifact keys are accepted only
-  as exact route/document/file contracts in the deployment-configured OCR or
-  structured bucket after object authorization. Arbitrary prefixes remain
-  denied. The OCR consumer does not yet require and reconcile the ownership-v1
-  tuple before using its message locator; that worker/message control is
-  **Blocked** on GUG-89 and prevents end-to-end or live claims.
+- **Async/artifact boundary:** GUG-89 introduces strict stage-specific v2
+  messages, exact customer/deployment reconciliation against the authoritative
+  document, and stored-locator validation before worker side effects. Arbitrary
+  prefixes and message-only authority remain denied. The control is effective
+  only in the exact reviewed revision; task-definition activation, CI, live
+  queue behavior, two-deployment proof, and recovery evidence remain separate
+  and cannot be inferred from the repository change.
 - **Concurrent child writes:** Employee Profile force regeneration never skips
   authorization of existing jobs/profiles. S3 creation and replacement use
   `If-None-Match`/`If-Match` preconditions so legacy, foreign, malformed, or
@@ -475,6 +476,48 @@ can add a foreign document to an authorized batch.
 - **Residual risk:** **High until reviewed CI and non-production isolation
   evidence; Critical if any normal path accepts foreign, ambiguous, or unbound
   ownership**. **Owner:** Application Security and Backend Engineering.
+
+### TM-21: Async confused deputy, poison-message loss, or unsafe redrive
+
+**Attacker story:** A producer or compromised message supplies a foreign owner,
+legacy schema, conflicting stage/domain, or arbitrary artifact locator and a
+worker performs a protected effect or forwards it without reconciling the
+authoritative document. Alternatively, a poison message is acknowledged as
+success, disappears without evidence, or is later redriven across a deployment
+or stage, duplicating a partial effect.
+
+- **Preventive:** exactly nine reviewed stage queues and paired Standard DLQs;
+  strict stage-specific v2 envelopes; mandatory `customer_id`, `deployment_id`,
+  and ownership schema v1; deployment-configured DynamoDB authority; exact
+  owner/domain/locator comparison before protected effects; non-authoritative
+  metadata allowlists; owner-bound conditional state transitions; required SQS
+  `MessageId` before accepting a handoff; and exact `byQueue` DLQ source policy.
+- **Detective:** synthetic missing/malformed/foreign/ambiguous-owner tests,
+  stage/domain/locator conflict tests, duplicate and partial-handoff tests,
+  topology/schema contract checks, reason-only worker diagnostics, per-stage
+  retry/DLQ alarms, and sanitized count reconciliation.
+- **Recovery:** retain the failed message in its exact stage path; classify it
+  report-only as eligible, legacy, unbound, partial, ambiguous, foreign,
+  orphaned, inconsistent, or partial-effect-unknown; require same-deployment
+  revalidation, idempotency proof, dry-run, independent approval, rate limits,
+  and stop criteria before any future redrive. Never infer or rewrite ownership,
+  bypass the failed stage, cross deployments, or purge a queue.
+- **Legacy behavior:** v1, missing, partial, malformed, conflicting, ambiguous,
+  foreign, and unverifiable messages are denied and retained for reviewed
+  quarantine/investigation. GUG-89 performs no automatic migration or redrive.
+- **Evidence:** ADR-022, the async topology reference, worker/source tests, and
+  Terraform/schema checks can establish repository implementation and local or
+  CI evidence for an exact revision. They do not establish AWS resources,
+  deployed task modes, live alarms, DLQ contents, failure injection, redrive, or
+  no-loss/no-duplicate recovery. An S3 existence check also does not prove the
+  writer, schema, digest, or stage checkpoint of a prior effect. Durable
+  artifact/idempotency proof remains **Blocked** pending GUG-108's separately
+  owned dependency and the GUG-118 runtime gate.
+- **Residual risk:** **High until reviewed CI, deployment wiring, and authorized
+  non-production failure/recovery evidence; Critical if any consumer accepts
+  foreign authority, silently acknowledges poison work, or permits uncontrolled
+  redrive**. **Owner:** Backend Engineering, Application Security, SRE, and
+  Platform Engineering.
 
 ## Severity Calibration (Critical, High, Medium, Low)
 

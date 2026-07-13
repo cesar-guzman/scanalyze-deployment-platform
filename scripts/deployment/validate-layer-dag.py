@@ -65,6 +65,12 @@ EXPECTED_ROLES = {
     "artifact": ("ScanalyzeCustomer-Validation", "ScanalyzeCustomer-Promotion"),
     "validation": ("ScanalyzeCustomer-Validation", None),
 }
+EXPECTED_TERRAFORM_CONTRACTS = {
+    layer: f"{layer}/v1"
+    for layer in CANONICAL_STAGES
+    if layer not in EXPECTED_KINDS
+}
+EXPECTED_TERRAFORM_CONTRACTS["data-foundation"] = "data-foundation/v2"
 TOP_LEVEL_FIELDS = {"schema_version", "layers"}
 LAYER_FIELDS = {
     "layer",
@@ -246,8 +252,11 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
             or not CONTRACT_PATTERN.fullmatch(produces_contract)
         ):
             errors.append(f"{layer}.produces_contract must be null or '<layer>/vN'")
-        if kind == "terraform" and produces_contract != f"{layer}/v1":
-            errors.append(f"{layer}.produces_contract must be exactly {layer}/v1")
+        expected_contract = EXPECTED_TERRAFORM_CONTRACTS.get(layer)
+        if kind == "terraform" and produces_contract != expected_contract:
+            errors.append(
+                f"{layer}.produces_contract must be exactly {expected_contract}"
+            )
         for contract in item.get("requires_contracts", []) if isinstance(item.get("requires_contracts"), list) else []:
             if isinstance(contract, str) and not CONTRACT_PATTERN.fullmatch(contract):
                 errors.append(f"{layer}.requires_contracts contains invalid contract identifier")

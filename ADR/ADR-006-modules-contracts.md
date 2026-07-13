@@ -134,7 +134,7 @@ platform (layer 2) — ECS cluster, ALB, security groups
 data-foundation (layer 3) — DynamoDB, S3 doc buckets, SQS, KMS app keys
     │
     ├── Consumes: global, network contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/data-foundation/v1
+    ├── Produces contract: /scanalyze/deployments/{id}/contracts/data-foundation/v2
     │
     ▼
 services (layer 4) — ECS services, task definitions (Terraform sole owner)
