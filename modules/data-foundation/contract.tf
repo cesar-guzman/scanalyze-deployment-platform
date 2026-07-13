@@ -1,5 +1,5 @@
 # Contract producer gate for data-foundation module.
-# This module produces: data-foundation/v1
+# This module produces: data-foundation/v2
 # Consumers: downstream layers that declare dependency on this contract.
 #
 # The contract is written by the root that calls this module,
@@ -11,9 +11,9 @@
 
 # Contract output structure — root will publish this to SSM.
 output "contract_payload" {
-  description = "Structured contract payload for data-foundation/v1"
+  description = "Structured contract payload for data-foundation/v2"
   value = {
-    schema_version = "1"
+    schema_version = "2"
     layer          = local.layer_name
     state_scope    = local.state_scope
   }

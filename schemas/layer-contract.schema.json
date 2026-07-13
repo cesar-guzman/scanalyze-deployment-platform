@@ -269,7 +269,7 @@
           "const": "roots/data-foundation"
         },
         "output_schema_version": {
-          "const": "data-foundation/v1"
+          "enum": ["data-foundation/v1", "data-foundation/v2"]
         },
         "state_key": {
           "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/data-foundation/terraform\\.tfstate$"

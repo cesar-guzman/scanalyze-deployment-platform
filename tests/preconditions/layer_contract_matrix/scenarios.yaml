@@ -27,7 +27,7 @@ layer_pairs:
   - producer: data-foundation
     consumer: services
     state_scope: regional_to_regional
-    producer_contract: data-foundation/v1
+    producer_contract: data-foundation/v2
     consumer_state_key: "{dep_id}/{region}/services/terraform.tfstate"
 
   - producer: services

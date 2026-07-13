@@ -8,11 +8,12 @@ from ..config import config
 from ..contracts import (
     PersistMessage,
     PersistMeta,
+    MessageMetadata,
     ValidateMessage,
     ValidationError,
     ValidationResult,
 )
-from ..dynamo import update_validate_stage
+from ..dynamo import require_authorized_document, update_validate_stage
 from ..logger import bind_context, log_event, logger, safe_error_details
 from ..routing import route_is_allowed, structured_key_for
 from ..validators.bank_statement import BankStatementValidator
@@ -40,18 +41,23 @@ def process_validate_message(body: str, receipt_handle: str, queue_url: str, ten
         if not isinstance(msg_data, dict):
             raise ValueError("Message body must be a JSON object")
 
-        meta_env = msg_data.get("_metadata", {})
-        if not isinstance(meta_env, dict):
-            raise ValueError("Message metadata must be a JSON object")
+        meta_env = MessageMetadata.model_validate(
+            msg_data.pop("_metadata", {})
+        ).model_dump(exclude_none=True)
 
         msg = ValidateMessage(**msg_data)
+        config.require_owner(msg.customer_id, msg.deployment_id)
     except (json.JSONDecodeError, PydanticValidationError, TypeError, ValueError) as error:
         log_event("poison_message", stage="validate", **safe_error_details(error))
         return False
 
     doc_id = msg.documentId
     route = msg.meta.tenant
-    if msg.meta.env != config.env or not route_is_allowed(tenant, route):
+    if (
+        msg.meta.env != config.env
+        or route != msg.processing_domain
+        or not route_is_allowed(tenant, route)
+    ):
         log_event("message_route_mismatch", stage="validate", document_id=doc_id)
         return False
 
@@ -59,8 +65,6 @@ def process_validate_message(body: str, receipt_handle: str, queue_url: str, ten
         documentId=doc_id,
         correlationId=meta_env.get("correlationId"),
         traceId=meta_env.get("traceId"),
-        uploaderUserId=meta_env.get("uploaderUserId"),
-        customerStack=meta_env.get("customerStack"),
         route=route,
         tenant=route,
         stage="validate",
@@ -74,46 +78,42 @@ def process_validate_message(body: str, receipt_handle: str, queue_url: str, ten
         tenant=route,
     )
 
+    table_name = config.get(tenant, "data-foundation/documents_table_name")
     expected_bucket = config.get(tenant, "data-foundation/structured_bucket_name")
-    expected_key = structured_key_for(route, doc_id)
+    expected_key = structured_key_for(
+        msg.customer_id, msg.deployment_id, route, doc_id
+    )
     bucket = msg.structured.bucket
     key = msg.structured.key
 
     if not bucket or not key:
-        return handle_validation_failure(
-            doc_id,
-            msg,
-            tenant,
-            route,
-            "MISSING_ARTIFACT",
-            "Missing strictly required structured bucket or key",
-            meta_env,
-        )
+        return False
     if bucket != expected_bucket or key != expected_key:
-        return handle_validation_failure(
-            doc_id,
-            msg,
-            tenant,
+        return False
+
+    try:
+        require_authorized_document(
+            table_name,
             route,
-            "UNTRUSTED_ARTIFACT",
-            "Structured artifact pointer does not match the configured route",
-            meta_env,
+            doc_id,
+            msg.customer_id,
+            msg.deployment_id,
+            structured_bucket=bucket,
+            structured_key=key,
         )
+    except Exception as error:
+        logger.warning(
+            "Rejected document authorization before validation",
+            extra={"errorType": type(error).__name__},
+        )
+        return False
 
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
         payload_bytes = response["Body"].read()
         payload = json.loads(payload_bytes.decode("utf-8"))
     except s3_client.exceptions.NoSuchKey:
-        return handle_validation_failure(
-            doc_id,
-            msg,
-            tenant,
-            route,
-            "MISSING_ARTIFACT",
-            "Structured artifact was not found",
-            meta_env,
-        )
+        return False
     except (json.JSONDecodeError, UnicodeDecodeError):
         return handle_validation_failure(
             doc_id,
@@ -231,7 +231,14 @@ def finalize_validation(
     }
 
     try:
-        stored_validation = update_validate_stage(table_name, route, doc_id, payload)
+        stored_validation = update_validate_stage(
+            table_name,
+            route,
+            doc_id,
+            msg.customer_id,
+            msg.deployment_id,
+            payload,
+        )
         val_result = ValidationResult(**stored_validation)
     except Exception as error:
         logger.warning(
@@ -242,6 +249,11 @@ def finalize_validation(
 
     persist_msg = PersistMessage(
         documentId=doc_id,
+        customer_id=msg.customer_id,
+        deployment_id=msg.deployment_id,
+        ownership_schema_version=msg.ownership_schema_version,
+        pipeline_stage="persist",
+        processing_domain=msg.processing_domain,
         structured=msg.structured,
         validation=val_result,
         meta=PersistMeta(
@@ -267,7 +279,9 @@ def finalize_validation(
         send_kwargs["MessageDeduplicationId"] = f"{doc_id}-persist-v1"
 
     try:
-        sqs_client.send_message(**send_kwargs)
+        response = sqs_client.send_message(**send_kwargs)
+        if not response.get("MessageId"):
+            raise RuntimeError("SQS did not return a message id")
         logger.info("Enqueued persist message")
     except Exception as error:
         logger.warning(

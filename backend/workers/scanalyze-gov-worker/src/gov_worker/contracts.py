@@ -1,26 +1,35 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Any, Dict, List
+from pydantic import BaseModel, Field, ConfigDict, StringConstraints
+from typing import Annotated, Optional, Any, Dict, List, Literal
+
+NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+CustomerId = Annotated[str, StringConstraints(pattern=r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")]
+DeploymentId = Annotated[str, StringConstraints(pattern=r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")]
 
 class S3Location(BaseModel):
-    bucket: Optional[str] = None
-    key: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+    bucket: NonEmptyString
+    key: NonEmptyString
 
 class GovExtractMessage(BaseModel):
-    """
-    Input message from the extract queue.
-    Tolerates extra fields (like those from classifier).
-    """
-    model_config = ConfigDict(extra="ignore")
+    """Strict, ownership-bound input from the government extract queue."""
+    model_config = ConfigDict(extra="forbid")
 
-    documentId: str
-    ocr: Optional[S3Location] = None
-    raw: Optional[S3Location] = None
+    schemaVersion: Literal["scanalyze.extract.v2"]
+    documentId: NonEmptyString
+    customer_id: CustomerId
+    deployment_id: DeploymentId
+    ownership_schema_version: Literal[1]
+    pipeline_stage: Literal["gov-extract"]
+    processing_domain: Literal["gov"]
+    ocr: S3Location
+    raw: S3Location
     correlationId: Optional[str] = None
-    attempt: int = 0
+    attempt: int = Field(default=0, ge=0)
 
 class ValidateMeta(BaseModel):
-    env: str
-    tenant: str
+    model_config = ConfigDict(extra="forbid")
+    env: NonEmptyString
+    tenant: Literal["gov"]
     schema_version: str
     prompt_version: str
 
@@ -28,8 +37,14 @@ class ValidateMessage(BaseModel):
     """
     Output message sent to the validate queue
     """
-    schemaVersion: str = Field(default="scanalyze.validate.v1")
-    documentId: str
+    model_config = ConfigDict(extra="forbid")
+    schemaVersion: Literal["scanalyze.validate.v2"] = "scanalyze.validate.v2"
+    documentId: NonEmptyString
+    customer_id: CustomerId
+    deployment_id: DeploymentId
+    ownership_schema_version: Literal[1]
+    pipeline_stage: Literal["validate"]
+    processing_domain: Literal["gov"]
     structured: S3Location
     meta: ValidateMeta
     correlationId: Optional[str] = None

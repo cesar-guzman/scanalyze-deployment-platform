@@ -3,33 +3,57 @@ from typing import Annotated, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 
-VALIDATE_SCHEMA_VERSION = "scanalyze.validate.v1"
-PERSIST_SCHEMA_VERSION = "scanalyze.persist.v1"
-NOTIFY_SCHEMA_VERSION = "scanalyze.notify.v1"
+VALIDATE_SCHEMA_VERSION = "scanalyze.validate.v2"
+PERSIST_SCHEMA_VERSION = "scanalyze.persist.v2"
+NOTIFY_SCHEMA_VERSION = "scanalyze.notify.v2"
 
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+CustomerId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=r"^cust_[0-9A-HJKMNP-TV-Z]{26}$"),
+]
+DeploymentId = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=r"^dep_[0-9A-HJKMNP-TV-Z]{26}$"),
+]
+
+
+class OwnershipBoundMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: CustomerId
+    deployment_id: DeploymentId
+    ownership_schema_version: Literal[1]
+    processing_domain: Literal["bank", "personal", "gov"]
+
+
+class MessageMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    correlationId: Optional[NonEmptyString] = None
+    traceId: Optional[NonEmptyString] = None
 
 
 class S3Location(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    bucket: Optional[NonEmptyString] = None
-    key: Optional[NonEmptyString] = None
+    model_config = ConfigDict(extra="forbid")
+    bucket: NonEmptyString
+    key: NonEmptyString
 
 
 class ValidateMeta(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     env: NonEmptyString
     tenant: NonEmptyString
     schema_version: NonEmptyString
     prompt_version: NonEmptyString
 
 
-class ValidateMessage(BaseModel):
+class ValidateMessage(OwnershipBoundMessage):
     """
     Input message for the validate queue (emitted by extract workers)
     """
-    model_config = ConfigDict(extra="ignore")
-    schemaVersion: Literal["scanalyze.validate.v1"] = VALIDATE_SCHEMA_VERSION
+    schemaVersion: Literal["scanalyze.validate.v2"] = VALIDATE_SCHEMA_VERSION
+    pipeline_stage: Literal["validate"]
     documentId: NonEmptyString
     structured: S3Location
     meta: ValidateMeta
@@ -38,6 +62,8 @@ class ValidateMessage(BaseModel):
 
 
 class ValidationError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: NonEmptyString
     message: NonEmptyString
     path: Optional[NonEmptyString] = None
@@ -45,6 +71,8 @@ class ValidationError(BaseModel):
 
 
 class ValidationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: Literal["PASS", "FAIL"]
     errors: List[ValidationError] = Field(default_factory=list)
     validatedAt: NonEmptyString
@@ -60,19 +88,19 @@ class ValidationResult(BaseModel):
 
 
 class PersistMeta(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     env: NonEmptyString
     tenant: NonEmptyString
     schema_version: NonEmptyString
     prompt_version: NonEmptyString
 
 
-class PersistMessage(BaseModel):
+class PersistMessage(OwnershipBoundMessage):
     """
     Input message for the persist queue (emitted by validate processor)
     """
-    model_config = ConfigDict(extra="ignore")
-    schemaVersion: Literal["scanalyze.persist.v1"] = PERSIST_SCHEMA_VERSION
+    schemaVersion: Literal["scanalyze.persist.v2"] = PERSIST_SCHEMA_VERSION
+    pipeline_stage: Literal["persist"]
     documentId: NonEmptyString
     structured: S3Location
     validation: ValidationResult
@@ -90,6 +118,8 @@ class PersistMessage(BaseModel):
 
 
 class NotifyResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     finalStatus: Literal["COMPLETED", "FAILED"]
     completedAt: NonEmptyString
     validationStatus: Literal["PASS", "FAIL"]
@@ -103,17 +133,17 @@ class NotifyResult(BaseModel):
 
 
 class NotifyMeta(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     env: NonEmptyString
     tenant: NonEmptyString
 
 
-class NotifyMessage(BaseModel):
+class NotifyMessage(OwnershipBoundMessage):
     """
     Input message for the notify queue (emitted by persist processor)
     """
-    model_config = ConfigDict(extra="ignore")
-    schemaVersion: Literal["scanalyze.notify.v1"] = NOTIFY_SCHEMA_VERSION
+    schemaVersion: Literal["scanalyze.notify.v2"] = NOTIFY_SCHEMA_VERSION
+    pipeline_stage: Literal["notify"]
     documentId: NonEmptyString
     result: NotifyResult
     meta: NotifyMeta

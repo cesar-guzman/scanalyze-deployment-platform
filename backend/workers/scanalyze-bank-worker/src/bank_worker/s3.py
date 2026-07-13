@@ -1,6 +1,7 @@
 import json
 import logging
 from typing import Dict, Any, Tuple
+from botocore.exceptions import ClientError
 from .aws import s3_client
 
 logger = logging.getLogger(__name__)
@@ -47,15 +48,24 @@ def get_ocr_text(bucket: str, key: str, char_limit: int = 150000) -> Tuple[str, 
 
     return extracted_text.strip(), stats
 
-def save_structured_artifact(bucket: str, key: str, data: Dict[str, Any]) -> str:
+def save_structured_artifact(bucket: str, key: str, data: Dict[str, Any]) -> bool:
     """
     Saves the final structured JSON output to S3.
-    Returns the key.
+    Returns True only when this call created the object. A concurrent create
+    returns False so the caller can reconcile the authoritative Dynamo record.
     """
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=json.dumps(data, indent=2, ensure_ascii=False).encode('utf-8'),
-        ContentType="application/json"
-    )
-    return key
+    try:
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(data, indent=2, ensure_ascii=False).encode('utf-8'),
+            ContentType="application/json",
+            IfNoneMatch="*",
+        )
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code")
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in {"PreconditionFailed", "ConditionalRequestConflict"} or status in {409, 412}:
+            return False
+        raise
+    return True

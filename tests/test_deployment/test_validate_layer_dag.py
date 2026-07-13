@@ -62,6 +62,30 @@ def test_required_contract_without_producer_fails(canonical_dag, tmp_path):
     assert "must be exactly network/v1" in result.stderr
 
 
+def test_data_foundation_v2_is_produced_and_required_by_consumers(
+    canonical_dag,
+    tmp_path,
+):
+    data_foundation = _layer(canonical_dag, "data-foundation")
+    assert data_foundation["produces_contract"] == "data-foundation/v2"
+    assert "data-foundation/v2" in _layer(canonical_dag, "cicd")[
+        "requires_contracts"
+    ]
+    assert "data-foundation/v2" in _layer(canonical_dag, "services")[
+        "requires_contracts"
+    ]
+
+    document = copy.deepcopy(canonical_dag)
+    _layer(document, "data-foundation")[
+        "produces_contract"
+    ] = "data-foundation/v1"
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "must be exactly data-foundation/v2" in result.stderr
+
+
 def test_missing_root_fails(canonical_dag, tmp_path):
     document = copy.deepcopy(canonical_dag)
     _layer(document, "network")["root"] = "roots/not-a-real-layer"

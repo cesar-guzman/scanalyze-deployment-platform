@@ -62,9 +62,14 @@ variable "upstream_schema_version" {
   description = "Schema version of the upstream contract"
 }
 
+variable "upstream_contract_id" {
+  type        = string
+  description = "Exact output schema identifier from the verified upstream envelope"
+}
+
 variable "accepted_schema_versions" {
   type        = list(string)
-  default     = ["1"]
+  default     = ["2"]
   description = "List of accepted upstream contract schema versions"
 }
 

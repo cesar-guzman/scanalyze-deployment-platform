@@ -191,7 +191,7 @@ namespaces:
       - "All S3 document/output buckets (per processing domain)"
       - "All SQS queues and DLQs"
       - "All application KMS keys (per processing domain)"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/data-foundation/v1"
+    contract: "/scanalyze/deployments/{deployment_id}/contracts/data-foundation/v2"
 
   services:
     root: roots/services

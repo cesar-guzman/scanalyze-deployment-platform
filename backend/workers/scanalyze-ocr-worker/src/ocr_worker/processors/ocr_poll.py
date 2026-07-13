@@ -5,11 +5,26 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 
-from ..contracts import OcrPollMessage, ClassifyMessage, S3Location, TextractInfo, ClassifyMeta
+from ..contracts import (
+    ClassifyMessage,
+    ClassifyMeta,
+    ExtractMessage,
+    MessageMetadata,
+    OcrPollMessage,
+    S3Location,
+    TextractInfo,
+)
 from ..config import config
-from ..aws import textract_client, dynamodb_resource, sqs_client, s3_client, extend_visibility, build_key
-from ..logger import log_event, bind_context, safe_error_details
-from ..storage import build_ocr_artifact_key
+from ..aws import (
+    build_key,
+    dynamodb_resource,
+    extend_visibility,
+    s3_client,
+    sqs_client,
+    textract_client,
+)
+from ..logger import bind_context, clear_context, log_event, safe_error_details
+from ..boundary import authorize_document_boundary, require_poll_checkpoint
 from ..routing import get_next_stage
 from ..usage import record_usage_metering_with_idempotency
 
@@ -29,33 +44,34 @@ HANDOFF_CONFIRMED_STATUSES = frozenset({
 def _handoff_is_confirmed(item: dict) -> bool:
     return isinstance(item, dict) and item.get("status") in HANDOFF_CONFIRMED_STATUSES
 
-def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: str, message_id: str, receive_count: int) -> bool:
+def process_ocr_poll_message(
+    message_body: str,
+    receipt_handle: str,
+    queue_url: str,
+    message_id: str,
+    receive_count: int,
+) -> bool:
+    clear_context()
     logger.info("Processing OCR poll message")
     log_event("processing_ocr_poll")
     try:
         msg_dict = json.loads(message_body)
-        
-        meta_env = msg_dict.get("_metadata", {})
-        bind_context(
-            documentId=msg_dict.get("documentId"),
-            correlationId=meta_env.get("correlationId"),
-            traceId=meta_env.get("traceId"),
-            uploaderUserId=meta_env.get("uploaderUserId"),
-            customerStack=meta_env.get("customerStack"),
-            route=meta_env.get("route"),
-            tenant="ocr",
-            stage="ocr_poll"
-        )
-        
         poll_msg = OcrPollMessage(**msg_dict)
     except Exception as e:
         log_event("schema_validation_failed", **safe_error_details(e))
         raise ValueError("Invalid message schema")
 
+    meta_env = poll_msg.metadata.model_dump(exclude_none=True)
+    bind_context(
+        documentId=poll_msg.documentId,
+        correlationId=meta_env.get("correlationId"),
+        traceId=meta_env.get("traceId"),
+        tenant=config.tenant,
+        stage="ocr",
+    )
+
     doc_id = poll_msg.documentId
     job_id = poll_msg.textractJobId
-    service_tenant = poll_msg.serviceTenant
-    document_route = poll_msg.documentRoute
     artifact_bucket = poll_msg.artifactBucket
     artifact_key = poll_msg.artifactKey
     raw_bucket = poll_msg.sourceBucket
@@ -81,18 +97,37 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
     if not isinstance(item, dict) or not item:
         raise RuntimeError("Authoritative document was not found for OCR poll")
 
+    authorized = authorize_document_boundary(
+        item=item,
+        message_customer_id=poll_msg.customer_id,
+        message_deployment_id=poll_msg.deployment_id,
+        message_document_id=doc_id,
+        message_source_bucket=raw_bucket,
+        message_source_key=raw_key,
+        runtime_customer_id=config.customer_id,
+        runtime_deployment_id=config.deployment_id,
+        trusted_source_bucket=config.get("data-foundation/raw_bucket_name"),
+        trusted_artifact_bucket=config.get("data-foundation/ocr_bucket_name"),
+    )
+    if artifact_bucket != authorized.artifact_bucket or artifact_key != authorized.artifact_key:
+        raise RuntimeError("OCR poll artifact locator does not match trusted document metadata")
+    require_poll_checkpoint(
+        authorized,
+        textract_job_id=job_id,
+        source_bucket=raw_bucket,
+        source_key=raw_key,
+        artifact_bucket=artifact_bucket,
+        artifact_key=artifact_key,
+        source_message_id=message_id,
+    )
+
     current_status = item.get("status")
     batch_id = item.get("batchId")
     if item.get("textractJobId") != job_id:
         raise RuntimeError("OCR poll job does not match the authoritative document")
 
-    stored_tenant = item.get("tenantId")
-    if not isinstance(stored_tenant, str) or not stored_tenant:
-        raise RuntimeError("Authoritative document is missing its tenant binding")
-    if stored_tenant != service_tenant:
-        raise RuntimeError("OCR poll tenant does not match the authoritative document")
-    stored_route = item.get("documentRoute") or stored_tenant
-    if stored_route != document_route:
+    document_route = authorized.document_route
+    if poll_msg.documentRoute != document_route:
         raise RuntimeError("OCR poll route does not match the authoritative document")
 
     if _handoff_is_confirmed(item):
@@ -104,7 +139,14 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         raise RuntimeError("Document is not in the retryable OCR state")
 
     # 2. Consultar Textract
-    log_event("polling_textract", documentId=doc_id, jobId=job_id, service_tenant=service_tenant, document_route=document_route, message_id=message_id, receive_count=receive_count)
+    log_event(
+        "polling_textract",
+        documentId=doc_id,
+        jobId=job_id,
+        document_route=document_route,
+        message_id=message_id,
+        receive_count=receive_count,
+    )
     try:
         # Obtenemos solo 1 max results para ser rápidos solo preguntando status
         response = textract_client.get_document_text_detection(JobId=job_id, MaxResults=1)
@@ -115,7 +157,13 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         raise
 
     if status == 'IN_PROGRESS':
-        log_event("textract_in_progress", documentId=doc_id, jobId=job_id, service_tenant=service_tenant, document_route=document_route, message_id=message_id)
+        log_event(
+            "textract_in_progress",
+            documentId=doc_id,
+            jobId=job_id,
+            document_route=document_route,
+            message_id=message_id,
+        )
         
         first_enqueued = datetime.fromisoformat(submitted_at) if submitted_at else datetime.now(timezone.utc)
         elapsed_seconds = (datetime.now(timezone.utc) - first_enqueued).total_seconds()
@@ -128,38 +176,105 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         # Backoff suave determinístico
         delay_seconds = min(120 + int(elapsed_seconds / 2.0), 900)
         
-        try:
-            sqs_client.change_message_visibility(
-                QueueUrl=queue_url,
-                ReceiptHandle=receipt_handle,
-                VisibilityTimeout=delay_seconds
-            )
-            log_event("ocr_backoff", documentId=doc_id, delay=delay_seconds, service_tenant=service_tenant, document_route=document_route, message_id=message_id, receive_count=receive_count)
-        except Exception as e:
-            logger.warning(
-                "Could not change visibility timeout",
-                extra={"errorType": type(e).__name__},
-            )
+        next_poll = poll_msg.model_copy(update={"attempt": poll_msg.attempt + 1})
+        response = sqs_client.send_message(
+            QueueUrl=queue_url,
+            MessageBody=next_poll.model_dump_json(by_alias=True, exclude_none=True),
+            DelaySeconds=delay_seconds,
+        )
+        next_message_id = response.get("MessageId")
+        if not isinstance(next_message_id, str) or not next_message_id.strip():
+            raise RuntimeError("SQS did not acknowledge the next OCR poll message")
 
-        # Retornamos False para no borrar el mensaje original, respetando el nuevo visibility timeout + lifecycle.
-        return False
+        table.update_item(
+            Key=key,
+            UpdateExpression=(
+                "SET ocrPollHandoff.messageId = :next_message_id, "
+                "ocrPollHandoff.requeuedAt = :now, "
+                "ocrPollHandoff.attempt = :attempt, updatedAt = :now"
+            ),
+            ConditionExpression=(
+                "#status = :ocr AND #textract_job_id = :job_id AND "
+                "#customer_id = :customer_id AND #deployment_id = :deployment_id AND "
+                "#ownership_schema_version = :ownership_schema_version AND "
+                "ocrPollHandoff.messageId = :source_message_id"
+            ),
+            ExpressionAttributeNames={
+                "#status": "status",
+                "#textract_job_id": "textractJobId",
+                "#customer_id": "customer_id",
+                "#deployment_id": "deployment_id",
+                "#ownership_schema_version": "ownership_schema_version",
+            },
+            ExpressionAttributeValues={
+                ":ocr": "OCR",
+                ":job_id": job_id,
+                ":customer_id": authorized.customer_id,
+                ":deployment_id": authorized.deployment_id,
+                ":ownership_schema_version": 1,
+                ":source_message_id": message_id,
+                ":next_message_id": next_message_id,
+                ":attempt": next_poll.attempt,
+                ":now": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        log_event(
+            "ocr_poll_requeued",
+            documentId=doc_id,
+            delay=delay_seconds,
+            document_route=document_route,
+            message_id=message_id,
+            receive_count=receive_count,
+            attempt=next_poll.attempt,
+        )
+
+        # Acknowledge the current message only after the replacement and checkpoint
+        # are both durable. Each poll therefore receives a fresh native redrive budget.
+        return True
 
     elif status in ['FAILED', 'PARTIAL_SUCCESS']:
-        log_event("textract_failed", documentId=doc_id, jobId=job_id, status=status, service_tenant=service_tenant, document_route=document_route, message_id=message_id)
+        log_event(
+            "textract_failed",
+            documentId=doc_id,
+            jobId=job_id,
+            status=status,
+            document_route=document_route,
+            message_id=message_id,
+        )
         key = build_key(table_name, doc_id, config.tenant)
         table.update_item(
             Key=key,
             UpdateExpression="SET #s = :s, updatedAt = :now",
-            ExpressionAttributeNames={'#s': 'status'},
+            ConditionExpression=(
+                "#s = :old_status AND #customer_id = :customer_id AND "
+                "#deployment_id = :deployment_id AND "
+                "#ownership_schema_version = :ownership_schema_version"
+            ),
+            ExpressionAttributeNames={
+                '#s': 'status',
+                '#customer_id': 'customer_id',
+                '#deployment_id': 'deployment_id',
+                '#ownership_schema_version': 'ownership_schema_version',
+            },
             ExpressionAttributeValues={
                 ':s': 'OCR_FAILED',
-                ':now': datetime.now(timezone.utc).isoformat()
+                ':old_status': 'OCR',
+                ':now': datetime.now(timezone.utc).isoformat(),
+                ':customer_id': authorized.customer_id,
+                ':deployment_id': authorized.deployment_id,
+                ':ownership_schema_version': 1,
             }
         )
         return True # Marcar estado y matar mensaje. Alternativa: Encolar classify con error.
 
     elif status == 'SUCCEEDED':
-        log_event("textract_succeeded", documentId=doc_id, jobId=job_id, service_tenant=service_tenant, document_route=document_route, message_id=message_id)
+        log_event(
+            "textract_succeeded",
+            documentId=doc_id,
+            jobId=job_id,
+            document_route=document_route,
+            message_id=message_id,
+        )
         
         # 3. Descargar OCR paginadamente
         pages = response.get('DocumentMetadata', {}).get('Pages', 1)
@@ -182,7 +297,12 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
             time.sleep(0.1) 
 
         # 4. Guardar Artifact en S3
-        log_event("writing_s3_artifact", documentId=doc_id, service_tenant=service_tenant, document_route=document_route, message_id=message_id)
+        log_event(
+            "writing_s3_artifact",
+            documentId=doc_id,
+            document_route=document_route,
+            message_id=message_id,
+        )
         
         full_result = {
             "documentId": doc_id,
@@ -196,30 +316,20 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
             Body=json.dumps(full_result),
             ContentType="application/json"
         )
-        log_event("s3_artifact_written", 
-                  documentId=doc_id, 
-                  artifact_s3_bucket=artifact_bucket, 
-                  artifact_s3_key=artifact_key, 
-                  service_tenant=service_tenant, 
-                  document_route=document_route, 
-                  state="OCR_COMPLETED", 
-                  textractJobId=job_id)
+        log_event(
+            "s3_artifact_written",
+            documentId=doc_id,
+            document_route=document_route,
+            state="OCR_COMPLETED",
+            textractJobId=job_id,
+        )
 
         # Determine targeting using the central router
         next_stage = get_next_stage(document_route)
         env = config.env
         
         # Get queue URL dynamically
-        if service_tenant == config.tenant or service_tenant == 'default' or next_stage == 'classify':
-            target_queue_url = config.get(f"queues/{next_stage}_url")
-        else:
-            param_name = f"/scanalyze/{env}/tenants/{service_tenant}/queues/{next_stage}_url"
-            try:
-                ssm_resp = config.ssm_client.get_parameter(Name=param_name, WithDecryption=True)
-                target_queue_url = ssm_resp['Parameter']['Value']
-            except Exception as e:
-                logger.error("Failed to resolve next-stage queue", extra={"errorType": type(e).__name__})
-                raise
+        target_queue_url = config.get(f"queues/{next_stage}_url")
                 
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -227,10 +337,10 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         s_dynamo_client = boto3.client("dynamodb")
         record_usage_metering_with_idempotency(
             dynamodb_client=s_dynamo_client,
-            tenant=service_tenant,
+            tenant=config.tenant,
             doc_id=doc_id,
             pages=pages,
-            uploader_user_id=meta_env.get("uploaderUserId", ""),
+            uploader_user_id="",
             batch_id=batch_id,
             doc_type=""
         )
@@ -238,6 +348,11 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         # 5. Construir el mensaje para la cola correcta
         if next_stage == "classify":
             out_msg_obj = ClassifyMessage(
+                schemaVersion="scanalyze.classify.v2",
+                customer_id=authorized.customer_id,
+                deployment_id=authorized.deployment_id,
+                ownership_schema_version=1,
+                pipeline_stage="classify",
                 documentId=doc_id,
                 ocr=S3Location(bucket=artifact_bucket, key=artifact_key),
                 raw=S3Location(bucket=raw_bucket, key=raw_key),
@@ -245,22 +360,28 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
                 meta=ClassifyMeta(
                     pages=pages,
                     env=env,
-                    tenant=service_tenant
-                )
+                    tenant=document_route
+                ),
+                metadata=MessageMetadata(**meta_env),
             )
-            out_dict = out_msg_obj.model_dump()
-            out_dict["_metadata"] = meta_env
+            out_dict = out_msg_obj.model_dump(by_alias=True, exclude_none=True)
             out_msg = json.dumps(out_dict)
         else:
-            payload_dict = {
-                "schemaVersion": f"scanalyze.{next_stage}.v1",
-                "documentId": doc_id,
-                "ocr": {"bucket": artifact_bucket, "key": artifact_key},
-                "raw": {"bucket": raw_bucket, "key": raw_key},
-                "attempt": 0,
-                "_metadata": meta_env
-            }
-            out_msg = json.dumps(payload_dict)
+            processing_domain = next_stage.removesuffix("-extract")
+            out_msg_obj = ExtractMessage(
+                customer_id=authorized.customer_id,
+                deployment_id=authorized.deployment_id,
+                ownership_schema_version=1,
+                pipeline_stage=next_stage,
+                processing_domain=processing_domain,
+                documentId=doc_id,
+                ocr=S3Location(bucket=artifact_bucket, key=artifact_key),
+                raw=S3Location(bucket=raw_bucket, key=raw_key),
+                correlationId=meta_env.get("correlationId"),
+                attempt=0,
+                metadata=MessageMetadata(**meta_env),
+            )
+            out_msg = out_msg_obj.model_dump_json(by_alias=True, exclude_none=True)
 
         send_kwargs = {
             'QueueUrl': target_queue_url,
@@ -281,7 +402,6 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
                 "ocr_handoff_failed",
                 documentId=doc_id,
                 next_stage=next_stage,
-                service_tenant=service_tenant,
                 document_route=document_route,
                 message_id=message_id,
                 errorType=type(e).__name__,
@@ -298,7 +418,6 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
                 "ocr_handoff_failed",
                 documentId=doc_id,
                 next_stage=next_stage,
-                service_tenant=service_tenant,
                 document_route=document_route,
                 message_id=message_id,
                 reason="missing_message_id",
@@ -308,7 +427,6 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         log_event("ocr_handoff_enqueued", 
                   documentId=doc_id, 
                   textractJobId=job_id,
-                  service_tenant=service_tenant, 
                   document_route=document_route,
                   next_stage=next_stage,
                   queue_name=next_stage,
@@ -330,19 +448,29 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
                                         #artifacts.#ocrStr = :ocrArtifact,
                                         #stages.#ns = :stageData,
                                         #stages.#ocrStr = :ocrStageDict""",
-                ConditionExpression="#s = :old AND #textract_job_id = :job_id",
+                ConditionExpression=(
+                    "#s = :old AND #textract_job_id = :job_id AND "
+                    "#customer_id = :customer_id AND #deployment_id = :deployment_id AND "
+                    "#ownership_schema_version = :ownership_schema_version"
+                ),
                 ExpressionAttributeNames={
                     '#s': 'status',
                     '#textract_job_id': 'textractJobId',
                     '#stages': 'stages',
                     '#ns': next_stage,
                     '#artifacts': 'artifacts',
-                    '#ocrStr': 'ocr'
+                    '#ocrStr': 'ocr',
+                    '#customer_id': 'customer_id',
+                    '#deployment_id': 'deployment_id',
+                    '#ownership_schema_version': 'ownership_schema_version',
                 },
                 ExpressionAttributeValues={
                     ':s': 'OCR_COMPLETED',
                     ':old': 'OCR',
                     ':job_id': job_id,
+                    ':customer_id': authorized.customer_id,
+                    ':deployment_id': authorized.deployment_id,
+                    ':ownership_schema_version': 1,
                     ':ok': artifact_key,
                     ':now': now_iso,
                     ':pages': pages,
@@ -381,7 +509,14 @@ def process_ocr_poll_message(message_body: str, receipt_handle: str, queue_url: 
         except Exception as e:
             logger.error("Failed to update DDB status and stages", extra={"errorType": type(e).__name__})
             raise
-        log_event("ddb_state_updated", documentId=doc_id, state="OCR_COMPLETED", next_stage=next_stage, service_tenant=service_tenant, document_route=document_route, message_id=message_id)
+        log_event(
+            "ddb_state_updated",
+            documentId=doc_id,
+            state="OCR_COMPLETED",
+            next_stage=next_stage,
+            document_route=document_route,
+            message_id=message_id,
+        )
 
         return True
     

@@ -115,7 +115,7 @@ layers:
     state_key: "{deployment_id}/{region}/data-foundation/terraform.tfstate"
     requires_contracts:
       - platform/v1
-    produces_contract: data-foundation/v1
+    produces_contract: data-foundation/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -141,7 +141,7 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/cicd/terraform.tfstate"
     requires_contracts:
-      - data-foundation/v1
+      - data-foundation/v2
     produces_contract: cicd/v1
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
@@ -204,7 +204,7 @@ layers:
     state_key: "{deployment_id}/{region}/services/terraform.tfstate"
     requires_contracts:
       - platform/v1
-      - data-foundation/v1
+      - data-foundation/v2
       - cicd/v1
       - release-manifest/v1
     produces_contract: services/v1
