@@ -39,6 +39,109 @@ def require_authorized_document(
         raise ValueError("Document is unavailable")
     return item
 
+
+def build_artifact_binding(
+    *,
+    structured_bucket: str,
+    structured_key: str,
+    customer_id: str,
+    deployment_id: str,
+    document_id: str,
+    tenant: str,
+    checkpoint_id: str,
+    writer: str,
+    artifact_schema_version: str,
+    content_sha256: str | None = None,
+) -> Dict[str, Any]:
+    binding = {
+        "bucket": structured_bucket,
+        "key": structured_key,
+        "customer_id": customer_id,
+        "deployment_id": deployment_id,
+        "document_id": document_id,
+        "processing_domain": tenant,
+        "ownership_schema_version": 1,
+        "pipeline_stage": f"{tenant}-extract",
+        "writer": writer,
+        "artifact_schema_version": artifact_schema_version,
+        "checkpoint_id": checkpoint_id,
+    }
+    if content_sha256 is not None:
+        binding["content_sha256"] = content_sha256
+    return binding
+
+
+def reserve_structured_artifact(
+    table_name: str,
+    document_id: str,
+    tenant: str,
+    structured_key: str,
+    structured_bucket: str,
+    customer_id: str,
+    deployment_id: str,
+    checkpoint_id: str,
+    writer: str,
+    artifact_schema_version: str,
+):
+    """Create the owner-bound write intent that must precede an S3 put."""
+    table = dynamodb_resource.Table(table_name)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    key = build_key(table_name, document_id, tenant)
+    reservation = {
+        "status": "WRITING",
+        "artifact": build_artifact_binding(
+            structured_bucket=structured_bucket,
+            structured_key=structured_key,
+            customer_id=customer_id,
+            deployment_id=deployment_id,
+            document_id=document_id,
+            tenant=tenant,
+            checkpoint_id=checkpoint_id,
+            writer=writer,
+            artifact_schema_version=artifact_schema_version,
+        ),
+    }
+    return table.update_item(
+        Key=key,
+        UpdateExpression=(
+            "SET #m_status = :writing_status, updatedAt = :now, "
+            "#stages.#stage_name = :reservation"
+        ),
+        ConditionExpression=(
+            "attribute_exists(#pk) AND #customer_id = :customer_id AND "
+            "#deployment_id = :deployment_id AND #ownership_version = :ownership_version AND "
+            "#processing_domain = :processing_domain AND "
+            "#m_status IN (:classify_completed, :ocr_completed) AND "
+            "attribute_not_exists(#artifacts.#structured) AND "
+            "attribute_not_exists(#stages.#stage_name)"
+        ),
+        ExpressionAttributeNames={
+            "#m_status": "status",
+            "#artifacts": "artifacts",
+            "#structured": "structured",
+            "#stages": "stages",
+            "#stage_name": f"{tenant}_extract",
+            "#pk": next(iter(key)),
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_version": "ownership_schema_version",
+            "#processing_domain": "processing_domain",
+        },
+        ExpressionAttributeValues={
+            ":writing_status": f"{tenant.upper()}_EXTRACTING",
+            ":now": now,
+            ":reservation": reservation,
+            ":customer_id": customer_id,
+            ":deployment_id": deployment_id,
+            ":ownership_version": 1,
+            ":processing_domain": tenant,
+            ":classify_completed": "CLASSIFY_COMPLETED",
+            ":ocr_completed": "OCR_COMPLETED",
+        },
+        ReturnValues="UPDATED_NEW",
+    )
+
+
 def update_document_status(
     table_name: str, 
     document_id: str, 
@@ -48,7 +151,11 @@ def update_document_status(
     structured_bucket: str,
     customer_id: str,
     deployment_id: str,
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any],
+    checkpoint_id: str,
+    content_sha256: str,
+    writer: str,
+    artifact_schema_version: str,
 ):
     """
     Performs a resilient UpdateExpression on the document item.
@@ -58,6 +165,10 @@ def update_document_status(
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     key = build_key(table_name, document_id, tenant)
     
+    expected_status = f"{tenant.upper()}_EXTRACTED"
+    if status != expected_status:
+        raise ValueError("Invalid extraction status transition")
+
     update_expression = "SET #m_status = :status, " \
                         "updatedAt = :now, " \
                         "#artifacts.#structured = :structured_map, " \
@@ -76,7 +187,38 @@ def update_document_status(
         "#processing_domain": "processing_domain",
     }
     
-    metadata = {**metadata, "updatedAt": now}
+    reservation = {
+        "status": "WRITING",
+        "artifact": build_artifact_binding(
+            structured_bucket=structured_bucket,
+            structured_key=structured_key,
+            customer_id=customer_id,
+            deployment_id=deployment_id,
+            document_id=document_id,
+            tenant=tenant,
+            checkpoint_id=checkpoint_id,
+            writer=writer,
+            artifact_schema_version=artifact_schema_version,
+        ),
+    }
+    artifact_binding = build_artifact_binding(
+        structured_bucket=structured_bucket,
+        structured_key=structured_key,
+        customer_id=customer_id,
+        deployment_id=deployment_id,
+        document_id=document_id,
+        tenant=tenant,
+        checkpoint_id=checkpoint_id,
+        writer=writer,
+        artifact_schema_version=artifact_schema_version,
+        content_sha256=content_sha256,
+    )
+    metadata = {
+        **metadata,
+        "status": "COMPLETED",
+        "artifact": artifact_binding,
+        "updatedAt": now,
+    }
     
     expression_attribute_values = {
         ":status": status,
@@ -96,7 +238,7 @@ def update_document_status(
                 "attribute_exists(#pk) AND #customer_id = :customer_id AND "
                 "#deployment_id = :deployment_id AND #ownership_version = :ownership_version AND "
                 "#processing_domain = :processing_domain AND "
-                "#m_status IN (:classify_completed, :ocr_completed)"
+                "#m_status = :writing_status AND #stages.#stage_name = :reservation"
             ),
             ExpressionAttributeNames=expression_attribute_names,
             ExpressionAttributeValues=expression_attribute_values | {
@@ -104,8 +246,8 @@ def update_document_status(
                 ":deployment_id": deployment_id,
                 ":ownership_version": 1,
                 ":processing_domain": tenant,
-                ":classify_completed": "CLASSIFY_COMPLETED",
-                ":ocr_completed": "OCR_COMPLETED",
+                ":writing_status": f"{tenant.upper()}_EXTRACTING",
+                ":reservation": reservation,
             },
             ReturnValues="UPDATED_NEW"
         )

@@ -163,13 +163,17 @@ unknown version, or unrecognized stage is not a successful acknowledgement.
 - S3 writes use the canonical owner-bound prefix defined by the object contract.
 - A transport field is input to validation, not trusted storage authority.
 
-An S3 existence check is not an idempotency proof. A successful `HeadObject` at
-the canonical key does not establish the artifact writer, content schema,
-digest, stage checkpoint, or downstream handoff. The current domain-worker
-exact-key retry optimization is locally observable behavior, but it is not
-accepted as durable prior-effect evidence. Production enablement and redrive
-remain blocked until GUG-118 supplies a reviewed content/checkpoint binding or
-durable ledger and corresponding duplicate/partial-effect tests.
+An S3 existence check alone is not an idempotency proof. Domain structured
+artifacts therefore use a two-phase repository contract: an owner-bound DynamoDB
+reservation, create-only S3 write with exact writer/schema/checkpoint metadata
+and SHA-256 digest, and conditional DynamoDB finalization. A retry reads the
+object and recovers only when every reservation, metadata, locator, and digest
+field matches. Legacy, unbound, conflicting, or unverifiable objects are denied.
+
+This is locally and CI testable for bank, personal, and government extraction;
+it is not live evidence. GUG-118 still owns deployed task wiring, runtime
+failure-injection, generalized cross-stage ledgers, controlled redrive, and
+no-loss/no-duplicate proof.
 
 ## Failure and DLQ behavior
 

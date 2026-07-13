@@ -153,15 +153,20 @@ An idempotent replay must prove that the earlier effect belongs to the same
 customer, deployment, document, schema, and stage. A key collision or pre-existing
 effect without that proof is a conflict, not success.
 
-The repository currently has two distinct evidence levels. Owner-bound
-conditional DynamoDB readback can prove selected stage transitions. By contrast,
-an S3 `HeadObject` result at a canonical key proves only that an object exists;
-it does not prove its writer, schema, digest, stage checkpoint, or complete prior
-effect. The domain-worker exact-key retry optimization is therefore not accepted
-as durable idempotency evidence and cannot support a production or controlled
-redrive claim. A content/checkpoint binding or durable ledger remains **Blocked**
-on GUG-118. Until that gate closes, an unverifiable pre-existing artifact must be
-treated as residual risk, not cited as an exactly proven idempotent outcome.
+The repository has two distinct evidence levels. Owner-bound conditional
+DynamoDB transitions prove selected stage checkpoints. Bank, personal, and
+government structured-artifact writes additionally use a two-phase binding: an
+exact owner/deployment/document/domain reservation precedes the create-only S3
+write; the object carries the reservation token, writer/schema metadata, and a
+SHA-256 content digest; and finalization is conditioned on the unchanged
+reservation. A retry may recover the S3-to-Dynamo partial-commit window only
+after reading the object and proving the complete metadata and digest binding.
+Legacy, unbound, mismatched, oversized, or unverifiable objects remain conflicts.
+
+This closes the repository-level partial-commit contract for those three domain
+artifacts only. It does not prove deployed IAM, live task wiring, cross-stage
+handoffs, runtime failure injection, no-loss/no-duplicate behavior, or controlled
+redrive. Those environment and end-to-end claims remain **Blocked** on GUG-118.
 
 ## Legacy and quarantine behavior
 
@@ -170,9 +175,10 @@ treated as residual risk, not cited as an exactly proven idempotent outcome.
 - Partial ownership, conflicting aliases, foreign customer/deployment, invalid
   schema, domain disagreement, locator mismatch, and unrecognized stage are
   migration- or investigation-required.
-- No field is repaired, inferred, normalized into authority, or copied from a
+- No ownership field is repaired, inferred, normalized into authority, or copied from a
   queue name, S3 prefix, `tenantId`, customer stack, route hint, or neighboring
-  record.
+  record. The structured-artifact recovery path may only finalize an existing
+  owner-bound reservation whose S3 metadata and content digest match exactly.
 - Retry and the exact stage DLQ retain the original operational evidence. A
   quarantine classification is a reviewed disposition; this ADR does not create
   or claim a live quarantine resource.

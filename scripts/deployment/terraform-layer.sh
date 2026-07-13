@@ -64,13 +64,23 @@ pass "Account binding verified: ${ACCOUNT_ID}"
 export AWS_REGION="$REGION"
 export AWS_DEFAULT_REGION="$REGION"
 
-# Provide fallback digests for manual deployments bypassing CI gates
+# Mock-only fallbacks for speculative local plans. These values are not
+# contract authority and must never replace metadata from a verified resolver.
 export TF_VAR_account_ready_contract_digest="${TF_VAR_account_ready_contract_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_expected_contract_digest="${TF_VAR_expected_contract_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_release_manifest_digest="${TF_VAR_release_manifest_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_upstream_contract_digest="${TF_VAR_upstream_contract_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
 export TF_VAR_expected_upstream_digest="${TF_VAR_expected_upstream_digest:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
-export TF_VAR_upstream_schema_version="${TF_VAR_upstream_schema_version:-1}"
+
+case "$LAYER" in
+  cicd|services)
+    export TF_VAR_upstream_contract_id="${TF_VAR_upstream_contract_id:-data-foundation/v2}"
+    export TF_VAR_upstream_schema_version="${TF_VAR_upstream_schema_version:-2}"
+    ;;
+  *)
+    export TF_VAR_upstream_schema_version="${TF_VAR_upstream_schema_version:-1}"
+    ;;
+esac
 
 # --- Mocks for cross-layer variables (upstream outputs) ---
 # When running plan-all locally without a real orchestrator passing state between layers,
