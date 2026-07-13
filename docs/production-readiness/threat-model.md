@@ -509,10 +509,13 @@ or stage, duplicating a partial effect.
   Terraform/schema checks can establish repository implementation and local or
   CI evidence for an exact revision. They do not establish AWS resources,
   deployed task modes, live alarms, DLQ contents, failure injection, redrive, or
-  no-loss/no-duplicate recovery. An S3 existence check also does not prove the
-  writer, schema, digest, or stage checkpoint of a prior effect. Durable
-  artifact/idempotency proof remains **Blocked** pending GUG-108's separately
-  owned dependency and the GUG-118 runtime gate.
+  no-loss/no-duplicate recovery. An S3 existence check alone does not prove a
+  prior effect. The domain structured-artifact path now requires a conditional
+  owner-bound reservation, exact writer/schema/checkpoint metadata, SHA-256
+  content verification, and conditional finalization before a retry may recover.
+  Deployment, IAM, live failure-injection, generalized idempotency, and redrive
+  proof remain **Blocked** pending GUG-108's separately owned dependency and the
+  GUG-118 runtime gate.
 - **Residual risk:** **High until reviewed CI, deployment wiring, and authorized
   non-production failure/recovery evidence; Critical if any consumer accepts
   foreign authority, silently acknowledges poison work, or permits uncontrolled

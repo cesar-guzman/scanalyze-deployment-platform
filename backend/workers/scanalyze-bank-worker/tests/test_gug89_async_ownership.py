@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 from unittest.mock import Mock, patch
 
 import pytest
@@ -7,7 +8,12 @@ from pydantic import ValidationError
 
 from bank_worker import s3 as bank_s3
 from bank_worker.contracts import BankExtractMessage
-from bank_worker.dynamo import require_authorized_document, update_document_status
+from bank_worker.dynamo import (
+    build_artifact_binding,
+    require_authorized_document,
+    reserve_structured_artifact,
+    update_document_status,
+)
 from bank_worker.processors.extract import process_bank_extract_message
 
 
@@ -15,6 +21,10 @@ CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 FOREIGN_CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAX"
 FOREIGN_DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+CHECKPOINT_ID = "b" * 32
+CONTENT_SHA256 = "a" * 64
+ARTIFACT_WRITER = "scanalyze-bank-worker"
+ARTIFACT_SCHEMA_VERSION = "1.0"
 
 
 def _message(**overrides):
@@ -47,7 +57,7 @@ def _authorized_record(status="BANK_EXTRACTED", *, include_structured=True):
             "bucket": "structured-trusted",
             "key": _structured_key(),
         }
-    return {
+    record = {
         "documentId": "doc-123",
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
@@ -56,6 +66,60 @@ def _authorized_record(status="BANK_EXTRACTED", *, include_structured=True):
         "status": status,
         "input": {"bucket": "raw-trusted", "key": "raw/doc-123.pdf"},
         "artifacts": artifacts,
+    }
+    if include_structured:
+        record["stages"] = {
+            "bank_extract": {
+                "status": "COMPLETED",
+                "artifact": build_artifact_binding(
+                    structured_bucket="structured-trusted",
+                    structured_key=_structured_key(),
+                    customer_id=CUSTOMER_ID,
+                    deployment_id=DEPLOYMENT_ID,
+                    document_id="doc-123",
+                    tenant="bank",
+                    checkpoint_id=CHECKPOINT_ID,
+                    writer=ARTIFACT_WRITER,
+                    artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+                    content_sha256=CONTENT_SHA256,
+                ),
+            }
+        }
+    return record
+
+
+def _writing_record():
+    record = _authorized_record("BANK_EXTRACTING", include_structured=False)
+    record["stages"] = {
+        "bank_extract": {
+            "status": "WRITING",
+            "artifact": build_artifact_binding(
+                structured_bucket="structured-trusted",
+                structured_key=_structured_key(),
+                customer_id=CUSTOMER_ID,
+                deployment_id=DEPLOYMENT_ID,
+                document_id="doc-123",
+                tenant="bank",
+                checkpoint_id=CHECKPOINT_ID,
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            ),
+        }
+    }
+    return record
+
+
+def _artifact_kwargs():
+    return {
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "document_id": "doc-123",
+        "processing_domain": "bank",
+        "ownership_schema_version": 1,
+        "pipeline_stage": "bank-extract",
+        "writer": ARTIFACT_WRITER,
+        "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
+        "checkpoint_id": CHECKPOINT_ID,
     }
 
 
@@ -177,6 +241,10 @@ def test_terminal_duplicate_is_noop(status):
         patch("bank_worker.processors.extract.get_ocr_text") as s3_read,
         patch("bank_worker.processors.extract.invoke_bedrock_bank_statement") as bedrock,
         patch("bank_worker.processors.extract.update_document_status") as update,
+        patch(
+            "bank_worker.processors.extract.require_structured_artifact_proof",
+            return_value=CONTENT_SHA256,
+        ),
         patch("bank_worker.processors.extract.sqs_client.send_message") as send,
     ):
         assert process_bank_extract_message(json.dumps(_message()), "r", "q") is True
@@ -229,11 +297,33 @@ def test_uncheckpointed_artifact_collision_is_denied():
 
 def test_structured_write_is_create_only_and_never_overwrites():
     with patch("bank_worker.s3.s3_client.put_object", return_value={}) as put_object:
-        assert bank_s3.save_structured_artifact(
-            "structured-trusted", _structured_key(), {"documentId": "doc-123"}
-        ) is True
+        created, digest = bank_s3.save_structured_artifact(
+            "structured-trusted",
+            _structured_key(),
+            {"documentId": "doc-123"},
+            **_artifact_kwargs(),
+        )
 
+    assert created is True
+    assert len(digest) == 64
     assert put_object.call_args.kwargs["IfNoneMatch"] == "*"
+    assert put_object.call_args.kwargs["Metadata"]["customer-id"] == CUSTOMER_ID
+    assert put_object.call_args.kwargs["Metadata"]["checkpoint-id"] == CHECKPOINT_ID
+    assert put_object.call_args.kwargs["Metadata"]["content-sha256"] == digest
+
+
+def test_oversized_structured_artifact_is_rejected_before_s3_write():
+    oversized = {"payload": "x" * bank_s3.MAX_STRUCTURED_ARTIFACT_BYTES}
+    with patch("bank_worker.s3.s3_client.put_object") as put_object:
+        with pytest.raises(ValueError, match="unavailable"):
+            bank_s3.save_structured_artifact(
+                "structured-trusted",
+                _structured_key(),
+                oversized,
+                **_artifact_kwargs(),
+            )
+
+    put_object.assert_not_called()
 
 
 def test_structured_precondition_failure_reports_collision_without_overwrite():
@@ -245,21 +335,131 @@ def test_structured_precondition_failure_reports_collision_without_overwrite():
         "PutObject",
     )
     with patch("bank_worker.s3.s3_client.put_object", side_effect=error):
-        assert bank_s3.save_structured_artifact(
-            "structured-trusted", _structured_key(), {"documentId": "doc-123"}
-        ) is False
+        created, _ = bank_s3.save_structured_artifact(
+            "structured-trusted",
+            _structured_key(),
+            {"documentId": "doc-123"},
+            **_artifact_kwargs(),
+        )
+
+    assert created is False
 
 
-def test_concurrent_collision_requires_owner_bound_dynamo_checkpoint():
-    first = _authorized_record("OCR_COMPLETED", include_structured=False)
-    checkpointed = _authorized_record("BANK_EXTRACTED")
+@pytest.mark.parametrize(
+    ("metadata_key", "metadata_value"),
+    [
+        ("customer-id", FOREIGN_CUSTOMER_ID),
+        ("deployment-id", FOREIGN_DEPLOYMENT_ID),
+        ("writer", "legacy-writer"),
+        ("checkpoint-id", "c" * 32),
+        ("content-sha256", "0" * 64),
+    ],
+)
+def test_structured_artifact_proof_rejects_mismatched_metadata(
+    metadata_key, metadata_value
+):
+    data = {"documentId": "doc-123"}
+    body = bank_s3._structured_body(data)
+    digest = bank_s3.hashlib.sha256(body).hexdigest()
+    metadata = bank_s3._structured_metadata(
+        **_artifact_kwargs(),
+        content_sha256=digest,
+    )
+    metadata[metadata_key] = metadata_value
+    with patch(
+        "bank_worker.s3.s3_client.get_object",
+        return_value={
+            "Body": BytesIO(body),
+            "ContentLength": len(body),
+            "Metadata": metadata,
+        },
+    ):
+        with pytest.raises(ValueError, match="unavailable"):
+            bank_s3.require_structured_artifact_proof(
+                "structured-trusted",
+                _structured_key(),
+                **_artifact_kwargs(),
+                expected_digest=digest,
+            )
+
+
+def test_structured_artifact_proof_accepts_exact_metadata_and_digest():
+    body = bank_s3._structured_body({"documentId": "doc-123"})
+    digest = bank_s3.hashlib.sha256(body).hexdigest()
+    metadata = bank_s3._structured_metadata(
+        **_artifact_kwargs(),
+        content_sha256=digest,
+    )
+    with patch(
+        "bank_worker.s3.s3_client.get_object",
+        return_value={
+            "Body": BytesIO(body),
+            "ContentLength": len(body),
+            "Metadata": metadata,
+        },
+    ):
+        assert bank_s3.require_structured_artifact_proof(
+            "structured-trusted",
+            _structured_key(),
+            **_artifact_kwargs(),
+            expected_digest=digest,
+        ) == digest
+
+
+def test_s3_create_then_finalize_failure_is_retryable_partial_commit():
+    events = []
+
+    def reserve(**kwargs):
+        events.append("reserve")
+
+    def save(*args, **kwargs):
+        events.append("put")
+        return True, CONTENT_SHA256
+
+    def finalize(**kwargs):
+        events.append("finalize")
+        raise RuntimeError("synthetic finalize failure")
+
     with (
         patch("bank_worker.processors.extract.config.get", side_effect=_config_value),
         patch(
             "bank_worker.processors.extract.require_authorized_document",
-            side_effect=[first, checkpointed],
-        ) as authorize,
+            return_value=_authorized_record("OCR_COMPLETED", include_structured=False),
+        ),
         patch("bank_worker.processors.extract.is_already_extracted", return_value=False),
+        patch("bank_worker.processors.extract.reserve_structured_artifact", side_effect=reserve),
+        patch(
+            "bank_worker.processors.extract.get_ocr_text",
+            return_value=("synthetic text", {"chars": 14, "truncated": False}),
+        ),
+        patch(
+            "bank_worker.processors.extract.invoke_bedrock_bank_statement",
+            return_value=("{}", {"inputTokens": 1}),
+        ),
+        patch(
+            "bank_worker.processors.extract.parse_and_normalize",
+            return_value={"model": {}, "transactions": []},
+        ),
+        patch("bank_worker.processors.extract.save_structured_artifact", side_effect=save),
+        patch("bank_worker.processors.extract.update_document_status", side_effect=finalize),
+        patch("bank_worker.processors.extract.sqs_client.send_message") as send,
+    ):
+        with pytest.raises(RuntimeError, match="synthetic finalize failure"):
+            process_bank_extract_message(json.dumps(_message()), "r", "q")
+
+    assert events == ["reserve", "put", "finalize"]
+    send.assert_not_called()
+
+
+def test_oversized_structured_artifact_never_finalizes_or_enqueues():
+    with (
+        patch("bank_worker.processors.extract.config.get", side_effect=_config_value),
+        patch(
+            "bank_worker.processors.extract.require_authorized_document",
+            return_value=_authorized_record("OCR_COMPLETED", include_structured=False),
+        ),
+        patch("bank_worker.processors.extract.is_already_extracted", return_value=False),
+        patch("bank_worker.processors.extract.reserve_structured_artifact") as reserve,
         patch(
             "bank_worker.processors.extract.get_ocr_text",
             return_value=("synthetic text", {"chars": 14, "truncated": False}),
@@ -274,8 +474,34 @@ def test_concurrent_collision_requires_owner_bound_dynamo_checkpoint():
         ),
         patch(
             "bank_worker.processors.extract.save_structured_artifact",
-            return_value=False,
+            side_effect=ValueError("Structured artifact is unavailable"),
         ),
+        patch("bank_worker.processors.extract.update_document_status") as update,
+        patch("bank_worker.processors.extract.sqs_client.send_message") as send,
+    ):
+        with pytest.raises(ValueError, match="unavailable"):
+            process_bank_extract_message(json.dumps(_message()), "r", "q")
+
+    reserve.assert_called_once()
+    update.assert_not_called()
+    send.assert_not_called()
+
+
+def test_retry_recovers_owner_bound_partial_commit_without_bedrock():
+    with (
+        patch("bank_worker.processors.extract.config.get", side_effect=_config_value),
+        patch(
+            "bank_worker.processors.extract.require_authorized_document",
+            return_value=_writing_record(),
+        ) as authorize,
+        patch("bank_worker.processors.extract.is_already_extracted", return_value=True),
+        patch("bank_worker.processors.extract.get_ocr_text") as s3_read,
+        patch("bank_worker.processors.extract.invoke_bedrock_bank_statement") as bedrock,
+        patch(
+            "bank_worker.processors.extract.require_structured_artifact_proof",
+            return_value=CONTENT_SHA256,
+        ) as verify,
+        patch("bank_worker.processors.extract.save_structured_artifact") as save,
         patch("bank_worker.processors.extract.update_document_status") as update,
         patch(
             "bank_worker.processors.extract.sqs_client.send_message",
@@ -284,42 +510,38 @@ def test_concurrent_collision_requires_owner_bound_dynamo_checkpoint():
     ):
         assert process_bank_extract_message(json.dumps(_message()), "r", "q") is True
 
-    assert authorize.call_count == 2
-    update.assert_not_called()
+    authorize.assert_called_once()
+    verify.assert_called_once()
+    s3_read.assert_not_called()
+    bedrock.assert_not_called()
+    save.assert_not_called()
+    assert update.call_args.kwargs["checkpoint_id"] == CHECKPOINT_ID
+    assert update.call_args.kwargs["content_sha256"] == CONTENT_SHA256
     send.assert_called_once()
 
 
-def test_concurrent_collision_without_dynamo_checkpoint_fails_closed():
-    uncheckpointed = _authorized_record("OCR_COMPLETED", include_structured=False)
+def test_retry_rejects_partial_commit_when_s3_proof_mismatches():
     with (
         patch("bank_worker.processors.extract.config.get", side_effect=_config_value),
         patch(
             "bank_worker.processors.extract.require_authorized_document",
-            side_effect=[uncheckpointed, uncheckpointed],
+            return_value=_writing_record(),
         ),
-        patch("bank_worker.processors.extract.is_already_extracted", return_value=False),
+        patch("bank_worker.processors.extract.is_already_extracted", return_value=True),
+        patch("bank_worker.processors.extract.get_ocr_text") as s3_read,
+        patch("bank_worker.processors.extract.invoke_bedrock_bank_statement") as bedrock,
         patch(
-            "bank_worker.processors.extract.get_ocr_text",
-            return_value=("synthetic text", {"chars": 14, "truncated": False}),
-        ),
-        patch(
-            "bank_worker.processors.extract.invoke_bedrock_bank_statement",
-            return_value=("{}", {"inputTokens": 1}),
-        ),
-        patch(
-            "bank_worker.processors.extract.parse_and_normalize",
-            return_value={"model": {}, "transactions": []},
-        ),
-        patch(
-            "bank_worker.processors.extract.save_structured_artifact",
-            return_value=False,
+            "bank_worker.processors.extract.require_structured_artifact_proof",
+            side_effect=ValueError("Structured artifact is unavailable"),
         ),
         patch("bank_worker.processors.extract.update_document_status") as update,
         patch("bank_worker.processors.extract.sqs_client.send_message") as send,
     ):
-        with pytest.raises(RuntimeError, match="collision has no authorized checkpoint"):
+        with pytest.raises(ValueError, match="unavailable"):
             process_bank_extract_message(json.dumps(_message()), "r", "q")
 
+    s3_read.assert_not_called()
+    bedrock.assert_not_called()
     update.assert_not_called()
     send.assert_not_called()
 
@@ -346,6 +568,10 @@ def test_authorized_idempotent_message_propagates_owner_and_safe_metadata():
             return_value=_authorized_record(),
         ) as authorize,
         patch("bank_worker.processors.extract.is_already_extracted", return_value=True),
+        patch(
+            "bank_worker.processors.extract.require_structured_artifact_proof",
+            return_value=CONTENT_SHA256,
+        ),
         patch("bank_worker.processors.extract.update_document_status") as update,
         patch(
             "bank_worker.processors.extract.sqs_client.send_message",
@@ -384,6 +610,10 @@ def test_missing_sqs_message_id_does_not_acknowledge_message():
             return_value=_authorized_record(),
         ),
         patch("bank_worker.processors.extract.is_already_extracted", return_value=True),
+        patch(
+            "bank_worker.processors.extract.require_structured_artifact_proof",
+            return_value=CONTENT_SHA256,
+        ),
         patch("bank_worker.processors.extract.update_document_status"),
         patch("bank_worker.processors.extract.sqs_client.send_message", return_value={}),
     ):
@@ -423,18 +653,29 @@ def test_dynamo_update_is_conditioned_on_owner_and_domain():
     table = Mock()
     table.update_item.return_value = {"Attributes": {}}
     with patch("bank_worker.dynamo.dynamodb_resource.Table", return_value=table):
+        reserve_structured_artifact(
+            "documents", "doc-123", "bank", "structured-key", "structured",
+            CUSTOMER_ID, DEPLOYMENT_ID, CHECKPOINT_ID, ARTIFACT_WRITER,
+            ARTIFACT_SCHEMA_VERSION,
+        )
         update_document_status(
             "documents", "doc-123", "BANK_EXTRACTED", "bank", "structured-key",
-            "structured", CUSTOMER_ID, DEPLOYMENT_ID, {},
+            "structured", CUSTOMER_ID, DEPLOYMENT_ID, {}, CHECKPOINT_ID,
+            CONTENT_SHA256, ARTIFACT_WRITER, ARTIFACT_SCHEMA_VERSION,
         )
 
-    call = table.update_item.call_args.kwargs
-    assert "#customer_id = :customer_id" in call["ConditionExpression"]
-    assert "#deployment_id = :deployment_id" in call["ConditionExpression"]
-    assert "#ownership_version = :ownership_version" in call["ConditionExpression"]
-    assert "#processing_domain = :processing_domain" in call["ConditionExpression"]
-    assert "#m_status IN (:classify_completed, :ocr_completed)" in call["ConditionExpression"]
-    assert call["ExpressionAttributeValues"][":customer_id"] == CUSTOMER_ID
-    assert call["ExpressionAttributeValues"][":deployment_id"] == DEPLOYMENT_ID
-    assert call["ExpressionAttributeValues"][":classify_completed"] == "CLASSIFY_COMPLETED"
-    assert call["ExpressionAttributeValues"][":ocr_completed"] == "OCR_COMPLETED"
+    reserve_call, finalize_call = [item.kwargs for item in table.update_item.call_args_list]
+    for call in (reserve_call, finalize_call):
+        assert "#customer_id = :customer_id" in call["ConditionExpression"]
+        assert "#deployment_id = :deployment_id" in call["ConditionExpression"]
+        assert "#ownership_version = :ownership_version" in call["ConditionExpression"]
+        assert "#processing_domain = :processing_domain" in call["ConditionExpression"]
+        assert call["ExpressionAttributeValues"][":customer_id"] == CUSTOMER_ID
+        assert call["ExpressionAttributeValues"][":deployment_id"] == DEPLOYMENT_ID
+
+    assert "#m_status IN (:classify_completed, :ocr_completed)" in reserve_call["ConditionExpression"]
+    assert "attribute_not_exists(#artifacts.#structured)" in reserve_call["ConditionExpression"]
+    assert "attribute_not_exists(#stages.#stage_name)" in reserve_call["ConditionExpression"]
+    assert "#m_status = :writing_status" in finalize_call["ConditionExpression"]
+    assert "#stages.#stage_name = :reservation" in finalize_call["ConditionExpression"]
+    assert finalize_call["ExpressionAttributeValues"][":reservation"]["artifact"]["checkpoint_id"] == CHECKPOINT_ID

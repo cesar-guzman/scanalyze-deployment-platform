@@ -129,12 +129,17 @@ tokens ni credenciales en NotebookLM, Linear, Git, chat o evidencia general.
 “Cuarentena” describe una disposición revisada. Esta fuente no afirma que exista
 un recurso live de cuarentena ni autoriza mover mensajes.
 
-Un `HeadObject` exitoso en el key canónico sólo prueba que existe un objeto. No
-prueba quién lo escribió, su schema o digest, el checkpoint del stage ni el
-handoff posterior. La optimización local de retry de los workers de dominio no
-es evidencia durable de idempotencia y no habilita producción ni redrive. Esa
-prueba continúa bloqueada para GUG-118 mediante un binding de contenido/checkpoint
-o un ledger durable revisado.
+Un `HeadObject` exitoso por sí solo sólo prueba que existe un objeto. Por eso los
+artefactos estructurados de bank, personal y gov usan una saga de dos fases:
+reserva DynamoDB ligada exactamente a owner/deployment/document/domain, escritura
+S3 create-only con writer/schema/checkpoint y SHA-256, y finalización DynamoDB
+condicionada por la misma reserva. Un retry sólo recupera cuando metadata,
+locator, reserva y digest coinciden; objetos legacy, unbound o ambiguos se
+deniegan.
+
+Esta prueba es de contrato local/CI, no live. GUG-118 conserva el wiring runtime,
+failure injection, ledger cross-stage, redrive controlado y la prueba
+no-loss/no-duplicate antes de cualquier GO de producción.
 
 ## DLQ no significa replay autorizado
 

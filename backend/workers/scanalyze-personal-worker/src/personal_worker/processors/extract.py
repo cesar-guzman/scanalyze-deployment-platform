@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+import uuid
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
 
@@ -7,12 +9,101 @@ from ..logger import log_event, bind_context, safe_error_details
 from ..config import config
 from ..contracts import PersonalExtractMessage, ValidateMessage, S3Location, ValidateMeta
 from ..aws import sqs_client
-from ..s3 import get_ocr_text, save_structured_artifact
-from ..dynamo import require_authorized_document, update_document_status
+from ..s3 import (
+    get_ocr_text,
+    require_structured_artifact_proof,
+    save_structured_artifact,
+)
+from ..dynamo import (
+    build_artifact_binding,
+    require_authorized_document,
+    reserve_structured_artifact,
+    update_document_status,
+)
 from ..bedrock import invoke_bedrock_personal_doc, PROMPT_VERSION
 from ..normalize import parse_and_normalize
 
 logger = logging.getLogger(__name__)
+
+ARTIFACT_WRITER = "scanalyze-personal-worker"
+ARTIFACT_SCHEMA_VERSION = "1.0"
+DOMAIN = "personal"
+FINAL_STATUS = "PERSONAL_EXTRACTED"
+WRITING_STATUS = "PERSONAL_EXTRACTING"
+
+
+def _require_stage_artifact_binding(
+    document_item: dict,
+    *,
+    structured_bucket: str,
+    structured_key: str,
+    customer_id: str,
+    deployment_id: str,
+    document_id: str,
+    completed: bool,
+) -> dict:
+    stage = (document_item.get("stages") or {}).get("personal_extract")
+    if not isinstance(stage, dict):
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+    proof = stage.get("artifact")
+    if not isinstance(proof, dict):
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+
+    checkpoint_id = proof.get("checkpoint_id")
+    if not isinstance(checkpoint_id, str) or re.fullmatch(r"[0-9a-f]{32}", checkpoint_id) is None:
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+    content_sha256 = proof.get("content_sha256") if completed else None
+    if completed and (
+        not isinstance(content_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", content_sha256) is None
+    ):
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+
+    expected = build_artifact_binding(
+        structured_bucket=structured_bucket,
+        structured_key=structured_key,
+        customer_id=customer_id,
+        deployment_id=deployment_id,
+        document_id=document_id,
+        tenant=DOMAIN,
+        checkpoint_id=checkpoint_id,
+        writer=ARTIFACT_WRITER,
+        artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+        content_sha256=content_sha256,
+    )
+    if proof != expected:
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+    if completed:
+        if stage.get("status") != "COMPLETED":
+            raise RuntimeError("Structured artifact has no durable stage checkpoint")
+    elif stage != {"status": "WRITING", "artifact": expected}:
+        raise RuntimeError("Structured artifact has no durable stage checkpoint")
+    return proof
+
+
+def _require_s3_artifact(
+    *,
+    structured_bucket: str,
+    structured_key: str,
+    customer_id: str,
+    deployment_id: str,
+    document_id: str,
+    proof: dict,
+) -> str:
+    return require_structured_artifact_proof(
+        structured_bucket,
+        structured_key,
+        customer_id=customer_id,
+        deployment_id=deployment_id,
+        document_id=document_id,
+        processing_domain=DOMAIN,
+        ownership_schema_version=1,
+        pipeline_stage="personal-extract",
+        writer=ARTIFACT_WRITER,
+        artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+        checkpoint_id=proof["checkpoint_id"],
+        expected_digest=proof.get("content_sha256"),
+    )
 
 
 class MetadataValidationError(ValueError):
@@ -104,19 +195,124 @@ def process_personal_extract_message(body: str, receipt_handle: str, queue_url: 
         if document_status in {"COMPLETED", "FAILED"}:
             if stored_structured != {"bucket": structured_bucket, "key": structured_key}:
                 raise RuntimeError("Terminal document has no authorized structured artifact")
+            proof = _require_stage_artifact_binding(
+                document_item,
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                completed=True,
+            )
+            _require_s3_artifact(
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                proof=proof,
+            )
             return True
 
         artifact_exists = is_already_extracted(structured_bucket, structured_key)
-        if artifact_exists:
+        if document_status == FINAL_STATUS:
             if stored_structured != {"bucket": structured_bucket, "key": structured_key}:
                 raise RuntimeError("Existing structured artifact is not authorized")
-            if document_status != "PERSONAL_EXTRACTED":
-                raise RuntimeError("Existing structured artifact has no durable stage checkpoint")
+            proof = _require_stage_artifact_binding(
+                document_item,
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                completed=True,
+            )
+            _require_s3_artifact(
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                proof=proof,
+            )
             logger.info("Document already extracted; skipping Bedrock")
             log_event("extract_skipped_idempotent", documentId=msg.documentId)
+        elif document_status in {"CLASSIFY_COMPLETED", "OCR_COMPLETED"}:
+            if stored_structured or artifact_exists:
+                raise RuntimeError("Existing structured artifact is not authorized")
+            checkpoint_id = uuid.uuid4().hex
+            reserve_structured_artifact(
+                table_name=dynamo_table,
+                document_id=msg.documentId,
+                tenant=DOMAIN,
+                structured_key=structured_key,
+                structured_bucket=structured_bucket,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                checkpoint_id=checkpoint_id,
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            )
+            proof = build_artifact_binding(
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                tenant=DOMAIN,
+                checkpoint_id=checkpoint_id,
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            )
+            document_status = WRITING_STATUS
+        elif document_status == WRITING_STATUS:
+            if stored_structured:
+                raise RuntimeError("Structured artifact has conflicting stage state")
+            proof = _require_stage_artifact_binding(
+                document_item,
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                completed=False,
+            )
+            checkpoint_id = proof["checkpoint_id"]
         else:
-            if document_status not in {"CLASSIFY_COMPLETED", "OCR_COMPLETED"}:
-                raise RuntimeError("Document is not ready for personal extraction")
+            raise RuntimeError("Document is not ready for personal extraction")
+
+        if document_status == WRITING_STATUS and artifact_exists:
+            content_sha256 = _require_s3_artifact(
+                structured_bucket=structured_bucket,
+                structured_key=structured_key,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                proof=proof,
+            )
+            update_document_status(
+                table_name=dynamo_table,
+                document_id=msg.documentId,
+                status=FINAL_STATUS,
+                tenant=DOMAIN,
+                structured_key=structured_key,
+                structured_bucket=structured_bucket,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                metadata={
+                    "recovered": True,
+                    "prompt_version": PROMPT_VERSION,
+                    "schema_version": ARTIFACT_SCHEMA_VERSION,
+                    "modelId": model_id,
+                    "attempt": msg.attempt,
+                },
+                checkpoint_id=checkpoint_id,
+                content_sha256=content_sha256,
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            )
+            log_event("extract_partial_commit_recovered", documentId=msg.documentId)
+        elif document_status == WRITING_STATUS:
             ocr_text, text_stats = get_ocr_text(ocr_bucket, ocr_key)
                 
             # 2. Invoke Bedrock only with authorized OCR content. Classification
@@ -148,68 +344,57 @@ def process_personal_extract_message(body: str, receipt_handle: str, queue_url: 
             final_dict["model"]["usage"] = metrics
             
             # 4. Save Structured Artifact
-            artifact_created = save_structured_artifact(
-                structured_bucket, structured_key, final_dict
+            artifact_created, content_sha256 = save_structured_artifact(
+                structured_bucket,
+                structured_key,
+                final_dict,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                document_id=msg.documentId,
+                processing_domain=DOMAIN,
+                ownership_schema_version=1,
+                pipeline_stage="personal-extract",
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+                checkpoint_id=checkpoint_id,
             )
             
             conf_val = final_dict.get("overallConfidence")
             if conf_val is not None:
                 log_event("ine_confidence_extracted", documentId=msg.documentId, confidence=conf_val)
                 
-            # 5. Update DynamoDB only for the writer that created the artifact.
-            if artifact_created:
-                update_document_status(
-                    table_name=dynamo_table,
-                    document_id=msg.documentId,
-                    status="PERSONAL_EXTRACTED",
-                    tenant="personal",
-                    structured_key=structured_key,
+            if not artifact_created:
+                content_sha256 = _require_s3_artifact(
                     structured_bucket=structured_bucket,
+                    structured_key=structured_key,
                     customer_id=msg.customer_id,
                     deployment_id=msg.deployment_id,
-                    metadata={
-                        "status": "COMPLETED",
-                        "prompt_version": PROMPT_VERSION,
-                        "schema_version": "1.0",
-                        "modelId": model_id,
-                        "metrics": metrics,
-                        "attempt": msg.attempt,
-                        "textStats": text_stats
-                    }
-                )
-            else:
-                latest = require_authorized_document(
-                    table_name=dynamo_table,
                     document_id=msg.documentId,
-                    tenant="personal",
-                    customer_id=msg.customer_id,
-                    deployment_id=msg.deployment_id,
-                    raw_bucket=msg.raw.bucket,
-                    raw_key=msg.raw.key,
-                    ocr_bucket=ocr_bucket,
-                    ocr_key=ocr_key,
+                    proof=proof,
                 )
-                latest_structured = (
-                    (latest.get("artifacts") or {}).get("structured") or {}
-                )
-                latest_status = latest.get("status")
-                if latest_structured != {
-                    "bucket": structured_bucket,
-                    "key": structured_key,
-                } or latest_status not in {
-                    "PERSONAL_EXTRACTED",
-                    "COMPLETED",
-                    "FAILED",
-                }:
-                    raise RuntimeError(
-                        "Structured artifact collision has no authorized checkpoint"
-                    )
-                if latest_status in {"COMPLETED", "FAILED"}:
-                    return True
-                log_event(
-                    "extract_collision_reconciled",
-                    documentId=msg.documentId,
-                )
+
+            update_document_status(
+                table_name=dynamo_table,
+                document_id=msg.documentId,
+                status=FINAL_STATUS,
+                tenant=DOMAIN,
+                structured_key=structured_key,
+                structured_bucket=structured_bucket,
+                customer_id=msg.customer_id,
+                deployment_id=msg.deployment_id,
+                metadata={
+                    "prompt_version": PROMPT_VERSION,
+                    "schema_version": ARTIFACT_SCHEMA_VERSION,
+                    "modelId": model_id,
+                    "metrics": metrics,
+                    "attempt": msg.attempt,
+                    "textStats": text_stats,
+                },
+                checkpoint_id=checkpoint_id,
+                content_sha256=content_sha256,
+                writer=ARTIFACT_WRITER,
+                artifact_schema_version=ARTIFACT_SCHEMA_VERSION,
+            )
 
         # 6. Forward to Validate Queue
         val_msg = ValidateMessage(
