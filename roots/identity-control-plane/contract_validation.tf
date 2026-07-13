@@ -93,9 +93,17 @@ resource "terraform_data" "contract_gate" {
         !endswith(var.release_manifest_contract.pre_token_artifact.bucket, "--table-s3") &&
         !can(regex("^[0-9]+([.][0-9]+){3}$", var.release_manifest_contract.pre_token_artifact.bucket)) &&
         can(regex("(^|/)sha256[-/:][0-9a-f]{64}([./_-]|$)", var.release_manifest_contract.pre_token_artifact.key)) &&
-        can(regex("^[-A-Za-z0-9._~+/=]+$", var.release_manifest_contract.pre_token_artifact.object_version)) &&
-        length(var.release_manifest_contract.pre_token_artifact.object_version) <= 1024 &&
+        # Base64 length plus padding distinguishes the exact 1,024-byte edge
+        # from 1,025/1,026 bytes without constraining the opaque contract field.
+        length(var.release_manifest_contract.pre_token_artifact.object_version) > 0 &&
         lower(var.release_manifest_contract.pre_token_artifact.object_version) != "null" &&
+        (
+          length(base64encode(var.release_manifest_contract.pre_token_artifact.object_version)) < 1368 ||
+          (
+            length(base64encode(var.release_manifest_contract.pre_token_artifact.object_version)) == 1368 &&
+            endswith(base64encode(var.release_manifest_contract.pre_token_artifact.object_version), "==")
+          )
+        ) &&
         can(base64decode(var.release_manifest_contract.pre_token_artifact.sha256_b64)) &&
         length(base64decode(var.release_manifest_contract.pre_token_artifact.sha256_b64)) == 32
       )
@@ -118,9 +126,16 @@ resource "terraform_data" "contract_gate" {
         !endswith(var.release_manifest_contract.control_processor_artifact.bucket, "--table-s3") &&
         !can(regex("^[0-9]+([.][0-9]+){3}$", var.release_manifest_contract.control_processor_artifact.bucket)) &&
         can(regex("(^|/)sha256[-/:][0-9a-f]{64}([./_-]|$)", var.release_manifest_contract.control_processor_artifact.key)) &&
-        can(regex("^[-A-Za-z0-9._~+/=]+$", var.release_manifest_contract.control_processor_artifact.object_version)) &&
-        length(var.release_manifest_contract.control_processor_artifact.object_version) <= 1024 &&
+        # Apply the same exact opaque VersionId byte guard at the root boundary.
+        length(var.release_manifest_contract.control_processor_artifact.object_version) > 0 &&
         lower(var.release_manifest_contract.control_processor_artifact.object_version) != "null" &&
+        (
+          length(base64encode(var.release_manifest_contract.control_processor_artifact.object_version)) < 1368 ||
+          (
+            length(base64encode(var.release_manifest_contract.control_processor_artifact.object_version)) == 1368 &&
+            endswith(base64encode(var.release_manifest_contract.control_processor_artifact.object_version), "==")
+          )
+        ) &&
         can(base64decode(var.release_manifest_contract.control_processor_artifact.sha256_b64)) &&
         length(base64decode(var.release_manifest_contract.control_processor_artifact.sha256_b64)) == 32
       )

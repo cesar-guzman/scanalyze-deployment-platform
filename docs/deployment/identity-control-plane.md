@@ -22,6 +22,23 @@ This document does not authorize Terraform apply, AWS access, Cognito changes,
 user creation, client credential creation, migration, bootstrap, retirement, or
 production.
 
+## Provider compatibility contract
+
+Immutable Lambda artifacts use an S3 VersionId as an opaque provider value.
+The release-manifest schema preserves Unicode, including `+`, `/`, and `=`,
+while rejecting an empty value and the case-insensitive `null` sentinel. The
+Terraform module and consuming root enforce the 1,024 UTF-8 byte provider
+limit. Code must not decode, infer, or rebuild a VersionId from a key, ETag,
+timestamp, or request.
+
+Terraform owns tagged CloudWatch metric alarms for the deployment-specific
+identity family. Its Apply identity may put an alarm and list/add/remove tags
+only on
+`arn:${aws_partition}:cloudwatch:${region}:${account_id}:alarm:${deployment_id}-identity-*`.
+Alarm deletion remains explicitly denied and requires the separate reviewed
+decommission boundary. These permissions support plan/apply reconciliation;
+they do not authorize AWS execution in this package.
+
 ## Ownership boundary
 
 | Component | Owner | Authoritative data | Explicit non-owner |
@@ -388,9 +405,9 @@ the exact revision. A skipped provider/live check is not a pass.
 
 | Evidence class | Current GUG-93 status | Boundary |
 |---|---|---|
-| **Implemented** | Candidate repository implementation exists in the GUG-93 branch | Requires review and merge before it is mainline evidence |
-| **Locally validated** | Focused runtime tests passed in a Python 3.11 environment; remaining named gates must be reported with the final exact revision | No AWS/provider behavior |
-| **CI validated** | Pending | Requires required checks on the exact PR commit |
+| **Implemented** | Original GUG-93 implementation is merged on `main`; the provider-compatibility amendment is a separate candidate revision | The amendment requires its own review and merge |
+| **Locally validated** | Focused provider-compatibility regressions pass; complete exact-revision results will be reported with the amendment candidate | No AWS/provider behavior |
+| **CI validated** | Original GUG-93 PR passed required checks; amendment CI remains separate and pending until its exact PR commit completes | CI is not live provider evidence |
 | **Live validated** | **Blocked** | No AWS, Cognito, bootstrap, M2M credential, migration, adoption, decommission, or two-deployment execution authorized |
 | **Production** | **NO-GO** | GUG-117 and later production gates remain open |
 

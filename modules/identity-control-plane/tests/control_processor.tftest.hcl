@@ -316,3 +316,34 @@ run "rejects_the_unversioned_s3_sentinel" {
 
   expect_failures = [var.control_processor_s3_object_version]
 }
+
+run "accepts_an_opaque_version_id_at_the_utf8_byte_boundary" {
+  command = plan
+
+  variables {
+    control_processor_s3_object_version = join("", [for _ in range(512) : "é"])
+  }
+}
+
+run "rejects_an_opaque_version_id_one_byte_over_the_utf8_boundary" {
+  command = plan
+
+  variables {
+    control_processor_s3_object_version = join("", concat(
+      [for _ in range(512) : "é"],
+      ["a"],
+    ))
+  }
+
+  expect_failures = [var.control_processor_s3_object_version]
+}
+
+run "rejects_an_opaque_version_id_over_the_utf8_byte_boundary" {
+  command = plan
+
+  variables {
+    control_processor_s3_object_version = join("", [for _ in range(513) : "é"])
+  }
+
+  expect_failures = [var.control_processor_s3_object_version]
+}

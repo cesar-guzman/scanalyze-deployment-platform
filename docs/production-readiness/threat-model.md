@@ -684,6 +684,14 @@ cross deployment bindings, or destroy the only audit/recovery path.
   successor/rollback independence. Deletion protection, state removal, import,
   pool deletion, credential disclosure, and legacy fallback are not rollback.
   Any destructive action is a separate approved change.
+- **Provider-contract compatibility:** release manifests treat S3 VersionIds as
+  opaque Unicode, reject the unversioned `null` sentinel, and require the
+  operational consumer to enforce the 1,024 UTF-8 byte provider limit. The
+  Identity Apply role can reconcile
+  CloudWatch tags only on the exact deployment alarm family, while alarm
+  deletion remains explicitly denied. Contract-schema drift can otherwise
+  reject a valid immutable release, and missing tag permissions can leave a
+  reviewed Terraform apply unable to converge.
 - **Evidence:** repository runtime, Terraform, contracts, tests, ADR-024, and
   runbooks can establish `Implemented` and named offline results can establish
   `Locally validated` for an exact revision. Required PR checks remain separate

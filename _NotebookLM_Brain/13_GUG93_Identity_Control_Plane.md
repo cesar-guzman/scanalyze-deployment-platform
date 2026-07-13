@@ -291,6 +291,23 @@ and none authorizes AWS execution.
 
 Production remains **NO-GO**.
 
+## Post-merge compatibility amendment
+
+The original GUG-93 implementation is merged repository evidence. A separate
+follow-up corrects two provider integration mismatches without enabling live
+behavior:
+
+- S3 VersionIds remain opaque Unicode. The release schema preserves the value,
+  rejects the case-insensitive unversioned `null` sentinel, and the Terraform
+  module/root enforce the 1,024 UTF-8 byte provider limit.
+- The Identity Apply role may list, add, and remove tags only on the exact
+  deployment identity-alarm ARN family, in addition to putting the alarm.
+  `DeleteAlarms` remains explicitly denied.
+
+The amendment requires its own tests, review, CI, merge, and main verification.
+It performs no AWS call and does not change the **Live validated** or
+**Production NO-GO** classifications.
+
 ## Fail-closed questions and answers
 
 ### Does a Cognito group authorize a Scanalyze role?

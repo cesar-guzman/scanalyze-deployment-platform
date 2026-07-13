@@ -222,6 +222,66 @@ def test_identity_runtime_artifacts_are_immutable_and_content_addressed() -> Non
         assert list(validator.iter_errors(candidate))
 
 
+@pytest.mark.parametrize(
+    "version_id",
+    [
+        "synthetic+provider/Version=42",
+        "versión/proveedor/部署=42",
+    ],
+)
+def test_identity_runtime_artifacts_accept_opaque_s3_version_ids(
+    version_id: str,
+) -> None:
+    """S3 VersionIds are opaque UTF-8 and must not be normalized."""
+
+    manifest = _load_json(EXAMPLE_DIR / "release-manifest.synthetic.json")
+    validator = _validator("release-manifest.schema.json")
+
+    for field in ("pre_token_artifact", "control_processor_artifact"):
+        candidate = copy.deepcopy(manifest)
+        candidate[field]["object_version"] = version_id
+        errors = list(validator.iter_errors(candidate))
+        assert not errors, [error.message for error in errors]
+
+
+@pytest.mark.parametrize("sentinel", ["null", "NULL", "Null"])
+def test_identity_runtime_artifacts_reject_null_version_sentinel(
+    sentinel: str,
+) -> None:
+    manifest = _load_json(EXAMPLE_DIR / "release-manifest.synthetic.json")
+    manifest["pre_token_artifact"]["object_version"] = sentinel
+
+    assert list(_validator("release-manifest.schema.json").iter_errors(manifest))
+
+
+def test_identity_runtime_artifact_schema_bounds_version_id_length() -> None:
+    manifest = _load_json(EXAMPLE_DIR / "release-manifest.synthetic.json")
+    validator = _validator("release-manifest.schema.json")
+
+    boundary = copy.deepcopy(manifest)
+    boundary["pre_token_artifact"]["object_version"] = "a" * 1024
+    assert not list(validator.iter_errors(boundary))
+
+    oversized = copy.deepcopy(manifest)
+    oversized["pre_token_artifact"]["object_version"] = "a" * 1025
+    assert list(validator.iter_errors(oversized))
+
+
+def test_identity_runtime_consumers_enforce_utf8_byte_limit() -> None:
+    sources = [
+        REPO_ROOT / "modules" / "identity-control-plane" / "variables.tf",
+        REPO_ROOT / "roots" / "identity-control-plane" / "contract_validation.tf",
+    ]
+
+    for path in sources:
+        source = path.read_text(encoding="utf-8")
+        assert "base64encode" in source
+        assert "1368" in source
+        assert 'endswith(' in source
+        assert '"=="' in source
+        assert "^[-A-Za-z0-9._~+/=]+$" not in source
+
+
 def test_layers_yaml_has_exact_canonical_order_and_shape() -> None:
     with LAYERS_PATH.open(encoding="utf-8") as stream:
         document = yaml.safe_load(stream)
