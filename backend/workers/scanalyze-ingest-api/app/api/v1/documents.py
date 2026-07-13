@@ -3,11 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Path, status
 
 from ...auth import AuthContext
-from ...authorization import (
-    require_export_access,
-    require_read_access,
-    require_write_access,
-)
+from ...authorization import require_operation
+from ...enterprise_authorization import OperationId
 from ...logging import bind_context
 from ...services.documents import DocumentsService
 from .models import (
@@ -23,6 +20,13 @@ from .models import (
 
 router = APIRouter()
 
+_CREATE_DOCUMENT_ACCESS = require_operation(OperationId.DOCUMENTS_CREATE)
+_SUBMIT_DOCUMENT_ACCESS = require_operation(OperationId.DOCUMENTS_SUBMIT)
+_READ_DOCUMENT_ACCESS = require_operation(OperationId.DOCUMENTS_READ_METADATA)
+_READ_FULL_RESULT_ACCESS = require_operation(OperationId.RESULTS_READ_FULL)
+_LIST_ARTIFACTS_ACCESS = require_operation(OperationId.ARTIFACTS_LIST_METADATA)
+_DOWNLOAD_ARTIFACT_ACCESS = require_operation(OperationId.ARTIFACTS_DOWNLOAD)
+
 def _svc() -> DocumentsService:
     return DocumentsService()
 
@@ -33,7 +37,7 @@ def _svc() -> DocumentsService:
 )
 def create_document(
     req: CreateDocumentRequest,
-    auth: AuthContext = Depends(require_write_access),
+    auth: AuthContext = Depends(_CREATE_DOCUMENT_ACCESS),
     svc: DocumentsService = Depends(_svc),
 ) -> dict:
     # bind tenant en logs
@@ -57,11 +61,13 @@ def create_document(
 )
 def submit_document(
     req: SubmitDocumentRequest,
-    auth: AuthContext = Depends(require_write_access),
+    auth: AuthContext = Depends(_SUBMIT_DOCUMENT_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
-    bind_context(tenant=auth.tenant, documentId=document_id, stage=req.stage or None)
+    # Request input never enters logging context. The service binds only the
+    # reviewed canonical stage after validating this optional confirmation.
+    bind_context(tenant=auth.tenant, documentId=document_id)
     return svc.submit_document(auth=auth, document_id=document_id, stage=req.stage)
 
 @router.get(
@@ -69,7 +75,7 @@ def submit_document(
     response_model=DocumentStatusResponse,
 )
 def get_document(
-    auth: AuthContext = Depends(require_read_access),
+    auth: AuthContext = Depends(_READ_DOCUMENT_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -81,7 +87,7 @@ def get_document(
     response_model=ResultResponse,
 )
 def get_result(
-    auth: AuthContext = Depends(require_export_access),
+    auth: AuthContext = Depends(_READ_FULL_RESULT_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -93,7 +99,7 @@ def get_result(
     response_model=ListArtifactsResponse,
 )
 def list_artifacts(
-    auth: AuthContext = Depends(require_read_access),
+    auth: AuthContext = Depends(_LIST_ARTIFACTS_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -106,7 +112,7 @@ def list_artifacts(
 )
 def download_generic(
     artifactId: str,
-    auth: AuthContext = Depends(require_export_access),
+    auth: AuthContext = Depends(_DOWNLOAD_ARTIFACT_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
 ) -> dict:
@@ -119,7 +125,7 @@ def download_generic(
     response_model=PresignDownloadResponse,
 )
 def presign_download(
-    auth: AuthContext = Depends(require_export_access),
+    auth: AuthContext = Depends(_DOWNLOAD_ARTIFACT_ACCESS),
     svc: DocumentsService = Depends(_svc),
     document_id: str = Path(..., min_length=8, max_length=128),
     artifact_id: str = Path(..., min_length=2, max_length=2048),

@@ -8,15 +8,22 @@ from enum import Enum
 import re
 from typing import Any, FrozenSet
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from .auth import AuthContext, get_auth_context
+from .enterprise_authorization import (
+    EnterpriseAuthorizationRuntime,
+    OperationId,
+    authorize_operation,
+    operation_policy,
+)
 from .errors import AppError
 from .logging import get_logger
 
 
 logger = get_logger()
 ROUTE_ACTION_POLICY_ATTRIBUTE = "__scanalyze_required_actions__"
+ROUTE_OPERATION_POLICY_ATTRIBUTE = "__scanalyze_operation_policy__"
 OWNERSHIP_SCHEMA_VERSION = 1
 
 _CUSTOMER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,127}$")
@@ -259,19 +266,56 @@ def _mark_policy(
 def require_read_access(
     auth: AuthContext = Depends(get_auth_context),
 ) -> AuthContext:
+    if auth.principal_type != "m2m":
+        _deny_invalid_principal()
     return _authorize_m2m_actions(auth, frozenset({"read"}))
 
 
 def require_write_access(
     auth: AuthContext = Depends(get_auth_context),
 ) -> AuthContext:
+    if auth.principal_type != "m2m":
+        _deny_invalid_principal()
     return _authorize_m2m_actions(auth, frozenset({"write"}))
 
 
 def require_export_access(
     auth: AuthContext = Depends(get_auth_context),
 ) -> AuthContext:
+    if auth.principal_type != "m2m":
+        _deny_invalid_principal()
     return _authorize_m2m_actions(auth, frozenset({"read", "admin"}))
+
+
+def require_operation(
+    operation_id: OperationId,
+) -> Callable[..., AuthContext]:
+    """Create one closed PEP dependency for a reviewed operation identifier."""
+    policy = operation_policy(operation_id)
+
+    def dependency(
+        request: Request,
+        auth: AuthContext = Depends(get_auth_context),
+    ) -> AuthContext:
+        runtime = getattr(
+            request.app.state,
+            "enterprise_authorization_runtime",
+            None,
+        )
+        if runtime is not None and not isinstance(
+            runtime,
+            EnterpriseAuthorizationRuntime,
+        ):
+            runtime = None
+        return authorize_operation(
+            auth,
+            policy.operation_id,
+            runtime=runtime,
+        )
+
+    dependency.__name__ = f"require_{operation_id.value.replace('.', '_')}"
+    setattr(dependency, ROUTE_OPERATION_POLICY_ATTRIBUTE, policy.operation_id)
+    return _mark_policy(dependency, policy.m2m_required_actions)
 
 
 _mark_policy(require_read_access, frozenset({"read"}))

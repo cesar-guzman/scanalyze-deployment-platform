@@ -6,7 +6,16 @@ easily testable.
 """
 from __future__ import annotations
 
-from typing import Optional
+from collections.abc import Mapping
+from datetime import datetime
+import re
+from typing import Any, Optional
+
+
+_REDACTED_PROFILE_NAME = "[REDACTED]"
+_PROFILE_STATUS_VALUES = frozenset({"COMPLETE", "PARTIAL", "NEEDS_REVIEW"})
+_SAFE_OBJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_IDENTIFIER_NAMES = ("curp", "rfc", "claveElector")
 
 
 def mask_curp(value: Optional[str]) -> str:
@@ -55,3 +64,69 @@ def mask_identifier(value: Optional[str], id_type: str) -> str:
     }
     fn = dispatch.get(id_type, mask_curp)  # conservative default
     return fn(value)
+
+
+def _safe_object_id(value: Any) -> str | None:
+    if isinstance(value, str) and _SAFE_OBJECT_ID_PATTERN.fullmatch(value):
+        return value
+    return None
+
+
+def _safe_profile_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return value
+
+
+def _safe_count(value: Any) -> int:
+    return len(value) if isinstance(value, (list, tuple)) else 0
+
+
+def project_masked_profile(profile: Mapping[str, Any]) -> dict[str, Any]:
+    """Build the only supported masked profile representation.
+
+    Stored ``maskedIdentifiers`` and all other free-form fields are ignored.
+    Identifiers are deterministically remasked from scalar canonical values.
+    """
+    identifiers = profile.get("identifiers")
+    masked_identifiers: dict[str, str] = {}
+    if isinstance(identifiers, Mapping):
+        for identifier_name in _IDENTIFIER_NAMES:
+            value = identifiers.get(identifier_name)
+            if isinstance(value, str) and value:
+                masked_identifiers[identifier_name] = mask_identifier(
+                    value,
+                    identifier_name,
+                )
+
+    status = profile.get("status")
+    safe_status = (
+        status
+        if isinstance(status, str) and status in _PROFILE_STATUS_VALUES
+        else None
+    )
+    score = profile.get("completenessScore")
+    safe_score = (
+        float(score)
+        if isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and 0 <= score <= 1
+        else None
+    )
+    return {
+        "profileId": _safe_object_id(profile.get("profileId")),
+        "batchId": _safe_object_id(profile.get("batchId")),
+        "fullName": _REDACTED_PROFILE_NAME,
+        "status": safe_status,
+        "completenessScore": safe_score,
+        "identifiers": masked_identifiers,
+        "maskedIdentifiers": masked_identifiers,
+        "sourceDocumentCount": _safe_count(profile.get("sourceDocuments")),
+        "missingFieldCount": _safe_count(profile.get("missingFields")),
+        "warningCount": _safe_count(profile.get("warnings")),
+        "generatedAt": _safe_profile_timestamp(profile.get("generatedAt")),
+    }

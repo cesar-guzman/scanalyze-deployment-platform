@@ -89,7 +89,7 @@ def test_extra_token_scopes_cannot_elevate_route_actions() -> None:
     assert client.get("/export").status_code == 403
 
 
-def test_user_and_local_principals_keep_existing_route_behavior() -> None:
+def test_legacy_route_dependencies_deny_user_and_local_principals() -> None:
     for principal_type in ("user", "local_mock"):
         context = AuthContext(
             customer_id="legacy-customer",
@@ -99,9 +99,9 @@ def test_user_and_local_principals_keep_existing_route_behavior() -> None:
         )
         client = _policy_client(context)
 
-        assert client.get("/read").status_code == 200
-        assert client.post("/write").status_code == 200
-        assert client.get("/export").status_code == 200
+        assert client.get("/read").status_code == 403
+        assert client.post("/write").status_code == 403
+        assert client.get("/export").status_code == 403
 
 
 EXPECTED_ROUTE_POLICIES = {

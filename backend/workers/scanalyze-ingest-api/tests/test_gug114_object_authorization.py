@@ -318,7 +318,7 @@ def test_create_batch_persists_canonical_immutable_ownership() -> None:
     auth = _auth()
     ownership = ObjectOwnership.from_auth(auth)
 
-    item = service.create_batch(
+    response = service.create_batch(
         auth=auth,
         subject="synthetic-principal",
         email=None,
@@ -326,9 +326,12 @@ def test_create_batch_persists_canonical_immutable_ownership() -> None:
         metadata={},
     )
 
+    item = service.repo.create_batch.call_args.args[0]
     assert item["customer_id"] == CUSTOMER_A
     assert item["deployment_id"] == DEPLOYMENT_A
     assert item["ownership_schema_version"] == 1
+    assert response["createdBy"] is None
+    assert "customer_id" not in response
     assert service.repo.create_batch.call_args.kwargs["ownership"] == ownership
 
 

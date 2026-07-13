@@ -29,6 +29,9 @@ evidence.
 - `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
   customer/deployment authorization, lifecycle, privileged-access, migration,
   and downstream enforcement boundaries.
+- `human-authorization-enforcement.md`: GUG-153 typed PDP/PEP, exact 30-route
+  operation inventory, bounded membership snapshots, step-up, audit, M2M
+  compatibility, and rollout/rollback boundary.
 - `identity-control-plane.md`: portable GUG-93 Cognito/control-plane boundary,
   access-token claims, non-authoritative groups, runtime bootstrap/M2M custody,
   contract handoff, legacy adoption, and retain-first retirement.
@@ -112,3 +115,8 @@ For GUG-93, ingest only
 provider exports, user/group/client inventories, credentials, tokens,
 bootstrap/approval records, Terraform plans/state, logs, screenshots, or live
 identity evidence.
+
+For GUG-153, ingest only
+`../../_NotebookLM_Brain/14_GUG153_Human_Authorization_Enforcement.md`. Do not
+ingest access tokens, raw claims, membership/grant inventories, audit streams,
+object locators, customer data, screenshots, logs, or live evidence.

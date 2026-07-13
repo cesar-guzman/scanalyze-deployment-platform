@@ -6,6 +6,7 @@ implementation changes.  All identities and scopes are synthetic.
 from __future__ import annotations
 
 import json
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -16,6 +17,14 @@ from pydantic import ValidationError
 from app.api.v1.models import CreateDocumentRequest
 from app.auth import _resolve_cognito_auth, get_auth_context
 from app.config import M2MClientIdentityBindingV1, Settings, validate_auth_config
+from app.enterprise_authorization import (
+    AUTHZ_SCHEMA_VERSION,
+    MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS,
+    POLICY_DIGEST,
+    POLICY_VERSION,
+    ROLE_CATALOG_VERSION,
+    SCOPE_CATALOG_VERSION,
+)
 from app.errors import AppError
 
 
@@ -28,6 +37,7 @@ DEPLOYMENT_B = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAY"
 READ_SCOPE = "https://api.synthetic.invalid/read"
 WRITE_SCOPE = "https://api.synthetic.invalid/write"
 ADMIN_SCOPE = "https://api.synthetic.invalid/admin"
+ASSURANCE_CLAIM = "custom:authentication_assurance"
 
 
 def _binding(
@@ -53,6 +63,7 @@ def _settings(
         env="test",
         auth_mode="cognito_jwt",
         tenant_claim_name="custom:customerId",
+        deployment_claim_name="custom:deployment_id",
         cognito_user_pool_id="us-east-1_SyntheticPool",
         cognito_region="us-east-1",
         cognito_allowed_token_uses="access",
@@ -68,6 +79,16 @@ def _settings(
             "write": [WRITE_SCOPE],
             "admin": [ADMIN_SCOPE],
         },
+        human_enterprise_authorization_enabled=False,
+        enterprise_authorization_schema_version=AUTHZ_SCHEMA_VERSION,
+        enterprise_scope_catalog_version=SCOPE_CATALOG_VERSION,
+        enterprise_role_catalog_version=ROLE_CATALOG_VERSION,
+        enterprise_policy_version=POLICY_VERSION,
+        enterprise_policy_digest=POLICY_DIGEST,
+        enterprise_membership_snapshot_max_age_seconds=(
+            MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS
+        ),
+        enterprise_assurance_claim_name=ASSURANCE_CLAIM,
         # Legacy customer-only mappings must never authorize the new contract.
         m2m_client_tenant_map=None,
         enforce_auth_header=None,
@@ -162,7 +183,23 @@ def test_binding_membership_does_not_reclassify_user_principal(
     username_claim: str,
 ) -> None:
     claims = _claims()
-    claims[username_claim] = "synthetic-user"
+    now_epoch = int(time.time())
+    claims.update(
+        {
+            username_claim: "synthetic-user",
+            "principal_type": "user",
+            "membership_state": "active",
+            "role_id": "document_operator",
+            "membership_version": "synthetic-membership-v1",
+            "authz_schema_version": AUTHZ_SCHEMA_VERSION,
+            "scope_catalog_version": SCOPE_CATALOG_VERSION,
+            "role_catalog_version": ROLE_CATALOG_VERSION,
+            "policy_version": POLICY_VERSION,
+            "policy_digest": POLICY_DIGEST,
+            "iat": now_epoch - 30,
+            "auth_time": now_epoch - 60,
+        }
+    )
     settings = _settings()
     settings.human_enterprise_authorization_enabled = True
 
@@ -170,6 +207,10 @@ def test_binding_membership_does_not_reclassify_user_principal(
 
     assert context.principal_type == "user"
     assert context.auth_source == "cognito_jwt"
+    assert context.customer_id == CUSTOMER_A
+    assert context.deployment_id == DEPLOYMENT_A
+    assert context.human_authorization is not None
+    assert context.human_authorization.membership_version == "synthetic-membership-v1"
 
 
 @pytest.mark.parametrize(

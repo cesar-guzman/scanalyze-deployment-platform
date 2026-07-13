@@ -22,6 +22,8 @@ from ..authorization import (
     authorize_document,
 )
 from ..aws_clients import s3_client
+from ..csv_safety import neutralize_csv_cell
+from ..document_contracts import public_document_content_type
 from ..repositories.batches import BatchesRepository
 from ..repositories.documents import DocumentsRepository
 from ..services.documents import DocumentsService
@@ -39,6 +41,18 @@ def _normalize_nulls(obj: Any) -> Any:
     elif obj == "null":
         return None
     return obj
+
+
+def _project_batch_metadata(batch: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the closed metadata response without unclassified payload data."""
+    return {
+        "batchId": batch.get("batchId"),
+        "tenantId": batch.get("tenantId"),
+        "createdAt": batch.get("createdAt"),
+        "createdBy": None,
+        "status": batch.get("status"),
+        "metadata": {},
+    }
 
 
 class BatchesService:
@@ -83,7 +97,7 @@ class BatchesService:
             item["createdByDisplayName"] = name
             
         self.repo.create_batch(item, ownership=ownership)
-        return item
+        return _project_batch_metadata(item)
 
     def _load_batch(
         self,
@@ -163,7 +177,7 @@ class BatchesService:
             else:
                 batch["status"] = "PROCESSING"
                 
-        return batch
+        return _project_batch_metadata(batch)
 
     def get_batch_documents(self, auth: AuthContext, batch_id: str) -> List[Dict[str, Any]]:
         tenant = auth.customer_id
@@ -178,14 +192,18 @@ class BatchesService:
         result = []
         for full_doc in docs:
             doc_id = full_doc.get("documentId")
-            input_info = full_doc.get("input") or {}
+            input_info = full_doc.get("input")
+            if not isinstance(input_info, dict):
+                input_info = {}
             result.append({
                 "documentId": doc_id,
                 "status": full_doc.get("status"),
                 "createdAt": full_doc.get("createdAt") or full_doc.get("created_at") or _utc_now_iso(),
                 "input": {
                     "filename": input_info.get("filename"),
-                    "contentType": input_info.get("contentType"),
+                    "contentType": public_document_content_type(
+                        input_info.get("contentType")
+                    ),
                 },
             })
         return result
@@ -341,17 +359,20 @@ class BatchesService:
                         result_path = f"/api/v1/documents/{doc['documentId']}/result"
                         break
 
-                writer.writerow([
-                    doc["batchId"],
-                    doc["documentId"],
-                    doc.get("docType", "") or "",
-                    doc["status"],
-                    doc.get("generatedAt", "") or "",
-                    result_path,
-                    str(len(doc["artifactReferences"])),
-                    doc.get("errorCode", "") or "",
-                    doc.get("errorMessage", "") or ""
-                ])
+                writer.writerow(
+                    neutralize_csv_cell(value)
+                    for value in [
+                        doc["batchId"],
+                        doc["documentId"],
+                        doc.get("docType", "") or "",
+                        doc["status"],
+                        doc.get("generatedAt", "") or "",
+                        result_path,
+                        str(len(doc["artifactReferences"])),
+                        doc.get("errorCode", "") or "",
+                        doc.get("errorMessage", "") or "",
+                    ]
+                )
                 val = output.getvalue()
                 output.seek(0)
                 output.truncate(0)
@@ -403,11 +424,20 @@ class BatchesService:
                             result_path = f"/api/v1/documents/{doc_meta['documentId']}/result"
                             break
 
-                    csv_writer.writerow([
-                        doc_meta["batchId"], doc_meta["documentId"], doc_meta.get("docType", "") or "",
-                        doc_meta["status"], doc_meta.get("generatedAt", "") or "", result_path,
-                        str(len(doc_meta["artifactReferences"])), doc_meta.get("errorCode", "") or "", doc_meta.get("errorMessage", "") or ""
-                    ])
+                    csv_writer.writerow(
+                        neutralize_csv_cell(value)
+                        for value in [
+                            doc_meta["batchId"],
+                            doc_meta["documentId"],
+                            doc_meta.get("docType", "") or "",
+                            doc_meta["status"],
+                            doc_meta.get("generatedAt", "") or "",
+                            result_path,
+                            str(len(doc_meta["artifactReferences"])),
+                            doc_meta.get("errorCode", "") or "",
+                            doc_meta.get("errorMessage", "") or "",
+                        ]
+                    )
 
                     if doc_meta["status"] == "COMPLETED":
                         full_doc = authorized_documents.get(doc_meta["documentId"])

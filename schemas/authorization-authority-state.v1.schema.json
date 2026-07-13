@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/authorization-authority-state.v1.schema.json",
+  "title": "Scanalyze Authorization Authority State v1",
+  "description": "Provider-neutral evidence of the current authoritative membership or temporary-grant state used for a fail-closed human authorization decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authorization_path",
+    "authority_source",
+    "subject",
+    "customer_id",
+    "deployment_id",
+    "checked_at_epoch"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "authorization-authority-state.v1"
+    },
+    "authorization_path": {
+      "type": "string",
+      "enum": [
+        "membership",
+        "temporary_grant"
+      ]
+    },
+    "authority_source": {
+      "type": "string",
+      "enum": [
+        "authoritative_membership_store_v1",
+        "authoritative_temporary_grant_store_v1"
+      ]
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "customer_id": {
+      "$ref": "#/$defs/customer_id"
+    },
+    "deployment_id": {
+      "$ref": "#/$defs/deployment_id"
+    },
+    "membership_state": {
+      "type": "string",
+      "enum": [
+        "invited",
+        "active",
+        "suspended",
+        "expired",
+        "revoked"
+      ]
+    },
+    "role_id": {
+      "$ref": "#/$defs/human_role"
+    },
+    "membership_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "temporary_grant_id": {
+      "type": "string",
+      "pattern": "^grant-[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    },
+    "temporary_grant_type": {
+      "type": "string",
+      "enum": [
+        "support",
+        "break_glass"
+      ]
+    },
+    "temporary_grant_state": {
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "revoked"
+      ]
+    },
+    "temporary_grant_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "case_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "incident_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "purpose_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "approval_references": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/opaque_reference"
+      }
+    },
+    "grant_issued_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "allowed_operation_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/operation_id"
+      }
+    },
+    "allowed_data_classes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/data_class"
+      }
+    },
+    "expires_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "checked_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["temporary_grant_type"],
+        "properties": {
+          "temporary_grant_type": { "const": "support" }
+        }
+      },
+      "then": {
+        "required": ["case_reference", "purpose_reference", "approval_references"],
+        "not": { "required": ["incident_reference"] }
+      }
+    },
+    {
+      "if": {
+        "required": ["temporary_grant_type"],
+        "properties": {
+          "temporary_grant_type": { "const": "break_glass" }
+        }
+      },
+      "then": {
+        "required": ["incident_reference", "purpose_reference", "approval_references"],
+        "not": { "required": ["case_reference"] },
+        "properties": {
+          "approval_references": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    }
+  ],
+  "oneOf": [
+    {
+      "title": "Current membership authority",
+      "required": [
+        "membership_state",
+        "role_id",
+        "membership_version"
+      ],
+      "properties": {
+        "authorization_path": {
+          "const": "membership"
+        },
+        "authority_source": {
+          "const": "authoritative_membership_store_v1"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["temporary_grant_id"] },
+          { "required": ["temporary_grant_type"] },
+          { "required": ["temporary_grant_state"] },
+          { "required": ["temporary_grant_version"] },
+          { "required": ["case_reference"] },
+          { "required": ["incident_reference"] },
+          { "required": ["purpose_reference"] },
+          { "required": ["approval_references"] },
+          { "required": ["grant_issued_at_epoch"] },
+          { "required": ["allowed_operation_ids"] },
+          { "required": ["allowed_data_classes"] },
+          { "required": ["expires_at_epoch"] }
+        ]
+      }
+    },
+    {
+      "title": "Current temporary-grant authority",
+      "required": [
+        "temporary_grant_id",
+        "temporary_grant_type",
+        "temporary_grant_state",
+        "temporary_grant_version",
+        "purpose_reference",
+        "approval_references",
+        "grant_issued_at_epoch",
+        "allowed_operation_ids",
+        "allowed_data_classes",
+        "expires_at_epoch"
+      ],
+      "properties": {
+        "authorization_path": {
+          "const": "temporary_grant"
+        },
+        "authority_source": {
+          "const": "authoritative_temporary_grant_store_v1"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["membership_state"] },
+          { "required": ["role_id"] },
+          { "required": ["membership_version"] }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "human_role": {
+      "type": "string",
+      "enum": [
+        "customer_admin",
+        "document_operator",
+        "document_reviewer",
+        "auditor"
+      ]
+    },
+    "version_reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "opaque_reference": {
+      "type": "string",
+      "pattern": "^ref_[0-9a-f]{24,64}$"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "data_class": {
+      "type": "string",
+      "enum": [
+        "metadata",
+        "masked",
+        "content",
+        "pii",
+        "aggregated"
+      ]
+    },
+    "epoch_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9999999999
+    }
+  }
+}
