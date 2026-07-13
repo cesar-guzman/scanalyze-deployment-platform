@@ -29,8 +29,14 @@ evidence.
 - `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
   customer/deployment authorization, lifecycle, privileged-access, migration,
   and downstream enforcement boundaries.
+- `identity-control-plane.md`: portable GUG-93 Cognito/control-plane boundary,
+  access-token claims, non-authoritative groups, runtime bootstrap/M2M custody,
+  contract handoff, legacy adoption, and retain-first retirement.
 - `m2m-identity-v2-migration.md`: sanitized, repeatable migration inventory and
   per-deployment sequence; live identity inventories stay outside Git.
+- `../operations/identity-bootstrap-retirement.md`: one-use bootstrap failure,
+  retirement, legacy classification, state-adoption, blue/green migration, and
+  decommission procedure; live execution remains blocked.
 - `../operations/github-governance.md`: stable CI contract, required-check drift
   reconciliation, deployment-scoped GitHub Environments, and rollback.
 - `../../_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`: curated knowledge-base
@@ -100,3 +106,9 @@ For GUG-92, ingest only
 `../../_NotebookLM_Brain/12_GUG92_Enterprise_Authorization.md`. Provider
 exports, membership inventories, user/group lists, tokens, grant records,
 screenshots, logs, and live evidence remain outside NotebookLM.
+
+For GUG-93, ingest only
+`../../_NotebookLM_Brain/13_GUG93_Identity_Control_Plane.md`. Do not ingest
+provider exports, user/group/client inventories, credentials, tokens,
+bootstrap/approval records, Terraform plans/state, logs, screenshots, or live
+identity evidence.

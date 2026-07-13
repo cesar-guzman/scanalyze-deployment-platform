@@ -209,13 +209,15 @@ Un ticket abierto no equivale a aprobación.
 
 ```text
 ACCOUNT_READY → global → network → platform → data-foundation → cicd
-  → artifact-publication → services → edge-identity → edge → addons
-  → synthetic-validation
+  → artifact-publication → identity-control-plane → services
+  → edge-identity → edge → addons → synthetic-validation
 ```
 
 `cicd` provisiona ECR/release metadata y no despliega ECS. La publicación de
-artefactos es una fase operacional no Terraform entre `cicd` y `services`. La
-fuente machine-readable de esta secuencia es `deployment/layers.yaml`.
+artefactos es una fase operacional no Terraform entre `cicd` e
+`identity-control-plane`. El control plane produce el contrato de identidad que
+`services` y `edge-identity` deben validar antes de configurar runtime o edge.
+La fuente machine-readable de esta secuencia es `deployment/layers.yaml`.
 
 ### 5.3 Secuencia target-state
 
@@ -230,12 +232,14 @@ fuente machine-readable de esta secuencia es `deployment/layers.yaml`.
 9. Plan/aprobar/aplicar `cicd` para ECR y metadata, sin legacy pipeline salvo
    decisión explícita.
 10. Promover y verificar el full OCI artifact graph en la cuenta cliente.
-11. Plan/aprobar/aplicar `services` por waves.
-12. Plan/aprobar/aplicar `edge-identity`.
-13. Plan/aprobar/aplicar `edge`.
-14. Plan/aprobar/aplicar `addons`.
-15. Realizar cutover declarativo de frontend/identidad.
-16. Ejecutar validación sintética, activar observabilidad y entregar handoff.
+11. Plan/aprobar/aplicar `identity-control-plane` y publicar su contrato sin
+    secretos.
+12. Plan/aprobar/aplicar `services` por waves consumiendo el contrato exacto.
+13. Plan/aprobar/aplicar `edge-identity` con audiences/scopes access-only.
+14. Plan/aprobar/aplicar `edge`.
+15. Plan/aprobar/aplicar `addons`.
+16. Realizar cutover declarativo de frontend/identidad.
+17. Ejecutar validación sintética, activar observabilidad y entregar handoff.
 
 > [!WARNING]
 > Esta secuencia es target-state. No es ejecutable mientras B-01 a B-07 sigan
@@ -268,9 +272,10 @@ fuente machine-readable de esta secuencia es `deployment/layers.yaml`.
 | `platform` | identidad/release | contrato network, VPC/subnets/certificate |
 | `data-foundation` | identidad/release | contrato platform |
 | `cicd` | deployment/account/region | cluster contract, microservices y flags legacy |
-| `services` | identidad/release | cluster, roles, VPC, ALB y siete definiciones por digest |
-| `edge-identity` | identidad/release | contratos platform/services y dominio |
-| `edge` | identidad/release | contrato edge-identity, DNS/API/frontend |
+| `identity-control-plane` | customer/deployment/account/region, release y policy digest | contratos global/release-manifest y artifact inmutable del pre-token runtime |
+| `services` | identidad/release | cluster, roles, VPC, ALB, siete definiciones por digest y contrato identity-control-plane/v1 |
+| `edge-identity` | identidad/release | contratos services/identity-control-plane, audiences y route scopes |
+| `edge` | identidad/release | contrato edge-identity/v2, DNS/API/frontend |
 | `addons` | identidad/release | contratos finales y destinos de alertamiento |
 
 Los inputs deben generarse desde deployment record + contratos validados. No
@@ -661,9 +666,35 @@ bloqueante de secuencia.
 
 ### 13.1 Edge e identidad
 
-`edge-identity` se despliega después de `services` y consume sus contratos.
-`edge` consume outputs exactos de identidad/API. Ninguna capa debe buscar
-recursos por posición o nombre aproximado.
+`identity-control-plane` se despliega después de `artifact-publication` y antes
+de `services`. Produce `identity-control-plane/v1`, vinculado exactamente a
+customer, deployment, account, region, release, catálogos y policy digest.
+`services` debe validar ese contrato antes de recibir configuración de identidad.
+
+`edge-identity` se despliega después de `services`, consume ambos contratos y
+produce `edge-identity/v2`. `edge` consume outputs exactos de identidad/API.
+Ninguna capa debe buscar recursos por posición/nombre aproximado, leer state de
+otra capa ni usar valores copiados de consola.
+
+El provider es un adapter de autenticación, no el policy authority:
+
+- grupos y precedencia de Cognito son mappings no autoritativos;
+- membership state/role/version vienen del store autoritativo;
+- el pre-token V2 suprime autoridad de grupos y emite claims canónicos sólo
+  para access tokens;
+- ID tokens no son credenciales API;
+- cada route protegida exige scope explícito; y
+- GUG-153 conserva PDP/PEP, freshness, deny precedence y object authorization.
+
+Terraform no crea usuarios, memberships, passwords, MFA values ni client
+secret values. Human runtime provisioning general permanece deshabilitado. El
+bootstrap inicial es one-use, dual-approved, no-self-approved, con TTL máximo de
+900 segundos, idempotencia, conditional claim/consume y audit sanitizado.
+
+Los clientes M2M se crean sólo por el runtime aprobado: el valor generado se
+entrega inmediatamente al secret store y sólo se publican client ID y secret
+reference. El valor nunca entra a Terraform plan/state/output, contrato, logs,
+Linear o NotebookLM.
 
 ### 13.2 Frontend config
 
@@ -696,11 +727,32 @@ Debe existir un claim canónico, emitido/verificado por Cognito y consistente co
 
 No debilitar tenant validation para “hacer funcionar” login.
 
+Antes de habilitar identidad live también se requiere:
+
+- comprobar contract ID/digest y tuple exacto en services/edge;
+- negar grupos, metadata y headers como authority;
+- comprobar access-token-only y route scopes;
+- validar bootstrap replay/expiry/concurrency y SQS partial failures;
+- validar M2M idempotency/secret custody sin revelar el valor;
+- ejecutar pruebas positivas/negativas con dos deployments sintéticos; y
+- conservar evidencia create/upgrade/rollback separada del resultado local/CI.
+
+Un pool legacy no se importa por nombre. Requiere inventario report-only,
+ownership/binding exacto, state backup, import config revisado y plan sin
+replacement. Un schema immutable incompatible requiere migración blue/green;
+no se infiere authority desde dominio, grupo, account o claim customer-only.
+
 ### 13.4 Onboarding
 
 Permanece bloqueado hasta cerrar config e identidad. Nunca entregar passwords,
 tokens o client secrets en correo, ticket, Word o NotebookLM. El handoff de
 usuarios debe usar el flujo de invitación/primer login aprobado.
+
+Después del bootstrap, la capability inicial se consume/expira y queda retirada;
+todo lifecycle posterior pertenece a GUG-94. Decommission es retain-first:
+freeze de nueva autoridad, revocación, migración de consumers, retention/audit,
+prueba de independencia y sólo después una autorización destructiva separada.
+Eliminar un pool o editar state no es rollback.
 
 ---
 

@@ -30,6 +30,10 @@ roles but exactly one accountable role.
 | Maintain required-check and GitHub governance policy | I | R | A | I | I | C | I | I |
 | Own deployment registry schema and integration | C | A/R | C | I | C | I | I | I |
 | Define OIDC trust and terminal IAM | I | R | A | I | C | I | I | I |
+| Maintain portable identity control-plane Terraform, contracts, and provider boundary | C | R | A | I | C | C | I | I |
+| Execute first-administrator bootstrap through the approved lifecycle workflow | I | C | C | I | C | A/R | C | I |
+| Provision or rotate one deployment-bound M2M client through runtime escrow | I | C | C | I | R | A/R | I | I |
+| Approve identity state adoption, blue/green migration, or decommission | C | R | A | I | C | C | C | C when production |
 | Create a saved Terraform plan | I | A/R | C | I | C | C | I | I |
 | Approve a non-production saved plan | A | I | C | I | C | C | I | I |
 | Approve a production saved plan | C | I | C | I | C | C | C | A |
@@ -68,11 +72,12 @@ approved secret store and never enter contracts.
 | `data-foundation` | Registry tuple and `platform/v1` | `roots/data-foundation` Apply execution produces `data-foundation/v2` | Regional data-foundation key owned by data-foundation root | PE | Local root/contract evidence; live Blocked |
 | `cicd` | Registry tuple, `data-foundation/v2`, reviewed source/repository policy | `roots/cicd` Apply execution produces `cicd/v1` | Regional cicd key owned by cicd root | PE | Local root/contract evidence; live Blocked |
 | `artifact-publication` | `cicd/v1`, approved source/release input, complete build evidence | Promotion execution produces signed `release-manifest/v1` and destination digest readback | No Terraform state | RE | Dry-run structure; complete target graph Blocked |
-| `services` | Registry tuple, `platform/v1`, `data-foundation/v2`, `cicd/v1`, and `release-manifest/v1` | `roots/services` Apply execution produces `services/v1` | Regional services key owned by services root | PE | Local ownership/contract evidence; live Blocked |
-| `edge-identity` | Registry tuple and `services/v1`; identity policy from accepted contract | `roots/edge-identity` Apply execution produces `edge-identity/v1` | Regional edge-identity key owned by edge-identity root | PE | Local root/contract evidence; APP is consulted; live Blocked |
-| `edge` | Registry tuple and `edge-identity/v1` | `roots/edge` Apply execution produces `edge/v1` | Global edge key owned by edge root | PE | Local root/contract evidence; live Blocked |
+| `identity-control-plane` | Registry tuple, `global/v1`, `release-manifest/v1`, and reviewed ADR-023 policy version/digest | `roots/identity-control-plane` Apply execution produces credential-free `identity-control-plane/v1` | Regional identity-control-plane key owned only by its root | PE | Candidate root/runtime/contract and offline tests; PS/APP consulted; CI pending and live Blocked |
+| `services` | Registry tuple, `platform/v1`, `data-foundation/v2`, `cicd/v1`, `release-manifest/v1`, and `identity-control-plane/v1` | `roots/services` Apply execution produces `services/v1` | Regional services key owned by services root | PE | Local ownership/contract evidence; live Blocked |
+| `edge-identity` | Registry tuple, `services/v1`, and `identity-control-plane/v1`; route policy from accepted contract | `roots/edge-identity` Apply execution produces `edge-identity/v2` and does not own provider resources | Regional edge-identity key owned by edge-identity root | PE | Candidate root/contract evidence; APP is consulted; CI pending and live Blocked |
+| `edge` | Registry tuple and `edge-identity/v2` | `roots/edge` Apply execution produces `edge/v1` | Global edge key owned by edge root | PE | Local root/contract evidence; live Blocked |
 | `addons` | Registry tuple and `edge/v1` | `roots/addons` Apply execution produces `addons/v1` | Regional addons key owned by addons root | PE | Local root/contract evidence; live Blocked |
-| `synthetic-validation` | `release-manifest/v1`, `services/v1`, `edge-identity/v1`, `edge/v1`, and `addons/v1` | Validation execution produces a sanitized validation report and handoff summary | No Terraform state | SRE | Dry-run structure; live validation Blocked |
+| `synthetic-validation` | `release-manifest/v1`, `identity-control-plane/v1`, `services/v1`, `edge-identity/v2`, `edge/v1`, and `addons/v1` | Validation execution produces a sanitized validation report and handoff summary | No Terraform state | SRE | Dry-run structure; identity/two-deployment live validation Blocked |
 
 The current Terraform variable interfaces accept direct values that the future
 resolver must derive from the sources above. Phase 3 cannot exit until a tested
@@ -89,6 +94,10 @@ mock or operator-supplied infrastructure value remains.
 | Resolved deployment record | Deployment registry owner | Registry control plane | Approved orchestrator jobs | Operator file, GitHub output, or NotebookLM |
 | Account-ready contract | Account bootstrap / vending provider | Bootstrap identity only | Validation and Plan identities | Deployment Apply role |
 | Layer contract | The declared Terraform producer root | That layer's Apply session only | Declared downstream consumers and Validation | Script, another layer, or manual SSM write |
+| Identity provider resources | Identity control-plane Terraform root | Identity Apply only; bounded runtime adapters may perform only reviewed lifecycle effects | Identity runtime, declared contract consumers, Validation, and Diagnostic as policy permits | Edge root, services root, console/manual creation, or customer-specific fork |
+| Enterprise membership | Authoritative deployment-local membership store | GUG-94 lifecycle processor using conditional writes | Pre-token/PDP and approved audit/diagnostic paths | Cognito group, token claim, request payload, Terraform state, or email domain |
+| M2M credential value | Approved runtime credential store | Runtime provider-to-store adapter only at creation/rotation | Bound workload through approved retrieval; no general evidence reader | Terraform plan/state/output, layer contract, GitHub output, log, audit, Linear, or NotebookLM |
+| Bootstrap request and approval state | GUG-94 approved lifecycle workflow | Conditional bootstrap processor for claim/consume only | Bootstrap runtime and approved audit/diagnostic paths | Queue body, self-signup, target self-approval, or manual provider action |
 | Release manifest | RE promotion stage | Promotion identity after all gates | Terraform services, Validation, reviewers | Individual matrix leg or mutable metadata write |
 | Terraform state key | Exactly one Terraform root | Apply; Plan only for lock operations; StateRecovery under incident | Plan, Apply, Diagnostic as policy allows | Another root, pipeline script, or manual import |
 | Saved plan | Plan execution | Plan identity in short-lived plan-execution prefix | Matching Apply execution and approved reviewer surface | GitHub artifact, repository, state bucket, or operator laptop |

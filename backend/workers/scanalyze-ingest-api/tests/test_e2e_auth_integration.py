@@ -211,7 +211,9 @@ class TestE2EHttpRequestFlow:
     @patch("app.auth._jwks_cache")
     def test_valid_jwt_with_tenant_claim_succeeds(self, mock_cache):
         """E2E: Valid JWT with custom:customerId → 200 with correct tenant."""
-        client, settings = self._create_test_app()
+        client, settings = self._create_test_app(
+            {"human_enterprise_authorization_enabled": True}
+        )
         claims = _fake_jwt_claims()
         mock_key = MagicMock()
         mock_cache.get_signing_key.return_value = mock_key
@@ -388,7 +390,10 @@ class TestE2ECrossTenantIsolation:
         """E2E: Two different JWTs with different tenants get different AuthContexts."""
         from app.auth import _resolve_cognito_auth
 
-        settings = _make_settings(cognito_allowed_client_ids="test-spa-client")
+        settings = _make_settings(
+            cognito_allowed_client_ids="test-spa-client",
+            human_enterprise_authorization_enabled=True,
+        )
 
         # Tenant A
         claims_a = _fake_jwt_claims(**{"custom:customerId": "tenant-a"})

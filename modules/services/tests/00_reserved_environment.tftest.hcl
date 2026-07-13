@@ -22,6 +22,49 @@ variables {
   upstream_contract_digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   expected_upstream_digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
+  identity_control_plane_contract = {
+    contract_id                = "identity-control-plane/v1"
+    contract_digest            = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    customer_id                = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    deployment_id              = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    account_id                 = "000000000000"
+    region                     = "us-east-1"
+    aws_partition              = "aws"
+    cognito_user_pool_id       = "us-east-1_SYNTHETIC"
+    cognito_user_pool_arn      = "arn:aws:cognito-idp:us-east-1:000000000000:userpool/us-east-1_SYNTHETIC"
+    cognito_issuer_url         = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_SYNTHETIC"
+    cognito_spa_client_id      = "syntheticspaclient"
+    m2m_client_ids             = []
+    resource_server_identifier = "scanalyze.api.v1"
+    allowed_token_uses         = ["access"]
+    action_scopes = {
+      read  = "scanalyze.api.v1/read"
+      write = "scanalyze.api.v1/write"
+      admin = "scanalyze.api.v1/admin"
+    }
+    action_scope_sets = {
+      read  = ["scanalyze.api.v1/read"]
+      write = ["scanalyze.api.v1/write"]
+      admin = ["scanalyze.api.v1/admin"]
+    }
+    m2m_bindings                       = []
+    customer_claim_name                = "custom:customerId"
+    deployment_claim_name              = "custom:deployment_id"
+    policy_version                     = "1.0.0"
+    policy_digest                      = "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+    policy_canonicalization            = "rfc8785_json_canonicalization"
+    authz_schema_version               = "enterprise-authorization.v1"
+    scope_catalog_version              = "scanalyze.api.v1"
+    role_catalog_version               = "enterprise-roles.v1"
+    human_role_groups                  = ["customer_admin", "document_operator", "document_reviewer", "auditor"]
+    provider_groups_authoritative      = false
+    pre_token_generation_version       = "V2_0"
+    human_runtime_provisioning_enabled = false
+    m2m_runtime_provisioning_enabled   = true
+    m2m_client_secret_values_exposed   = false
+  }
+  expected_identity_control_plane_contract_digest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
   service_definitions = [
     {
       name          = "ingest-api"
@@ -122,6 +165,58 @@ run "rejects_case_insensitive_duplicate_environment_names" {
           {
             name  = "log_level"
             value = "WARNING"
+          }
+        ]
+      }
+    ]
+  }
+
+  expect_failures = [
+    var.service_definitions,
+  ]
+}
+
+run "rejects_m2m_binding_override" {
+  command = plan
+
+  variables {
+    service_definitions = [
+      {
+        name          = "ingest-api"
+        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        cpu           = 256
+        memory        = 512
+        desired_count = 1
+        extra_environment = [
+          {
+            name  = "M2M_CLIENT_IDENTITY_BINDINGS_V1"
+            value = "{}"
+          }
+        ]
+      }
+    ]
+  }
+
+  expect_failures = [
+    var.service_definitions,
+  ]
+}
+
+run "rejects_m2m_scope_set_override" {
+  command = plan
+
+  variables {
+    service_definitions = [
+      {
+        name          = "ingest-api"
+        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        cpu           = 256
+        memory        = 512
+        desired_count = 1
+        extra_environment = [
+          {
+            name  = "m2m_action_scope_sets_v1"
+            value = "{}"
           }
         ]
       }

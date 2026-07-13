@@ -73,6 +73,71 @@ variable "accepted_schema_versions" {
   description = "List of accepted upstream contract schema versions"
 }
 
+variable "identity_control_plane_contract" {
+  type = object({
+    contract_id                = string
+    contract_digest            = string
+    customer_id                = string
+    deployment_id              = string
+    account_id                 = string
+    region                     = string
+    aws_partition              = string
+    cognito_user_pool_id       = string
+    cognito_user_pool_arn      = string
+    cognito_issuer_url         = string
+    cognito_spa_client_id      = string
+    m2m_client_ids             = list(string)
+    resource_server_identifier = string
+    allowed_token_uses         = list(string)
+    action_scopes = object({
+      read  = string
+      write = string
+      admin = string
+    })
+    action_scope_sets = object({
+      read  = list(string)
+      write = list(string)
+      admin = list(string)
+    })
+    m2m_bindings = list(object({
+      client_id       = string
+      customer_id     = string
+      deployment_id   = string
+      required_scopes = list(string)
+    }))
+    customer_claim_name                = string
+    deployment_claim_name              = string
+    policy_version                     = string
+    policy_digest                      = string
+    policy_canonicalization            = string
+    authz_schema_version               = string
+    scope_catalog_version              = string
+    role_catalog_version               = string
+    human_role_groups                  = list(string)
+    provider_groups_authoritative      = bool
+    pre_token_generation_version       = string
+    human_runtime_provisioning_enabled = bool
+    m2m_runtime_provisioning_enabled   = bool
+    m2m_client_secret_values_exposed   = bool
+  })
+  description = "Verified identity-control-plane/v1 handoff without secret values"
+  nullable    = false
+}
+
+variable "expected_identity_control_plane_contract_digest" {
+  type        = string
+  description = "Expected identity-control-plane/v1 digest from the deployment record"
+  nullable    = false
+
+  validation {
+    condition = (
+      can(regex("^sha256:[a-f0-9]{64}$", var.expected_identity_control_plane_contract_digest)) &&
+      var.expected_identity_control_plane_contract_digest == var.identity_control_plane_contract.contract_digest
+    )
+    error_message = "expected_identity_control_plane_contract_digest must be the exact trusted sha256 digest carried by the identity contract envelope"
+  }
+}
+
 # --- Variables consumed by modules/services ---
 
 variable "ecs_cluster_arn" {
@@ -138,8 +203,24 @@ variable "service_definitions" {
     condition = alltrue(flatten([
       for svc in var.service_definitions : [
         for item in svc.extra_environment : !contains([
+          "AUTH_MODE",
+          "COGNITO_ALLOWED_CLIENT_IDS",
+          "COGNITO_ALLOWED_TOKEN_USES",
+          "COGNITO_REGION",
+          "COGNITO_USER_POOL_ID",
+          "DEPLOYMENT_CLAIM_NAME",
+          "ENTERPRISE_AUTHORIZATION_SCHEMA_VERSION",
+          "ENTERPRISE_POLICY_DIGEST",
+          "ENTERPRISE_POLICY_VERSION",
+          "ENTERPRISE_ROLE_CATALOG_VERSION",
+          "ENTERPRISE_SCOPE_CATALOG_VERSION",
+          "HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED",
+          "M2M_ACTION_SCOPE_SETS_V1",
+          "M2M_CLIENT_IDENTITY_BINDINGS_V1",
+          "M2M_TENANT_RESOLUTION",
           "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
           "SCANALYZE_DEPLOYMENT_ID",
+          "TENANT_CLAIM_NAME",
           "AWS_REGION",
           "RELEASE_VERSION",
         ], upper(item.name))

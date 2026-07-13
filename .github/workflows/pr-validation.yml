@@ -82,8 +82,16 @@ jobs:
       - name: Run all tests
         run: python -m pytest tests/ -v --tb=short
 
+      - name: Run identity control-plane runtime tests
+        env:
+          PYTHONPATH: backend/lambdas/scanalyze-identity-control-plane/src
+        run: >-
+          python -m pytest
+          backend/lambdas/scanalyze-identity-control-plane/tests/
+          -v --tb=short
+
       - name: Compile check
-        run: python -m compileall backend/workers -q
+        run: python -m compileall backend/workers backend/lambdas -q
 
   manifest-validation:
     name: Validate deployment manifest schema
@@ -126,3 +134,12 @@ jobs:
         env:
           AWS_EC2_METADATA_DISABLED: "true"
         run: make provider-check
+
+      - name: Test identity Terraform contracts with mock provider
+        env:
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          terraform -chdir=modules/identity-control-plane init -backend=false -input=false
+          terraform -chdir=modules/identity-control-plane test -no-color
+          terraform -chdir=modules/edge-identity init -backend=false -input=false
+          terraform -chdir=modules/edge-identity test -no-color

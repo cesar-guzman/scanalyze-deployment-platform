@@ -1,0 +1,362 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadWriteIdentityLayerState",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/identity-control-plane/terraform.tfstate"
+    },
+    {
+      "Sid": "ManageIdentityLayerLock",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/identity-control-plane/terraform.tfstate.tflock"
+    },
+    {
+      "Sid": "ReadApprovedIdentityArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-shared-releases/${release_digest}/identity-control-plane/*"
+    },
+    {
+      "Sid": "PublishIdentityContractAndEvidence",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:PutParameter"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/identity-control-plane/*",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/identity-control-plane/*",
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/identity-control-plane/*"
+      ]
+    },
+    {
+      "Sid": "CreateTaggedUserPool",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:CreateUserPool"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/customer_id": "${customer_id}",
+          "aws:RequestTag/deployment_id": "${deployment_id}"
+        }
+      }
+    },
+    {
+      "Sid": "ManageDeploymentUserPool",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AddCustomAttributes",
+        "cognito-idp:CreateGroup",
+        "cognito-idp:CreateResourceServer",
+        "cognito-idp:CreateUserPoolClient",
+        "cognito-idp:CreateUserPoolDomain",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolClient",
+        "cognito-idp:GetGroup",
+        "cognito-idp:ListGroups",
+        "cognito-idp:TagResource",
+        "cognito-idp:UntagResource",
+        "cognito-idp:UpdateGroup",
+        "cognito-idp:UpdateResourceServer",
+        "cognito-idp:UpdateUserPool",
+        "cognito-idp:UpdateUserPoolClient",
+        "cognito-idp:UpdateUserPoolDomain"
+      ],
+      "Resource": "arn:${aws_partition}:cognito-idp:${region}:${account_id}:userpool/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/deployment_id": "${deployment_id}"
+        }
+      }
+    },
+    {
+      "Sid": "ManageIdentityFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:AddPermission",
+        "lambda:CreateAlias",
+        "lambda:CreateFunction",
+        "lambda:GetAlias",
+        "lambda:GetFunction",
+        "lambda:GetPolicy",
+        "lambda:ListVersionsByFunction",
+        "lambda:PublishVersion",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:UpdateAlias",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-*"
+    },
+    {
+      "Sid": "ManageIdentityStores",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:TagResource",
+        "dynamodb:UntagResource",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:UpdateTable",
+        "dynamodb:UpdateTimeToLive"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${account_id}:table/${deployment_id}-identity-*"
+    },
+    {
+      "Sid": "ManageIdentityQueues",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:CreateQueue",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ListQueueTags",
+        "sqs:SetQueueAttributes",
+        "sqs:TagQueue",
+        "sqs:UntagQueue"
+      ],
+      "Resource": "arn:${aws_partition}:sqs:${region}:${account_id}:${deployment_id}-identity-*"
+    },
+    {
+      "Sid": "CreateBoundedIdentityRuntimeRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/customer_id": "${customer_id}",
+          "aws:RequestTag/deployment_id": "${deployment_id}",
+          "aws:RequestTag/layer": "identity-control-plane",
+          "iam:PermissionsBoundary": "${identity_runtime_permissions_boundary_arn}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "customer_id",
+            "deployment_id",
+            "layer",
+            "managed_by",
+            "purpose"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageBoundedIdentityRuntimeRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane"
+        }
+      }
+    },
+    {
+      "Sid": "PassBoundedIdentityRuntimeRolesToLambdaOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        },
+        "ArnLike": {
+          "iam:AssociatedResourceArn": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-*"
+        }
+      }
+    },
+    {
+      "Sid": "DescribeIdentityMonitoring",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageIdentityAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm"
+      ],
+      "Resource": "arn:${aws_partition}:cloudwatch:${region}:${account_id}:alarm:${deployment_id}-identity-*"
+    },
+    {
+      "Sid": "ManageIdentityLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:AssociateKmsKey",
+        "logs:CreateLogGroup",
+        "logs:ListTagsForResource",
+        "logs:PutMetricFilter",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource"
+      ],
+      "Resource": "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/lambda/${deployment_id}-identity-*"
+    },
+    {
+      "Sid": "CreateTaggedIdentityEncryptionKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/customer_id": "${customer_id}",
+          "aws:RequestTag/deployment_id": "${deployment_id}",
+          "aws:RequestTag/layer": "identity-control-plane"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedIdentityEncryptionKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant",
+        "kms:DescribeKey",
+        "kms:EnableKeyRotation",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:TagResource",
+        "kms:UntagResource"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane"
+        },
+        "BoolIfExists": {
+          "kms:GrantIsForAWSResource": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ManageExactIdentityEncryptionAlias",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:alias/${deployment_id}-identity",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/*"
+      ]
+    },
+    {
+      "Sid": "UseDeploymentInfrastructureEncryptionKeys",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      ]
+    },
+    {
+      "Sid": "DenyIdentityDestructionOutsideReviewedDecommission",
+      "Effect": "Deny",
+      "Action": [
+        "cloudwatch:DeleteAlarms",
+        "cognito-idp:DeleteGroup",
+        "cognito-idp:DeleteResourceServer",
+        "cognito-idp:DeleteUserPool",
+        "cognito-idp:DeleteUserPoolClient",
+        "cognito-idp:DeleteUserPoolDomain",
+        "dynamodb:DeleteTable",
+        "iam:DeletePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "kms:DeleteAlias",
+        "kms:DisableKey",
+        "kms:ScheduleKeyDeletion",
+        "lambda:DeleteAlias",
+        "lambda:DeleteFunction",
+        "lambda:RemovePermission",
+        "logs:DeleteLogGroup",
+        "logs:DeleteMetricFilter",
+        "logs:DeleteRetentionPolicy",
+        "secretsmanager:DeleteSecret",
+        "sqs:DeleteQueue",
+        "sqs:PurgeQueue"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRemovalOfIdentityBindingTags",
+      "Effect": "Deny",
+      "Action": [
+        "iam:UntagRole"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": [
+            "customer_id",
+            "deployment_id",
+            "layer"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyPrivilegeEscalationAndHumanAdministration",
+      "Effect": "Deny",
+      "Action": [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword",
+        "iam:AttachRolePolicy",
+        "iam:CreateAccessKey",
+        "iam:CreateUser",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutUserPolicy",
+        "organizations:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

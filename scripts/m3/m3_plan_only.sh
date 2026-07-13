@@ -39,6 +39,8 @@ APPROVED_ROOTS=(
   network
   platform
   data-foundation
+  cicd
+  identity-control-plane
   services
   edge-identity
   edge

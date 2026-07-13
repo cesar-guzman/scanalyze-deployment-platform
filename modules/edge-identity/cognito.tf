@@ -1,117 +1,72 @@
-# Edge Identity — Cognito
-#
-# Status: authored_not_provider_validated
-#
-# This module owns Cognito user pool, SPA client (Authorization Code + PKCE),
-# M2M client (client_credentials), and resource server with scopes.
+# Cognito has one Terraform owner: modules/identity-control-plane. Existing
+# edge-identity state MUST first be imported into that root and reviewed. These
+# declarations then forget the legacy addresses without destroying live identity
+# resources. There is deliberately no moved block: Terraform cannot move state
+# across independent roots, and pretending otherwise would risk replacement.
 
-resource "aws_cognito_user_pool" "main" {
-  name = "${var.deployment_id}-users"
+removed {
+  from = aws_cognito_user_pool.main
 
-  username_attributes      = ["email"]
-  auto_verified_attributes = ["email"]
+  lifecycle {
+    destroy = false
+  }
+}
 
-  password_policy {
-    minimum_length                   = 12
-    require_lowercase                = true
-    require_uppercase                = true
-    require_numbers                  = true
-    require_symbols                  = true
-    temporary_password_validity_days = 7
+removed {
+  from = aws_cognito_user_pool_domain.main
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_cognito_resource_server.api
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_cognito_user_pool_client.spa
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_cognito_user_pool_client.m2m
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+resource "terraform_data" "identity_handoff_gate" {
+  input = {
+    customer_id              = var.customer_id
+    deployment_id            = var.deployment_id
+    identity_contract_digest = var.upstream_contract_digest
+    issuer                   = var.cognito_issuer_url
+    audiences                = local.authorizer_audiences
   }
 
-  account_recovery_setting {
-    recovery_mechanism {
-      name     = "verified_email"
-      priority = 1
+  lifecycle {
+    precondition {
+      condition     = var.legacy_identity_handoff_complete
+      error_message = "edge-identity is blocked until legacy Cognito state is imported into identity-control-plane or a reviewed no-legacy-state assertion exists."
+    }
+
+    precondition {
+      condition     = var.upstream_contract_digest == var.expected_upstream_digest
+      error_message = "identity-control-plane contract digest is stale, tampered, or unexpected."
+    }
+
+    precondition {
+      condition     = var.cognito_issuer_url == "https://cognito-idp.${var.region}.${local.aws_dns_suffix}/${var.cognito_user_pool_id}"
+      error_message = "Cognito issuer must exactly bind the selected partition, region, and verified user-pool identifier."
     }
   }
-
-  schema {
-    name                     = "email"
-    attribute_data_type      = "String"
-    mutable                  = true
-    required                 = true
-    developer_only_attribute = false
-
-    string_attribute_constraints {
-      min_length = 1
-      max_length = 256
-    }
-  }
-
-  tags = {
-    deployment_id = var.deployment_id
-    managed_by    = "terraform"
-    layer         = "edge-identity"
-  }
-}
-
-resource "aws_cognito_user_pool_domain" "main" {
-  domain       = var.deployment_id
-  user_pool_id = aws_cognito_user_pool.main.id
-}
-
-resource "aws_cognito_resource_server" "api" {
-  identifier   = "https://api.${var.domain_name}"
-  name         = "${var.deployment_id}-api"
-  user_pool_id = aws_cognito_user_pool.main.id
-
-  dynamic "scope" {
-    for_each = var.api_scopes
-    content {
-      scope_name        = scope.value.name
-      scope_description = scope.value.description
-    }
-  }
-}
-
-# SPA client — Authorization Code + PKCE
-resource "aws_cognito_user_pool_client" "spa" {
-  name         = "${var.deployment_id}-spa"
-  user_pool_id = aws_cognito_user_pool.main.id
-
-  generate_secret = false # SPA clients must not have a secret
-
-  allowed_oauth_flows                  = ["code"]
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_scopes = concat(
-    ["openid", "email", "profile"],
-    [for s in var.api_scopes : "${aws_cognito_resource_server.api.identifier}/${s.name}"]
-  )
-
-  callback_urls = var.spa_callback_urls
-  logout_urls   = var.spa_logout_urls
-
-  supported_identity_providers = ["COGNITO"]
-
-  explicit_auth_flows = [
-    "ALLOW_REFRESH_TOKEN_AUTH",
-  ]
-
-  token_validity_units {
-    access_token  = "hours"
-    id_token      = "hours"
-    refresh_token = "days"
-  }
-
-  access_token_validity  = 1
-  id_token_validity      = 1
-  refresh_token_validity = 30
-}
-
-# M2M client — client_credentials
-resource "aws_cognito_user_pool_client" "m2m" {
-  name         = "${var.deployment_id}-m2m"
-  user_pool_id = aws_cognito_user_pool.main.id
-
-  generate_secret = true
-
-  allowed_oauth_flows                  = ["client_credentials"]
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_scopes = [
-    for s in var.api_scopes : "${aws_cognito_resource_server.api.identifier}/${s.name}"
-  ]
-
-  supported_identity_providers = ["COGNITO"]
 }

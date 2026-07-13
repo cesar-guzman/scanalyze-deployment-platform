@@ -140,11 +140,11 @@ variable "state_key" {
 
 locals {
   # Global-scope layers do NOT include region in state path
-  global_scope_layers  = ["global", "edge"]
+  global_scope_layers = ["global", "edge"]
   # Regional-scope layers MUST include region
-  regional_scope_layers = ["network", "platform", "data-foundation", "services", "edge-identity", "addons"]
+  regional_scope_layers = ["network", "platform", "data-foundation", "identity-control-plane", "services", "edge-identity", "addons"]
 
-  consumer_is_global  = contains(local.global_scope_layers, var.consumer_layer)
+  consumer_is_global   = contains(local.global_scope_layers, var.consumer_layer)
   consumer_is_regional = contains(local.regional_scope_layers, var.consumer_layer)
 
   # State path pattern validation

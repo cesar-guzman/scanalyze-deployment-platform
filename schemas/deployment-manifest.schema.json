@@ -156,8 +156,7 @@
         },
         "allowed_token_uses": {
           "type": "array",
-          "items": { "type": "string", "enum": ["access", "id"] },
-          "default": ["access"]
+          "const": ["access"]
         },
         "deployment_claim": {
           "type": "string",
@@ -165,7 +164,7 @@
           "description": "JWT claim containing the deployment_id"
         }
       },
-      "description": "Identity/Cognito configuration (populated after edge-identity layer)"
+      "description": "Identity/Cognito public configuration populated from identity-control-plane/v1; API authorization accepts access tokens only"
     },
     "frontend": {
       "type": "object",

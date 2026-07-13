@@ -62,6 +62,7 @@
         "platform",
         "data-foundation",
         "cicd",
+        "identity-control-plane",
         "services",
         "edge-identity",
         "edge",
@@ -70,7 +71,7 @@
     },
     "producer": {
       "type": "string",
-      "pattern": "^roots/(global|network|platform|data-foundation|cicd|services|edge-identity|edge|addons)$"
+      "pattern": "^roots/(global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons)$"
     },
     "release_digest": {
       "$ref": "#/$defs/sha256"
@@ -160,13 +161,14 @@
               "platform",
               "data-foundation",
               "cicd",
+              "identity-control-plane",
               "services",
               "edge-identity",
               "addons"
             ]
           },
           "state_key": {
-            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/(network|platform|data-foundation|cicd|services|edge-identity|addons)/terraform\\.tfstate$"
+            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/(network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|addons)/terraform\\.tfstate$"
           }
         }
       }
@@ -187,6 +189,9 @@
         },
         {
           "$ref": "#/$defs/cicd_producer"
+        },
+        {
+          "$ref": "#/$defs/identity_control_plane_producer"
         },
         {
           "$ref": "#/$defs/services_producer"
@@ -310,6 +315,23 @@
         }
       }
     },
+    "identity_control_plane_producer": {
+      "$ref": "#/$defs/producer_binding",
+      "properties": {
+        "layer": {
+          "const": "identity-control-plane"
+        },
+        "producer": {
+          "const": "roots/identity-control-plane"
+        },
+        "output_schema_version": {
+          "const": "identity-control-plane/v1"
+        },
+        "state_key": {
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/identity-control-plane/terraform\\.tfstate$"
+        }
+      }
+    },
     "edge_identity_producer": {
       "$ref": "#/$defs/producer_binding",
       "properties": {
@@ -320,7 +342,10 @@
           "const": "roots/edge-identity"
         },
         "output_schema_version": {
-          "const": "edge-identity/v1"
+          "enum": [
+            "edge-identity/v1",
+            "edge-identity/v2"
+          ]
         },
         "state_key": {
           "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/edge-identity/terraform\\.tfstate$"

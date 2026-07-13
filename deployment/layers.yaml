@@ -195,10 +195,43 @@ layers:
       - signature-status
       - provenance-status
 
-  - layer: services
+  - layer: identity-control-plane
     kind: terraform
     depends_on:
       - artifact-publication
+    root: roots/identity-control-plane
+    scope: regional
+    state_key: "{deployment_id}/{region}/identity-control-plane/terraform.tfstate"
+    requires_contracts:
+      - global/v1
+      - release-manifest/v1
+      - identity-contract/v2
+    produces_contract: identity-control-plane/v1
+    plan_role: ScanalyzeCustomer-Identity-Plan
+    apply_role: ScanalyzeCustomer-Identity-Apply
+    allowed_operations:
+      - terraform-init
+      - terraform-validate
+      - terraform-plan
+      - terraform-apply-saved-plan
+      - publish-contract
+    destroy_policy: deny
+    artifact_dependencies:
+      - release-manifest
+    produces_artifacts: []
+    evidence_requirements:
+      - sanitized-plan-summary
+      - plan-sha256
+      - apply-result
+      - contract-sha256
+      - authorization-contract-digest
+      - bootstrap-audit-readback
+      - no-secret-output-proof
+
+  - layer: services
+    kind: terraform
+    depends_on:
+      - identity-control-plane
     root: roots/services
     scope: regional
     state_key: "{deployment_id}/{region}/services/terraform.tfstate"
@@ -207,6 +240,7 @@ layers:
       - data-foundation/v2
       - cicd/v1
       - release-manifest/v1
+      - identity-control-plane/v1
     produces_contract: services/v1
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
@@ -237,7 +271,8 @@ layers:
     state_key: "{deployment_id}/{region}/edge-identity/terraform.tfstate"
     requires_contracts:
       - services/v1
-    produces_contract: edge-identity/v1
+      - identity-control-plane/v1
+    produces_contract: edge-identity/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -264,7 +299,7 @@ layers:
     scope: global
     state_key: "{deployment_id}/edge/terraform.tfstate"
     requires_contracts:
-      - edge-identity/v1
+      - edge-identity/v2
     produces_contract: edge/v1
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
@@ -320,8 +355,9 @@ layers:
     state_key: null
     requires_contracts:
       - release-manifest/v1
+      - identity-control-plane/v1
       - services/v1
-      - edge-identity/v1
+      - edge-identity/v2
       - edge/v1
       - addons/v1
     produces_contract: null

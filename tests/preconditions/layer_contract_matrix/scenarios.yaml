@@ -30,6 +30,18 @@ layer_pairs:
     producer_contract: data-foundation/v2
     consumer_state_key: "{dep_id}/{region}/services/terraform.tfstate"
 
+  - producer: global
+    consumer: identity-control-plane
+    state_scope: global_to_regional
+    producer_contract: global/v1
+    consumer_state_key: "{dep_id}/{region}/identity-control-plane/terraform.tfstate"
+
+  - producer: identity-control-plane
+    consumer: services
+    state_scope: regional_to_regional
+    producer_contract: identity-control-plane/v1
+    consumer_state_key: "{dep_id}/{region}/services/terraform.tfstate"
+
   - producer: services
     consumer: edge-identity
     state_scope: regional_to_regional
@@ -39,7 +51,7 @@ layer_pairs:
   - producer: edge-identity
     consumer: edge
     state_scope: regional_to_global
-    producer_contract: edge-identity/v1
+    producer_contract: edge-identity/v2
     consumer_state_key: "{dep_id}/edge/terraform.tfstate"
 
   - producer: edge
@@ -150,6 +162,12 @@ state_path_scope_tests:
     scope: regional
     valid_key: "{dep_id}/{region}/services/terraform.tfstate"
     invalid_key: "{dep_id}/services/terraform.tfstate"
+    error: "regional layer must include region in state path"
+
+  - layer: identity-control-plane
+    scope: regional
+    valid_key: "{dep_id}/{region}/identity-control-plane/terraform.tfstate"
+    invalid_key: "{dep_id}/identity-control-plane/terraform.tfstate"
     error: "regional layer must include region in state path"
 
   - layer: addons

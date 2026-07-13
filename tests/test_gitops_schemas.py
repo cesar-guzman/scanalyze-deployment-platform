@@ -35,6 +35,7 @@ EXPECTED_LAYER_ORDER = [
     "data-foundation",
     "cicd",
     "artifact-publication",
+    "identity-control-plane",
     "services",
     "edge-identity",
     "edge",
@@ -200,6 +201,27 @@ def test_synthetic_release_identity_is_digest_bound() -> None:
     )
 
 
+def test_identity_runtime_artifacts_are_immutable_and_content_addressed() -> None:
+    manifest = _load_json(EXAMPLE_DIR / "release-manifest.synthetic.json")
+    validator = _validator("release-manifest.schema.json")
+
+    for field in ("pre_token_artifact", "control_processor_artifact"):
+        artifact = manifest[field]
+        assert set(artifact) == {
+            "bucket",
+            "key",
+            "object_version",
+            "sha256_b64",
+        }
+        candidate = copy.deepcopy(manifest)
+        candidate[field]["key"] = "identity/runtime/latest.zip"
+        assert list(validator.iter_errors(candidate))
+
+        candidate = copy.deepcopy(manifest)
+        candidate[field]["object_version"] = ""
+        assert list(validator.iter_errors(candidate))
+
+
 def test_layers_yaml_has_exact_canonical_order_and_shape() -> None:
     with LAYERS_PATH.open(encoding="utf-8") as stream:
         document = yaml.safe_load(stream)
@@ -260,7 +282,7 @@ def test_nonprod_workflow_separates_logical_and_github_environments() -> None:
         for job in jobs.values()
         if job.get("uses") == "./.github/workflows/_terraform-layer.yml"
     ]
-    assert len(reusable_jobs) == 10
+    assert len(reusable_jobs) == 11
     for job in reusable_jobs:
         assert job["with"]["logical_environment"] == "${{ inputs.logical_environment }}"
         assert "environment" not in job["with"]

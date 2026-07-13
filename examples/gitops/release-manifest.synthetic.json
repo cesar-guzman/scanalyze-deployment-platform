@@ -19,5 +19,17 @@
   "generated_at": "2026-01-01T00:00:00Z",
   "source_repository": "synthetic-org/scanalyze-deployment-platform-monorepo",
   "source_ref": "refs/tags/v0.0.0-synthetic",
-  "immutable_artifact_identity": "scanalyze-release@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  "immutable_artifact_identity": "scanalyze-release@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "pre_token_artifact": {
+    "bucket": "scanalyze-synthetic-release-artifacts",
+    "key": "identity/pre-token/sha256-4444444444444444444444444444444444444444444444444444444444444444.zip",
+    "object_version": "synthetic-version-pre-token",
+    "sha256_b64": "REREREREREREREREREREREREREREREREREREREREREQ="
+  },
+  "control_processor_artifact": {
+    "bucket": "scanalyze-synthetic-release-artifacts",
+    "key": "identity/control-processor/sha256-5555555555555555555555555555555555555555555555555555555555555555.zip",
+    "object_version": "synthetic-version-control-processor",
+    "sha256_b64": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="
+  }
 }

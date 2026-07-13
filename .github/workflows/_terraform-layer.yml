@@ -119,7 +119,7 @@ jobs:
           esac
 
           case "$TARGET_LAYER" in
-            account-ready-gate|global|network|platform|data-foundation|cicd|services|edge-identity|edge|addons) ;;
+            account-ready-gate|global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
             *)
               echo "::error::Layer is not an approved Terraform root"
               exit 1

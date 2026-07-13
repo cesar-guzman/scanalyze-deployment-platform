@@ -45,7 +45,6 @@ identity:
     - "dev0client0id0000000001"
   allowed_token_uses:
     - access
-    - id
   deployment_claim: "custom:deployment_id"
 
 frontend:

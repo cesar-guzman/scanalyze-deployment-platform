@@ -116,6 +116,58 @@ def test_services_must_require_image_digests(canonical_dag, tmp_path):
     assert "image-digests" in result.stderr
 
 
+def test_identity_control_plane_is_a_mandatory_services_boundary(
+    canonical_dag,
+    tmp_path,
+):
+    document = copy.deepcopy(canonical_dag)
+    services = _layer(document, "services")
+    services["depends_on"] = ["artifact-publication"]
+    services["requires_contracts"].remove("identity-control-plane/v1")
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "services must run after identity-control-plane" in result.stderr
+    assert "services must require identity-control-plane/v1" in result.stderr
+
+
+def test_identity_control_plane_uses_dedicated_role_templates(
+    canonical_dag,
+    tmp_path,
+):
+    document = copy.deepcopy(canonical_dag)
+    _layer(document, "identity-control-plane")["apply_role"] = (
+        "ScanalyzeCustomer-Apply"
+    )
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert (
+        "identity-control-plane.apply_role must be "
+        "ScanalyzeCustomer-Identity-Apply"
+    ) in result.stderr
+
+
+def test_identity_control_plane_requires_reviewed_m2m_registry_contract(
+    canonical_dag,
+    tmp_path,
+):
+    identity = _layer(canonical_dag, "identity-control-plane")
+    assert "identity-contract/v2" in identity["requires_contracts"]
+
+    document = copy.deepcopy(canonical_dag)
+    _layer(document, "network")["requires_contracts"].append(
+        "identity-contract/v2"
+    )
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "requires contract identity-contract/v2 with no producer" in result.stderr
+
+
 def test_edge_must_be_downstream_of_services(canonical_dag, tmp_path):
     document = copy.deepcopy(canonical_dag)
     edge_identity = _layer(document, "edge-identity")

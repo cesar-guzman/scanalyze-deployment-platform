@@ -28,6 +28,9 @@ module "services" {
   alb_security_group_id       = var.alb_security_group_id
   service_definitions         = var.service_definitions
 
+  identity_control_plane_contract                 = var.identity_control_plane_contract
+  expected_identity_control_plane_contract_digest = var.expected_identity_control_plane_contract_digest
+
   upstream_contract_digest = var.upstream_contract_digest
   expected_upstream_digest = var.expected_upstream_digest
 }

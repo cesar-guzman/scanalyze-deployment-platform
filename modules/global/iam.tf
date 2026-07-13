@@ -43,7 +43,9 @@ resource "aws_iam_role" "ecs_task_execution" {
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_managed" {
-  for_each = toset(var.ecs_task_execution_managed_policies)
+  for_each = toset(length(var.ecs_task_execution_managed_policies) > 0 ? var.ecs_task_execution_managed_policies : [
+    "arn:${var.aws_partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+  ])
 
   role       = aws_iam_role.ecs_task_execution.name
   policy_arn = each.value
@@ -154,5 +156,111 @@ resource "aws_iam_policy" "workload_permissions_boundary" {
     managed_by    = "terraform"
     layer         = "global"
     purpose       = "workload-permissions-boundary"
+  }
+}
+
+# Identity runtime roles are created by the dedicated identity layer.  Their
+# boundary must be owned by an earlier, more trusted layer so the identity
+# apply role cannot widen its own maximum permissions.
+resource "aws_iam_policy" "identity_runtime_permissions_boundary" {
+  name        = "${var.deployment_id}-identity-runtime-boundary"
+  description = "Maximum permissions for deployment-scoped identity Lambda roles"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "IdentityTablesOnly"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+        ]
+        Resource = "arn:${var.aws_partition}:dynamodb:${var.region}:${var.account_id}:table/${var.deployment_id}-identity-*"
+      },
+      {
+        Sid    = "IdentityControlQueueOnly"
+        Effect = "Allow"
+        Action = [
+          "sqs:ChangeMessageVisibility",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ReceiveMessage",
+        ]
+        Resource = "arn:${var.aws_partition}:sqs:${var.region}:${var.account_id}:${var.deployment_id}-identity-*"
+      },
+      {
+        Sid    = "IdentityOperationalLogsOnly"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = "arn:${var.aws_partition}:logs:${var.region}:${var.account_id}:log-group:/aws/lambda/${var.deployment_id}-identity-*:*"
+      },
+      {
+        Sid    = "TaggedDeploymentUserPoolOnly"
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:CreateUserPoolClient",
+          "cognito-idp:DeleteUserPoolClient",
+          "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:ListUserPoolClients",
+        ]
+        Resource = "arn:${var.aws_partition}:cognito-idp:${var.region}:${var.account_id}:userpool/*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/deployment_id" = var.deployment_id
+          }
+        }
+      },
+      {
+        Sid    = "IdentityM2MSecretsOnly"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:CreateSecret",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:TagResource",
+        ]
+        Resource = "arn:${var.aws_partition}:secretsmanager:${var.region}:${var.account_id}:secret:${var.deployment_id}-identity-m2m-*"
+      },
+      {
+        Sid    = "TaggedIdentityEncryptionOnly"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+        ]
+        Resource = "arn:${var.aws_partition}:kms:${var.region}:${var.account_id}:key/*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/deployment_id" = var.deployment_id
+            "aws:ResourceTag/layer"         = "identity-control-plane"
+          }
+        }
+      },
+      {
+        Sid    = "DenyControlPlaneEscalation"
+        Effect = "Deny"
+        Action = [
+          "account:*",
+          "iam:*",
+          "organizations:*",
+          "sts:AssumeRole",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = {
+    deployment_id = var.deployment_id
+    managed_by    = "terraform"
+    layer         = "global"
+    purpose       = "identity-runtime-permissions-boundary"
   }
 }

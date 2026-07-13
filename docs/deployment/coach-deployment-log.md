@@ -25,6 +25,25 @@ durable debe ser sanitizada y generada por el orquestador protegido.
 - Validación live non-production: `PENDING`
 - Producción: `NO-GO`
 
+## Checkpoint documental GUG-93
+
+- **Implemented:** candidate repository layer/runtime/contracts/docs exist only
+  in the isolated GUG-93 branch until reviewed commit, PR, CI, merge, and main
+  verification provide their separate evidence.
+- **Locally validated:** the focused Python 3.11 identity runtime suite passed
+  `96` tests during implementation. Final exact-revision repository/Terraform/
+  security results must be recorded separately; this log is not their authority.
+- **CI validated:** `PENDING` for the exact PR commit.
+- **Live validated:** `BLOCKED`; no AWS/Cognito, bootstrap, M2M credential,
+  migration, state adoption, retirement, or two-deployment execution occurred.
+- **Producción:** `NO-GO`.
+
+The GUG-93 operational boundary is documented in
+[`identity-control-plane.md`](identity-control-plane.md) and
+[`identity-bootstrap-retirement.md`](../operations/identity-bootstrap-retirement.md).
+No provider identifiers, user inventories, credentials, tokens, plans, state,
+logs, or live evidence belong in this file.
+
 Consulta [`colleague-deployment-guide.md`](colleague-deployment-guide.md) para el
 procedimiento vigente y [`gitops-orchestrator.md`](gitops-orchestrator.md) para
 la arquitectura aprobada.

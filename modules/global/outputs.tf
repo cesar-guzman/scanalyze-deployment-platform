@@ -16,3 +16,8 @@ output "permissions_boundary_arn" {
   description = "Workload permissions boundary policy ARN"
   value       = aws_iam_policy.workload_permissions_boundary.arn
 }
+
+output "identity_runtime_permissions_boundary_arn" {
+  description = "Dedicated maximum-permission boundary for identity Lambda roles."
+  value       = aws_iam_policy.identity_runtime_permissions_boundary.arn
+}

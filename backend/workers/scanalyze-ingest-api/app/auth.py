@@ -648,6 +648,19 @@ def _resolve_cognito_auth(
     if is_machine_principal:
         return _resolve_m2m_identity(claims, settings, scopes)
 
+    if getattr(settings, "human_enterprise_authorization_enabled", None) is not True:
+        logger.warning(
+            "human_enterprise_authorization_denied",
+            reason="runtime_disabled",
+            path=request_path,
+        )
+        raise AppError(
+            code="FORBIDDEN",
+            message="Access is not available for this principal",
+            status_code=403,
+            details={},
+        )
+
     # ── Extract tenant from claims ──
     tenant_id = _resolve_tenant_from_claims(claims, settings)
 

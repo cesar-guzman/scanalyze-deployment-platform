@@ -27,6 +27,8 @@
       "Resource": [
         "arn:aws:iam::*:role/ScanalyzeCustomer-Plan",
         "arn:aws:iam::*:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Apply",
         "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion"
       ]
     },

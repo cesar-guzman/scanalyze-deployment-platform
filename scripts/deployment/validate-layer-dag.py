@@ -23,6 +23,7 @@ CANONICAL_STAGES = [
     "data-foundation",
     "cicd",
     "artifact-publication",
+    "identity-control-plane",
     "services",
     "edge-identity",
     "edge",
@@ -42,6 +43,7 @@ EXPECTED_SCOPES = {
     "data-foundation": "regional",
     "cicd": "regional",
     "artifact-publication": "regional",
+    "identity-control-plane": "regional",
     "services": "regional",
     "edge-identity": "regional",
     "edge": "global",
@@ -54,6 +56,7 @@ EXPECTED_STATE_KEYS = {
     "platform": "{deployment_id}/{region}/platform/terraform.tfstate",
     "data-foundation": "{deployment_id}/{region}/data-foundation/terraform.tfstate",
     "cicd": "{deployment_id}/{region}/cicd/terraform.tfstate",
+    "identity-control-plane": "{deployment_id}/{region}/identity-control-plane/terraform.tfstate",
     "services": "{deployment_id}/{region}/services/terraform.tfstate",
     "edge-identity": "{deployment_id}/{region}/edge-identity/terraform.tfstate",
     "edge": "{deployment_id}/edge/terraform.tfstate",
@@ -65,12 +68,19 @@ EXPECTED_ROLES = {
     "artifact": ("ScanalyzeCustomer-Validation", "ScanalyzeCustomer-Promotion"),
     "validation": ("ScanalyzeCustomer-Validation", None),
 }
+EXPECTED_LAYER_ROLES = {
+    "identity-control-plane": (
+        "ScanalyzeCustomer-Identity-Plan",
+        "ScanalyzeCustomer-Identity-Apply",
+    ),
+}
 EXPECTED_TERRAFORM_CONTRACTS = {
     layer: f"{layer}/v1"
     for layer in CANONICAL_STAGES
     if layer not in EXPECTED_KINDS
 }
 EXPECTED_TERRAFORM_CONTRACTS["data-foundation"] = "data-foundation/v2"
+EXPECTED_TERRAFORM_CONTRACTS["edge-identity"] = "edge-identity/v2"
 TOP_LEVEL_FIELDS = {"schema_version", "layers"}
 LAYER_FIELDS = {
     "layer",
@@ -92,8 +102,11 @@ LAYER_FIELDS = {
 KINDS = {"terraform", "gate", "artifact", "validation"}
 SCOPES = {"global", "regional", "none"}
 DESTROY_POLICIES = {"deny", "approval-required"}
-EXTERNAL_CONTRACTS = {"account-ready/v1"}
-EXTERNAL_CONTRACT_CONSUMERS = {"account-ready/v1": {"account-ready-gate", "global"}}
+EXTERNAL_CONTRACTS = {"account-ready/v1", "identity-contract/v2"}
+EXTERNAL_CONTRACT_CONSUMERS = {
+    "account-ready/v1": {"account-ready-gate", "global"},
+    "identity-contract/v2": {"identity-control-plane"},
+}
 EXTERNAL_SUPPLY_CHAIN_ARTIFACTS = {
     "service-images",
     "base-image",
@@ -150,7 +163,10 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
 
     layer_names = [item.get("layer") if isinstance(item, dict) else None for item in raw_layers]
     if layer_names != CANONICAL_STAGES:
-        errors.append("layers must contain the canonical 12 stages in canonical order")
+        errors.append(
+            f"layers must contain the canonical {len(CANONICAL_STAGES)} stages "
+            "in canonical order"
+        )
 
     layers: dict[str, dict[str, Any]] = {}
     roots_seen: dict[Path, str] = {}
@@ -265,8 +281,9 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
             role = item.get(role_field)
             if role is not None and (not isinstance(role, str) or not role):
                 errors.append(f"{layer}.{role_field} must be null or a non-empty role template")
-        if kind in EXPECTED_ROLES:
-            expected_plan_role, expected_apply_role = EXPECTED_ROLES[kind]
+        expected_roles = EXPECTED_LAYER_ROLES.get(layer, EXPECTED_ROLES.get(kind))
+        if expected_roles is not None:
+            expected_plan_role, expected_apply_role = expected_roles
             if item.get("plan_role") != expected_plan_role:
                 errors.append(f"{layer}.plan_role must be {expected_plan_role}")
             if item.get("apply_role") != expected_apply_role:
@@ -373,10 +390,17 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
 
     if not has_ancestor("artifact-publication", "cicd"):
         errors.append("artifact-publication must run after cicd")
-    if not has_ancestor("services", "artifact-publication"):
-        errors.append("services must run after artifact-publication")
+    if not has_ancestor("identity-control-plane", "artifact-publication"):
+        errors.append("identity-control-plane must run after artifact-publication")
+    if not has_ancestor("services", "identity-control-plane"):
+        errors.append("services must run after identity-control-plane")
     if not has_ancestor("edge", "services"):
         errors.append("edge must run after services")
+
+    if "identity-control-plane/v1" not in layers["services"]["requires_contracts"]:
+        errors.append("services must require identity-control-plane/v1")
+    if "identity-control-plane/v1" not in layers["edge-identity"]["requires_contracts"]:
+        errors.append("edge-identity must require identity-control-plane/v1")
 
     service_artifacts = layers["services"]["artifact_dependencies"]
     if not any("image" in value and "digest" in value for value in service_artifacts):
