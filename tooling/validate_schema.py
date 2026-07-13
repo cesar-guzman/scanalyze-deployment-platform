@@ -32,6 +32,7 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
     # mappings below. For example, task-definition-v2-* must never fall back to
     # task-definition-input.v1.schema.json.
     versioned_mappings = {
+        "enterprise-authorization": "enterprise-authorization.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
         "task-definition": "task-definition-input.v{version}.schema.json",
     }
@@ -81,6 +82,18 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     """
     errors: list[str] = []
     schema_name = schema_path.name
+
+    if schema_name == "enterprise-authorization.v1.schema.json":
+        try:
+            from tooling.validate_enterprise_authorization import (
+                validate_enterprise_authorization,
+            )
+        except ModuleNotFoundError:  # Direct script execution from tooling/.
+            from validate_enterprise_authorization import (  # type: ignore[no-redef]
+                validate_enterprise_authorization,
+            )
+
+        errors.extend(validate_enterprise_authorization(instance))
 
     if schema_name == "identity-contract.v2.schema.json":
         expected_customer = instance.get("customer_id")

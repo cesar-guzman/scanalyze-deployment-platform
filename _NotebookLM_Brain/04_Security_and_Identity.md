@@ -4,7 +4,9 @@
 > [ADR-007](../ADR/ADR-007-artifact-supply-chain.md),
 > [ADR-009](../ADR/ADR-009-threat-model.md) y
 > [ADR-011](../ADR/ADR-011-monorepo-microservices-source.md),
-> [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md)
+> [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md),
+> [ADR-021](../ADR/ADR-021-object-level-authorization.md) y
+> [ADR-023](../ADR/ADR-023-enterprise-authorization-and-user-lifecycle.md)
 
 ## Frontera de seguridad
 
@@ -117,9 +119,10 @@ Los errores no se silencian para continuar una release.
 
 ## Identidad de aplicación
 
-La plataforma todavía no tiene evidencia de un contrato canónico completo que
-alinee customer identity entre Cognito, token claims, Terraform, configuración
-ECS, ingest y onboarding.
+La plataforma ya tiene decisiones y contratos de repositorio para binding M2M,
+ownership de objetos y autorización enterprise. Todavía no tiene evidencia
+integrada de que Cognito, token claims, Terraform, configuración ECS, todas las
+rutas y onboarding consuman esos contratos en runtime.
 
 Estado: **Blocked**.
 
@@ -161,9 +164,49 @@ autorización de deployment.
 Esta capacidad sólo puede clasificarse como **Implemented** y **Locally
 validated** después de que pasen los tests del commit revisado. No es **Live
 validated**. La habilitación real continúa **Blocked** hasta que GUG-93 resuelva
-el handoff del DAG y Cognito/API Gateway, GUG-92/GUG-93 aporten los valores de
-scope aprobados, y GUG-117 demuestre aislamiento entre dos deployments no
-productivos. Producción continúa **NO-GO**.
+el handoff del DAG y Cognito/API Gateway, implemente los scopes canónicos de
+ADR-023 y sus versiones, y GUG-117 demuestre aislamiento entre dos deployments
+no productivos. Producción continúa **NO-GO**.
+
+### Autorización enterprise y lifecycle
+
+GUG-92 / ADR-023 define un contrato portable de RBAC+ABAC. Los roles humanos
+cerrados son `customer_admin`, `document_operator`, `document_reviewer` y
+`auditor`; las acciones cerradas `read`, `write` y `admin` se vinculan a
+`scanalyze.api.v1/read`, `scanalyze.api.v1/write` y
+`scanalyze.api.v1/admin`. Un scope en el token es necesario donde aplica OAuth,
+pero no basta para autorizar.
+
+Cada decisión humana elige exactamente un path: membership activo con un rol,
+o grant temporal activo/versionado de soporte o break-glass ligado al subject.
+Ambos exigen versiones vigentes, operación/recurso/acción/data class cerrados,
+`customer_id` y `deployment_id` exactos, ownership ADR-021, clasificación de
+datos, assurance requerida y precedencia de deny. Un
+rol nunca cruza deployment ni ownership. `results.read_full`,
+`exports.execute` y `artifacts.download` conservan `read+admin` y requieren
+step-up phishing-resistant para humanos.
+
+El lifecycle es `invited`, `active`, `suspended`, `expired` o `revoked`; los dos
+últimos son terminales. Cambiar rol, suspender o revocar incrementa la versión
+de membership y los cambios sensibles revocan sesiones. No hay self-signup,
+self-promotion, self-approval ni remoción del último admin sin reemplazo
+aprobado en el mismo deployment.
+
+Bootstrap es single-use, expira, exige dos aprobadores y MFA resistente a
+phishing. Soporte es JIT con aprobación del cliente, operaciones exactas y
+auto-revocación. Break-glass es humano, ligado a incidente, dual-approved,
+temporal, auditado y revisado posteriormente. Ninguno crea un rol standing; en
+v1 niegan incondicionalmente full PII, export y artifact protegido. Los service principals no
+pueden heredar roles humanos, administrar lifecycle ni recibir soporte o
+break-glass.
+
+El contrato source no contiene IDs de cliente/deployment, cuentas, regiones,
+pools, clients o recursos reales. Un adapter de provider traduce claims
+firmados al contexto interno y puede reducir autoridad, nunca ampliarla o
+inferir valores ausentes. GUG-93 implementa provider/IaC, GUG-153 el PDP/PEP
+backend, GUG-94 las APIs administrativas, GUG-95 UI/E2E y GUG-117 la evidencia
+integrada. GUG-92 no está **Live
+validated** y no autoriza Cognito, AWS, migración ni producción.
 
 ### Autorización de documentos y batches
 

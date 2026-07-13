@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -21,6 +21,7 @@ help:
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
+	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
 	@echo "  make preflight-core       Run safe incremental validation"
 	@echo "  make preflight-m1         Run M0+M1 gates"
 	@echo "  make preflight-m2         Run M0+M1+M2 gates"
@@ -109,6 +110,13 @@ schema-check:
 		  exit 1; }
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR)
 	@echo "Schema check complete (Draft 2020-12 validated)."
+
+# ── Enterprise Authorization Contract ────────────────────────────────
+enterprise-authorization-check:
+	@echo "Validating portable enterprise authorization policy v1..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_enterprise_authorization.py $(POLICIES_DIR)/authorization/enterprise-authorization.v1.json
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_gug92_enterprise_authorization.py
+	@echo "Enterprise authorization check complete."
 
 # ── Policy Check ─────────────────────────────────────────────────────
 policy-check:
