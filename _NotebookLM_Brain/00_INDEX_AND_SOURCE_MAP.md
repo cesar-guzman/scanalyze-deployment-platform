@@ -65,6 +65,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cuál es la foundation y secuencia de Production Readiness? | [ADR-019](../ADR/ADR-019-production-readiness-foundation.md) y [índice de Fase 0](../docs/production-readiness/README.md) |
 | ¿Cómo se vincula un cliente M2M con customer y deployment? | [ADR-020](../ADR/ADR-020-versioned-m2m-identity-binding.md), [Identity Contract Reference](../docs/deployment/identity-contract.md) y tests GUG-102 |
 | ¿Cómo se migra un deployment al binding M2M v2? | [Runbook M2M v2](../docs/deployment/m2m-identity-v2-migration.md); el inventario live permanece fuera de Git y NotebookLM |
+| ¿Qué roles, acciones, scopes y lifecycle enterprise aplican? | [ADR-023](../ADR/ADR-023-enterprise-authorization-and-user-lifecycle.md), [Enterprise Authorization Reference](../docs/deployment/enterprise-authorization.md) y [fuente sanitizada GUG-92](12_GUG92_Enterprise_Authorization.md) |
 | ¿Cómo se autoriza un documento, batch o artifact concreto? | [ADR-021](../ADR/ADR-021-object-level-authorization.md), código y tests GUG-114 del commit revisado |
 | ¿Cómo se clasifican registros sin ownership canónico? | [Runbook de ownership y cuarentena](../docs/deployment/object-ownership-migration-quarantine.md); el inventario live y referencias reales permanecen fuera de Git y NotebookLM |
 
@@ -83,8 +84,9 @@ Cuando dos documentos difieran, usar este orden:
 | SBOM, firma, provenance y vulnerability gate completos | **Target** | ADR-007 describe el objetivo; ADR-011 registra los gaps. |
 | Configuración declarativa final del frontend | **Blocked** | Falta un dueño declarativo único y bindings exactos. |
 | Binding M2M customer/deployment v2 en repositorio | **Implemented** cuando existe en el commit revisado; **Locally validated** sólo con gates verdes | No es evidencia Cognito/AWS. La habilitación live sigue **Blocked** por GUG-93/GUG-117. |
+| Contrato enterprise RBAC+ABAC y lifecycle v1 | **Implemented** sólo cuando el commit revisado contiene policy/schema, validator, fixtures, ADR-023 y referencia; **Locally validated** sólo con gates verdes identificados | No implica enforcement humano, Cognito, APIs administrativas ni revocación live. GUG-93, GUG-94 y GUG-117 conservan sus propios gates. |
 | Autorización de objetos customer/deployment | **Implemented** sólo cuando el commit revisado contiene enforcement central, rutas y storage protegidos; **Locally validated** sólo con gates verdes identificados | ADR-021 y el runbook por sí solos son decisiones. CI, inventario legacy, migración y aislamiento live requieren evidencia separada; producción sigue **NO-GO**. |
-| Contrato completo de identidad y onboarding | **Blocked** | Claims, scope taxonomy, control-plane handoff, object authorization y evidencia live siguen pendientes. |
+| Contrato completo de identidad y onboarding | **Blocked** | Los catálogos y contratos repositorio están definidos; siguen pendientes su realización en provider/control plane, enforcement GUG-153, APIs/UI GUG-94/GUG-95 y evidencia live. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
 
@@ -102,6 +104,7 @@ Cuando dos documentos difieran, usar este orden:
 | [08 — Monorepo and Supply Chain](08_Monorepo_Microservices_and_Supply_Chain.md) | Código, imágenes, ECR, SSM, ECS y gaps de supply chain |
 | [09 — Production Readiness and Handoff](09_Production_Readiness_and_Operational_Handoff.md) | Readiness, stop gates y operación |
 | [10 — Production Readiness Foundation](10_Production_Readiness_Foundation.md) | Fase 0, arquitectura GitOps, evidencia, gates, riesgos y respuestas fail-closed |
+| [12 — GUG-92 Enterprise Authorization](12_GUG92_Enterprise_Authorization.md) | RBAC+ABAC portable, scopes, lifecycle, bootstrap, soporte JIT, break-glass, migración y límites de evidencia |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -131,6 +134,10 @@ Cuando dos documentos difieran, usar este orden:
 12. ¿Se está tratando state restore como rollback rutinario?
 13. ¿El documento, batch y cada membership prueban customer y deployment exactos
     sin fallback legacy, scan ni filtrado posterior?
+14. ¿El usuario tiene membership activo y versiones vigentes de policy, rol,
+    scopes y grant, además del ownership y assurance requeridos?
+15. ¿Bootstrap, soporte o break-glass son one-use/JIT, aprobados, expiran y se
+    revocan sin crear una autoridad standing?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

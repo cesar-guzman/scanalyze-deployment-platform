@@ -522,6 +522,79 @@ or stage, duplicating a partial effect.
   redrive**. **Owner:** Backend Engineering, Application Security, SRE, and
   Platform Engineering.
 
+### TM-22: Enterprise privilege, stale-grant, or lifecycle bypass
+
+**Attacker story:** A valid human token is accepted without proving a current
+enterprise membership, exact customer/deployment binding, role/action policy,
+or required authentication assurance. A stale token may survive a role change,
+suspension, or offboarding; a provider group, email domain, request field, or
+legacy claim may be treated as authority; or standing support/break-glass access
+may bypass customer approval and object authorization. The result can be
+cross-customer access, privilege escalation, unauthorized full-PII/export,
+or an offboarded user continuing to act.
+
+- **Preventive:** ADR-023's default-deny RBAC+ABAC decision; closed roles
+  (`customer_admin`, `document_operator`, `document_reviewer`, `auditor`);
+  exact `customer_id` and `deployment_id`; supported policy, role, scope, and
+  membership/grant versions; access-token-only API use; explicit
+  operation-to-action/resource mapping; ADR-021 object authorization; and
+  phishing-resistant step-up plus `read+admin` for full-PII, export, and
+  protected artifact operations. Provider group display names, email domains,
+  headers, route/query parameters, payloads, and legacy tenant fields never
+  establish authority.
+- **Authentication/recovery:** credentials remain provider-managed; password
+  authentication, when enabled, requires the portable password baseline and
+  compromised-password detection. Reset/recovery is enumeration-safe, changes
+  no authorization binding, revokes sessions, reconciles current membership,
+  and never logs recovery secrets. Federation and SCIM remain disabled until a
+  reviewed adapter preserves these invariants.
+- **Lifecycle:** only `active` membership authorizes ordinary work. Role change,
+  suspension, and revocation increment membership version and revoke sessions;
+  expired and revoked memberships are terminal; the last administrator cannot
+  be removed without an approved same-deployment replacement. Bootstrap is
+  one-use, expiring, dual-approved, non-self-approved, strongly authenticated,
+  and audited.
+- **Privileged access:** exactly one membership or temporary-grant path may
+  authorize a human. The authoritative temporary-grant store binds an active,
+  current-version support/break-glass grant to one subject, customer,
+  deployment, closed operation, and allowed data class; ABAC, object checks,
+  and explicit denials prevail. The v1 catalog is read-only diagnostic access.
+  Support expires within one hour and revokes on
+  expiry/case closure. Break-glass expires within 15 minutes and alerts on use.
+  Both unconditionally deny full-PII, export, and protected artifact access in
+  v1 and cannot administer lifecycle, change ownership, or mint privilege.
+- **Detective:** synthetic missing/foreign/conflicting tenant tests; unknown,
+  future, and stale version tests; role/action/resource matrix tests; sensitive
+  operation and step-up tests; self-elevation, last-admin, invitation replay,
+  session-revocation, support-expiry, and emergency-expiry tests; complete route
+  PEP inventory; and sanitized authorization/audit reason categories without
+  tokens, claims, PII, object contents, or locators.
+- **Recovery:** disable the affected human authorization path, revoke sessions
+  and temporary grants, increment the authoritative membership/grant version,
+  preserve sanitized audit evidence, and correct provider or membership
+  mappings through a reviewed change. Never restore a default role, infer a
+  group/tenant mapping, accept a stale token, create a shared administrator, or
+  leave support/emergency access standing.
+- **Portability:** one provider-neutral policy/schema and validator apply to
+  every customer/account. Deployment adapters supply external exact bindings
+  and may narrow authority, but cannot add roles/actions or reinterpret unknown
+  versions. The source policy contains no customer, account, region, identity
+  pool, client, or resource instance identifier.
+- **Evidence:** GUG-92 / ADR-023 can establish only the repository policy
+  decision, documentation, and offline conformance for an exact revision. It
+  does not establish Cognito/API Gateway claims, route enforcement, session
+  revocation, administrative workflows, provider state, live migration, or
+  isolation. GUG-93 owns provider/IaC integration, GUG-153 owns backend PDP/PEP
+  enforcement, GUG-94 owns administrative lifecycle APIs, GUG-95 owns UI/E2E,
+  and GUG-117 remains the integrated two-deployment gate.
+  No live user, provider, AWS, migration, or production action is authorized.
+- **Residual risk:** **High until every protected route enforces the current
+  policy and authorized non-production evidence proves lifecycle, revocation,
+  sensitive operations, temporary privilege, and two-deployment isolation;
+  Critical if a stale, foreign, or unbound human principal is accepted**.
+  **Owner:** Application Security, Identity/Platform Engineering, Backend
+  Engineering, and Customer Administration.
+
 ## Severity Calibration (Critical, High, Medium, Low)
 
 | Severity | Repository-context calibration | Examples |

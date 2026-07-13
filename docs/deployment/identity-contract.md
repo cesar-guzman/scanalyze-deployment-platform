@@ -66,12 +66,45 @@ sets are pairwise disjoint. A binding contains all or none of a set and must
 grant at least one action. `M2M_CLIENT_TENANT_MAP` is legacy and cannot
 authorize the new path.
 
-The concrete OAuth scope names remain controlled by GUG-92/GUG-93. This
-contract defines their fail-closed structure and route semantics without
-inventing a deployment-specific taxonomy in source code.
+ADR-023 / GUG-92 defines the concrete portable action catalog:
+
+- `read` -> `scanalyze.api.v1/read`;
+- `write` -> `scanalyze.api.v1/write`; and
+- `admin` -> `scanalyze.api.v1/admin`.
+
+GUG-93 owns provider and IaC realization of that catalog. A deployment may
+narrow the action set, but must not rename the canonical scopes, embed a
+customer-specific taxonomy, or enable the runtime before the provider and
+services handoff is reviewed.
 
 Terraform owns the two canonical deployment variables. A service's
 `extra_environment` cannot override or duplicate them.
+
+## Enterprise human authorization composition
+
+Identity v2 proves a provider and deployment binding. It does not, by itself,
+authorize a human role or resource. The additive
+`enterprise-authorization/v1` contract in
+[Enterprise Authorization Contract Reference](enterprise-authorization.md)
+requires exactly one human path: an active versioned membership with one closed
+role, or an active current-version temporary support/break-glass grant from the
+authoritative grant store. Both bind the exact `subject`, `customer_id`, and
+`deployment_id`; the temporary path also binds a closed operation, resource,
+action, and data class. Object authorization, freshness, assurance, and
+explicit-deny precedence remain mandatory.
+
+The closed roles are `customer_admin`, `document_operator`,
+`document_reviewer`, and `auditor`. Role claims, provider group display names,
+and token scopes are not sufficient authority. Sensitive full-PII, export, and
+protected artifact operations retain `read+admin` and require
+phishing-resistant step-up for humans.
+
+GUG-92 is a repository contract, not runtime enforcement. GUG-93 owns the
+provider adapter and version claims; GUG-153 owns backend PDP/PEP enforcement;
+GUG-94 owns membership and temporary-grant lifecycle administration; GUG-95
+owns UI/E2E; GUG-117 remains the integrated isolation gate. Missing, stale, unknown,
+conflicting, or legacy authorization versions fail closed without a default
+role or group-name fallback.
 
 ## Authorization Modes
 
@@ -94,10 +127,10 @@ unique client ownership.
 ## Evidence and live boundary
 
 Passing local schema, runtime, or Terraform mock tests proves repository
-behavior only. Live M2M enablement remains blocked until GUG-93 provides the
-authoritative edge-identity-to-services handoff, Cognito and API Gateway
-audiences/claims, approved concrete scope values, and sanitized non-production
-evidence. Production remains NO-GO.
+behavior only. Live M2M and human enterprise enablement remain blocked until
+GUG-93 provides the authoritative edge-identity-to-services handoff, Cognito
+and API Gateway audiences/claims, canonical scope and policy version claims,
+and sanitized non-production evidence. Production remains NO-GO.
 
 Use [M2M Identity v2 Migration Inventory and Runbook](m2m-identity-v2-migration.md)
 to migrate each deployment without accepting legacy fallback or storing live

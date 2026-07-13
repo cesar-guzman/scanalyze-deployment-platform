@@ -26,6 +26,9 @@ evidence.
 - `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
   contracts, stage graph, and live-enablement boundary.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
+- `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
+  customer/deployment authorization, lifecycle, privileged-access, migration,
+  and downstream enforcement boundaries.
 - `m2m-identity-v2-migration.md`: sanitized, repeatable migration inventory and
   per-deployment sequence; live identity inventories stay outside Git.
 - `../operations/github-governance.md`: stable CI contract, required-check drift
@@ -92,3 +95,8 @@ For GUG-116, ingest only
 `../../_NotebookLM_Brain/10_Production_Readiness_Foundation.md`; do not ingest
 the repository, `reports/`, operational artifacts, or the full documentation
 tree as a convenience bundle.
+
+For GUG-92, ingest only
+`../../_NotebookLM_Brain/12_GUG92_Enterprise_Authorization.md`. Provider
+exports, membership inventories, user/group lists, tokens, grant records,
+screenshots, logs, and live evidence remain outside NotebookLM.
