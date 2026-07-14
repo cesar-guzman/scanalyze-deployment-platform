@@ -52,7 +52,7 @@ variable "upstream_schema_version" {
 
 variable "accepted_schema_versions" {
   type        = list(string)
-  default     = ["1"]
+  default     = ["2"]
   description = "List of accepted upstream contract schema versions"
 }
 

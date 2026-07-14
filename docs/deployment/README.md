@@ -25,6 +25,8 @@ evidence.
 - `../../playbooks/enterprise-client-deployment.md`: canonical runbook.
 - `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
   contracts, stage graph, and live-enablement boundary.
+- `strict-contract-resolution.md`: GUG-121 content-addressed contract catalog,
+  producer/consumer bindings, pre-plan failure behavior, migration, and rollback.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
 - `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
   customer/deployment authorization, lifecycle, privileged-access, migration,

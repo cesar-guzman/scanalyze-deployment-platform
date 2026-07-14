@@ -4,6 +4,8 @@ resource "terraform_data" "contract_gate" {
     deployment_id            = var.deployment_id
     account_id               = var.account_id
     region                   = var.region
+    network_contract_digest  = var.network_contract.contract_digest
+    platform_contract_digest = var.platform_contract.contract_digest
     services_contract_digest = var.services_contract.contract_digest
     identity_contract_digest = var.identity_contract.contract_digest
   }
@@ -11,30 +13,44 @@ resource "terraform_data" "contract_gate" {
   lifecycle {
     precondition {
       condition = (
-        var.services_contract.contract_id == "services/v1" &&
-        var.services_contract.schema_version == "1"
+        var.network_contract.contract_id == "network/v2" &&
+        var.network_contract.schema_version == "2" &&
+        var.network_contract.customer_id == var.customer_id &&
+        var.network_contract.deployment_id == var.deployment_id &&
+        var.network_contract.account_id == var.account_id &&
+        var.network_contract.region == var.region &&
+        var.network_contract.release_manifest_digest == var.release_manifest_digest &&
+        var.network_contract.contract_digest == var.expected_network_contract_digest
       )
-      error_message = "edge-identity requires the exact services/v1 schema version 1 contract."
+      error_message = "edge-identity requires the exact deployment-bound network/v2 contract."
     }
 
     precondition {
       condition = (
+        var.platform_contract.contract_id == "platform/v2" &&
+        var.platform_contract.schema_version == "2" &&
+        var.platform_contract.customer_id == var.customer_id &&
+        var.platform_contract.deployment_id == var.deployment_id &&
+        var.platform_contract.account_id == var.account_id &&
+        var.platform_contract.region == var.region &&
+        var.platform_contract.release_manifest_digest == var.release_manifest_digest &&
+        var.platform_contract.contract_digest == var.expected_platform_contract_digest
+      )
+      error_message = "edge-identity requires the exact deployment-bound platform/v2 contract."
+    }
+
+    precondition {
+      condition = (
+        var.services_contract.contract_id == "services/v2" &&
+        var.services_contract.schema_version == "2" &&
         var.services_contract.customer_id == var.customer_id &&
         var.services_contract.deployment_id == var.deployment_id &&
         var.services_contract.account_id == var.account_id &&
         var.services_contract.region == var.region &&
-        var.services_contract.release_version == var.release_version &&
-        var.services_contract.release_manifest_digest == var.release_manifest_digest
-      )
-      error_message = "services/v1 customer, deployment, account, region, release, and manifest tuple must match exactly."
-    }
-
-    precondition {
-      condition = (
-        can(regex("^sha256:[0-9a-f]{64}$", var.services_contract.contract_digest)) &&
+        var.services_contract.release_manifest_digest == var.release_manifest_digest &&
         var.services_contract.contract_digest == var.expected_services_contract_digest
       )
-      error_message = "services/v1 contract digest is missing, malformed, stale, or unexpected."
+      error_message = "edge-identity requires the exact deployment-bound services/v2 contract."
     }
 
     precondition {

@@ -10,11 +10,11 @@ module "edge_identity" {
   release_manifest_digest = var.release_manifest_digest
 
   domain_name              = var.domain_name
-  vpc_id                   = var.services_contract.vpc_id
-  private_subnet_ids       = var.services_contract.private_subnet_ids
-  alb_listener_arn         = var.services_contract.alb_listener_arn
-  alb_security_group_id    = var.services_contract.alb_security_group_id
-  api_access_log_group_arn = var.services_contract.api_access_log_group_arn
+  vpc_id                   = var.network_contract.vpc_id
+  private_subnet_ids       = var.network_contract.private_subnet_ids
+  alb_listener_arn         = var.platform_contract.alb_listener_arn
+  alb_security_group_id    = var.platform_contract.alb_security_group_id
+  api_access_log_group_arn = var.api_access_log_group_arn
 
   upstream_contract_digest = var.identity_contract.contract_digest
   expected_upstream_digest = var.expected_identity_contract_digest

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-edge.v2.schema.json",
+  "title": "Scanalyze edge outputs v2",
+  "type": "object",
+  "required": [
+    "cloudfront_domain_name",
+    "cloudfront_distribution_id",
+    "cloudfront_distribution_arn",
+    "waf_web_acl_arn",
+    "acm_certificate_arn",
+    "route53_zone_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "cloudfront_domain_name": { "type": "string", "minLength": 1 },
+    "cloudfront_distribution_id": { "type": "string", "minLength": 1 },
+    "cloudfront_distribution_arn": { "type": "string", "pattern": "^arn:[^:]+:cloudfront::[0-9]{12}:distribution/.+$" },
+    "waf_web_acl_arn": { "type": "string", "pattern": "^arn:[^:]+:wafv2:.+$" },
+    "acm_certificate_arn": { "type": "string", "pattern": "^arn:[^:]+:acm:.+$" },
+    "route53_zone_id": { "type": "string", "pattern": "^Z[A-Z0-9]+$" }
+  }
+}

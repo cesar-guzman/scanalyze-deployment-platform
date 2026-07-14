@@ -2,23 +2,22 @@
 
 ## Status
 
-SSM envelopes are the accepted target interface between Terraform layers. This
-repository currently formalizes and validates the envelope offline; complete
-root producers, consumers, IAM enforcement, and live SSM publication remain
-blocked pending a separate non-production live change.
+SSM envelopes are the accepted target interface between Terraform layers.
+GUG-121 implements real root payloads, strict offline resolution, and the
+pre-plan consumer guard. IAM enforcement and live SSM publication remain
+blocked by GUG-123 through GUG-125.
 
 ## Canonical Contract
 
 Each producer owns one atomic, versioned envelope:
 
 ```text
-/scanalyze/deployments/{deployment_id}/contracts/{layer}/v1
+/scanalyze/deployments/{deployment_id}/contracts/{layer}/vN/releases/{release_digest}/digests/{contract_digest}
 ```
 
-The contract is validated by `schemas/layer-contract.schema.json`. It binds the
-outputs to deployment, account, region/scope, layer, producer, state key, output
-schema, and immutable release digest. `contract_digest` is the SHA-256 of the
-canonicalized `outputs` object.
+The active Terraform envelope is validated by
+`schemas/layer-contract.v2.schema.json`. It additionally binds customer and
+module source. `contract_digest` is the SHA-256 of canonicalized `outputs`.
 
 ## Rules
 
@@ -54,7 +53,7 @@ is consumed by services, edge identity, and synthetic validation as declared in
 the DAG. Its envelope follows the canonical SSM path:
 
 ```text
-/scanalyze/deployments/{deployment_id}/contracts/identity-control-plane/v1
+/scanalyze/deployments/{deployment_id}/contracts/identity-control-plane/v1/releases/{release_digest}/digests/{contract_digest}
 ```
 
 The payload binds:
@@ -86,10 +85,11 @@ python scripts/deployment/validate-layer-dag.py deployment/layers.yaml
 make gitops-orchestrator-check
 ```
 
-`publish-contract.py` renders a candidate envelope to a local output file in
-this change. It does not write SSM. `resolve-contracts.py` accepts local fixtures
-or explicitly enabled mocks and creates only an ephemeral, owner-readable
-var-file outside the repository. Live reads and writes remain disabled.
+`publish-contract.py` renders a candidate envelope to a local output file. It
+does not write SSM. `resolve-contracts.py` accepts only explicitly acknowledged
+test fixtures and creates a content-bound owner-readable resolution outside the
+repository. `terraform-layer.sh` requires that resolution and has no fallback.
+Live reads and writes remain disabled.
 
 The identity stage's local fixture and mock-provider tests prove only schema,
 binding, DAG, and Terraform configuration behavior. They do not prove live SSM
