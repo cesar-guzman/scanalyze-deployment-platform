@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-13
+> **Última revisión editorial:** 2026-07-14
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -69,6 +69,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se implementa el control plane de identidad sin convertir grupos, Terraform o secretos en autoridad? | [ADR-024](../ADR/ADR-024-identity-control-plane-and-provider-boundary.md), [Identity Control Plane Reference](../docs/deployment/identity-control-plane.md), [runbook de bootstrap/retiro](../docs/operations/identity-bootstrap-retirement.md) y [fuente sanitizada GUG-93](13_GUG93_Identity_Control_Plane.md) |
 | ¿Cómo se aplica autorización humana fail-closed en cada ruta backend? | [ADR-025](../ADR/ADR-025-human-authorization-enforcement.md), [Human Authorization Enforcement Reference](../docs/deployment/human-authorization-enforcement.md), [delta de threat model GUG-153](../docs/security/gug-153-threat-model-delta.md) y [fuente sanitizada GUG-153](14_GUG153_Human_Authorization_Enforcement.md) |
 | ¿Cómo se administran usuarios, membresías, sesiones y bootstrap de forma recuperable? | [ADR-026](../ADR/ADR-026-enterprise-user-lifecycle-and-recoverable-bootstrap.md), [Enterprise User Lifecycle API](../docs/deployment/enterprise-user-lifecycle-api.md), [runbook de recuperación](../docs/operations/user-lifecycle-recovery.md), [delta de threat model GUG-94](../docs/security/gug-94-threat-model-delta.md) y [fuente sanitizada GUG-94](15_GUG94_Enterprise_User_Lifecycle.md) |
+| ¿Cómo opera la consola enterprise sin convertir claims o UI en autoridad? | [ADR-028](../ADR/ADR-028-portable-enterprise-user-console.md), [Enterprise User Console](../docs/deployment/enterprise-user-console.md), [delta de threat model GUG-95](../docs/security/gug-95-enterprise-user-console-threat-model-delta.md) y [fuente sanitizada GUG-95](17_GUG95_Enterprise_User_Console.md) |
 | ¿Cómo se autoriza un documento, batch o artifact concreto? | [ADR-021](../ADR/ADR-021-object-level-authorization.md), código y tests GUG-114 del commit revisado |
 | ¿Cómo se clasifican registros sin ownership canónico? | [Runbook de ownership y cuarentena](../docs/deployment/object-ownership-migration-quarantine.md); el inventario live y referencias reales permanecen fuera de Git y NotebookLM |
 
@@ -90,6 +91,7 @@ Cuando dos documentos difieran, usar este orden:
 | Contrato enterprise RBAC+ABAC y lifecycle v1 | **Implemented** sólo cuando el commit revisado contiene policy/schema, validator, fixtures, ADR-023 y referencia; **Locally validated** sólo con gates verdes identificados | No implica enforcement humano, Cognito, APIs administrativas ni revocación live. GUG-93, GUG-94 y GUG-117 conservan sus propios gates. |
 | Control plane de identidad GUG-93 | **Implemented** sólo para una revisión que contenga layer/root, contratos, runtime fail-closed, tests, ADR-024 y runbooks; **Locally validated** sólo con resultados nombrados | CI permanece pendiente hasta los checks del commit exacto. AWS/Cognito, bootstrap, credenciales M2M, adopción/migración, retiro, aislamiento de dos deployments y producción siguen **Blocked / NO-GO**. |
 | Enforcement humano PDP/PEP GUG-153 | **Implemented** sólo cuando el commit revisado contiene el snapshot tipado, PDP central, PEP en las 30 rutas, contratos, auditoría y pruebas negativas; **Locally validated** sólo con resultados nombrados | No habilita el flag humano ni prueba provider/AWS. CI, merge/main, GUG-94/GUG-95, aislamiento de dos deployments y validación live conservan evidencia separada; producción sigue **NO-GO**. |
+| Consola enterprise GUG-95 | **Implemented** sólo cuando el commit revisado contiene UI fail-closed, cliente tipado, contratos lifecycle/CORS, ADR, threat model y pruebas; **Locally validated** sólo con gates nombrados | Claims son UX, no autoridad. CI, merge/main, proveedor/browser live, activación y prueba autorizada de dos deployments siguen **Blocked / NO-GO**. |
 | Autorización de objetos customer/deployment | **Implemented** sólo cuando el commit revisado contiene enforcement central, rutas y storage protegidos; **Locally validated** sólo con gates verdes identificados | ADR-021 y el runbook por sí solos son decisiones. CI, inventario legacy, migración y aislamiento live requieren evidencia separada; producción sigue **NO-GO**. |
 | Contrato completo de identidad y onboarding | **Blocked** | Los catálogos y contratos repositorio están definidos; siguen pendientes su realización en provider/control plane, enforcement GUG-153, APIs/UI GUG-94/GUG-95 y evidencia live. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
@@ -113,6 +115,7 @@ Cuando dos documentos difieran, usar este orden:
 | [13 — GUG-93 Identity Control Plane](13_GUG93_Identity_Control_Plane.md) | Cognito como adapter no autoritativo, access tokens, bootstrap one-use, M2M runtime sin secretos en Terraform, contratos, migración/retiro y límites de evidencia |
 | [14 — GUG-153 Human Authorization Enforcement](14_GUG153_Human_Authorization_Enforcement.md) | Snapshot humano bounded, PDP/PEP tipado, 30 rutas, role/data-class checks, step-up, audit, ownership y límites de evidencia |
 | [16 — GUG-95 Frontend Source Consolidation](16_GUG95_Frontend_Source_Consolidation.md) | Fuente SPA canónica, procedencia cerrada, config v2 fail-closed, CI reproducible y límites NO-GO |
+| [17 — GUG-95 Enterprise User Console](17_GUG95_Enterprise_User_Console.md) | UI de privilegios fail-closed, lifecycle recuperable, privacidad, CORS y E2E sintético |
 
 ## Reglas de ingestión y mantenimiento
 

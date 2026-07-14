@@ -72,6 +72,7 @@ class MembershipState(str, Enum):
 
 class LifecycleOperation(str, Enum):
     INVITE = "membership.invite"
+    RESEND_INVITATION = "membership.resend_invitation"
     ACTIVATE = "membership.activate"
     CHANGE_ROLE = "membership.change_role"
     SUSPEND = "membership.suspend"
@@ -83,6 +84,7 @@ class LifecycleOperation(str, Enum):
 class LifecycleOperationStage(str, Enum):
     RESERVED = "reserved"
     APPROVAL_VALIDATED = "approval_validated"
+    PROVIDER_EFFECT_RESERVED = "provider_effect_reserved"
     PROVIDER_APPLIED = "provider_applied"
     MEMBERSHIP_APPLIED = "membership_applied"
     SESSIONS_REVOKED = "sessions_revoked"
@@ -331,9 +333,19 @@ class MembershipStore(Protocol):
         admin_replacement: MembershipRecord | None,
     ) -> MembershipRecord: ...
 
+    def refresh_invitation(
+        self,
+        *,
+        current: MembershipRecord,
+        expected_version: int,
+        expires_at: datetime,
+        operation_reference: str,
+    ) -> MembershipRecord: ...
+
 
 class IdentityLifecycleProvider(Protocol):
     def invite_user(self, **request: Any) -> ProviderUserReceipt: ...
+    def resend_invitation(self, **request: Any) -> ProviderUserReceipt: ...
     def confirm_activation(self, **request: Any) -> ProviderUserReceipt: ...
     def set_user_enabled(self, **request: Any) -> ProviderUserReceipt: ...
     def revoke_sessions(self, **request: Any) -> str: ...
@@ -438,6 +450,10 @@ class TransitionRequest(_IdentitySafeModel):
 
 class RoleChangeRequest(TransitionRequest):
     role_id: HumanRole
+
+
+class InvitationResendRequest(TransitionRequest):
+    expires_in_seconds: int = Field(ge=60, le=MAX_INVITATION_TTL_SECONDS)
 
 
 _ALLOWED_TRANSITIONS: Mapping[LifecycleOperation, tuple[MembershipState, MembershipState]] = {
@@ -664,6 +680,169 @@ class UserLifecycleService:
             operation=LifecycleOperation.ACTIVATE,
             idempotency_key=idempotency_key,
         )
+
+    def resend_invitation(
+        self,
+        auth: AuthContext,
+        membership_reference: str,
+        request: InvitationResendRequest,
+        *,
+        idempotency_key: str,
+    ) -> LifecycleOutcome:
+        owner = self._require_admin(auth, privileged=True)
+        if not _MEMBERSHIP_REFERENCE_PATTERN.fullmatch(membership_reference):
+            _not_found()
+        if request.replacement_membership_reference is not None:
+            _invalid_request()
+        command = self._command(
+            LifecycleOperation.RESEND_INVITATION,
+            auth,
+            idempotency_key,
+            {
+                "membership_reference": membership_reference,
+                "expected_membership_version": request.expected_membership_version,
+                "expires_in_seconds": request.expires_in_seconds,
+                "approval_reference": request.approval_reference,
+                "reason_code": request.reason_code,
+            },
+        )
+        record = self._reserve(command)
+        if record.stage is LifecycleOperationStage.COMPLETED:
+            return LifecycleOutcome("completed", record.operation_reference)
+
+        if record.stage is LifecycleOperationStage.RESERVED:
+            member = self._load_owned(owner, membership_reference)
+            if member.subject == auth.subject:
+                _deny()
+            if (
+                member.state is not MembershipState.INVITED
+                or member.membership_version != request.expected_membership_version
+            ):
+                _conflict()
+            approval = self._resolve_approval(
+                request.approval_reference,
+                operation=command.operation,
+                target_reference=member.membership_reference,
+                request_digest=record.request_digest,
+                actor_subject=str(auth.subject),
+                target_subject=member.subject,
+                owner=owner,
+            )
+            record = self._checkpoint(
+                record,
+                expected=LifecycleOperationStage.RESERVED,
+                next_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+                evidence={
+                    "approval_reference": approval.approval_reference,
+                    "membership_reference": member.membership_reference,
+                    "subject": member.subject,
+                    "provider_user_reference": member.provider_user_reference,
+                    "provider_principal_key": member.provider_principal_key,
+                    "expected_state": MembershipState.INVITED.value,
+                    "desired_state": MembershipState.INVITED.value,
+                    "before_role_id": member.role_id.value,
+                    "after_role_id": member.role_id.value,
+                    "before_membership_version": str(member.membership_version),
+                    "expires_at": _timestamp(
+                        self._now()
+                        + timedelta(seconds=request.expires_in_seconds)
+                    ),
+                    "reason_code": request.reason_code,
+                    "effect_order": "provider_before_membership",
+                },
+            )
+
+        if record.stage is not LifecycleOperationStage.RESERVED and (
+            record.evidence.get("effect_order") != "provider_before_membership"
+        ):
+            _unavailable()
+
+        provider_effect_reserved_here = False
+        if record.stage is LifecycleOperationStage.APPROVAL_VALIDATED:
+            record = self._checkpoint(
+                record,
+                expected=LifecycleOperationStage.APPROVAL_VALIDATED,
+                next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+                evidence={
+                    "provider_effect_reference": _reference(
+                        record.operation_reference, "invitation_resend"
+                    )
+                },
+            )
+            provider_effect_reserved_here = True
+
+        if record.stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED:
+            # Cognito RESEND has no idempotency token or delivery receipt. A
+            # record loaded in this stage is deliberately quarantined for
+            # review instead of risking a duplicate notification.
+            if not provider_effect_reserved_here:
+                _unavailable()
+            try:
+                receipt = self.runtime.identity_provider.resend_invitation(
+                    subject=record.evidence["subject"],
+                    provider_user_reference=record.evidence["provider_user_reference"],
+                    provider_principal_key=record.evidence["provider_principal_key"],
+                    customer_id=owner[0],
+                    deployment_id=owner[1],
+                    idempotency_key=idempotency_key,
+                )
+            except Exception:
+                _unavailable()
+            self._validate_provider_receipt(
+                receipt,
+                expected_subject=record.evidence["subject"],
+                expected_provider_reference=record.evidence[
+                    "provider_user_reference"
+                ],
+                expected_state="invited",
+            )
+            record = self._checkpoint(
+                record,
+                expected=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+                next_stage=LifecycleOperationStage.PROVIDER_APPLIED,
+            )
+
+        if record.stage is LifecycleOperationStage.PROVIDER_APPLIED:
+            current = self._load_owned(
+                owner, record.evidence["membership_reference"]
+            )
+            before_version = int(record.evidence["before_membership_version"])
+            expires_at = _parse_timestamp(record.evidence.get("expires_at"))
+            if expires_at is None:
+                _unavailable()
+            if (
+                current.membership_version == before_version + 1
+                and current.state is MembershipState.INVITED
+                and current.invitation_expires_at == expires_at
+            ):
+                updated = current
+            else:
+                try:
+                    updated = self.runtime.membership_store.refresh_invitation(
+                        current=current,
+                        expected_version=before_version,
+                        expires_at=expires_at,
+                        operation_reference=record.operation_reference,
+                    )
+                except Exception:
+                    _conflict()
+            self._validate_membership(updated, owner=owner)
+            if not (
+                updated.state is MembershipState.INVITED
+                and updated.membership_version == before_version + 1
+                and updated.invitation_expires_at == expires_at
+            ):
+                _conflict()
+            record = self._checkpoint(
+                record,
+                expected=LifecycleOperationStage.PROVIDER_APPLIED,
+                next_stage=LifecycleOperationStage.MEMBERSHIP_APPLIED,
+                evidence={
+                    "after_membership_version": str(updated.membership_version)
+                },
+            )
+
+        return self._audit_and_complete(record, auth)
 
     def suspend_membership(
         self,

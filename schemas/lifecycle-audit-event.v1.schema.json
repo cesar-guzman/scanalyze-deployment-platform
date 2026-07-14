@@ -37,6 +37,7 @@
       "type": "string",
       "enum": [
         "membership.invite",
+        "membership.resend_invitation",
         "membership.activate",
         "membership.change_role",
         "membership.suspend",

@@ -36,7 +36,12 @@ const validConfig = () => ({
     id_tokens_accepted: false,
   },
   identity_values_authoritative: false,
-  features: { document_upload: true, batch_processing: true, audit_view: false },
+  features: {
+    document_upload: true,
+    batch_processing: true,
+    audit_view: false,
+    user_administration: false,
+  },
   config_version: 'synthetic-v2',
 });
 

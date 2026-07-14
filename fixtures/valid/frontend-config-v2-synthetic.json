@@ -38,7 +38,8 @@
   "features": {
     "document_upload": true,
     "batch_processing": true,
-    "audit_view": false
+    "audit_view": false,
+    "user_administration": false
   },
   "config_version": "synthetic-v2"
 }

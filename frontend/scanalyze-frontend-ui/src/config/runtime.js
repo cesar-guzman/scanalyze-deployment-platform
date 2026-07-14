@@ -42,7 +42,12 @@ const AUTHORIZATION_KEYS = new Set([
   'id_tokens_accepted',
 ]);
 const ACTION_SCOPE_KEYS = new Set(['read', 'write', 'admin']);
-const FEATURE_KEYS = new Set(['document_upload', 'batch_processing', 'audit_view']);
+const FEATURE_KEYS = new Set([
+  'document_upload',
+  'batch_processing',
+  'audit_view',
+  'user_administration',
+]);
 
 export class RuntimeConfigError extends Error {
   constructor(code = 'RUNTIME_CONFIG_INVALID') {

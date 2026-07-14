@@ -138,6 +138,7 @@ EXPECTED_ROUTE_POLICIES = {
     ("GET", "/api/v1/admin/roles"): frozenset(),
     ("GET", "/api/v1/admin/memberships"): frozenset(),
     ("POST", "/api/v1/admin/invitations"): frozenset(),
+    ("POST", "/api/v1/admin/memberships/{membership_reference}/invitation-resends"): frozenset(),
     ("POST", "/api/v1/admin/memberships/{membership_reference}/activations"): frozenset(),
     ("POST", "/api/v1/admin/memberships/{membership_reference}/role-changes"): frozenset(),
     ("POST", "/api/v1/admin/memberships/{membership_reference}/suspensions"): frozenset(),

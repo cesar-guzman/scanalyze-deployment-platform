@@ -3,10 +3,11 @@ resource "aws_apigatewayv2_api" "main" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins = var.cors_allowed_origins
-    allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    allow_headers = ["Content-Type", "Authorization", "X-Amz-Date"]
-    max_age       = 3600
+    allow_origins  = var.cors_allowed_origins
+    allow_methods  = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allow_headers  = ["Content-Type", "Authorization", "Idempotency-Key", "X-Amz-Date"]
+    expose_headers = ["X-Correlation-ID", "X-Request-ID", "X-Trace-ID"]
+    max_age        = 3600
   }
 
   tags = local.common_tags
@@ -63,6 +64,12 @@ resource "aws_apigatewayv2_deployment" "reviewed" {
       routes    = var.api_authorization_routes
       issuer    = var.cognito_issuer_url
       audiences = local.authorizer_audiences
+      cors = {
+        origins        = var.cors_allowed_origins
+        methods        = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+        headers        = ["Content-Type", "Authorization", "Idempotency-Key", "X-Amz-Date"]
+        expose_headers = ["X-Correlation-ID", "X-Request-ID", "X-Trace-ID"]
+      }
       integration = {
         listener_arn = var.alb_listener_arn
         vpc_link_id  = aws_apigatewayv2_vpc_link.alb.id

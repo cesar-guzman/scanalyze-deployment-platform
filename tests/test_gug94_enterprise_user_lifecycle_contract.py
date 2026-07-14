@@ -129,6 +129,16 @@ def test_lifecycle_contracts_are_closed_and_accept_valid_records(
     assert validator.schema["additionalProperties"] is False
 
 
+def test_invitation_resend_is_a_closed_versioned_approved_audited_operation() -> None:
+    operation = {**copy.deepcopy(VALID_OPERATION), "operation": "membership.resend_invitation"}
+    approval = {**copy.deepcopy(VALID_APPROVAL), "operation": "membership.resend_invitation"}
+    audit = {**copy.deepcopy(VALID_AUDIT), "action": "membership.resend_invitation"}
+
+    _validator("lifecycle-operation.v1.schema.json").validate(operation)
+    _validator("lifecycle-approval-evidence.v1.schema.json").validate(approval)
+    _validator("lifecycle-audit-event.v1.schema.json").validate(audit)
+
+
 @pytest.mark.parametrize("field", ["customer_id", "deployment_id", "subject"])
 def test_membership_rejects_missing_ownership_or_subject(field: str) -> None:
     candidate = copy.deepcopy(VALID_MEMBERSHIP)

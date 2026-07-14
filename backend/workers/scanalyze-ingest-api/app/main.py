@@ -33,8 +33,9 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=s.cors_origins_list(),
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        expose_headers=["X-Correlation-ID", "X-Request-ID", "X-Trace-ID"],
     )
 
     # Routers
