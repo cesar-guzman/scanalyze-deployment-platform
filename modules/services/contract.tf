@@ -1,5 +1,5 @@
 # Contract producer gate for services module.
-# This module produces: services/v1
+# This module produces: services/v2
 # Consumers: downstream layers that declare dependency on this contract.
 #
 # The contract is written by the root that calls this module,
@@ -11,10 +11,15 @@
 
 # Contract output structure — root will publish this to SSM.
 output "contract_payload" {
-  description = "Structured contract payload for services/v1"
+  description = "Structured contract payload for services/v2"
   value = {
-    schema_version = "1"
+    schema_version = "2"
     layer          = local.layer_name
     state_scope    = local.state_scope
+    outputs = {
+      service_arns         = { for key, service in aws_ecs_service.service : key => service.id }
+      task_definition_arns = { for key, task in aws_ecs_task_definition.service : key => task.arn }
+      target_group_arns    = { for key, target in aws_lb_target_group.service : key => target.arn }
+    }
   }
 }

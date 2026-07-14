@@ -1,25 +1,27 @@
-"""Local mock-backed apply paths must remain fail-closed."""
-
+"""Local execution must remain fail-closed and contract-bound."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
-import pytest
+from tooling.validate_digest import canonicalize, compute_digest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ACCOUNT_ID = "111222333444"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
+RELEASE_DIGEST = "sha256:" + ("a" * 64)
+RELEASE_VERSION = "2026.07.14"
 
 
 def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    venv_bin = REPO_ROOT / ".venv" / "bin"
-    if venv_bin.is_dir():
-        env["PATH"] = f"{venv_bin}:{env['PATH']}"
+    env["PATH"] = f"{Path(sys.executable).parent}:{env['PATH']}"
     return subprocess.run(
         ["bash", str(script), *args],
         cwd=REPO_ROOT,
@@ -35,24 +37,63 @@ def _write_executable(path: Path, source: str) -> None:
     path.chmod(0o755)
 
 
+def _resolution(layer: str, *, tamper: bool = False) -> dict:
+    document = {
+        "schema_version": "1",
+        "consumer_layer": layer,
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "aws_account_id": ACCOUNT_ID,
+        "region": "us-east-1",
+        "release_digest": RELEASE_DIGEST,
+        "release_version": RELEASE_VERSION,
+        "resolved_at": "2026-07-14T00:05:00Z",
+        "required_contracts": [
+            {
+                "contract_id": "global/v1",
+                "contract_digest": "sha256:" + ("c" * 64),
+                "module_source_digest": "sha256:" + ("d" * 64),
+                "producer": "roots/global",
+                "release_version": RELEASE_VERSION,
+                "produced_at": "2026-07-14T00:00:00Z",
+            }
+        ],
+        "variables": {
+            "upstream_contract_digest": "sha256:" + ("c" * 64),
+            "expected_upstream_digest": "sha256:" + ("c" * 64),
+            "upstream_schema_version": "1",
+        },
+    }
+    document["resolution_digest"] = compute_digest(canonicalize(document))
+    if tamper:
+        document["variables"]["upstream_schema_version"] = "9"
+    return document
+
+
 def _run_layer_plan(
     tmp_path: Path,
-    layer: str,
     *,
-    overrides: dict[str, str] | None = None,
-) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    include_resolution: bool = True,
+    tamper_resolution: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], dict]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     plan_dir = tmp_path / "plans"
     plan_dir.mkdir()
-    capture_path = tmp_path / "terraform-contract-environment.txt"
+    capture_path = tmp_path / "terraform-variables.json"
+    resolution_path = tmp_path / "resolution.json"
+    resolution_path.write_text(
+        json.dumps(_resolution("network", tamper=tamper_resolution)),
+        encoding="utf-8",
+    )
+    resolution_path.chmod(0o600)
 
     _write_executable(
         fake_bin / "aws",
         f"""
         #!/usr/bin/env bash
         set -euo pipefail
-        printf '%s\\n' '{ACCOUNT_ID}'
+        printf '%s\n' '{ACCOUNT_ID}'
         """,
     )
     _write_executable(
@@ -60,81 +101,70 @@ def _run_layer_plan(
         """
         #!/usr/bin/env bash
         set -euo pipefail
-
         for argument in "$@"; do
           case "$argument" in
-            init)
-              exit 0
-              ;;
-            plan)
-              {
-                printf 'contract_id=%s\\n' "${TF_VAR_upstream_contract_id-<unset>}"
-                printf 'schema_version=%s\\n' "${TF_VAR_upstream_schema_version-<unset>}"
-              } > "$CAPTURE_PATH"
-              exit 0
-              ;;
+            init) exit 0 ;;
+            -var-file=*) cp "${argument#-var-file=}" "$CAPTURE_PATH" ;;
           esac
         done
-
+        for argument in "$@"; do
+          [[ "$argument" == "plan" ]] && exit 0
+        done
         exit 64
         """,
     )
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
-    env["CAPTURE_PATH"] = str(capture_path)
-    env.pop("TF_VAR_upstream_contract_id", None)
-    env.pop("TF_VAR_upstream_schema_version", None)
-    if overrides:
-        env.update(overrides)
+    command = [
+        "bash",
+        str(REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh"),
+        "plan",
+        "--layer",
+        "network",
+        "--plan-dir",
+        str(plan_dir),
+        "--customer-id",
+        CUSTOMER_ID,
+        "--deployment-id",
+        DEPLOYMENT_ID,
+        "--account-id",
+        ACCOUNT_ID,
+        "--region",
+        "us-east-1",
+        "--release-version",
+        RELEASE_VERSION,
+        "--release-digest",
+        RELEASE_DIGEST,
+    ]
+    if include_resolution:
+        command.extend(["--resolved-input", str(resolution_path)])
 
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{Path(sys.executable).parent}:{env['PATH']}"
+    env["CAPTURE_PATH"] = str(capture_path)
     result = subprocess.run(
-        [
-            "bash",
-            str(REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh"),
-            "plan",
-            "--layer",
-            layer,
-            "--plan-dir",
-            str(plan_dir),
-            "--account-id",
-            ACCOUNT_ID,
-            "--region",
-            "us-east-1",
-            "--deployment-id",
-            DEPLOYMENT_ID,
-        ],
+        command,
         cwd=REPO_ROOT,
         env=env,
         text=True,
         capture_output=True,
         check=False,
     )
-    captured = {}
-    if capture_path.is_file():
-        captured = dict(
-            line.split("=", maxsplit=1)
-            for line in capture_path.read_text(encoding="utf-8").splitlines()
-        )
+    captured = (
+        json.loads(capture_path.read_text(encoding="utf-8"))
+        if capture_path.is_file()
+        else {}
+    )
     return result, captured
 
 
 def test_apply_all_is_blocked_before_any_live_precondition() -> None:
-    result = _run(
-        REPO_ROOT / "scripts" / "deployment" / "scanalyze-deploy.sh",
-        "apply-all",
-    )
-
+    result = _run(REPO_ROOT / "scripts" / "deployment" / "scanalyze-deploy.sh", "apply-all")
     assert result.returncode == 2
     assert "Mock-backed plans are never authorized for apply" in result.stderr
 
 
 def test_direct_layer_apply_is_blocked_before_aws_access() -> None:
-    result = _run(
-        REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh",
-        "apply",
-    )
-
+    result = _run(REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh", "apply")
     assert result.returncode == 2
     assert "Local Terraform apply is disabled" in result.stderr
 
@@ -149,7 +179,6 @@ def test_plan_all_reads_canonical_dag_order(tmp_path: Path) -> None:
         str(tmp_path),
         "--dry-run",
     )
-
     assert result.returncode == 0, result.stderr
     expected = [
         "account-ready-gate",
@@ -168,72 +197,123 @@ def test_plan_all_reads_canonical_dag_order(tmp_path: Path) -> None:
     assert positions == sorted(positions)
 
 
-@pytest.mark.parametrize("layer", ["cicd", "services"])
-def test_local_plan_uses_v2_metadata_for_data_foundation_consumers(
-    tmp_path: Path,
-    layer: str,
-) -> None:
-    result, captured = _run_layer_plan(tmp_path, layer)
+def test_plan_requires_verified_resolution_before_terraform(tmp_path: Path) -> None:
+    result, captured = _run_layer_plan(tmp_path, include_resolution=False)
+    assert result.returncode == 2
+    assert "--resolved-input is required" in result.stderr
+    assert captured == {}
 
+
+def test_plan_rejects_tampered_resolution_before_terraform(tmp_path: Path) -> None:
+    result, captured = _run_layer_plan(tmp_path, tamper_resolution=True)
+    assert result.returncode == 2
+    assert "Verified contract resolution is required" in result.stderr
+    assert captured == {}
+
+
+def test_plan_uses_only_verified_materialized_variables(tmp_path: Path) -> None:
+    result, captured = _run_layer_plan(tmp_path)
     assert result.returncode == 0, result.stderr
     assert captured == {
-        "contract_id": "data-foundation/v2",
-        "schema_version": "2",
+        "upstream_contract_digest": "sha256:" + ("c" * 64),
+        "expected_upstream_digest": "sha256:" + ("c" * 64),
+        "upstream_schema_version": "1",
     }
+    assert not list((tmp_path / "plans").glob(".*.auto.tfvars.json"))
 
 
-def test_local_plan_uses_edge_identity_v2_metadata_for_edge(
+def test_resolution_validator_rejects_self_consistent_noncanonical_evidence(
     tmp_path: Path,
 ) -> None:
-    result, captured = _run_layer_plan(tmp_path, "edge")
-
-    assert result.returncode == 0, result.stderr
-    assert captured == {
-        "contract_id": "edge-identity/v2",
-        "schema_version": "2",
+    resolution = _resolution("network")
+    resolution["required_contracts"][0]["contract_id"] = "network/v2"
+    resolution["required_contracts"][0]["producer"] = "roots/network"
+    digest_input = {
+        key: value for key, value in resolution.items() if key != "resolution_digest"
     }
+    resolution["resolution_digest"] = compute_digest(canonicalize(digest_input))
+    resolution_path = tmp_path / "resolution.json"
+    resolution_path.write_text(json.dumps(resolution), encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
 
-
-@pytest.mark.parametrize(
-    "layer",
-    [
-        "account-ready-gate",
-        "global",
-        "network",
-        "platform",
-        "data-foundation",
-        "identity-control-plane",
-        "edge-identity",
-        "addons",
-    ],
-)
-def test_local_plan_preserves_v1_metadata_for_legacy_layers(
-    tmp_path: Path,
-    layer: str,
-) -> None:
-    result, captured = _run_layer_plan(tmp_path, layer)
-
-    assert result.returncode == 0, result.stderr
-    assert captured == {
-        "contract_id": "<unset>",
-        "schema_version": "1",
-    }
-
-
-def test_local_plan_preserves_explicit_contract_metadata_overrides(
-    tmp_path: Path,
-) -> None:
-    result, captured = _run_layer_plan(
-        tmp_path,
-        "services",
-        overrides={
-            "TF_VAR_upstream_contract_id": "caller-supplied/v9",
-            "TF_VAR_upstream_schema_version": "9",
-        },
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert captured == {
-        "contract_id": "caller-supplied/v9",
-        "schema_version": "9",
+    assert result.returncode == 1
+    assert "canonical DAG target" in result.stderr
+    assert not materialized.exists()
+
+
+def test_resolution_validator_rejects_self_consistent_undeclared_variable(
+    tmp_path: Path,
+) -> None:
+    resolution = _resolution("network")
+    resolution["variables"]["vpc_id"] = "vpc-not-authorized-for-this-consumer"
+    digest_input = {
+        key: value for key, value in resolution.items() if key != "resolution_digest"
     }
+    resolution["resolution_digest"] = compute_digest(canonicalize(digest_input))
+    resolution_path = tmp_path / "resolution.json"
+    resolution_path.write_text(json.dumps(resolution), encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "canonical consumer bindings" in result.stderr
+    assert not materialized.exists()

@@ -5,8 +5,20 @@ output "contract_payload" {
   description = "Contract payload for downstream layers"
   value = {
     layer          = "cicd"
-    schema_version = "1"
+    schema_version = "2"
     state_scope    = "regional"
+    outputs = {
+      artifact_bucket_name  = module.cicd.artifact_bucket_name
+      artifact_kms_key_arn  = module.cicd.artifact_kms_key_arn
+      ecr_repository_urls   = module.cicd.ecr_repository_urls
+      ecr_repository_arns   = module.cicd.ecr_repository_arns
+      pipeline_arns         = module.cicd.pipeline_arns
+      pipeline_names        = module.cicd.pipeline_names
+      codecommit_clone_urls = module.cicd.codecommit_clone_urls
+      release_metadata      = module.cicd.release_metadata
+      codebuild_role_arn    = module.cicd.codebuild_role_arn
+      codepipeline_role_arn = module.cicd.codepipeline_role_arn
+    }
   }
 }
 

@@ -19,7 +19,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "layer-contract.schema.json"
+DEFAULT_SCHEMA_V1 = REPO_ROOT / "schemas" / "layer-contract.schema.json"
+DEFAULT_SCHEMA_V2 = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -134,10 +135,10 @@ def _extract_outputs(terraform_document: Any, layer: str, contract_id: str) -> d
         if nested_outputs is not None:
             if not isinstance(nested_outputs, dict):
                 raise PublicationError("contract_payload.outputs must be an object")
-            duplicates = set(values) & set(nested_outputs)
-            if duplicates:
-                raise PublicationError("Terraform outputs contain ambiguous duplicate contract fields")
-            values.update(nested_outputs)
+            # A nested payload is the sole publishable boundary. Sibling root
+            # outputs may remain for Terraform operator compatibility, but can
+            # neither add fields nor shadow the versioned contract schema.
+            values = dict(nested_outputs)
 
     if not values:
         raise PublicationError("Terraform output document contains no publishable contract outputs")
@@ -148,8 +149,16 @@ def _build_envelope(args: argparse.Namespace, outputs: dict[str, Any]) -> dict[s
     scope = args.scope or ("global" if args.region == "global" else "regional")
     contract_id = args.output_schema_version or f"{args.layer}/v1"
     producer = args.producer or f"roots/{args.layer}"
+    expected_state_key = (
+        f"{args.deployment_id}/{args.layer}/terraform.tfstate"
+        if scope == "global"
+        else f"{args.deployment_id}/{args.region}/{args.layer}/terraform.tfstate"
+    )
+    if args.state_key != expected_state_key:
+        raise PublicationError("state_key is not owned by the declared producer layer")
+    customer_id = getattr(args, "customer_id", None)
     envelope: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": "2" if customer_id is not None else "1",
         "deployment_id": args.deployment_id,
         "aws_account_id": args.account_id,
         "region": args.region,
@@ -164,6 +173,11 @@ def _build_envelope(args: argparse.Namespace, outputs: dict[str, Any]) -> dict[s
         "terraform_workspace": args.terraform_workspace,
         "state_key": args.state_key,
     }
+    if customer_id is not None:
+        if args.release_version is None:
+            raise PublicationError("release_version is required for the v2 contract path")
+        envelope["customer_id"] = customer_id
+        envelope["release_version"] = args.release_version
     if args.module_source_digest is not None:
         envelope["module_source_digest"] = args.module_source_digest
     return envelope
@@ -207,11 +221,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--from-terraform-output-json", type=Path, required=True)
     parser.add_argument("--layer", required=True)
+    parser.add_argument(
+        "--customer-id",
+        help="canonical cust_<ULID>; required by the v2 live contract path",
+    )
     parser.add_argument("--deployment-id", required=True)
     parser.add_argument("--account-id", required=True)
     parser.add_argument("--region", required=True)
     parser.add_argument("--scope", choices=("global", "regional"))
     parser.add_argument("--release-digest", required=True)
+    parser.add_argument(
+        "--release-version",
+        help="immutable release version; required by the v2 contract path",
+    )
     parser.add_argument(
         "--produced-at",
         required=True,
@@ -222,7 +244,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--terraform-workspace", choices=("default",), default="default")
     parser.add_argument("--state-key", required=True)
     parser.add_argument("--module-source-digest")
-    parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    parser.add_argument(
+        "--schema",
+        type=Path,
+        help="explicit envelope schema; defaults to v2 with --customer-id, otherwise v1",
+    )
     parser.add_argument("--out", type=Path, required=True)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="explicit dry-run (also the default)")
@@ -242,7 +268,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         _validate_produced_at(args.produced_at)
-        schema = _load_json(args.schema, "contract schema")
+        schema_path = args.schema or (
+            DEFAULT_SCHEMA_V2 if args.customer_id is not None else DEFAULT_SCHEMA_V1
+        )
+        schema = _load_json(schema_path, "contract schema")
         if not isinstance(schema, dict):
             raise PublicationError("contract schema must be a JSON object")
 
@@ -266,7 +295,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"DRY_RUN: validated contract envelope for {args.layer}")
-    print(f"ENVELOPE_PATH={args.out.expanduser().resolve(strict=False)}")
     print("AWS_WRITE=disabled")
     return 0
 

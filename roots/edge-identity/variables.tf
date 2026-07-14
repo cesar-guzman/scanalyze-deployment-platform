@@ -64,35 +64,110 @@ variable "release_manifest_digest" {
   }
 }
 
+variable "network_contract" {
+  type = object({
+    contract_id             = string
+    schema_version          = string
+    customer_id             = string
+    deployment_id           = string
+    account_id              = string
+    region                  = string
+    release_manifest_digest = string
+    contract_digest         = string
+    vpc_id                  = string
+    private_subnet_ids      = map(string)
+    public_subnet_ids       = map(string)
+    vpc_cidr_block          = string
+    vpc_endpoint_sg_id      = string
+  })
+  description = "Typed verified network/v2 contract projection required by the edge."
+  nullable    = false
+}
+
+variable "expected_network_contract_digest" {
+  type        = string
+  description = "Expected network/v2 digest from the immutable deployment record."
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.expected_network_contract_digest))
+    error_message = "expected_network_contract_digest must be sha256:<64 lowercase hex>."
+  }
+}
+
+variable "platform_contract" {
+  type = object({
+    contract_id             = string
+    schema_version          = string
+    customer_id             = string
+    deployment_id           = string
+    account_id              = string
+    region                  = string
+    release_manifest_digest = string
+    contract_digest         = string
+    ecs_cluster_arn         = string
+    ecs_cluster_name        = string
+    alb_arn                 = string
+    alb_dns_name            = string
+    alb_listener_arn        = string
+    alb_security_group_id   = string
+  })
+  description = "Typed verified platform/v2 contract projection required by the edge."
+  nullable    = false
+}
+
+variable "expected_platform_contract_digest" {
+  type        = string
+  description = "Expected platform/v2 digest from the immutable deployment record."
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.expected_platform_contract_digest))
+    error_message = "expected_platform_contract_digest must be sha256:<64 lowercase hex>."
+  }
+}
+
 variable "services_contract" {
   type = object({
-    contract_id              = string
-    schema_version           = string
-    customer_id              = string
-    deployment_id            = string
-    account_id               = string
-    region                   = string
-    release_version          = string
-    release_manifest_digest  = string
-    contract_digest          = string
-    vpc_id                   = string
-    private_subnet_ids       = map(string)
-    alb_listener_arn         = string
-    alb_security_group_id    = string
-    api_access_log_group_arn = string
+    contract_id             = string
+    schema_version          = string
+    customer_id             = string
+    deployment_id           = string
+    account_id              = string
+    region                  = string
+    release_manifest_digest = string
+    contract_digest         = string
+    service_arns            = map(string)
+    task_definition_arns    = map(string)
+    target_group_arns       = map(string)
   })
-  description = "Typed verified services/v1 contract projection required by the edge."
+  description = "Typed verified services/v2 contract projection required by the edge."
   nullable    = false
 }
 
 variable "expected_services_contract_digest" {
   type        = string
-  description = "Expected services/v1 digest from the immutable deployment record."
+  description = "Expected services/v2 digest from the immutable deployment record."
   nullable    = false
 
   validation {
     condition     = can(regex("^sha256:[0-9a-f]{64}$", var.expected_services_contract_digest))
     error_message = "expected_services_contract_digest must be sha256:<64 lowercase hex>."
+  }
+}
+
+variable "api_access_log_group_arn" {
+  type        = string
+  description = "Exact edge-owned API access log group ARN from the deployment record."
+  nullable    = false
+
+  validation {
+    condition = (
+      startswith(var.api_access_log_group_arn, "arn:") &&
+      strcontains(var.api_access_log_group_arn, ":logs:${var.region}:${var.account_id}:log-group:") &&
+      !strcontains(var.api_access_log_group_arn, "*")
+    )
+    error_message = "api_access_log_group_arn must be exact and bound to the deployment account and region."
   }
 }
 

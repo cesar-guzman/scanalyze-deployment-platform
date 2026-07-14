@@ -16,5 +16,18 @@ output "contract_payload" {
     schema_version = "2"
     layer          = local.layer_name
     state_scope    = local.state_scope
+    outputs = {
+      documents_table_name  = aws_dynamodb_table.documents.name
+      documents_table_arn   = aws_dynamodb_table.documents.arn
+      jobs_table_name       = aws_dynamodb_table.jobs.name
+      documents_bucket_name = aws_s3_bucket.documents.id
+      documents_bucket_arn  = aws_s3_bucket.documents.arn
+      data_kms_key_arn      = aws_kms_key.data.arn
+      sqs_queue_urls        = { for key, queue in aws_sqs_queue.stage : key => queue.url }
+      sqs_queue_arns        = { for key, queue in aws_sqs_queue.stage : key => queue.arn }
+      sqs_dlq_urls          = { for key, queue in aws_sqs_queue.stage_dlq : key => queue.url }
+      sqs_dlq_arns          = { for key, queue in aws_sqs_queue.stage_dlq : key => queue.arn }
+      queue_topology        = local.queue_topology
+    }
   }
 }

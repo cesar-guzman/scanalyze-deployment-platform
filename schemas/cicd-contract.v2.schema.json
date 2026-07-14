@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/cicd-contract.v2.schema.json",
+  "title": "Scanalyze CI/CD outputs v2",
+  "type": "object",
+  "required": [
+    "artifact_bucket_name",
+    "artifact_kms_key_arn",
+    "ecr_repository_urls",
+    "ecr_repository_arns",
+    "pipeline_arns",
+    "pipeline_names",
+    "codecommit_clone_urls",
+    "release_metadata",
+    "codebuild_role_arn",
+    "codepipeline_role_arn"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_bucket_name": { "type": "string", "minLength": 3 },
+    "artifact_kms_key_arn": { "type": "string", "pattern": "^arn:[^:]+:kms:[^:]+:[0-9]{12}:key/.+$" },
+    "ecr_repository_urls": { "$ref": "#/$defs/string_map" },
+    "ecr_repository_arns": { "$ref": "#/$defs/string_map" },
+    "pipeline_arns": { "$ref": "#/$defs/string_map" },
+    "pipeline_names": { "$ref": "#/$defs/string_map" },
+    "codecommit_clone_urls": { "$ref": "#/$defs/string_map" },
+    "release_metadata": { "type": "object" },
+    "codebuild_role_arn": { "type": ["string", "null"] },
+    "codepipeline_role_arn": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "string_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  }
+}

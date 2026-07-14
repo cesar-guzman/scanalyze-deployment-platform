@@ -19,6 +19,7 @@ readonly VERSION="1.0.0"
 
 # ── Defaults (safe) ──────────────────────────────────────────────────
 MANIFEST=""
+CUSTOMER_ID=""
 DEPLOYMENT_ID=""
 ACCOUNT_ID=""
 REGION=""
@@ -30,6 +31,9 @@ APPROVE=false
 PLAN_DIR=""
 EVIDENCE_DIR=""
 LAYER=""
+RELEASE_VERSION=""
+RELEASE_DIGEST=""
+RESOLVED_INPUT=""
 
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -74,12 +78,16 @@ Subcommands:
 
 Options:
   --manifest <path>           Path to deployment manifest YAML
+  --customer-id <id>          Canonical customer ID (cust_<ULID>)
   --deployment-id <id>        Deployment ID (dep_<ULID>)
   --account-id <id>           Expected AWS account ID (12 digits)
   --region <region>           Expected AWS region
   --environment <env>         Target environment
   --ref <git_ref>             Git ref for the deployment
   --layer <name>              Terraform layer name
+  --release-version <value>   Immutable release version
+  --release-digest <sha256>   Immutable release manifest digest
+  --resolved-input <path>     Verified layer resolution outside the repository
   --non-interactive           Suppress interactive prompts
   --dry-run                   Dry-run mode (default)
   --no-dry-run                Disable dry-run mode
@@ -103,12 +111,16 @@ shift || true
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --manifest)       [[ -n "${2:-}" ]] || die "--manifest requires a value"; MANIFEST="$2"; shift 2 ;;
+    --customer-id)    [[ -n "${2:-}" ]] || die "--customer-id requires a value"; CUSTOMER_ID="$2"; shift 2 ;;
     --deployment-id)  [[ -n "${2:-}" ]] || die "--deployment-id requires a value"; DEPLOYMENT_ID="$2"; shift 2 ;;
     --account-id)     [[ -n "${2:-}" ]] || die "--account-id requires a value"; ACCOUNT_ID="$2"; shift 2 ;;
     --region)         [[ -n "${2:-}" ]] || die "--region requires a value"; REGION="$2"; shift 2 ;;
     --environment)    [[ -n "${2:-}" ]] || die "--environment requires a value"; ENVIRONMENT="$2"; shift 2 ;;
     --ref)            [[ -n "${2:-}" ]] || die "--ref requires a value"; GIT_REF="$2"; shift 2 ;;
     --layer)          [[ -n "${2:-}" ]] || die "--layer requires a value"; LAYER="$2"; shift 2 ;;
+    --release-version) [[ -n "${2:-}" ]] || die "--release-version requires a value"; RELEASE_VERSION="$2"; shift 2 ;;
+    --release-digest) [[ -n "${2:-}" ]] || die "--release-digest requires a value"; RELEASE_DIGEST="$2"; shift 2 ;;
+    --resolved-input) [[ -n "${2:-}" ]] || die "--resolved-input requires a value"; RESOLVED_INPUT="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     --dry-run)        DRY_RUN=true; shift ;;
     --no-dry-run)     DRY_RUN=false; shift ;;
@@ -328,9 +340,13 @@ cmd_plan_layer() {
   bash "$SCRIPT_DIR/terraform-layer.sh" plan \
     --layer "$LAYER" \
     --plan-dir "$PLAN_DIR" \
+    --customer-id "$CUSTOMER_ID" \
     --account-id "$ACCOUNT_ID" \
     --region "$REGION" \
-    --deployment-id "$DEPLOYMENT_ID"
+    --deployment-id "$DEPLOYMENT_ID" \
+    --release-version "$RELEASE_VERSION" \
+    --release-digest "$RELEASE_DIGEST" \
+    --resolved-input "$RESOLVED_INPUT"
 }
 
 cmd_apply_layer() {

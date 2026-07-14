@@ -59,7 +59,7 @@ def test_required_contract_without_producer_fails(canonical_dag, tmp_path):
     result = _run(document, tmp_path)
 
     assert result.returncode == 1
-    assert "must be exactly network/v1" in result.stderr
+    assert "must be exactly network/v2" in result.stderr
 
 
 def test_data_foundation_v2_is_produced_and_required_by_consumers(

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-resolution.v1.schema.json",
+  "title": "Scanalyze verified contract resolution v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "consumer_layer",
+    "customer_id",
+    "deployment_id",
+    "aws_account_id",
+    "region",
+    "release_version",
+    "release_digest",
+    "resolved_at",
+    "required_contracts",
+    "variables",
+    "resolution_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "consumer_layer": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "aws_account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$" },
+    "release_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+    },
+    "release_digest": { "$ref": "#/$defs/sha256" },
+    "resolved_at": { "type": "string", "format": "date-time" },
+    "required_contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "contract_id",
+          "contract_digest",
+          "module_source_digest",
+          "producer",
+          "release_version",
+          "produced_at"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "contract_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*/v[1-9][0-9]*$"
+          },
+          "contract_digest": { "$ref": "#/$defs/sha256" },
+          "module_source_digest": { "$ref": "#/$defs/sha256" },
+          "producer": { "type": "string", "pattern": "^roots/[a-z][a-z0-9-]*$" },
+          "release_version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+          },
+          "produced_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" }
+    },
+    "resolution_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

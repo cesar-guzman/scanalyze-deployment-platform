@@ -61,7 +61,7 @@ layers:
     state_key: "{deployment_id}/{region}/network/terraform.tfstate"
     requires_contracts:
       - global/v1
-    produces_contract: network/v1
+    produces_contract: network/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -87,8 +87,8 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/platform/terraform.tfstate"
     requires_contracts:
-      - network/v1
-    produces_contract: platform/v1
+      - network/v2
+    produces_contract: platform/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -114,7 +114,7 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/data-foundation/terraform.tfstate"
     requires_contracts:
-      - platform/v1
+      - platform/v2
     produces_contract: data-foundation/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
@@ -141,8 +141,9 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/cicd/terraform.tfstate"
     requires_contracts:
+      - platform/v2
       - data-foundation/v2
-    produces_contract: cicd/v1
+    produces_contract: cicd/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -168,7 +169,7 @@ layers:
     scope: regional
     state_key: null
     requires_contracts:
-      - cicd/v1
+      - cicd/v2
     # Release artifact contract; this is not an SSM layer-contract envelope.
     produces_contract: release-manifest/v1
     plan_role: ScanalyzeCustomer-Validation
@@ -236,12 +237,14 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/services/terraform.tfstate"
     requires_contracts:
-      - platform/v1
+      - global/v1
+      - network/v2
+      - platform/v2
       - data-foundation/v2
-      - cicd/v1
+      - cicd/v2
       - release-manifest/v1
       - identity-control-plane/v1
-    produces_contract: services/v1
+    produces_contract: services/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -270,7 +273,9 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/edge-identity/terraform.tfstate"
     requires_contracts:
-      - services/v1
+      - network/v2
+      - platform/v2
+      - services/v2
       - identity-control-plane/v1
     produces_contract: edge-identity/v2
     plan_role: ScanalyzeCustomer-Plan
@@ -300,7 +305,7 @@ layers:
     state_key: "{deployment_id}/edge/terraform.tfstate"
     requires_contracts:
       - edge-identity/v2
-    produces_contract: edge/v1
+    produces_contract: edge/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -327,8 +332,8 @@ layers:
     scope: regional
     state_key: "{deployment_id}/{region}/addons/terraform.tfstate"
     requires_contracts:
-      - edge/v1
-    produces_contract: addons/v1
+      - edge/v2
+    produces_contract: addons/v2
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply
     allowed_operations:
@@ -356,10 +361,10 @@ layers:
     requires_contracts:
       - release-manifest/v1
       - identity-control-plane/v1
-      - services/v1
+      - services/v2
       - edge-identity/v2
-      - edge/v1
-      - addons/v1
+      - edge/v2
+      - addons/v2
     produces_contract: null
     plan_role: ScanalyzeCustomer-Validation
     apply_role: null

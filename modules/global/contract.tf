@@ -16,5 +16,13 @@ output "contract_payload" {
     schema_version = "1"
     layer          = local.layer_name
     state_scope    = local.state_scope
+    outputs = {
+      ecs_execution_role_arn = aws_iam_role.ecs_task_execution.arn
+      ecs_task_role_arns = {
+        for service, role in aws_iam_role.workload : "scanalyze-${service}" => role.arn
+      }
+      permissions_boundary_arn                  = aws_iam_policy.workload_permissions_boundary.arn
+      identity_runtime_permissions_boundary_arn = aws_iam_policy.identity_runtime_permissions_boundary.arn
+    }
   }
 }

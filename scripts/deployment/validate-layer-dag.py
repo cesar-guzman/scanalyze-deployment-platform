@@ -81,6 +81,8 @@ EXPECTED_TERRAFORM_CONTRACTS = {
 }
 EXPECTED_TERRAFORM_CONTRACTS["data-foundation"] = "data-foundation/v2"
 EXPECTED_TERRAFORM_CONTRACTS["edge-identity"] = "edge-identity/v2"
+for versioned_layer in ("network", "platform", "cicd", "services", "edge", "addons"):
+    EXPECTED_TERRAFORM_CONTRACTS[versioned_layer] = f"{versioned_layer}/v2"
 TOP_LEVEL_FIELDS = {"schema_version", "layers"}
 LAYER_FIELDS = {
     "layer",

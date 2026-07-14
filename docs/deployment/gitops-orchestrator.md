@@ -20,10 +20,10 @@ readiness.
 
 ## Why Local `apply-all` Is Not Authoritative
 
-Terraform plans freeze their inputs and the state observed at plan time. The
-legacy local wrapper plans every root before upstream resources exist and fills
-required values with mocks. Applying those plans later cannot turn the mocked
-VPC, subnet, role, listener, repository, or digest values into real contracts.
+Terraform plans freeze their inputs and the state observed at plan time. Before
+GUG-121, the local wrapper could fill missing cross-layer values with synthetic
+defaults. That path is removed: every plan now requires an exact,
+content-bound resolution artifact.
 
 The live sequence must finish one layer before the next is planned:
 
@@ -103,7 +103,7 @@ AWS authority.
 The target contract path is:
 
 ```text
-/scanalyze/deployments/{deployment_id}/contracts/{layer}/v1
+/scanalyze/deployments/{deployment_id}/contracts/{layer}/vN/releases/{release_digest}/digests/{contract_digest}
 ```
 
 Each contract is one JSON envelope containing:
@@ -125,10 +125,10 @@ GitHub outputs may carry non-sensitive control metadata such as a stage result.
 They do not carry VPC IDs, subnet IDs, role ARNs, endpoints, image mappings, or
 other infrastructure outputs.
 
-`resolve-contracts.py` supports local fixtures and explicitly enabled mocks. It
-writes an ephemeral `tfvars.json` outside the repository with mode `0600` and
-never logs its values. Live SSM resolution remains disabled until a later change
-implements and validates the OIDC role boundary.
+`resolve-contracts.py` supports only explicitly acknowledged local test
+fixtures. It writes a digested, owner-readable resolution outside the
+repository. The plan wrapper validates and materializes it without defaults and
+never logs its values. Live SSM resolution remains disabled until GUG-125.
 
 `publish-contract.py` currently means "render and validate a candidate envelope
 to a local file." It does not publish to AWS. SSM publication remains blocked

@@ -17,10 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PUBLISH_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "publish-contract.py"
 RESOLVE_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "resolve-contracts.py"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 ACCOUNT_ID = "111222333444"
 RELEASE_DIGEST = "sha256:" + ("a" * 64)
+RELEASE_VERSION = "2026.07.14"
+MODULE_SOURCE_DIGEST = "sha256:" + ("b" * 64)
 STATE_KEY = f"{DEPLOYMENT_ID}/global/terraform.tfstate"
 PRODUCED_AT = "2026-07-10T18:30:00Z"
+RESOLVED_AT = "2026-07-10T18:35:00Z"
 
 
 @pytest.fixture
@@ -61,6 +65,8 @@ def _publish_args(source: Path, output: Path) -> list[str]:
         str(source),
         "--layer",
         "global",
+        "--customer-id",
+        CUSTOMER_ID,
         "--deployment-id",
         DEPLOYMENT_ID,
         "--account-id",
@@ -69,6 +75,10 @@ def _publish_args(source: Path, output: Path) -> list[str]:
         "global",
         "--release-digest",
         RELEASE_DIGEST,
+        "--release-version",
+        RELEASE_VERSION,
+        "--module-source-digest",
+        MODULE_SOURCE_DIGEST,
         "--produced-at",
         PRODUCED_AT,
         "--state-key",
@@ -84,9 +94,11 @@ def _resolve_args(contract: Path, output: Path) -> list[str]:
         str(RESOLVE_SCRIPT),
         "--contract",
         str(contract),
-        "--allow-mocks",
+        "--allow-fixtures",
         "--layer",
         "network",
+        "--customer-id",
+        CUSTOMER_ID,
         "--deployment-id",
         DEPLOYMENT_ID,
         "--account-id",
@@ -95,6 +107,10 @@ def _resolve_args(contract: Path, output: Path) -> list[str]:
         "us-east-1",
         "--release-digest",
         RELEASE_DIGEST,
+        "--release-version",
+        RELEASE_VERSION,
+        "--resolved-at",
+        RESOLVED_AT,
         "--required-contract",
         "global/v1",
         "--out",
@@ -137,6 +153,7 @@ def test_publish_is_dry_run_and_writes_valid_mode_0600_envelope(
     assert envelope["producer"] == "roots/global"
     assert envelope["output_schema_version"] == "global/v1"
     assert envelope["produced_at"] == PRODUCED_AT
+    assert envelope["release_version"] == RELEASE_VERSION
 
 
 def test_publish_rejects_non_default_workspace(tmp_path, global_outputs):
@@ -188,11 +205,11 @@ def test_publish_rejects_state_key_owned_by_another_layer(tmp_path, global_outpu
     result = _run(args)
 
     assert result.returncode == 1
-    assert "schema validation failed" in result.stderr
+    assert "not owned by the declared producer layer" in result.stderr
     assert not output.exists()
 
 
-def test_resolve_requires_explicit_allow_mocks(tmp_path, global_outputs):
+def test_resolve_requires_explicit_allow_fixtures(tmp_path, global_outputs):
     contract = tmp_path / "contract.json"
     output = tmp_path / "vars.json"
     envelope = {
@@ -200,16 +217,16 @@ def test_resolve_requires_explicit_allow_mocks(tmp_path, global_outputs):
     }
     _write_json(contract, envelope)
     args = _resolve_args(contract, output)
-    args.remove("--allow-mocks")
+    args.remove("--allow-fixtures")
 
     result = _run(args)
 
     assert result.returncode == 2
-    assert "BLOCKED_MOCKS" in result.stderr
+    assert "BLOCKED_FIXTURES" in result.stderr
     assert not output.exists()
 
 
-def test_publish_then_resolve_writes_only_outputs_to_mode_0600_var_file(
+def test_publish_then_resolve_writes_content_bound_resolution_to_mode_0600(
     tmp_path, global_outputs
 ):
     terraform_output = tmp_path / "terraform-output.json"
@@ -224,7 +241,14 @@ def test_publish_then_resolve_writes_only_outputs_to_mode_0600_var_file(
     assert result.returncode == 0, result.stderr
     assert "resolved 1 contract(s)" in result.stdout
     assert ACCOUNT_ID not in result.stdout
-    assert json.loads(var_file.read_text(encoding="utf-8")) == global_outputs
+    resolution = json.loads(var_file.read_text(encoding="utf-8"))
+    assert resolution["consumer_layer"] == "network"
+    assert resolution["customer_id"] == CUSTOMER_ID
+    assert resolution["release_version"] == RELEASE_VERSION
+    assert resolution["required_contracts"][0]["contract_id"] == "global/v1"
+    assert resolution["variables"]["upstream_contract_digest"] == (
+        resolution["variables"]["expected_upstream_digest"]
+    )
     assert stat.S_IMODE(var_file.stat().st_mode) == 0o600
 
 
@@ -282,7 +306,7 @@ def test_resolve_rejects_state_ownership_mismatch(tmp_path, global_outputs):
     result = _run(_resolve_args(envelope_path, var_file))
 
     assert result.returncode == 1
-    assert "schema validation failed" in result.stderr
+    assert "state ownership binding mismatch" in result.stderr
     assert not var_file.exists()
 
 
@@ -332,16 +356,22 @@ def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledg
         sys.executable,
         str(RESOLVE_SCRIPT),
         "--live",
-        "--layer",
-        "network",
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
         "--deployment-id",
         DEPLOYMENT_ID,
         "--account-id",
         ACCOUNT_ID,
         "--region",
         "us-east-1",
-        "--release-digest",
-        RELEASE_DIGEST,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--release-version",
+            RELEASE_VERSION,
+            "--resolved-at",
+            RESOLVED_AT,
         "--required-contract",
         "global/v1",
         "--out",
