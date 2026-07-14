@@ -436,6 +436,9 @@ creation, session revocation, or provider change.
   role changes, suspension, revocation, bootstrap, support grants, and
   break-glass requests. It must implement separation of duties, enumeration-safe
   responses, version increments, and audit without exposing secrets or PII.
+  ADR-026 implements the membership lifecycle, final-admin, audit, and
+  recoverable first-admin bootstrap subset; support/break-glass grant issuance
+  and live runtime activation remain separately gated.
 - **GUG-95** owns the user/role console and privilege E2E coverage; UI state is
   never authority and cannot substitute for GUG-153/GUG-94 enforcement.
 - **GUG-117** remains the phase gate for reviewed integration, two-deployment

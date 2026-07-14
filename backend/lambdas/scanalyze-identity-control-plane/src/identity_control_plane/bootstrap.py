@@ -23,6 +23,10 @@ class RequestStore(Protocol):
 
     def claim(self, **condition: Any) -> str | None: ...
 
+    def mark_effects_applied(self, **condition: Any) -> bool: ...
+
+    def mark_audit_committed(self, **condition: Any) -> bool: ...
+
     def consume(self, **condition: Any) -> bool: ...
 
     def release(self, **condition: Any) -> None: ...
@@ -93,82 +97,147 @@ class BootstrapProcessor:
         idempotency_key = str(stored["idempotency_key"])
         version = int(stored["version"])
 
-        claim_token: str | None
-        try:
-            claim_token = self.request_store.claim(
-                request_id=request_id,
-                expected_state="approved",
-                expected_version=version,
-                idempotency_key=idempotency_key,
-                claimed_at=now,
-            )
-        except Exception:
-            self._deny("bootstrap_dependency_unavailable", now, correlation)
-        if not is_non_empty_string(claim_token):
-            self._deny("bootstrap_claim_conflict", now, correlation)
+        state = str(stored.get("state"))
+        claim_token = stored.get("claim_token")
+        if state == "approved":
+            try:
+                claim_token = self.request_store.claim(
+                    request_id=request_id,
+                    expected_state="approved",
+                    expected_version=version,
+                    idempotency_key=idempotency_key,
+                    claimed_at=now,
+                )
+            except Exception:
+                self._deny("bootstrap_dependency_unavailable", now, correlation)
+            if not is_non_empty_string(claim_token):
+                self._deny("bootstrap_claim_conflict", now, correlation)
+            state = "claimed"
+        elif not is_non_empty_string(claim_token):
+            self._deny("bootstrap_recovery_binding_invalid", now, correlation)
 
-        try:
-            provider_result = self.identity_provider.ensure_user(
-                subject=subject,
-                immutable_attributes={
-                    "custom:customerId": customer_id,
-                    "custom:deployment_id": deployment_id,
-                },
-                idempotency_key=idempotency_key,
-            )
-        except Exception:
-            self._release_claim(str(request_id), str(claim_token), version)
-            self._deny("identity_provider_unavailable", now, correlation)
-        if not isinstance(provider_result, Mapping) or not is_non_empty_string(
-            provider_result.get("user_reference")
-        ):
-            self._release_claim(str(request_id), str(claim_token), version)
-            self._deny("identity_provider_unavailable", now, correlation)
+        user_reference = stored.get("user_reference")
+        membership_reference = stored.get("membership_reference")
+        outcome_at = parse_timestamp(stored.get("outcome_at"))
 
-        try:
-            membership_result = self.membership_store.ensure_membership(
-                subject=subject,
-                customer_id=customer_id,
-                deployment_id=deployment_id,
-                role_id=str(stored["role_id"]),
-                membership_state="active",
-                membership_version="1",
-                authz_schema_version=str(stored["authz_schema_version"]),
-                scope_catalog_version=str(stored["scope_catalog_version"]),
-                role_catalog_version=str(stored["role_catalog_version"]),
-                policy_version=str(stored["policy_version"]),
-                policy_digest=str(stored["policy_digest"]),
-                idempotency_key=idempotency_key,
-            )
-        except Exception:
-            self._release_claim(str(request_id), str(claim_token), version)
-            self._deny("membership_dependency_unavailable", now, correlation)
-        if not isinstance(membership_result, Mapping) or not is_non_empty_string(
-            membership_result.get("membership_reference")
-        ):
-            self._release_claim(str(request_id), str(claim_token), version)
-            self._deny("membership_dependency_unavailable", now, correlation)
+        if state == "claimed":
+            try:
+                provider_result = self.identity_provider.ensure_user(
+                    subject=subject,
+                    immutable_attributes={
+                        "custom:customerId": customer_id,
+                        "custom:deployment_id": deployment_id,
+                    },
+                    idempotency_key=idempotency_key,
+                )
+            except Exception:
+                self._release_claim(str(request_id), str(claim_token), version)
+                self._deny("identity_provider_unavailable", now, correlation)
+            if not isinstance(provider_result, Mapping) or not is_non_empty_string(
+                provider_result.get("user_reference")
+            ) or provider_result.get("provider_principal_key") != subject:
+                self._release_claim(str(request_id), str(claim_token), version)
+                self._deny("identity_provider_unavailable", now, correlation)
 
-        try:
-            consumed = self.request_store.consume(
-                request_id=request_id,
-                claim_token=claim_token,
-                expected_version=version,
-                consumed_at=now,
-                result_reference="bootstrap_request_completed",
-            )
-        except Exception:
-            consumed = False
-        if consumed is not True:
-            self._release_claim(str(request_id), str(claim_token), version)
-            self._deny("bootstrap_consume_conflict", now, correlation)
+            try:
+                membership_result = self.membership_store.ensure_membership(
+                    subject=subject,
+                    customer_id=customer_id,
+                    deployment_id=deployment_id,
+                    role_id=str(stored["role_id"]),
+                    state="active",
+                    membership_version=1,
+                    provider_user_reference=str(provider_result["user_reference"]),
+                    provider_principal_key=str(
+                        provider_result["provider_principal_key"]
+                    ),
+                    created_at=now,
+                    authz_schema_version=str(stored["authz_schema_version"]),
+                    scope_catalog_version=str(stored["scope_catalog_version"]),
+                    role_catalog_version=str(stored["role_catalog_version"]),
+                    policy_version=str(stored["policy_version"]),
+                    policy_digest=str(stored["policy_digest"]),
+                    idempotency_key=idempotency_key,
+                )
+            except Exception:
+                self._release_claim(str(request_id), str(claim_token), version)
+                self._deny("membership_dependency_unavailable", now, correlation)
+            if not isinstance(membership_result, Mapping) or not is_non_empty_string(
+                membership_result.get("membership_reference")
+            ):
+                self._release_claim(str(request_id), str(claim_token), version)
+                self._deny("membership_dependency_unavailable", now, correlation)
 
-        self._audit_allow(now, correlation)
+            user_reference = str(provider_result["user_reference"])
+            membership_reference = str(membership_result["membership_reference"])
+            outcome_at = now
+            try:
+                effects_marked = self.request_store.mark_effects_applied(
+                    request_id=request_id,
+                    claim_token=claim_token,
+                    expected_version=version,
+                    idempotency_key=idempotency_key,
+                    outcome_at=outcome_at,
+                    user_reference=user_reference,
+                    membership_reference=membership_reference,
+                )
+            except Exception:
+                effects_marked = False
+            if effects_marked is not True:
+                # Provider and membership effects are already idempotent.  Keep
+                # the claim so an exact retry can reconcile them; releasing it
+                # here would permit a conflicting bootstrap attempt.
+                self._deny("bootstrap_effect_checkpoint_conflict", now, correlation)
+            state = "effects_applied"
+
+        if state in {"effects_applied", "audit_committed"}:
+            if not (
+                is_non_empty_string(user_reference)
+                and is_non_empty_string(membership_reference)
+                and outcome_at is not None
+            ):
+                self._deny("bootstrap_recovery_binding_invalid", now, correlation)
+
+        if state == "effects_applied":
+            audit_decision_id = self._audit_allow(outcome_at, correlation)
+            try:
+                audit_marked = self.request_store.mark_audit_committed(
+                    request_id=request_id,
+                    claim_token=claim_token,
+                    expected_version=version,
+                    idempotency_key=idempotency_key,
+                    audit_decision_id=audit_decision_id,
+                    audit_committed_at=now,
+                )
+            except Exception:
+                audit_marked = False
+            if audit_marked is not True:
+                self._deny("bootstrap_audit_checkpoint_conflict", now, correlation)
+            state = "audit_committed"
+
+        if state == "audit_committed":
+            try:
+                consumed = self.request_store.consume(
+                    request_id=request_id,
+                    claim_token=claim_token,
+                    expected_state="audit_committed",
+                    expected_version=version,
+                    consumed_at=now,
+                    result_reference="bootstrap_request_completed",
+                )
+            except Exception:
+                consumed = False
+            if consumed is not True:
+                self._deny("bootstrap_consume_conflict", now, correlation)
+            state = "consumed"
+
+        if state != "consumed":
+            self._deny("bootstrap_recovery_binding_invalid", now, correlation)
         return {
             "status": "completed",
             "request_reference": "bootstrap_request_completed",
-            "user_reference": str(provider_result["user_reference"]),
-            "membership_reference": str(membership_result["membership_reference"]),
+            "user_reference": str(user_reference),
+            "membership_reference": str(membership_reference),
         }
 
     def _validate_request(
@@ -226,8 +295,27 @@ class BootstrapProcessor:
         state = stored.get("state")
         if state == "consumed":
             self._deny("bootstrap_replay_denied", now, correlation)
-        if state != "approved":
+        if state not in {"approved", "claimed", "effects_applied", "audit_committed"}:
             self._deny("bootstrap_not_approved", now, correlation)
+
+        validation_time = now
+        if state in {"effects_applied", "audit_committed"}:
+            outcome_at = parse_timestamp(stored.get("outcome_at"))
+            max_recovery = self.config.get("max_recovery_seconds")
+            if not (
+                outcome_at is not None
+                and isinstance(max_recovery, int)
+                and not isinstance(max_recovery, bool)
+                and max_recovery >= 1
+                and 0 <= (now - outcome_at).total_seconds() <= max_recovery
+                and is_non_empty_string(stored.get("user_reference"))
+                and is_non_empty_string(stored.get("membership_reference"))
+                and is_non_empty_string(stored.get("claim_token"))
+            ):
+                self._deny("bootstrap_recovery_binding_invalid", now, correlation)
+            validation_time = outcome_at
+        elif state == "claimed" and not is_non_empty_string(stored.get("claim_token")):
+            self._deny("bootstrap_recovery_binding_invalid", now, correlation)
 
         issued_at = parse_timestamp(stored.get("issued_at"))
         expires_at = parse_timestamp(stored.get("expires_at"))
@@ -235,7 +323,7 @@ class BootstrapProcessor:
             self._deny("bootstrap_expired", now, correlation)
         if issued_at > now:
             self._deny("bootstrap_not_yet_valid", now, correlation)
-        if now >= expires_at:
+        if validation_time >= expires_at:
             self._deny("bootstrap_expired", now, correlation)
         max_ttl = self.config.get("max_ttl_seconds")
         if not isinstance(max_ttl, int) or max_ttl < 1:
@@ -249,7 +337,7 @@ class BootstrapProcessor:
         if stored.get("role_id") not in allowed_roles:
             self._deny("unknown_role", now, correlation)
         self._validate_versions(stored, now, correlation)
-        self._validate_approvals(stored, now, correlation)
+        self._validate_approvals(stored, validation_time, correlation)
         return subject, customer_id, deployment_id
 
     def _validate_versions(
@@ -352,7 +440,7 @@ class BootstrapProcessor:
         except Exception:
             self.logger.error("bootstrap_claim_release_failed")
 
-    def _audit_allow(self, now: datetime, correlation: tuple[object, ...]) -> None:
+    def _audit_allow(self, now: datetime, correlation: tuple[object, ...]) -> str:
         event = sanitized_audit_event(
             now=now,
             decision="allow",
@@ -373,6 +461,7 @@ class BootstrapProcessor:
             )
             raise BootstrapDenied("audit_dependency_unavailable")
         self.logger.info("identity_decision decision=allow reason_code=bootstrap_completed")
+        return str(event["decision_id"])
 
     def _deny(
         self,

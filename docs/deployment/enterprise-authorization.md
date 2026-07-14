@@ -439,6 +439,13 @@ this reference.
 - enumeration-safe responses and sanitized audit events; and
 - no client-side authority: UI visibility is not enforcement.
 
+ADR-026 implements this lifecycle subset with a canonical membership contract,
+closed human-only API, conditional operation ledger, provider reconciliation,
+transactional final-admin guard, session revocation, owner-bound list/query
+patterns, durable lifecycle audit, and recoverable first-admin bootstrap.
+Support/break-glass grant issuance remains a separately governed dependency;
+live runtime installation and provider-backed assurance remain blocked.
+
 ### GUG-153: backend PDP/PEP enforcement
 
 - centralized membership, temporary-grant, and M2M decision paths;

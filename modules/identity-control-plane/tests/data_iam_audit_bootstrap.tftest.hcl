@@ -101,6 +101,42 @@ run "protects_membership_and_audit_stores" {
   }
 }
 
+run "binds_membership_indexes_to_exact_owner_and_state" {
+  command = plan
+
+  assert {
+    condition = (
+      one([
+        for index in aws_dynamodb_table.memberships.global_secondary_index : index
+        if index.name == "ownership-membership-reference-v1"
+      ]).hash_key == "ownership_membership_key" &&
+      one([
+        for index in aws_dynamodb_table.memberships.global_secondary_index : index
+        if index.name == "ownership-membership-reference-v1"
+      ]).projection_type == "ALL"
+    )
+    error_message = "membership reference lookup must use the exact customer/deployment/reference owner binding"
+  }
+
+  assert {
+    condition = (
+      one([
+        for index in aws_dynamodb_table.memberships.global_secondary_index : index
+        if index.name == "ownership-state-v1"
+      ]).hash_key == "ownership_state_key" &&
+      one([
+        for index in aws_dynamodb_table.memberships.global_secondary_index : index
+        if index.name == "ownership-state-v1"
+      ]).range_key == "membership_reference" &&
+      one([
+        for index in aws_dynamodb_table.memberships.global_secondary_index : index
+        if index.name == "ownership-state-v1"
+      ]).projection_type == "ALL"
+    )
+    error_message = "membership state pagination must remain bound to one customer/deployment/state partition"
+  }
+}
+
 run "scopes_the_pre_token_execution_role" {
   command = apply
 

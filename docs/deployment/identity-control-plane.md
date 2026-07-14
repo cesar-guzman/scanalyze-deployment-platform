@@ -367,9 +367,10 @@ legacy claim fallback, or reduced protection.
 These gates must be implemented and independently reviewed before the related
 capability is enabled:
 
-- **Human bootstrap:** GUG-94 must add recoverable claim leases, reconciliation,
-  and an outcome-audit protocol that remains correct across crashes between
-  provider effects, record consumption, and audit persistence.
+- **Human bootstrap:** ADR-026 implements recoverable claim/effect/audit
+  checkpoints and exact-retry reconciliation across provider, membership,
+  audit, and consumption failures. Live runtime installation and execution
+  remain blocked pending the authorized rollout and isolation proof.
 - **M2M command authority:** no producer may receive `sqs:SendMessage` until its
   IAM identity is exact and reviewed, and the consumer reloads an authoritative
   approved provisioning record for the requested action set. The queue body is
@@ -380,8 +381,9 @@ capability is enabled:
   replacement-free plan.
 
 The current human runtime remains disabled, no M2M command producer is granted
-queue write authority, and no existing-customer apply is authorized. All three
-controls are **Blocked/deferred**, not live-validated behavior.
+queue write authority, and no existing-customer apply is authorized. GUG-94's
+bootstrap control is **Implemented/locally validated but not live-enabled**;
+the other controls remain **Blocked/deferred**. None is live validation.
 
 ## Validation
 

@@ -17,6 +17,7 @@ from identity_control_plane.aws_adapters import (
     DynamoBootstrapRequestStore,
     DynamoM2MBindingStore,
     DynamoMembershipReader,
+    DynamoMembershipStore,
 )
 from identity_control_plane.config import (
     ControlRuntimeConfig,
@@ -301,6 +302,43 @@ def test_membership_reader_uses_one_exact_consistent_get() -> None:
     ]
 
 
+def test_membership_store_accepts_only_canonical_state_contract() -> None:
+    table = FakeTable()
+    store = DynamoMembershipStore(table)
+    record = {
+        "subject": SUBJECT,
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "role_id": "customer_admin",
+        "state": "active",
+        "membership_version": 1,
+        "authz_schema_version": "enterprise-authorization.v1",
+        "scope_catalog_version": "scanalyze.api.v1",
+        "role_catalog_version": "enterprise-roles.v1",
+        "policy_version": "1.0.0",
+        "policy_digest": POLICY_DIGEST,
+        "idempotency_key": IDEMPOTENCY_KEY,
+        "provider_user_reference": "usr_synthetic_reference",
+        "provider_principal_key": SUBJECT,
+        "created_at": NOW,
+    }
+
+    result = store.ensure_membership(**record)
+
+    assert result["membership_reference"].startswith("mbr_")
+    item = table.calls[0][1]["Item"]
+    assert item["state"] == "active"
+    assert "membership_state" not in item
+    assert item["ownership_state_key"] == (
+        f"{DEPLOYMENT_ID}#{CUSTOMER_ID}#STATE#active"
+    )
+
+    legacy_record = dict(record)
+    legacy_record["membership_state"] = legacy_record.pop("state")
+    with pytest.raises(AdapterContractError):
+        store.ensure_membership(**legacy_record)
+
+
 def test_bootstrap_store_claim_and_consume_use_conditional_exact_state() -> None:
     table = FakeTable()
     store = DynamoBootstrapRequestStore(table)
@@ -313,20 +351,43 @@ def test_bootstrap_store_claim_and_consume_use_conditional_exact_state() -> None
         claimed_at=NOW,
     )
     assert isinstance(claim, str) and claim
+    assert store.mark_effects_applied(
+        request_id="boot_synthetic",
+        claim_token=claim,
+        expected_version=7,
+        idempotency_key=IDEMPOTENCY_KEY,
+        outcome_at=NOW,
+        user_reference="usr_synthetic_reference",
+        membership_reference="mem_synthetic_reference",
+    )
+    assert store.mark_audit_committed(
+        request_id="boot_synthetic",
+        claim_token=claim,
+        expected_version=7,
+        idempotency_key=IDEMPOTENCY_KEY,
+        audit_decision_id="decision-synthetic",
+        audit_committed_at=NOW,
+    )
     assert store.consume(
         request_id="boot_synthetic",
         claim_token=claim,
+        expected_state="audit_committed",
         expected_version=7,
         consumed_at=NOW,
         result_reference="bootstrap_request_completed",
     )
 
     claim_request = table.calls[0][1]
-    consume_request = table.calls[1][1]
+    effects_request = table.calls[1][1]
+    audit_request = table.calls[2][1]
+    consume_request = table.calls[3][1]
     assert "#state = :approved" in claim_request["ConditionExpression"]
     assert "idempotency_key = :idempotency_key" in claim_request[
         "ConditionExpression"
     ]
+    assert "#state = :claimed" in effects_request["ConditionExpression"]
+    assert "#state = :effects_applied" in audit_request["ConditionExpression"]
+    assert "#state = :audit_committed" in consume_request["ConditionExpression"]
     assert "claim_token = :claim_token" in consume_request["ConditionExpression"]
 
 
@@ -813,6 +874,6 @@ def test_existing_user_adapter_requires_exact_immutable_binding() -> None:
         idempotency_key=IDEMPOTENCY_KEY,
     )
 
-    assert set(result) == {"user_reference"}
+    assert set(result) == {"user_reference", "provider_principal_key"}
     assert CUSTOMER_ID not in repr(result)
     assert DEPLOYMENT_ID not in repr(result)

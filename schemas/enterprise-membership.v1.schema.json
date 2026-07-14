@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/enterprise-membership.v1.schema.json",
+  "title": "Scanalyze Enterprise Membership v1",
+  "description": "Authoritative provider-neutral human membership bound to one customer and deployment.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "membership_reference",
+    "subject",
+    "customer_id",
+    "deployment_id",
+    "state",
+    "role_id",
+    "membership_version",
+    "provider_user_reference",
+    "provider_principal_key",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "enterprise-membership.v1" },
+    "membership_reference": { "type": "string", "pattern": "^mbr_[0-9a-f]{32,64}$" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "state": {
+      "type": "string",
+      "enum": ["invited", "active", "suspended", "expired", "revoked"]
+    },
+    "role_id": { "$ref": "#/$defs/role" },
+    "membership_version": { "type": "integer", "minimum": 1 },
+    "provider_user_reference": { "$ref": "#/$defs/opaque_reference" },
+    "provider_principal_key": { "$ref": "#/$defs/subject" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "invitation_expires_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "invited" } }, "required": ["state"] },
+      "then": { "required": ["invitation_expires_at"] }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["expired", "revoked"] } }, "required": ["state"] },
+      "then": { "not": { "required": ["invitation_expires_at"] } }
+    }
+  ],
+  "$defs": {
+    "subject": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "role": { "type": "string", "enum": ["customer_admin", "document_operator", "document_reviewer", "auditor"] },
+    "opaque_reference": { "type": "string", "pattern": "^ref_[0-9a-f]{24,64}$" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

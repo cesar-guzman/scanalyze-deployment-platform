@@ -134,6 +134,16 @@ class OperationId(str, Enum):
     EMPLOYEE_PROFILES_READ_JOB = "employee_profiles.read_job"
     EMPLOYEE_PROFILES_LIST_MASKED = "employee_profiles.list_masked"
     EMPLOYEE_PROFILES_READ_FULL = "employee_profiles.read_full"
+    AUTHORIZATION_ROLES_READ = "authorization_administration.roles.read"
+    AUTHORIZATION_MEMBERSHIPS_LIST = "authorization_administration.memberships.list"
+    AUTHORIZATION_INVITATIONS_CREATE = "authorization_administration.invitations.create"
+    AUTHORIZATION_MEMBERSHIPS_ACTIVATE = "authorization_administration.memberships.activate"
+    AUTHORIZATION_MEMBERSHIPS_ROLE_CHANGE = "authorization_administration.memberships.change_role"
+    AUTHORIZATION_MEMBERSHIPS_SUSPEND = "authorization_administration.memberships.suspend"
+    AUTHORIZATION_MEMBERSHIPS_REACTIVATE = "authorization_administration.memberships.reactivate"
+    AUTHORIZATION_MEMBERSHIPS_REVOKE = "authorization_administration.memberships.revoke"
+    AUTHORIZATION_SESSIONS_REVOKE = "authorization_administration.sessions.revoke"
+    AUTHORIZATION_AUDIT_READ = "authorization_administration.audit.read"
 
 
 @dataclass(frozen=True)
@@ -310,6 +320,7 @@ class OperationPolicy:
     m2m_required_actions: FrozenSet[str]
     step_up_required: bool = False
     temporary_grant_allowed: bool = False
+    m2m_allowed: bool = True
 
 
 def _permission(
@@ -491,6 +502,113 @@ OPERATION_POLICIES: Mapping[OperationId, OperationPolicy] = {
         ),),
         _READ_ADMIN,
         step_up_required=True,
+    ),
+    OperationId.AUTHORIZATION_ROLES_READ: OperationPolicy(
+        OperationId.AUTHORIZATION_ROLES_READ,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.READ,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_LIST: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_LIST,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.READ,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_AUDIT_READ: OperationPolicy(
+        OperationId.AUTHORIZATION_AUDIT_READ,
+        (_permission(
+            ResourceType.AUDIT_LOG,
+            (Action.READ,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_INVITATIONS_CREATE: OperationPolicy(
+        OperationId.AUTHORIZATION_INVITATIONS_CREATE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_ACTIVATE: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_ACTIVATE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_ROLE_CHANGE: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_ROLE_CHANGE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_SUSPEND: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_SUSPEND,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_REACTIVATE: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_REACTIVATE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_MEMBERSHIPS_REVOKE: OperationPolicy(
+        OperationId.AUTHORIZATION_MEMBERSHIPS_REVOKE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
+    ),
+    OperationId.AUTHORIZATION_SESSIONS_REVOKE: OperationPolicy(
+        OperationId.AUTHORIZATION_SESSIONS_REVOKE,
+        (_permission(
+            ResourceType.AUTHORIZATION_ADMINISTRATION,
+            (Action.ADMIN,),
+            (DataClass.METADATA,),
+        ),),
+        frozenset(),
+        step_up_required=True,
+        m2m_allowed=False,
     ),
 }
 
@@ -1349,6 +1467,8 @@ def authorize_operation(
     try:
         principal_type = getattr(auth, "principal_type", None)
         if principal_type == "m2m":
+            if not policy.m2m_allowed:
+                _deny("principal_type_not_allowed")
             if getattr(auth, "human_authorization", None) is not None:
                 _deny("conflicting_principal_context")
             if getattr(auth, "auth_source", None) != "m2m_identity_binding_v1":

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/lifecycle-operation.v1.schema.json",
+  "title": "Scanalyze Lifecycle Operation v1",
+  "description": "Recoverable idempotency and outcome checkpoint for one ownership-bound user lifecycle command.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_reference",
+    "operation",
+    "customer_id",
+    "deployment_id",
+    "actor_subject",
+    "idempotency_key",
+    "request_digest",
+    "stage",
+    "evidence",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "lifecycle-operation.v1" },
+    "operation_reference": { "type": "string", "pattern": "^op_[0-9a-f]{32}$" },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "membership.invite",
+        "membership.activate",
+        "membership.change_role",
+        "membership.suspend",
+        "membership.reactivate",
+        "membership.revoke",
+        "membership.revoke_sessions"
+      ]
+    },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "actor_subject": { "$ref": "#/$defs/subject" },
+    "idempotency_key": { "type": "string", "pattern": "^idem_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$" },
+    "request_digest": { "$ref": "#/$defs/digest" },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "reserved",
+        "approval_validated",
+        "provider_applied",
+        "membership_applied",
+        "sessions_revoked",
+        "audit_committed",
+        "completed"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Only sanitized references, versions, state and role values; never request payloads, tokens or invitation secrets.",
+      "additionalProperties": false,
+      "properties": {
+        "approval_reference": { "$ref": "#/$defs/approval_reference" },
+        "target_reference": { "$ref": "#/$defs/target_reference" },
+        "role_id": { "$ref": "#/$defs/role" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "subject": { "$ref": "#/$defs/subject" },
+        "provider_user_reference": { "$ref": "#/$defs/reference" },
+        "provider_principal_key": { "$ref": "#/$defs/subject" },
+        "principal_locator_digest": { "$ref": "#/$defs/digest" },
+        "membership_reference": { "$ref": "#/$defs/membership_reference" },
+        "before_membership_version": { "$ref": "#/$defs/version_string" },
+        "after_membership_version": { "$ref": "#/$defs/version_string" },
+        "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$" },
+        "expected_state": { "$ref": "#/$defs/state" },
+        "desired_state": { "$ref": "#/$defs/state" },
+        "before_role_id": { "$ref": "#/$defs/role" },
+        "after_role_id": { "$ref": "#/$defs/role" },
+        "effect_order": {
+          "enum": [
+            "provider_before_membership",
+            "membership_before_provider",
+            "membership_only"
+          ]
+        },
+        "admin_replacement_reference": { "$ref": "#/$defs/membership_reference" },
+        "admin_replacement_version": { "$ref": "#/$defs/version_string" },
+        "session_revocation_reference": { "$ref": "#/$defs/reference" },
+        "audit_receipt_reference": { "$ref": "#/$defs/reference" }
+      }
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "updated_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stage": { "enum": ["audit_committed", "completed"] }
+        },
+        "required": ["stage"]
+      },
+      "then": {
+        "properties": {
+          "evidence": { "required": ["audit_receipt_reference"] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "subject": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "reference": { "type": "string", "pattern": "^ref_[A-Za-z0-9][A-Za-z0-9_-]{15,127}$" },
+    "approval_reference": { "type": "string", "pattern": "^apr_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$" },
+    "membership_reference": { "type": "string", "pattern": "^mbr_[0-9a-f]{32,64}$" },
+    "target_reference": {
+      "type": "string",
+      "anyOf": [
+        { "$ref": "#/$defs/membership_reference" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "version_string": { "type": "string", "pattern": "^[0-9]+$" },
+    "state": { "enum": ["invited", "active", "suspended", "expired", "revoked"] },
+    "role": { "enum": ["auditor", "customer_admin", "document_operator", "document_reviewer"] }
+  }
+}

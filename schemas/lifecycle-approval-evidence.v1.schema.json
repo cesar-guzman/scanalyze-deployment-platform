@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/lifecycle-approval-evidence.v1.schema.json",
+  "title": "Scanalyze Lifecycle Approval Evidence v1",
+  "description": "Current authoritative approval for one exact customer, deployment, operation and target.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "approval_reference",
+    "approver_subject",
+    "customer_id",
+    "deployment_id",
+    "operation",
+    "target_reference",
+    "request_digest",
+    "state",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "lifecycle-approval-evidence.v1" },
+    "approval_reference": { "type": "string", "pattern": "^apr_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$" },
+    "approver_subject": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "membership.invite",
+        "membership.activate",
+        "membership.change_role",
+        "membership.suspend",
+        "membership.reactivate",
+        "membership.revoke",
+        "membership.revoke_sessions"
+      ]
+    },
+    "target_reference": {
+      "type": "string",
+      "anyOf": [
+        { "pattern": "^mbr_[0-9a-f]{32,64}$" },
+        { "pattern": "^sha256:[0-9a-f]{64}$" }
+      ]
+    },
+    "request_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "state": { "const": "approved" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  }
+}

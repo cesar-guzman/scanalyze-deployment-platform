@@ -120,3 +120,9 @@ For GUG-153, ingest only
 `../../_NotebookLM_Brain/14_GUG153_Human_Authorization_Enforcement.md`. Do not
 ingest access tokens, raw claims, membership/grant inventories, audit streams,
 object locators, customer data, screenshots, logs, or live evidence.
+
+For GUG-94, ingest only
+`../../_NotebookLM_Brain/15_GUG94_Enterprise_User_Lifecycle.md`. Do not ingest
+user locators, provider payloads, membership/approval/operation/audit records,
+temporary credentials, tokens, Terraform plans/state, screenshots, logs, or
+live evidence.

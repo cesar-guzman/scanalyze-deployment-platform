@@ -490,3 +490,13 @@ snapshots, alter data, migrate identities, delete resources, or redrive queues.
 Documentation and local tests are not deployment evidence. Only exact-commit
 CI, reviewed merge, main verification, explicitly authorized non-production
 execution, and separately reviewed live evidence may advance those classes.
+
+### GUG-94 integration note
+
+ADR-026 implements the provider-neutral lifecycle runtime, canonical
+membership adapter, owner-bound queries, conditional mutations, durable
+lifecycle audit, and recoverable bootstrap expected by this decision. It does
+not by itself install the GUG-153 authoritative-state/audit runtime or enable
+either human gate in a deployment. The remaining live boundary is explicit
+workload IAM/runtime composition, provider-backed assurance, GUG-95 E2E, and
+the authorized two-deployment isolation proof.
