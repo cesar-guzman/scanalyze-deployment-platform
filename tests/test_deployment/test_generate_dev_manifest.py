@@ -13,6 +13,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "deployment" / "generate-dev-manifest.sh"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
+CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 GITHUB_ENVIRONMENT = f"scanalyze-{DEPLOYMENT_ID}-dev"
 
 
@@ -41,7 +42,7 @@ def _generator_args(output: Path) -> list[str]:
     return [
         "bash",
         str(SCRIPT),
-        "synthetic-dev",
+        CUSTOMER_ID,
         "--deployment-id",
         DEPLOYMENT_ID,
         "--github-environment",
@@ -56,7 +57,7 @@ def test_generator_requires_explicit_output() -> None:
         [
             "bash",
             str(SCRIPT),
-            "synthetic-dev",
+            CUSTOMER_ID,
             "--deployment-id",
             DEPLOYMENT_ID,
             "--github-environment",
@@ -106,7 +107,7 @@ def test_generator_writes_private_file_outside_repository(tmp_path: Path) -> Non
     assert "123456789012" not in result.stdout
 
     content = output.read_text()
-    assert 'customer_id: "synthetic-dev"' in content
+    assert f'customer_id: "{CUSTOMER_ID}"' in content
     assert 'aws_account_id: "123456789012"' in content
     manifest = yaml.safe_load(content)
     assert manifest["deployment_id"] == DEPLOYMENT_ID
@@ -120,7 +121,7 @@ def test_generator_requires_registry_assigned_deployment_id(tmp_path: Path) -> N
         [
             "bash",
             str(SCRIPT),
-            "synthetic-dev",
+            CUSTOMER_ID,
             "--github-environment",
             GITHUB_ENVIRONMENT,
             "--output",
@@ -146,7 +147,7 @@ def test_generator_requires_separate_github_environment_binding(
         [
             "bash",
             str(SCRIPT),
-            "synthetic-dev",
+            CUSTOMER_ID,
             "--deployment-id",
             DEPLOYMENT_ID,
             "--output",

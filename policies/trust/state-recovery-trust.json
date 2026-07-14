@@ -13,8 +13,16 @@
           "aws:RequestTag/operation": "state-recovery",
           "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}"
         },
+        "StringLike": {
+          "aws:RequestTag/incident_id": "inc_*"
+        },
         "ForAllValues:StringEquals": {
-          "aws:TagKeys": ["deployment_id", "operation", "incident_id"]
+          "aws:TagKeys": [
+            "deployment_id",
+            "operation",
+            "incident_id",
+            "recovery_approved"
+          ]
         }
       }
     }

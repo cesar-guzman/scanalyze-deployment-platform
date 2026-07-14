@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/account-ready.v2.schema.json",
+  "title": "Scanalyze ACCOUNT_READY Contract v2",
+  "description": "Customer/deployment-bound account baseline evidence required before backend authorization.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "baseline_version",
+    "provisioned_at",
+    "roles",
+    "state_infrastructure",
+    "controls",
+    "contract_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "2" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "environment": {
+      "enum": ["sandbox", "dev", "staging", "production"]
+    },
+    "baseline_version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "provisioned_at": { "type": "string", "format": "date-time" },
+    "roles": {
+      "type": "object",
+      "required": ["plan", "apply", "promotion", "validation", "diagnostic", "state_recovery"],
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "$ref": "#/$defs/role" },
+        "apply": { "$ref": "#/$defs/role" },
+        "promotion": { "$ref": "#/$defs/role" },
+        "validation": { "$ref": "#/$defs/role" },
+        "diagnostic": { "$ref": "#/$defs/role" },
+        "state_recovery": { "$ref": "#/$defs/role" }
+      }
+    },
+    "state_infrastructure": {
+      "type": "object",
+      "required": [
+        "state_bucket",
+        "evidence_bucket",
+        "contracts_bucket",
+        "state_kms_key",
+        "evidence_kms_key",
+        "contracts_kms_key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state_bucket": { "$ref": "#/$defs/s3_arn" },
+        "evidence_bucket": { "$ref": "#/$defs/s3_arn" },
+        "contracts_bucket": { "$ref": "#/$defs/s3_arn" },
+        "state_kms_key": { "$ref": "#/$defs/kms_arn" },
+        "evidence_kms_key": { "$ref": "#/$defs/kms_arn" },
+        "contracts_kms_key": { "$ref": "#/$defs/kms_arn" }
+      }
+    },
+    "controls": {
+      "type": "object",
+      "required": [
+        "state_versioning_enabled",
+        "state_default_encryption",
+        "state_bucket_key_enabled",
+        "state_public_access_blocked",
+        "state_object_lock_enabled",
+        "native_lockfile_enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state_versioning_enabled": { "const": true },
+        "state_default_encryption": { "const": "aws:kms" },
+        "state_bucket_key_enabled": { "const": true },
+        "state_public_access_blocked": { "const": true },
+        "state_object_lock_enabled": { "const": false },
+        "native_lockfile_enabled": { "const": true }
+      }
+    },
+    "contract_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "s3_arn": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+    "kms_arn": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$" },
+    "role": {
+      "type": "object",
+      "required": ["arn", "customer_id_tag", "deployment_id_tag"],
+      "additionalProperties": false,
+      "properties": {
+        "arn": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$" },
+        "customer_id_tag": { "$ref": "#/$defs/customer_id" },
+        "deployment_id_tag": { "$ref": "#/$defs/deployment_id" }
+      }
+    }
+  }
+}

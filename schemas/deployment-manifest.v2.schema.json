@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-manifest.v2.schema.json",
+  "title": "Scanalyze Deployment Manifest v2",
+  "description": "Operator intent for one deployment. Target and Terraform backend coordinates are assertions only and are resolved from the approved deployment registry; request-supplied backend fields are forbidden.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "environment",
+    "aws_account_id",
+    "aws_region",
+    "github",
+    "ecr",
+    "base_image_uri",
+    "enabled_domains"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "2" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "environment": {
+      "type": "string",
+      "enum": ["sandbox", "dev", "staging", "production"]
+    },
+    "aws_account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "aws_region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "github": {
+      "type": "object",
+      "required": ["environment", "oidc_role_arn"],
+      "additionalProperties": false,
+      "properties": {
+        "environment": { "type": "string", "minLength": 1 },
+        "oidc_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$"
+        }
+      }
+    },
+    "ecr": {
+      "type": "object",
+      "required": ["prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+([._/-][a-z0-9]+)*$"
+        },
+        "immutable_tags": { "type": "boolean", "default": true },
+        "scan_on_push": { "type": "boolean", "default": true }
+      }
+    },
+    "base_image_uri": {
+      "type": "string",
+      "pattern": "@sha256:[0-9a-f]{64}$"
+    },
+    "enabled_domains": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["bank", "personal", "gov"] }
+    },
+    "domain": { "type": "string" },
+    "hosted_zone_id": { "type": "string" },
+    "feature_flags": { "type": "object", "additionalProperties": { "type": "boolean" } },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cognito_user_pool_id": { "type": "string" },
+        "cognito_client_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "allowed_token_uses": { "const": ["access"] },
+        "deployment_claim": { "const": "custom:deployment_id" }
+      }
+    },
+    "frontend": { "type": "object", "additionalProperties": true },
+    "observability": { "type": "object", "additionalProperties": true },
+    "rollback": { "type": "object", "additionalProperties": true },
+    "approval": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    }
+  }
+}

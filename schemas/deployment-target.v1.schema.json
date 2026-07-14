@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-target.v1.schema.json",
+  "title": "Approved Deployment Target v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "status",
+    "registry_version",
+    "account_ready",
+    "state_binding",
+    "record_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "deployment_target" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "environment": { "enum": ["sandbox", "dev", "staging", "production"] },
+    "status": {
+      "enum": ["REQUESTED", "BASELINING", "READY", "ACTIVE", "SUSPENDED", "OFFBOARDING", "ARCHIVED"]
+    },
+    "registry_version": { "type": "integer", "minimum": 1 },
+    "account_ready": {
+      "type": "object",
+      "required": ["schema_version", "baseline_version", "contract_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": "2" },
+        "baseline_version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "contract_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "state_binding": {
+      "type": "object",
+      "required": ["state_bucket", "state_kms_key"],
+      "additionalProperties": false,
+      "properties": {
+        "state_bucket": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+        "state_kms_key": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$" }
+      }
+    },
+    "record_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/terraform-backend-binding.v1.schema.json",
+  "title": "Authorized Terraform Backend Binding v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "layer",
+    "execution_id",
+    "registry_version",
+    "registry_record_digest",
+    "account_ready_digest",
+    "execution_lock_digest",
+    "backend",
+    "binding_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "environment": { "enum": ["sandbox", "dev", "staging", "production"] },
+    "layer": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "execution_id": { "type": "string", "pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "registry_version": { "type": "integer", "minimum": 1 },
+    "registry_record_digest": { "$ref": "#/$defs/digest" },
+    "account_ready_digest": { "$ref": "#/$defs/digest" },
+    "execution_lock_digest": { "$ref": "#/$defs/digest" },
+    "backend": {
+      "type": "object",
+      "required": ["bucket", "key", "region", "encrypt", "kms_key_id", "use_lockfile", "allowed_account_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+        "key": { "type": "string", "pattern": "^[A-Za-z0-9_./-]+/terraform\\.tfstate$" },
+        "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+        "encrypt": { "const": true },
+        "kms_key_id": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:kms:" },
+        "use_lockfile": { "const": true },
+        "allowed_account_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" }
+        }
+      }
+    },
+    "binding_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

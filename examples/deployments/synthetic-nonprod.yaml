@@ -9,20 +9,14 @@
 # All account IDs, ARNs, and resource identifiers below are synthetic.
 # Do NOT use these values against any AWS account.
 
-schema_version: "1"
+schema_version: "2"
 
-customer_id: "synthetic-acme"
+customer_id: "cust_01SYNTH3T1CABC0XAMP0EHABCD"
 deployment_id: "dep_01SYNTH3T1CABC0XAMP0EHABCD"
 environment: "sandbox"
 
 aws_account_id: "123456789012"
 aws_region: "us-east-1"
-
-terraform_backend:
-  bucket: "dep-01synth3t1cabc0xamp0ehabcd-tfstate"
-  lock_table: "dep_01SYNTH3T1CABC0XAMP0EHABCD-tflock"
-  key_prefix: "scanalyze/sandbox"
-  kms_key_alias: "alias/scanalyze-tfstate"
 
 github:
   environment: "synthetic-acme-sandbox"
