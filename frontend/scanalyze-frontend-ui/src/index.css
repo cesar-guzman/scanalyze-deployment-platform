@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-slate-950 text-slate-200 font-sans min-h-screen flex flex-col m-0 antialiased;
+  }
+  #root {
+    @apply flex-1 flex flex-col;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-slate-50 font-semibold;
+  }
+  a {
+    @apply text-indigo-400 font-medium hover:text-indigo-300 transition-colors;
+  }
+}
+
+@layer components {
+  /* Legacy Glassmorphism Classes Mapped to New Solid Variant */
+  .glass-container {
+    @apply bg-slate-900 border border-slate-800 rounded-xl shadow-lg;
+  }
+
+  /* Base Buttons */
+  button, .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 gap-2 text-base font-medium rounded-lg transition-all cursor-pointer border border-transparent focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950;
+  }
+
+  /* Primary Button */
+  .btn-primary {
+    @apply bg-indigo-600 hover:bg-indigo-500 text-white shadow-md focus:ring-indigo-500;
+  }
+  .btn-primary:active {
+    @apply transform-none;
+  }
+
+  /* Outline Button */
+  .btn-outline {
+    @apply bg-transparent border-slate-700 hover:bg-slate-800 hover:border-slate-600 text-slate-200 focus:ring-slate-400;
+  }
+
+  /* Danger Button */
+  .btn-danger {
+    @apply bg-rose-600 hover:bg-rose-500 text-white shadow-md focus:ring-rose-500;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out forwards;
+  }
+}
+
+@keyframes fadeInScale {
+  0% { opacity: 0; transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideUp {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}

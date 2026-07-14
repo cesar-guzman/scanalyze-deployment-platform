@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -16,6 +16,7 @@ TESTS_DIR    := tests
 help:
 	@echo "Scanalyze validation targets:"
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
+	@echo "  make frontend-check       Reinstall, audit, test, lint, and build the portable SPA"
 	@echo "  make github-governance-check Validate stable required-check policy offline"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
@@ -155,6 +156,14 @@ microservices-check:
 	@echo "Checking monorepo microservice portability and safety..."
 	@$(PYTHON) $(TOOLING_DIR)/check_microservices.py
 	@echo "Microservices check complete."
+
+# ── Frontend Check ──────────────────────────────────────────────────
+frontend-check:
+	@echo "Checking portable frontend source from a clean dependency install..."
+	@cd frontend/scanalyze-frontend-ui && npm ci
+	@cd frontend/scanalyze-frontend-ui && npm run check
+	@cd frontend/scanalyze-frontend-ui && npm run audit
+	@echo "Frontend check complete. E2E requires the reviewed Playwright browser install."
 
 # ── GitHub Governance Check ──────────────────────────────────────────
 github-governance-check:

@@ -26,6 +26,13 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/scanalyze-frontend-ui/package-lock.json
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
@@ -57,6 +64,24 @@ jobs:
 
       - name: Docs check
         run: make docs-check
+
+      - name: Install frontend dependencies
+        working-directory: frontend/scanalyze-frontend-ui
+        run: npm ci
+
+      - name: Validate frontend source
+        working-directory: frontend/scanalyze-frontend-ui
+        run: |
+          npm run check
+          npm run audit
+
+      - name: Install Playwright Chromium
+        working-directory: frontend/scanalyze-frontend-ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frontend E2E tests
+        working-directory: frontend/scanalyze-frontend-ui
+        run: npm run test:e2e
 
   python-tests:
     name: Python tests

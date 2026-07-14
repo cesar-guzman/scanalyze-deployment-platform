@@ -1,0 +1,28 @@
+{
+  "schema_version": "frontend-source-provenance.v1",
+  "source_repository": "scanalyze-frontend-ui",
+  "source_remote_kind": "aws_codecommit",
+  "source_ref": "refs/remotes/origin/main",
+  "source_commit": "959b52e57fc0a6f70cc57725ced3dae07a6bf2db",
+  "source_tree": "fcee267a7cce115cfe8ab377335885e03f65a821",
+  "verification": "locally_cached_remote_tracking_ref",
+  "live_source_verified": false,
+  "imported_at": "2026-07-14T04:10:00Z",
+  "target_path": "frontend/scanalyze-frontend-ui",
+  "imported_classes": [
+    "configuration",
+    "source",
+    "tests",
+    "toolchain_lock"
+  ],
+  "excluded_classes": [
+    "build_outputs",
+    "deployment_automation",
+    "environment_files",
+    "legacy_ci_configuration",
+    "live_runtime_configuration",
+    "operational_evidence",
+    "untracked_or_modified_worktree_content"
+  ],
+  "production_authorized": false
+}

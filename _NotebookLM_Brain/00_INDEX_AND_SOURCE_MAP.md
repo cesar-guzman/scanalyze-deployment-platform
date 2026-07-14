@@ -112,6 +112,7 @@ Cuando dos documentos difieran, usar este orden:
 | [12 — GUG-92 Enterprise Authorization](12_GUG92_Enterprise_Authorization.md) | RBAC+ABAC portable, scopes, lifecycle, bootstrap, soporte JIT, break-glass, migración y límites de evidencia |
 | [13 — GUG-93 Identity Control Plane](13_GUG93_Identity_Control_Plane.md) | Cognito como adapter no autoritativo, access tokens, bootstrap one-use, M2M runtime sin secretos en Terraform, contratos, migración/retiro y límites de evidencia |
 | [14 — GUG-153 Human Authorization Enforcement](14_GUG153_Human_Authorization_Enforcement.md) | Snapshot humano bounded, PDP/PEP tipado, 30 rutas, role/data-class checks, step-up, audit, ownership y límites de evidencia |
+| [16 — GUG-95 Frontend Source Consolidation](16_GUG95_Frontend_Source_Consolidation.md) | Fuente SPA canónica, procedencia cerrada, config v2 fail-closed, CI reproducible y límites NO-GO |
 
 ## Reglas de ingestión y mantenimiento
 
