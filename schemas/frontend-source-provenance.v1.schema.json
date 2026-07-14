@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/frontend-source-provenance.v1.schema.json",
+  "title": "Scanalyze frontend source provenance v1",
+  "description": "Closed migration record for importing the portable SPA source into the canonical monorepo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_repository",
+    "source_remote_kind",
+    "source_ref",
+    "source_commit",
+    "source_tree",
+    "verification",
+    "live_source_verified",
+    "imported_at",
+    "target_path",
+    "imported_classes",
+    "excluded_classes",
+    "production_authorized"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "frontend-source-provenance.v1"
+    },
+    "source_repository": {
+      "type": "string",
+      "const": "scanalyze-frontend-ui"
+    },
+    "source_remote_kind": {
+      "type": "string",
+      "const": "aws_codecommit"
+    },
+    "source_ref": {
+      "type": "string",
+      "const": "refs/remotes/origin/main"
+    },
+    "source_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_tree": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "verification": {
+      "type": "string",
+      "const": "locally_cached_remote_tracking_ref"
+    },
+    "live_source_verified": {
+      "type": "boolean",
+      "const": false
+    },
+    "imported_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target_path": {
+      "type": "string",
+      "const": "frontend/scanalyze-frontend-ui"
+    },
+    "imported_classes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["configuration", "source", "tests", "toolchain_lock"]
+      }
+    },
+    "excluded_classes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "build_outputs",
+          "deployment_automation",
+          "environment_files",
+          "legacy_ci_configuration",
+          "live_runtime_configuration",
+          "operational_evidence",
+          "untracked_or_modified_worktree_content"
+        ]
+      }
+    },
+    "production_authorized": {
+      "type": "boolean",
+      "const": false
+    }
+  }
+}

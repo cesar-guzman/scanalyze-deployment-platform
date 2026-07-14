@@ -27,6 +27,7 @@ supported.
 
 ```text
 backend/workers/        Canonical source for all seven microservices
+frontend/               Canonical source for the portable Scanalyze SPA
 .github/workflows/      Path-aware validation and protected image publishing
 governance/             Declarative, client-independent repository policy
 deployment/             Canonical GitOps stage graph and orchestration metadata
@@ -95,6 +96,7 @@ plan must remove it to reach the no-source-in-customer target state.
 
 ```bash
 make microservices-check
+make frontend-check
 make github-governance-check
 make security-check
 make git-safety
@@ -129,6 +131,9 @@ plan in non-production before any production release.
 The monorepo source decision, source revision, exclusions, Terraform compatibility
 plan, and residual risks are documented in
 [`docs/migration/monorepo-microservices-migration.md`](docs/migration/monorepo-microservices-migration.md).
+The frontend source snapshot, exclusions, provenance class, and rollback are
+recorded separately in
+[`docs/migration/frontend-source-consolidation.md`](docs/migration/frontend-source-consolidation.md).
 
 ## Deployment documentation
 
