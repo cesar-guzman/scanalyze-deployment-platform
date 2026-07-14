@@ -31,6 +31,7 @@ the deployment default until an authorized rollout.
 | GET | `/api/v1/admin/roles` | `authorization.roles.read` | customer admin | no | no |
 | GET | `/api/v1/admin/memberships` | `authorization.memberships.list` | customer admin | no | no |
 | POST | `/api/v1/admin/invitations` | `authorization.invitations.create` | customer admin | yes | required |
+| POST | `/api/v1/admin/memberships/{ref}/invitation-resends` | `authorization.invitations.create` | customer admin | yes | required |
 | POST | `/api/v1/admin/memberships/{ref}/activations` | `authorization.memberships.activate` | customer admin | yes | required |
 | POST | `/api/v1/admin/memberships/{ref}/role-changes` | `authorization.memberships.role_change` | customer admin | yes | required |
 | POST | `/api/v1/admin/memberships/{ref}/suspensions` | `authorization.memberships.suspend` | customer admin | yes | required |
@@ -77,6 +78,10 @@ bound, issued by a subject distinct from both actor and target, and bound to the
 exact canonical request digest. A changed role, reason, version, replacement,
 or expiry therefore requires new approval evidence.
 
+Invitation resend adds `expires_in_seconds`, requires the target to remain in
+the exact owned `invited` state/version, and records
+`membership.resend_invitation` in the operation and audit contracts.
+
 Payloads reject `customer_id`, `deployment_id`, `tenant_id`, `X-Tenant-ID`, and
 normalized variants. Idempotency keys are bound to the actor and canonical
 request digest and cannot be reused for different input.
@@ -118,6 +123,11 @@ commit the guarded membership restriction before provider disable; role change
 and explicit session revocation commit membership state before invalidating
 sessions. A missing or conflicting order marker fails unavailable. Raw provider
 responses and secret delivery values are never returned or logged.
+
+Invitation resend reconciles the exact owned provider user before requesting
+`RESEND`. Its provider-applied checkpoint precedes an owner-, provider-, state-,
+and version-bound membership expiry refresh, preventing a recovered retry from
+duplicating the notification effect.
 
 ## Activation checklist
 

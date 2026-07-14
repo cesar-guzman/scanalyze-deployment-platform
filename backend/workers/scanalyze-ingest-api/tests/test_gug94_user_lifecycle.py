@@ -28,6 +28,7 @@ from app.user_lifecycle import (
     ApprovalEvidence,
     EnterpriseLifecycleRuntime,
     IdempotencyConflict,
+    InvitationResendRequest,
     LifecycleAuditReceipt,
     LifecycleCommand,
     LifecycleOperation,
@@ -137,6 +138,7 @@ class FakeOperationStore:
         self.memberships: dict[str, MembershipRecord] = {}
         self.list_calls: list[dict[str, Any]] = []
         self.fail_audit_checkpoint = False
+        self.fail_provider_applied_checkpoint = False
 
     def reserve_operation(self, command: LifecycleCommand) -> LifecycleOperationRecord:
         key = (command.customer_id, command.deployment_id, command.idempotency_key)
@@ -159,6 +161,11 @@ class FakeOperationStore:
     ) -> LifecycleOperationRecord:
         if self.fail_audit_checkpoint and next_stage is LifecycleOperationStage.AUDIT_COMMITTED:
             raise RuntimeError("synthetic checkpoint failure")
+        if (
+            self.fail_provider_applied_checkpoint
+            and next_stage is LifecycleOperationStage.PROVIDER_APPLIED
+        ):
+            raise RuntimeError("synthetic provider checkpoint failure")
         current = self.operations[(record.customer_id, record.deployment_id, record.idempotency_key)]
         if current.stage is not expected_stage:
             return current
@@ -265,9 +272,33 @@ class FakeOperationStore:
         self.memberships[current.membership_reference] = updated
         return updated
 
+    def refresh_invitation(
+        self,
+        *,
+        current: MembershipRecord,
+        expected_version: int,
+        expires_at: datetime,
+        operation_reference: str,
+    ) -> MembershipRecord:
+        stored = self.memberships[current.membership_reference]
+        if (
+            stored.state is not MembershipState.INVITED
+            or stored.membership_version != expected_version
+        ):
+            raise RuntimeError("synthetic conditional conflict")
+        updated = replace(
+            stored,
+            membership_version=stored.membership_version + 1,
+            updated_at=NOW,
+            invitation_expires_at=expires_at,
+        )
+        self.memberships[current.membership_reference] = updated
+        return updated
+
 class FakeProvider:
     def __init__(self) -> None:
         self.invites = 0
+        self.resends = 0
         self.activations = 0
         self.enabled: list[tuple[str, bool]] = []
         self.session_revocations = 0
@@ -279,6 +310,16 @@ class FakeProvider:
             provider_user_reference="ref_" + "b" * 24,
             provider_principal_key="synthetic-provider-principal",
             principal_locator_digest=request["principal_locator_digest"],
+            state="invited",
+        )
+
+    def resend_invitation(self, **request: Any) -> ProviderUserReceipt:
+        self.resends += 1
+        return ProviderUserReceipt(
+            subject=request["subject"],
+            provider_user_reference=request["provider_user_reference"],
+            provider_principal_key=request["provider_principal_key"],
+            principal_locator_digest="sha256:" + "c" * 64,
             state="invited",
         )
 
@@ -438,6 +479,68 @@ def test_invitation_uses_auth_owner_and_authoritative_approval() -> None:
     serialized = str(audit.events[-1])
     assert "synthetic.user@example.invalid" not in serialized
     assert TARGET_SUBJECT not in serialized
+
+
+def test_invitation_resend_is_owner_bound_idempotent_and_versioned() -> None:
+    service, store, provider, _, audit = _service()
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    request = InvitationResendRequest(
+        expected_membership_version=3,
+        expires_in_seconds=3600,
+        approval_reference="apr_" + "2" * 32,
+        reason_code="invitation_resend",
+    )
+
+    result = service.resend_invitation(
+        _auth(),
+        invited.membership_reference,
+        request,
+        idempotency_key="idem_" + "8" * 32,
+    )
+
+    assert result.status == "completed"
+    assert provider.resends == 1
+    refreshed = store.memberships[invited.membership_reference]
+    assert refreshed.membership_version == 4
+    assert refreshed.invitation_expires_at == NOW + timedelta(seconds=3600)
+    assert audit.events[-1]["action"] == LifecycleOperation.RESEND_INVITATION.value
+
+    retry = service.resend_invitation(
+        _auth(),
+        invited.membership_reference,
+        request,
+        idempotency_key="idem_" + "8" * 32,
+    )
+    assert retry.operation_reference == result.operation_reference
+    assert provider.resends == 1
+
+
+def test_ambiguous_invitation_resend_is_quarantined_without_duplicate_effect() -> None:
+    service, store, provider, *_ = _service()
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    store.fail_provider_applied_checkpoint = True
+    request = InvitationResendRequest(
+        expected_membership_version=3,
+        expires_in_seconds=3600,
+        approval_reference="apr_" + "3" * 32,
+        reason_code="invitation_resend",
+    )
+
+    for _ in range(2):
+        _assert_denied(
+            lambda: service.resend_invitation(
+                _auth(),
+                invited.membership_reference,
+                request,
+                idempotency_key="idem_" + "9" * 32,
+            ),
+            status=503,
+        )
+
+    assert provider.resends == 1
+    assert store.memberships[invited.membership_reference].membership_version == 3
 
 
 def test_conflicting_idempotency_key_denies_without_second_provider_effect() -> None:

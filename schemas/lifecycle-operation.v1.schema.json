@@ -26,6 +26,7 @@
       "type": "string",
       "enum": [
         "membership.invite",
+        "membership.resend_invitation",
         "membership.activate",
         "membership.change_role",
         "membership.suspend",
@@ -44,6 +45,7 @@
       "enum": [
         "reserved",
         "approval_validated",
+        "provider_effect_reserved",
         "provider_applied",
         "membership_applied",
         "sessions_revoked",
@@ -64,6 +66,7 @@
         "provider_user_reference": { "$ref": "#/$defs/reference" },
         "provider_principal_key": { "$ref": "#/$defs/subject" },
         "principal_locator_digest": { "$ref": "#/$defs/digest" },
+        "provider_effect_reference": { "$ref": "#/$defs/reference" },
         "membership_reference": { "$ref": "#/$defs/membership_reference" },
         "before_membership_version": { "$ref": "#/$defs/version_string" },
         "after_membership_version": { "$ref": "#/$defs/version_string" },

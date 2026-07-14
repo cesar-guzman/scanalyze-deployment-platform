@@ -106,7 +106,8 @@
       "properties": {
         "document_upload": { "type": "boolean" },
         "batch_processing": { "type": "boolean" },
-        "audit_view": { "type": "boolean" }
+        "audit_view": { "type": "boolean" },
+        "user_administration": { "type": "boolean" }
       }
     },
     "config_version": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }

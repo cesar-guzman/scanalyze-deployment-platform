@@ -178,6 +178,37 @@ def test_state_filter_and_cursor_remain_bound_to_exact_owner_and_state() -> None
     assert second_request["ExclusiveStartKey"] == last_key
 
 
+def test_invitation_refresh_condition_binds_owner_provider_state_and_version() -> None:
+    table = FakeTable()
+    invited = replace(
+        _member(state=MembershipState.INVITED),
+        invitation_expires_at=NOW,
+    )
+    expires_at = datetime(2026, 7, 13, 4, 0, tzinfo=timezone.utc)
+
+    refreshed = DynamoLifecycleStore(table).refresh_invitation(
+        current=invited,
+        expected_version=3,
+        expires_at=expires_at,
+        operation_reference="op_" + "8" * 32,
+    )
+
+    name, request = table.calls[-1]
+    assert name == "update_item"
+    condition = request["ConditionExpression"]
+    assert "customer_id = :customer_id" in condition
+    assert "deployment_id = :deployment_id" in condition
+    assert "membership_reference = :membership_reference" in condition
+    assert "#state = :invited" in condition
+    assert "membership_version = :expected_version" in condition
+    assert "provider_user_reference = :provider_reference" in condition
+    assert "provider_principal_key = :provider_key" in condition
+    assert request["ExpressionAttributeValues"][":customer_id"] == CUSTOMER_ID
+    assert request["ExpressionAttributeValues"][":deployment_id"] == DEPLOYMENT_ID
+    assert refreshed.membership_version == 4
+    assert refreshed.invitation_expires_at == expires_at
+
+
 def test_foreign_or_malformed_state_cursor_is_rejected_before_query() -> None:
     table = FakeTable()
     cursor = _cursor_encode(
@@ -395,6 +426,8 @@ class FakeCognito:
 
     def admin_create_user(self, **request: Any) -> dict[str, Any]:
         self.calls.append(("admin_create_user", request))
+        if request.get("MessageAction") == "RESEND":
+            return {"User": self.users[request["Username"]]}
         attributes = [*request["UserAttributes"], {"Name": "sub", "Value": "provider-subject"}]
         user = {
             "Username": request["Username"],
@@ -439,6 +472,62 @@ def test_cognito_invitation_uses_immutable_owner_attributes_and_returns_no_locat
     assert attributes["custom:deployment_id"] == DEPLOYMENT_ID
     assert receipt.principal_locator_digest == locator_digest
     assert "synthetic@example.invalid" not in repr(receipt)
+
+
+def test_cognito_invitation_resend_reconciles_owner_before_resend() -> None:
+    client = FakeCognito()
+    adapter = CognitoIdentityLifecycleProvider(client, user_pool_id="us-east-1_SYNTHETIC")
+    receipt = adapter.invite_user(
+        principal_locator="synthetic@example.invalid",
+        principal_locator_digest="sha256:" + "d" * 64,
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+    )
+
+    resent = adapter.resend_invitation(
+        subject=receipt.subject,
+        provider_user_reference=receipt.provider_user_reference,
+        provider_principal_key=receipt.provider_principal_key,
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+        idempotency_key="idem_" + "8" * 32,
+    )
+
+    resend_call = [request for name, request in client.calls if name == "admin_create_user"][-1]
+    assert resend_call == {
+        "UserPoolId": "us-east-1_SYNTHETIC",
+        "Username": receipt.provider_principal_key,
+        "MessageAction": "RESEND",
+    }
+    assert resent.subject == receipt.subject
+
+
+def test_cognito_invitation_resend_rejects_foreign_binding_before_effect() -> None:
+    client = FakeCognito()
+    adapter = CognitoIdentityLifecycleProvider(client, user_pool_id="us-east-1_SYNTHETIC")
+    receipt = adapter.invite_user(
+        principal_locator="synthetic@example.invalid",
+        principal_locator_digest="sha256:" + "e" * 64,
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+    )
+    client.users[receipt.provider_principal_key]["Attributes"] = [
+        {"Name": "sub", "Value": receipt.subject},
+        {"Name": "custom:customerId", "Value": FOREIGN_CUSTOMER_ID},
+        {"Name": "custom:deployment_id", "Value": DEPLOYMENT_ID},
+    ]
+
+    with pytest.raises(LifecycleAdapterContractError):
+        adapter.resend_invitation(
+            subject=receipt.subject,
+            provider_user_reference=receipt.provider_user_reference,
+            provider_principal_key=receipt.provider_principal_key,
+            customer_id=CUSTOMER_ID,
+            deployment_id=DEPLOYMENT_ID,
+            idempotency_key="idem_" + "9" * 32,
+        )
+
+    assert len([call for call in client.calls if call[0] == "admin_create_user"]) == 1
 
 
 def test_cognito_reconciliation_rejects_foreign_provider_binding() -> None:

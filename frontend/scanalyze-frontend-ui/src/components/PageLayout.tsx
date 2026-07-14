@@ -1,11 +1,22 @@
 import React from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useLocation } from 'react-router-dom';
+import { getConfig } from '../config';
+import { resolveEnterpriseUxAuthorizationFromSession } from '../security/enterpriseUxAuthorization.js';
 
 export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useAuth();
   const location = useLocation();
   const isDashboard = location.pathname === '/dashboard';
+  let showUserAdministration = false;
+  try {
+    const config = getConfig();
+    const capabilities = resolveEnterpriseUxAuthorizationFromSession(auth.user, config);
+    showUserAdministration = config.features.user_administration === true
+      && (capabilities.canManageUsers || capabilities.canReadAudit);
+  } catch {
+    showUserAdministration = false;
+  }
 
   return (
     <div className="flex flex-col min-h-screen w-full relative overflow-hidden bg-slate-950 text-slate-200">
@@ -32,9 +43,14 @@ export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }
                <span>&larr;</span> Dashboard
              </Link>
           )}
+          {showUserAdministration && location.pathname !== '/admin/users' && (
+            <Link to="/admin/users" className="text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors px-3 py-1.5 rounded-lg border border-slate-800 bg-white/5 hover:bg-white/10">
+              Usuarios
+            </Link>
+          )}
           <div className="items-end hidden sm:flex flex-col">
             <span className="text-xs text-slate-400">Usuario Conectado</span>
-            <span className="font-medium text-slate-200 text-sm">{auth.user?.profile?.email || 'Admin'}</span>
+            <span className="font-medium text-slate-200 text-sm">Sesión activa</span>
           </div>
           <button
             className="btn btn-outline text-sm py-1.5 px-3 whitespace-nowrap"

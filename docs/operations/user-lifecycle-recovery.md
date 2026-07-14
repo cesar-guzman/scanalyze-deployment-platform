@@ -29,6 +29,7 @@ explicit profile/region, least privilege, and an incident/change record.
 |---|---|---|
 | `reserved` | no approved effect | Verify approval dependency, then exact retry |
 | `approval_validated` | exact request-bound approval; no effect order assumed | Verify immutable `effect_order`, then exact retry |
+| `provider_effect_reserved` | one resend attempt may be in flight and Cognito has no delivery receipt/idempotency token | Do not retry automatically; quarantine and reconcile sanitized provider/operation evidence under separate approval |
 | `provider_applied` | provider-first effect proven for activation/reactivation | Exact retry; conditionally apply active membership |
 | `membership_applied` | membership-first restriction/change proven | Exact retry; reconcile provider effect and/or revoke sessions as required |
 | `sessions_revoked` | provider sessions invalidated | Exact retry; emit durable audit |
@@ -82,6 +83,17 @@ quarantine and provider-security review.
 This state is valid only for activation/reactivation with the exact
 `provider_then_membership` marker. For a restrictive mutation, it is ambiguous
 and must be quarantined.
+
+### Invitation resend is reserved but not checkpointed as applied
+
+Do not resend automatically. Cognito does not accept an idempotency token for
+`MessageAction=RESEND` and does not return a durable delivery receipt. The
+pre-effect `provider_effect_reserved` checkpoint therefore makes an ambiguous
+retry fail closed instead of sending a duplicate notification. Classify the
+operation `manual_review_required`, reconcile only opaque operation/provider
+references through an approved procedure, and issue a new operation and
+approval only after the previous attempt is resolved. Never reset or advance
+the stored stage manually.
 
 ### Membership changed, session revocation failed
 

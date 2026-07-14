@@ -60,6 +60,7 @@ _OPERATION_EVIDENCE_FIELDS = frozenset(
         "provider_user_reference",
         "provider_principal_key",
         "principal_locator_digest",
+        "provider_effect_reference",
         "membership_reference",
         "before_membership_version",
         "after_membership_version",
@@ -678,6 +679,89 @@ class DynamoLifecycleStore:
             raise IdempotencyConflict()
         return result
 
+    def refresh_invitation(
+        self,
+        *,
+        current: MembershipRecord,
+        expected_version: int,
+        expires_at: datetime,
+        operation_reference: str,
+    ) -> MembershipRecord:
+        if (
+            current.state is not MembershipState.INVITED
+            or current.membership_version != expected_version
+            or expires_at.tzinfo is None
+        ):
+            raise LifecycleAdapterContractError()
+        now = datetime.now(timezone.utc)
+        next_version = expected_version + 1
+        key = {
+            "pk": _membership_pk(current.customer_id, current.deployment_id),
+            "sk": f"SUBJECT#{current.subject}",
+        }
+        values = {
+            ":customer_id": current.customer_id,
+            ":deployment_id": current.deployment_id,
+            ":membership_reference": current.membership_reference,
+            ":invited": MembershipState.INVITED.value,
+            ":expected_version": expected_version,
+            ":provider_reference": current.provider_user_reference,
+            ":provider_key": current.provider_principal_key,
+            ":next_version": next_version,
+            ":expires_at": _timestamp(expires_at),
+            ":updated_at": _timestamp(now),
+            ":operation_reference": operation_reference,
+        }
+        try:
+            self.table.update_item(
+                Key=key,
+                UpdateExpression=(
+                    "SET membership_version = :next_version, "
+                    "invitation_expires_at = :expires_at, updated_at = :updated_at, "
+                    "last_operation_reference = :operation_reference"
+                ),
+                ConditionExpression=(
+                    "customer_id = :customer_id AND deployment_id = :deployment_id "
+                    "AND membership_reference = :membership_reference "
+                    "AND #state = :invited AND membership_version = :expected_version "
+                    "AND provider_user_reference = :provider_reference "
+                    "AND provider_principal_key = :provider_key"
+                ),
+                ExpressionAttributeNames={"#state": "state"},
+                ExpressionAttributeValues=values,
+            )
+            return replace(
+                current,
+                membership_version=next_version,
+                updated_at=now,
+                invitation_expires_at=expires_at,
+            )
+        except Exception as error:
+            if _error_code(error) != _CONDITIONAL_FAILURE:
+                raise
+        response = self.table.get_item(Key=key, ConsistentRead=True)
+        item = response.get("Item") if isinstance(response, Mapping) else None
+        if (
+            not isinstance(item, Mapping)
+            or item.get("last_operation_reference") != operation_reference
+        ):
+            raise IdempotencyConflict()
+        result = self._membership_from_item(item)
+        if not (
+            result.customer_id == current.customer_id
+            and result.deployment_id == current.deployment_id
+            and result.membership_reference == current.membership_reference
+            and result.subject == current.subject
+            and result.state is MembershipState.INVITED
+            and result.role_id is current.role_id
+            and result.membership_version == next_version
+            and result.provider_user_reference == current.provider_user_reference
+            and result.provider_principal_key == current.provider_principal_key
+            and result.invitation_expires_at == expires_at
+        ):
+            raise IdempotencyConflict()
+        return result
+
     def _load_operation(self, command: LifecycleCommand) -> LifecycleOperationRecord:
         response = self.table.get_item(
             Key={
@@ -1015,6 +1099,16 @@ class CognitoIdentityLifecycleProvider:
 
     def confirm_activation(self, **request: Any) -> ProviderUserReceipt:
         return self._read_bound(request, expected_state="active")
+
+    def resend_invitation(self, **request: Any) -> ProviderUserReceipt:
+        key = self._request_key(request)
+        self._read_bound(request, expected_state="invited")
+        self.client.admin_create_user(
+            UserPoolId=self.user_pool_id,
+            Username=key,
+            MessageAction="RESEND",
+        )
+        return self._read_bound(request, expected_state="invited")
 
     def set_user_enabled(self, **request: Any) -> ProviderUserReceipt:
         key = self._request_key(request)

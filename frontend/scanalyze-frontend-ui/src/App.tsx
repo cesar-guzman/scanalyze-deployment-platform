@@ -15,6 +15,7 @@ import CostsDashboard from './pages/CostsDashboard';
 import { BankStatements } from './pages/BankStatements';
 import { EmployeeProfiles } from './pages/EmployeeProfiles';
 import { EmployeeProfileDetail } from './pages/EmployeeProfileDetail';
+import { EnterpriseUserConsole } from './pages/EnterpriseUserConsole';
 
 const CallbackHandler: React.FC = () => {
   const auth = useAuth();
@@ -70,6 +71,7 @@ const AppRoutes = () => {
       <Route path="/bank-statements" element={<ProtectedRoute><BankStatements /></ProtectedRoute>} />
       <Route path="/employee-profiles" element={<ProtectedRoute><EmployeeProfiles /></ProtectedRoute>} />
       <Route path="/employee-profiles/:profileId" element={<ProtectedRoute><EmployeeProfileDetail /></ProtectedRoute>} />
+      <Route path="/admin/users" element={<ProtectedRoute><EnterpriseUserConsole /></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

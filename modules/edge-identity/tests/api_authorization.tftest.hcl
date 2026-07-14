@@ -155,10 +155,23 @@ run "uses_an_exact_cors_allowlist_without_legacy_identity_headers" {
         ]) == toset([
         "authorization",
         "content-type",
+        "idempotency-key",
         "x-amz-date",
       ])
     )
     error_message = "CORS must not advertise X-Tenant-ID or unreviewed headers as identity inputs"
+  }
+
+  assert {
+    condition = toset([
+      for header in aws_apigatewayv2_api.main.cors_configuration[0].expose_headers :
+      lower(header)
+      ]) == toset([
+      "x-correlation-id",
+      "x-request-id",
+      "x-trace-id",
+    ])
+    error_message = "CORS must expose only sanitized opaque diagnostic references"
   }
 }
 

@@ -14,6 +14,10 @@ EXPECTED_LIFECYCLE_ROUTES = {
     ("POST", "/api/v1/admin/invitations"): OperationId.AUTHORIZATION_INVITATIONS_CREATE,
     (
         "POST",
+        "/api/v1/admin/memberships/{membership_reference}/invitation-resends",
+    ): OperationId.AUTHORIZATION_INVITATIONS_CREATE,
+    (
+        "POST",
         "/api/v1/admin/memberships/{membership_reference}/activations",
     ): OperationId.AUTHORIZATION_MEMBERSHIPS_ACTIVATE,
     (

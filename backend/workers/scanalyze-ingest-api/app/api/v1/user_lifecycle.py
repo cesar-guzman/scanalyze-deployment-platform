@@ -12,6 +12,7 @@ from ...enterprise_authorization import OperationId
 from ...errors import AppError
 from ...user_lifecycle import (
     EnterpriseLifecycleRuntime,
+    InvitationResendRequest,
     MembershipState,
     RoleChangeRequest,
     TransitionRequest,
@@ -111,6 +112,24 @@ def create_invitation(
 ) -> LifecycleOutcomeResponse:
     return LifecycleOutcomeResponse.model_validate(
         service.invite_user(auth, body, idempotency_key=idempotency_key).to_public_dict()
+    )
+
+
+@router.post(
+    "/memberships/{membership_reference}/invitation-resends",
+    response_model=LifecycleOutcomeResponse,
+)
+def resend_invitation(
+    membership_reference: str,
+    body: InvitationResendRequest,
+    idempotency_key: IdempotencyKey,
+    auth: AuthContext = Depends(_CREATE_INVITATION),
+    service: LifecycleService = None,  # type: ignore[assignment]
+) -> LifecycleOutcomeResponse:
+    return _transition_response(
+        service.resend_invitation(
+            auth, membership_reference, body, idempotency_key=idempotency_key
+        )
     )
 
 

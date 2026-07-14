@@ -93,6 +93,10 @@ EXPECTED_ROUTE_OPERATIONS = {
     ("POST", "/api/v1/admin/invitations"): "authorization_administration.invitations.create",
     (
         "POST",
+        "/api/v1/admin/memberships/{membership_reference}/invitation-resends",
+    ): "authorization_administration.invitations.create",
+    (
+        "POST",
         "/api/v1/admin/memberships/{membership_reference}/activations",
     ): "authorization_administration.memberships.activate",
     (
@@ -178,10 +182,10 @@ def test_operation_id_rejects_unmapped_operations_fail_closed() -> None:
         OperationId(None)  # type: ignore[arg-type]
 
 
-def test_all_40_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
+def test_all_41_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
     """A new or unmarked protected route must break the closed inventory."""
 
-    assert len(EXPECTED_ROUTE_OPERATIONS) == 40
+    assert len(EXPECTED_ROUTE_OPERATIONS) == 41
     actual: dict[tuple[str, str], str] = {}
 
     for route in v1_router.routes:
