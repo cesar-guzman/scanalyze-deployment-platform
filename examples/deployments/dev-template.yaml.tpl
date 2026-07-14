@@ -3,7 +3,7 @@
 # DO NOT COMMIT THIS FILE — It is generated for local non-prod validation from
 # an identity already allocated by the approved deployment registry.
 
-schema_version: "1"
+schema_version: "2"
 
 customer_id: "__CUSTOMER_ID__"
 deployment_id: "__DEPLOYMENT_ID__"
@@ -11,12 +11,6 @@ environment: "dev"
 
 aws_account_id: "__ACCOUNT_ID__"
 aws_region: "__REGION__"
-
-terraform_backend:
-  bucket: "dep-__LOWER_ULID__-tfstate"
-  lock_table: "dep___LOWER_ULID__-tflock"
-  key_prefix: "scanalyze/dev"
-  kms_key_alias: "alias/scanalyze-tfstate"
 
 github:
   environment: "__GITHUB_ENVIRONMENT__"

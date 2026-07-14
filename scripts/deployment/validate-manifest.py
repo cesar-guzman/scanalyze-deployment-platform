@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SCHEMA_PATH = REPO_ROOT / "schemas" / "deployment-manifest.schema.json"
+SCHEMA_PATHS = {
+    "1": REPO_ROOT / "schemas" / "deployment-manifest.schema.json",
+    "2": REPO_ROOT / "schemas" / "deployment-manifest.v2.schema.json",
+}
 
 
 def main() -> int:
@@ -43,14 +46,6 @@ def main() -> int:
         print("BLOCKED: jsonschema not installed. Run: pip install jsonschema", file=sys.stderr)
         return 2
 
-    # Load schema
-    if not SCHEMA_PATH.exists():
-        print(f"ERROR: schema not found: {SCHEMA_PATH}", file=sys.stderr)
-        return 2
-
-    with open(SCHEMA_PATH) as f:
-        schema = json.load(f)
-
     # Load manifest
     with open(manifest_path) as f:
         manifest = yaml.safe_load(f)
@@ -58,6 +53,18 @@ def main() -> int:
     if not isinstance(manifest, dict):
         print("ERROR: manifest must be a YAML mapping", file=sys.stderr)
         return 1
+
+    schema_version = manifest.get("schema_version")
+    schema_path = SCHEMA_PATHS.get(schema_version)
+    if schema_path is None:
+        print("FAIL: unsupported deployment manifest schema_version", file=sys.stderr)
+        return 1
+    if not schema_path.exists():
+        print(f"ERROR: schema not found: {schema_path}", file=sys.stderr)
+        return 2
+
+    with open(schema_path) as f:
+        schema = json.load(f)
 
     # Validate against schema
     errors: list[str] = []

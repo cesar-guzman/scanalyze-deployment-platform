@@ -9,7 +9,8 @@ desired intent and may be reviewed in Git; the resolved manifest contains
 account-specific bindings and always remains outside the repository. See
 [`gitops-orchestrator.md`](gitops-orchestrator.md).
 
-**Schema**: `schemas/deployment-manifest.schema.json`
+**Operational schema**: `schemas/deployment-manifest.v2.schema.json`
+**Explicit legacy schema**: `schemas/deployment-manifest.schema.json`
 **Synthetic example**: `examples/deployments/synthetic-nonprod.yaml`
 
 ## Rules
@@ -20,10 +21,16 @@ account-specific bindings and always remains outside the repository. See
 4. **Account ID `000000000000` is rejected.** Placeholder protection.
 5. **ECR prefix must match deployment_id.** Cross-deployment image access is prevented.
 6. **OIDC role ARN must match account_id.** Cross-account role assumption is prevented.
+7. **Backend coordinates are forbidden in v2.** Bucket, key, KMS key, lock
+   mechanism, and allowed account are derived from the approved registry,
+   ACCOUNT_READY v2, execution lock, and canonical DAG.
 
 ## Schema Version
 
-The `schema_version` field enables forward-compatible evolution. Currently only `"1"` is accepted.
+The `schema_version` field enables explicit evolution. Version `"2"` is the
+only operational backend-authorization input. Version `"1"` remains parseable
+for legacy inventory and migration analysis, but it is denied by the GUG-122
+backend authorizer. There is no implicit conversion or fallback.
 
 ## Validation
 
@@ -38,7 +45,8 @@ python scripts/deployment/validate-manifest.py examples/deployments/synthetic-no
 ## Creating a Real Manifest
 
 1. Copy `examples/deployments/synthetic-nonprod.yaml` to a location **outside** the repository.
-2. Replace all synthetic values with real deployment-specific values.
+2. Replace all synthetic intent values with registry-issued assertions. Do not
+   add Terraform backend coordinates.
 3. Store securely (encrypted at rest, access-controlled).
 4. Never commit to Git.
 5. Pass to the orchestrator: `scanalyze-deploy.sh validate-manifest --manifest /path/to/real-manifest.yaml`

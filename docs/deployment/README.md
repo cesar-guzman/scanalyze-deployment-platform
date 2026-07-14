@@ -27,6 +27,9 @@ evidence.
   contracts, stage graph, and live-enablement boundary.
 - `strict-contract-resolution.md`: GUG-121 content-addressed contract catalog,
   producer/consumer bindings, pre-plan failure behavior, migration, and rollback.
+- `registry-account-baseline-backend-locking.md`: GUG-122 registry anchor,
+  ACCOUNT_READY v2, derived native-lockfile backend, distributed execution lock,
+  migration boundary, and recovery controls.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
 - `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
   customer/deployment authorization, lifecycle, privileged-access, migration,
@@ -128,3 +131,9 @@ For GUG-94, ingest only
 user locators, provider payloads, membership/approval/operation/audit records,
 temporary credentials, tokens, Terraform plans/state, screenshots, logs, or
 live evidence.
+
+For GUG-122, ingest only
+`../../_NotebookLM_Brain/19_GUG122_Registry_Backend_Locking.md`. Do not ingest
+deployment registry records, ACCOUNT_READY payloads, backend files, state keys,
+lock records, ARNs, plans, state, AWS inventories, screenshots, logs, or live
+evidence.

@@ -72,6 +72,8 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo opera la consola enterprise sin convertir claims o UI en autoridad? | [ADR-028](../ADR/ADR-028-portable-enterprise-user-console.md), [Enterprise User Console](../docs/deployment/enterprise-user-console.md), [delta de threat model GUG-95](../docs/security/gug-95-enterprise-user-console-threat-model-delta.md) y [fuente sanitizada GUG-95](17_GUG95_Enterprise_User_Console.md) |
 | ¿Cómo se autoriza un documento, batch o artifact concreto? | [ADR-021](../ADR/ADR-021-object-level-authorization.md), código y tests GUG-114 del commit revisado |
 | ¿Cómo se clasifican registros sin ownership canónico? | [Runbook de ownership y cuarentena](../docs/deployment/object-ownership-migration-quarantine.md); el inventario live y referencias reales permanecen fuera de Git y NotebookLM |
+| ¿Cómo se resuelven contratos tipados en el DAG canónico? | [ADR-029](../ADR/ADR-029-strict-contracts-and-canonical-dag.md), [resolución estricta](../docs/deployment/strict-contract-resolution.md) y [fuente sanitizada GUG-121](18_GUG121_Strict_Contracts_and_DAG.md) |
+| ¿Cómo se autoriza un target y se deriva su backend sin confiar en el request? | [ADR-030](../ADR/ADR-030-registry-account-baseline-backend-locking.md), [backend y locking](../docs/deployment/registry-account-baseline-backend-locking.md), [runbook de recuperación](../docs/operations/terraform-backend-migration-and-recovery.md) y [fuente sanitizada GUG-122](19_GUG122_Registry_Backend_Locking.md) |
 
 ## Estado de evidencia al 2026-07-12
 
@@ -116,6 +118,8 @@ Cuando dos documentos difieran, usar este orden:
 | [14 — GUG-153 Human Authorization Enforcement](14_GUG153_Human_Authorization_Enforcement.md) | Snapshot humano bounded, PDP/PEP tipado, 30 rutas, role/data-class checks, step-up, audit, ownership y límites de evidencia |
 | [16 — GUG-95 Frontend Source Consolidation](16_GUG95_Frontend_Source_Consolidation.md) | Fuente SPA canónica, procedencia cerrada, config v2 fail-closed, CI reproducible y límites NO-GO |
 | [17 — GUG-95 Enterprise User Console](17_GUG95_Enterprise_User_Console.md) | UI de privilegios fail-closed, lifecycle recuperable, privacidad, CORS y E2E sintético |
+| [18 — GUG-121 Strict Contracts and DAG](18_GUG121_Strict_Contracts_and_DAG.md) | Catálogo de contratos, productores únicos, resolución content-addressed, DAG canónico y límites live |
+| [19 — GUG-122 Registry and Backend Locking](19_GUG122_Registry_Backend_Locking.md) | Registry anclado, ACCOUNT_READY v2, backend derivado, lockfile nativo, ejecución exclusiva y recuperación revisada |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -155,6 +159,10 @@ Cuando dos documentos difieran, usar este orden:
     contrato, log o evidencia general?
 18. ¿La adopción, migración o eliminación de identidad legacy está intentando
     inferir bindings o saltar el procedimiento retain-first?
+19. ¿El backend proviene del registry anclado, ACCOUNT_READY v2, lock vigente y
+    DAG canónico, o de un manifest, prefijo, perfil o convención no autoritativa?
+20. ¿Un lock expirado está siendo tratado incorrectamente como permiso para
+    takeover o force-unlock automático?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

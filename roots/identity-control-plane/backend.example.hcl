@@ -8,11 +8,10 @@
 # Do not hardcode bucket names, account IDs, ARNs, regions, or KMS identifiers.
 # Do not use Terraform workspaces for customer/deployment isolation.
 
-backend "s3" {
-  bucket         = "RENDERED_BY_ORCHESTRATOR"
-  key            = "{deployment_id}/{region}/identity-control-plane/terraform.tfstate"
-  region         = "RENDERED_BY_ORCHESTRATOR"
-  dynamodb_table = "RENDERED_BY_ORCHESTRATOR"
-  encrypt        = true
-  kms_key_id     = "RENDERED_BY_ORCHESTRATOR"
-}
+bucket              = "RENDERED_BY_ORCHESTRATOR"
+key                 = "{deployment_id}/{region}/identity-control-plane/terraform.tfstate"
+region              = "RENDERED_BY_ORCHESTRATOR"
+encrypt             = true
+kms_key_id          = "RENDERED_BY_ORCHESTRATOR"
+use_lockfile        = true
+allowed_account_ids = ["RENDERED_BY_ORCHESTRATOR"]

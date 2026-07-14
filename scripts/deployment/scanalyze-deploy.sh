@@ -34,6 +34,11 @@ LAYER=""
 RELEASE_VERSION=""
 RELEASE_DIGEST=""
 RESOLVED_INPUT=""
+TARGET_RECORD=""
+TARGET_ANCHOR=""
+ACCOUNT_READY_CONTRACT=""
+EXECUTION_LOCK=""
+EXECUTION_ID=""
 
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -88,6 +93,11 @@ Options:
   --release-version <value>   Immutable release version
   --release-digest <sha256>   Immutable release manifest digest
   --resolved-input <path>     Verified layer resolution outside the repository
+  --target-record <path>      Approved deployment target retrieved from the registry
+  --target-anchor <path>      Independently retrieved registry digest/version anchor
+  --account-ready <path>      ACCOUNT_READY v2 contract for the exact target
+  --execution-lock <path>     Held deployment execution lock for this run
+  --execution-id <id>         Exact exec_<ULID> bound to the held lock
   --non-interactive           Suppress interactive prompts
   --dry-run                   Dry-run mode (default)
   --no-dry-run                Disable dry-run mode
@@ -121,6 +131,11 @@ while [[ "$#" -gt 0 ]]; do
     --release-version) [[ -n "${2:-}" ]] || die "--release-version requires a value"; RELEASE_VERSION="$2"; shift 2 ;;
     --release-digest) [[ -n "${2:-}" ]] || die "--release-digest requires a value"; RELEASE_DIGEST="$2"; shift 2 ;;
     --resolved-input) [[ -n "${2:-}" ]] || die "--resolved-input requires a value"; RESOLVED_INPUT="$2"; shift 2 ;;
+    --target-record)  [[ -n "${2:-}" ]] || die "--target-record requires a value"; TARGET_RECORD="$2"; shift 2 ;;
+    --target-anchor)  [[ -n "${2:-}" ]] || die "--target-anchor requires a value"; TARGET_ANCHOR="$2"; shift 2 ;;
+    --account-ready)  [[ -n "${2:-}" ]] || die "--account-ready requires a value"; ACCOUNT_READY_CONTRACT="$2"; shift 2 ;;
+    --execution-lock) [[ -n "${2:-}" ]] || die "--execution-lock requires a value"; EXECUTION_LOCK="$2"; shift 2 ;;
+    --execution-id)   [[ -n "${2:-}" ]] || die "--execution-id requires a value"; EXECUTION_ID="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     --dry-run)        DRY_RUN=true; shift ;;
     --no-dry-run)     DRY_RUN=false; shift ;;
@@ -194,15 +209,35 @@ guard_account_binding() {
     || die "Unable to verify AWS caller identity"
 
   if [[ "$caller_account" != "$ACCOUNT_ID" ]]; then
-    die "AWS caller account ($caller_account) does not match expected account ($ACCOUNT_ID)"
+    die "AWS caller account does not match the authorized deployment target"
   fi
 
   local caller_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
   if [[ -n "$caller_region" && "$caller_region" != "$REGION" ]]; then
-    warn "AWS_REGION ($caller_region) differs from --region ($REGION)"
+    warn "AWS region environment differs from the authorized deployment target"
   fi
 
-  pass "Account binding verified: $ACCOUNT_ID in $REGION"
+  pass "Account and region binding verified"
+}
+
+manifest_field() {
+  local field="$1"
+  python3 - "$MANIFEST" "$field" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+manifest_path = Path(sys.argv[1])
+field = sys.argv[2]
+document = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+if not isinstance(document, dict):
+    raise SystemExit("manifest must be a mapping")
+value = document.get(field)
+if not isinstance(value, str) or not value:
+    raise SystemExit(f"manifest field {field!r} must be a non-empty string")
+print(value)
+PY
 }
 
 load_manifest() {
@@ -218,21 +253,36 @@ load_manifest() {
     die "Manifest validation failed"
   fi
 
-  # Extract key fields if not overridden by CLI
-  if command -v python3 &>/dev/null; then
-    if [[ -z "$DEPLOYMENT_ID" ]]; then
-      DEPLOYMENT_ID="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['deployment_id'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$ACCOUNT_ID" ]]; then
-      ACCOUNT_ID="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['aws_account_id'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$REGION" ]]; then
-      REGION="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['aws_region'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$ENVIRONMENT" ]]; then
-      ENVIRONMENT="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['environment'])" 2>/dev/null)" || true
-    fi
-  fi
+  # The validated manifest is authoritative. CLI values may assert, never override.
+  local manifest_customer_id manifest_deployment_id manifest_account_id
+  local manifest_region manifest_environment
+  manifest_customer_id="$(manifest_field customer_id)" \
+    || die "Unable to read customer_id from manifest"
+  manifest_deployment_id="$(manifest_field deployment_id)" \
+    || die "Unable to read deployment_id from manifest"
+  manifest_account_id="$(manifest_field aws_account_id)" \
+    || die "Unable to read aws_account_id from manifest"
+  manifest_region="$(manifest_field aws_region)" \
+    || die "Unable to read aws_region from manifest"
+  manifest_environment="$(manifest_field environment)" \
+    || die "Unable to read environment from manifest"
+
+  [[ -z "$CUSTOMER_ID" || "$CUSTOMER_ID" == "$manifest_customer_id" ]] \
+    || die "--customer-id conflicts with the validated manifest"
+  [[ -z "$DEPLOYMENT_ID" || "$DEPLOYMENT_ID" == "$manifest_deployment_id" ]] \
+    || die "--deployment-id conflicts with the validated manifest"
+  [[ -z "$ACCOUNT_ID" || "$ACCOUNT_ID" == "$manifest_account_id" ]] \
+    || die "--account-id conflicts with the validated manifest"
+  [[ -z "$REGION" || "$REGION" == "$manifest_region" ]] \
+    || die "--region conflicts with the validated manifest"
+  [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$manifest_environment" ]] \
+    || die "--environment conflicts with the validated manifest"
+
+  CUSTOMER_ID="$manifest_customer_id"
+  DEPLOYMENT_ID="$manifest_deployment_id"
+  ACCOUNT_ID="$manifest_account_id"
+  REGION="$manifest_region"
+  ENVIRONMENT="$manifest_environment"
 }
 
 # ── Subcommands ───────────────────────────────────────────────────────
@@ -346,7 +396,13 @@ cmd_plan_layer() {
     --deployment-id "$DEPLOYMENT_ID" \
     --release-version "$RELEASE_VERSION" \
     --release-digest "$RELEASE_DIGEST" \
-    --resolved-input "$RESOLVED_INPUT"
+    --resolved-input "$RESOLVED_INPUT" \
+    --manifest "$MANIFEST" \
+    --target-record "$TARGET_RECORD" \
+    --target-anchor "$TARGET_ANCHOR" \
+    --account-ready "$ACCOUNT_READY_CONTRACT" \
+    --execution-lock "$EXECUTION_LOCK" \
+    --execution-id "$EXECUTION_ID"
 }
 
 cmd_apply_layer() {
@@ -425,9 +481,20 @@ cmd_publish_images() {
 
   # Extract ECR config from manifest
   local ecr_prefix base_image
-  ecr_prefix="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['ecr']['prefix'])" 2>/dev/null)" \
-    || die "Unable to read ecr.prefix from manifest"
-  base_image="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['base_image_uri'])" 2>/dev/null)" \
+  ecr_prefix="$(python3 - "$MANIFEST" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = document.get("ecr", {}).get("prefix") if isinstance(document, dict) else None
+if not isinstance(value, str) or not value:
+    raise SystemExit("ecr.prefix must be a non-empty string")
+print(value)
+PY
+)" || die "Unable to read ecr.prefix from manifest"
+  base_image="$(manifest_field base_image_uri)" \
     || die "Unable to read base_image_uri from manifest"
 
   bash "${REPO_ROOT}/scripts/microservices/build-push.sh" \

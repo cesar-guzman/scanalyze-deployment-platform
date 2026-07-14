@@ -6,10 +6,14 @@
       "Effect": "Allow",
       "Action": [
         "dynamodb:GetItem",
-        "dynamodb:Query",
-        "dynamodb:Scan"
+        "dynamodb:Query"
       ],
-      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry"
+      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": ["${aws:PrincipalTag/deployment_id}"]
+        }
+      }
     },
     {
       "Sid": "WriteDeploymentRegistry",
@@ -21,10 +25,21 @@
       "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
       "Condition": {
         "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": ["${aws:PrincipalTag/deployment_id}"],
           "dynamodb:Attributes": [
+            "schema_version",
+            "record_type",
             "deployment_id",
+            "customer_id",
             "account_id",
+            "region",
+            "environment",
             "status",
+            "registry_version",
+            "account_ready",
+            "state_binding",
+            "record_digest",
+            "execution_lock",
             "release_version",
             "last_updated",
             "change_id",

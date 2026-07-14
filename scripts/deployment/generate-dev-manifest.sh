@@ -64,8 +64,8 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-[[ "$CUSTOMER_ID" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] || {
-  echo "ERROR: customer-id must be 3-63 lowercase letters, digits, or hyphens" >&2
+[[ "$CUSTOMER_ID" =~ ^cust_[0-9A-HJKMNP-TV-Z]{26}$ ]] || {
+  echo "ERROR: customer-id must be a canonical cust_<ULID> from the approved registry" >&2
   exit 2
 }
 [[ -n "$OUTPUT_FILE" ]] || {
