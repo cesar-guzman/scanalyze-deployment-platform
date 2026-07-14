@@ -14,6 +14,16 @@
 
 Production: NO-GO
 
+## GUG-94 bootstrap amendment
+
+ADR-026 replaces the original effect-then-consume bootstrap ordering with
+conditional `claimed -> effects_applied -> audit_committed -> consumed`
+checkpoints. Stable provider and canonical membership references are persisted
+before audit, and audit is persisted before one-use consumption. Exact retries
+recover audit or consume outages without repeating provider/membership effects;
+consumed requests deny replay. This is locally validated code and does not
+enable human runtime or authorize a live provider operation.
+
 ## Post-merge provider compatibility amendment
 
 Independent review after the original merge identified two repository-to-

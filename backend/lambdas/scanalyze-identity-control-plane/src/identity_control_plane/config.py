@@ -239,6 +239,7 @@ class ControlRuntimeConfig:
             {
                 "max_ttl_seconds": 900,
                 "max_auth_age_seconds": 300,
+                "max_recovery_seconds": 3600,
             }
         )
         return result

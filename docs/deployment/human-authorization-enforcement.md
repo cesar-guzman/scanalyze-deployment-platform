@@ -508,3 +508,13 @@ No skipped test is reported as passed. CI green is not live validation.
 Customer runtime enablement, AWS/Cognito mutation, Terraform apply, deployment,
 data migration, queue redrive, production access, and merge are outside this
 document and outside GUG-153's local implementation evidence.
+
+## GUG-94 handoff status
+
+ADR-026 now supplies the canonical membership record, lifecycle service ports,
+reviewed DynamoDB/Cognito adapters, owner-bound indexes, conditional admin
+guard, append-only lifecycle audit, and bootstrap recovery protocol. These are
+locally validated candidate artifacts, not live runtime installation evidence.
+`HUMAN_RUNTIME_ENABLED` and `HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED` remain
+false until separately authorized workload IAM/runtime composition, GUG-95,
+and the two-deployment isolation proof are complete.

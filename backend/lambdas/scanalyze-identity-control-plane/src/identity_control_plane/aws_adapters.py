@@ -141,10 +141,21 @@ class DynamoAuditSink:
             "sk": f"{timestamp}#{event['decision_id']}",
             **event,
         }
-        self.table.put_item(
-            Item=item,
-            ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
-        )
+        try:
+            self.table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
+            )
+        except Exception as error:
+            if not _is_error(error, _CONDITIONAL_FAILURE):
+                raise
+            response = self.table.get_item(
+                Key={"pk": item["pk"], "sk": item["sk"]},
+                ConsistentRead=True,
+            )
+            existing = response.get("Item") if isinstance(response, Mapping) else None
+            if not isinstance(existing, Mapping) or dict(existing) != item:
+                raise AdapterContractError() from error
 
 
 class DynamoBootstrapRequestStore:
@@ -208,15 +219,116 @@ class DynamoBootstrapRequestStore:
             raise
         return claim_token
 
+    def mark_effects_applied(self, **condition: Any) -> bool:
+        request_id = condition.get("request_id")
+        claim_token = condition.get("claim_token")
+        expected_version = condition.get("expected_version")
+        idempotency_key = condition.get("idempotency_key")
+        outcome_at = condition.get("outcome_at")
+        user_reference = condition.get("user_reference")
+        membership_reference = condition.get("membership_reference")
+        if not (
+            isinstance(request_id, str)
+            and is_non_empty_string(claim_token)
+            and isinstance(expected_version, int)
+            and not isinstance(expected_version, bool)
+            and expected_version >= 1
+            and is_non_empty_string(idempotency_key)
+            and isinstance(outcome_at, datetime)
+            and is_non_empty_string(user_reference)
+            and is_non_empty_string(membership_reference)
+        ):
+            raise AdapterContractError()
+        try:
+            self.table.update_item(
+                Key=_bootstrap_key(request_id),
+                UpdateExpression=(
+                    "SET #state = :effects_applied, outcome_at = :outcome_at, "
+                    "user_reference = :user_reference, "
+                    "membership_reference = :membership_reference"
+                ),
+                ConditionExpression=(
+                    "#state = :claimed AND #version = :version AND "
+                    "claim_token = :claim_token AND "
+                    "idempotency_key = :idempotency_key"
+                ),
+                ExpressionAttributeNames={"#state": "state", "#version": "version"},
+                ExpressionAttributeValues={
+                    ":claimed": "claimed",
+                    ":effects_applied": "effects_applied",
+                    ":version": expected_version,
+                    ":claim_token": claim_token,
+                    ":idempotency_key": idempotency_key,
+                    ":outcome_at": utc_timestamp(outcome_at),
+                    ":user_reference": user_reference,
+                    ":membership_reference": membership_reference,
+                },
+            )
+        except Exception as error:
+            if _is_error(error, _CONDITIONAL_FAILURE):
+                return False
+            raise
+        return True
+
+    def mark_audit_committed(self, **condition: Any) -> bool:
+        request_id = condition.get("request_id")
+        claim_token = condition.get("claim_token")
+        expected_version = condition.get("expected_version")
+        idempotency_key = condition.get("idempotency_key")
+        audit_decision_id = condition.get("audit_decision_id")
+        audit_committed_at = condition.get("audit_committed_at")
+        if not (
+            isinstance(request_id, str)
+            and is_non_empty_string(claim_token)
+            and isinstance(expected_version, int)
+            and not isinstance(expected_version, bool)
+            and expected_version >= 1
+            and is_non_empty_string(idempotency_key)
+            and is_non_empty_string(audit_decision_id)
+            and isinstance(audit_committed_at, datetime)
+        ):
+            raise AdapterContractError()
+        try:
+            self.table.update_item(
+                Key=_bootstrap_key(request_id),
+                UpdateExpression=(
+                    "SET #state = :audit_committed, "
+                    "audit_decision_id = :audit_decision_id, "
+                    "audit_committed_at = :audit_committed_at"
+                ),
+                ConditionExpression=(
+                    "#state = :effects_applied AND #version = :version AND "
+                    "claim_token = :claim_token AND "
+                    "idempotency_key = :idempotency_key"
+                ),
+                ExpressionAttributeNames={"#state": "state", "#version": "version"},
+                ExpressionAttributeValues={
+                    ":effects_applied": "effects_applied",
+                    ":audit_committed": "audit_committed",
+                    ":version": expected_version,
+                    ":claim_token": claim_token,
+                    ":idempotency_key": idempotency_key,
+                    ":audit_decision_id": audit_decision_id,
+                    ":audit_committed_at": utc_timestamp(audit_committed_at),
+                },
+            )
+        except Exception as error:
+            if _is_error(error, _CONDITIONAL_FAILURE):
+                return False
+            raise
+        return True
+
     def consume(self, **condition: Any) -> bool:
         request_id = condition.get("request_id")
         claim_token = condition.get("claim_token")
+        expected_state = condition.get("expected_state")
         expected_version = condition.get("expected_version")
         consumed_at = condition.get("consumed_at")
         result_reference = condition.get("result_reference")
         if not (
             isinstance(request_id, str)
             and is_non_empty_string(claim_token)
+            and expected_state == "audit_committed"
             and isinstance(expected_version, int)
             and not isinstance(expected_version, bool)
             and expected_version >= 1
@@ -232,12 +344,12 @@ class DynamoBootstrapRequestStore:
                     "result_reference = :result_reference REMOVE claim_token, claimed_at"
                 ),
                 ConditionExpression=(
-                    "#state = :claimed AND #version = :version AND "
+                    "#state = :audit_committed AND #version = :version AND "
                     "claim_token = :claim_token"
                 ),
                 ExpressionAttributeNames={"#state": "state", "#version": "version"},
                 ExpressionAttributeValues={
-                    ":claimed": "claimed",
+                    ":audit_committed": "audit_committed",
                     ":consumed": "consumed",
                     ":version": expected_version,
                     ":claim_token": claim_token,
@@ -334,7 +446,8 @@ class CognitoExistingUserProvider:
                 subject,
                 attributes["custom:customerId"],
                 attributes["custom:deployment_id"],
-            )
+            ),
+            "provider_principal_key": subject,
         }
 
 
@@ -345,7 +458,7 @@ class DynamoMembershipStore:
             "customer_id",
             "deployment_id",
             "role_id",
-            "membership_state",
+            "state",
             "membership_version",
             "authz_schema_version",
             "scope_catalog_version",
@@ -353,6 +466,9 @@ class DynamoMembershipStore:
             "policy_version",
             "policy_digest",
             "idempotency_key",
+            "provider_user_reference",
+            "provider_principal_key",
+            "created_at",
         }
     )
 
@@ -372,11 +488,31 @@ class DynamoMembershipStore:
             and CUSTOMER_ID_PATTERN.fullmatch(customer_id)
             and isinstance(deployment_id, str)
             and DEPLOYMENT_ID_PATTERN.fullmatch(deployment_id)
-            and record.get("membership_state") == "active"
+            and record.get("state") == "active"
+            and isinstance(record.get("membership_version"), int)
+            and not isinstance(record.get("membership_version"), bool)
+            and record["membership_version"] == 1
+            and is_non_empty_string(record.get("provider_user_reference"))
+            and record.get("provider_principal_key") == subject
+            and isinstance(record.get("created_at"), datetime)
         ):
             raise AdapterContractError()
         key = _membership_key(subject, customer_id, deployment_id)
-        item = {**key, **record, "principal_type": "user"}
+        membership_reference = "mbr_" + hashlib.sha256(
+            "\x1f".join((customer_id, deployment_id, subject)).encode("utf-8")
+        ).hexdigest()[:32]
+        item = {
+            **key,
+            **record,
+            "schema_version": "enterprise-membership.v1",
+            "membership_reference": membership_reference,
+            "principal_type": "user",
+            "updated_at": record["created_at"],
+            "ownership_membership_key": (
+                f"{deployment_id}#{customer_id}#MEMBERSHIP#{membership_reference}"
+            ),
+            "ownership_state_key": f"{deployment_id}#{customer_id}#STATE#active",
+        }
         try:
             self.table.put_item(
                 Item=item,
@@ -394,12 +530,7 @@ class DynamoMembershipStore:
             ):
                 raise AdapterContractError() from None
         return {
-            "membership_reference": opaque_reference(
-                subject,
-                customer_id,
-                deployment_id,
-                record["membership_version"],
-            )
+            "membership_reference": membership_reference,
         }
 
 

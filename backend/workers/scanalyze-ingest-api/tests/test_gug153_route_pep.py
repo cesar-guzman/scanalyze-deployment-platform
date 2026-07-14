@@ -88,6 +88,34 @@ EXPECTED_ROUTE_OPERATIONS = {
         "GET",
         "/api/v1/addons/employee-profiles/{profile_id}",
     ): "employee_profiles.read_full",
+    ("GET", "/api/v1/admin/roles"): "authorization_administration.roles.read",
+    ("GET", "/api/v1/admin/memberships"): "authorization_administration.memberships.list",
+    ("POST", "/api/v1/admin/invitations"): "authorization_administration.invitations.create",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/activations",
+    ): "authorization_administration.memberships.activate",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/role-changes",
+    ): "authorization_administration.memberships.change_role",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/suspensions",
+    ): "authorization_administration.memberships.suspend",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/reactivations",
+    ): "authorization_administration.memberships.reactivate",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/revocations",
+    ): "authorization_administration.memberships.revoke",
+    (
+        "POST",
+        "/api/v1/admin/memberships/{membership_reference}/session-revocations",
+    ): "authorization_administration.sessions.revoke",
+    ("GET", "/api/v1/admin/audit-events"): "authorization_administration.audit.read",
 }
 
 
@@ -111,6 +139,16 @@ EXPECTED_M2M_ACTIONS_BY_OPERATION = {
     "employee_profiles.read_job": frozenset({"read"}),
     "employee_profiles.list_masked": frozenset({"read", "admin"}),
     "employee_profiles.read_full": frozenset({"read", "admin"}),
+    "authorization_administration.roles.read": frozenset(),
+    "authorization_administration.memberships.list": frozenset(),
+    "authorization_administration.invitations.create": frozenset(),
+    "authorization_administration.memberships.activate": frozenset(),
+    "authorization_administration.memberships.change_role": frozenset(),
+    "authorization_administration.memberships.suspend": frozenset(),
+    "authorization_administration.memberships.reactivate": frozenset(),
+    "authorization_administration.memberships.revoke": frozenset(),
+    "authorization_administration.sessions.revoke": frozenset(),
+    "authorization_administration.audit.read": frozenset(),
 }
 
 
@@ -140,10 +178,10 @@ def test_operation_id_rejects_unmapped_operations_fail_closed() -> None:
         OperationId(None)  # type: ignore[arg-type]
 
 
-def test_all_30_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
+def test_all_40_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
     """A new or unmarked protected route must break the closed inventory."""
 
-    assert len(EXPECTED_ROUTE_OPERATIONS) == 30
+    assert len(EXPECTED_ROUTE_OPERATIONS) == 40
     actual: dict[tuple[str, str], str] = {}
 
     for route in v1_router.routes:

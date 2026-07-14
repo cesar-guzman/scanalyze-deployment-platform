@@ -186,7 +186,9 @@ class PreTokenProcessor:
             self._deny("foreign_binding", now, correlation)
         if membership.get("principal_type") != "user":
             self._deny("conflicting_principal_type", now, correlation)
-        if membership.get("membership_state") != "active":
+        if membership.get("schema_version") != "enterprise-membership.v1":
+            self._deny("unsupported_membership_contract", now, correlation)
+        if membership.get("state") != "active":
             self._deny("inactive_membership", now, correlation)
 
         allowed_roles = self._string_set(self.config.get("allowed_role_ids"))
@@ -199,7 +201,12 @@ class PreTokenProcessor:
             "role_catalog_version": self.config.get("role_catalog_version"),
             "policy_version": self.config.get("policy_version"),
         }
-        if not is_non_empty_string(membership.get("membership_version")):
+        membership_version = membership.get("membership_version")
+        if not (
+            isinstance(membership_version, int)
+            and not isinstance(membership_version, bool)
+            and membership_version >= 1
+        ):
             self._deny("stale_authorization_contract", now, correlation)
         if any(membership.get(key) != expected for key, expected in expected_versions.items()):
             self._deny("stale_authorization_contract", now, correlation)

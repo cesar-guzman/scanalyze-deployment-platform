@@ -116,14 +116,54 @@ class RequestStore:
 
     def claim(self, **condition: Any) -> str | None:
         self.calls.append(("claim", condition))
+        if self.claim_result is not None and self.request is not None:
+            self.request.update(
+                {
+                    "state": "claimed",
+                    "claim_token": self.claim_result,
+                    "claimed_at": condition["claimed_at"],
+                }
+            )
         return self.claim_result
+
+    def mark_effects_applied(self, **condition: Any) -> bool:
+        self.calls.append(("mark_effects_applied", condition))
+        if self.request is None or self.request.get("state") != "claimed":
+            return False
+        self.request.update(
+            {
+                "state": "effects_applied",
+                "outcome_at": condition["outcome_at"],
+                "user_reference": condition["user_reference"],
+                "membership_reference": condition["membership_reference"],
+            }
+        )
+        return True
+
+    def mark_audit_committed(self, **condition: Any) -> bool:
+        self.calls.append(("mark_audit_committed", condition))
+        if self.request is None or self.request.get("state") != "effects_applied":
+            return False
+        self.request.update(
+            {
+                "state": "audit_committed",
+                "audit_decision_id": condition["audit_decision_id"],
+            }
+        )
+        return True
 
     def consume(self, **condition: Any) -> bool:
         self.calls.append(("consume", condition))
+        if self.consume_result and self.request is not None:
+            self.request["state"] = "consumed"
         return self.consume_result
 
     def release(self, **condition: Any) -> None:
         self.calls.append(("release", condition))
+        if self.request is not None and self.request.get("state") == "claimed":
+            self.request["state"] = "approved"
+            self.request.pop("claim_token", None)
+            self.request.pop("claimed_at", None)
 
 
 @dataclass
@@ -137,6 +177,7 @@ class IdentityProvider:
             raise self.error
         return {
             "user_reference": "usr_synthetic_reference",
+            "provider_principal_key": SUBJECT,
             "temporary_password": SENSITIVE_TEMPORARY_VALUE,
             "invitation_secret": SENSITIVE_INVITATION_VALUE,
         }
@@ -234,8 +275,11 @@ def test_valid_bootstrap_uses_authoritative_binding_and_conditional_single_use()
             "customer_id": CUSTOMER_ID,
             "deployment_id": DEPLOYMENT_ID,
             "role_id": "customer_admin",
-            "membership_state": "active",
-            "membership_version": "1",
+            "state": "active",
+            "membership_version": 1,
+            "provider_user_reference": "usr_synthetic_reference",
+            "provider_principal_key": SUBJECT,
+            "created_at": NOW,
             "authz_schema_version": "enterprise-authorization.v1",
             "scope_catalog_version": "scanalyze.api.v1",
             "role_catalog_version": "enterprise-roles.v1",
@@ -256,6 +300,7 @@ def test_valid_bootstrap_uses_authoritative_binding_and_conditional_single_use()
     assert consume == {
         "request_id": REQUEST_ID,
         "claim_token": "synthetic-claim-token",
+        "expected_state": "audit_committed",
         "expected_version": 7,
         "consumed_at": NOW,
         "result_reference": "bootstrap_request_completed",
@@ -491,16 +536,13 @@ def test_conditional_claim_conflict_denies_replay_before_side_effects() -> None:
     assert memberships.calls == []
 
 
-def test_conditional_consume_conflict_fails_closed_and_releases_claim() -> None:
+def test_conditional_consume_conflict_fails_closed_and_keeps_audit_checkpoint() -> None:
     processor, request_store, _, _, _ = _processor(consume_result=False)
 
     assert _deny_reason(processor, _command()) == "bootstrap_consume_conflict"
-    release = next(details for name, details in request_store.calls if name == "release")
-    assert release == {
-        "request_id": REQUEST_ID,
-        "claim_token": "synthetic-claim-token",
-        "expected_version": 7,
-    }
+    assert request_store.request is not None
+    assert request_store.request["state"] == "audit_committed"
+    assert all(name != "release" for name, _ in request_store.calls)
 
 
 def test_provider_and_membership_side_effects_share_trusted_idempotency_key() -> None:

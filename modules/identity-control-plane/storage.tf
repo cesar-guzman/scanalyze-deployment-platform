@@ -146,6 +146,34 @@ resource "aws_dynamodb_table" "memberships" {
     type = "S"
   }
 
+  attribute {
+    name = "ownership_membership_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownership_state_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "membership_reference"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "ownership-membership-reference-v1"
+    hash_key        = "ownership_membership_key"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "ownership-state-v1"
+    hash_key        = "ownership_state_key"
+    range_key       = "membership_reference"
+    projection_type = "ALL"
+  }
+
   point_in_time_recovery {
     enabled = true
   }

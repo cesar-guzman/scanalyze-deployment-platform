@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/lifecycle-audit-event.v1.schema.json",
+  "title": "Scanalyze Lifecycle Audit Event v1",
+  "description": "Sanitized append-only outcome evidence for one enterprise membership change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_schema_version",
+    "timestamp",
+    "decision_id",
+    "principal_type",
+    "principal_reference",
+    "customer_reference",
+    "deployment_reference",
+    "action",
+    "resource_type",
+    "decision",
+    "reason_code",
+    "policy_version",
+    "policy_digest",
+    "assurance",
+    "correlation_reference",
+    "approval_references",
+    "before_membership_version",
+    "after_membership_version"
+  ],
+  "properties": {
+    "event_schema_version": { "const": "lifecycle-audit-event.v1" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "decision_id": { "$ref": "#/$defs/opaque_reference" },
+    "principal_type": { "const": "user" },
+    "principal_reference": { "$ref": "#/$defs/opaque_reference" },
+    "customer_reference": { "$ref": "#/$defs/opaque_reference" },
+    "deployment_reference": { "$ref": "#/$defs/opaque_reference" },
+    "action": {
+      "type": "string",
+      "enum": [
+        "membership.invite",
+        "membership.activate",
+        "membership.change_role",
+        "membership.suspend",
+        "membership.reactivate",
+        "membership.revoke",
+        "membership.revoke_sessions"
+      ]
+    },
+    "resource_type": { "const": "authorization_administration" },
+    "decision": { "type": "string", "enum": ["allow", "deny"] },
+    "reason_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$" },
+    "policy_version": { "const": "1.0.0" },
+    "policy_digest": { "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8" },
+    "assurance": { "const": "phishing_resistant_mfa" },
+    "correlation_reference": { "$ref": "#/$defs/opaque_reference" },
+    "approval_references": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^apr_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$" }
+    },
+    "before_membership_version": { "type": "string", "pattern": "^[0-9]+$" },
+    "after_membership_version": { "type": "string", "pattern": "^[0-9]+$" }
+  },
+  "$defs": {
+    "opaque_reference": { "type": "string", "pattern": "^ref_[0-9a-f]{24,64}$" }
+  }
+}
