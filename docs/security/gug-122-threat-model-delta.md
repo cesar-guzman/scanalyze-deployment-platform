@@ -18,10 +18,9 @@ not live control effectiveness.
 
 ## Residual risks and downstream ownership
 
-- GUG-123 must prove which GitHub Environment/OIDC/IAM identity may retrieve the
-  registry anchor, baseline, and distributed lock.
-- GUG-123 must also prove which separate authority may issue the
-  `recovery_approved=true` session tag; GUG-122 validates its consumption only.
+- ADR-031/GUG-123 now define the candidate GitHub Environment/OIDC/IAM identity
+  and separate human recovery trust; authorized live retrieval, tag issuance,
+  and AWS evaluation remain unvalidated.
 - GUG-124 must bind the exact saved plan and supply-chain evidence to these
   digests.
 - GUG-125 must implement and exercise the live registry/lease adapter and

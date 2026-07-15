@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/github-platform-authority.v1.schema.json",
+  "title": "GitHub Platform Identity Authority v1",
+  "description": "Registry-owned binding for one deployment-scoped GitHub OIDC orchestrator in a portable shared-services account.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "source",
+    "authority_version",
+    "shared_services_account_id",
+    "repository_owner_id",
+    "repository_id",
+    "oidc_provider_arn",
+    "orchestrator_role_arn",
+    "orchestrator_role_tags",
+    "authority_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "github_platform_authority" },
+    "source": { "const": "platform-identity-registry" },
+    "authority_version": { "type": "integer", "minimum": 1 },
+    "shared_services_account_id": { "$ref": "#/$defs/account_id" },
+    "repository_owner_id": { "$ref": "#/$defs/github_id" },
+    "repository_id": { "$ref": "#/$defs/github_id" },
+    "oidc_provider_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$"
+    },
+    "orchestrator_role_arn": { "$ref": "#/$defs/iam_role_arn" },
+    "orchestrator_role_tags": {
+      "type": "object",
+      "required": [
+        "service",
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "const": "scanalyze-orchestrator" },
+        "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+        "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+        "account_id": { "$ref": "#/$defs/account_id" },
+        "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+        "environment": { "enum": ["sandbox", "dev", "staging", "production"] }
+      }
+    },
+    "authority_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "github_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "iam_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

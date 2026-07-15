@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowBreakGlassAssumeStateRecovery",
+      "Sid": "AllowApprovedBreakGlassAssumeStateRecovery",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Principal": {
@@ -10,19 +10,87 @@
       },
       "Condition": {
         "StringEquals": {
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true",
+          "aws:RequestTag/customer_id": "${aws:ResourceTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:ResourceTag/account_id}",
+          "aws:RequestTag/region": "${aws:ResourceTag/region}",
+          "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
           "aws:RequestTag/operation": "state-recovery",
-          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}"
+          "aws:RequestTag/recovery_approved": "true"
         },
         "StringLike": {
-          "aws:RequestTag/incident_id": "inc_*"
+          "aws:RequestTag/incident_id": "inc_*",
+          "aws:RequestTag/operator_id": "op_*",
+          "sts:SourceIdentity": "bg_*"
+        }
+      }
+    },
+    {
+      "Sid": "AllowApprovedBreakGlassTagStateRecoverySession",
+      "Effect": "Allow",
+      "Action": "sts:TagSession",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeBreakGlass"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true",
+          "aws:RequestTag/customer_id": "${aws:ResourceTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:ResourceTag/account_id}",
+          "aws:RequestTag/region": "${aws:ResourceTag/region}",
+          "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
+          "aws:RequestTag/operation": "state-recovery",
+          "aws:RequestTag/recovery_approved": "true"
+        },
+        "StringLike": {
+          "aws:RequestTag/incident_id": "inc_*",
+          "aws:RequestTag/operator_id": "op_*"
         },
         "ForAllValues:StringEquals": {
           "aws:TagKeys": [
+            "customer_id",
             "deployment_id",
+            "account_id",
+            "region",
+            "environment",
             "operation",
             "incident_id",
+            "operator_id",
             "recovery_approved"
           ]
+        },
+        "Null": {
+          "aws:TagKeys": "false",
+          "aws:RequestTag/customer_id": "false",
+          "aws:RequestTag/deployment_id": "false",
+          "aws:RequestTag/account_id": "false",
+          "aws:RequestTag/region": "false",
+          "aws:RequestTag/environment": "false",
+          "aws:RequestTag/operation": "false",
+          "aws:RequestTag/incident_id": "false",
+          "aws:RequestTag/operator_id": "false",
+          "aws:RequestTag/recovery_approved": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowApprovedBreakGlassSetStateRecoverySourceIdentity",
+      "Effect": "Allow",
+      "Action": "sts:SetSourceIdentity",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeBreakGlass"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true"
+        },
+        "StringLike": {
+          "sts:SourceIdentity": "bg_*"
         }
       }
     }

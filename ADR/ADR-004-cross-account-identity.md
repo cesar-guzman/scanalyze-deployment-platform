@@ -1,11 +1,19 @@
 # ADR-004: Cross-Account Identity, Trust Policies, Session Tags, and Break-Glass
 
-> **Status**: `DRAFT rev3`  
-> **Date**: 2026-06-23  
+> **Status**: `DRAFT rev4`
+> **Date**: 2026-07-14
 > **Decision makers**: César Guzmán  
 > **Scope**: Scanalyze Dedicated Deployment Platform  
 > **Depends on**: ADR-001, ADR-002, ADR-009  
-> **Rev3 changes**: P0-1 (trust policy JSON validity, SourceIdentity dynamic, deployment binding, tag allowlist, layer scoping) + P0-2 (bootstrap cycle broken — roles in account baseline)
+> **Rev4 changes**: reconciled with ADR-031/GUG-123 exact GitHub OIDC,
+> deployment/account/region/environment resource tags, 15-minute terminal
+> sessions, and independent human recovery authority.
+
+> [!IMPORTANT]
+> ADR-031 and the current files under `policies/trust/` and `policies/iam/` are
+> authoritative for the GitHub machine path. Older JSON snippets below are
+> historical design context and must not be applied when they differ from those
+> sources.
 
 ---
 

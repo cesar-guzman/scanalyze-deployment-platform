@@ -178,7 +178,9 @@ operation or customer.
   session-tag correlation, and detection of one identity crossing deployments.
 - **Recovery:** deny the subject, suspend the Environment, investigate sessions,
   and deploy a newly reviewed trust policy.
-- **Evidence:** target design; the complete live chain is not validated.
+- **Evidence:** GUG-123 candidate contracts, exact policy fixtures, independent
+  Environment-anchor model, and negative tests are locally implemented; the
+  complete GitHub/AWS chain is not live validated.
 - **Residual risk:** **High**. **Owner:** Platform Security.
 
 ### TM-04: Account, region, environment, or customer mismatch
@@ -210,8 +212,9 @@ deployment role, or one identity builds, signs, approves, and deploys.
   layer, and approval-graph review.
 - **Recovery:** disable affected trust, stop the DAG, investigate actions, and
   restore least privilege through the baseline owner.
-- **Evidence:** policies and local tests exist; deployed behavior is not live
-  validated.
+- **Evidence:** GUG-123 candidate terminal trust/action separation, tag
+  bindings, break-glass separation, and local negative tests exist; deployed
+  behavior is not live validated.
 - **Residual risk:** **High**. **Owner:** Platform Security.
 
 ### TM-06: Saved-plan substitution or stale-plan apply

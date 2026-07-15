@@ -46,6 +46,30 @@ The GUG-93 operational boundary is documented in
 No provider identifiers, user inventories, credentials, tokens, plans, state,
 logs, or live evidence belong in this file.
 
+## Checkpoint documental GUG-123
+
+- **Implemented:** candidate GitHub deployment identity/Environment anchor
+  contracts, exact OIDC and terminal trust fixtures, validator, tests, ADR-031,
+  runbook, threat delta, and sanitized source exist in the isolated worktree.
+- **Locally validated:** `224` focused authorization/workflow/schema tests and
+  the GUG-123 gate (`78` tests) passed. Final `make
+  PYTHON=.venv/bin/python preflight-m2b` passed with the pinned Python
+  `3.11.14` and Terraform `1.14.6`, including the repository suite (`1005`
+  passed), contract matrix (`114/114`), provider validation (`11/11`), and
+  provider lock check (AWS provider `5.100.0` across `11` roots). `actionlint`
+  was not installed and is classified `SKIPPED`; executable YAML contracts and
+  repository workflow tests passed.
+- **CI validated:** `PENDING` until checks pass for the exact PR commit.
+- **Live validated:** `BLOCKED`; no GitHub Environment/OIDC setting, IAM role,
+  AWS session, Terraform operation, or deployment was read or changed.
+- **Producción:** `NO-GO`.
+
+The operational boundary is documented in
+[`github-oidc-terminal-identity.md`](github-oidc-terminal-identity.md) and
+[`github-oidc-terminal-identity-rollout.md`](../operations/github-oidc-terminal-identity-rollout.md).
+Do not add repository IDs, Environment reviewers/variables, tokens, claims,
+role ARNs, IAM/API exports, CloudTrail, or live evidence to this log.
+
 Consulta [`colleague-deployment-guide.md`](colleague-deployment-guide.md) para el
 procedimiento vigente y [`gitops-orchestrator.md`](gitops-orchestrator.md) para
 la arquitectura aprobada.

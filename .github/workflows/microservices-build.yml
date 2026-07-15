@@ -308,7 +308,7 @@ jobs:
           esac
 
   publish:
-    name: Publish ${{ matrix.service }}
+    name: Publication NO-GO / ${{ matrix.service }}
     needs:
       - changes
       - validation_gate
@@ -321,123 +321,15 @@ jobs:
         (github.event_name == 'push' && needs.changes.outputs.publishable == 'true' && vars.MAIN_PUBLISH_ENABLED == 'true')
       )
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}
-    concurrency:
-      group: microservices-publish-${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}-${{ matrix.service }}
-      cancel-in-progress: false
+    timeout-minutes: 5
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
         service: ${{ fromJSON(needs.changes.outputs.publish_services) }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Verify protected deployment inputs
-        id: deployment
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_ACCOUNT_ID: ${{ inputs.aws_account_id }}
-          INPUT_REGION: ${{ inputs.aws_region }}
-          INPUT_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
-          INPUT_ECR_PREFIX: ${{ inputs.ecr_prefix }}
-          INPUT_TAG: ${{ inputs.tag }}
-          EXPECTED_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          EXPECTED_REGION: ${{ vars.AWS_REGION }}
-          EXPECTED_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
-          EXPECTED_ECR_PREFIX: ${{ vars.ECR_PREFIX }}
-          EXPECTED_BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
+      - name: Deny legacy publishing until the authorized release engine exists
         run: |
           set -euo pipefail
-
-          for value in \
-            "$EXPECTED_ROLE_ARN" \
-            "$EXPECTED_ACCOUNT_ID" \
-            "$EXPECTED_REGION" \
-            "$EXPECTED_DEPLOYMENT_ID" \
-            "$EXPECTED_ECR_PREFIX" \
-            "$EXPECTED_BASE_IMAGE"; do
-            if [[ -z "$value" ]]; then
-              echo "::error::Selected environment is missing a required deployment variable"
-              exit 1
-            fi
-          done
-
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            [[ "$INPUT_ACCOUNT_ID" == "$EXPECTED_ACCOUNT_ID" ]] || {
-              echo "::error::aws_account_id does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_REGION" == "$EXPECTED_REGION" ]] || {
-              echo "::error::aws_region does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_DEPLOYMENT_ID" == "$EXPECTED_DEPLOYMENT_ID" ]] || {
-              echo "::error::deployment_id does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_ECR_PREFIX" == "$EXPECTED_ECR_PREFIX" ]] || {
-              echo "::error::ecr_prefix does not match the selected environment"
-              exit 1
-            }
-          fi
-
-          tag="$INPUT_TAG"
-          if [[ -z "$tag" ]]; then
-            tag="sha-${GITHUB_SHA:0:12}"
-          fi
-          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ || "${tag,,}" == "latest" ]]; then
-            echo "::error::tag is not a valid immutable OCI/ECR tag"
-            exit 1
-          fi
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Configure temporary AWS credentials with OIDC
-        uses: aws-actions/configure-aws-credentials@acca2b1b2070338fb9fd1ca27ecee81d687e58e5 # v6.1.2
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-session-name: scanalyze-${{ github.run_id }}-${{ strategy.job-index }}
-          mask-aws-account-id: true
-          unset-current-credentials: true
-
-      - name: Build, push, and optionally record digest
-        env:
-          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION_VALUE: ${{ vars.AWS_REGION }}
-          BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
-          DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
-          ECR_PREFIX: ${{ vars.ECR_PREFIX }}
-          SERVICE: ${{ matrix.service }}
-          TAG: ${{ steps.deployment.outputs.tag }}
-          DISPATCH_WRITE_SSM: ${{ inputs.write_ssm }}
-          MAIN_WRITE_SSM: ${{ vars.MAIN_WRITE_SSM }}
-        run: |
-          set -euo pipefail
-
-          ssm_mode="--no-write-ssm"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            [[ "$DISPATCH_WRITE_SSM" == "true" ]] && ssm_mode="--write-ssm"
-          elif [[ "$MAIN_WRITE_SSM" == "true" ]]; then
-            ssm_mode="--write-ssm"
-          fi
-
-          scripts/microservices/build-push.sh \
-            --service "$SERVICE" \
-            --account-id "$ACCOUNT_ID" \
-            --region "$AWS_REGION_VALUE" \
-            --deployment-id "$DEPLOYMENT_ID" \
-            --ecr-prefix "$ECR_PREFIX" \
-            --tag "$TAG" \
-            --base-image "$BASE_IMAGE" \
-            --push \
-            "$ssm_mode"
+          echo "::error::Cloud publication is disabled until GUG-124 and GUG-125 connect the GUG-123 authorization chain."
+          exit 1

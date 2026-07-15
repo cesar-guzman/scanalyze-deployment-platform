@@ -235,15 +235,19 @@ Minimum non-secret Environment variables:
 
 | Variable | Binding |
 |---|---|
+| `CUSTOMER_ID` | Exact customer ULID from the approved registry |
 | `DEPLOYMENT_ID` | Exact deployment ULID from the approved registry/request |
+| `AWS_ACCOUNT_ID` | Exact 12-digit account from the approved registry |
 | `LOGICAL_ENVIRONMENT` | `sandbox`, `dev`, or `staging` |
 | `AWS_REGION` | Exact deployment region |
+| `OIDC_ORCHESTRATOR_ROLE_ARN` | Exact deployment-tagged orchestrator role |
 
 Mandatory Environment protections before live/OIDC enablement:
 
 - deployment branches limited to `main`;
 - independent required reviewer(s);
-- prevent self-review and bypass where the GitHub plan supports it;
+- prevent self-review and admin bypass; inability to enforce either blocks live
+  enablement;
 - deployment-specific variables, never values copied from another client; and
 - no static AWS access keys or secrets.
 
@@ -254,24 +258,27 @@ that the Environment was pre-provisioned and protected. GitHub may create a
 referenced Environment that did not exist, and `vars` can resolve values defined
 at organization, repository, or Environment scope.
 
-Reserve `DEPLOYMENT_ID`, `LOGICAL_ENVIRONMENT`, and `AWS_REGION` for Environment
-scope: do not define those names as organization or repository Actions
-variables. Before live enablement, an external bootstrap/governance control—not
+Reserve all six names above for Environment scope: do not define those names as
+organization or repository Actions variables. Before live enablement, an
+external bootstrap/governance control—not
 the release workflow being governed—must fail closed unless it can:
 
 1. read the exact Environment by name through the GitHub API;
 2. verify required reviewers, self-review/bypass posture, and a `main`-only
    deployment branch policy;
-3. read the Environment variable endpoint and confirm the three names and values
+3. read the Environment variable endpoint and confirm the six names and values
    against the approved deployment registry;
 4. confirm the reserved names are absent from repository and applicable
    organization variable scopes; and
 5. retain only a sanitized configuration digest and review evidence.
 
-Future privileged jobs must target the same verified Environment themselves and
-use an AWS trust policy whose subject is bound to the exact repository and
-Environment. Equality in the workflow is defense in depth; it is never the sole
-authorization source.
+GUG-123 implements this as a maximum-ten-minute independent digest anchor. The
+anchor also covers the repository OIDC claim customization. Privileged jobs must
+target the same verified Environment and use an AWS trust policy whose subject
+is bound to immutable repository IDs, the exact Environment, workflow ref, and
+event. Equality in the workflow is defense in depth; it is never the sole
+authorization source. See
+[`github-oidc-terminal-identity-rollout.md`](github-oidc-terminal-identity-rollout.md).
 
 ## Repeatable Client Onboarding
 
@@ -279,7 +286,7 @@ For each deployment:
 
 1. allocate the immutable `deployment_id` in the approved external registry;
 2. create deployment-scoped GitHub Environments for the required logical stages;
-3. configure the three non-secret binding variables and protection rules;
+3. configure the six non-secret binding variables and protection rules;
 4. run the external Environment/registry audit and record sanitized evidence;
 5. configure future live OIDC role variables only after IAM review;
 6. create a synthetic or Git-safe deployment request—never a real manifest;

@@ -98,17 +98,22 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
     }
     roles = {
         name: {
-            "arn": f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-{name}",
+            "arn": f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-{role_name}",
             "customer_id_tag": CUSTOMER_ID,
             "deployment_id_tag": DEPLOYMENT_ID,
+            "account_id_tag": ACCOUNT_ID,
+            "region_tag": "us-east-1",
+            "environment_tag": "sandbox",
         }
-        for name in (
-            "plan",
-            "apply",
-            "promotion",
-            "validation",
-            "diagnostic",
-            "state_recovery",
+        for name, role_name in (
+            ("plan", "Plan"),
+            ("apply", "Apply"),
+            ("identity_plan", "Identity-Plan"),
+            ("identity_apply", "Identity-Apply"),
+            ("promotion", "Promotion"),
+            ("validation", "Validation"),
+            ("diagnostic", "Diagnostic"),
+            ("state_recovery", "StateRecovery"),
         )
     }
     account_ready = {

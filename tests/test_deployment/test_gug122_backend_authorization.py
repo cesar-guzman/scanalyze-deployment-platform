@@ -31,6 +31,7 @@ DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
 OTHER_DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M2"
 ACCOUNT_ID = "111222333444"
 REGION = "us-east-1"
+ENVIRONMENT = "sandbox"
 NOW = datetime(2026, 7, 14, 18, 0, tzinfo=UTC)
 
 
@@ -43,7 +44,7 @@ def _manifest() -> dict:
         "schema_version": "2",
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
-        "environment": "sandbox",
+        "environment": ENVIRONMENT,
         "aws_account_id": ACCOUNT_ID,
         "aws_region": REGION,
         "github": {
@@ -63,18 +64,23 @@ def _manifest() -> dict:
 
 def _account_ready() -> dict:
     roles = {}
-    for role in (
-        "plan",
-        "apply",
-        "promotion",
-        "validation",
-        "diagnostic",
-        "state_recovery",
+    for role, role_name in (
+        ("plan", "Plan"),
+        ("apply", "Apply"),
+        ("identity_plan", "Identity-Plan"),
+        ("identity_apply", "Identity-Apply"),
+        ("promotion", "Promotion"),
+        ("validation", "Validation"),
+        ("diagnostic", "Diagnostic"),
+        ("state_recovery", "StateRecovery"),
     ):
         roles[role] = {
-            "arn": f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-{role}",
+            "arn": f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-{role_name}",
             "customer_id_tag": CUSTOMER_ID,
             "deployment_id_tag": DEPLOYMENT_ID,
+            "account_id_tag": ACCOUNT_ID,
+            "region_tag": REGION,
+            "environment_tag": ENVIRONMENT,
         }
     document = {
         "schema_version": "2",
@@ -82,7 +88,7 @@ def _account_ready() -> dict:
         "deployment_id": DEPLOYMENT_ID,
         "account_id": ACCOUNT_ID,
         "region": REGION,
-        "environment": "sandbox",
+        "environment": ENVIRONMENT,
         "baseline_version": "v2.0.0",
         "provisioned_at": "2026-07-14T17:00:00Z",
         "roles": roles,
@@ -380,6 +386,38 @@ def test_account_baseline_security_mismatch_fails_closed(
     target = _target(account_ready)
 
     with pytest.raises(AuthorizationError):
+        authorize_backend(
+            manifest=_manifest(),
+            target=target,
+            anchor=_anchor(target),
+            account_ready=account_ready,
+            execution_lock=_lock(target),
+            layer_catalog=_catalog(),
+            layer="network",
+            now=NOW,
+            schema_dir=SCHEMAS,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("customer_id_tag", "cust_01J5A1B2C3D4E5F6G7H8J9K0M2"),
+        ("deployment_id_tag", OTHER_DEPLOYMENT_ID),
+        ("account_id_tag", "555666777888"),
+        ("region_tag", "us-west-2"),
+        ("environment_tag", "staging"),
+    ],
+)
+def test_account_ready_role_resource_tags_are_authoritative(
+    field: str, value: str
+) -> None:
+    account_ready = _account_ready()
+    account_ready["roles"]["plan"][field] = value
+    account_ready["contract_digest"] = _digest(account_ready, "contract_digest")
+    target = _target(account_ready)
+
+    with pytest.raises(AuthorizationError, match="role .*binding|role .*tag"):
         authorize_backend(
             manifest=_manifest(),
             target=target,
@@ -763,14 +801,32 @@ def test_state_recovery_cannot_delete_state_or_arbitrary_prefixes() -> None:
     ] == "true"
 
 
-def test_state_recovery_trust_allows_but_does_not_require_review_tag() -> None:
+def test_state_recovery_trust_requires_independent_review_and_exact_tags() -> None:
     trust = json.loads((REPO_ROOT / "policies/trust/state-recovery-trust.json").read_text())
-    statement = trust["Statement"][0]
-    conditions = statement["Condition"]
-
-    assert "recovery_approved" in conditions["ForAllValues:StringEquals"]["aws:TagKeys"]
-    assert "aws:RequestTag/recovery_approved" not in conditions["StringEquals"]
-    assert conditions["StringLike"]["aws:RequestTag/incident_id"] == "inc_*"
+    by_action = {statement["Action"]: statement for statement in trust["Statement"]}
+    assert set(by_action) == {
+        "sts:AssumeRole",
+        "sts:TagSession",
+        "sts:SetSourceIdentity",
+    }
+    assume = by_action["sts:AssumeRole"]["Condition"]
+    assert assume["StringEquals"]["aws:PrincipalTag/mfa_authenticated"] == "true"
+    assert assume["StringEquals"]["aws:PrincipalTag/break_glass_approved"] == "true"
+    assert assume["StringEquals"]["aws:RequestTag/recovery_approved"] == "true"
+    assert assume["StringLike"]["aws:RequestTag/incident_id"] == "inc_*"
+    tags = by_action["sts:TagSession"]["Condition"]
+    assert set(tags["ForAllValues:StringEquals"]["aws:TagKeys"]) == {
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "incident_id",
+        "operator_id",
+        "recovery_approved",
+    }
+    assert all(value == "false" for value in tags["Null"].values())
 
 
 def test_backend_authorization_precedes_aws_identity_lookup() -> None:

@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -18,6 +18,7 @@ help:
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
 	@echo "  make frontend-check       Reinstall, audit, test, lint, and build the portable SPA"
 	@echo "  make github-governance-check Validate stable required-check policy offline"
+	@echo "  make github-deployment-identity-check Validate GUG-123 OIDC and terminal IAM controls"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make git-safety           Check staged/worktree Git safety"
@@ -171,6 +172,14 @@ github-governance-check:
 	@$(PYTHON) $(TOOLING_DIR)/validate_github_policy.py
 	@echo "GitHub governance check complete."
 
+# ── GitHub Deployment Identity Check ─────────────────────────────────
+github-deployment-identity-check:
+	@echo "Checking fail-closed GitHub OIDC and terminal IAM controls..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_github_deployment_identity.py --repository-controls-only
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter github
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_governance/test_gug123_terminal_identity.py
+	@echo "GitHub deployment identity check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
+
 # ── GitOps Orchestrator Check ─────────────────────────────────────────
 gitops-orchestrator-check:
 	@echo "=== GitOps Orchestrator Check (offline, no AWS) ==="
@@ -185,7 +194,7 @@ required-artifacts-check:
 
 # ── Preflight Core (validates existing artifacts only) ────────────────
 # Use this for incremental work. Does NOT claim M0 completeness.
-preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check github-governance-check
+preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check github-governance-check github-deployment-identity-check
 	@echo ""
 	@echo "=== PREFLIGHT-CORE COMPLETE ==="
 	@echo "Existing artifacts validated. This does NOT mean M0 is complete."
@@ -193,7 +202,7 @@ preflight-core: agent-context lint json-syntax-check policy-check contract-check
 
 # ── Preflight M0 (full milestone gate — fails if anything missing) ────
 # This is the real M0 gate. Must pass before M0 can be declared complete.
-preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check microservices-check
+preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check microservices-check github-deployment-identity-check
 	@echo ""
 	@echo "=== PREFLIGHT-M0 COMPLETE ==="
 	@echo "All M0 required artifacts present and validated."
@@ -768,6 +777,7 @@ repro-check: bootstrap-local
 	@echo "=== Reproducibility Check ==="
 	@$(MAKE) --no-print-directory microservices-check
 	@$(MAKE) --no-print-directory github-governance-check
+	@$(MAKE) --no-print-directory github-deployment-identity-check
 	@$(MAKE) --no-print-directory security-check
 	@$(MAKE) --no-print-directory json-syntax-check
 	@$(MAKE) --no-print-directory gitops-orchestrator-check
@@ -796,11 +806,16 @@ docs-check: phase0-docs-check
 			ADR/ADR-017-github-actions-release-orchestrator.md \
 			ADR/ADR-018-stable-ci-governance.md \
 			ADR/ADR-019-production-readiness-foundation.md \
+			ADR/ADR-031-github-oidc-terminal-identity.md \
 			docs/deployment/gitops-orchestrator.md \
+			docs/deployment/github-oidc-terminal-identity.md \
 			docs/operations/github-governance.md \
+			docs/operations/github-oidc-terminal-identity-rollout.md \
+			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
 			playbooks/phase-0-foundation.md \
 			_NotebookLM_Brain/10_Production_Readiness_Foundation.md \
+			_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

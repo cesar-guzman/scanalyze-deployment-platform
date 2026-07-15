@@ -30,6 +30,10 @@ evidence.
 - `registry-account-baseline-backend-locking.md`: GUG-122 registry anchor,
   ACCOUNT_READY v2, derived native-lockfile backend, distributed execution lock,
   migration boundary, and recovery controls.
+- `github-oidc-terminal-identity.md`: GUG-123 exact GitHub Environment/OIDC
+  identity, independent protection anchor, terminal IAM roles, and live boundary.
+- `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
+  Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
 - `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
   customer/deployment authorization, lifecycle, privileged-access, migration,
@@ -137,3 +141,9 @@ For GUG-122, ingest only
 deployment registry records, ACCOUNT_READY payloads, backend files, state keys,
 lock records, ARNs, plans, state, AWS inventories, screenshots, logs, or live
 evidence.
+
+For GUG-123, ingest only
+`../../_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md`. Do not
+ingest repository/Environment IDs, reviewers, variables, OIDC tokens/claims,
+role ARNs, IAM/API exports, registry/baseline records, plans, state, CloudTrail,
+screenshots, logs, or live evidence.

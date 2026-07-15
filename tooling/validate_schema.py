@@ -34,6 +34,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
     versioned_mappings = {
         "enterprise-authorization": "enterprise-authorization.v{version}.schema.json",
         "frontend-config": "frontend-config.v{version}.schema.json",
+        "github-deployment-identity": "github-deployment-identity.v{version}.schema.json",
+        "github-environment-anchor": "github-environment-anchor.v{version}.schema.json",
+        "github-platform-authority": "github-platform-authority.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
         "task-definition": "task-definition-input.v{version}.schema.json",
     }
