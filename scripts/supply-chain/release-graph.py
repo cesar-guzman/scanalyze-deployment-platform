@@ -1,114 +1,76 @@
 #!/usr/bin/env python3
-"""Generate a release graph for Scanalyze OCI artifacts.
+"""Render a deterministic planning-only release inventory.
 
-The release graph records the lineage of every image published in a release:
-commit, service, tag, digest, base image digest, ECR repo, scan status,
-SBOM path, signature status, and timestamp.
-
-Usage:
-    python scripts/supply-chain/release-graph.py \
-        --deployment-id dep_01SYNTH3T1CABC0XAMP0EHABCD \
-        --commit abc123 \
-        --tag sha-abc123def456 \
-        --base-image-digest sha256:000...000 \
-        --output release-graph.json
-
-    python scripts/supply-chain/release-graph.py --dry-run
+This command is intentionally incapable of producing promotion authority. The
+only release authority is a verified release.v2 manifest plus its signed VSA,
+evaluated by tooling/release_policy_gate.py.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-SERVICES = [
-    "ingest-api",
-    "ocr-worker",
-    "postprocess-worker",
-    "classifier-worker",
-    "bank-worker",
-    "personal-worker",
-    "gov-worker",
-]
+
+SERVICES = (
+    "scanalyze-ingest-api",
+    "scanalyze-ocr-worker",
+    "scanalyze-postprocess-worker",
+    "scanalyze-classifier-worker",
+    "scanalyze-bank-worker",
+    "scanalyze-personal-worker",
+    "scanalyze-gov-worker",
+)
+RUNTIME_ARTIFACTS = (
+    "identity-pre-token-lambda",
+    "identity-control-processor-lambda",
+    "scanalyze-frontend-ui",
+)
 
 
-def build_graph(args: argparse.Namespace) -> dict:
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    entries = []
-    for service in SERVICES:
-        entry = {
-            "service": service,
-            "commit": args.commit,
-            "tag": args.tag,
-            "image_digest": f"sha256:{'0' * 64}",  # placeholder until actual push
-            "base_image_digest": args.base_image_digest,
-            "ecr_repo": f"{args.ecr_prefix}/{service}" if args.ecr_prefix else f"scanalyze/{service}",
-            "scan_status": "SKIPPED" if args.dry_run else "PENDING",
-            "sbom_path": None,
-            "signature_status": "SKIPPED" if args.dry_run else "PENDING",
-            "timestamp": timestamp,
-        }
-        entries.append(entry)
-
+def planning_inventory() -> dict[str, object]:
     return {
-        "schema_version": "1",
-        "deployment_id": args.deployment_id,
-        "release_tag": args.tag,
-        "commit": args.commit,
-        "base_image_digest": args.base_image_digest,
-        "generated_at": timestamp,
-        "dry_run": args.dry_run,
-        "services": entries,
-        "supply_chain_tools": {
-            "cosign": _tool_status("cosign"),
-            "syft": _tool_status("syft"),
-            "trivy": _tool_status("trivy"),
-        },
+        "schema_version": "release-planning-inventory.v1",
+        "classification": "planning-only",
+        "eligible_for_promotion": False,
+        "production_status": "NO-GO",
+        "artifacts": list(SERVICES + RUNTIME_ARTIFACTS),
+        "required_evidence": [
+            "immutable artifact digest",
+            "SPDX 2.3 JSON SBOM",
+            "vulnerability scan",
+            "SLSA provenance",
+            "signature bundle",
+            "signed release verification summary",
+        ],
+        "authority": "tooling/release_policy_gate.py",
     }
 
 
-def _tool_status(tool: str) -> str:
-    import shutil
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-dry-run", action="store_true")
+    parser.add_argument("--output", type=Path)
+    args, unknown = parser.parse_known_args(argv)
 
-    if shutil.which(tool):
-        return "available"
-    return "not_installed"
+    if unknown:
+        parser.error("legacy release graph arguments are no longer accepted")
+    if args.no_dry_run or not args.dry_run:
+        print(
+            "ERROR: the legacy release graph cannot authorize a release; use "
+            "tooling/release_policy_gate.py with complete signed evidence",
+            file=sys.stderr,
+        )
+        return 2
 
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate Scanalyze release graph")
-    parser.add_argument("--deployment-id", default="dep_01SYNTH3T1CABC0XAMP0EHABCD")
-    parser.add_argument("--commit", default="synthetic")
-    parser.add_argument("--tag", default="synthetic-dry-run")
-    parser.add_argument("--base-image-digest", default=f"sha256:{'0' * 64}")
-    parser.add_argument("--ecr-prefix", default="")
-    parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--dry-run", action="store_true", default=True)
-    parser.add_argument("--no-dry-run", action="store_false", dest="dry_run")
-    args = parser.parse_args()
-
-    graph = build_graph(args)
-
-    output_json = json.dumps(graph, indent=2)
-
+    rendered = json.dumps(planning_inventory(), indent=2, sort_keys=True) + "\n"
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(output_json + "\n")
-        print(f"Release graph written to: {args.output}")
+        args.output.write_text(rendered, encoding="utf-8")
     else:
-        print(output_json)
-
-    # Report tool availability
-    tools = graph["supply_chain_tools"]
-    for tool, status in tools.items():
-        if status == "available":
-            print(f"  {tool}: AVAILABLE", file=sys.stderr)
-        else:
-            print(f"  {tool}: SKIPPED (not installed)", file=sys.stderr)
-
+        sys.stdout.write(rendered)
     return 0
 
 

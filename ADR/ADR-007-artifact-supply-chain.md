@@ -1,5 +1,10 @@
 # ADR-007: Artifact Supply Chain — Build, Sign, Scan, Attest, Promote
 
+> **GUG-124 amendment (2026-07-14):** ADR-032 replaces release v1 and any
+> fail-open or status-only interpretation with the strict `release.v2` + signed
+> VSA authority chain. This ADR remains architectural background for the live
+> AWS adapter; where the two conflict, ADR-032 controls.
+
 > **Status**: `DRAFT rev3`  
 > **Date**: 2026-06-23  
 > **Decision makers**: César Guzmán  

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/release-trust-policy.v1.schema.json",
+  "title": "Scanalyze Release Trust Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "allowed_source_repositories",
+    "allowed_source_refs",
+    "allowed_builder_ids",
+    "allowed_build_types",
+    "allowed_runner_images",
+    "required_artifacts",
+    "required_base_images",
+    "required_toolchain",
+    "allowed_signers",
+    "vulnerability_policy",
+    "waiver_policy",
+    "verification_policy"
+  ],
+  "properties": {
+    "schema_version": { "const": "release-trust-policy.v1" },
+    "policy_id": { "const": "https://scanalyze.dev/policies/supply-chain/release-policy/v1" },
+    "allowed_source_repositories": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "allowed_source_refs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^refs/(?:heads|tags)/" } },
+    "allowed_builder_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "uri" } },
+    "allowed_build_types": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "uri" } },
+    "allowed_runner_images": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/digest_uri" } },
+    "required_artifacts": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "required_base_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanalyze-ingest-api",
+        "scanalyze-ocr-worker",
+        "scanalyze-postprocess-worker",
+        "scanalyze-classifier-worker",
+        "scanalyze-bank-worker",
+        "scanalyze-personal-worker",
+        "scanalyze-gov-worker"
+      ],
+      "properties": {
+        "scanalyze-ingest-api": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-ocr-worker": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-postprocess-worker": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-classifier-worker": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-bank-worker": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-personal-worker": { "$ref": "#/$defs/digest_uri" },
+        "scanalyze-gov-worker": { "$ref": "#/$defs/digest_uri" }
+      }
+    },
+    "required_toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["syft", "trivy", "cosign"],
+      "properties": {
+        "syft": { "$ref": "#/$defs/tool" },
+        "trivy": { "$ref": "#/$defs/tool" },
+        "cosign": { "$ref": "#/$defs/tool" }
+      }
+    },
+    "allowed_signers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key_id", "issuer", "identity", "public_key_jwk"],
+        "properties": {
+          "key_id": { "type": "string" },
+          "issuer": { "type": "string", "format": "uri" },
+          "identity": { "type": "string", "format": "uri" },
+          "public_key_jwk": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kty", "crv", "x", "y"],
+            "properties": {
+              "kty": { "const": "EC" },
+              "crv": { "const": "P-256" },
+              "x": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+              "y": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+            }
+          }
+        }
+      }
+    },
+    "vulnerability_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_critical", "max_unwaived_high", "critical_waivers_allowed"],
+      "properties": {
+        "max_critical": { "const": 0 },
+        "max_unwaived_high": { "const": 0 },
+        "critical_waivers_allowed": { "const": false }
+      }
+    },
+    "waiver_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_severities", "approver_roles", "max_validity_days"],
+      "properties": {
+        "allowed_severities": { "type": "array", "const": ["high"] },
+        "approver_roles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "max_validity_days": { "type": "integer", "minimum": 1, "maximum": 90 }
+      }
+    },
+    "verification_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifier_id", "verifier_version", "verifier_digest", "minimum_slsa_build_level"],
+      "properties": {
+        "verifier_id": { "type": "string", "format": "uri" },
+        "verifier_version": { "type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+$" },
+        "verifier_digest": { "$ref": "#/$defs/sha256" },
+        "minimum_slsa_build_level": { "type": "string", "enum": ["SLSA_BUILD_LEVEL_1", "SLSA_BUILD_LEVEL_2", "SLSA_BUILD_LEVEL_3"] }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digest_uri": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$",
+      "maxLength": 1024
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "binary_digest"],
+      "properties": {
+        "name": { "type": "string", "enum": ["syft", "trivy", "cosign"] },
+        "version": { "type": "string", "pattern": "^v?[0-9]+[.][0-9]+[.][0-9]+$" },
+        "binary_digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

@@ -38,6 +38,10 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "github-environment-anchor": "github-environment-anchor.v{version}.schema.json",
         "github-platform-authority": "github-platform-authority.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
+        "release-attestation": "release-attestation.v{version}.schema.json",
+        "release-deployment-projection": "release-deployment-projection.v{version}.schema.json",
+        "release-trust-policy": "release-trust-policy.v{version}.schema.json",
+        "release": "release.v{version}.schema.json",
         "task-definition": "task-definition-input.v{version}.schema.json",
     }
     for prefix, template in versioned_mappings.items():

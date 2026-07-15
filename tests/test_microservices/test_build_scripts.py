@@ -180,6 +180,7 @@ def publish_tool_env(tmp_path: Path, digest: str) -> tuple[dict[str, str], Path,
 
 def test_no_push_builds_one_service_without_aws(tmp_path: Path) -> None:
     env, docker_log = fake_tool_env(tmp_path)
+    base_image = f"python@sha256:{'a' * 64}"
     result = run_script(
         BUILD_SCRIPT,
         "--service",
@@ -187,7 +188,7 @@ def test_no_push_builds_one_service_without_aws(tmp_path: Path) -> None:
         "--tag",
         "sha-test123",
         "--base-image",
-        "python:3.11-slim",
+        base_image,
         "--no-push",
         "--no-write-ssm",
         env=env,
@@ -196,7 +197,7 @@ def test_no_push_builds_one_service_without_aws(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     invocation = docker_log.read_text(encoding="utf-8")
     assert "build --platform linux/amd64" in invocation
-    assert "BASE_IMAGE=python:3.11-slim" in invocation
+    assert f"BASE_IMAGE={base_image}" in invocation
     assert "scanalyze-ci/ingest-api:sha-test123" in invocation
 
 
@@ -208,13 +209,29 @@ def test_all_mode_builds_exact_service_allowlist(tmp_path: Path) -> None:
         "--tag",
         "validation",
         "--base-image",
-        "python:3.11-slim",
+        f"python@sha256:{'a' * 64}",
         "--no-push",
         env=env,
     )
 
     assert result.returncode == 0, result.stderr
     assert len(docker_log.read_text(encoding="utf-8").splitlines()) == 7
+
+
+def test_no_push_rejects_mutable_base_image() -> None:
+    result = run_script(
+        BUILD_SCRIPT,
+        "--service",
+        "ingest-api",
+        "--tag",
+        "sha-test123",
+        "--base-image",
+        "python:3.11-slim",
+        "--no-push",
+    )
+
+    assert result.returncode == 2
+    assert "immutable @sha256" in result.stderr
 
 
 def test_rejects_invalid_or_unsafe_argument_combinations() -> None:

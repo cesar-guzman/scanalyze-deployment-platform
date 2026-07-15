@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
-# scan-image.sh — Scan a Scanalyze service image for vulnerabilities
-# Requires: trivy (https://github.com/aquasecurity/trivy)
+# Scan an immutable Scanalyze image and fail on HIGH or CRITICAL findings.
 set -euo pipefail
-IMAGE="${1:-}"
-if [[ -z "$IMAGE" ]]; then echo "Usage: scan-image.sh <image> [output-file]"; exit 2; fi
-if ! command -v trivy &>/dev/null; then
-  echo "SKIPPED: trivy is not installed"
-  echo "  Install: https://github.com/aquasecurity/trivy#installation"
-  exit 0
+IFS=$'\n\t'
+
+readonly IMAGE="${1:-}"
+readonly OUTPUT="${2:-}"
+
+if [[ ! "$IMAGE" =~ @sha256:[0-9a-f]{64}$ || -z "$OUTPUT" ]]; then
+  echo "Usage: scan-image.sh <image@sha256:digest> <output-file>" >&2
+  exit 2
 fi
-OUTPUT="${2:-}"
-if [[ -n "$OUTPUT" ]]; then
-  trivy image --format json --output "$OUTPUT" "$IMAGE"
-  echo "PASSED: Scan results at $OUTPUT"
-else
-  trivy image "$IMAGE"
+if ! command -v trivy >/dev/null 2>&1; then
+  echo "ERROR: required vulnerability scanner trivy is unavailable" >&2
+  exit 3
 fi
+
+trivy image \
+  --exit-code 1 \
+  --severity HIGH,CRITICAL \
+  --format json \
+  --output "$OUTPUT" \
+  "$IMAGE"
+[[ -s "$OUTPUT" ]] || { echo "ERROR: trivy produced no scan evidence" >&2; exit 4; }
+echo "PASSED: vulnerability evidence generated with no blocking findings"

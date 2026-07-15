@@ -24,7 +24,7 @@ conflicts in the existing documents:
 - the old repository milestone named `M0` is not GUG-116 Phase 0;
 - draft documents disagree about where ephemeral saved plans belong;
 - multi-region write authority is still undecided;
-- local supply-chain tooling may report `SKIPPED`, while production must fail
+- required supply-chain tooling and evidence fail closed under ADR-032
   closed;
 - the current CODEOWNERS model is concentrated in one maintainer;
 - the GUG-116 wording could be read as a blanket authorization for Phases 1-6;

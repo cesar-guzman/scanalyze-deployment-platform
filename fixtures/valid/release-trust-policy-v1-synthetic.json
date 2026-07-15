@@ -1,0 +1,91 @@
+{
+  "schema_version": "release-trust-policy.v1",
+  "policy_id": "https://scanalyze.dev/policies/supply-chain/release-policy/v1",
+  "allowed_source_repositories": [
+    "cesar-guzman/scanalyze-deployment-platform"
+  ],
+  "allowed_source_refs": [
+    "refs/heads/main"
+  ],
+  "allowed_builder_ids": [
+    "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml"
+  ],
+  "allowed_build_types": [
+    "https://scanalyze.dev/build-types/build-once/v1"
+  ],
+  "allowed_runner_images": [
+    "ghcr.io/actions/runner@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  ],
+  "required_artifacts": [
+    "scanalyze-ingest-api",
+    "scanalyze-ocr-worker",
+    "scanalyze-postprocess-worker",
+    "scanalyze-classifier-worker",
+    "scanalyze-bank-worker",
+    "scanalyze-personal-worker",
+    "scanalyze-gov-worker",
+    "identity-pre-token-lambda",
+    "identity-control-processor-lambda",
+    "scanalyze-frontend-ui"
+  ],
+  "required_base_images": {
+    "scanalyze-ingest-api": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-ocr-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-postprocess-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-classifier-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-bank-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-personal-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "scanalyze-gov-worker": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "required_toolchain": {
+    "syft": {
+      "name": "syft",
+      "version": "v1.44.0",
+      "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+    },
+    "trivy": {
+      "name": "trivy",
+      "version": "v0.70.0",
+      "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+    },
+    "cosign": {
+      "name": "cosign",
+      "version": "v3.0.6",
+      "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000053"
+    }
+  },
+  "allowed_signers": [
+    {
+      "key_id": "synthetic-ci-p256-v1",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+      "public_key_jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "e9QBBywBojSRtRLVEsxKvkjr31bqIy8LzsYnNAFWL74",
+        "y": "IRDLAqdPjnCX2IrHOxL1Hwwmzhv-eE2Uf_LaC0DLB-4"
+      }
+    }
+  ],
+  "vulnerability_policy": {
+    "max_critical": 0,
+    "max_unwaived_high": 0,
+    "critical_waivers_allowed": false
+  },
+  "waiver_policy": {
+    "allowed_severities": [
+      "high"
+    ],
+    "approver_roles": [
+      "security_approver",
+      "release_approver"
+    ],
+    "max_validity_days": 30
+  },
+  "verification_policy": {
+    "verifier_id": "https://scanalyze.dev/verifiers/release-policy-gate",
+    "verifier_version": "2.0.0",
+    "verifier_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "minimum_slsa_build_level": "SLSA_BUILD_LEVEL_2"
+  }
+}

@@ -310,7 +310,9 @@ provenance record is missing, skipped, stale, or bound to another digest.
   attestation validation.
 - **Recovery:** mark the release blocked and remove it from promotion eligibility;
   rebuild only in the approved build environment.
-- **Evidence:** local tooling may report `SKIPPED`; production enforcement is not
+- **Evidence:** historical local tooling could report `SKIPPED`; ADR-032 now
+  requires a non-zero failure for missing release tooling or evidence, while live
+  enforcement is not
   implemented.
 - **Residual risk:** **High**. **Owner:** Release Engineering and Platform
   Security.

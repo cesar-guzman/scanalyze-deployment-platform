@@ -1,0 +1,562 @@
+{
+  "schema_version": "release.v2",
+  "release_id": "rel_01J2ABCDEF0123456789ABCDEF",
+  "release_version": "2.4.0",
+  "release_manifest_digest": "sha256:10fcefdd28c76e9561a806b5d4e3c1c8323e8c41f801b41e43c2b0eed4637241",
+  "policy_digest": "sha256:5d735d0c97ba244f093bc6fd275d5da63958a1f4ea3642e44c8c255428a48d8d",
+  "created_at": "2026-07-14T10:45:00Z",
+  "source": {
+    "repository": "cesar-guzman/scanalyze-deployment-platform",
+    "commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe",
+    "ref": "refs/heads/main"
+  },
+  "builder": {
+    "id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+    "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+    "workflow_ref": "cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@788798f9763efd956f5e1a07ee60a59ec4c726fe",
+    "runner_image": "ghcr.io/actions/runner@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "toolchain": {
+      "syft": {
+        "name": "syft",
+        "version": "v1.44.0",
+        "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+      },
+      "trivy": {
+        "name": "trivy",
+        "version": "v0.70.0",
+        "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+      },
+      "cosign": {
+        "name": "cosign",
+        "version": "v3.0.6",
+        "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000053"
+      }
+    }
+  },
+  "artifacts": {
+    "scanalyze-ingest-api": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/ingest-api@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000011",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000021",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000061",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000031",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000041",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-ocr-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/ocr-worker@sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000012",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000022",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000062",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000032",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000042",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-postprocess-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/postprocess-worker@sha256:0000000000000000000000000000000000000000000000000000000000000003",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000013",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000023",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000063",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000033",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000043",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-classifier-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/classifier-worker@sha256:0000000000000000000000000000000000000000000000000000000000000004",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000014",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000024",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000064",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000034",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000044",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-bank-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/bank-worker@sha256:0000000000000000000000000000000000000000000000000000000000000005",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000015",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000025",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000065",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000035",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000045",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-personal-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/personal-worker@sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000016",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000026",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000066",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000036",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000046",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "scanalyze-gov-worker": {
+      "kind": "container",
+      "uri": "registry.invalid/scanalyze/gov-worker@sha256:0000000000000000000000000000000000000000000000000000000000000007",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+      "media_type": "application/vnd.oci.image.manifest.v1+json",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000017",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000027",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000067",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000037",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000047",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      },
+      "base_image_uri": "registry.invalid/scanalyze/python-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "base_image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "identity-pre-token-lambda": {
+      "kind": "archive",
+      "uri": "https://artifacts.invalid/releases/sha256/0000000000000000000000000000000000000000000000000000000000000008/identity-pre-token-lambda.zip",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+      "media_type": "application/zip",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000018",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000028",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000068",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000038",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000048",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      }
+    },
+    "identity-control-processor-lambda": {
+      "kind": "archive",
+      "uri": "https://artifacts.invalid/releases/sha256/0000000000000000000000000000000000000000000000000000000000000009/identity-control-processor-lambda.zip",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "media_type": "application/zip",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000019",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000029",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000069",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000039",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000049",
+        "subject_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      }
+    },
+    "scanalyze-frontend-ui": {
+      "kind": "archive",
+      "uri": "https://artifacts.invalid/releases/sha256/000000000000000000000000000000000000000000000000000000000000000a/scanalyze-frontend-ui.tar.gz",
+      "digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "media_type": "application/gzip",
+      "sbom": {
+        "status": "verified",
+        "format": "spdx-2.3-json",
+        "digest": "sha256:000000000000000000000000000000000000000000000000000000000000001a",
+        "subject_digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+        "generator": {
+          "name": "syft",
+          "version": "v1.44.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000051"
+        }
+      },
+      "scan": {
+        "status": "passed",
+        "report_digest": "sha256:000000000000000000000000000000000000000000000000000000000000002a",
+        "subject_digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+        "scanner": {
+          "name": "trivy",
+          "version": "v0.70.0",
+          "binary_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000052"
+        },
+        "database_digest": "sha256:000000000000000000000000000000000000000000000000000000000000006a",
+        "completed_at": "2026-07-14T10:30:00Z",
+        "critical_findings": 0,
+        "high_findings": 0,
+        "findings": []
+      },
+      "provenance": {
+        "status": "verified",
+        "digest": "sha256:000000000000000000000000000000000000000000000000000000000000003a",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+        "builder_id": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml",
+        "build_type": "https://scanalyze.dev/build-types/build-once/v1",
+        "source_repository": "cesar-guzman/scanalyze-deployment-platform",
+        "source_commit": "788798f9763efd956f5e1a07ee60a59ec4c726fe"
+      },
+      "signature": {
+        "status": "verified",
+        "bundle_digest": "sha256:000000000000000000000000000000000000000000000000000000000000004a",
+        "subject_digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": "https://github.com/cesar-guzman/scanalyze-deployment-platform/.github/workflows/microservices-build.yml@refs/heads/main",
+        "key_id": "synthetic-ci-p256-v1"
+      }
+    }
+  },
+  "waivers": [],
+  "last_known_good": {
+    "release_id": "rel_01J1ABCDEF0123456789ABCDEF",
+    "release_manifest_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "approved_change_id": "chg_01J2ABCDEF0123456789ABCDEF"
+  },
+  "promotion": {
+    "mode": "copy-by-digest",
+    "rebuild": false
+  }
+}

@@ -1,6 +1,6 @@
 # ADR-016: Release Graph and OCI Supply Chain
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-032
 - **Date**: 2026-07-10
 
 ## Context
@@ -9,13 +9,13 @@ Scanalyze delivers 7 OCI images per release. There was no formal record of what 
 
 ## Decision
 
-1. **Release Graph**: `scripts/supply-chain/release-graph.py` generates a JSON document recording the full lineage of every image in a release.
-2. **SBOM**: `generate-sbom.sh` generates SBOMs using syft (SPDX format). SKIPPED if syft is not installed.
-3. **Scan**: `scan-image.sh` scans images using trivy. SKIPPED if trivy is not installed.
-4. **Sign**: `sign-image.sh` signs images using cosign (keyless/Sigstore). SKIPPED if cosign is not installed.
-5. **Verify**: `verify-image.sh` verifies image signatures. SKIPPED if cosign is not installed.
+1. **Historical release graph**: the original script recorded status-only image lineage. ADR-032 limits it to a planning-only inventory that cannot authorize promotion.
+2. **SBOM**: the current wrapper requires Syft and a non-empty SPDX output or fails.
+3. **Scan**: the current wrapper requires Trivy and fails on missing evidence or blocking findings.
+4. **Sign**: the current wrapper requires Cosign, an immutable digest, and a persisted signature bundle.
+5. **Verify**: the current wrapper requires Cosign, an exact issuer and identity, and propagates verification failures.
 
-All scripts are tolerant of missing tools (report SKIPPED, not FAIL) to support local development. For release policy, tool availability can be enforced by CI.
+The original fail-open tool behavior is prohibited by ADR-032. Missing evidence tooling now returns a non-zero status, and planning inventories are explicitly ineligible for promotion.
 
 ## Consequences
 

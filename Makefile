@@ -396,7 +396,14 @@ taskdef-check:
 # ── Supply Chain Check (M1) ──────────────────────────────────────────
 supply-chain-check:
 	@echo "=== Supply Chain Policy Gate Check ==="
+	@$(PYTHON) -c "import cryptography, jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: cryptography and jsonschema are required."; exit 1; }
 	@$(PYTHON) -m pytest $(TESTS_DIR)/test_supply_chain/ -v --tb=short
+	@$(PYTHON) $(TOOLING_DIR)/release_policy_gate.py \
+		--manifest $(FIXTURES_DIR)/valid/release-v2-complete.synthetic.json \
+		--attestation $(FIXTURES_DIR)/valid/release-attestation-v2-complete.synthetic.json \
+		--policy $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.json \
+		--expected-policy-digest "$$(cat $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.sha256)" >/dev/null
 	@echo "Supply chain check complete."
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
@@ -807,15 +814,21 @@ docs-check: phase0-docs-check
 			ADR/ADR-018-stable-ci-governance.md \
 			ADR/ADR-019-production-readiness-foundation.md \
 			ADR/ADR-031-github-oidc-terminal-identity.md \
+			ADR/ADR-032-build-once-and-supply-chain-fail-closed.md \
+			docs/deployment/build-once-supply-chain.md \
+			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/deployment/github-oidc-terminal-identity.md \
 			docs/operations/github-governance.md \
 			docs/operations/github-oidc-terminal-identity-rollout.md \
+			docs/operations/build-once-promotion-and-rollback.md \
+			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
 			playbooks/phase-0-foundation.md \
 			_NotebookLM_Brain/10_Production_Readiness_Foundation.md \
 			_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md \
+			_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

@@ -227,3 +227,24 @@ run "rejects_m2m_scope_set_override" {
     var.service_definitions,
   ]
 }
+
+run "rejects_mutable_service_image" {
+  command = plan
+
+  variables {
+    service_definitions = [
+      {
+        name              = "ingest-api"
+        image             = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api:latest"
+        cpu               = 256
+        memory            = 512
+        desired_count     = 1
+        extra_environment = []
+      }
+    ]
+  }
+
+  expect_failures = [
+    var.service_definitions,
+  ]
+}
