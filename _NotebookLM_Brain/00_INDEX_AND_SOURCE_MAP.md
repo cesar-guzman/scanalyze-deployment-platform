@@ -74,6 +74,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se clasifican registros sin ownership canónico? | [Runbook de ownership y cuarentena](../docs/deployment/object-ownership-migration-quarantine.md); el inventario live y referencias reales permanecen fuera de Git y NotebookLM |
 | ¿Cómo se resuelven contratos tipados en el DAG canónico? | [ADR-029](../ADR/ADR-029-strict-contracts-and-canonical-dag.md), [resolución estricta](../docs/deployment/strict-contract-resolution.md) y [fuente sanitizada GUG-121](18_GUG121_Strict_Contracts_and_DAG.md) |
 | ¿Cómo se autoriza un target y se deriva su backend sin confiar en el request? | [ADR-030](../ADR/ADR-030-registry-account-baseline-backend-locking.md), [backend y locking](../docs/deployment/registry-account-baseline-backend-locking.md), [runbook de recuperación](../docs/operations/terraform-backend-migration-and-recovery.md) y [fuente sanitizada GUG-122](19_GUG122_Registry_Backend_Locking.md) |
+| ¿Qué ejecución GitHub puede obtener identidad y entrar a cada rol terminal? | [ADR-031](../ADR/ADR-031-github-oidc-terminal-identity.md), [referencia GUG-123](../docs/deployment/github-oidc-terminal-identity.md), [runbook de rollout](../docs/operations/github-oidc-terminal-identity-rollout.md) y [fuente sanitizada GUG-123](20_GUG123_GitHub_OIDC_Terminal_Identity.md) |
 
 ## Estado de evidencia al 2026-07-12
 
@@ -120,6 +121,7 @@ Cuando dos documentos difieran, usar este orden:
 | [17 — GUG-95 Enterprise User Console](17_GUG95_Enterprise_User_Console.md) | UI de privilegios fail-closed, lifecycle recuperable, privacidad, CORS y E2E sintético |
 | [18 — GUG-121 Strict Contracts and DAG](18_GUG121_Strict_Contracts_and_DAG.md) | Catálogo de contratos, productores únicos, resolución content-addressed, DAG canónico y límites live |
 | [19 — GUG-122 Registry and Backend Locking](19_GUG122_Registry_Backend_Locking.md) | Registry anclado, ACCOUNT_READY v2, backend derivado, lockfile nativo, ejecución exclusiva y recuperación revisada |
+| [20 — GUG-123 GitHub OIDC and Terminal Identity](20_GUG123_GitHub_OIDC_Terminal_Identity.md) | IDs inmutables, Environment anclado, subject exacto, roles terminales y separación break-glass |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -163,6 +165,8 @@ Cuando dos documentos difieran, usar este orden:
     DAG canónico, o de un manifest, prefijo, perfil o convención no autoritativa?
 20. ¿Un lock expirado está siendo tratado incorrectamente como permiso para
     takeover o force-unlock automático?
+21. ¿La identidad cloud proviene de un subject OIDC exacto y de evidencia fresca
+    del Environment, o de nombres, inputs, variables, defaults o wildcards?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

@@ -139,6 +139,13 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert publish["strategy"]["matrix"]["service"] == (
         "${{ fromJSON(needs.changes.outputs.publish_services) }}"
     )
+    assert publish["permissions"] == {}
+    assert "environment" not in publish
+    assert len(publish["steps"]) == 1
+    assert publish["steps"][0]["name"] == (
+        "Deny legacy publishing until the authorized release engine exists"
+    )
+    assert "exit 1" in publish["steps"][0]["run"]
 
 
 @pytest.mark.parametrize(

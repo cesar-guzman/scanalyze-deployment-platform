@@ -49,27 +49,139 @@
       }
     },
     {
-      "Sid": "AssumeCustomerRoles",
+      "Sid": "AssumeBoundCustomerRoles",
       "Effect": "Allow",
-      "Action": [
-        "sts:AssumeRole",
-        "sts:TagSession",
-        "sts:SetSourceIdentity"
-      ],
+      "Action": "sts:AssumeRole",
       "Resource": [
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Plan",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Apply",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Plan",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Apply",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Validation"
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-orchestrator",
+          "aws:RequestTag/customer_id": "${aws:PrincipalTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:PrincipalTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:PrincipalTag/account_id}",
+          "aws:RequestTag/region": "${aws:PrincipalTag/region}",
+          "aws:RequestTag/environment": "${aws:PrincipalTag/environment}"
+        },
+        "StringLike": {
+          "aws:RequestTag/change_id": "chg_*",
+          "aws:RequestTag/operation": [
+            "plan",
+            "apply",
+            "promote",
+            "validate"
+          ],
+          "aws:RequestTag/layer": [
+            "global",
+            "network",
+            "platform",
+            "data-foundation",
+            "cicd",
+            "identity-control-plane",
+            "services",
+            "edge-identity",
+            "edge",
+            "addons",
+            "artifact-publication",
+            "synthetic-validation"
+          ],
+          "sts:SourceIdentity": "exec_*"
+        }
+      }
+    },
+    {
+      "Sid": "TagBoundCustomerRoleSessions",
+      "Effect": "Allow",
+      "Action": "sts:TagSession",
+      "Resource": [
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-orchestrator",
+          "aws:RequestTag/customer_id": "${aws:PrincipalTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:PrincipalTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:PrincipalTag/account_id}",
+          "aws:RequestTag/region": "${aws:PrincipalTag/region}",
+          "aws:RequestTag/environment": "${aws:PrincipalTag/environment}"
+        },
+        "StringLike": {
+          "aws:RequestTag/change_id": "chg_*",
+          "aws:RequestTag/operation": [
+            "plan",
+            "apply",
+            "promote",
+            "validate"
+          ],
+          "aws:RequestTag/layer": [
+            "global",
+            "network",
+            "platform",
+            "data-foundation",
+            "cicd",
+            "identity-control-plane",
+            "services",
+            "edge-identity",
+            "edge",
+            "addons",
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "customer_id",
+            "deployment_id",
+            "account_id",
+            "region",
+            "environment",
+            "operation",
+            "layer",
+            "change_id"
+          ]
+        },
+        "Null": {
+          "aws:TagKeys": "false",
+          "aws:RequestTag/customer_id": "false",
+          "aws:RequestTag/deployment_id": "false",
+          "aws:RequestTag/account_id": "false",
+          "aws:RequestTag/region": "false",
+          "aws:RequestTag/environment": "false",
+          "aws:RequestTag/operation": "false",
+          "aws:RequestTag/layer": "false",
+          "aws:RequestTag/change_id": "false"
+        }
+      }
+    },
+    {
+      "Sid": "SetBoundCustomerRoleSourceIdentity",
+      "Effect": "Allow",
+      "Action": "sts:SetSourceIdentity",
+      "Resource": [
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
       ],
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/service": "scanalyze-orchestrator"
         },
         "StringLike": {
-          "sts:SourceIdentity": ["exec_*", "chg_*"]
+          "sts:SourceIdentity": "exec_*"
         }
       }
     },

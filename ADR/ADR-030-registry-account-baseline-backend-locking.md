@@ -53,8 +53,9 @@ attributes are not authorized.
 ### 3. ACCOUNT_READY v2 proves the baseline
 
 `ACCOUNT_READY` v2 binds both customer and deployment plus account, region,
-environment, baseline version, six role ARNs and their customer/deployment
-tags, the three buckets, the three KMS keys, and these exact state controls:
+environment, baseline version, eight role ARNs and their customer, deployment,
+account, region, and environment resource tags, the three buckets, the three
+KMS keys, and these exact state controls:
 
 - versioning enabled;
 - default SSE-KMS with bucket keys;
@@ -106,6 +107,8 @@ requires an incident identifier; `.tflock` deletion additionally requires
 ownership, apply Terraform, or automatically force-unlock. State restoration
 always requires a subsequent reviewed reconciliation plan. GUG-123 must prove
 which identity may issue the approval tag before this becomes a live control.
+ADR-031 now defines that candidate human-only trust; live issuance remains
+unvalidated.
 
 ## Security consequences
 
@@ -116,9 +119,10 @@ which identity may issue the approval tag before this becomes a live control.
 - A key collision or path traversal cannot be materialized from the DAG.
 - A missing, released, expired, foreign, or altered execution lock denies the
   operation without revealing backend coordinates.
-- Hashes prove integrity, not writer identity. GUG-123 must establish the OIDC,
-  Environment, and IAM retrieval authority before a live runner may consume
-  these contracts.
+- Hashes prove integrity, not writer identity. ADR-031 defines the candidate
+  OIDC, Environment, platform-authority, and IAM chain; authorized live GitHub
+  and AWS validation is still required before a runner may consume these
+  contracts.
 
 ## Migration and compatibility
 

@@ -35,11 +35,22 @@
     "provisioned_at": { "type": "string", "format": "date-time" },
     "roles": {
       "type": "object",
-      "required": ["plan", "apply", "promotion", "validation", "diagnostic", "state_recovery"],
+      "required": [
+        "plan",
+        "apply",
+        "identity_plan",
+        "identity_apply",
+        "promotion",
+        "validation",
+        "diagnostic",
+        "state_recovery"
+      ],
       "additionalProperties": false,
       "properties": {
         "plan": { "$ref": "#/$defs/role" },
         "apply": { "$ref": "#/$defs/role" },
+        "identity_plan": { "$ref": "#/$defs/role" },
+        "identity_apply": { "$ref": "#/$defs/role" },
         "promotion": { "$ref": "#/$defs/role" },
         "validation": { "$ref": "#/$defs/role" },
         "diagnostic": { "$ref": "#/$defs/role" },
@@ -98,12 +109,22 @@
     "kms_arn": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$" },
     "role": {
       "type": "object",
-      "required": ["arn", "customer_id_tag", "deployment_id_tag"],
+      "required": [
+        "arn",
+        "customer_id_tag",
+        "deployment_id_tag",
+        "account_id_tag",
+        "region_tag",
+        "environment_tag"
+      ],
       "additionalProperties": false,
       "properties": {
         "arn": { "type": "string", "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$" },
         "customer_id_tag": { "$ref": "#/$defs/customer_id" },
-        "deployment_id_tag": { "$ref": "#/$defs/deployment_id" }
+        "deployment_id_tag": { "$ref": "#/$defs/deployment_id" },
+        "account_id_tag": { "$ref": "#/$defs/account_id" },
+        "region_tag": { "$ref": "#/$defs/region" },
+        "environment_tag": { "enum": ["sandbox", "dev", "staging", "production"] }
       }
     }
   }

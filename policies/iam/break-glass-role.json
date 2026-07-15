@@ -2,44 +2,135 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AssumeCustomerDiagnosticAndStateRecovery",
+      "Sid": "AssumeBoundDiagnosticAndStateRecovery",
       "Effect": "Allow",
-      "Action": [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ],
+      "Action": "sts:AssumeRole",
       "Resource": [
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Diagnostic",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-StateRecovery"
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Diagnostic",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-StateRecovery"
       ],
       "Condition": {
         "StringEquals": {
-          "aws:PrincipalTag/service": "scanalyze-break-glass"
+          "aws:PrincipalTag/service": "scanalyze-break-glass",
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true",
+          "aws:RequestTag/customer_id": "${aws:PrincipalTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:PrincipalTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:PrincipalTag/account_id}",
+          "aws:RequestTag/region": "${aws:PrincipalTag/region}",
+          "aws:RequestTag/environment": "${aws:PrincipalTag/environment}"
+        },
+        "StringLike": {
+          "aws:RequestTag/operation": [
+            "diagnostic",
+            "state-recovery"
+          ],
+          "aws:RequestTag/incident_id": "inc_*",
+          "aws:RequestTag/operator_id": "op_*",
+          "sts:SourceIdentity": "bg_*"
+        }
+      }
+    },
+    {
+      "Sid": "TagBoundDiagnosticAndStateRecoverySessions",
+      "Effect": "Allow",
+      "Action": "sts:TagSession",
+      "Resource": [
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Diagnostic",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-StateRecovery"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-break-glass",
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true",
+          "aws:RequestTag/customer_id": "${aws:PrincipalTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:PrincipalTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:PrincipalTag/account_id}",
+          "aws:RequestTag/region": "${aws:PrincipalTag/region}",
+          "aws:RequestTag/environment": "${aws:PrincipalTag/environment}"
+        },
+        "StringLike": {
+          "aws:RequestTag/operation": [
+            "diagnostic",
+            "state-recovery"
+          ],
+          "aws:RequestTag/incident_id": "inc_*",
+          "aws:RequestTag/operator_id": "op_*"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "customer_id",
+            "deployment_id",
+            "account_id",
+            "region",
+            "environment",
+            "operation",
+            "incident_id",
+            "operator_id",
+            "recovery_approved"
+          ]
+        },
+        "Null": {
+          "aws:TagKeys": "false",
+          "aws:RequestTag/customer_id": "false",
+          "aws:RequestTag/deployment_id": "false",
+          "aws:RequestTag/account_id": "false",
+          "aws:RequestTag/region": "false",
+          "aws:RequestTag/environment": "false",
+          "aws:RequestTag/operation": "false",
+          "aws:RequestTag/incident_id": "false",
+          "aws:RequestTag/operator_id": "false"
+        }
+      }
+    },
+    {
+      "Sid": "SetBoundRecoverySourceIdentity",
+      "Effect": "Allow",
+      "Action": "sts:SetSourceIdentity",
+      "Resource": [
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Diagnostic",
+        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-StateRecovery"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/service": "scanalyze-break-glass",
+          "aws:PrincipalTag/break_glass_approved": "true",
+          "aws:PrincipalTag/mfa_authenticated": "true"
+        },
+        "StringLike": {
+          "sts:SourceIdentity": "bg_*"
         }
       }
     },
     {
       "Sid": "DenyPlanApplyPromotionAssume",
       "Effect": "Deny",
-      "Action": [
-        "sts:AssumeRole"
-      ],
+      "Action": "sts:AssumeRole",
       "Resource": [
         "arn:aws:iam::*:role/ScanalyzeCustomer-Plan",
         "arn:aws:iam::*:role/ScanalyzeCustomer-Apply",
         "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Plan",
         "arn:aws:iam::*:role/ScanalyzeCustomer-Identity-Apply",
-        "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion"
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Promotion",
+        "arn:aws:iam::*:role/ScanalyzeCustomer-Validation"
       ]
     },
     {
-      "Sid": "ReadDeploymentRegistry",
+      "Sid": "ReadBoundDeploymentRegistry",
       "Effect": "Allow",
       "Action": [
         "dynamodb:GetItem",
         "dynamodb:Query"
       ],
-      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry"
+      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": [
+            "${aws:PrincipalTag/deployment_id}"
+          ]
+        }
+      }
     },
     {
       "Sid": "DenyEscalation",

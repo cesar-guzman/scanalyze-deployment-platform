@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowOrchestratorAssumeApply",
+      "Sid": "AllowOrchestratorAssumeIdentityApply",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Principal": {
@@ -16,17 +16,7 @@
           "aws:RequestTag/region": "${aws:ResourceTag/region}",
           "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
           "aws:RequestTag/operation": "apply",
-          "aws:RequestTag/layer": [
-            "global",
-            "network",
-            "platform",
-            "data-foundation",
-            "cicd",
-            "services",
-            "edge-identity",
-            "edge",
-            "addons"
-          ]
+          "aws:RequestTag/layer": "identity-control-plane"
         },
         "StringLike": {
           "aws:RequestTag/change_id": "chg_*",
@@ -35,7 +25,7 @@
       }
     },
     {
-      "Sid": "AllowOrchestratorTagApplySession",
+      "Sid": "AllowOrchestratorTagIdentityApplySession",
       "Effect": "Allow",
       "Action": "sts:TagSession",
       "Principal": {
@@ -49,17 +39,7 @@
           "aws:RequestTag/region": "${aws:ResourceTag/region}",
           "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
           "aws:RequestTag/operation": "apply",
-          "aws:RequestTag/layer": [
-            "global",
-            "network",
-            "platform",
-            "data-foundation",
-            "cicd",
-            "services",
-            "edge-identity",
-            "edge",
-            "addons"
-          ]
+          "aws:RequestTag/layer": "identity-control-plane"
         },
         "StringLike": {
           "aws:RequestTag/change_id": "chg_*"
@@ -90,7 +70,7 @@
       }
     },
     {
-      "Sid": "AllowOrchestratorSetApplySourceIdentity",
+      "Sid": "AllowOrchestratorSetIdentityApplySourceIdentity",
       "Effect": "Allow",
       "Action": "sts:SetSourceIdentity",
       "Principal": {

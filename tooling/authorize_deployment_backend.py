@@ -182,6 +182,12 @@ def _validate_roles(account_ready: dict[str, Any]) -> None:
             raise AuthorizationError(f"role customer binding mismatch: {role_name}")
         if role["deployment_id_tag"] != deployment_id:
             raise AuthorizationError(f"role deployment binding mismatch: {role_name}")
+        if role["account_id_tag"] != account_id:
+            raise AuthorizationError(f"role account tag mismatch: {role_name}")
+        if role["region_tag"] != account_ready["region"]:
+            raise AuthorizationError(f"role region binding mismatch: {role_name}")
+        if role["environment_tag"] != account_ready["environment"]:
+            raise AuthorizationError(f"role environment binding mismatch: {role_name}")
 
 
 def _validate_state_binding(

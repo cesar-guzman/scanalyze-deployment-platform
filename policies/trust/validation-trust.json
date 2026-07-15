@@ -6,17 +6,79 @@
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Principal": {
-        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeOrchestrator"
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeOrchestrator-${deployment_id}"
       },
       "Condition": {
         "StringEquals": {
-          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}"
+          "aws:RequestTag/customer_id": "${aws:ResourceTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:ResourceTag/account_id}",
+          "aws:RequestTag/region": "${aws:ResourceTag/region}",
+          "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
+          "aws:RequestTag/operation": "validate",
+          "aws:RequestTag/layer": "synthetic-validation"
         },
         "StringLike": {
-          "sts:SourceIdentity": ["exec_*", "chg_*"]
+          "aws:RequestTag/change_id": "chg_*",
+          "sts:SourceIdentity": "exec_*"
+        }
+      }
+    },
+    {
+      "Sid": "AllowOrchestratorTagValidationSession",
+      "Effect": "Allow",
+      "Action": "sts:TagSession",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeOrchestrator-${deployment_id}"
+      },
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/customer_id": "${aws:ResourceTag/customer_id}",
+          "aws:RequestTag/deployment_id": "${aws:ResourceTag/deployment_id}",
+          "aws:RequestTag/account_id": "${aws:ResourceTag/account_id}",
+          "aws:RequestTag/region": "${aws:ResourceTag/region}",
+          "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
+          "aws:RequestTag/operation": "validate",
+          "aws:RequestTag/layer": "synthetic-validation"
+        },
+        "StringLike": {
+          "aws:RequestTag/change_id": "chg_*"
         },
         "ForAllValues:StringEquals": {
-          "aws:TagKeys": ["deployment_id"]
+          "aws:TagKeys": [
+            "customer_id",
+            "deployment_id",
+            "account_id",
+            "region",
+            "environment",
+            "operation",
+            "layer",
+            "change_id"
+          ]
+        },
+        "Null": {
+          "aws:TagKeys": "false",
+          "aws:RequestTag/customer_id": "false",
+          "aws:RequestTag/deployment_id": "false",
+          "aws:RequestTag/account_id": "false",
+          "aws:RequestTag/region": "false",
+          "aws:RequestTag/environment": "false",
+          "aws:RequestTag/operation": "false",
+          "aws:RequestTag/layer": "false",
+          "aws:RequestTag/change_id": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowOrchestratorSetValidationSourceIdentity",
+      "Effect": "Allow",
+      "Action": "sts:SetSourceIdentity",
+      "Principal": {
+        "AWS": "arn:aws:iam::${shared_services_account_id}:role/ScanalyzeOrchestrator-${deployment_id}"
+      },
+      "Condition": {
+        "StringLike": {
+          "sts:SourceIdentity": "exec_*"
         }
       }
     }
