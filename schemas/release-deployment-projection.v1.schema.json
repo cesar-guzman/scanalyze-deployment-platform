@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/release-deployment-projection.v1.schema.json",
+  "title": "Verified Release Deployment Projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "release_id",
+    "release_version",
+    "release_manifest_digest",
+    "release_attestation_digest",
+    "service_images",
+    "runtime_artifacts",
+    "promotion_mode",
+    "rebuild"
+  ],
+  "properties": {
+    "schema_version": { "const": "release-deployment-projection.v1" },
+    "target": { "type": "string", "enum": ["sandbox", "staging", "production"] },
+    "release_id": { "type": "string", "pattern": "^rel_" },
+    "release_version": { "type": "string" },
+    "release_manifest_digest": { "$ref": "#/$defs/sha256" },
+    "release_attestation_digest": { "$ref": "#/$defs/sha256" },
+    "service_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ingest-api", "ocr-worker", "postprocess-worker", "classifier-worker", "bank-worker", "personal-worker", "gov-worker"],
+      "properties": {
+        "ingest-api": { "$ref": "#/$defs/digest_uri" },
+        "ocr-worker": { "$ref": "#/$defs/digest_uri" },
+        "postprocess-worker": { "$ref": "#/$defs/digest_uri" },
+        "classifier-worker": { "$ref": "#/$defs/digest_uri" },
+        "bank-worker": { "$ref": "#/$defs/digest_uri" },
+        "personal-worker": { "$ref": "#/$defs/digest_uri" },
+        "gov-worker": { "$ref": "#/$defs/digest_uri" }
+      }
+    },
+    "runtime_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity-pre-token-lambda", "identity-control-processor-lambda", "scanalyze-frontend-ui"],
+      "properties": {
+        "identity-pre-token-lambda": { "$ref": "#/$defs/archive" },
+        "identity-control-processor-lambda": { "$ref": "#/$defs/archive" },
+        "scanalyze-frontend-ui": { "$ref": "#/$defs/archive" }
+      }
+    },
+    "promotion_mode": { "const": "copy-by-digest" },
+    "rebuild": { "const": false }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digest_uri": { "type": "string", "pattern": "@sha256:[a-f0-9]{64}$" },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "digest"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "pattern": "^(?:https://[^/\\s?#]+|s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9])/(?:[A-Za-z0-9._~-]+/)*sha256/[a-f0-9]{64}/[A-Za-z0-9._~/-]+$"
+        },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

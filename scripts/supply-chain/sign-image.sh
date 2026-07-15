@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# sign-image.sh — Sign a Scanalyze service image with cosign
-# Requires: cosign (https://github.com/sigstore/cosign)
+# Sign an immutable image and persist its verification bundle.
 set -euo pipefail
-IMAGE="${1:-}"
-if [[ -z "$IMAGE" ]]; then echo "Usage: sign-image.sh <image-with-digest>"; exit 2; fi
-if ! command -v cosign &>/dev/null; then
-  echo "SKIPPED: cosign is not installed"
-  echo "  Install: https://github.com/sigstore/cosign#installation"
-  exit 0
+IFS=$'\n\t'
+
+readonly IMAGE="${1:-}"
+readonly FLAG="${2:-}"
+readonly BUNDLE="${3:-}"
+
+if [[ ! "$IMAGE" =~ @sha256:[0-9a-f]{64}$ || "$FLAG" != "--bundle" || -z "$BUNDLE" ]]; then
+  echo "Usage: sign-image.sh <image@sha256:digest> --bundle <bundle-file>" >&2
+  exit 2
 fi
-[[ "$IMAGE" == *"@sha256:"* ]] || { echo "ERROR: image must include digest (@sha256:...)"; exit 2; }
-cosign sign --yes "$IMAGE"
-echo "PASSED: Image signed: $IMAGE"
+if ! command -v cosign >/dev/null 2>&1; then
+  echo "ERROR: required signer cosign is unavailable" >&2
+  exit 3
+fi
+
+cosign sign --yes --bundle "$BUNDLE" "$IMAGE"
+[[ -s "$BUNDLE" ]] || { echo "ERROR: cosign produced no signature bundle" >&2; exit 4; }
+echo "PASSED: immutable image signature bundle generated"

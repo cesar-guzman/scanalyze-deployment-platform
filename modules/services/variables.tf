@@ -95,6 +95,14 @@ variable "service_definitions" {
   validation {
     condition = alltrue([
       for svc in var.service_definitions :
+      can(regex("^[^@[:space:]]+@sha256:[0-9a-f]{64}$", svc.image))
+    ])
+    error_message = "every service image must be an immutable digest reference ending in @sha256:<64 lowercase hex>"
+  }
+
+  validation {
+    condition = alltrue([
+      for svc in var.service_definitions :
       length(distinct([for item in svc.extra_environment : upper(item.name)])) == length(svc.extra_environment)
     ])
     error_message = "extra_environment variable names must be case-insensitively unique within each service definition"

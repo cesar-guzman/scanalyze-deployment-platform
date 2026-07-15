@@ -74,7 +74,7 @@ initialization is part of the required evidence.
 
 1. Runs `repro-check` as a prerequisite.
 2. Validates the synthetic deployment manifest (`examples/deployments/synthetic-nonprod.yaml`).
-3. Generates the supply-chain release graph in dry-run mode.
+3. Generates a deterministic planning-only supply-chain inventory in dry-run mode; it is explicitly ineligible for promotion.
 4. Runs the orchestrator doctor and reports required/optional local tools.
 5. Runs `plan-all --dry-run` with the synthetic manifest across every canonical
    DAG layer, using a temporary plan directory outside the repository that is
