@@ -39,7 +39,9 @@ class FakeRunner:
         if operation == ("put-object", "--region"):
             return json.dumps({"VersionId": "fixture-version"})
         if operation == ("get-object", "--region"):
-            Path(command[-3]).write_bytes(b"exact saved plan")
+            if command[-3:-1] != ("--output", "json"):
+                raise AssertionError("get-object destination must be the final argument")
+            Path(command[-1]).write_bytes(b"exact saved plan")
             return "{}"
         if operation == ("get-item", "--region"):
             return json.dumps({"Item": {"document": {"S": json.dumps(_ledger())}}})
@@ -137,8 +139,10 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
     )
 
     assert result["size_bytes"] == len(b"exact saved plan")
-    assert "--version-id" in runner.commands[0]
-    assert runner.commands[0][runner.commands[0].index("--checksum-mode") + 1] == "ENABLED"
+    command = runner.commands[0]
+    assert "--version-id" in command
+    assert command[command.index("--checksum-mode") + 1] == "ENABLED"
+    assert command[-3:] == ("--output", "json", str(destination))
     assert destination.stat().st_mode & 0o777 == 0o600
     with pytest.raises(AuthorizationError, match="must not already exist"):
         store.get_plan_version(

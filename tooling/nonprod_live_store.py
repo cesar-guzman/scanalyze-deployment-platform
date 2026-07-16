@@ -209,9 +209,9 @@ class AwsCliPlanStore:
                     object_version_id,
                     "--checksum-mode",
                     "ENABLED",
-                    str(destination),
                     "--output",
                     "json",
+                    str(destination),
                 )
             )
             destination.chmod(0o600)
