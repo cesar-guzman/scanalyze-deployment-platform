@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/live-execution-ledger.v1.schema.json",
+  "title": "Scanalyze Non-Production Execution Ledger v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "execution_id",
+    "change_id",
+    "layer",
+    "status",
+    "ledger_version",
+    "plan_record_digest",
+    "updated_at",
+    "attempt_count",
+    "ledger_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "live_execution_layer" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "environment": { "enum": ["sandbox", "dev", "staging"] },
+    "execution_id": { "type": "string", "pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "change_id": { "type": "string", "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "layer": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "status": {
+      "enum": [
+        "PLANNED",
+        "APPROVED",
+        "APPLYING",
+        "APPLIED",
+        "UNCERTAIN",
+        "RECONCILED_APPLIED",
+        "RECONCILIATION_REQUIRED",
+        "HEALTHY",
+        "FAILED_HEALTH",
+        "FAILED",
+        "REJECTED",
+        "EXPIRED"
+      ]
+    },
+    "ledger_version": { "type": "integer", "minimum": 1 },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "attempt_count": { "type": "integer", "minimum": 0, "maximum": 1 },
+    "approval_digest": { "$ref": "#/$defs/digest" },
+    "outcome_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+    "outcome_receipt_digest": { "$ref": "#/$defs/digest" },
+    "ledger_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

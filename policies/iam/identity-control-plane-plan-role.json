@@ -21,6 +21,23 @@
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/identity-control-plane/terraform.tfstate.tflock"
     },
     {
+      "Sid": "WriteIdentityPlanExecutionZone",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*/identity-control-plane/plan.tfplan"
+    },
+    {
+      "Sid": "EncryptEvidenceKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    },
+    {
       "Sid": "ReadIdentityContractsAndArtifacts",
       "Effect": "Allow",
       "Action": [

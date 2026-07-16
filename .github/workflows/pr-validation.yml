@@ -56,6 +56,9 @@ jobs:
       - name: Build-once supply-chain policy gate
         run: make supply-chain-check
 
+      - name: Exact saved-plan and resumable execution gate
+        run: make nonprod-live-engine-check
+
       - name: Microservices structure check
         run: make microservices-check
 

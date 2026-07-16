@@ -8,7 +8,7 @@
         "dynamodb:GetItem",
         "dynamodb:Query"
       ],
-      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
       "Condition": {
         "ForAllValues:StringEquals": {
           "dynamodb:LeadingKeys": ["${aws:PrincipalTag/deployment_id}"]
@@ -22,7 +22,7 @@
         "dynamodb:PutItem",
         "dynamodb:UpdateItem"
       ],
-      "Resource": "arn:aws:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-registry",
       "Condition": {
         "ForAllValues:StringEquals": {
           "dynamodb:LeadingKeys": ["${aws:PrincipalTag/deployment_id}"],
@@ -53,12 +53,12 @@
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Resource": [
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
       ],
       "Condition": {
         "StringEquals": {
@@ -100,12 +100,12 @@
       "Effect": "Allow",
       "Action": "sts:TagSession",
       "Resource": [
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
       ],
       "Condition": {
         "StringEquals": {
@@ -169,12 +169,12 @@
       "Effect": "Allow",
       "Action": "sts:SetSourceIdentity",
       "Resource": [
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
-        "arn:aws:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:${aws_partition}:iam::${aws:PrincipalTag/account_id}:role/ScanalyzeCustomer-Validation"
       ],
       "Condition": {
         "StringEquals": {
@@ -186,12 +186,50 @@
       }
     },
     {
+      "Sid": "ManageExecutionLedger",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${shared_services_account_id}:table/scanalyze-deployment-executions",
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": ["${aws:PrincipalTag/deployment_id}"],
+          "dynamodb:Attributes": [
+            "deployment_id",
+            "record_key",
+            "ledger_version",
+            "ledger_digest",
+            "status",
+            "document"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "ReadReleaseManifests",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::scanalyze-shared-releases/*"
+      "Resource": "arn:${aws_partition}:s3:::${release_bucket_name}/*"
+    },
+    {
+      "Sid": "DecryptReleaseManifests",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ],
+      "Resource": "${platform_authority_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.${region}.${aws_dns_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::${release_bucket_name}"
+        }
+      }
     },
     {
       "Sid": "DenyEscalation",

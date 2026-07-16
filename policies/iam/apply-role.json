@@ -25,7 +25,8 @@
       "Sid": "ReadPlanExecutionZone",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject"
+        "s3:GetObject",
+        "s3:GetObjectVersion"
       ],
       "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*"
     },
@@ -107,6 +108,14 @@
       "Action": [
         "kms:Encrypt",
         "kms:GenerateDataKey"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    },
+    {
+      "Sid": "DecryptEvidenceKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
       ],
       "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
     },
