@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -21,6 +21,7 @@ help:
 	@echo "  make github-deployment-identity-check Validate GUG-123 OIDC and terminal IAM controls"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
+	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -337,7 +338,7 @@ toolchain-status:
 
 # ── Module Check (M1) ───────────────────────────────────────────────
 MODULE_REQUIRED_FILES := README.md versions.tf variables.tf outputs.tf locals.tf contract.tf
-MODULE_DIRS := global network container-platform data-foundation identity-control-plane services edge-identity edge addons replicated-data cicd
+MODULE_DIRS := global network container-platform data-foundation identity-control-plane platform-authority services edge-identity edge addons replicated-data cicd
 
 module-check:
 	@echo "=== Module Skeleton Check ==="
@@ -361,7 +362,7 @@ module-check:
 
 # ── Root Check (M1) ─────────────────────────────────────────────────
 ROOT_REQUIRED_FILES := README.md versions.tf variables.tf main.tf outputs.tf contract_validation.tf backend.example.hcl
-ROOT_DIRS := account-ready-gate global network platform data-foundation cicd identity-control-plane services edge-identity edge addons
+ROOT_DIRS := account-ready-gate global network platform data-foundation cicd identity-control-plane platform-authority services edge-identity edge addons
 
 root-check:
 	@echo "=== Root Skeleton Check ==="
@@ -405,6 +406,23 @@ supply-chain-check:
 		--policy $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.json \
 		--expected-policy-digest "$$(cat $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.sha256)" >/dev/null
 	@echo "Supply chain check complete."
+
+# ── Non-Production Live Engine Check (GUG-125, offline) ─────────────
+nonprod-live-engine-check:
+	@echo "=== GUG-125 Non-Production Live Engine Check ==="
+	@$(PYTHON) -c "import jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: jsonschema is required."; exit 1; }
+	@$(PYTHON) -m pytest \
+		$(TESTS_DIR)/test_deployment/test_gug125_nonprod_live_engine.py \
+		$(TESTS_DIR)/test_deployment/test_gug125_live_store.py \
+		$(TESTS_DIR)/test_deployment/test_gug125_platform_authority_factory.py \
+		-v --tb=short
+	@$(TERRAFORM) -chdir=modules/platform-authority init -backend=false -input=false -no-color -lockfile=readonly >/dev/null
+	@$(TERRAFORM) -chdir=modules/platform-authority test -no-color
+	@env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+		-u AWS_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_ROLE_ARN \
+		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
+	@echo "GUG-125 live-engine offline check complete."
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -479,7 +497,7 @@ preflight-m2: preflight-m1 module-ownership-check edge-split-check services-owne
 # M2 Level B — Provider Validation
 # ============================================================
 
-ROOT_DIRS = account-ready-gate global network platform data-foundation cicd identity-control-plane services edge-identity edge addons
+ROOT_DIRS = account-ready-gate global network platform data-foundation cicd identity-control-plane platform-authority services edge-identity edge addons
 
 aws-credentials-guard:
 	@echo "=== AWS Credentials Guard ==="
@@ -815,13 +833,18 @@ docs-check: phase0-docs-check
 			ADR/ADR-019-production-readiness-foundation.md \
 			ADR/ADR-031-github-oidc-terminal-identity.md \
 			ADR/ADR-032-build-once-and-supply-chain-fail-closed.md \
+			ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md \
 			docs/deployment/build-once-supply-chain.md \
+			docs/deployment/nonproduction-live-engine.md \
+			docs/deployment/platform-authority-bootstrap.md \
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/deployment/github-oidc-terminal-identity.md \
 			docs/operations/github-governance.md \
 			docs/operations/github-oidc-terminal-identity-rollout.md \
 			docs/operations/build-once-promotion-and-rollback.md \
+			docs/operations/nonproduction-live-engine-reconciliation.md \
+			docs/security/gug-125-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -829,6 +852,7 @@ docs-check: phase0-docs-check
 			_NotebookLM_Brain/10_Production_Readiness_Foundation.md \
 			_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md \
 			_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md \
+			_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \
@@ -867,12 +891,13 @@ release-dry-run: repro-check
 	@echo "Not ready for: live deployment, production"
 
 # Non-production readiness check
-nonprod-readiness-check: release-dry-run
+nonprod-readiness-check: release-dry-run nonprod-live-engine-check
 	@echo "=== Non-Production Readiness Check ==="
 	@echo "repro-check:        PASSED"
 	@echo "manifest-validation: PASSED"
 	@echo "release-dry-run:    PASSED"
 	@echo "gitops-orchestrator: LOCALLY_VALIDATED_DRY_RUN_ONLY"
+	@echo "exact-plan-engine:  LOCALLY_VALIDATED_OFFLINE_ONLY"
 	@echo "live-validation:    BLOCKED (requires AWS credentials + PM approval)"
 	@echo "production-ready:   NO-GO (requires live validation)"
 	@echo ""

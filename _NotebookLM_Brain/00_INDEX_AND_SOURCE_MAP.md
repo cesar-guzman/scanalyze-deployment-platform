@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-14
+> **Última revisión editorial:** 2026-07-15
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -75,6 +75,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se resuelven contratos tipados en el DAG canónico? | [ADR-029](../ADR/ADR-029-strict-contracts-and-canonical-dag.md), [resolución estricta](../docs/deployment/strict-contract-resolution.md) y [fuente sanitizada GUG-121](18_GUG121_Strict_Contracts_and_DAG.md) |
 | ¿Cómo se autoriza un target y se deriva su backend sin confiar en el request? | [ADR-030](../ADR/ADR-030-registry-account-baseline-backend-locking.md), [backend y locking](../docs/deployment/registry-account-baseline-backend-locking.md), [runbook de recuperación](../docs/operations/terraform-backend-migration-and-recovery.md) y [fuente sanitizada GUG-122](19_GUG122_Registry_Backend_Locking.md) |
 | ¿Qué ejecución GitHub puede obtener identidad y entrar a cada rol terminal? | [ADR-031](../ADR/ADR-031-github-oidc-terminal-identity.md), [referencia GUG-123](../docs/deployment/github-oidc-terminal-identity.md), [runbook de rollout](../docs/operations/github-oidc-terminal-identity-rollout.md) y [fuente sanitizada GUG-123](20_GUG123_GitHub_OIDC_Terminal_Identity.md) |
+| ¿Cómo se aplica una sola vez el plan exacto revisado, cómo se crea la autoridad portable y cómo se reconcilia un resultado incierto? | [ADR-033](../ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md), [referencia GUG-125](../docs/deployment/nonproduction-live-engine.md), [bootstrap de platform authority](../docs/deployment/platform-authority-bootstrap.md), [runbook de reconciliación](../docs/operations/nonproduction-live-engine-reconciliation.md) y [fuente sanitizada GUG-125](22_GUG125_Nonproduction_Live_Engine.md) |
 
 ## Estado de evidencia al 2026-07-12
 
@@ -99,6 +100,7 @@ Cuando dos documentos difieran, usar este orden:
 | Contrato completo de identidad y onboarding | **Blocked** | Los catálogos y contratos repositorio están definidos; siguen pendientes su realización en provider/control plane, enforcement GUG-153, APIs/UI GUG-94/GUG-95 y evidencia live. |
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
+| Motor live non-production GUG-125 | **Implemented** como contratos, core, adapters y fábrica Terraform portable de platform authority; **Locally validated** sólo con gates nombrados | El workflow sigue dry-run. Tercera cuenta/backend autorizados, Environments/revisores independientes, ACCOUNT_READY, plans/applies, health, reconciliación, no-change, aislamiento y cleanup live siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -122,6 +124,8 @@ Cuando dos documentos difieran, usar este orden:
 | [18 — GUG-121 Strict Contracts and DAG](18_GUG121_Strict_Contracts_and_DAG.md) | Catálogo de contratos, productores únicos, resolución content-addressed, DAG canónico y límites live |
 | [19 — GUG-122 Registry and Backend Locking](19_GUG122_Registry_Backend_Locking.md) | Registry anclado, ACCOUNT_READY v2, backend derivado, lockfile nativo, ejecución exclusiva y recuperación revisada |
 | [20 — GUG-123 GitHub OIDC and Terminal Identity](20_GUG123_GitHub_OIDC_Terminal_Identity.md) | IDs inmutables, Environment anclado, subject exacto, roles terminales y separación break-glass |
+| [21 — GUG-124 Build Once and Supply Chain](21_GUG124_Build_Once_Supply_Chain.md) | Grafo completo, evidencia por digest, VSA firmada, gate central, promoción y rollback sin rebuild |
+| [22 — GUG-125 Non-Production Live Engine](22_GUG125_Nonproduction_Live_Engine.md) | Plan exacto versionado, fábrica portable de platform authority, aprobación independiente, ledger CAS, health, reconciliación y límites live |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -167,6 +171,8 @@ Cuando dos documentos difieran, usar este orden:
     takeover o force-unlock automático?
 21. ¿La identidad cloud proviene de un subject OIDC exacto y de evidencia fresca
     del Environment, o de nombres, inputs, variables, defaults o wildcards?
+22. ¿Apply descargó la versión exacta aprobada, revalidó state/contratos/release,
+    consumió un solo intento y obtuvo health, o intenta re-planear/reintentar?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

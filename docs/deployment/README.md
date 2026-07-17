@@ -147,3 +147,15 @@ For GUG-123, ingest only
 ingest repository/Environment IDs, reviewers, variables, OIDC tokens/claims,
 role ARNs, IAM/API exports, registry/baseline records, plans, state, CloudTrail,
 screenshots, logs, or live evidence.
+
+For GUG-124, ingest only
+`../../_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md`. Do not ingest
+private signing material, live artifact inventories, registry exports, trust
+roots, waivers, scan reports, credentials, plans, state, logs, or live evidence.
+
+For GUG-125, ingest only
+`../../_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md`. Do not ingest
+registry or ACCOUNT_READY records, platform-authority/Environment evidence,
+reviewer identities, role/account identifiers, saved plans, plan JSON, state,
+backend files, contracts, ledgers, AWS responses, credentials, logs, screenshots,
+or live evidence.
