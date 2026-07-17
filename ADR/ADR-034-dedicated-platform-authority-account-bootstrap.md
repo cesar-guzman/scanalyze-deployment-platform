@@ -13,6 +13,12 @@
 > alias-side and tagged-key-side permissions. The alias side has no conditions,
 > as required by KMS; the key side enforces `aws:CalledVia`. GUG-206 remains
 > incomplete until the amendment is merged and verified on main.
+>
+> **GUG-208 amendment:** The original Identity Center permission-set names
+> exceeded the AWS 32-character service limit. ADR-036 replaces them with the
+> exact portable names `ScanalyzeAuthorityBootstrapPlan` and
+> `ScanalyzeAuthorityBootstrapApply`. The rejected names never established
+> live authority and must not be inferred or aliased.
 
 ## Context
 
