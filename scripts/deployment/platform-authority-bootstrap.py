@@ -57,8 +57,9 @@ SSO_ASSUMED_ROLE_ARN = re.compile(
     r"(?P<role>AWSReservedSSO_[A-Za-z0-9+=,.@_-]+_[0-9A-Fa-f]{16})/"
     r"[A-Za-z0-9+=,.@_-]{2,64}$"
 )
-PLAN_PERMISSION_SET = "ScanalyzePlatformAuthorityBootstrapPlan"
-APPLY_PERMISSION_SET = "ScanalyzePlatformAuthorityBootstrapApply"
+AWS_PERMISSION_SET_NAME = re.compile(r"^[A-Za-z0-9_+=,.@-]{1,32}$")
+PLAN_PERMISSION_SET = "ScanalyzeAuthorityBootstrapPlan"
+APPLY_PERMISSION_SET = "ScanalyzeAuthorityBootstrapApply"
 REQUIRED_BUCKET_POLICY_SIDS = frozenset(
     {
         "DenyInsecureTransport",
@@ -73,6 +74,14 @@ REQUIRED_BUCKET_POLICY_SIDS = frozenset(
 
 class AwsCliError(RuntimeError):
     """An AWS CLI operation failed without exposing its response."""
+
+
+def _validate_permission_set_name(permission_set: str) -> None:
+    """Reject names that IAM Identity Center cannot create portably."""
+    if AWS_PERMISSION_SET_NAME.fullmatch(permission_set) is None:
+        raise BootstrapAuthorizationError(
+            "permission-set name violates the AWS portable contract"
+        )
 
 
 def _strict_object(path: Path) -> dict[str, Any]:
@@ -267,6 +276,7 @@ def _identity(client: AwsCli, binding: BootstrapBinding) -> tuple[str, str]:
 
 
 def _require_permission_set(caller_arn: str, permission_set: str) -> None:
+    _validate_permission_set_name(permission_set)
     match = SSO_ASSUMED_ROLE_ARN.fullmatch(caller_arn)
     expected_role = re.compile(
         rf"AWSReservedSSO_{re.escape(permission_set)}_[0-9A-Fa-f]{{16}}"

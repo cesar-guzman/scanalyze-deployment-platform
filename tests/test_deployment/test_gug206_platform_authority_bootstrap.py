@@ -490,8 +490,10 @@ def test_live_cli_requires_explicit_write_flags_sso_and_private_external_outputs
     assert "AWS_PROFILE" in cli
     assert "FORBIDDEN_CREDENTIAL_ENV" in cli
     assert "SSO_ASSUMED_ROLE_ARN" in cli
-    assert 'PLAN_PERMISSION_SET = "ScanalyzePlatformAuthorityBootstrapPlan"' in cli
-    assert 'APPLY_PERMISSION_SET = "ScanalyzePlatformAuthorityBootstrapApply"' in cli
+    assert 'PLAN_PERMISSION_SET = "ScanalyzeAuthorityBootstrapPlan"' in cli
+    assert 'APPLY_PERMISSION_SET = "ScanalyzeAuthorityBootstrapApply"' in cli
+    assert "AWS_PERMISSION_SET_NAME" in cli
+    assert "_validate_permission_set_name(permission_set)" in cli
     assert "render-plan-policy" in cli
     assert "render-apply-policy" in cli
     assert "--allow-change-set-write" in cli
@@ -582,7 +584,7 @@ def test_recovery_plan_accepts_only_an_empty_review_stack(monkeypatch: pytest.Mo
 
     plan_caller = (
         "arn:aws:sts::111122223333:assumed-role/"
-        "AWSReservedSSO_ScanalyzePlatformAuthorityBootstrapPlan_"
+        "AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_"
         "0123456789abcdef/synthetic.user"
     )
     module._require_permission_set(plan_caller, module.PLAN_PERMISSION_SET)

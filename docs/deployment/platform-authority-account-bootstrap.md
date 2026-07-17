@@ -16,11 +16,18 @@ backend files, account inventories, credentials, or real bindings.
 
 Create two dedicated permission sets:
 
-- `ScanalyzePlatformAuthorityBootstrapPlan`, rendered from
+- `ScanalyzeAuthorityBootstrapPlan`, rendered from
   `policies/iam/platform-authority-bootstrap-plan-role.json`, for the initiator;
-- `ScanalyzePlatformAuthorityBootstrapApply`, rendered from
+- `ScanalyzeAuthorityBootstrapApply`, rendered from
   `policies/iam/platform-authority-bootstrap-apply-role.json`, for the
   independent approver/executor after the exact Change Set exists.
+
+These names are canonical. Each satisfies the IAM Identity Center 1-to-32
+character service contract and the portable ASCII character allowlist. Do not
+prepend `Platform`, append an environment/customer label, abbreviate the
+Plan/Apply suffix, or reuse the rejected overlength GUG-206 names. The CLI
+validates both the name contract and the exact account-local
+`AWSReservedSSO_*` role before every protected operation.
 
 Both permission sets require:
 
@@ -86,9 +93,9 @@ create a manual IAM role or IAM user for this workflow. The policy template is
 rendered from the exact account, region, and bucket binding under change
 control; placeholders must never be submitted to AWS. The CLI checks the live
 STS principal: `plan`/`cancel` require the canonical
-`ScanalyzePlatformAuthorityBootstrapPlan` permission set, while
+`ScanalyzeAuthorityBootstrapPlan` permission set, while
 `approve`/`apply`/`verify` require
-`ScanalyzePlatformAuthorityBootstrapApply`. `AWS_PROFILE` text is not trusted
+`ScanalyzeAuthorityBootstrapApply`. `AWS_PROFILE` text is not trusted
 as proof of either role.
 
 ## Preflight: read-only
