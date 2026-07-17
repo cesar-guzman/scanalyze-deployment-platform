@@ -33,10 +33,9 @@
       "Resource": "*"
     },
     {
-      "Sid": "CreateExactStateBucket",
+      "Sid": "ReadExactStateBucketForVerification",
       "Effect": "Allow",
       "Action": [
-        "s3:CreateBucket",
         "s3:GetBucketLocation",
         "s3:GetBucketPolicy",
         "s3:GetBucketPolicyStatus",
@@ -46,7 +45,15 @@
         "s3:GetEncryptionConfiguration",
         "s3:GetLifecycleConfiguration",
         "s3:GetBucketOwnershipControls",
-        "s3:ListBucket",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}"
+    },
+    {
+      "Sid": "CreateExactStateBucketViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
         "s3:PutEncryptionConfiguration",
         "s3:PutBucketOwnershipControls",
         "s3:PutBucketPolicy",
@@ -55,7 +62,14 @@
         "s3:PutBucketVersioning",
         "s3:PutLifecycleConfiguration"
       ],
-      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}"
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
     },
     {
       "Sid": "ReadExactStateObjectsForVerification",
@@ -73,7 +87,7 @@
       ]
     },
     {
-      "Sid": "CreateTaggedStateKey",
+      "Sid": "CreateTaggedStateKeyViaCloudFormation",
       "Effect": "Allow",
       "Action": "kms:CreateKey",
       "Resource": "*",
@@ -95,20 +109,22 @@
             "account_id",
             "region"
           ]
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
         }
       }
     },
     {
-      "Sid": "ManageTaggedStateKey",
+      "Sid": "ReadTaggedStateKeyForVerification",
       "Effect": "Allow",
       "Action": [
         "kms:DescribeKey",
-        "kms:EnableKeyRotation",
         "kms:GetKeyPolicy",
         "kms:GetKeyRotationStatus",
-        "kms:ListResourceTags",
-        "kms:PutKeyPolicy",
-        "kms:TagResource"
+        "kms:ListResourceTags"
       ],
       "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
       "Condition": {
@@ -121,17 +137,47 @@
       }
     },
     {
-      "Sid": "ManageExactStateKeyAlias",
+      "Sid": "ManageTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageExactStateKeyAliasViaCloudFormation",
       "Effect": "Allow",
       "Action": [
         "kms:CreateAlias",
         "kms:DeleteAlias",
         "kms:UpdateAlias"
       ],
-      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state"
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
     },
     {
-      "Sid": "BindAliasOnlyToTaggedStateKey",
+      "Sid": "BindAliasOnlyToTaggedStateKeyViaCloudFormation",
       "Effect": "Allow",
       "Action": [
         "kms:CreateAlias",
@@ -145,6 +191,11 @@
           "aws:ResourceTag/account_id": "${authority_account_id}",
           "aws:ResourceTag/region": "${region}",
           "kms:RequestAlias": "alias/scanalyze-platform-authority-state"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
         }
       }
     }

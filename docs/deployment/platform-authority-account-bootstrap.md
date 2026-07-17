@@ -34,10 +34,13 @@ Both permission sets require:
 The plan policy cannot execute a Change Set or create backend resources. The
 apply policy cannot create/cancel a Change Set or delete the stack, and its
 `${change_set_name}` and `${change_set_id}` placeholders must be rendered from
-the reviewed plan to one exact ARN before assignment. This IAM separation makes
-direct CloudFormation API calls obey the same initiator versus
-approver/executor and artifact-binding boundary as the CLI. Remove or disable
-the Apply assignment after the bootstrap window.
+the reviewed plan to one exact ARN before assignment. Backend-mutating S3 and
+KMS actions additionally require the multivalued `aws:CalledVia` context to
+contain `cloudformation.amazonaws.com`; a direct S3/KMS API call therefore does
+not receive those permissions. The only direct mutation is the separately
+planned all-true account-level S3 public-access block, which the CLI binds to
+the current authority account and verifies immediately. Remove or disable the
+Apply assignment after the bootstrap window.
 
 Render the initial Plan policy offline into the controlled evidence directory;
 do not substitute policy placeholders by hand:

@@ -23,7 +23,7 @@ from organization audit/log-archive accounts.
 | Legacy or concurrent locking | Native S3 lockfile only; no DynamoDB table | Template/test failure |
 | Plan substitution | Change Set ARN, resource changes, template digest, plan digest | Deny apply |
 | Self approval | Distinct operator IDs and hashed live STS principals | Deny approval/apply |
-| Direct API separation or plan substitution | Disjoint roles plus Apply policy rendered to the exact Change Set ARN | AWS authorization denies every other Change Set |
+| Direct API separation or plan substitution | Disjoint roles, exact Change Set ARN, and `aws:CalledVia=cloudformation.amazonaws.com` on backend mutations | AWS authorization denies other Change Sets and direct S3/KMS mutation |
 | Static credential bootstrap | Ambient key/token variables rejected; live STS ARN must be an `AWSReservedSSO_*` session | Deny before protected operation |
 | Profile-name spoofing | Canonical Plan/Apply permission-set role checked from live STS, never profile text | Deny mutation |
 | Public state exposure | Account and bucket public blocking, bucket owner enforced, cross-account deny | Verification fails closed |
@@ -39,8 +39,10 @@ from organization audit/log-archive accounts.
 - Identity Center principal digests prove distinct AWS sessions, not an HR
   identity separation policy; permission-set assignments and audit evidence
   must enforce different humans.
-- The account-level S3 public block is not a CloudFormation resource and is an
-  explicitly ordered action in the bootstrap orchestrator.
+- The account-level S3 public block is not a CloudFormation resource and is the
+  sole direct mutation in the Apply policy. The CLI writes only the all-true
+  configuration for the bound account, verifies it immediately, and the
+  time-bound Apply assignment is removed after the bootstrap window.
 - Retain semantics require a separately authorized manual decommission.
 - A broad administrator permission set can bypass least privilege; live
   execution remains blocked until both disjoint permission sets have

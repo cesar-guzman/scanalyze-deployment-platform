@@ -361,16 +361,64 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
             [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
         )
     }
-    assert alias_statements["ManageExactStateKeyAlias"]["Resource"] == (
+    assert alias_statements["ManageExactStateKeyAliasViaCloudFormation"]["Resource"] == (
         "arn:${aws_partition}:kms:${region}:${authority_account_id}:"
         "alias/scanalyze-platform-authority-state"
     )
-    assert alias_statements["BindAliasOnlyToTaggedStateKey"]["Resource"] == (
+    assert alias_statements["BindAliasOnlyToTaggedStateKeyViaCloudFormation"]["Resource"] == (
         "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*"
     )
-    assert alias_statements["BindAliasOnlyToTaggedStateKey"]["Condition"]["StringEquals"][
+    assert alias_statements["BindAliasOnlyToTaggedStateKeyViaCloudFormation"]["Condition"][
+        "StringEquals"
+    ][
         "kms:RequestAlias"
     ] == "alias/scanalyze-platform-authority-state"
+
+    direct_mutation_exception = {"s3:PutAccountPublicAccessBlock"}
+    backend_mutations = {
+        action
+        for statement in apply_policy["Statement"]
+        for action in (
+            [statement["Action"]]
+            if isinstance(statement["Action"], str)
+            else statement["Action"]
+        )
+        if action.startswith(
+            (
+                "s3:Put",
+                "s3:Create",
+                "kms:Put",
+                "kms:Create",
+                "kms:Update",
+                "kms:Delete",
+                "kms:Enable",
+                "kms:Tag",
+            )
+        )
+        and action not in direct_mutation_exception
+    }
+    assert backend_mutations
+    for statement in apply_policy["Statement"]:
+        actions = (
+            [statement["Action"]]
+            if isinstance(statement["Action"], str)
+            else statement["Action"]
+        )
+        if backend_mutations.intersection(actions):
+            assert statement["Condition"]["ForAnyValue:StringEquals"]["aws:CalledVia"] == [
+                "cloudformation.amazonaws.com"
+            ]
+
+    account_public_access = next(
+        statement
+        for statement in apply_policy["Statement"]
+        if statement["Sid"] == "ManageAccountPublicAccessBlock"
+    )
+    assert account_public_access["Action"] == [
+        "s3:GetAccountPublicAccessBlock",
+        "s3:PutAccountPublicAccessBlock",
+    ]
+    assert account_public_access["Resource"] == "*"
 
 
 def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:

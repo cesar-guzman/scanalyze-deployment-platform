@@ -102,10 +102,13 @@ Set, change the account S3 public-access block, or create S3/KMS resources.
 `platform-authority-bootstrap-apply-role.json` is the intended inline policy
 for the independently assigned apply permission set. After plan review, its
 Change Set ARN placeholders are rendered to the exact name and UUID from the
-plan before assignment. It can execute only that Change Set and
-provision/verify only the bound S3/KMS backend controls. It cannot create or
-cancel Change Sets, delete the stack, create identities, `iam:PassRole`, access
-Organizations, or create customer workloads.
+plan before assignment. It can execute only that Change Set. Every S3/KMS
+backend mutation further requires `aws:CalledVia` to contain
+`cloudformation.amazonaws.com`, so the same principal cannot use those grants
+for direct resource mutation. Read-only verification remains direct. The sole
+direct write is the separately planned all-true account S3 public-access block.
+It cannot create or cancel Change Sets, delete the stack, create identities,
+`iam:PassRole`, access Organizations, or create customer workloads.
 
 The organization administrator creates the two permission sets and assigns
 them to non-overlapping initiator and approver/executor groups only in the
