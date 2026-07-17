@@ -38,6 +38,45 @@ Both permission sets require:
   both permission sets during the same bootstrap window;
 - organization audit retention and the standard emergency revocation path.
 
+### Bounded founder exception (GUG-209)
+
+The normal two-person rule above is not changed by GUG-209. If a newly created
+dedicated authority account temporarily has one founder operator and no
+independent reviewer, the only permitted alternative is the separate
+[founder bootstrap exception][founder-exception] contract. It is exactly
+bound to authority account `042360977644`, Region `us-east-1`, literal
+`non-production`, one fresh `CREATE` Change Set, and one intended future
+durable-PEP attempt. GUG-209 is **OFFLINE-ONLY — LIVE EXECUTION BLOCKED**: its
+local records/digests do not authorize AWS or provide durable exactly-once
+control.
+
+Its offline record format explicitly models
+`approval_mode: SINGLE_OPERATOR_FOUNDER_EXCEPTION`,
+`independent_approval_present: false`, and `approver_id: null`. It is not
+normal approval, cannot use BreakGlass, and must not add a self-approval switch
+to this CLI or the normal approval core. The exception's offline Plan and Apply
+policy templates define AWS request-time `Deny` conditions, bind one
+authenticated Identity Center subject privately, remain disjoint, and require
+deny retention for at least twelve hours after expiry. Assignment/membership
+removal and identity-system readback are also mandatory; an absent readback is
+`REVOCATION_REQUIRED`, not success. The local record is only an offline model,
+never durable authorization. No founder policy is attached by this package.
+
+This repository change neither creates the temporary permission sets nor
+executes a Change Set. Those are separately authorized live operations. The
+account-level S3 public-access block is a founder-exception precondition; the
+founder Apply policy has no direct authority to change it. See the separate
+runbook for the complete no-retry and cleanup boundary.
+
+If a future live founder PEP is separately reviewed, it must use a controlled
+durable CAS ledger with trusted identity/event evidence and immediate readback
+of the exact Change Set, template, and resources before `ExecuteChangeSet`.
+It binds execution on the exact stack resource through
+`cloudformation:ChangeSetName`. Its stricter KMS alias path permits
+`kms:CreateAlias` only: the exact alias statement has no condition because KMS
+does not support conditions there, while the companion tagged-key statement
+requires `aws:CalledVia=cloudformation.amazonaws.com`.
+
 ### KMS alias authorization boundary
 
 KMS authorizes alias management against the alias and every affected key. The
@@ -233,3 +272,5 @@ events, plans, approvals, or receipts.
 Repository and CI evidence are not live evidence. Backend live verification is
 not a Scanalyze deployment and does not establish two-customer isolation.
 Production remains **NO-GO**.
+
+[founder-exception]: ../operations/founder-bootstrap-single-operator-exception.md
