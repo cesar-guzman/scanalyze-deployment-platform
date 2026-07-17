@@ -28,6 +28,7 @@ CHANGE_SET_ARN = re.compile(
     r"(?P<region>[a-z0-9-]+):(?P<account>[0-9]{12}):"
     r"changeSet/(?P<name>[A-Za-z][-A-Za-z0-9]*)/(?P<id>[0-9a-f-]{36})$"
 )
+CHANGE_SET_NAME = re.compile(r"^scanalyze-platform-authority-bootstrap-[0-9]{14}$")
 POLICY_PLACEHOLDER = re.compile(r"\$\{(?P<name>[a-z_]+)\}")
 CANONICAL_STACK_NAME = "scanalyze-platform-authority-state-backend"
 CANONICAL_STATE_KEY = "platform-authority/terraform.tfstate"
@@ -76,6 +77,151 @@ def _render_policy_value(value: Any, bindings: Mapping[str, str]) -> Any:
     if isinstance(value, dict):
         return {key: _render_policy_value(item, bindings) for key, item in value.items()}
     return value
+
+
+def _statement_actions(statement: Mapping[str, Any]) -> set[str]:
+    actions = statement.get("Action")
+    if isinstance(actions, str):
+        return {actions}
+    if isinstance(actions, list) and all(isinstance(action, str) for action in actions):
+        return set(actions)
+    raise BootstrapAuthorizationError("rendered IAM policy action is malformed")
+
+
+def _validate_change_set_iam_boundary(
+    policy: Mapping[str, Any],
+    *,
+    binding: "BootstrapBinding",
+    change_set_name: str,
+) -> None:
+    """Reject unsupported CloudFormation resource authorization shapes."""
+    statements = policy.get("Statement")
+    if not isinstance(statements, list):
+        raise BootstrapAuthorizationError("rendered IAM policy is malformed")
+    stack_arn = (
+        f"arn:{_aws_partition(binding.region)}:cloudformation:{binding.region}:"
+        f"{binding.authority_account_id}:stack/{CANONICAL_STACK_NAME}/*"
+    )
+    expected_name_condition = {
+        "StringEquals": {"cloudformation:ChangeSetName": change_set_name}
+    }
+    read_actions = {
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate",
+    }
+    protected = {
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:ExecuteChangeSet",
+    }
+    all_cloudformation_actions: set[str] = set()
+    by_action: dict[str, Mapping[str, Any]] = {}
+    for raw_statement in statements:
+        if not isinstance(raw_statement, Mapping) or raw_statement.get("Effect") != "Allow":
+            continue
+        actions = _statement_actions(raw_statement)
+        cloudformation_actions = {
+            action for action in actions if action.startswith("cloudformation:")
+        }
+        if any("*" in action for action in cloudformation_actions):
+            raise BootstrapAuthorizationError(
+                "wildcard CloudFormation authorization is forbidden"
+            )
+        all_cloudformation_actions.update(cloudformation_actions)
+        for action in protected & actions:
+            if actions != {action} or action in by_action:
+                raise BootstrapAuthorizationError(
+                    "Change Set mutation actions must use one exact statement each"
+                )
+            if raw_statement.get("Resource") != stack_arn:
+                raise BootstrapAuthorizationError(
+                    "Change Set mutation must authorize the exact stack resource"
+                )
+            by_action[action] = raw_statement
+
+    present = set(by_action)
+    if present == {"cloudformation:CreateChangeSet", "cloudformation:DeleteChangeSet"}:
+        expected_cloudformation_actions = read_actions | present | {
+            "cloudformation:TagResource"
+        }
+        expected_tags = {
+            "aws:RequestTag/managed_by": "cloudformation",
+            "aws:RequestTag/service": "scanalyze-platform-authority",
+            "aws:RequestTag/work_package": "GUG-206",
+        }
+        create_condition = {
+            "StringEquals": {
+                "cloudformation:ChangeSetName": change_set_name,
+                **expected_tags,
+            },
+            "ForAllValues:StringEquals": {
+                "aws:TagKeys": ["managed_by", "service", "work_package"]
+            },
+        }
+        if by_action["cloudformation:CreateChangeSet"].get("Condition") != create_condition:
+            raise BootstrapAuthorizationError(
+                "CreateChangeSet is not bound to the exact name and request tags"
+            )
+        if (
+            by_action["cloudformation:DeleteChangeSet"].get("Condition")
+            != expected_name_condition
+        ):
+            raise BootstrapAuthorizationError(
+                "DeleteChangeSet is not bound to the exact Change Set name"
+            )
+        tag_statements = [
+            statement
+            for statement in statements
+            if isinstance(statement, Mapping)
+            and statement.get("Effect") == "Allow"
+            and "cloudformation:TagResource" in _statement_actions(statement)
+        ]
+        expected_tag_resources = [
+            stack_arn,
+            (
+                f"arn:{_aws_partition(binding.region)}:cloudformation:{binding.region}:"
+                f"{binding.authority_account_id}:changeSet/{change_set_name}/*"
+            ),
+        ]
+        expected_tag_condition = {
+            "StringEquals": {
+                "cloudformation:CreateAction": "CreateChangeSet",
+                **expected_tags,
+            },
+            "ForAllValues:StringEquals": {
+                "aws:TagKeys": ["managed_by", "service", "work_package"]
+            },
+        }
+        if (
+            len(tag_statements) != 1
+            or tag_statements[0].get("Action") != "cloudformation:TagResource"
+            or tag_statements[0].get("Resource") != expected_tag_resources
+            or tag_statements[0].get("Condition") != expected_tag_condition
+        ):
+            raise BootstrapAuthorizationError(
+                "Change Set tag authorization is not exact and create-bound"
+            )
+    elif present == {"cloudformation:ExecuteChangeSet"}:
+        expected_cloudformation_actions = read_actions | present
+        if (
+            by_action["cloudformation:ExecuteChangeSet"].get("Condition")
+            != expected_name_condition
+        ):
+            raise BootstrapAuthorizationError(
+                "ExecuteChangeSet is not bound to the exact Change Set name"
+            )
+    else:
+        raise BootstrapAuthorizationError(
+            "rendered policy does not preserve disjoint Plan or Apply authority"
+        )
+    if all_cloudformation_actions != expected_cloudformation_actions:
+        raise BootstrapAuthorizationError(
+            "rendered policy contains unexpected CloudFormation authorization"
+        )
 
 
 def canonical_digest(document: Mapping[str, Any]) -> str:
@@ -180,6 +326,7 @@ def render_bootstrap_iam_policy(
     *,
     policy_template: Mapping[str, Any],
     binding: BootstrapBinding,
+    change_set_name: str | None = None,
     change_set_id: str | None = None,
 ) -> dict[str, Any]:
     """Render a policy without accepting caller-selected authority fields."""
@@ -189,6 +336,10 @@ def render_bootstrap_iam_policy(
         "authority_account_id": binding.authority_account_id,
         "state_bucket_name": binding.state_bucket_name,
     }
+    if change_set_name is not None:
+        if CHANGE_SET_NAME.fullmatch(change_set_name) is None:
+            raise BootstrapAuthorizationError("Change Set name is invalid")
+        bindings["change_set_name"] = change_set_name
     if change_set_id is not None:
         match = CHANGE_SET_ARN.fullmatch(change_set_id)
         if (
@@ -198,7 +349,12 @@ def render_bootstrap_iam_policy(
             or match.group("account") != binding.authority_account_id
         ):
             raise BootstrapAuthorizationError("Change Set ARN does not match policy binding")
-        bindings["change_set_name"] = match.group("name")
+        arn_change_set_name = match.group("name")
+        if change_set_name is not None and change_set_name != arn_change_set_name:
+            raise BootstrapAuthorizationError("Change Set name does not match ARN")
+        if CHANGE_SET_NAME.fullmatch(arn_change_set_name) is None:
+            raise BootstrapAuthorizationError("Change Set name is invalid")
+        bindings["change_set_name"] = arn_change_set_name
         bindings["change_set_id"] = match.group("id")
     rendered = _render_policy_value(dict(policy_template), bindings)
     if (
@@ -208,7 +364,22 @@ def render_bootstrap_iam_policy(
         or not rendered["Statement"]
     ):
         raise BootstrapAuthorizationError("rendered IAM policy is malformed")
+    rendered_name = bindings.get("change_set_name")
+    if rendered_name is None:
+        raise BootstrapAuthorizationError("Change Set name is required for IAM binding")
+    _validate_change_set_iam_boundary(
+        rendered,
+        binding=binding,
+        change_set_name=rendered_name,
+    )
     return rendered
+
+
+def validate_bootstrap_change_set_name(value: str) -> str:
+    """Return one canonical bootstrap Change Set name or fail closed."""
+    if CHANGE_SET_NAME.fullmatch(value) is None:
+        raise BootstrapAuthorizationError("Change Set name is invalid")
+    return value
 
 
 def _normalize_resource_changes(

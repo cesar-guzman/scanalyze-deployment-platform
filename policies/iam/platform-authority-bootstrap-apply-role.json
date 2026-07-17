@@ -18,10 +18,12 @@
       "Sid": "ExecuteExactBootstrapChangeSet",
       "Effect": "Allow",
       "Action": "cloudformation:ExecuteChangeSet",
-      "Resource": [
-        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
-        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/${change_set_id}"
-      ]
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
     },
     {
       "Sid": "ManageAccountPublicAccessBlock",

@@ -106,6 +106,7 @@ Cuando dos documentos difieran, usar este orden:
 | Bootstrap de cuenta platform-authority GUG-206 | **Implemented** sólo cuando el commit revisado contiene plantilla S3/KMS, plan/aprobación/verificación tipados, CLI fail-closed, policy mínima, tests, ADR-034 y runbooks; **Locally validated** sólo con gates nombrados | El inventario AWS read-only no equivale a bootstrap. Permission set mínimo, segundo principal SSO, Change Set autorizado, apply, verificación, root Terraform y aislamiento de dos clientes siguen **Blocked / NO-GO**. |
 | Reparación de autorización KMS alias GUG-207 | **Implemented** en worktree y **Locally validated** con gates nombrados; commit, revisión y CI pendientes | `kms:RequestAlias` no es válido para operaciones de alias. CI previa no es evidencia live; AWS y producción siguen **Blocked / NO-GO**. |
 | Contrato de nombres Identity Center GUG-208 | **Implemented** sólo en el worktree hasta commit, revisión y merge; **Locally validated** sólo con gates nombrados | La primera creación Plan fue rechazada antes de crear recursos. Los nombres corregidos, assignments, Change Set y bootstrap live siguen **Blocked / NO-GO**. |
+| Binding IAM de Change Set GUG-210 | **Implemented** sólo cuando el commit revisado contiene stack ARN + `cloudformation:ChangeSetName`, tags exactos, tests, ADR-038 y threat-model delta; **Locally validated** sólo con gates nombrados | El ARN/UUID completo sigue siendo evidencia PEP, no selector IAM para Create/Delete/Execute. CI, AWS, bootstrap live y producción siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -134,6 +135,7 @@ Cuando dos documentos difieran, usar este orden:
 | [23 — GUG-206 Platform Authority Account Bootstrap](23_GUG206_Platform_Authority_Account_Bootstrap.md) | Cuenta dedicada, backend S3/KMS, locking nativo, Change Set exacto, SSO independiente, recuperación y límites live |
 | [24 — GUG-207 KMS Alias Authorization](24_GUG207_KMS_Alias_Authorization.md) | Autorización exacta alias/key, condiciones KMS válidas, CloudFormation forward access y límites live |
 | [25 — GUG-208 Identity Center Name Contract](25_GUG208_Identity_Center_Name_Contract.md) | Nombres portables exactos, validación del rol SSO, separación Plan/Apply y límites live |
+| [27 — GUG-210 Change Set IAM Binding](27_GUG210_ChangeSet_IAM_Binding.md) | Stack ARN, condición ChangeSetName, tags de creación, verificación PEP y límites live |
 
 ## Reglas de ingestión y mantenimiento
 

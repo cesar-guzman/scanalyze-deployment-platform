@@ -16,6 +16,7 @@
 |---|---|---|
 | Preflight failed | Correct identity/binding/tooling and repeat read-only preflight | Bypass account or region check |
 | Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
+| Change Set IAM binding failure | Stop; verify the canonical stack ARN, exact `cloudformation:ChangeSetName`, request tags, and Plan/Apply separation offline | Add a Change Set ARN resource, broaden the name, or bypass the renderer |
 | Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
 | Approval expired | Cancel only the exact Change Set, retain the zero-resource review shell, then create a new plan | Extend timestamps or delete the stack |
 | Apply response lost | Run read-only `verify` against the original plan | Execute again |
@@ -74,7 +75,10 @@ recovery shortcut.
 
 Every replacement plan invalidates the prior rendered Apply policy. Remove the
 old Apply assignment and render a new exact policy from the replacement plan;
-never edit the Change Set ARN in place or reuse an expired policy artifact.
+never edit the `cloudformation:ChangeSetName` condition in place or reuse an
+expired policy artifact. The replacement Plan policy must also be rendered for
+the new canonical name before `CreateChangeSet`. The full ARN/UUID is retained
+as PEP evidence and must be re-read before any future execution.
 
 ## Retained resource boundary
 

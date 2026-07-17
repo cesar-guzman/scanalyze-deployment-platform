@@ -30,7 +30,8 @@ account:
 IAM Identity Center is the human bootstrap/recovery plane. Two dedicated,
 time-bound and non-overlapping permission sets separate Change Set
 creation/cancellation from exact execution and backend provisioning. The Apply
-policy is rendered after review to one exact Change Set ARN and disabled after
+policy is rendered after review to the exact stack plus Change Set name, while
+the PEP revalidates the full Change Set ARN and UUID, and is disabled after
 the bootstrap window. Backend-mutating S3 permissions and required KMS
 key-side permissions require an `aws:CalledVia` chain containing
 CloudFormation, preventing their direct use; the exact alias-resource grant is

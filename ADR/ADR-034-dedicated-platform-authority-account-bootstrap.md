@@ -19,6 +19,12 @@
 > exact portable names `ScanalyzeAuthorityBootstrapPlan` and
 > `ScanalyzeAuthorityBootstrapApply`. The rejected names never established
 > live authority and must not be inferred or aliased.
+>
+> **GUG-210 amendment:** AWS authorizes CloudFormation `CreateChangeSet`,
+> `DeleteChangeSet`, and `ExecuteChangeSet` against the stack resource, not a
+> Change Set ARN. ADR-038 replaces the unsupported resource shape with the
+> exact canonical stack ARN plus an exact `cloudformation:ChangeSetName`
+> condition. The full Change Set ARN/UUID remains mandatory PEP evidence.
 
 ## Context
 
@@ -113,8 +119,10 @@ Set, change the account S3 public-access block, or create S3/KMS resources.
 
 `platform-authority-bootstrap-apply-role.json` is the intended inline policy
 for the independently assigned apply permission set. After plan review, its
-Change Set ARN placeholders are rendered to the exact name and UUID from the
-plan before assignment. It can execute only that Change Set. Every S3 backend
+stack resource and `cloudformation:ChangeSetName` condition are rendered from
+the exact name in the plan before assignment. The PEP separately revalidates
+the full ARN, UUID, digest, status, template, and resource inventory before
+execution. Every S3 backend
 mutation requires `aws:CalledVia` to contain `cloudformation.amazonaws.com`.
 KMS alias management requires both an exact, condition-free alias grant and a
 tagged-key grant with that same forward-access condition, so direct mutation
