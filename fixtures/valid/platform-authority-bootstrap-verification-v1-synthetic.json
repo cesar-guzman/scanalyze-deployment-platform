@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_bootstrap_verification",
+  "plan_record_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "authority_account_id": "111122223333",
+  "region": "us-east-1",
+  "stack_name": "scanalyze-platform-authority-state-backend",
+  "stack_status": "CREATE_COMPLETE",
+  "state_bucket_name": "scanalyze-platform-authority-111122223333-us-east-1-state",
+  "state_key": "platform-authority/terraform.tfstate",
+  "state_kms_key_arn": "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-4000-8000-000000000000",
+  "controls": {
+    "account_public_access_blocked": true,
+    "bucket_public_access_blocked": true,
+    "bucket_owner_enforced": true,
+    "bucket_versioning_enabled": true,
+    "default_encryption": "aws:kms",
+    "bucket_key_enabled": true,
+    "kms_rotation_enabled": true,
+    "native_lockfile_enabled": true
+  },
+  "verifier_principal_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "verified_at": "2030-01-01T00:30:00Z",
+  "verification_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

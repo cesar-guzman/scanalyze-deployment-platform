@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -22,6 +22,7 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206 bootstrap controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -423,6 +424,19 @@ nonprod-live-engine-check:
 		-u AWS_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_ROLE_ARN \
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
+
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206, offline) ──
+platform-authority-bootstrap-check:
+	@echo "=== GUG-206 Platform-Authority Bootstrap Check ==="
+	@$(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
+		--schemas-dir $(SCHEMAS_DIR) \
+		--fixtures-dir $(FIXTURES_DIR) \
+		--filter platform-authority-bootstrap
+	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
+	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
+	@echo "GUG-206 bootstrap check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -834,9 +848,11 @@ docs-check: phase0-docs-check
 			ADR/ADR-031-github-oidc-terminal-identity.md \
 			ADR/ADR-032-build-once-and-supply-chain-fail-closed.md \
 			ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md \
+			ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
+			docs/deployment/platform-authority-account-bootstrap.md \
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/deployment/github-oidc-terminal-identity.md \
@@ -844,7 +860,9 @@ docs-check: phase0-docs-check
 			docs/operations/github-oidc-terminal-identity-rollout.md \
 			docs/operations/build-once-promotion-and-rollback.md \
 			docs/operations/nonproduction-live-engine-reconciliation.md \
+			docs/operations/platform-authority-bootstrap-recovery.md \
 			docs/security/gug-125-threat-model-delta.md \
+			docs/security/gug-206-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -853,6 +871,7 @@ docs-check: phase0-docs-check
 			_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md \
 			_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md \
 			_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md \
+			_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

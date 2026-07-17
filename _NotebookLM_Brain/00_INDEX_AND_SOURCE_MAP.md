@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-15
+> **Última revisión editorial:** 2026-07-16
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -76,6 +76,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se autoriza un target y se deriva su backend sin confiar en el request? | [ADR-030](../ADR/ADR-030-registry-account-baseline-backend-locking.md), [backend y locking](../docs/deployment/registry-account-baseline-backend-locking.md), [runbook de recuperación](../docs/operations/terraform-backend-migration-and-recovery.md) y [fuente sanitizada GUG-122](19_GUG122_Registry_Backend_Locking.md) |
 | ¿Qué ejecución GitHub puede obtener identidad y entrar a cada rol terminal? | [ADR-031](../ADR/ADR-031-github-oidc-terminal-identity.md), [referencia GUG-123](../docs/deployment/github-oidc-terminal-identity.md), [runbook de rollout](../docs/operations/github-oidc-terminal-identity-rollout.md) y [fuente sanitizada GUG-123](20_GUG123_GitHub_OIDC_Terminal_Identity.md) |
 | ¿Cómo se aplica una sola vez el plan exacto revisado, cómo se crea la autoridad portable y cómo se reconcilia un resultado incierto? | [ADR-033](../ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md), [referencia GUG-125](../docs/deployment/nonproduction-live-engine.md), [bootstrap de platform authority](../docs/deployment/platform-authority-bootstrap.md), [runbook de reconciliación](../docs/operations/nonproduction-live-engine-reconciliation.md) y [fuente sanitizada GUG-125](22_GUG125_Nonproduction_Live_Engine.md) |
+| ¿Cómo se crea de forma recuperable el backend de la cuenta dedicada de autoridad? | [ADR-034](../ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md), [bootstrap GUG-206](../docs/deployment/platform-authority-account-bootstrap.md), [runbook de recuperación](../docs/operations/platform-authority-bootstrap-recovery.md), [delta de threat model](../docs/security/gug-206-threat-model-delta.md) y [fuente sanitizada GUG-206](23_GUG206_Platform_Authority_Account_Bootstrap.md) |
 
 ## Estado de evidencia al 2026-07-12
 
@@ -101,6 +102,7 @@ Cuando dos documentos difieran, usar este orden:
 | Despliegue productivo del flujo monorepo | **Blocked** | Requiere CI verde, revisión humana y evidencia live non-production. |
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
 | Motor live non-production GUG-125 | **Implemented** como contratos, core, adapters y fábrica Terraform portable de platform authority; **Locally validated** sólo con gates nombrados | El workflow sigue dry-run. Tercera cuenta/backend autorizados, Environments/revisores independientes, ACCOUNT_READY, plans/applies, health, reconciliación, no-change, aislamiento y cleanup live siguen **Blocked / NO-GO**. |
+| Bootstrap de cuenta platform-authority GUG-206 | **Implemented** sólo cuando el commit revisado contiene plantilla S3/KMS, plan/aprobación/verificación tipados, CLI fail-closed, policy mínima, tests, ADR-034 y runbooks; **Locally validated** sólo con gates nombrados | El inventario AWS read-only no equivale a bootstrap. Permission set mínimo, segundo principal SSO, Change Set autorizado, apply, verificación, root Terraform y aislamiento de dos clientes siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -126,6 +128,7 @@ Cuando dos documentos difieran, usar este orden:
 | [20 — GUG-123 GitHub OIDC and Terminal Identity](20_GUG123_GitHub_OIDC_Terminal_Identity.md) | IDs inmutables, Environment anclado, subject exacto, roles terminales y separación break-glass |
 | [21 — GUG-124 Build Once and Supply Chain](21_GUG124_Build_Once_Supply_Chain.md) | Grafo completo, evidencia por digest, VSA firmada, gate central, promoción y rollback sin rebuild |
 | [22 — GUG-125 Non-Production Live Engine](22_GUG125_Nonproduction_Live_Engine.md) | Plan exacto versionado, fábrica portable de platform authority, aprobación independiente, ledger CAS, health, reconciliación y límites live |
+| [23 — GUG-206 Platform Authority Account Bootstrap](23_GUG206_Platform_Authority_Account_Bootstrap.md) | Cuenta dedicada, backend S3/KMS, locking nativo, Change Set exacto, SSO independiente, recuperación y límites live |
 
 ## Reglas de ingestión y mantenimiento
 

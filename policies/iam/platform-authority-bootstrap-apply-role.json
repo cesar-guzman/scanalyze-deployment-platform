@@ -1,0 +1,203 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadExactBootstrapPlan",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ExecuteExactBootstrapChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:ExecuteChangeSet",
+      "Resource": [
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/${change_set_id}"
+      ]
+    },
+    {
+      "Sid": "ManageAccountPublicAccessBlock",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetAccountPublicAccessBlock",
+        "s3:PutAccountPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactStateBucketForVerification",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}"
+    },
+    {
+      "Sid": "CreateExactStateBucketViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactStateObjectsForVerification",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:GetObjectVersionAttributes",
+        "s3:ListBucketVersions"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:s3:::${state_bucket_name}",
+        "arn:${aws_partition}:s3:::${state_bucket_name}/platform-authority/terraform.tfstate",
+        "arn:${aws_partition}:s3:::${state_bucket_name}/platform-authority/terraform.tfstate.tflock"
+      ]
+    },
+    {
+      "Sid": "CreateTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": "kms:CreateKey",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/data_class": "control-metadata",
+          "aws:RequestTag/account_id": "${authority_account_id}",
+          "aws:RequestTag/region": "${region}",
+          "kms:KeySpec": "SYMMETRIC_DEFAULT",
+          "kms:KeyUsage": "ENCRYPT_DECRYPT"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "data_class",
+            "account_id",
+            "region"
+          ]
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadTaggedStateKeyForVerification",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageExactStateKeyAliasViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "BindAliasOnlyToTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}",
+          "kms:RequestAlias": "alias/scanalyze-platform-authority-state"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

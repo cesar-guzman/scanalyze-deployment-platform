@@ -32,6 +32,11 @@ evidence.
   migration boundary, and recovery controls.
 - `github-oidc-terminal-identity.md`: GUG-123 exact GitHub Environment/OIDC
   identity, independent protection anchor, terminal IAM roles, and live boundary.
+- `platform-authority-account-bootstrap.md`: GUG-206 dedicated authority-account
+  state bootstrap, exact Change Set approval, minimum Identity Center permission
+  set, verification, and live activation boundary.
+- `../operations/platform-authority-bootstrap-recovery.md`: uncertain-result,
+  rollback-failure, retained-resource, and decommission recovery boundary.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -159,3 +164,9 @@ registry or ACCOUNT_READY records, platform-authority/Environment evidence,
 reviewer identities, role/account identifiers, saved plans, plan JSON, state,
 backend files, contracts, ledgers, AWS responses, credentials, logs, screenshots,
 or live evidence.
+
+For GUG-206, ingest only
+`../../_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md`.
+Do not ingest account/principal identifiers, permission-set assignments, Change
+Sets, plans, approvals, verification receipts, backend files, state, bucket/KMS
+identifiers, AWS responses, stack events, logs, screenshots, or live evidence.

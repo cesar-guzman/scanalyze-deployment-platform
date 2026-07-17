@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-approval.v1.schema.json",
+  "title": "Independent Platform Authority Bootstrap Approval v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "plan_record_digest",
+    "authority_account_id",
+    "region",
+    "change_set_id",
+    "initiator_id",
+    "approver_id",
+    "initiator_principal_digest",
+    "approver_principal_digest",
+    "decision",
+    "approved_at",
+    "expires_at",
+    "approval_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_bootstrap_approval" },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "change_set_id": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:[a-z0-9-]+:[0-9]{12}:changeSet/[A-Za-z][-A-Za-z0-9]*/[0-9a-f-]{36}$"
+    },
+    "initiator_id": { "$ref": "#/$defs/operator_id" },
+    "approver_id": { "$ref": "#/$defs/operator_id" },
+    "initiator_principal_digest": { "$ref": "#/$defs/digest" },
+    "approver_principal_digest": { "$ref": "#/$defs/digest" },
+    "decision": { "const": "APPROVED" },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "approval_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "operator_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" }
+  }
+}
