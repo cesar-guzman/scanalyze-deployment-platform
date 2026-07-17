@@ -15,16 +15,60 @@
       "Resource": "*"
     },
     {
-      "Sid": "ManageExactUnexecutedChangeSet",
+      "Sid": "CreateOnlyExactBootstrapChangeSet",
       "Effect": "Allow",
-      "Action": [
-        "cloudformation:CreateChangeSet",
-        "cloudformation:DeleteChangeSet"
-      ],
+      "Action": "cloudformation:CreateChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyExactBootstrapChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DeleteChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "TagOnlyExactBootstrapChangeSetAtCreate",
+      "Effect": "Allow",
+      "Action": "cloudformation:TagResource",
       "Resource": [
         "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
-        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/scanalyze-platform-authority-bootstrap-*/*"
-      ]
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:CreateAction": "CreateChangeSet",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
     },
     {
       "Sid": "ReadAccountPublicAccessBlock",

@@ -108,6 +108,7 @@ Cuando dos documentos difieran, usar este orden:
 | Reparación de autorización KMS alias GUG-207 | **Implemented** en worktree y **Locally validated** con gates nombrados; commit, revisión y CI pendientes | `kms:RequestAlias` no es válido para operaciones de alias. CI previa no es evidencia live; AWS y producción siguen **Blocked / NO-GO**. |
 | Contrato de nombres Identity Center GUG-208 | **Implemented** sólo en el worktree hasta commit, revisión y merge; **Locally validated** sólo con gates nombrados | La primera creación Plan fue rechazada antes de crear recursos. Los nombres corregidos, assignments, Change Set y bootstrap live siguen **Blocked / NO-GO**. |
 | Excepción founder de un solo operador GUG-209 | **Target OFFLINE-ONLY — LIVE EXECUTION BLOCKED** hasta que el commit revisado contenga contratos, políticas temporales, ledger/revocación, tests, ADR, runbook y delta de threat model; **Locally validated** sólo con gates nombrados | JSON/digests locales no son autorización ni CAS durable. La excepción declara explícitamente ausencia de aprobación independiente; no autoriza AWS, Change Set execution, Terraform apply, despliegue, producción ni cleanup live. Un PEP futuro requiere CAS durable, evidencia confiable y readback exacto; revocación estructural sigue **Blocked / NO-GO**. |
+| Binding IAM de Change Set GUG-210 | **Implemented** sólo cuando el commit revisado contiene stack ARN + `cloudformation:ChangeSetName`, tags exactos, tests, ADR-038 y threat-model delta; **Locally validated** sólo con gates nombrados | El ARN/UUID completo sigue siendo evidencia PEP, no selector IAM para Create/Delete/Execute. CI, AWS, bootstrap live y producción siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -137,6 +138,7 @@ Cuando dos documentos difieran, usar este orden:
 | [24 — GUG-207 KMS Alias Authorization](24_GUG207_KMS_Alias_Authorization.md) | Autorización exacta alias/key, condiciones KMS válidas, CloudFormation forward access y límites live |
 | [25 — GUG-208 Identity Center Name Contract](25_GUG208_Identity_Center_Name_Contract.md) | Nombres portables exactos, validación del rol SSO, separación Plan/Apply y límites live |
 | [26 — GUG-209 Founder Bootstrap Exception](26_GUG209_Founder_Bootstrap_Exception.md) | Excepción single-operator offline-only, deny temporal AWS-side, PEP/CAS futuro, revocación y límites NO-GO |
+| [27 — GUG-210 Change Set IAM Binding](27_GUG210_ChangeSet_IAM_Binding.md) | Stack ARN, condición ChangeSetName, tags de creación, verificación PEP y límites live |
 
 ## Reglas de ingestión y mantenimiento
 

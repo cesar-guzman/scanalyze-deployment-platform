@@ -96,10 +96,15 @@ to these actions or put any condition on the alias-resource statement. Do not
 replace the split model with an alias wildcard, a key wildcard outside the
 bound account/region, or a direct API fallback.
 
+### GUG-210 supported Change Set IAM binding
+
 The plan policy cannot execute a Change Set or create backend resources. The
 apply policy cannot create/cancel a Change Set or delete the stack, and its
-`${change_set_name}` and `${change_set_id}` placeholders must be rendered from
-the reviewed plan to one exact ARN before assignment. Backend-mutating S3 and
+`${change_set_name}` condition must be rendered from the reviewed canonical
+name. AWS authorizes Create, Delete, and Execute against the exact stack ARN;
+the exact Change Set name is a required condition. The full Change Set ARN and
+UUID remain PEP evidence and are re-read from the plan before execution, not an
+IAM resource selector for those actions. Backend-mutating S3 and
 key-side KMS actions additionally require the multivalued `aws:CalledVia`
 context to contain `cloudformation.amazonaws.com`; a direct S3/KMS API call
 therefore does not receive all required permissions. The only direct mutation
@@ -120,6 +125,7 @@ python3 scripts/deployment/platform-authority-bootstrap.py render-plan-policy \
   --region '<authority-region>' \
   --destination-account-id '<customer-a-account-id>' \
   --destination-account-id '<customer-b-account-id>' \
+  --change-set-name '<scanalyze-platform-authority-bootstrap-YYYYMMDDHHMMSS>' \
   --policy-out '<private-evidence-dir>/bootstrap-plan-policy.json'
 ```
 
@@ -173,6 +179,7 @@ python3 scripts/deployment/platform-authority-bootstrap.py plan \
   --destination-account-id '<customer-a-account-id>' \
   --destination-account-id '<customer-b-account-id>' \
   --initiator-id '<approved-operator-id>' \
+  --change-set-name '<same-exact-name-used-to-render-plan-policy>' \
   --plan-out '<private-evidence-dir>/bootstrap-plan.json' \
   --allow-change-set-write
 ```
@@ -196,9 +203,10 @@ python3 scripts/deployment/platform-authority-bootstrap.py render-apply-policy \
   --policy-out '<private-evidence-dir>/bootstrap-apply-policy.json'
 ```
 
-The renderer derives the exact `change_set_name` and UUID from the
-digest-validated, unexpired plan, rejects foreign or incomplete ARNs, and
-writes mode 0600. The identity administrator validates the output with IAM
+The renderer derives the exact `change_set_name` from the full ARN in the
+digest-validated, unexpired plan, rejects foreign, malformed, or mismatched
+ARNs, and writes mode 0600. The runtime still verifies that exact ARN and UUID
+before execution. The identity administrator validates the output with IAM
 Access Analyzer, provisions or updates the canonical Apply permission set, and
 assigns it only to the independent approver/executor group for the approved
 window. Do not publish either ARN component in Git, Linear, NotebookLM, or

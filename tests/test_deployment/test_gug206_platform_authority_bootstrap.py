@@ -33,6 +33,7 @@ SCHEMA_DIR = REPO_ROOT / "schemas"
 SYNTHETIC_AUTHORITY = "111122223333"
 SYNTHETIC_DESTINATIONS = ("444455556666", "777788889999")
 SYNTHETIC_BUCKET = "scanalyze-platform-authority-111122223333-us-east-1-state"
+SYNTHETIC_CHANGE_SET_NAME = "scanalyze-platform-authority-bootstrap-20300101000000"
 
 
 def _canonical_digest(document: dict) -> str:
@@ -62,7 +63,7 @@ def _plan(now: datetime | None = None) -> dict:
         template_sha256="a" * 64,
         change_set_id=(
             "arn:aws:cloudformation:us-east-1:111122223333:changeSet/"
-            "scanalyze-bootstrap-20300101/00000000-0000-4000-8000-000000000000"
+            f"{SYNTHETIC_CHANGE_SET_NAME}/00000000-0000-4000-8000-000000000000"
         ),
         change_set_type="CREATE",
         resource_changes=(
@@ -322,21 +323,57 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
     assert "cloudformation:CreateChangeSet" not in apply_actions
     assert "cloudformation:DeleteChangeSet" not in apply_actions
 
-    execute_statement = next(
-        statement
-        for statement in apply_policy["Statement"]
-        if statement["Sid"] == "ExecuteExactBootstrapChangeSet"
-    )
-    change_set_resources = [
-        resource
-        for resource in execute_statement["Resource"]
-        if ":changeSet/" in resource
-    ]
-    assert change_set_resources == [
+    statements = {
+        statement["Sid"]: statement
+        for policy in (plan_policy, apply_policy)
+        for statement in policy["Statement"]
+    }
+    stack_arn = (
         "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:"
-        "changeSet/${change_set_name}/${change_set_id}"
-    ]
-    assert "*" not in change_set_resources[0]
+        "stack/scanalyze-platform-authority-state-backend/*"
+    )
+    expected_tags = {
+        "aws:RequestTag/managed_by": "cloudformation",
+        "aws:RequestTag/service": "scanalyze-platform-authority",
+        "aws:RequestTag/work_package": "GUG-206",
+    }
+    create_statement = statements["CreateOnlyExactBootstrapChangeSet"]
+    assert create_statement["Action"] == "cloudformation:CreateChangeSet"
+    assert create_statement["Resource"] == stack_arn
+    assert create_statement["Condition"] == {
+        "StringEquals": {
+            "cloudformation:ChangeSetName": "${change_set_name}",
+            **expected_tags,
+        },
+        "ForAllValues:StringEquals": {
+            "aws:TagKeys": ["managed_by", "service", "work_package"]
+        },
+    }
+    delete_statement = statements["DeleteOnlyExactBootstrapChangeSet"]
+    assert delete_statement["Action"] == "cloudformation:DeleteChangeSet"
+    assert delete_statement["Resource"] == stack_arn
+    assert delete_statement["Condition"] == {
+        "StringEquals": {"cloudformation:ChangeSetName": "${change_set_name}"}
+    }
+    tag_statement = statements["TagOnlyExactBootstrapChangeSetAtCreate"]
+    assert tag_statement["Action"] == "cloudformation:TagResource"
+    assert tag_statement["Condition"] == {
+        "StringEquals": {
+            "cloudformation:CreateAction": "CreateChangeSet",
+            **expected_tags,
+        },
+        "ForAllValues:StringEquals": {
+            "aws:TagKeys": ["managed_by", "service", "work_package"]
+        },
+    }
+    execute_statement = statements["ExecuteExactBootstrapChangeSet"]
+    assert execute_statement["Action"] == "cloudformation:ExecuteChangeSet"
+    assert execute_statement["Resource"] == stack_arn
+    assert execute_statement["Condition"] == {
+        "StringEquals": {"cloudformation:ChangeSetName": "${change_set_name}"}
+    }
+    for statement in (create_statement, delete_statement, execute_statement):
+        assert ":changeSet/" not in json.dumps(statement["Resource"])
 
     for policy in (plan_policy, apply_policy):
         serialized = json.dumps(policy)
@@ -447,6 +484,7 @@ def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
     plan_policy = render_bootstrap_iam_policy(
         policy_template=plan_template,
         binding=_binding(),
+        change_set_name=SYNTHETIC_CHANGE_SET_NAME,
     )
     apply_policy = render_bootstrap_iam_policy(
         policy_template=apply_template,
@@ -461,15 +499,31 @@ def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
         for statement in apply_policy["Statement"]
         if statement["Sid"] == "ExecuteExactBootstrapChangeSet"
     )
-    assert (
-        "arn:aws:cloudformation:us-east-1:111122223333:changeSet/"
-        "scanalyze-bootstrap-20300101/00000000-0000-4000-8000-000000000000"
-    ) in execute["Resource"]
+    assert execute["Resource"] == (
+        "arn:aws:cloudformation:us-east-1:111122223333:"
+        "stack/scanalyze-platform-authority-state-backend/*"
+    )
+    assert execute["Condition"] == {
+        "StringEquals": {"cloudformation:ChangeSetName": SYNTHETIC_CHANGE_SET_NAME}
+    }
 
     with pytest.raises(BootstrapAuthorizationError, match="unbound placeholder"):
         render_bootstrap_iam_policy(
+            policy_template=plan_template,
+            binding=_binding(),
+        )
+    with pytest.raises(BootstrapAuthorizationError, match="name does not match"):
+        render_bootstrap_iam_policy(
             policy_template=apply_template,
             binding=_binding(),
+            change_set_name="scanalyze-platform-authority-bootstrap-20300101000001",
+            change_set_id=str(_plan()["change_set_id"]),
+        )
+    with pytest.raises(BootstrapAuthorizationError, match="name is invalid"):
+        render_bootstrap_iam_policy(
+            policy_template=plan_template,
+            binding=_binding(),
+            change_set_name="request-selected-name",
         )
     with pytest.raises(BootstrapAuthorizationError, match="does not match"):
         render_bootstrap_iam_policy(
@@ -479,6 +533,55 @@ def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
                 "arn:aws:cloudformation:us-east-1:999900001111:changeSet/"
                 "scanalyze-bootstrap-20300101/00000000-0000-4000-8000-000000000000"
             ),
+        )
+
+    unsupported = copy.deepcopy(plan_template)
+    create_statement = next(
+        statement
+        for statement in unsupported["Statement"]
+        if statement["Sid"] == "CreateOnlyExactBootstrapChangeSet"
+    )
+    create_statement["Resource"] = (
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:"
+        "changeSet/${change_set_name}/*"
+    )
+    with pytest.raises(BootstrapAuthorizationError, match="exact stack resource"):
+        render_bootstrap_iam_policy(
+            policy_template=unsupported,
+            binding=_binding(),
+            change_set_name=SYNTHETIC_CHANGE_SET_NAME,
+        )
+
+    wildcard = copy.deepcopy(plan_template)
+    wildcard["Statement"].append(
+        {
+            "Sid": "ForbiddenWildcard",
+            "Effect": "Allow",
+            "Action": "cloudformation:*",
+            "Resource": "*",
+        }
+    )
+    with pytest.raises(BootstrapAuthorizationError, match="wildcard CloudFormation"):
+        render_bootstrap_iam_policy(
+            policy_template=wildcard,
+            binding=_binding(),
+            change_set_name=SYNTHETIC_CHANGE_SET_NAME,
+        )
+
+    unexpected = copy.deepcopy(plan_template)
+    unexpected["Statement"].append(
+        {
+            "Sid": "ForbiddenMutation",
+            "Effect": "Allow",
+            "Action": "cloudformation:UpdateStack",
+            "Resource": "*",
+        }
+    )
+    with pytest.raises(BootstrapAuthorizationError, match="unexpected CloudFormation"):
+        render_bootstrap_iam_policy(
+            policy_template=unexpected,
+            binding=_binding(),
+            change_set_name=SYNTHETIC_CHANGE_SET_NAME,
         )
 
 
@@ -496,6 +599,7 @@ def test_live_cli_requires_explicit_write_flags_sso_and_private_external_outputs
     assert "_validate_permission_set_name(permission_set)" in cli
     assert "render-plan-policy" in cli
     assert "render-apply-policy" in cli
+    assert "--change-set-name" in cli
     assert "--allow-change-set-write" in cli
     assert "--allow-bootstrap-apply" in cli
     assert "--allow-cancel-unexecuted" in cli
@@ -604,6 +708,73 @@ def test_recovery_plan_accepts_only_an_empty_review_stack(monkeypatch: pytest.Mo
         )
 
 
+def test_live_change_set_pep_revalidates_identity_tags_and_inventory() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "gug210_platform_authority_bootstrap_cli",
+        REPO_ROOT / "scripts/deployment/platform-authority-bootstrap.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    plan = _plan()
+    change_set_id = str(plan["change_set_id"])
+    response = {
+        "ChangeSetId": change_set_id,
+        "ChangeSetName": SYNTHETIC_CHANGE_SET_NAME,
+        "StackName": "scanalyze-platform-authority-state-backend",
+        "Status": "CREATE_COMPLETE",
+        "ExecutionStatus": "AVAILABLE",
+        "Tags": [
+            {"Key": "managed_by", "Value": "cloudformation"},
+            {"Key": "service", "Value": "scanalyze-platform-authority"},
+            {"Key": "work_package", "Value": "GUG-206"},
+        ],
+        "Changes": [
+            {
+                "ResourceChange": {
+                    "Action": change["action"],
+                    "LogicalResourceId": change["logical_resource_id"],
+                    "ResourceType": change["resource_type"],
+                    "Replacement": change["replacement"],
+                }
+            }
+            for change in plan["planned_resource_changes"]
+        ],
+    }
+
+    class FakeClient:
+        def __init__(self, result: dict[str, object]) -> None:
+            self.result = result
+
+        def run(self, service: str, operation: str, *args: str) -> dict[str, object]:
+            assert (service, operation) == ("cloudformation", "describe-change-set")
+            assert change_set_id in args
+            return self.result
+
+    assert module._describe_exact_change_set(FakeClient(response), _binding(), plan) == response
+
+    for field, value in (
+        ("ChangeSetId", change_set_id.replace(SYNTHETIC_CHANGE_SET_NAME, "foreign")),
+        ("ChangeSetName", "foreign"),
+        ("StackName", "foreign"),
+    ):
+        tampered = copy.deepcopy(response)
+        tampered[field] = value
+        with pytest.raises(BootstrapAuthorizationError, match="identity differs"):
+            module._describe_exact_change_set(FakeClient(tampered), _binding(), plan)
+
+    tampered_tags = copy.deepcopy(response)
+    tampered_tags["Tags"][2]["Value"] = "FOREIGN"  # type: ignore[index]
+    with pytest.raises(BootstrapAuthorizationError, match="tags differ"):
+        module._describe_exact_change_set(FakeClient(tampered_tags), _binding(), plan)
+
+    tampered_changes = copy.deepcopy(response)
+    tampered_changes["Changes"][0]["ResourceChange"]["Action"] = "Remove"  # type: ignore[index]
+    with pytest.raises(BootstrapAuthorizationError, match="live change set differs"):
+        module._describe_exact_change_set(FakeClient(tampered_changes), _binding(), plan)
+
+
 def test_live_cli_rejects_invalid_evidence_paths_before_any_aws_call(tmp_path: Path) -> None:
     marker = tmp_path / "aws-was-called"
     fake_aws = tmp_path / "aws"
@@ -632,6 +803,8 @@ def test_live_cli_rejects_invalid_evidence_paths_before_any_aws_call(tmp_path: P
             SYNTHETIC_DESTINATIONS[0],
             "--initiator-id",
             "operator-1001",
+            "--change-set-name",
+            SYNTHETIC_CHANGE_SET_NAME,
             "--plan-out",
             str(REPO_ROOT / "forbidden-operational-output.json"),
             "--allow-change-set-write",
@@ -694,3 +867,30 @@ def test_gug207_kms_alias_authorization_evidence_is_registered() -> None:
     assert "KMS alias authorization boundary" in deployment_guide
     assert "Alias authorization failure" in recovery_guide
     assert "24 — GUG-207 KMS Alias Authorization" in notebook_index
+
+
+def test_gug210_change_set_iam_binding_evidence_is_registered() -> None:
+    required_documents = (
+        REPO_ROOT / "ADR/ADR-038-cloudformation-changeset-iam-binding.md",
+        REPO_ROOT / "docs/security/gug-210-changeset-iam-binding-threat-model-delta.md",
+        REPO_ROOT / "_NotebookLM_Brain/27_GUG210_ChangeSet_IAM_Binding.md",
+    )
+    for document in required_documents:
+        assert document.is_file(), document
+        content = document.read_text(encoding="utf-8")
+        assert "cloudformation:ChangeSetName" in content
+        assert "Change Set ARN" in content
+        assert "Production" in content and "NO-GO" in content
+
+    deployment_guide = (
+        REPO_ROOT / "docs/deployment/platform-authority-account-bootstrap.md"
+    ).read_text(encoding="utf-8")
+    recovery_guide = (
+        REPO_ROOT / "docs/operations/platform-authority-bootstrap-recovery.md"
+    ).read_text(encoding="utf-8")
+    notebook_index = (
+        REPO_ROOT / "_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md"
+    ).read_text(encoding="utf-8")
+    assert "GUG-210 supported Change Set IAM binding" in deployment_guide
+    assert "Change Set IAM binding failure" in recovery_guide
+    assert "27 — GUG-210 Change Set IAM Binding" in notebook_index

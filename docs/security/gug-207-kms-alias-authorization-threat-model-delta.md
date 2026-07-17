@@ -29,7 +29,8 @@
   not support condition keys there. Its exact ARN and the independently
   required, conditioned key-side statement form one indivisible authorization.
 - `aws:CalledVia` proves a CloudFormation forward-access path, not that an
-  arbitrary Change Set is approved. The separate exact Change Set ARN and
+  arbitrary Change Set is approved. The canonical stack ARN, exact
+  `cloudformation:ChangeSetName`, full ARN/UUID PEP verification, and
   Plan/Apply contracts remain mandatory.
 - IAM Access Analyzer validates policy structure but does not prove that a
   condition key is present in every service operation request.

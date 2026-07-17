@@ -37,6 +37,7 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
     canonical_digest,
     render_backend_config,
     render_bootstrap_iam_policy,
+    validate_bootstrap_change_set_name,
 )
 
 
@@ -375,6 +376,43 @@ def _normalize_changes(response: Mapping[str, Any]) -> tuple[dict[str, str], ...
     return tuple(sorted(normalized, key=lambda item: item["logical_resource_id"]))
 
 
+def _require_exact_change_set_response(
+    response: Mapping[str, Any],
+    *,
+    binding: BootstrapBinding,
+    change_set_id: str,
+) -> None:
+    change_set_name = change_set_id.split("/", 2)[-2]
+    if (
+        response.get("ChangeSetId") != change_set_id
+        or response.get("ChangeSetName") != change_set_name
+        or response.get("StackName") != binding.stack_name
+    ):
+        raise BootstrapAuthorizationError(
+            "live change set identity differs from reviewed bootstrap plan"
+        )
+    raw_tags = response.get("Tags")
+    if not isinstance(raw_tags, list):
+        raise BootstrapAuthorizationError("live change set tags are missing")
+    tags: dict[str, str] = {}
+    for item in raw_tags:
+        if not isinstance(item, Mapping):
+            raise BootstrapAuthorizationError("live change set tags are malformed")
+        key = item.get("Key")
+        value = item.get("Value")
+        if not isinstance(key, str) or not isinstance(value, str) or key in tags:
+            raise BootstrapAuthorizationError("live change set tags are malformed")
+        tags[key] = value
+    if tags != {
+        "managed_by": "cloudformation",
+        "service": "scanalyze-platform-authority",
+        "work_package": "GUG-206",
+    }:
+        raise BootstrapAuthorizationError(
+            "live change set tags differ from reviewed bootstrap contract"
+        )
+
+
 def _require_plan_matches_binding(
     plan: Mapping[str, Any], binding: BootstrapBinding
 ) -> None:
@@ -406,6 +444,7 @@ def _cmd_render_plan_policy(args: argparse.Namespace) -> None:
     policy = render_bootstrap_iam_policy(
         policy_template=_strict_object(PLAN_POLICY_TEMPLATE),
         binding=binding,
+        change_set_name=args.change_set_name,
     )
     _write_json(args.policy_out, policy)
     print("PASS: exact bootstrap Plan permission policy rendered privately")
@@ -442,9 +481,7 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     )
     _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
     created_at = _now()
-    change_set_name = "scanalyze-platform-authority-bootstrap-" + created_at.strftime(
-        "%Y%m%d%H%M%S"
-    )
+    change_set_name = validate_bootstrap_change_set_name(args.change_set_name)
     response = client.run(
         "cloudformation",
         "create-change-set",
@@ -485,6 +522,11 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         change_set_id,
         "--stack-name",
         binding.stack_name,
+    )
+    _require_exact_change_set_response(
+        described,
+        binding=binding,
+        change_set_id=change_set_id,
     )
     if described.get("Status") != "CREATE_COMPLETE" or described.get("ExecutionStatus") != "AVAILABLE":
         raise BootstrapAuthorizationError("CloudFormation change set is not executable")
@@ -631,6 +673,11 @@ def _describe_exact_change_set(
         change_set_id,
         "--stack-name",
         binding.stack_name,
+    )
+    _require_exact_change_set_response(
+        response,
+        binding=binding,
+        change_set_id=change_set_id,
     )
     if response.get("Status") != "CREATE_COMPLETE" or response.get("ExecutionStatus") != "AVAILABLE":
         raise BootstrapAuthorizationError("reviewed bootstrap change set is no longer executable")
@@ -786,6 +833,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     _common(render_plan)
     render_plan.add_argument("--policy-out", type=Path, required=True)
+    render_plan.add_argument("--change-set-name", required=True)
     render_plan.set_defaults(handler=_cmd_render_plan_policy)
 
     render_apply = subparsers.add_parser(
@@ -804,6 +852,7 @@ def _parser() -> argparse.ArgumentParser:
     plan = subparsers.add_parser("plan", help="Create but never execute a reviewed change set")
     _common(plan)
     plan.add_argument("--initiator-id", required=True)
+    plan.add_argument("--change-set-name", required=True)
     plan.add_argument("--plan-out", type=Path, required=True)
     plan.add_argument("--allow-change-set-write", action="store_true")
     plan.set_defaults(handler=_cmd_plan)
