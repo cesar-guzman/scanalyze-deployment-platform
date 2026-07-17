@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_bootstrap_approval",
+  "plan_record_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "authority_account_id": "111122223333",
+  "region": "us-east-1",
+  "change_set_id": "arn:aws:cloudformation:us-east-1:111122223333:changeSet/scanalyze-platform-authority-bootstrap-20300101000000/00000000-0000-4000-8000-000000000000",
+  "initiator_id": "operator-1001",
+  "approver_id": "reviewer-2002",
+  "initiator_principal_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "approver_principal_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "decision": "APPROVED",
+  "approved_at": "2030-01-01T00:10:00Z",
+  "expires_at": "2030-01-01T00:40:00Z",
+  "approval_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

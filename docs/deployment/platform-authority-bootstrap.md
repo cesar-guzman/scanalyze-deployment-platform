@@ -24,9 +24,10 @@ access keys, copied SSO credentials, long-lived IAM users, and a customer
 account acting as the authority are forbidden.
 
 The authority does not create or manage the organization's Identity Center
-instance. The organization's identity team assigns a dedicated permission set
-to the authority account. That permission set is time-bound and is not trusted
-by customer terminal roles during normal deployment execution.
+instance. The organization's identity team assigns two disjoint, time-bound
+plan and apply permission sets to non-overlapping groups in the authority
+account. Neither is trusted by customer terminal roles during normal deployment
+execution.
 
 ## Required onboarding record
 
@@ -51,12 +52,15 @@ authority.
 
 1. Allocate or formally designate a third AWS account for Scanalyze platform
    authority. Verify that it is different from every destination account.
-2. Through IAM Identity Center, obtain a short-lived bootstrap session whose
-   scope is limited to the platform-authority backend and resources declared by
-   `roots/platform-authority`.
-3. Create the remote state boundary under the controlled account-vending
-   process. Record only its sanitized binding digest; never store backend files,
-   credentials, state, or AWS responses in Git, Linear, or NotebookLM.
+2. Follow the dedicated GUG-206
+   [`platform-authority-account-bootstrap.md`](platform-authority-account-bootstrap.md)
+   procedure. Through IAM Identity Center, obtain a short-lived plan session
+   whose scope is limited to Change Set creation and cancellation.
+3. Create and review the exact CloudFormation Change Set, obtain approval from
+   a different attributable SSO principal, and execute it only under explicit
+   authorization. Record only sanitized digests; never store backend files,
+   plans, approvals, credentials, state, or AWS responses in Git, Linear, or
+   NotebookLM.
 4. Render the root inputs from the approved onboarding records. The root and
    module reject missing, malformed, production, duplicated, wildcard, or
    authority-equals-destination bindings.
@@ -87,8 +91,15 @@ authority.
 
 ## Minimum human permission boundary
 
-The bootstrap permission set is derived from the reviewed saved plan and must
-be limited to:
+The state bootstrap uses two permission sets rendered from
+`policies/iam/platform-authority-bootstrap-plan-role.json` and
+`policies/iam/platform-authority-bootstrap-apply-role.json`. They are assigned
+only to the dedicated authority account and to non-overlapping initiator and
+approver/executor groups. The plan role cannot execute; the apply role cannot
+create/cancel Change Sets or delete the stack. Its execution resource is
+rendered after plan review to the exact Change Set name and UUID, then disabled
+after the bootstrap window. The later Terraform apply permission is derived
+separately from the reviewed saved plan and must be limited to:
 
 - the exact platform-authority state bucket, state key, and KMS key;
 - `ScanalyzePlatformAuthority*` policies and

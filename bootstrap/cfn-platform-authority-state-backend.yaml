@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze dedicated platform-authority Terraform state backend. Creates only
+  one retained KMS key, alias, versioned S3 bucket, and restrictive bucket
+  policy. Account-level S3 Block Public Access is a separately planned step
+  because CloudFormation has no native resource for that account setting.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Exact authority binding
+        Parameters:
+          - AuthorityAccountId
+          - StateKey
+      - Label:
+          default: Retention
+        Parameters:
+          - NoncurrentVersionRetentionDays
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    Description: Exact dedicated Scanalyze platform-authority AWS account ID.
+    AllowedPattern: '^(?!000000000000$)[0-9]{12}$'
+    ConstraintDescription: Must be a non-zero 12-digit AWS account ID.
+
+  StateKey:
+    Type: String
+    Default: platform-authority/terraform.tfstate
+    AllowedValues:
+      - platform-authority/terraform.tfstate
+    Description: Immutable platform-authority Terraform state key.
+
+  NoncurrentVersionRetentionDays:
+    Type: Number
+    Default: 365
+    MinValue: 90
+    MaxValue: 2555
+    Description: Retention for non-current Terraform state and lock versions.
+
+Rules:
+  AuthorityAccountMustMatch:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AuthorityAccountId
+          - !Ref AWS::AccountId
+        AssertDescription: AuthorityAccountId must equal the current AWS account.
+Resources:
+  StateKmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Scanalyze platform-authority Terraform state encryption key
+      Enabled: true
+      EnableKeyRotation: true
+      BypassPolicyLockoutSafetyCheck: false
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableAuthorityAccountIamPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: data_class
+          Value: control-metadata
+        - Key: account_id
+          Value: !Ref AuthorityAccountId
+        - Key: region
+          Value: !Ref AWS::Region
+
+  StateKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/scanalyze-platform-authority-state
+      TargetKeyId: !Ref StateKmsKey
+
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'scanalyze-platform-authority-${AWS::AccountId}-${AWS::Region}-state'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt StateKmsKey.Arn
+      LifecycleConfiguration:
+        Rules:
+          - Id: RetainNoncurrentStateVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionRetentionDays
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: data_class
+          Value: control-metadata
+        - Key: account_id
+          Value: !Ref AuthorityAccountId
+        - Key: region
+          Value: !Ref AWS::Region
+
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub '${StateBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: DenyCrossAccountAccess
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub '${StateBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                aws:PrincipalAccount: !Ref AWS::AccountId
+          - Sid: DenyUnencryptedObjectWrites
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${StateBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          - Sid: DenyWrongKmsKey
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${StateBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt StateKmsKey.Arn
+          - Sid: DenyUnexpectedObjectKeys
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            NotResource:
+              - !Sub '${StateBucket.Arn}/${StateKey}'
+              - !Sub '${StateBucket.Arn}/${StateKey}.tflock'
+          - Sid: DenyStateDeletion
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub '${StateBucket.Arn}/${StateKey}'
+
+Outputs:
+  AuthorityAccountId:
+    Description: Exact authority account verified by the template rules.
+    Value: !Ref AWS::AccountId
+
+  AuthorityRegion:
+    Description: Exact authority home region.
+    Value: !Ref AWS::Region
+
+  StateBucketName:
+    Description: Retained platform-authority Terraform state bucket.
+    Value: !Ref StateBucket
+
+  StateBucketArn:
+    Description: ARN of the retained state bucket.
+    Value: !GetAtt StateBucket.Arn
+
+  StateKmsKeyArn:
+    Description: ARN of the retained state KMS key.
+    Value: !GetAtt StateKmsKey.Arn
+
+  StateKey:
+    Description: Exact fixed state key.
+    Value: !Ref StateKey
+
+  AccountPublicAccessBlockRequired:
+    Description: Must be verified true by the bootstrap orchestration before success.
+    Value: 'true'
+
+  BackendConfig:
+    Description: >
+      Sensitive operational output. Render outside Git and use only after live
+      verification of the stack and account-level public access block.
+    Value: !Sub |
+      bucket              = "${StateBucket}"
+      key                 = "${StateKey}"
+      region              = "${AWS::Region}"
+      encrypt             = true
+      kms_key_id          = "${StateKmsKey.Arn}"
+      use_lockfile        = true
+      allowed_account_ids = ["${AWS::AccountId}"]

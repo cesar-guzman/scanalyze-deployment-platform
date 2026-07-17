@@ -1,0 +1,95 @@
+# Platform-Authority Bootstrap Recovery
+
+## Safety rules
+
+- Stop dispatch before diagnosis.
+- Verify the exact authority account and region through STS.
+- Never re-run `apply` after a lost response.
+- Never create a replacement bucket/key or infer ownership from names.
+- Never empty, delete, migrate, restore, or copy state automatically.
+- Keep customer destinations, Audit, Log Archive, and corporate shared-services
+  accounts outside this procedure.
+
+## State classification
+
+| State | Allowed action | Forbidden shortcut |
+|---|---|---|
+| Preflight failed | Correct identity/binding/tooling and repeat read-only preflight | Bypass account or region check |
+| Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
+| Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
+| Approval expired | Cancel only the exact Change Set, retain the zero-resource review shell, then create a new plan | Extend timestamps or delete the stack |
+| Apply response lost | Run read-only `verify` against the original plan | Execute again |
+| Stack rollback in progress | Wait and inspect CloudFormation events under controlled evidence handling | Start a competing stack |
+| Stack rollback failed | Escalate; inventory retained S3/KMS resources read-only | Delete retained resources |
+| Stack complete, verification failed | Stop platform-authority Terraform; remediate through a new reviewed change | Render/use backend config |
+| Verification complete | Preserve receipt privately and proceed to a separate Terraform plan | Claim Scanalyze live validation |
+
+## Read-only reconciliation
+
+After an uncertain client result, use the original plan and new exclusive
+output paths:
+
+```bash
+python3 scripts/deployment/platform-authority-bootstrap.py verify \
+  --authority-account-id '<authority-account-id>' \
+  --region '<authority-region>' \
+  --destination-account-id '<customer-a-account-id>' \
+  --destination-account-id '<customer-b-account-id>' \
+  --plan '<private-evidence-dir>/bootstrap-plan.json' \
+  --verification-out '<private-evidence-dir>/reconciled-verification.json' \
+  --backend-config-out '<private-evidence-dir>/reconciled-backend.hcl'
+```
+
+`verify` performs no writes. If any control is missing or ambiguous, it emits
+no usable backend configuration.
+
+## Cancel an unexecuted plan
+
+Cancellation is allowed only while the exact Change Set is `AVAILABLE`, the
+stack is `REVIEW_IN_PROGRESS`, and `ListStackResources` proves the stack has
+zero resources. It removes only the exact Change Set. The empty CloudFormation
+review stack remains because neither bootstrap permission set grants
+`DeleteStack`.
+
+```bash
+python3 scripts/deployment/platform-authority-bootstrap.py cancel \
+  --authority-account-id '<authority-account-id>' \
+  --region '<authority-region>' \
+  --destination-account-id '<customer-a-account-id>' \
+  --destination-account-id '<customer-b-account-id>' \
+  --plan '<private-evidence-dir>/bootstrap-plan.json' \
+  --allow-cancel-unexecuted
+```
+
+If any resource exists or the Change Set has started execution, cancellation
+fails closed and this command never calls a bucket/KMS delete operation.
+
+After a successful cancellation, `plan` accepts the same stack name only when
+the live status is still `REVIEW_IN_PROGRESS` and a fresh
+`ListStackResources` result is exactly empty. It then creates a new `CREATE`
+Change Set from the current reviewed template. Any other stack status or any
+resource forces escalation; the workflow never deletes the review stack as a
+recovery shortcut.
+
+Every replacement plan invalidates the prior rendered Apply policy. Remove the
+old Apply assignment and render a new exact policy from the replacement plan;
+never edit the Change Set ARN in place or reuse an expired policy artifact.
+
+## Retained resource boundary
+
+The state bucket and KMS key use retain semantics. Stack deletion is therefore
+not a decommission workflow. A future decommission must prove that no Terraform
+state, lock, plan, release, registry, ledger, or evidence depends on the key;
+export only sanitized inventory evidence; define a KMS waiting period; and
+receive explicit destructive authorization. No automated decommission is part
+of GUG-206.
+
+## Rollback
+
+Before execution, remove the unexecuted Change Set only and retain the empty
+review stack shell. After the account S3
+public-access block is enabled, retain it even if the stack fails. After stack
+completion, do not roll back storage automatically; treat the verified backend
+as durable control-plane infrastructure and use a reviewed forward fix.
+
+Production remains **NO-GO**.
