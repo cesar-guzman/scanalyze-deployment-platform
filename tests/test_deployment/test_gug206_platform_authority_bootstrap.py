@@ -361,18 +361,35 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
             [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
         )
     }
-    assert alias_statements["ManageExactStateKeyAliasViaCloudFormation"]["Resource"] == (
+    exact_alias_statement = alias_statements[
+        "ManageExactStateKeyAliasViaCloudFormation"
+    ]
+    assert exact_alias_statement["Resource"] == (
         "arn:${aws_partition}:kms:${region}:${authority_account_id}:"
         "alias/scanalyze-platform-authority-state"
     )
+    assert "Condition" not in exact_alias_statement
     assert alias_statements["BindAliasOnlyToTaggedStateKeyViaCloudFormation"]["Resource"] == (
         "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*"
     )
-    assert alias_statements["BindAliasOnlyToTaggedStateKeyViaCloudFormation"]["Condition"][
-        "StringEquals"
-    ][
-        "kms:RequestAlias"
-    ] == "alias/scanalyze-platform-authority-state"
+    key_alias_statement = alias_statements[
+        "BindAliasOnlyToTaggedStateKeyViaCloudFormation"
+    ]
+    assert set(key_alias_statement["Action"]) == {
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias",
+    }
+    assert key_alias_statement["Condition"]["StringEquals"] == {
+        "aws:ResourceTag/service": "scanalyze-platform-authority",
+        "aws:ResourceTag/data_class": "control-metadata",
+        "aws:ResourceTag/account_id": "${authority_account_id}",
+        "aws:ResourceTag/region": "${region}",
+    }
+    assert key_alias_statement["Condition"]["ForAnyValue:StringEquals"] == {
+        "aws:CalledVia": ["cloudformation.amazonaws.com"]
+    }
+    assert "kms:RequestAlias" not in json.dumps(alias_statements)
 
     direct_mutation_exception = {"s3:PutAccountPublicAccessBlock"}
     backend_mutations = {
@@ -405,6 +422,9 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
             else statement["Action"]
         )
         if backend_mutations.intersection(actions):
+            if statement["Sid"] == "ManageExactStateKeyAliasViaCloudFormation":
+                assert "Condition" not in statement
+                continue
             assert statement["Condition"]["ForAnyValue:StringEquals"]["aws:CalledVia"] == [
                 "cloudformation.amazonaws.com"
             ]
@@ -645,3 +665,30 @@ def test_schemas_docs_and_offline_gate_are_registered() -> None:
         "_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md",
     ):
         assert (REPO_ROOT / relative).is_file()
+
+
+def test_gug207_kms_alias_authorization_evidence_is_registered() -> None:
+    required_documents = (
+        REPO_ROOT / "ADR/ADR-035-kms-alias-authorization-boundary.md",
+        REPO_ROOT / "docs/security/gug-207-kms-alias-authorization-threat-model-delta.md",
+        REPO_ROOT / "_NotebookLM_Brain/24_GUG207_KMS_Alias_Authorization.md",
+    )
+    for document in required_documents:
+        assert document.is_file(), document
+        content = document.read_text(encoding="utf-8")
+        assert "kms:RequestAlias" in content
+        assert "aws:CalledVia" in content
+        assert "Production" in content and "NO-GO" in content
+
+    deployment_guide = (
+        REPO_ROOT / "docs/deployment/platform-authority-account-bootstrap.md"
+    ).read_text(encoding="utf-8")
+    recovery_guide = (
+        REPO_ROOT / "docs/operations/platform-authority-bootstrap-recovery.md"
+    ).read_text(encoding="utf-8")
+    notebook_index = (
+        REPO_ROOT / "_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md"
+    ).read_text(encoding="utf-8")
+    assert "KMS alias authorization boundary" in deployment_guide
+    assert "Alias authorization failure" in recovery_guide
+    assert "24 — GUG-207 KMS Alias Authorization" in notebook_index

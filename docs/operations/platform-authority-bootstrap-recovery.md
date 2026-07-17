@@ -21,6 +21,7 @@
 | Apply response lost | Run read-only `verify` against the original plan | Execute again |
 | Stack rollback in progress | Wait and inspect CloudFormation events under controlled evidence handling | Start a competing stack |
 | Stack rollback failed | Escalate; inventory retained S3/KMS resources read-only | Delete retained resources |
+| Alias authorization failure | Stop; inspect the exact stack events and rendered policy read-only, then repair through GUG-207 and a new reviewed plan | Create, update, or delete the alias directly |
 | Stack complete, verification failed | Stop platform-authority Terraform; remediate through a new reviewed change | Render/use backend config |
 | Verification complete | Preserve receipt privately and proceed to a separate Terraform plan | Claim Scanalyze live validation |
 

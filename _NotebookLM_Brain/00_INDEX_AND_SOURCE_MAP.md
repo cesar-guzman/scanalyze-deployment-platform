@@ -103,6 +103,7 @@ Cuando dos documentos difieran, usar este orden:
 | Foundation de Production Readiness / GUG-116 | **Implemented**, **Locally validated** | El validator y tests locales pasan; el cuaderno existente conserva una fuente sanitizada y respondió correctamente las seis preguntas fail-closed. No es evidencia AWS y producción sigue **NO-GO**. |
 | Motor live non-production GUG-125 | **Implemented** como contratos, core, adapters y fábrica Terraform portable de platform authority; **Locally validated** sólo con gates nombrados | El workflow sigue dry-run. Tercera cuenta/backend autorizados, Environments/revisores independientes, ACCOUNT_READY, plans/applies, health, reconciliación, no-change, aislamiento y cleanup live siguen **Blocked / NO-GO**. |
 | Bootstrap de cuenta platform-authority GUG-206 | **Implemented** sólo cuando el commit revisado contiene plantilla S3/KMS, plan/aprobación/verificación tipados, CLI fail-closed, policy mínima, tests, ADR-034 y runbooks; **Locally validated** sólo con gates nombrados | El inventario AWS read-only no equivale a bootstrap. Permission set mínimo, segundo principal SSO, Change Set autorizado, apply, verificación, root Terraform y aislamiento de dos clientes siguen **Blocked / NO-GO**. |
+| Reparación de autorización KMS alias GUG-207 | **Implemented** en worktree y **Locally validated** con gates nombrados; commit, revisión y CI pendientes | `kms:RequestAlias` no es válido para operaciones de alias. CI previa no es evidencia live; AWS y producción siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -129,6 +130,7 @@ Cuando dos documentos difieran, usar este orden:
 | [21 — GUG-124 Build Once and Supply Chain](21_GUG124_Build_Once_Supply_Chain.md) | Grafo completo, evidencia por digest, VSA firmada, gate central, promoción y rollback sin rebuild |
 | [22 — GUG-125 Non-Production Live Engine](22_GUG125_Nonproduction_Live_Engine.md) | Plan exacto versionado, fábrica portable de platform authority, aprobación independiente, ledger CAS, health, reconciliación y límites live |
 | [23 — GUG-206 Platform Authority Account Bootstrap](23_GUG206_Platform_Authority_Account_Bootstrap.md) | Cuenta dedicada, backend S3/KMS, locking nativo, Change Set exacto, SSO independiente, recuperación y límites live |
+| [24 — GUG-207 KMS Alias Authorization](24_GUG207_KMS_Alias_Authorization.md) | Autorización exacta alias/key, condiciones KMS válidas, CloudFormation forward access y límites live |
 
 ## Reglas de ingestión y mantenimiento
 

@@ -31,9 +31,11 @@ IAM Identity Center is the human bootstrap/recovery plane. Two dedicated,
 time-bound and non-overlapping permission sets separate Change Set
 creation/cancellation from exact execution and backend provisioning. The Apply
 policy is rendered after review to one exact Change Set ARN and disabled after
-the bootstrap window. Backend-mutating S3/KMS permissions require an
-`aws:CalledVia` chain containing CloudFormation, preventing their direct use;
-the explicit all-true account S3 public block is the sole direct mutation.
+the bootstrap window. Backend-mutating S3 permissions and required KMS
+key-side permissions require an `aws:CalledVia` chain containing
+CloudFormation, preventing their direct use; the exact alias-resource grant is
+condition-free because KMS requires that shape. The explicit all-true account
+S3 public block is the sole direct mutation.
 Identity Center creates the account-local roles; no
 manual IAM user or standing bootstrap role is created. GitHub OIDC remains the
 later machine execution plane created by `roots/platform-authority`.
@@ -66,6 +68,15 @@ permission-set role. Exact records and independent assignments are required.
   authorized Change Set/apply, post-verification, platform-authority Terraform,
   and two-customer isolation proof.
 - **Production:** **NO-GO**.
+
+## Post-merge correction
+
+GUG-207 supersedes the original key-side `kms:RequestAlias` condition. Alias
+management requires exact permissions on both the alias and affected key;
+conditions are unsupported on the alias resource, and `kms:RequestAlias` is not
+valid for those operations. Refer to sanitized source 24 for the corrected
+split authorization boundary. GUG-206 is not complete
+until that hotfix is merged and verified on main.
 
 ## Ingestion boundary
 

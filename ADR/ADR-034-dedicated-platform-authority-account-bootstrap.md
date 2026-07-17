@@ -8,6 +8,12 @@
 - **AWS live validation:** Read-only account inventory only; bootstrap not applied
 - **Production:** **NO-GO**
 
+> **GUG-207 amendment:** The PR #21 policy used `kms:RequestAlias` on
+> alias-management actions. ADR-035 supersedes that condition with exact
+> alias-side and tagged-key-side permissions. The alias side has no conditions,
+> as required by KMS; the key side enforces `aws:CalledVia`. GUG-206 remains
+> incomplete until the amendment is merged and verified on main.
+
 ## Context
 
 GUG-125 introduced a portable Terraform root for the Scanalyze machine control
@@ -102,10 +108,12 @@ Set, change the account S3 public-access block, or create S3/KMS resources.
 `platform-authority-bootstrap-apply-role.json` is the intended inline policy
 for the independently assigned apply permission set. After plan review, its
 Change Set ARN placeholders are rendered to the exact name and UUID from the
-plan before assignment. It can execute only that Change Set. Every S3/KMS
-backend mutation further requires `aws:CalledVia` to contain
-`cloudformation.amazonaws.com`, so the same principal cannot use those grants
-for direct resource mutation. Read-only verification remains direct. The sole
+plan before assignment. It can execute only that Change Set. Every S3 backend
+mutation requires `aws:CalledVia` to contain `cloudformation.amazonaws.com`.
+KMS alias management requires both an exact, condition-free alias grant and a
+tagged-key grant with that same forward-access condition, so direct mutation
+still fails closed on the required key authorization. Read-only verification
+remains direct. The sole
 direct write is the separately planned all-true account S3 public-access block.
 It cannot create or cancel Change Sets, delete the stack, create identities,
 `iam:PassRole`, access Organizations, or create customer workloads.

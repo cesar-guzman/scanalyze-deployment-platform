@@ -23,7 +23,7 @@ from organization audit/log-archive accounts.
 | Legacy or concurrent locking | Native S3 lockfile only; no DynamoDB table | Template/test failure |
 | Plan substitution | Change Set ARN, resource changes, template digest, plan digest | Deny apply |
 | Self approval | Distinct operator IDs and hashed live STS principals | Deny approval/apply |
-| Direct API separation or plan substitution | Disjoint roles, exact Change Set ARN, and `aws:CalledVia=cloudformation.amazonaws.com` on backend mutations | AWS authorization denies other Change Sets and direct S3/KMS mutation |
+| Direct API separation or plan substitution | Disjoint roles, exact Change Set ARN, condition-free exact alias ARN plus tagged-key permissions, and `aws:CalledVia=cloudformation.amazonaws.com` on S3 and required KMS key-side mutations; `kms:RequestAlias` is forbidden for alias management by GUG-207 | AWS authorization denies other Change Sets and direct S3/KMS mutation |
 | Static credential bootstrap | Ambient key/token variables rejected; live STS ARN must be an `AWSReservedSSO_*` session | Deny before protected operation |
 | Profile-name spoofing | Canonical Plan/Apply permission-set role checked from live STS, never profile text | Deny mutation |
 | Public state exposure | Account and bucket public blocking, bucket owner enforced, cross-account deny | Verification fails closed |
