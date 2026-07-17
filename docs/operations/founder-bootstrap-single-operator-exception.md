@@ -31,6 +31,14 @@ independent approval or durable authorization.
 
 ## Execution status: OFFLINE-ONLY — LIVE EXECUTION BLOCKED
 
+ADR-039 / GUG-211 now implements the separately reviewed durable PEP package
+anticipated below. This GUG-209 runbook and its policies remain offline-only;
+operators must use
+[`durable-founder-bootstrap-pep.md`](durable-founder-bootstrap-pep.md) for the
+new PEP. Repository implementation is not live authorization: seed, temporary
+Identity Center provisioning, Plan, Apply and revocation remain blocked until
+the exact GUG-211 commit is reviewed, merged and separately authorized.
+
 GUG-209 currently creates only local private JSON records, digests, and policy
 renderings. None is durable authorization, a live policy enforcement point
 (PEP), trusted identity/event evidence, or a compare-and-swap (CAS) execution

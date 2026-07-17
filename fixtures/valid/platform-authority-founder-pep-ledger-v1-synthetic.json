@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_founder_pep_ledger",
+  "exception_id": "founder-synthetic",
+  "intent_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "authority_account_id": "042360977644",
+  "region": "us-east-1",
+  "table_name": "scanalyze-platform-authority-founder-executions",
+  "version": 1,
+  "state": "PREPARED",
+  "plan_attempt_count": 0,
+  "apply_attempt_count": 0,
+  "change_set_id": null,
+  "plan_record_digest": null,
+  "exception_digest": null,
+  "execution_started_at": null,
+  "outcome": null,
+  "revocation_digest": null,
+  "created_at": "2030-01-01T11:59:00Z",
+  "updated_at": "2030-01-01T11:59:00Z",
+  "ledger_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

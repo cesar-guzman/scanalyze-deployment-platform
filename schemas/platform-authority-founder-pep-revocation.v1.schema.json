@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-pep-revocation.v1.schema.json",
+  "title": "Durable Founder Bootstrap PEP Revocation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "exception_id", "intent_digest",
+    "execution_ledger_digest", "authority_account_id", "region",
+    "operator_subject_digest", "principal_type", "group_membership_used",
+    "normal_plan_assignment_count", "founder_plan_assignment_count",
+    "founder_apply_assignment_count", "founder_plan_permission_set",
+    "founder_apply_permission_set", "founder_plan_policy_digest",
+    "founder_apply_policy_digest", "founder_plan_deny_retained",
+    "founder_apply_deny_retained", "deny_retain_until", "verified_at",
+    "revocation_state", "revocation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_pep_revocation" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "execution_ledger_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "operator_subject_digest": { "$ref": "#/$defs/digest" },
+    "principal_type": { "const": "USER" },
+    "group_membership_used": { "const": false },
+    "normal_plan_assignment_count": { "const": 0 },
+    "founder_plan_assignment_count": { "const": 0 },
+    "founder_apply_assignment_count": { "const": 0 },
+    "founder_plan_permission_set": { "const": "ScanalyzeFounderBootstrapPlan" },
+    "founder_apply_permission_set": { "const": "ScanalyzeFounderBootstrapApply" },
+    "founder_plan_policy_digest": { "$ref": "#/$defs/digest" },
+    "founder_apply_policy_digest": { "$ref": "#/$defs/digest" },
+    "founder_plan_deny_retained": { "const": true },
+    "founder_apply_deny_retained": { "const": true },
+    "deny_retain_until": { "type": "string", "format": "date-time" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "revocation_state": { "const": "REVOKED_ASSIGNMENTS_DENY_RETAINED" },
+    "revocation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

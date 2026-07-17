@@ -7,6 +7,12 @@
 - **Baseline:** `dc94eb51258a15e4960a0d154a42d6d5410528b0`
 - **AWS live validation:** None; no Change Set execution or Terraform apply is authorized by this decision
 - **Execution status:** **OFFLINE-ONLY — LIVE EXECUTION BLOCKED**
+
+> **2026-07-17 implementation note:** ADR-039 / GUG-211 implements the separate
+> durable PEP anticipated by this decision. The GUG-209 artifacts remain
+> offline-only and must never be attached or treated as authorization. Live
+> seed, temporary Identity Center provisioning, Plan, Apply and revocation
+> still require the reviewed GUG-211 commit, exact authorization and evidence.
 - **Production:** **NO-GO**
 
 ## Context
