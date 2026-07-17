@@ -167,20 +167,14 @@
         "kms:DeleteAlias",
         "kms:UpdateAlias"
       ],
-      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state",
-      "Condition": {
-        "ForAnyValue:StringEquals": {
-          "aws:CalledVia": [
-            "cloudformation.amazonaws.com"
-          ]
-        }
-      }
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state"
     },
     {
       "Sid": "BindAliasOnlyToTaggedStateKeyViaCloudFormation",
       "Effect": "Allow",
       "Action": [
         "kms:CreateAlias",
+        "kms:DeleteAlias",
         "kms:UpdateAlias"
       ],
       "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
@@ -189,8 +183,7 @@
           "aws:ResourceTag/service": "scanalyze-platform-authority",
           "aws:ResourceTag/data_class": "control-metadata",
           "aws:ResourceTag/account_id": "${authority_account_id}",
-          "aws:ResourceTag/region": "${region}",
-          "kms:RequestAlias": "alias/scanalyze-platform-authority-state"
+          "aws:ResourceTag/region": "${region}"
         },
         "ForAnyValue:StringEquals": {
           "aws:CalledVia": [

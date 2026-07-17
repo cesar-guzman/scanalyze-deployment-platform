@@ -31,13 +31,33 @@ Both permission sets require:
   both permission sets during the same bootstrap window;
 - organization audit retention and the standard emergency revocation path.
 
+### KMS alias authorization boundary
+
+KMS authorizes alias management against the alias and every affected key. The
+Apply policy therefore contains two complementary grants:
+
+- one for the exact `alias/scanalyze-platform-authority-state` ARN;
+- one for keys in the exact authority account and region with the canonical
+  state ownership tags.
+
+Both sides include `kms:CreateAlias`, `kms:UpdateAlias`, and
+`kms:DeleteAlias`. The exact alias statement contains no conditions because
+KMS does not support condition keys on an alias resource. The key-side
+statement requires the ownership tags and `aws:CalledVia` to contain
+`cloudformation.amazonaws.com`. Because KMS requires both permissions, a
+direct API request still fails on the key side. Do not add `kms:RequestAlias`
+to these actions or put any condition on the alias-resource statement. Do not
+replace the split model with an alias wildcard, a key wildcard outside the
+bound account/region, or a direct API fallback.
+
 The plan policy cannot execute a Change Set or create backend resources. The
 apply policy cannot create/cancel a Change Set or delete the stack, and its
 `${change_set_name}` and `${change_set_id}` placeholders must be rendered from
 the reviewed plan to one exact ARN before assignment. Backend-mutating S3 and
-KMS actions additionally require the multivalued `aws:CalledVia` context to
-contain `cloudformation.amazonaws.com`; a direct S3/KMS API call therefore does
-not receive those permissions. The only direct mutation is the separately
+key-side KMS actions additionally require the multivalued `aws:CalledVia`
+context to contain `cloudformation.amazonaws.com`; a direct S3/KMS API call
+therefore does not receive all required permissions. The only direct mutation
+is the separately
 planned all-true account-level S3 public-access block, which the CLI binds to
 the current authority account and verifies immediately. Remove or disable the
 Apply assignment after the bootstrap window.
