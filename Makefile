@@ -425,19 +425,21 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208/GUG-209, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
-		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py
+		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
+		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \
 		--fixtures-dir $(FIXTURES_DIR) \
-		--filter platform-authority-bootstrap
+		--filter platform-authority
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
 	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
-	@echo "GUG-206/GUG-208 bootstrap check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
+	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
+	@echo "GUG-206/GUG-208/GUG-209 bootstrap check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test

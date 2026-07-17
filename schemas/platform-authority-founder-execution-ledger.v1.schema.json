@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-execution-ledger.v1.schema.json",
+  "title": "Bounded Founder Bootstrap Execution Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "exception_id",
+    "exception_digest",
+    "plan_record_digest",
+    "authority_account_id",
+    "region",
+    "change_set_id",
+    "live_execution_status",
+    "attempt_count",
+    "state",
+    "execution_started_at",
+    "outcome",
+    "created_at",
+    "updated_at",
+    "ledger_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_execution_ledger" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "exception_digest": { "$ref": "#/$defs/digest" },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "change_set_id": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/scanalyze-founder-bootstrap-[a-z][a-z0-9-]{7,63}/[0-9a-f-]{36}$"
+    },
+    "live_execution_status": { "const": "BLOCKED_DURABLE_LEDGER_REQUIRED" },
+    "attempt_count": { "enum": [0, 1] },
+    "state": { "enum": ["PREPARED", "EXECUTION_ATTEMPTED", "SUCCEEDED", "FAILED", "UNCERTAIN"] },
+    "execution_started_at": { "type": ["string", "null"], "format": "date-time" },
+    "outcome": { "type": ["string", "null"], "enum": [null, "SUCCEEDED", "FAILED", "UNCERTAIN"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "ledger_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

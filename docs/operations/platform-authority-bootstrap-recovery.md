@@ -18,6 +18,9 @@
 | Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
 | Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
 | Approval expired | Cancel only the exact Change Set, retain the zero-resource review shell, then create a new plan | Extend timestamps or delete the stack |
+| Founder exception Plan or Apply window expired | Retain AWS-side time denial, remove temporary identity assignment/membership, and record readback | Extend the window, edit timestamps, reuse the exception, or use normal apply as a bypass |
+| Future founder-PEP execution response lost | Mark the durable CAS attempt `UNCERTAIN` and reconcile read-only against the original Change Set | Execute again, create a replacement Change Set, or reset the ledger |
+| Founder exception cleanup incomplete | Keep the date-deny policy through its required twelve-hour retention and escalate as `REVOCATION_REQUIRED` | Claim revocation from local time or remove the deny early |
 | Apply response lost | Run read-only `verify` against the original plan | Execute again |
 | Stack rollback in progress | Wait and inspect CloudFormation events under controlled evidence handling | Start a competing stack |
 | Stack rollback failed | Escalate; inventory retained S3/KMS resources read-only | Delete retained resources |
@@ -75,6 +78,30 @@ recovery shortcut.
 Every replacement plan invalidates the prior rendered Apply policy. Remove the
 old Apply assignment and render a new exact policy from the replacement plan;
 never edit the Change Set ARN in place or reuse an expired policy artifact.
+
+## Founder-exception recovery boundary
+
+The GUG-209 founder exception is not a fallback for normal independent
+approval. It is limited to authority account `042360977644`, `us-east-1`,
+`non-production`, one fresh `CREATE` Change Set, and one intended future
+durable-PEP attempt. Its offline record format explicitly models that no
+independent approval existed. The normal approval record must never be edited
+to imitate that state.
+
+GUG-209 is **OFFLINE-ONLY — LIVE EXECUTION BLOCKED**. Its local JSON/digests
+cannot be treated as the ledger in the state table. Any future PEP must use a
+controlled durable CAS ledger, trusted identity/event evidence, and immediate
+readback of the exact Change Set, template, and resource inventory before it
+can call `ExecuteChangeSet`.
+
+Its temporary Plan and Apply policies are bounded by AWS-side date conditions,
+not a local operator clock. Keep their explicit deny statements for at least
+twelve hours after the latest founder window. Structural cleanup requires
+governed identity-system readback proving temporary assignment and membership
+removal. A lost response, failed cleanup, missing readback, or policy timing
+ambiguity is `REVOCATION_REQUIRED`; retain denial and perform only read-only
+reconciliation. Do not use BreakGlass, run a second apply, or create an
+exception replacement from copied evidence.
 
 ## Retained resource boundary
 
