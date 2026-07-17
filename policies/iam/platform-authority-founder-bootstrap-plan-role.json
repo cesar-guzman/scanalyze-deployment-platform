@@ -1,0 +1,201 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyBeforeFounderPlanWindow",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate",
+        "s3:GetAccountPublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${plan_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAfterFounderPlanWindow",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate",
+        "s3:GetAccountPublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${plan_expires_at}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyNonFounderPlanSubject",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "identitystore:UserId": "${founder_operator_user_id}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsideFounderAuthorityRegion",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate",
+        "s3:GetAccountPublicAccessBlock"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyUnsafeFounderPlanCloudFormation",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOfflineOnlyFounderPlanMutations",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDirectAccountPublicAccessBlockMutation",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFounderPlan",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateOnlyExactExceptionBoundChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:CreateChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyExactExceptionBoundChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DeleteChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "TagOnlyExactExceptionBoundChangeSetAtCreate",
+      "Effect": "Allow",
+      "Action": "cloudformation:TagResource",
+      "Resource": [
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:CreateAction": "CreateChangeSet",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPublicAccessBlockOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*"
+    }
+  ]
+}

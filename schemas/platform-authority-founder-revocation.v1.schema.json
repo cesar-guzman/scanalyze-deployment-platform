@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-revocation.v1.schema.json",
+  "title": "Bounded Founder Bootstrap Revocation Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "exception_id",
+    "exception_digest",
+    "authority_account_id",
+    "region",
+    "automatic_deny_retain_until",
+    "checked_at",
+    "plan_assignment_absent",
+    "plan_membership_absent",
+    "apply_assignment_absent",
+    "apply_membership_absent",
+    "time_bound_deny_retained",
+    "status",
+    "revocation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_bootstrap_revocation" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "exception_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "automatic_deny_retain_until": { "type": "string", "format": "date-time" },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "plan_assignment_absent": { "type": "boolean" },
+    "plan_membership_absent": { "type": "boolean" },
+    "apply_assignment_absent": { "type": "boolean" },
+    "apply_membership_absent": { "type": "boolean" },
+    "time_bound_deny_retained": { "type": "boolean" },
+    "status": { "enum": ["REVOKED", "REVOCATION_REQUIRED"] },
+    "revocation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

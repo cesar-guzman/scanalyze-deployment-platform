@@ -29,6 +29,17 @@ plan and apply permission sets to non-overlapping groups in the authority
 account. Neither is trusted by customer terminal roles during normal deployment
 execution.
 
+The only documented temporary departure for an initial single-founder condition
+is GUG-209's bounded founder exception. It does not change normal independent
+approval, and is hard-bound to authority account `042360977644`, `us-east-1`,
+`non-production`, one `CREATE` Change Set, and one intended future durable-PEP
+attempt. Its receipt explicitly declares that independent approval is absent;
+it is neither self-approval nor BreakGlass. GUG-209 is **OFFLINE-ONLY — LIVE
+EXECUTION BLOCKED**: AWS-side `aws:CurrentTime` deny conditions and cleanup
+readback are policy-design requirements, not attached founder authority. No
+live Apply, Terraform apply, Scanalyze deployment, or production action is
+authorized by GUG-209.
+
 ## Required onboarding record
 
 Each new client supplies an independently approved record containing:
@@ -124,6 +135,17 @@ bound, any destination equals the authority, a customer/deployment binding is
 ambiguous, a GitHub subject contains a wildcard, repository numeric claims do
 not match, the plan is not an exact saved binary, or independent approval is
 missing.
+
+For the sole GUG-209 founder exception, stop unless its separate offline
+exception record format models the exact authority account, Region,
+non-production environment, risk acceptance, hashed authenticated subject,
+prior normal-Plan session quarantine, exact fresh Change Set, temporal
+Plan/Apply separation, and a future controlled durable CAS ledger. Local
+JSON/digest records are not durable authorization and cannot establish
+exactly-once. Any expired/foreign/malformed record, missing AWS-side deny
+retention, absent cleanup readback, absent trusted identity/event evidence, or
+absent immediate Change Set/template/resource readback is a fail-closed stop;
+it does not become a normal approval.
 
 ## Evidence classification
 
