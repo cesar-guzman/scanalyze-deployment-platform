@@ -79,8 +79,9 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se crea de forma recuperable el backend de la cuenta dedicada de autoridad? | [ADR-034](../ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md), [bootstrap GUG-206](../docs/deployment/platform-authority-account-bootstrap.md), [runbook de recuperación](../docs/operations/platform-authority-bootstrap-recovery.md), [delta de threat model](../docs/security/gug-206-threat-model-delta.md) y [fuente sanitizada GUG-206](23_GUG206_Platform_Authority_Account_Bootstrap.md) |
 | ¿Qué nombres de permission set son portables y autoritativos para el bootstrap? | [ADR-036](../ADR/ADR-036-identity-center-permission-set-name-contract.md), [bootstrap GUG-206](../docs/deployment/platform-authority-account-bootstrap.md), [delta de threat model GUG-208](../docs/security/gug-208-identity-center-name-contract-threat-model-delta.md) y [fuente sanitizada GUG-208](25_GUG208_Identity_Center_Name_Contract.md) |
 | ¿Cómo se maneja una excepción de founder con un solo operador sin degradar la aprobación independiente normal? | [ADR-037](../ADR/ADR-037-founder-bootstrap-single-operator-exception.md), [runbook de excepción](../docs/operations/founder-bootstrap-single-operator-exception.md), [delta de threat model GUG-209](../docs/security/gug-209-founder-bootstrap-exception-threat-model-delta.md) y [fuente sanitizada GUG-209](26_GUG209_Founder_Bootstrap_Exception.md) |
+| ¿Cómo se impide durablemente repetir el seed founder y cómo se prueba el backend antes de éxito? | [ADR-039](../ADR/ADR-039-durable-founder-bootstrap-pep.md), [referencia GUG-211](../docs/deployment/durable-founder-bootstrap-pep.md), [runbook PEP](../docs/operations/durable-founder-bootstrap-pep.md), [delta de threat model](../docs/security/gug-211-durable-founder-bootstrap-pep-threat-model-delta.md) y [fuente sanitizada GUG-211](28_GUG211_Durable_Founder_Bootstrap_PEP.md) |
 
-## Estado de evidencia al 2026-07-12
+## Estado de evidencia al 2026-07-17
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -109,6 +110,7 @@ Cuando dos documentos difieran, usar este orden:
 | Contrato de nombres Identity Center GUG-208 | **Implemented** sólo en el worktree hasta commit, revisión y merge; **Locally validated** sólo con gates nombrados | La primera creación Plan fue rechazada antes de crear recursos. Los nombres corregidos, assignments, Change Set y bootstrap live siguen **Blocked / NO-GO**. |
 | Excepción founder de un solo operador GUG-209 | **Target OFFLINE-ONLY — LIVE EXECUTION BLOCKED** hasta que el commit revisado contenga contratos, políticas temporales, ledger/revocación, tests, ADR, runbook y delta de threat model; **Locally validated** sólo con gates nombrados | JSON/digests locales no son autorización ni CAS durable. La excepción declara explícitamente ausencia de aprobación independiente; no autoriza AWS, Change Set execution, Terraform apply, despliegue, producción ni cleanup live. Un PEP futuro requiere CAS durable, evidencia confiable y readback exacto; revocación estructural sigue **Blocked / NO-GO**. |
 | Binding IAM de Change Set GUG-210 | **Implemented** sólo cuando el commit revisado contiene stack ARN + `cloudformation:ChangeSetName`, tags exactos, tests, ADR-038 y threat-model delta; **Locally validated** sólo con gates nombrados | El ARN/UUID completo sigue siendo evidencia PEP, no selector IAM para Create/Delete/Execute. CI, AWS, bootstrap live y producción siguen **Blocked / NO-GO**. |
+| PEP durable founder GUG-211 | **Implemented** sólo cuando el commit revisado contiene seed Organizations/StackSets exacto, ledger DynamoDB protegido, intent/ledger tipados, CAS antes de efectos, políticas Plan/Apply disjuntas, readback S3/KMS completo, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | No es evidencia live ni autorización AWS. Seed, Identity Center, Plan, Apply, revocación, GUG-206, GUG-125, aislamiento de dos deployments y producción siguen **Blocked / NO-GO** hasta su evidencia separada. |
 
 ## Inventario del Brain
 
@@ -139,6 +141,7 @@ Cuando dos documentos difieran, usar este orden:
 | [25 — GUG-208 Identity Center Name Contract](25_GUG208_Identity_Center_Name_Contract.md) | Nombres portables exactos, validación del rol SSO, separación Plan/Apply y límites live |
 | [26 — GUG-209 Founder Bootstrap Exception](26_GUG209_Founder_Bootstrap_Exception.md) | Excepción single-operator offline-only, deny temporal AWS-side, PEP/CAS futuro, revocación y límites NO-GO |
 | [27 — GUG-210 Change Set IAM Binding](27_GUG210_ChangeSet_IAM_Binding.md) | Stack ARN, condición ChangeSetName, tags de creación, verificación PEP y límites live |
+| [28 — GUG-211 Durable Founder Bootstrap PEP](28_GUG211_Durable_Founder_Bootstrap_PEP.md) | Seed exacto, ledger CAS durable, Plan/Apply de un intento, incertidumbre terminal, readback de backend, revocación y límites live |
 
 ## Reglas de ingestión y mantenimiento
 

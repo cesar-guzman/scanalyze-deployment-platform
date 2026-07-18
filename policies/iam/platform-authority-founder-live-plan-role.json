@@ -1,0 +1,131 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyBeforeFounderPlanWindow",
+      "Effect": "Deny",
+      "NotAction": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": { "DateLessThan": { "aws:CurrentTime": "${plan_not_before}" } }
+    },
+    {
+      "Sid": "DenyAfterFounderPlanWindow",
+      "Effect": "Deny",
+      "NotAction": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": { "DateGreaterThanEquals": { "aws:CurrentTime": "${plan_expires_at}" } }
+    },
+    {
+      "Sid": "DenyNonFounderPlanSubject",
+      "Effect": "Deny",
+      "NotAction": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": { "StringNotEquals": { "identitystore:UserId": "${founder_operator_user_id}" } }
+    },
+    {
+      "Sid": "DenyOutsideFounderAuthorityRegion",
+      "Effect": "Deny",
+      "NotAction": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": { "StringNotEquals": { "aws:RequestedRegion": "${region}" } }
+    },
+    {
+      "Sid": "DenyUnsafeFounderPlanActions",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:UntagResource",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "s3:PutAccountPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFounderPlanLedgerTableMetadata",
+      "Effect": "Allow",
+      "Action": "dynamodb:DescribeTable",
+      "Resource": "arn:aws:dynamodb:${region}:${authority_account_id}:table/${pep_table_name}"
+    },
+    {
+      "Sid": "ConsumeExactFounderPlanLedgerItem",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:${region}:${authority_account_id}:table/${pep_table_name}",
+      "Condition": {
+        "ForAllValues:StringEquals": { "dynamodb:LeadingKeys": ["${exception_id}"] }
+      }
+    },
+    {
+      "Sid": "ReadExactFounderPlan",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateOnlyExactExceptionBoundChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:CreateChangeSet",
+      "Resource": "arn:aws:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["managed_by", "service", "work_package"]
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyExactExceptionBoundChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DeleteChangeSet",
+      "Resource": "arn:aws:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": { "cloudformation:ChangeSetName": "${change_set_name}" }
+      }
+    },
+    {
+      "Sid": "TagOnlyExactExceptionBoundChangeSetAtCreate",
+      "Effect": "Allow",
+      "Action": "cloudformation:TagResource",
+      "Resource": [
+        "arn:aws:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+        "arn:aws:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:CreateAction": "CreateChangeSet",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["managed_by", "service", "work_package"]
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPublicAccessBlockOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*"
+    }
+  ]
+}

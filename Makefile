@@ -22,7 +22,7 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206 bootstrap controls offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206/211 bootstrap and durable PEP controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -425,13 +425,14 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208/GUG-209, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208/GUG-209/GUG-211, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
-		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py
+		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py \
+		$(TESTS_DIR)/test_deployment/test_gug211_founder_bootstrap_pep.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \
 		--fixtures-dir $(FIXTURES_DIR) \
@@ -439,7 +440,9 @@ platform-authority-bootstrap-check:
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
 	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209 bootstrap check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
+	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -852,10 +855,12 @@ docs-check: phase0-docs-check
 			ADR/ADR-032-build-once-and-supply-chain-fail-closed.md \
 			ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md \
 			ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md \
+			ADR/ADR-039-durable-founder-bootstrap-pep.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
 			docs/deployment/platform-authority-account-bootstrap.md \
+			docs/deployment/durable-founder-bootstrap-pep.md \
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/deployment/github-oidc-terminal-identity.md \
@@ -864,8 +869,10 @@ docs-check: phase0-docs-check
 			docs/operations/build-once-promotion-and-rollback.md \
 			docs/operations/nonproduction-live-engine-reconciliation.md \
 			docs/operations/platform-authority-bootstrap-recovery.md \
+			docs/operations/durable-founder-bootstrap-pep.md \
 			docs/security/gug-125-threat-model-delta.md \
 			docs/security/gug-206-threat-model-delta.md \
+			docs/security/gug-211-durable-founder-bootstrap-pep-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -875,6 +882,7 @@ docs-check: phase0-docs-check
 			_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md \
 			_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md \
 			_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md \
+			_NotebookLM_Brain/28_GUG211_Durable_Founder_Bootstrap_PEP.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

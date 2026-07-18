@@ -1,0 +1,155 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadExactFounderOrganizationTopology",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:DescribeOrganization",
+        "organizations:ListAWSServiceAccessForOrganization",
+        "organizations:ListRoots"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFounderAuthorityParent",
+      "Effect": "Allow",
+      "Action": "organizations:ListParents",
+      "Resource": "arn:aws:organizations::839393571433:account/o-rpnh6nbjnt/042360977644"
+    },
+    {
+      "Sid": "EnableOnlyS3PolicyTypeOnExactRoot",
+      "Effect": "Allow",
+      "Action": "organizations:EnablePolicyType",
+      "Resource": "arn:aws:organizations::839393571433:root/o-rpnh6nbjnt/r-1mh4",
+      "Condition": {
+        "StringEquals": { "organizations:PolicyType": "S3_POLICY" }
+      }
+    },
+    {
+      "Sid": "ListOnlyS3OrganizationPolicies",
+      "Effect": "Allow",
+      "Action": "organizations:ListPolicies",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "organizations:PolicyType": "S3_POLICY" }
+      }
+    },
+    {
+      "Sid": "CreateOnlyTaggedS3OrganizationPolicy",
+      "Effect": "Allow",
+      "Action": "organizations:CreatePolicy",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "organizations:PolicyType": "S3_POLICY",
+          "aws:RequestTag/managed_by": "scanalyze-founder-pep",
+          "aws:RequestTag/work_package": "GUG-211"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["managed_by", "work_package"]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyTaggedFounderS3Policy",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:DescribePolicy",
+        "organizations:ListTagsForResource",
+        "organizations:ListTargetsForPolicy"
+      ],
+      "Resource": "arn:aws:organizations::839393571433:policy/o-rpnh6nbjnt/s3_policy/p-*",
+      "Condition": {
+        "StringEquals": {
+          "organizations:PolicyType": "S3_POLICY",
+          "aws:ResourceTag/managed_by": "scanalyze-founder-pep",
+          "aws:ResourceTag/work_package": "GUG-211"
+        }
+      }
+    },
+    {
+      "Sid": "AttachOnlyTaggedFounderS3PolicyToAuthorityAccount",
+      "Effect": "Allow",
+      "Action": "organizations:AttachPolicy",
+      "Resource": [
+        "arn:aws:organizations::839393571433:policy/o-rpnh6nbjnt/s3_policy/p-*",
+        "arn:aws:organizations::839393571433:account/o-rpnh6nbjnt/042360977644"
+      ],
+      "Condition": {
+        "StringEquals": { "organizations:PolicyType": "S3_POLICY" }
+      }
+    },
+    {
+      "Sid": "EnableAndReadStackSetsOrganizationsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:ActivateOrganizationsAccess",
+        "cloudformation:DescribeOrganizationsAccess"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateOnlyTaggedFounderPepStackSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:CreateStackSet",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "cloudformation-stacksets",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-211"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["managed_by", "service", "work_package"]
+        }
+      }
+    },
+    {
+      "Sid": "ManageOnlyExactFounderPepStackSet",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStackInstances",
+        "cloudformation:DescribeStackSet",
+        "cloudformation:DescribeStackSetOperation",
+        "cloudformation:ListStackInstances"
+      ],
+      "Resource": "arn:aws:cloudformation:us-east-1:839393571433:stackset/scanalyze-platform-authority-founder-pep:*"
+    },
+    {
+      "Sid": "DenyFounderSeedOutsideExactRegion",
+      "Effect": "Deny",
+      "Action": "cloudformation:*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": { "aws:RequestedRegion": "us-east-1" }
+      }
+    },
+    {
+      "Sid": "DenyUnreviewedOrganizationMutations",
+      "Effect": "Deny",
+      "NotAction": [
+        "organizations:AttachPolicy",
+        "organizations:CreatePolicy",
+        "organizations:DescribeOrganization",
+        "organizations:EnablePolicyType",
+        "organizations:ListAWSServiceAccessForOrganization",
+        "organizations:ListParents",
+        "organizations:ListPolicies",
+        "organizations:ListRoots",
+        "organizations:ListTagsForResource",
+        "organizations:ListTargetsForPolicy",
+        "organizations:DescribePolicy",
+        "cloudformation:ActivateOrganizationsAccess",
+        "cloudformation:CreateStackInstances",
+        "cloudformation:CreateStackSet",
+        "cloudformation:DescribeOrganizationsAccess",
+        "cloudformation:DescribeStackSet",
+        "cloudformation:DescribeStackSetOperation",
+        "cloudformation:ListStackInstances",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

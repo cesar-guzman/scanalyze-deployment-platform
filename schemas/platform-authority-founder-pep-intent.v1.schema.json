@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-pep-intent.v1.schema.json",
+  "title": "Durable Founder Bootstrap PEP Intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "exception_id", "approval_mode",
+    "exception_reason", "independent_approval_present", "approver_id",
+    "environment", "production", "authority_account_id", "region",
+    "operator_id", "operator_subject_digest", "plan_principal_digest",
+    "apply_principal_digest", "risk_acceptance_id", "risk_acceptance_digest",
+    "template_sha256", "change_set_name", "expected_resource_changes",
+    "normal_plan_revoked_at", "plan_not_before", "plan_expires_at",
+    "apply_not_before", "apply_expires_at", "deny_retain_until",
+    "plan_attempt_limit", "apply_attempt_limit", "created_at", "intent_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_pep_intent" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "approval_mode": { "const": "SINGLE_OPERATOR_FOUNDER_EXCEPTION" },
+    "exception_reason": { "const": "NO_SECOND_QUALIFIED_OPERATOR" },
+    "independent_approval_present": { "const": false },
+    "approver_id": { "type": "null" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "operator_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
+    "operator_subject_digest": { "$ref": "#/$defs/digest" },
+    "plan_principal_digest": { "$ref": "#/$defs/digest" },
+    "apply_principal_digest": { "$ref": "#/$defs/digest" },
+    "risk_acceptance_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
+    "risk_acceptance_digest": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "change_set_name": { "type": "string", "pattern": "^scanalyze-founder-bootstrap-[a-z][a-z0-9-]{7,63}$" },
+    "expected_resource_changes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "logical_resource_id", "resource_type", "replacement"],
+        "properties": {
+          "action": { "const": "Add" },
+          "logical_resource_id": { "enum": ["StateBucket", "StateBucketPolicy", "StateKmsAlias", "StateKmsKey"] },
+          "resource_type": { "enum": ["AWS::S3::Bucket", "AWS::S3::BucketPolicy", "AWS::KMS::Alias", "AWS::KMS::Key"] },
+          "replacement": { "const": "False" }
+        }
+      }
+    },
+    "normal_plan_revoked_at": { "type": "string", "format": "date-time" },
+    "plan_not_before": { "type": "string", "format": "date-time" },
+    "plan_expires_at": { "type": "string", "format": "date-time" },
+    "apply_not_before": { "type": "string", "format": "date-time" },
+    "apply_expires_at": { "type": "string", "format": "date-time" },
+    "deny_retain_until": { "type": "string", "format": "date-time" },
+    "plan_attempt_limit": { "const": 1 },
+    "apply_attempt_limit": { "const": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "intent_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

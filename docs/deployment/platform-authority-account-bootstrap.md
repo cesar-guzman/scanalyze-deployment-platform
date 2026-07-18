@@ -40,6 +40,10 @@ Both permission sets require:
 
 ### Bounded founder exception (GUG-209)
 
+The durable enforcement implementation for this exception is ADR-039 / GUG-211
+and its dedicated deployment and operations runbooks. The original GUG-209
+JSON/policy artifacts stay offline-only and are never upgraded in place.
+
 The normal two-person rule above is not changed by GUG-209. If a newly created
 dedicated authority account temporarily has one founder operator and no
 independent reviewer, the only permitted alternative is the separate

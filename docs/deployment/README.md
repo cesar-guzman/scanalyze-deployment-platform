@@ -35,6 +35,11 @@ evidence.
 - `platform-authority-account-bootstrap.md`: GUG-206 dedicated authority-account
   state bootstrap, exact Change Set approval, minimum Identity Center permission
   set, verification, and live activation boundary.
+- `durable-founder-bootstrap-pep.md`: GUG-211 durable compare-and-swap PEP,
+  exact management seed, one-shot founder Plan/Apply boundary, uncertainty and
+  revocation requirements.
+- `../operations/durable-founder-bootstrap-pep.md`: reviewed one-shot seed,
+  private evidence, execution, reconciliation and revocation runbook.
 - `../operations/platform-authority-bootstrap-recovery.md`: uncertain-result,
   rollback-failure, retained-resource, and decommission recovery boundary.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
@@ -170,3 +175,10 @@ For GUG-206, ingest only
 Do not ingest account/principal identifiers, permission-set assignments, Change
 Sets, plans, approvals, verification receipts, backend files, state, bucket/KMS
 identifiers, AWS responses, stack events, logs, screenshots, or live evidence.
+
+For GUG-211, ingest only
+`../../_NotebookLM_Brain/28_GUG211_Durable_Founder_Bootstrap_PEP.md`.
+Do not ingest management/authority account exports, organization topology,
+Identity Center subjects or assignments, temporary policies, intents, ledgers,
+Change Sets, plans, backend outputs, AWS responses, logs, screenshots, or live
+evidence.

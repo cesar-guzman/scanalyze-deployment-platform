@@ -59,6 +59,9 @@ jobs:
       - name: Exact saved-plan and resumable execution gate
         run: make nonprod-live-engine-check
 
+      - name: Platform-authority bootstrap and durable founder PEP gate
+        run: make platform-authority-bootstrap-check
+
       - name: Microservices structure check
         run: make microservices-check
 
