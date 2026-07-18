@@ -26,6 +26,10 @@ Plan or Apply effect. It does not normalize self-approval.
 - Management seed and identity lifecycle require the exact least-privilege
   `ScanalyzeFounderPepSeed` and `ScanalyzeFounderPepIdentityAdmin` permission
   sets; generic administrator sessions are rejected.
+- Tagged Organizations policy creation requires the dependent
+  `organizations:TagResource` action. It is co-located with `CreatePolicy` and
+  constrained by the exact S3 policy type, request tags and tag-key set; no
+  independent retag, untag or update permission is granted.
 - The exception closes only after authoritative zero-assignment readback and a
   durable `SUCCEEDED -> REVOKED` CAS; expired denials remain for twelve hours.
 

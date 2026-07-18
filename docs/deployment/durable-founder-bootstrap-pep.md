@@ -37,6 +37,10 @@ not part of this trust chain.
 - `policies/iam/platform-authority-founder-pep-management-seed-role.json`:
   one-purpose management session policy with no IAM, Identity Center,
   customer, Change Set execution, or production authority.
+  Its `organizations:TagResource` grant exists only because AWS requires that
+  dependent permission for tagged `CreatePolicy`; the same statement binds it
+  to the exact S3 policy type, request-tag values and tag-key set and grants no
+  standalone update or untag operation.
 - `policies/iam/platform-authority-founder-pep-identity-admin-role.json`:
   management-account template limited to the single Identity Center instance,
   tagged GUG-211 permission sets and authority account `042360977644`; it has

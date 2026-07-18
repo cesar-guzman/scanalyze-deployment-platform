@@ -38,7 +38,10 @@
     {
       "Sid": "CreateOnlyTaggedS3OrganizationPolicy",
       "Effect": "Allow",
-      "Action": "organizations:CreatePolicy",
+      "Action": [
+        "organizations:CreatePolicy",
+        "organizations:TagResource"
+      ],
       "Resource": "*",
       "Condition": {
         "StringEquals": {
@@ -140,6 +143,7 @@
         "organizations:ListTagsForResource",
         "organizations:ListTargetsForPolicy",
         "organizations:DescribePolicy",
+        "organizations:TagResource",
         "cloudformation:ActivateOrganizationsAccess",
         "cloudformation:CreateStackInstances",
         "cloudformation:CreateStackSet",
