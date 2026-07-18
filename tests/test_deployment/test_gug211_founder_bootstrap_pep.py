@@ -613,6 +613,38 @@ def test_management_seed_targets_only_the_authority_account_and_never_auto_deplo
     assert module.MANAGEMENT_SEED_ARN.fullmatch(admin_arn) is None
 
 
+def test_management_seed_binds_required_policy_tagging_to_exact_create_request() -> None:
+    policy = json.loads(SEED_POLICY.read_text(encoding="utf-8"))
+    create_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "CreateOnlyTaggedS3OrganizationPolicy"
+    )
+    assert create_statement["Action"] == [
+        "organizations:CreatePolicy",
+        "organizations:TagResource",
+    ]
+    assert create_statement["Resource"] == "*"
+    assert create_statement["Condition"] == {
+        "StringEquals": {
+            "organizations:PolicyType": "S3_POLICY",
+            "aws:RequestTag/managed_by": "scanalyze-founder-pep",
+            "aws:RequestTag/work_package": "GUG-211",
+        },
+        "ForAllValues:StringEquals": {
+            "aws:TagKeys": ["managed_by", "work_package"]
+        },
+    }
+    deny_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "DenyUnreviewedOrganizationMutations"
+    )
+    assert "organizations:TagResource" in deny_statement["NotAction"]
+    assert "organizations:UntagResource" not in _allowed_actions(policy)
+    assert "organizations:UpdatePolicy" not in _allowed_actions(policy)
+
+
 def test_management_seed_does_not_treat_access_denied_as_stackset_absence() -> None:
     spec = importlib.util.spec_from_file_location(
         "gug211_founder_bootstrap_pep_seed",

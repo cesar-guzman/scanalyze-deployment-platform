@@ -44,6 +44,14 @@ expected changes are limited to:
 4. create one non-automatic StackSet and one account/Region intersection
    instance containing the protected ledger table.
 
+AWS requires both `organizations:CreatePolicy` and
+`organizations:TagResource` for a tagged policy creation request. The Seed
+permission set must contain the reviewed create-bound statement for both
+actions. If policy-type enablement succeeds but policy creation is denied,
+stop, preserve the enabled type, reconcile read-only and repair the reviewed
+permission set through CI and merge. Do not retry with a generic administrator
+or create an untagged policy.
+
 Verify from the authority account that the effective S3 BPA is all true and
 the table is ACTIVE, exact-ARN, single-key, deletion-protected, encrypted and
 PITR-enabled. Seed success does not permit founder Plan.

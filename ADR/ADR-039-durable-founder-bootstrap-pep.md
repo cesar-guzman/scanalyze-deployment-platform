@@ -40,6 +40,11 @@ assign users, create the authority backend Change Set, or execute it.
 The reviewed management-session policy grants only the exact Organizations
 S3-policy and service-managed StackSet APIs; it contains no IAM, Identity
 Center, customer-account, backend Change Set, or production permission.
+Because AWS Organizations requires `organizations:TagResource` when
+`CreatePolicy` carries tags, that action is authorized only in the same
+create-bound statement and under the exact `S3_POLICY`, request-tag values and
+tag-key set. The seed cannot independently retag, untag or update an existing
+policy.
 The live seed CLI accepts only the management-account SSO permission set
 `ScanalyzeFounderPepSeed`; a generic administrator session is rejected.
 
