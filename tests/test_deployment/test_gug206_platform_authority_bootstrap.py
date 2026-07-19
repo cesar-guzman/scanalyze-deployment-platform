@@ -660,7 +660,20 @@ def test_recovery_plan_accepts_only_an_empty_review_stack(monkeypatch: pytest.Mo
         ) -> dict | None:
             del args, missing_markers
             if (service, operation) == ("cloudformation", "describe-stacks"):
-                return {"Stacks": [{"StackStatus": "REVIEW_IN_PROGRESS"}]}
+                return {
+                    "Stacks": [
+                        {
+                            "StackName": "scanalyze-platform-authority-state-backend",
+                            "StackId": (
+                                "arn:aws:cloudformation:us-east-1:111122223333:stack/"
+                                "scanalyze-platform-authority-state-backend/"
+                                "00000000-0000-4000-8000-000000000000"
+                            ),
+                            "StackStatus": "REVIEW_IN_PROGRESS",
+                            "NotificationARNs": [],
+                        }
+                    ]
+                }
             if (service, operation) == ("s3control", "get-public-access-block"):
                 return None
             raise AssertionError(f"unexpected AWS call: {service} {operation}")
@@ -700,7 +713,7 @@ def test_recovery_plan_accepts_only_an_empty_review_stack(monkeypatch: pytest.Mo
             module.PLAN_PERMISSION_SET,
         )
 
-    with pytest.raises(BootstrapAuthorizationError, match="review stack is not empty"):
+    with pytest.raises(BootstrapAuthorizationError, match="resource inventory"):
         module._preflight(
             FakeClient([{"LogicalResourceId": "ForeignResource"}]),
             _binding(),

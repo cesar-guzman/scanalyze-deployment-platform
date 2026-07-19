@@ -15,6 +15,10 @@
 | State | Allowed action | Forbidden shortcut |
 |---|---|---|
 | Preflight failed | Correct identity/binding/tooling and repeat read-only preflight | Bypass account or region check |
+| Existing review shell | Run canonical `preflight-recovery` under exact Plan identity; require `REVIEW_IN_PROGRESS`, canonical StackId, zero resources, zero active Change Sets on all pages, no service role/notifications/nesting and all-true account PAB | Treat zero resources or a general ReadOnly session as sufficient authority |
+| Shell carries `RoleARN`, notification ARNs or nested-stack metadata | Quarantine and reconcile read-only; obtain a separate reviewed disposition | Adopt the shell, trust the role name, or execute a Change Set through inherited authority |
+| Account Public Access Block missing/partial | Stop and obtain separate reviewed remediation authorization | Repair PAB from the read-only recovery command |
+| Active or ambiguous Change Set inventory | Preserve the shell and reconcile read-only | Delete the stack/Change Sets automatically or ignore pagination |
 | Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
 | Change Set IAM binding failure | Stop; verify the canonical stack ARN, exact `cloudformation:ChangeSetName`, request tags, and Plan/Apply separation offline | Add a Change Set ARN resource, broaden the name, or bypass the renderer |
 | Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
@@ -30,6 +34,30 @@
 | Verification complete | Preserve receipt privately and proceed to a separate Terraform plan | Claim Scanalyze live validation |
 
 ## Read-only reconciliation
+
+For an existing zero-resource review shell without an original plan receipt,
+run the canonical recovery preflight first:
+
+```bash
+python3 scripts/deployment/platform-authority-bootstrap.py preflight-recovery \
+  --authority-account-id '<authority-account-id>' \
+  --region '<authority-region>' \
+  --destination-account-id '<customer-a-account-id>' \
+  --destination-account-id '<customer-b-account-id>'
+```
+
+Only the exact normal Plan SSO role is authoritative. The command consumes all
+`ListChangeSets` pages and reports sanitized counts/state only. A general
+ReadOnly profile may independently corroborate AWS inventory but cannot replace
+the Plan role or be attached to a Scanalyze permission set. Because an empty
+shell exposes no trusted physical IDs, do not derive S3, KMS or DynamoDB names
+from templates or conventions.
+
+The stack metadata must not contain `RoleARN`, non-empty `NotificationARNs`,
+`ParentId` or `RootId`. CloudFormation retains and reuses a stack service role;
+therefore even an otherwise empty shell with that metadata is foreign
+authority, not a recoverable shell. Plan and Apply repeat this check immediately
+before Create/Execute to minimize stale preflight evidence.
 
 After an uncertain client result, use the original plan and new exclusive
 output paths:
@@ -71,10 +99,13 @@ fails closed and this command never calls a bucket/KMS delete operation.
 
 After a successful cancellation, `plan` accepts the same stack name only when
 the live status is still `REVIEW_IN_PROGRESS` and a fresh
-`ListStackResources` result is exactly empty. It then creates a new `CREATE`
-Change Set from the current reviewed template. Any other stack status or any
-resource forces escalation; the workflow never deletes the review stack as a
-recovery shortcut.
+`ListStackResources` result is exactly empty and every `ListChangeSets` page is
+empty, and the stack carries no service role, notifications or nesting. It
+repeats the stack-authority and Change Set inventories immediately before
+creating a new
+`CREATE` Change Set from the current reviewed template. Any other stack status,
+resource or active/ambiguous Change Set forces escalation; the workflow never
+deletes the review stack as a recovery shortcut.
 
 Every replacement plan invalidates the prior rendered Apply policy. Remove the
 old Apply assignment and render a new exact policy from the replacement plan;

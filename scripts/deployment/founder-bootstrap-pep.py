@@ -58,6 +58,7 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
     build_bootstrap_plan,
     build_bootstrap_verification,
     canonical_digest,
+    require_exact_empty_review_stack,
 )
 
 
@@ -78,6 +79,7 @@ SSO_ARN = re.compile(
     r"(?P<role>AWSReservedSSO_[A-Za-z0-9+=,.@_-]+_[0-9A-Fa-f]{16})/"
     r"[A-Za-z0-9+=,.@_-]{2,64}$"
 )
+MAX_CHANGE_SET_PAGES = 100
 
 
 class AwsEffectError(RuntimeError):
@@ -586,6 +588,52 @@ def _stack_and_resources(client: AwsCli) -> tuple[dict[str, Any], list[dict[str,
     if not isinstance(resources, list) or any(not isinstance(item, dict) for item in resources):
         raise FounderPepAuthorizationError("bootstrap resource response is ambiguous")
     return stacks[0], resources
+
+
+def _require_exact_founder_review_stack(
+    stack: Mapping[str, Any],
+    resources: object,
+) -> None:
+    require_exact_empty_review_stack(
+        stack=stack,
+        resources=resources,
+        authority_account_id=AUTHORITY_ACCOUNT_ID,
+        region=AUTHORITY_REGION,
+    )
+
+
+def _require_no_active_change_sets(client: AwsCli) -> None:
+    token: str | None = None
+    seen_tokens: set[str] = set()
+    for _ in range(MAX_CHANGE_SET_PAGES):
+        arguments = [
+            "--stack-name",
+            "scanalyze-platform-authority-state-backend",
+            "--max-items",
+            "100",
+        ]
+        if token is not None:
+            arguments.extend(("--starting-token", token))
+        response = client.run("cloudformation", "list-change-sets", *arguments)
+        summaries = response.get("Summaries")
+        if not isinstance(summaries, list):
+            raise FounderPepAuthorizationError("Change Set inventory is ambiguous")
+        if summaries:
+            raise FounderPepAuthorizationError(
+                "active Change Set inventory is not exactly empty"
+            )
+        next_token = response.get("NextToken")
+        if next_token is None:
+            return
+        if (
+            not isinstance(next_token, str)
+            or not next_token
+            or next_token in seen_tokens
+        ):
+            raise FounderPepAuthorizationError("Change Set pagination is ambiguous")
+        seen_tokens.add(next_token)
+        token = next_token
+    raise FounderPepAuthorizationError("Change Set pagination exceeded the safety limit")
 
 
 def _exact_tags(value: object, expected: Mapping[str, str], label: str) -> None:
@@ -1447,8 +1495,8 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     caller_arn = _identity(client, FOUNDER_PLAN_PERMISSION_SET, intent)
     _pab(client)
     stack, resources = _stack_and_resources(client)
-    if stack.get("StackStatus") != "REVIEW_IN_PROGRESS" or resources:
-        raise FounderPepAuthorizationError("bootstrap stack is not the exact empty review stack")
+    _require_exact_founder_review_stack(stack, resources)
+    _require_no_active_change_sets(client)
     if intent["template_sha256"] != "sha256:" + _sha256(TEMPLATE):
         raise FounderPepAuthorizationError("reviewed founder template digest changed")
     binding = _binding(args)
@@ -1457,8 +1505,12 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     outputs: dict[str, dict[str, Any]] = {}
 
     def effect() -> Mapping[str, str]:
+        current_stack, current_resources = _stack_and_resources(client)
+        _require_exact_founder_review_stack(current_stack, current_resources)
+        _require_no_active_change_sets(client)
+        create_change_set_operation = ("cloudformation", "create-change-set")
         response = client.run(
-            "cloudformation", "create-change-set",
+            *create_change_set_operation,
             "--stack-name", binding.stack_name,
             "--change-set-name", intent["change_set_name"],
             "--change-set-type", "CREATE",
@@ -1550,8 +1602,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     caller_arn = _identity(client, FOUNDER_APPLY_PERMISSION_SET, intent)
     _pab(client)
     stack, resources = _stack_and_resources(client)
-    if stack.get("StackStatus") != "REVIEW_IN_PROGRESS" or resources:
-        raise FounderPepAuthorizationError("bootstrap stack is not the exact empty review stack")
+    _require_exact_founder_review_stack(stack, resources)
     _describe_change_set(client, change_set_id=change_set_id, intent=intent)
     store = _store()
     store.verify_table_controls()
@@ -1567,6 +1618,8 @@ def _cmd_apply(args: argparse.Namespace) -> None:
 
     def effect() -> None:
         _describe_change_set(client, change_set_id=change_set_id, intent=intent)
+        current_stack, current_resources = _stack_and_resources(client)
+        _require_exact_founder_review_stack(current_stack, current_resources)
         client.run(
             "cloudformation", "execute-change-set", "--change-set-name", change_set_id,
             "--stack-name", "scanalyze-platform-authority-state-backend", "--no-disable-rollback",

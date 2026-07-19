@@ -15,11 +15,15 @@ normal self-approval path.
 | Seed requires resource tags before it is allowed to read those tags | `ListTagsForResource` is a separate read-only bootstrap statement bound to the exact organization and S3-policy ARN family; code validates exact name, content and canonical tags before target read or attachment | Deny after creation, preserve zero targets, reconcile read-only and require reviewed hotfix before continuation |
 | Seed spreads to customers or Audit | Auto deployment disabled; exact account filter; foreign instance/target detection | Seed stops and reports P0 |
 | Public state bucket precondition is changed by founder | Organization S3 policy enforces all BPA settings; founder roles deny direct PAB mutation | Plan/Apply denied |
+| Empty resource shell hides an active Change Set | Paginated inventory before Plan CAS and again immediately before CreateChangeSet | Deny before CAS or close consumed attempt failed/uncertain; no retry |
+| Empty shell retains a CloudFormation service role or nested authority | Shared exact-shell contract rejects `RoleARN`, non-empty notifications and `ParentId`/`RootId`; Plan/Apply recheck immediately before Create/Execute | Deny as inherited authority and quarantine shell |
+| Pagination or concurrent writer creates an inventory gap | Reject malformed/repeated tokens; exact-stack IAM; second inventory and post-create readback | P0 stop and read-only reconciliation |
 | Replayed or concurrent Plan | Create-only item plus CAS on version/digest/state/counters | One succeeds; all others fail |
 | Replayed or concurrent Apply | CAS consumes zero Apply attempts before ExecuteChangeSet | No second effect |
 | Response loss causes retry | Lost terminal CAS response is reread by exact digest; an uncommitted claim is closed `UNCERTAIN` | Read-only reconciliation only |
 | Operator substitutes Change Set | Exact name/ARN, stack, tags, status, original template SHA-256 and four resources re-read | Deny before effect |
 | Operator edits table/account/Region | Constants, exact ARN, leading key and table-control readback | Deny |
+| Runtime assumes ledger PITR or borrows broad ReadOnly | Founder Plan/Apply use exact-table `DescribeTable` plus `DescribeContinuousBackups`; general ReadOnly remains independent evidence only | Deny operational path |
 | Plan can execute | Disjoint Plan policy plus explicit unsafe-action deny | AWS IAM deny |
 | Apply can create/cancel or delete | Disjoint Apply policy and unsafe-action deny | AWS IAM deny |
 | Temporary role administers itself | No IAM, SSO Admin or Organizations permissions | AWS IAM deny |
@@ -54,6 +58,17 @@ reviewed workflow against concurrency, replay and ambiguous responses; it does
 not claim malicious-management-administrator resistance. A trusted-compute PEP
 plus independent administration is required before treating this control as a
 production approval boundary.
+
+CloudFormation does not atomically combine zero active Change Sets and creation.
+The immediately repeated inventory reduces the TOCTOU window but does not
+eliminate a separately authorized foreign writer. `ListChangeSets` proves the
+active inventory at read time, not complete history; audit evidence remains a
+separate governed source.
+
+The exact-shell metadata read and ExecuteChangeSet are also not one atomic AWS
+operation. Rejecting service-role and nested-stack metadata closes the known
+confused-deputy path; a foreign actor changing metadata after the final read is
+a governance failure that requires subsequent read-only reconciliation.
 
 ## Evidence classes
 

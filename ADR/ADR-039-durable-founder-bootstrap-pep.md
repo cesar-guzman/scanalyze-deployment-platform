@@ -5,6 +5,15 @@
 - **Work package:** GUG-211
 - **Supersedes:** the future-PEP placeholder in ADR-037; it does not supersede the normal GUG-206 two-person flow
 
+> **GUG-214 amendment:** ADR-040 requires paginated zero-active-Change-Set
+> inventory before the founder Plan CAS and again immediately before
+> `CreateChangeSet`. Founder Plan and Apply also receive both exact-table
+> `DescribeTable` and `DescribeContinuousBackups` reads so the runtime can prove
+> deletion protection and PITR without a broad ReadOnly attachment. Both paths
+> reject an empty shell that carries a CloudFormation service role,
+> notifications or nested-stack metadata and repeat that shared contract
+> immediately before Create/Execute.
+
 ## Context
 
 The dedicated platform-authority account initially has one qualified operator.
@@ -102,6 +111,18 @@ read returns the exact intended terminal digest; otherwise the claimed record
 is closed as `UNCERTAIN` or explicitly requires reconciliation. Only read-only
 reconciliation may follow.
 
+Founder Plan inventories every active Change Set page before that Plan CAS and
+repeats the inventory immediately before `CreateChangeSet`. A non-empty or
+ambiguous inventory before CAS denies without consuming an attempt; after CAS
+it consumes the one attempt and closes fail-closed without retry. This reduces
+but cannot eliminate the CloudFormation time-of-check/time-of-use interval.
+
+The same boundary treats `RoleARN` as inherited stack authority, not harmless
+metadata: CloudFormation can reuse the service role without a later
+`iam:PassRole`. Founder Plan and Apply also reject non-empty notification ARNs
+and any parent/root nesting metadata, then repeat that validation immediately
+before the protected effect.
+
 ### 4. Temporary roles cannot administer their own authority
 
 The founder Plan and Apply policies bind AWS time, Identity Center subject,
@@ -115,6 +136,12 @@ reviewed Change Set. It cannot create/cancel Change Sets, mutate account-level
 S3 Block Public Access, delete the stack, retarget KMS aliases, scan/delete the
 ledger, or create customer resources. Both policies deny all calls outside the
 AWS-side time window or authenticated subject binding.
+
+Both roles may read `DescribeTable` and `DescribeContinuousBackups` only for the
+exact ledger table. They receive no wildcard table inventory, backup mutation,
+restore or delete authority. A separate general ReadOnly session may
+corroborate an investigation, but never establishes founder Plan/Apply
+authority and is never attached to these permission sets.
 
 A separately authenticated management-account Identity Center administrator
 may manage only tagged GUG-211 permission sets in the exact Identity Center

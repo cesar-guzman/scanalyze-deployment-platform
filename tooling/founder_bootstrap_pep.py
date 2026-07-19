@@ -1041,6 +1041,68 @@ def render_live_founder_policy(
         )
         if isinstance(action, str)
     }
+    statements = policy.get("Statement")
+    if not isinstance(statements, list):
+        raise FounderPepAuthorizationError("live founder policy statements are invalid")
+
+    def actions(statement: Mapping[str, Any]) -> set[str]:
+        raw = statement.get("Action")
+        if isinstance(raw, str):
+            return {raw}
+        if isinstance(raw, list) and all(isinstance(action, str) for action in raw):
+            return set(raw)
+        return set()
+
+    metadata_actions = {
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+    }
+    metadata_statements = [
+        statement
+        for statement in statements
+        if isinstance(statement, Mapping)
+        and statement.get("Effect") == "Allow"
+        and actions(statement).intersection(metadata_actions)
+    ]
+    exact_table_arn = (
+        f"arn:aws:dynamodb:{AUTHORITY_REGION}:{AUTHORITY_ACCOUNT_ID}:"
+        f"table/{PEP_TABLE_NAME}"
+    )
+    if (
+        len(metadata_statements) != 1
+        or actions(metadata_statements[0]) != metadata_actions
+        or metadata_statements[0].get("Resource") != exact_table_arn
+        or "Condition" in metadata_statements[0]
+    ):
+        raise FounderPepAuthorizationError(
+            "live founder policy does not preserve exact table metadata readback"
+        )
+
+    list_change_sets = [
+        statement
+        for statement in statements
+        if isinstance(statement, Mapping)
+        and statement.get("Effect") == "Allow"
+        and "cloudformation:ListChangeSets" in actions(statement)
+    ]
+    exact_stack_arn = (
+        f"arn:aws:cloudformation:{AUTHORITY_REGION}:{AUTHORITY_ACCOUNT_ID}:"
+        "stack/scanalyze-platform-authority-state-backend/*"
+    )
+    if mode == "plan":
+        if (
+            len(list_change_sets) != 1
+            or actions(list_change_sets[0]) != {"cloudformation:ListChangeSets"}
+            or list_change_sets[0].get("Resource") != exact_stack_arn
+            or "Condition" in list_change_sets[0]
+        ):
+            raise FounderPepAuthorizationError(
+                "founder Plan Change Set inventory is not stack-bound"
+            )
+    elif list_change_sets:
+        raise FounderPepAuthorizationError(
+            "founder Apply must not add Change Set inventory scope"
+        )
     if "DenyOfflineOnly" in serialized or "s3:PutAccountPublicAccessBlock" in allowed_actions:
         raise FounderPepAuthorizationError("live founder policy contains a forbidden bypass")
     return policy

@@ -168,6 +168,38 @@ The command fails if STS, region, destination separation, stack absence,
 template validation, or the current S3 account setting is ambiguous. It prints
 no ARN or AWS response and performs no writes.
 
+### Recovery of an existing review shell (GUG-214)
+
+If the canonical stack already exists, do not infer that an empty resource list
+means the account is safe to re-plan. Use the exact normal Plan profile and the
+dedicated recovery command:
+
+```bash
+python3 scripts/deployment/platform-authority-bootstrap.py preflight-recovery \
+  --authority-account-id '<authority-account-id>' \
+  --region "$AWS_REGION" \
+  --destination-account-id '<customer-a-account-id>' \
+  --destination-account-id '<customer-b-account-id>'
+```
+
+It succeeds only for the exact `REVIEW_IN_PROGRESS` stack with a canonical
+StackId, zero resources, zero active Change Sets across every page, no service
+role, notifications or nested-stack metadata, and present all-true account S3
+Block Public Access. Missing PAB, inherited stack authority, denied inventory,
+malformed pagination or any active Change Set blocks recovery. The Plan policy grants
+`cloudformation:ListChangeSets` separately on the exact stack ARN; do not add a
+general ReadOnly managed policy to the permission set.
+
+The empty shell has no authoritative physical resource locators. Do not inspect
+KMS, S3 or DynamoDB by deriving expected names. A separately assigned ReadOnly
+profile may provide independently classified corroborating evidence, but it is
+not Plan authority and cannot make this command pass.
+
+CloudFormation can reuse a stack service role without a later caller presenting
+`iam:PassRole`. Normal and founder Plan/Apply therefore share one fail-closed
+shell contract and repeat it immediately before their protected Create/Execute
+effect.
+
 ## Plan: metadata write only
 
 Choose a private directory outside every repository with permissions 0700. The
@@ -193,6 +225,11 @@ This creates one CloudFormation Change Set and an empty
 execute the Change Set. Review the sanitized resource-type/action inventory,
 template digest, expiry, account public-access transition, and plan digest. The
 raw receipt remains controlled operational evidence.
+
+For a retained shell, `plan` repeats the complete active Change Set inventory
+immediately before creation. `ListChangeSets` is an active inventory, not a
+historical audit. Any returned or ambiguous summary stops; no stack or Change
+Set is auto-deleted.
 
 At this point, the identity administrator renders the Apply inline policy with
 the exact Change Set binding from the controlled plan:

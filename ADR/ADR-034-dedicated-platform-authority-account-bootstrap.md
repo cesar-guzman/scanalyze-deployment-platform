@@ -25,6 +25,13 @@
 > Change Set ARN. ADR-038 replaces the unsupported resource shape with the
 > exact canonical stack ARN plus an exact `cloudformation:ChangeSetName`
 > condition. The full Change Set ARN/UUID remains mandatory PEP evidence.
+>
+> **GUG-214 amendment:** ADR-040 adds the canonical `preflight-recovery`
+> command for a retained review shell. Normal Plan receives a separate
+> exact-stack `ListChangeSets` grant and may adopt the shell only after proving
+> `REVIEW_IN_PROGRESS`, zero resources, zero active Change Sets across every
+> page, and present all-true account S3 Block Public Access. General ReadOnly
+> evidence never substitutes for the exact Plan identity.
 
 ## Context
 
@@ -97,6 +104,12 @@ plus its empty `REVIEW_IN_PROGRESS` stack record, and records the exact resource
 changes and template digest. It cannot execute the change set or create template
 resources. The plan expires within one hour and is written mode 0600 outside
 the repository.
+
+When the exact shell already exists, `preflight-recovery` is required before a
+new Plan attempt. The Plan path repeats the complete active Change Set inventory
+immediately before create. An empty shell provides no trusted KMS, S3 or
+DynamoDB physical locator, so resource names are never inferred from the
+template, request or naming convention.
 
 `approve` requires a different live AWS principal in the same authority account
 and binds both principal digests to the exact plan. `apply` revalidates account,
