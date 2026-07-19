@@ -45,6 +45,12 @@ Because AWS Organizations requires `organizations:TagResource` when
 create-bound statement and under the exact `S3_POLICY`, request-tag values and
 tag-key set. The seed cannot independently retag, untag or update an existing
 policy.
+The initial tag read is a distinct bootstrap operation. AWS cannot evaluate
+`aws:ResourceTag/*` conditions while `ListTagsForResource` is retrieving those
+same tags, so that read is limited instead by the exact management account,
+organization, `s3_policy` ARN family, and read-only action. Only after the
+returned tags match the canonical pair may tag-gated `DescribePolicy`,
+`ListTargetsForPolicy`, or attachment continue.
 The live seed CLI accepts only the management-account SSO permission set
 `ScanalyzeFounderPepSeed`; a generic administrator session is rejected.
 

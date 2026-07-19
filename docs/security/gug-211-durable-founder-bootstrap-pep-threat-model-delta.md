@@ -12,6 +12,7 @@ normal self-approval path.
 | Local file or operator assertion authorizes Apply | DynamoDB is the sole live ledger; local receipts are digest inputs only | Deny before effect |
 | Bootstrap creates its own trust store | Management-seeded service-managed StackSet; exact account/Region intersection | Seed mismatch/absence blocks temporary roles |
 | Tagged S3 policy creation omits AWS's dependent tag permission | `CreatePolicy` and `TagResource` share one statement bound to exact policy type, request tags and tag keys; no update/untag authority | Access denied before policy creation; reconcile and hotfix, never use admin fallback |
+| Seed requires resource tags before it is allowed to read those tags | `ListTagsForResource` is a separate read-only bootstrap statement bound to the exact organization and S3-policy ARN family; code validates exact name, content and canonical tags before target read or attachment | Deny after creation, preserve zero targets, reconcile read-only and require reviewed hotfix before continuation |
 | Seed spreads to customers or Audit | Auto deployment disabled; exact account filter; foreign instance/target detection | Seed stops and reports P0 |
 | Public state bucket precondition is changed by founder | Organization S3 policy enforces all BPA settings; founder roles deny direct PAB mutation | Plan/Apply denied |
 | Replayed or concurrent Plan | Create-only item plus CAS on version/digest/state/counters | One succeeds; all others fail |

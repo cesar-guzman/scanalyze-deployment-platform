@@ -52,6 +52,14 @@ stop, preserve the enabled type, reconcile read-only and repair the reviewed
 permission set through CI and merge. Do not retry with a generic administrator
 or create an untagged policy.
 
+`ListTagsForResource` must not share `aws:ResourceTag/*` conditions with the
+post-trust policy reads: those tags do not establish IAM authority until the
+read succeeds. Its reviewed grant is read-only and limited to the exact
+management organization and S3-policy ARN family. If the policy was created
+but tag readback is denied, do not retry the seed. Verify zero targets,
+disabled/unchanged StackSets state, and absence of the ledger; repair the
+permission set through a reviewed PR and merged-main verification first.
+
 Verify from the authority account that the effective S3 BPA is all true and
 the table is ACTIVE, exact-ARN, single-key, deletion-protected, encrypted and
 PITR-enabled. Seed success does not permit founder Plan.

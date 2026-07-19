@@ -30,6 +30,10 @@ Plan or Apply effect. It does not normalize self-approval.
   `organizations:TagResource` action. It is co-located with `CreatePolicy` and
   constrained by the exact S3 policy type, request tags and tag-key set; no
   independent retag, untag or update permission is granted.
+- The first Organizations tag read is a separate read-only bootstrap boundary
+  on the exact management organization and `s3_policy` ARN family. The tags
+  being retrieved cannot establish their own IAM precondition; code validates
+  exact name, content and canonical tags before any target read or attachment.
 - The exception closes only after authoritative zero-assignment readback and a
   durable `SUCCEEDED -> REVOKED` CAS; expired denials remain for twelve hours.
 
