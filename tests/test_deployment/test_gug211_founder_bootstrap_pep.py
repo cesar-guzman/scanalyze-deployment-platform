@@ -645,6 +645,41 @@ def test_management_seed_binds_required_policy_tagging_to_exact_create_request()
     assert "organizations:UpdatePolicy" not in _allowed_actions(policy)
 
 
+def test_management_seed_reads_tags_before_resource_tags_can_establish_trust() -> None:
+    policy = json.loads(SEED_POLICY.read_text(encoding="utf-8"))
+    read_tags_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "ReadFounderS3PolicyTagsBeforeTrust"
+    )
+    assert read_tags_statement == {
+        "Sid": "ReadFounderS3PolicyTagsBeforeTrust",
+        "Effect": "Allow",
+        "Action": "organizations:ListTagsForResource",
+        "Resource": (
+            "arn:aws:organizations::839393571433:policy/"
+            "o-rpnh6nbjnt/s3_policy/p-*"
+        ),
+    }
+
+    trusted_read_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "ReadOnlyTaggedFounderS3Policy"
+    )
+    assert trusted_read_statement["Action"] == [
+        "organizations:DescribePolicy",
+        "organizations:ListTargetsForPolicy",
+    ]
+    assert trusted_read_statement["Condition"] == {
+        "StringEquals": {
+            "organizations:PolicyType": "S3_POLICY",
+            "aws:ResourceTag/managed_by": "scanalyze-founder-pep",
+            "aws:ResourceTag/work_package": "GUG-211",
+        }
+    }
+
+
 def test_management_seed_does_not_treat_access_denied_as_stackset_absence() -> None:
     spec = importlib.util.spec_from_file_location(
         "gug211_founder_bootstrap_pep_seed",

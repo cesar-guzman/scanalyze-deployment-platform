@@ -41,6 +41,11 @@ not part of this trust chain.
   dependent permission for tagged `CreatePolicy`; the same statement binds it
   to the exact S3 policy type, request-tag values and tag-key set and grants no
   standalone update or untag operation.
+  `ListTagsForResource` is intentionally separated into a read-only bootstrap
+  statement bound to the exact management organization and `s3_policy` ARN
+  family. It cannot use the tags it is retrieving as an IAM precondition;
+  the seed validates the exact name, content and canonical tag pair before any
+  tag-gated target read or attachment.
 - `policies/iam/platform-authority-founder-pep-identity-admin-role.json`:
   management-account template limited to the single Identity Center instance,
   tagged GUG-211 permission sets and authority account `042360977644`; it has
