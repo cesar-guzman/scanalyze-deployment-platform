@@ -15,6 +15,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "ListOnlyExactBootstrapChangeSets",
+      "Effect": "Allow",
+      "Action": "cloudformation:ListChangeSets",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*"
+    },
+    {
       "Sid": "CreateOnlyExactBootstrapChangeSet",
       "Effect": "Allow",
       "Action": "cloudformation:CreateChangeSet",

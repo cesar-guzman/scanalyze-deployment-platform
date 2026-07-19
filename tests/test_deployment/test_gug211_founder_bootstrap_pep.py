@@ -963,7 +963,9 @@ def test_policy_templates_remain_reviewable_and_disjoint() -> None:
         metadata = next(
             statement
             for statement in policy["Statement"]
-            if statement.get("Action") == "dynamodb:DescribeTable"
+            if "dynamodb:DescribeTable" in _allowed_actions(
+                {"Statement": [statement]}
+            )
         )
         item_access = next(
             statement
@@ -971,6 +973,10 @@ def test_policy_templates_remain_reviewable_and_disjoint() -> None:
             if statement.get("Action") == ["dynamodb:GetItem", "dynamodb:PutItem"]
         )
         assert "Condition" not in metadata
+        assert _allowed_actions({"Statement": [metadata]}) == {
+            "dynamodb:DescribeContinuousBackups",
+            "dynamodb:DescribeTable",
+        }
         assert item_access["Condition"] == {
             "ForAllValues:StringEquals": {
                 "dynamodb:LeadingKeys": ["${exception_id}"]

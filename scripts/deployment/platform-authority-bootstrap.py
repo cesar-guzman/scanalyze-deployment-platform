@@ -35,6 +35,7 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
     build_bootstrap_plan,
     build_bootstrap_verification,
     canonical_digest,
+    require_exact_empty_review_stack,
     render_backend_config,
     render_bootstrap_iam_policy,
     validate_bootstrap_change_set_name,
@@ -61,6 +62,7 @@ SSO_ASSUMED_ROLE_ARN = re.compile(
 AWS_PERMISSION_SET_NAME = re.compile(r"^[A-Za-z0-9_+=,.@-]{1,32}$")
 PLAN_PERMISSION_SET = "ScanalyzeAuthorityBootstrapPlan"
 APPLY_PERMISSION_SET = "ScanalyzeAuthorityBootstrapApply"
+MAX_CHANGE_SET_PAGES = 100
 REQUIRED_BUCKET_POLICY_SIDS = frozenset(
     {
         "DenyInsecureTransport",
@@ -322,38 +324,100 @@ def _stack(client: AwsCli, stack_name: str) -> dict[str, Any] | None:
     return stacks[0]
 
 
+def _require_exact_empty_review_stack(
+    client: AwsCli,
+    binding: BootstrapBinding,
+    stack: Mapping[str, Any],
+) -> None:
+    resources = client.run(
+        "cloudformation",
+        "list-stack-resources",
+        "--stack-name",
+        binding.stack_name,
+    ).get("StackResourceSummaries")
+    require_exact_empty_review_stack(
+        stack=stack,
+        resources=resources,
+        authority_account_id=binding.authority_account_id,
+        region=binding.region,
+        stack_name=binding.stack_name,
+    )
+
+
+def _require_no_active_change_sets(client: AwsCli, stack_name: str) -> None:
+    token: str | None = None
+    seen_tokens: set[str] = set()
+    for _ in range(MAX_CHANGE_SET_PAGES):
+        arguments = ["--stack-name", stack_name, "--max-items", "100"]
+        if token is not None:
+            arguments.extend(("--starting-token", token))
+        response = client.run("cloudformation", "list-change-sets", *arguments)
+        summaries = response.get("Summaries")
+        if not isinstance(summaries, list):
+            raise BootstrapAuthorizationError("Change Set inventory is ambiguous")
+        if summaries:
+            raise BootstrapAuthorizationError(
+                "active Change Set inventory is not exactly empty"
+            )
+        next_token = response.get("NextToken")
+        if next_token is None:
+            return
+        if (
+            not isinstance(next_token, str)
+            or not next_token
+            or next_token in seen_tokens
+        ):
+            raise BootstrapAuthorizationError("Change Set pagination is ambiguous")
+        seen_tokens.add(next_token)
+        token = next_token
+    raise BootstrapAuthorizationError("Change Set pagination exceeded the safety limit")
+
+
+def _recovery_preflight(
+    client: AwsCli,
+    binding: BootstrapBinding,
+) -> dict[str, Any]:
+    """Prove the exact zero-resource recovery shell without making a change."""
+    _require_sso_environment(binding.region)
+    account_id, caller_arn = _identity(client, binding)
+    _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
+    existing_stack = _stack(client, binding.stack_name)
+    if existing_stack is None:
+        raise BootstrapAuthorizationError("bootstrap review stack does not exist")
+    _require_exact_empty_review_stack(client, binding, existing_stack)
+    _require_no_active_change_sets(client, binding.stack_name)
+    existing_pab = _account_public_access_block(client, account_id)
+    return {
+        "stack_status": "REVIEW_IN_PROGRESS",
+        "resource_count": 0,
+        "active_change_set_count": 0,
+        "account_public_access_blocked": existing_pab == PUBLIC_ACCESS_BLOCK,
+    }
+
+
 def _preflight(
     client: AwsCli,
     binding: BootstrapBinding,
     *,
     allow_empty_review_stack: bool = False,
-) -> tuple[str, str, dict[str, bool] | None]:
+) -> tuple[str, str, dict[str, bool] | None, bool]:
     _require_sso_environment(binding.region)
     account_id, caller_arn = _identity(client, binding)
     existing_stack = _stack(client, binding.stack_name)
     existing_pab = _account_public_access_block(client, account_id)
     if existing_stack is not None:
-        if not allow_empty_review_stack or existing_stack.get("StackStatus") != "REVIEW_IN_PROGRESS":
+        if not allow_empty_review_stack:
             raise BootstrapAuthorizationError(
                 "bootstrap stack already exists; use verify or the reviewed recovery procedure"
             )
-        resources = client.run(
-            "cloudformation",
-            "list-stack-resources",
-            "--stack-name",
-            binding.stack_name,
-        ).get("StackResourceSummaries")
-        if not isinstance(resources, list) or resources:
-            raise BootstrapAuthorizationError(
-                "existing review stack is not empty; recovery plan is forbidden"
-            )
+        _require_exact_empty_review_stack(client, binding, existing_stack)
     client.run(
         "cloudformation",
         "validate-template",
         "--template-body",
         f"file://{TEMPLATE}",
     )
-    return account_id, caller_arn, existing_pab
+    return account_id, caller_arn, existing_pab, existing_stack is not None
 
 
 def _normalize_changes(response: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
@@ -431,11 +495,24 @@ def _require_plan_matches_binding(
 def _cmd_preflight(args: argparse.Namespace) -> None:
     binding = _binding(args)
     client = AwsCli(region=binding.region)
-    _, _, existing_pab = _preflight(client, binding)
+    _, _, existing_pab, _ = _preflight(client, binding)
     status = "configured" if existing_pab == PUBLIC_ACCESS_BLOCK else "requires planned update"
     print("PASS: exact dedicated platform-authority identity and template verified")
     print(f"INFO: account public-access block {status}")
     print("NO_CHANGE: no AWS resources or settings were modified")
+
+
+def _cmd_preflight_recovery(args: argparse.Namespace) -> None:
+    binding = _binding(args)
+    receipt = _recovery_preflight(AwsCli(region=binding.region), binding)
+    if receipt["account_public_access_blocked"] is not True:
+        raise BootstrapAuthorizationError(
+            "account public-access block is not fully enabled"
+        )
+    print("PASS: exact empty platform-authority review shell verified")
+    print("PASS: zero active Change Sets verified across all pages")
+    print("PASS: account public-access block is fully enabled")
+    print("NO_CHANGE: recovery preflight performed no AWS mutation")
 
 
 def _cmd_render_plan_policy(args: argparse.Namespace) -> None:
@@ -474,7 +551,7 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     _outside_repo(args.plan_out)
     binding = _binding(args)
     client = AwsCli(region=binding.region)
-    account_id, caller_arn, existing_pab = _preflight(
+    account_id, caller_arn, existing_pab, recovery_shell_present = _preflight(
         client,
         binding,
         allow_empty_review_stack=True,
@@ -482,6 +559,18 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
     created_at = _now()
     change_set_name = validate_bootstrap_change_set_name(args.change_set_name)
+    current_stack = _stack(client, binding.stack_name)
+    if recovery_shell_present:
+        if current_stack is None:
+            raise BootstrapAuthorizationError(
+                "bootstrap review stack disappeared during authorization"
+            )
+        _require_exact_empty_review_stack(client, binding, current_stack)
+        _require_no_active_change_sets(client, binding.stack_name)
+    elif current_stack is not None:
+        raise BootstrapAuthorizationError(
+            "bootstrap stack appeared during authorization"
+        )
     response = client.run(
         "cloudformation",
         "create-change-set",
@@ -699,8 +788,9 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     account_id, caller_arn = _identity(client, binding)
     _require_permission_set(caller_arn, APPLY_PERMISSION_SET)
     review_stack = _stack(client, binding.stack_name)
-    if review_stack is None or review_stack.get("StackStatus") != "REVIEW_IN_PROGRESS":
+    if review_stack is None:
         raise BootstrapAuthorizationError("bootstrap stack is not in exact review state")
+    _require_exact_empty_review_stack(client, binding, review_stack)
     plan = _strict_object(args.plan)
     approval = _strict_object(args.approval)
     authorize_bootstrap_apply(
@@ -722,6 +812,10 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         "--public-access-block-configuration",
         json.dumps(PUBLIC_ACCESS_BLOCK, separators=(",", ":")),
     )
+    current_stack = _stack(client, binding.stack_name)
+    if current_stack is None:
+        raise BootstrapAuthorizationError("bootstrap review stack disappeared before apply")
+    _require_exact_empty_review_stack(client, binding, current_stack)
     client.run(
         "cloudformation",
         "execute-change-set",
@@ -848,6 +942,13 @@ def _parser() -> argparse.ArgumentParser:
     preflight = subparsers.add_parser("preflight", help="Read-only identity and template checks")
     _common(preflight)
     preflight.set_defaults(handler=_cmd_preflight)
+
+    recovery_preflight = subparsers.add_parser(
+        "preflight-recovery",
+        help="Fail closed unless the exact review shell has zero resources and Change Sets",
+    )
+    _common(recovery_preflight)
+    recovery_preflight.set_defaults(handler=_cmd_preflight_recovery)
 
     plan = subparsers.add_parser("plan", help="Create but never execute a reviewed change set")
     _common(plan)

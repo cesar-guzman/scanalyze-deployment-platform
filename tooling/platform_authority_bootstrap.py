@@ -56,6 +56,58 @@ class BootstrapAuthorizationError(ValueError):
     """The platform-authority bootstrap could not be proven safe."""
 
 
+def require_exact_empty_review_stack(
+    *,
+    stack: Mapping[str, Any],
+    resources: object,
+    authority_account_id: str,
+    region: str,
+    stack_name: str = CANONICAL_STACK_NAME,
+) -> None:
+    """Reject any recovery shell with inherited or ambiguous authority."""
+    if ACCOUNT_ID.fullmatch(authority_account_id) is None or REGION.fullmatch(region) is None:
+        raise BootstrapAuthorizationError("bootstrap review stack binding is invalid")
+    if stack_name != CANONICAL_STACK_NAME:
+        raise BootstrapAuthorizationError("bootstrap review stack name is not canonical")
+    expected_prefix = (
+        f"arn:{_aws_partition(region)}:cloudformation:{region}:{authority_account_id}:"
+        f"stack/{stack_name}/"
+    )
+    stack_id = stack.get("StackId")
+    stack_uuid = (
+        stack_id.removeprefix(expected_prefix)
+        if isinstance(stack_id, str) and stack_id.startswith(expected_prefix)
+        else ""
+    )
+    if (
+        stack.get("StackName") != stack_name
+        or stack.get("StackStatus") != "REVIEW_IN_PROGRESS"
+        or re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            stack_uuid,
+        )
+        is None
+    ):
+        raise BootstrapAuthorizationError("bootstrap review stack identity is ambiguous")
+    if "RoleARN" in stack:
+        raise BootstrapAuthorizationError(
+            "bootstrap review stack authority metadata is not empty"
+        )
+    notification_arns = stack.get("NotificationARNs", [])
+    if not isinstance(notification_arns, list) or notification_arns:
+        raise BootstrapAuthorizationError(
+            "bootstrap review stack notification metadata is ambiguous"
+        )
+    if "ParentId" in stack or "RootId" in stack:
+        raise BootstrapAuthorizationError(
+            "bootstrap review stack authority metadata is nested"
+        )
+    if not isinstance(resources, list) or resources:
+        raise BootstrapAuthorizationError(
+            "bootstrap review stack resource inventory is not exactly empty"
+        )
+
+
 def _aws_partition(region: str) -> str:
     if region.startswith("cn-"):
         return "aws-cn"
@@ -113,6 +165,7 @@ def _validate_change_set_iam_boundary(
         "cloudformation:ListStackResources",
         "cloudformation:ValidateTemplate",
     }
+    list_change_sets_action = "cloudformation:ListChangeSets"
     protected = {
         "cloudformation:CreateChangeSet",
         "cloudformation:DeleteChangeSet",
@@ -120,6 +173,7 @@ def _validate_change_set_iam_boundary(
     }
     all_cloudformation_actions: set[str] = set()
     by_action: dict[str, Mapping[str, Any]] = {}
+    list_change_sets_statement: Mapping[str, Any] | None = None
     for raw_statement in statements:
         if not isinstance(raw_statement, Mapping) or raw_statement.get("Effect") != "Allow":
             continue
@@ -132,6 +186,20 @@ def _validate_change_set_iam_boundary(
                 "wildcard CloudFormation authorization is forbidden"
             )
         all_cloudformation_actions.update(cloudformation_actions)
+        if list_change_sets_action in actions:
+            if actions != {list_change_sets_action} or list_change_sets_statement is not None:
+                raise BootstrapAuthorizationError(
+                    "ListChangeSets must use one exact statement"
+                )
+            if raw_statement.get("Resource") != stack_arn:
+                raise BootstrapAuthorizationError(
+                    "ListChangeSets must authorize the exact stack resource"
+                )
+            if "Condition" in raw_statement:
+                raise BootstrapAuthorizationError(
+                    "ListChangeSets must not contain an unsupported condition"
+                )
+            list_change_sets_statement = raw_statement
         for action in protected & actions:
             if actions != {action} or action in by_action:
                 raise BootstrapAuthorizationError(
@@ -145,7 +213,12 @@ def _validate_change_set_iam_boundary(
 
     present = set(by_action)
     if present == {"cloudformation:CreateChangeSet", "cloudformation:DeleteChangeSet"}:
+        if list_change_sets_statement is None:
+            raise BootstrapAuthorizationError(
+                "Plan authority must list Change Sets on the exact stack"
+            )
         expected_cloudformation_actions = read_actions | present | {
+            list_change_sets_action,
             "cloudformation:TagResource"
         }
         expected_tags = {
@@ -206,6 +279,10 @@ def _validate_change_set_iam_boundary(
                 "Change Set tag authorization is not exact and create-bound"
             )
     elif present == {"cloudformation:ExecuteChangeSet"}:
+        if list_change_sets_statement is not None:
+            raise BootstrapAuthorizationError(
+                "Apply authority must not add Change Set inventory scope"
+            )
         expected_cloudformation_actions = read_actions | present
         if (
             by_action["cloudformation:ExecuteChangeSet"].get("Condition")

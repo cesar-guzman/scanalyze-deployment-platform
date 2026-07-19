@@ -41,7 +41,8 @@ evidence.
 - `../operations/durable-founder-bootstrap-pep.md`: reviewed one-shot seed,
   private evidence, execution, reconciliation and revocation runbook.
 - `../operations/platform-authority-bootstrap-recovery.md`: uncertain-result,
-  rollback-failure, retained-resource, and decommission recovery boundary.
+  rollback-failure, retained-resource, GUG-214 exact-shell/Change Set preflight,
+  and decommission recovery boundary.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -182,3 +183,9 @@ Do not ingest management/authority account exports, organization topology,
 Identity Center subjects or assignments, temporary policies, intents, ledgers,
 Change Sets, plans, backend outputs, AWS responses, logs, screenshots, or live
 evidence.
+
+For GUG-214, ingest only
+`../../_NotebookLM_Brain/29_GUG214_Authority_Recovery_Preflight.md`.
+Do not ingest account/principal identifiers, permission-set assignments,
+stack IDs, Change Set names/ARNs, resource inventories, raw policies, AWS
+responses, audit exports, logs, screenshots or live evidence.

@@ -29,9 +29,14 @@ policy templates. Creating/assigning these permission sets is a separate
 management-account change: review it, read back the inline policies and remove
 the generic administrator assignment before opening the founder windows.
 
-From the authority Plan profile, re-run the GUG-206 read-only preflight and
-confirm the backend stack is an empty `REVIEW_IN_PROGRESS` shell. A resource,
-unknown status, foreign Change Set, or existing backend stops the process.
+From the authority Plan profile, run the GUG-214 canonical
+`preflight-recovery` and confirm the backend stack is an empty
+`REVIEW_IN_PROGRESS` shell, every active Change Set page is empty, and account
+S3 PAB is present/all true. The shell must have no CloudFormation service role,
+notification destination or parent/root nesting metadata. A resource, unknown status, active/ambiguous Change
+Set, missing PAB or existing backend stops the process. A general ReadOnly
+profile is independent evidence only and cannot replace this exact Plan role.
+Do not infer KMS/S3/DynamoDB resource names from the empty shell.
 
 ## Phase 1 — seed root of trust
 
@@ -96,15 +101,24 @@ must fail. Use `verify-ledger` before Plan.
 The integrated `plan` command:
 
 1. validates STS founder Plan role and intent digest;
-2. verifies S3 BPA, table controls and empty review stack;
+2. verifies S3 BPA, exact table controls through `DescribeTable` plus
+   `DescribeContinuousBackups`, the exact empty review stack with no inherited
+   service role/notifications/nesting, and every active Change Set page;
 3. commits `PREPARED -> PLAN_ATTEMPTED` by CAS;
-4. creates one exact CREATE Change Set;
-5. waits and re-reads ARN, name, status, tags and four resources;
-6. builds GUG-206 Plan and GUG-209 exception receipts privately;
-7. commits `PLAN_ATTEMPTED -> PLAN_REVIEWED` by CAS.
+4. repeats the exact shell-authority and paginated zero-active-Change-Set
+   inventories immediately before create;
+5. creates one exact CREATE Change Set;
+6. waits and re-reads ARN, name, status, tags and four resources;
+7. builds GUG-206 Plan and GUG-209 exception receipts privately;
+8. commits `PLAN_ATTEMPTED -> PLAN_REVIEWED` by CAS.
 
-If steps 4–7 are ambiguous, the ledger becomes `UNCERTAIN`. Never invoke Plan
+If steps 4–8 are ambiguous, the ledger becomes `UNCERTAIN`. Never invoke Plan
 again and never create a replacement Change Set under the same exception.
+
+The second inventory narrows but cannot eliminate CloudFormation TOCTOU: there
+is no atomic zero-inventory-and-create operation. An unexpected concurrent
+writer is a P0 stop. After the CAS, any non-empty or ambiguous inventory
+consumes the one attempt and permits only read-only reconciliation.
 
 ## Phase 4 — quarantine gap and Apply
 
@@ -117,9 +131,12 @@ window.
 The integrated `apply` command:
 
 1. validates STS founder Apply role and private receipt digests;
-2. verifies S3 BPA, table, empty stack and exact executable Change Set again;
+2. verifies S3 BPA, the exact table and PITR through `DescribeTable` plus
+   `DescribeContinuousBackups`, empty stack without inherited authority and
+   the exact executable Change Set again;
 3. commits `PLAN_REVIEWED -> APPLY_ATTEMPTED` by CAS;
-4. executes the exact Change Set once;
+4. rechecks the shell metadata immediately before and executes the exact Change
+   Set once;
 5. waits for `CREATE_COMPLETE` and re-reads exactly four resources;
 6. commits terminal success, or `UNCERTAIN` on any ambiguous response.
 

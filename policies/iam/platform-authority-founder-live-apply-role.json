@@ -51,7 +51,10 @@
     {
       "Sid": "ReadExactFounderApplyLedgerTableMetadata",
       "Effect": "Allow",
-      "Action": "dynamodb:DescribeTable",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable"
+      ],
       "Resource": "arn:aws:dynamodb:${region}:${authority_account_id}:table/${pep_table_name}"
     },
     {
