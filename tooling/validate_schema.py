@@ -5,11 +5,13 @@ Validates JSON fixtures against their corresponding JSON Schemas.
 Valid fixtures must pass. Invalid fixtures must fail with the documented error.
 """
 
+import hashlib
 import json
-import sys
 import os
 import re
+import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -41,6 +43,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-bootstrap-approval": "platform-authority-bootstrap-approval.v{version}.schema.json",
         "platform-authority-bootstrap-plan": "platform-authority-bootstrap-plan.v{version}.schema.json",
         "platform-authority-bootstrap-verification": "platform-authority-bootstrap-verification.v{version}.schema.json",
+        "platform-authority-change-set-retirement-ledger": (
+            "platform-authority-change-set-retirement-ledger.v{version}.schema.json"
+        ),
         "platform-authority-founder-bootstrap-exception": "platform-authority-founder-bootstrap-exception.v{version}.schema.json",
         "platform-authority-founder-execution-ledger": "platform-authority-founder-execution-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-intent": "platform-authority-founder-pep-intent.v{version}.schema.json",
@@ -251,6 +256,81 @@ def _validate_m2m_registry(
     return errors
 
 
+def _gug215_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _gug215_canonical_digest(value: dict) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_gug215_ledger(instance: dict) -> list[str]:
+    errors: list[str] = []
+    state = instance.get("state")
+    if state not in {"CLASSIFIED", "APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}:
+        errors.append("ledger must preserve one of the four durable states")
+    if (
+        instance.get("classifier_identity_store_user_id_digest")
+        == instance.get("approver_identity_store_user_id_digest")
+    ):
+        errors.append("ledger requires distinct immutable Identity Store users")
+    if instance.get("identity_separation") != "VERIFIED_DISTINCT_IDENTITYSTORE_USERS":
+        errors.append("ledger identity separation must be Identity Store verified")
+    identity_binding_fields = (
+        "identity_store_arn_digest",
+        "identity_center_instance_arn_digest",
+        "identity_center_application_arn_digest",
+        "classifier_identity_store_user_id_digest",
+        "approver_identity_store_user_id_digest",
+        "classifier_assignment_sha256",
+        "approver_assignment_sha256",
+        "classifier_invoker_policy_sha256",
+        "approver_invoker_policy_sha256",
+    )
+    identity_binding = {
+        field: instance.get(field) for field in identity_binding_fields
+    }
+    if instance.get("identity_binding_digest") != _gug215_canonical_digest(
+        identity_binding
+    ):
+        errors.append("identity_binding_digest must cover every immutable identity binding")
+
+    ordered_fields = ["classified_at"]
+    if state in {"APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}:
+        ordered_fields.append("approved_at")
+    if state in {"ATTEMPTED", "RETIRED_RECONCILED"}:
+        ordered_fields.append("attempted_at")
+    if state == "RETIRED_RECONCILED":
+        ordered_fields.append("verified_at")
+    ordered = [_gug215_timestamp(instance.get(field)) for field in ordered_fields]
+    concrete = [value for value in ordered if value is not None]
+    if len(concrete) == len(ordered):
+        if concrete != sorted(concrete):
+            errors.append("ledger lifecycle timestamps must be monotonic")
+    updated = _gug215_timestamp(instance.get("updated_at"))
+    if concrete and updated is not None and updated < concrete[-1]:
+        errors.append("ledger updated_at must not precede the latest state event")
+    ledger_without_digest = {
+        key: value for key, value in instance.items() if key != "ledger_digest"
+    }
+    if instance.get("ledger_digest") != _gug215_canonical_digest(
+        ledger_without_digest
+    ):
+        errors.append("ledger_digest must cover the complete durable record")
+    return errors
+
+
 def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
 
@@ -386,6 +466,9 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
             )
         if customer_value is not None and customer_value == deployment_value:
             errors.append("customer and deployment canonical values must be distinct")
+
+    if schema_name == "platform-authority-change-set-retirement-ledger.v1.schema.json":
+        errors.extend(_validate_gug215_ledger(instance))
 
     return errors
 

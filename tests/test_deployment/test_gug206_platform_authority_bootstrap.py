@@ -312,7 +312,8 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
     plan_actions = _allowed_actions(plan_policy)
     apply_actions = _allowed_actions(apply_policy)
 
-    assert {"cloudformation:CreateChangeSet", "cloudformation:DeleteChangeSet"} <= plan_actions
+    assert "cloudformation:CreateChangeSet" in plan_actions
+    assert "cloudformation:DeleteChangeSet" not in plan_actions
     assert "cloudformation:ExecuteChangeSet" not in plan_actions
     assert "s3:PutAccountPublicAccessBlock" not in plan_actions
     assert "kms:CreateKey" not in plan_actions
@@ -349,12 +350,13 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
             "aws:TagKeys": ["managed_by", "service", "work_package"]
         },
     }
-    delete_statement = statements["DeleteOnlyExactBootstrapChangeSet"]
-    assert delete_statement["Action"] == "cloudformation:DeleteChangeSet"
-    assert delete_statement["Resource"] == stack_arn
-    assert delete_statement["Condition"] == {
-        "StringEquals": {"cloudformation:ChangeSetName": "${change_set_name}"}
+    plan_statements = {
+        statement["Sid"]: statement for statement in plan_policy["Statement"]
     }
+    retirement_deny = plan_statements["DenyDirectRetirementEffects"]
+    assert retirement_deny["Effect"] == "Deny"
+    assert "cloudformation:DeleteChangeSet" in retirement_deny["Action"]
+    assert retirement_deny["Resource"] == "*"
     tag_statement = statements["TagOnlyExactBootstrapChangeSetAtCreate"]
     assert tag_statement["Action"] == "cloudformation:TagResource"
     assert tag_statement["Condition"] == {
@@ -372,7 +374,7 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
     assert execute_statement["Condition"] == {
         "StringEquals": {"cloudformation:ChangeSetName": "${change_set_name}"}
     }
-    for statement in (create_statement, delete_statement, execute_statement):
+    for statement in (create_statement, execute_statement):
         assert ":changeSet/" not in json.dumps(statement["Resource"])
 
     for policy in (plan_policy, apply_policy):

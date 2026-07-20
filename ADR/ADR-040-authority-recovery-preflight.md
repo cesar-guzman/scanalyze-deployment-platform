@@ -4,6 +4,7 @@
 - **Date:** 2026-07-19
 - **Work package:** GUG-214
 - **Amends:** ADR-034 and ADR-039
+- **Amended by:** [ADR-041](ADR-041-retained-change-set-retirement.md)
 - **Production:** **NO-GO**
 
 ## Context
@@ -111,12 +112,43 @@ check, never repairs an access denial in the operational permission set and is
 never attached as a managed policy to a Scanalyze permission set. Findings from
 that profile are classified separately from PEP execution evidence.
 
+### 7. A retained Change Set requires the separate GUG-215 path
+
+If the canonical inventory returns one retained active Change Set and its
+original private bootstrap Plan receipt cannot be proved, this recovery
+preflight remains blocked. The historical `cancel` command is not weakened and
+the receipt is never reconstructed from live metadata.
+
+[ADR-041](ADR-041-retained-change-set-retirement.md) defines a separate
+version-pinned Lambda PEP. Human permission sets can only establish exact
+Identity Center context and assume their account-local invoker roles; those
+roles invoke qualified `classify`, `retire` or `reconcile` aliases. Humans
+receive no `DeleteChangeSet` or DynamoDB write authority. The broker execution
+role is the only ledger writer and the only principal permitted to delete the
+exact retained metadata object.
+
+The deployment binds two different immutable Identity Store UserIds, exact
+assignments and invoker-policy digests, reviewed broker code and effective
+broker-policy digests, and a resource-policy-protected durable ledger. The
+request payload is empty; aliases and immutable configuration establish
+authority. Live deletion remains blocked until the broker stack and two
+genuinely independent operators are provisioned and read back. Only the live
+broker configuration and durable ledger establish retirement authority.
+
+Missing or partial account Public Access Block may coexist with verified
+retirement of the unexecuted metadata object, but GUG-214 recovery readiness
+remains blocked until the all-true PAB invariant is proved. The retirement path
+does not repair PAB and never emits `READY`; temporary role/session revocation
+must also be proved.
+
 ## Consequences
 
 - A retained shell cannot be silently adopted while active Change Sets exist.
 - Exact operational roles can prove the controls their code enforces without a
   broad read-only attachment.
 - Missing account Public Access Block remains an explicit blocker.
+- A retained unexecuted Change Set with no provable original Plan is routed to
+  GUG-215; it is not canceled by inference or silently adopted.
 - A legacy shell with inherited service-role, notification or nesting metadata
   remains quarantined and cannot be adopted.
 - The implementation adds no AWS mutation, auto-remediation or delete path.
@@ -143,6 +175,11 @@ delete or mutate AWS resources. Operational rollback is always read-only
 reconciliation: retain the shell, active Change Sets, ledger and account
 controls until a separately reviewed action authorizes a specific change.
 Never auto-delete a stack, Change Set, bucket, key, table or ledger attempt.
+
+If a separately authorized GUG-215 retirement is attempted later, ambiguous
+deletion is never retried. Its rollback is invocation of the broker's
+non-delete `reconcile` alias against the original immutable deployment binding;
+a replacement requires a new normal Plan.
 
 ## Evidence classification
 

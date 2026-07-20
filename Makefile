@@ -425,25 +425,27 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208/GUG-209/GUG-211/GUG-214, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
 		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py \
 		$(TESTS_DIR)/test_deployment/test_gug211_founder_bootstrap_pep.py \
-		$(TESTS_DIR)/test_deployment/test_gug214_authority_recovery_preflight.py
+		$(TESTS_DIR)/test_deployment/test_gug214_authority_recovery_preflight.py \
+		$(TESTS_DIR)/test_deployment/test_gug215_retained_change_set_retirement.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \
 		--fixtures-dir $(FIXTURES_DIR) \
 		--filter platform-authority
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
 	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test

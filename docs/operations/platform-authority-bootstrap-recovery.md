@@ -19,6 +19,7 @@
 | Shell carries `RoleARN`, notification ARNs or nested-stack metadata | Quarantine and reconcile read-only; obtain a separate reviewed disposition | Adopt the shell, trust the role name, or execute a Change Set through inherited authority |
 | Account Public Access Block missing/partial | Stop and obtain separate reviewed remediation authorization | Repair PAB from the read-only recovery command |
 | Active or ambiguous Change Set inventory | Preserve the shell and reconcile read-only | Delete the stack/Change Sets automatically or ignore pagination |
+| One exact unexecuted Change Set retained and original Plan receipt absent/ambiguous | Use the separately authorized GUG-215 version-pinned broker with two identity-enhanced independent users and qualified aliases | Reconstruct a Plan, grant a human direct delete/ledger write, weaken historical `cancel`, or execute the Change Set |
 | Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
 | Change Set IAM binding failure | Stop; verify the canonical stack ARN, exact `cloudformation:ChangeSetName`, request tags, and Plan/Apply separation offline | Add a Change Set ARN resource, broaden the name, or bypass the renderer |
 | Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
@@ -76,6 +77,54 @@ python3 scripts/deployment/platform-authority-bootstrap.py verify \
 `verify` performs no writes. If any control is missing or ambiguous, it emits
 no usable backend configuration.
 
+## Retained Change Set without a provable original Plan (GUG-215)
+
+The historical `cancel` command below remains valid only when the original
+private bootstrap Plan receipt exists and binds the exact live Change Set. If
+that receipt is absent or ambiguous, do not reconstruct it from live metadata,
+the repository template, a name, prior chat, or expected values.
+
+Use the separate
+[GUG-215 deployment contract](../deployment/platform-authority-change-set-retirement.md)
+and [retirement runbook](platform-authority-retained-change-set-retirement.md).
+That path has one version-pinned Lambda PEP, a dedicated durable ledger and two
+identity-enhanced human invocation boundaries:
+
+- two genuinely independent operators are bound by different immutable
+  Identity Store UserIds, exact Identity Center context and exact assignments;
+- the classifier human can invoke only the qualified `classify` alias;
+- the approver human can invoke only the qualified `retire` and `reconcile`
+  aliases;
+- human roles explicitly lack Change Set delete and DynamoDB write authority;
+- the Lambda broker is the sole ledger writer and sole exact Change Set
+  deleter;
+- the table resource policy denies writes outside the exact broker execution
+  role;
+- `classify` creates only the exact `CLASSIFIED` ledger item;
+- `retire` performs `CLASSIFIED -> APPROVED -> ATTEMPTED` before at most one
+  `DeleteChangeSet` request;
+- `reconcile` has no delete path and writes `RETIRED_RECONCILED` only after
+  exact absence. Ambiguity leaves `ATTEMPTED` and permits no second delete.
+
+The broker accepts an empty payload only and binds the target, immutable code,
+live effective broker-policy digest, assignments and invoker policies through
+deployment configuration and fresh AWS readback. Caller artifacts and terminal
+output are not authority.
+
+Missing or partial Public Access Block does not authorize repair and does not
+change the metadata-only nature of Change Set retirement. It does keep this
+GUG-214 recovery procedure blocked after retirement until a separately
+authorized path establishes and proves all-true PAB and the temporary
+retirement assignment/session are revoked and read back. GUG-215 never returns
+recovery readiness `READY`.
+
+Sanitized current inspection found zero shell resources and one active exact
+`CREATE_COMPLETE` / `AVAILABLE` Change Set with expected tags and four creation
+changes. The version-pinned broker/ledger stack and the two independent
+identity-enhanced operator bindings have not been deployed or invoked.
+Therefore canonical live classification and retirement remain blocked. No live
+delete was executed by GUG-215 implementation.
+
 ## Cancel an unexecuted plan
 
 Cancellation is allowed only while the exact Change Set is `AVAILABLE`, the
@@ -117,7 +166,7 @@ as PEP evidence and must be re-read before any future execution.
 ## Founder-exception recovery boundary
 
 The GUG-209 founder exception is not a fallback for normal independent
-approval. It is limited to authority account `042360977644`, `us-east-1`,
+approval. It is limited to the separately approved authority account and Region,
 `non-production`, one fresh `CREATE` Change Set, and one intended future
 durable-PEP attempt. Its offline record format explicitly models that no
 independent approval existed. The normal approval record must never be edited

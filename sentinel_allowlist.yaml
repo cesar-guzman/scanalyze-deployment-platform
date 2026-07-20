@@ -33,6 +33,20 @@ allowlist:
     reason: "Pinned release metadata fixture, not Terraform state"
     owner: testing
 
+  - path: tooling/platform_authority_change_set_retirement_broker.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Static reviewed four-resource evidence key in the broker, not raw Terraform plan output"
+    owner: platform-security
+
+  - path: tests/test_deployment/test_gug215_retained_change_set_retirement.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic digest fixture for the reviewed four-resource contract, not raw Terraform plan output"
+    owner: platform-security-testing
+
   - path: fixtures/valid/release-deployment-projection-v1-synthetic.json
     line_pattern: '"release_id"\s*:\s*"rel_[0-9A-HJKMNP-TV-Z]{26}"'
     pattern_id: RFC
