@@ -195,13 +195,25 @@ full Change Set ID returned by the final paginated inventory, never with only
 the reusable name. The raw ID remains process-local and is never written to the
 ledger or returned to the CLI; IAM still requires the canonical Change Set name.
 
-## Documented invocation sequence
+## Historical invocation sequence — blocked by GUG-216
 
-These commands describe the repository interface. They were not run live by
-GUG-215 implementation. Use only separately authorized, short-lived profiles
-whose STS identity is the exact account-local invoker role.
+The commands below are retained only to document the original GUG-215 interface
+and must not be executed. ADR-042 / GUG-216 established that the reviewed
+`AWSIAMIdentityCenterAllowListForIdentityContext` default policy `v12` excludes
+`lambda:InvokeFunction`. The repository CLI therefore fails closed before
+OAuth, STS or Lambda and returns:
 
-### 1. Classifier invokes the pinned `classify` alias
+```text
+DENY: BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED
+```
+
+No ordinary `AWS_PROFILE`, administrator role, Lambda resource policy or
+omission of `ProvidedContexts` is an approved fallback. A live invocation
+sequence requires a new reviewed compatibility decision or architecture,
+separately authorized provisioning, two independent humans and an updated
+runbook.
+
+### 1. Historical classifier command — do not execute
 
 ```bash
 python3 scripts/deployment/platform-authority-change-set-retirement.py \
@@ -211,11 +223,12 @@ python3 scripts/deployment/platform-authority-change-set-retirement.py \
   --allow-broker-classification
 ```
 
-Expected sanitized status is `CLASSIFIED` with
-`INDEPENDENT_APPROVAL_REQUIRED`. The broker, not the human session, performs
-target inspection and the create-only ledger write.
+The current CLI must deny before invoking the pinned `classify` alias. A future
+reviewed implementation could expect `CLASSIFIED` with
+`INDEPENDENT_APPROVAL_REQUIRED` only after every GUG-215 and GUG-216 live gate
+passes; that state is not reachable through the current command.
 
-### 2. Independent approver invokes the pinned `retire` alias
+### 2. Historical approver command — do not execute
 
 After an independently reviewed change package and exact provisioning
 readback, a different immutable Identity Store user assumes the approver
@@ -229,14 +242,12 @@ python3 scripts/deployment/platform-authority-change-set-retirement.py \
   --allow-retire-exact-change-set
 ```
 
-The broker performs `CLASSIFIED -> APPROVED -> ATTEMPTED`, revalidates every
-target digest against the attempt claim and may issue exactly one delete
-request by the full Change Set ID and full Stack ID. A
-successful request returns `RETIREMENT_ATTEMPTED`; an ambiguous response
-returns `RECONCILIATION_REQUIRED`. Neither result authorizes another retire
-invocation to issue a second delete.
+The current CLI must deny before invoking the pinned `retire` alias. The
+documented `CLASSIFIED -> APPROVED -> ATTEMPTED` transition and one-shot delete
+model remain the target GUG-215 design, but they are not an executable procedure
+while GUG-216 reports the downstream action incompatible.
 
-### 3. Approver invokes the pinned `reconcile` alias
+### 3. Historical reconciliation command — do not execute
 
 ```bash
 python3 scripts/deployment/platform-authority-change-set-retirement.py \
@@ -246,13 +257,10 @@ python3 scripts/deployment/platform-authority-change-set-retirement.py \
   --allow-broker-reconciliation
 ```
 
-The alias cannot call delete. It proves the current full Stack ID still
-matches the classified stack digest and uses that ID for all inventories. If
-the target remains present it returns
-`RECONCILIATION_REQUIRED` without a ledger transition. Exact target absence,
-zero active Change Sets and the preserved empty shell, re-read immediately
-before the terminal CAS, allow `RETIRED_RECONCILED`. The terminal response
-still requires PAB and/or revocation work; it is never recovery `READY`.
+The current CLI must deny before invoking the pinned `reconcile` alias. The
+alias's non-delete behavior remains part of the reviewed broker design for a
+future compatible deployment; this historical command is not current recovery
+authority and cannot establish `RETIRED_RECONCILED`.
 
 ## No-retry behavior
 
@@ -312,7 +320,8 @@ Change Set names/ARNs/UUIDs, templates, ledger documents or AWS responses.
 | Live inventory | Sanitized read-only observation only |
 | Broker/ledger stack deployed | **No** |
 | Identity-enhanced assignments validated | **No** |
-| Identity-enhanced credential adapter | **Not implemented; live blocker** |
+| Identity-enhanced credential adapter | Offline contract implemented by GUG-216; no reviewed live browser/SDK entrypoint |
+| Identity-context downstream compatibility | **Blocked**; reviewed managed-policy `v12` excludes `lambda:InvokeFunction` |
 | Account-wide foreign alias-invoke inventory | **Not performed; live blocker** |
 | Broker aliases invoked | **No** |
 | Live retirement | **Blocked** |

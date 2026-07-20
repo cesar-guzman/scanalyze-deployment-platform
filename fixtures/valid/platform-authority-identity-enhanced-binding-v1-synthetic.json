@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_identity_enhanced_binding",
+  "environment": "non-production",
+  "production": false,
+  "authority_account_id": "111122223333",
+  "management_account_id": "999900001111",
+  "region": "us-east-1",
+  "identity_center_instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+  "identity_center_application_arn": "arn:aws:sso::999900001111:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+  "identity_store_arn": "arn:aws:identitystore::999900001111:identitystore/d-1234567890",
+  "required_action": "lambda:InvokeFunction",
+  "managed_policy_arn": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext",
+  "managed_policy_version": "v12",
+  "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+  "compatibility_status": "BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED",
+  "classifier": {
+    "duty": "classifier",
+    "identity_store_user_id": "00000000-0000-4000-8000-000000000011",
+    "source_role_arn": "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityRetireClass_0123456789abcdef",
+    "target_role_arn": "arn:aws:iam::111122223333:role/ScanalyzeGug215ClassifierInvoker",
+    "broker_aliases": ["classify"]
+  },
+  "approver": {
+    "duty": "independent_approver",
+    "identity_store_user_id": "00000000-0000-4000-8000-000000000022",
+    "source_role_arn": "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_fedcba9876543210",
+    "target_role_arn": "arn:aws:iam::111122223333:role/ScanalyzeGug215ApproverInvoker",
+    "broker_aliases": ["retire", "reconcile"]
+  },
+  "current_human_operator_count": 1,
+  "independent_approver_available": false,
+  "live_classification_authorized": false,
+  "live_retirement_authorized": false
+}

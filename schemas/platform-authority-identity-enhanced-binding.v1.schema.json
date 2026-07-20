@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-identity-enhanced-binding.v1.schema.json",
+  "title": "Platform Authority Identity-Enhanced Binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "authority_account_id",
+    "management_account_id",
+    "region",
+    "identity_center_instance_arn",
+    "identity_center_application_arn",
+    "identity_store_arn",
+    "required_action",
+    "managed_policy_arn",
+    "managed_policy_version",
+    "managed_policy_digest",
+    "compatibility_status",
+    "classifier",
+    "approver",
+    "current_human_operator_count",
+    "independent_approver_available",
+    "live_classification_authorized",
+    "live_retirement_authorized"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_identity_enhanced_binding" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "management_account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "identity_center_instance_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$"
+    },
+    "identity_center_application_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:sso::[0-9]{12}:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$"
+    },
+    "identity_store_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:identitystore::[0-9]{12}:identitystore/d-[a-z0-9]{10,}$"
+    },
+    "required_action": { "const": "lambda:InvokeFunction" },
+    "managed_policy_arn": {
+      "const": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext"
+    },
+    "managed_policy_version": { "const": "v12" },
+    "managed_policy_digest": { "$ref": "#/$defs/digest" },
+    "compatibility_status": {
+      "const": "BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED"
+    },
+    "classifier": { "$ref": "#/$defs/classifier" },
+    "approver": { "$ref": "#/$defs/approver" },
+    "current_human_operator_count": { "const": 1 },
+    "independent_approver_available": { "const": false },
+    "live_classification_authorized": { "const": false },
+    "live_retirement_authorized": { "const": false }
+  },
+  "$defs": {
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "user_id": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    },
+    "classifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duty", "identity_store_user_id", "source_role_arn", "target_role_arn", "broker_aliases"],
+      "properties": {
+        "duty": { "const": "classifier" },
+        "identity_store_user_id": { "$ref": "#/$defs/user_id" },
+        "source_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-reserved/sso\\.amazonaws\\.com/(?:[a-z0-9-]+/)?AWSReservedSSO_ScanalyzeAuthorityRetireClass_[0-9A-Fa-f]{16}$"
+        },
+        "target_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/ScanalyzeGug215ClassifierInvoker$"
+        },
+        "broker_aliases": {
+          "type": "array",
+          "prefixItems": [{ "const": "classify" }],
+          "items": false,
+          "minItems": 1,
+          "maxItems": 1
+        }
+      }
+    },
+    "approver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duty", "identity_store_user_id", "source_role_arn", "target_role_arn", "broker_aliases"],
+      "properties": {
+        "duty": { "const": "independent_approver" },
+        "identity_store_user_id": { "$ref": "#/$defs/user_id" },
+        "source_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-reserved/sso\\.amazonaws\\.com/(?:[a-z0-9-]+/)?AWSReservedSSO_ScanalyzeAuthorityRetireApprove_[0-9A-Fa-f]{16}$"
+        },
+        "target_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/ScanalyzeGug215ApproverInvoker$"
+        },
+        "broker_aliases": {
+          "type": "array",
+          "prefixItems": [{ "const": "retire" }, { "const": "reconcile" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  }
+}

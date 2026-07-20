@@ -50,6 +50,13 @@ evidence.
 - `../operations/platform-authority-retained-change-set-retirement.md`: exact
   broker deployment readback, independent invocation, no-retry, revocation and
   recovery-readiness runbook.
+- `platform-authority-identity-enhanced-session.md`: GUG-216 one-shot
+  `CreateTokenWithIAM`/STS `ProvidedContexts` contract, managed-policy
+  compatibility guard, immutable operator binding, secret-containment and
+  current Lambda live-block boundary.
+- `../operations/platform-authority-identity-enhanced-session.md`: offline
+  compatibility procedure, future live gates, two-person roster, stop
+  conditions, uncertainty and evidence handling.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -204,3 +211,11 @@ permission-set assignments, identity-enhanced context, invoker or execution
 role ARNs, broker artifact/signing locators, live policies, ledger
 items/digests, stack IDs, Change Set names/ARNs/UUIDs, templates, resource
 inventories, AWS responses, audit exports, logs, screenshots or live evidence.
+
+For GUG-216, ingest only
+`../../_NotebookLM_Brain/31_GUG216_Identity_Enhanced_Operator_Session.md`.
+Do not ingest account/principal identifiers, Identity Store UserIds, emails,
+application/grant/assignment inventories, permission-set or invoker role ARNs,
+authorization codes, PKCE material, access/refresh/ID tokens, identity-context
+assertions, temporary AWS credentials, CloudTrail, AWS responses, logs,
+screenshots or live evidence.

@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "CreateTokenForExactRetirementApplication",
+      "Effect": "Allow",
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "arn:${aws_partition}:sso::${identity_center_management_account_id}:application/${identity_center_instance_id}/${identity_center_application_id}"
+    },
+    {
       "Sid": "AssumeExactIdentityEnhancedClassifierInvoker",
       "Effect": "Allow",
       "Action": [
@@ -25,7 +31,8 @@
         "dynamodb:PutItem",
         "dynamodb:TransactWriteItems",
         "dynamodb:UpdateItem",
-        "lambda:InvokeAsync"
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction"
       ],
       "Resource": "*"
     }

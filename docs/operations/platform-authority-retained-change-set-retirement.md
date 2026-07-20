@@ -35,10 +35,11 @@ Profiles, terminals or timestamps do not establish independent operators. Stop
 unless two distinct live Identity Store UserIds, their assignments,
 provisioning and identity-enhanced contexts are read back.
 
-An ordinary SSO profile is insufficient. Stop before deployment or invocation
-until a separately reviewed adapter produces identity-enhanced role
-credentials through `CreateTokenWithIAM` and STS `ProvidedContexts`, and live
-readback proves the resulting immutable UserId context.
+An ordinary SSO profile is insufficient. ADR-042 / GUG-216 implements an
+offline adapter contract for `CreateTokenWithIAM` and STS `ProvidedContexts`,
+but exposes no reviewed live entrypoint. The reviewed AWS-managed identity
+context policy `v12` excludes `lambda:InvokeFunction`, so the current CLI fails
+closed before OAuth, STS or Lambda. Stop before deployment or invocation.
 
 ## Phase 0 — Authorization and immutable deployment review
 
@@ -96,11 +97,12 @@ Before invocation, independently prove:
 Any missing, denied, partial or ambiguous readback blocks the workflow. Do not
 add a broad managed policy as a shortcut.
 
-## Phase 2 — Classifier invokes `classify`
+## Phase 2 — Historical classifier command; currently blocked
 
-Use a fresh session whose STS identity is exactly the account-local
-`ScanalyzeGug215ClassifierInvoker` role. The human CLI sends an empty payload to
-the qualified alias:
+The command below is retained only as historical GUG-215 interface
+documentation. Do not execute it. Under GUG-216 the CLI returns
+`DENY: BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED` before it creates a
+token, assumes a role or invokes the qualified alias:
 
 ```bash
 python3 scripts/deployment/platform-authority-change-set-retirement.py \
@@ -121,10 +123,11 @@ The broker fails closed unless it proves:
   additions;
 - exact runtime, identity and ledger controls.
 
-Only the Lambda then creates
+In a future separately reviewed compatible implementation, only the Lambda
+could create
 `retirement_id = gug215#sha256:<64-hex-change-set-id-digest>` in state
 `CLASSIFIED`, version 1, attempt count zero with `attribute_not_exists`.
-Expected sanitized output is:
+The historical success output would be:
 
 ```text
 BROKER_STATUS: CLASSIFIED
@@ -132,8 +135,8 @@ NEXT_REQUIRED_CONTROL: INDEPENDENT_APPROVAL_REQUIRED
 AWS_CHANGE: exact GUG-215 broker invocation only
 ```
 
-The printed ledger digest is evidence for review, not authority outside the
-durable item.
+That output is not expected from the current CLI. Any future printed ledger
+digest would be evidence for review, not authority outside the durable item.
 
 ## Phase 3 — Independent review
 
@@ -152,11 +155,11 @@ confirm:
 The approver's identity-enhanced invocation of `retire` is the only accepted
 approval action; caller-supplied identity or approval data is rejected.
 
-## Phase 4 — Approver invokes the one-shot `retire` alias
+## Phase 4 — Historical approver command; currently blocked
 
-Use a fresh session whose STS identity is exactly
-`ScanalyzeGug215ApproverInvoker` and whose identity-enhanced context is bound to
-the reviewed approver UserId:
+The command below is retained only as historical GUG-215 interface
+documentation. Do not execute it. The current CLI must deny before the
+`ScanalyzeGug215ApproverInvoker` role or `retire` alias is reached:
 
 ```bash
 python3 scripts/deployment/platform-authority-change-set-retirement.py \
@@ -166,19 +169,19 @@ python3 scripts/deployment/platform-authority-change-set-retirement.py \
   --allow-retire-exact-change-set
 ```
 
-The broker:
+In a future separately reviewed compatible implementation, the broker would:
 
-1. verifies runtime, identity and ledger controls;
-2. requires `CLASSIFIED` version 1 or the exact resumable `APPROVED` version 2;
-3. revalidates the exact target;
-4. when starting from `CLASSIFIED`, writes `APPROVED` version 2 through CAS;
-5. writes `ATTEMPTED` version 3, attempt count one through CAS;
-6. revalidates the target again after the durable attempt claim;
-7. compares the retirement key and every target digest to the claimed ledger;
-8. may issue one `DeleteChangeSet` request by the final full Change Set ID and
+1. verify runtime, identity and ledger controls;
+2. require `CLASSIFIED` version 1 or the exact resumable `APPROVED` version 2;
+3. revalidate the exact target;
+4. when starting from `CLASSIFIED`, write `APPROVED` version 2 through CAS;
+5. write `ATTEMPTED` version 3, attempt count one through CAS;
+6. revalidate the target again after the durable attempt claim;
+7. compare the retirement key and every target digest to the claimed ledger;
+8. issue at most one `DeleteChangeSet` request by the final full Change Set ID and
    full Stack ID, with SDK retries disabled.
 
-Expected status is `RETIREMENT_ATTEMPTED` or
+Those future statuses could be `RETIREMENT_ATTEMPTED` or
 `RECONCILIATION_REQUIRED`. Both require reconciliation. Never wrap this command
 in a shell retry, CI retry, workflow retry, SDK retry or manual second-attempt
 procedure.
@@ -192,9 +195,11 @@ Re-invoking `broker-retire` while the ledger is `ATTEMPTED` cannot issue another
 delete; it returns reconciliation required. Treat every lost or malformed
 response as uncertain regardless of what the terminal displayed.
 
-## Phase 5 — Reconcile through the non-delete alias
+## Phase 5 — Historical reconciliation command; currently blocked
 
-Use the same reviewed approver invoker class and invoke only `reconcile`:
+The command below is retained only as historical GUG-215 interface
+documentation. Do not execute it. The current CLI must deny before the
+non-delete `reconcile` alias is reached:
 
 ```bash
 python3 scripts/deployment/platform-authority-change-set-retirement.py \
@@ -204,7 +209,8 @@ python3 scripts/deployment/platform-authority-change-set-retirement.py \
   --allow-broker-reconciliation
 ```
 
-This alias has no delete branch. It compares the current full Stack ID digest
+In a future separately reviewed compatible implementation, this alias would
+have no delete branch. It compares the current full Stack ID digest
 to the claimed ledger and uses that full ID for the complete resource and
 Change Set inventories. If the target remains present, it returns
 `RECONCILIATION_REQUIRED` without changing the ledger. A foreign or ambiguous
@@ -255,6 +261,8 @@ after an attempt, when any of these is true:
 - assignment/session revocation cannot be proved.
 - the identity-enhanced credential adapter is absent or its context cannot be
   read back;
+- the reviewed identity-context managed policy excludes the exact downstream
+  `lambda:InvokeFunction` action, or its version/digest cannot be proven;
 - any foreign identity or resource-based policy can invoke the broker;
 - invocation is asynchronous or wrapped in an automatic retry mechanism.
 

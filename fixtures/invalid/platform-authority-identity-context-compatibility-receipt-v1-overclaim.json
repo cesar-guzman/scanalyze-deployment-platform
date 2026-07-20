@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_identity_context_compatibility",
+  "environment": "non-production",
+  "production": false,
+  "managed_policy_arn": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext",
+  "managed_policy_version": "v12",
+  "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+  "required_action": "lambda:InvokeFunction",
+  "status": "BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED",
+  "token_issued": true,
+  "sts_session_issued": false,
+  "broker_invocation_performed": false,
+  "current_human_operator_count": 1,
+  "independent_approver_available": false,
+  "live_retirement_authorized": false,
+  "observed_at": "2030-01-01T00:00:00Z",
+  "receipt_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}

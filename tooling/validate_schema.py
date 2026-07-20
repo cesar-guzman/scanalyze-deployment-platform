@@ -52,6 +52,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-founder-pep-ledger": "platform-authority-founder-pep-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-revocation": "platform-authority-founder-pep-revocation.v{version}.schema.json",
         "platform-authority-founder-revocation": "platform-authority-founder-revocation.v{version}.schema.json",
+        "platform-authority-identity-context-compatibility-receipt": "platform-authority-identity-context-compatibility-receipt.v{version}.schema.json",
+        "platform-authority-identity-enhanced-binding": "platform-authority-identity-enhanced-binding.v{version}.schema.json",
+        "platform-authority-identity-enhanced-session-receipt": "platform-authority-identity-enhanced-session-receipt.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
         "release-deployment-projection": "release-deployment-projection.v{version}.schema.json",
         "release-trust-policy": "release-trust-policy.v{version}.schema.json",
@@ -331,6 +334,75 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
     return errors
 
 
+def _validate_gug216_binding(instance: dict) -> list[str]:
+    errors: list[str] = []
+    classifier = instance.get("classifier")
+    approver = instance.get("approver")
+    classifier_user = (
+        classifier.get("identity_store_user_id")
+        if isinstance(classifier, dict)
+        else None
+    )
+    approver_user = (
+        approver.get("identity_store_user_id")
+        if isinstance(approver, dict)
+        else None
+    )
+    if (
+        isinstance(classifier_user, str)
+        and isinstance(approver_user, str)
+        and classifier_user.lower() == approver_user.lower()
+    ):
+        errors.append("identity-enhanced binding requires two distinct UserIds")
+
+    authority_account = instance.get("authority_account_id")
+    management_account = instance.get("management_account_id")
+    if authority_account == management_account:
+        errors.append("authority and management accounts must remain distinct")
+    application = instance.get("identity_center_application_arn")
+    identity_store = instance.get("identity_store_arn")
+    identity_instance = instance.get("identity_center_instance_arn")
+    app_match = re.fullmatch(
+        r"arn:aws[a-z-]*:sso::([0-9]{12}):application/"
+        r"(ssoins-[A-Za-z0-9]{16})/(apl-[A-Za-z0-9]{16})",
+        application if isinstance(application, str) else "",
+    )
+    store_match = re.fullmatch(
+        r"arn:aws[a-z-]*:identitystore::([0-9]{12}):identitystore/d-[a-z0-9]{10,}",
+        identity_store if isinstance(identity_store, str) else "",
+    )
+    instance_match = re.fullmatch(
+        r"arn:aws[a-z-]*:sso:::instance/(ssoins-[A-Za-z0-9]{16})",
+        identity_instance if isinstance(identity_instance, str) else "",
+    )
+    if app_match and store_match and instance_match:
+        if app_match.group(1) != management_account or store_match.group(1) != management_account:
+            errors.append("application and identity store must bind the management account")
+        if app_match.group(2) != instance_match.group(1):
+            errors.append("application and instance identifiers must match")
+    for role in (classifier, approver):
+        if not isinstance(role, dict):
+            continue
+        for field in ("source_role_arn", "target_role_arn"):
+            role_arn = role.get(field)
+            role_match = re.fullmatch(
+                r"arn:aws[a-z-]*:iam::([0-9]{12}):role/.+",
+                role_arn if isinstance(role_arn, str) else "",
+            )
+            if role_match and role_match.group(1) != authority_account:
+                errors.append("retirement roles must bind the authority account")
+    return errors
+
+
+def _validate_gug216_receipt(instance: dict) -> list[str]:
+    without_digest = {
+        key: value for key, value in instance.items() if key != "receipt_digest"
+    }
+    if instance.get("receipt_digest") != _gug215_canonical_digest(without_digest):
+        return ["receipt_digest must cover the complete sanitized receipt"]
+    return []
+
+
 def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
 
@@ -469,6 +541,15 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
 
     if schema_name == "platform-authority-change-set-retirement-ledger.v1.schema.json":
         errors.extend(_validate_gug215_ledger(instance))
+
+    if schema_name == "platform-authority-identity-enhanced-binding.v1.schema.json":
+        errors.extend(_validate_gug216_binding(instance))
+
+    if schema_name in {
+        "platform-authority-identity-context-compatibility-receipt.v1.schema.json",
+        "platform-authority-identity-enhanced-session-receipt.v1.schema.json",
+    }:
+        errors.extend(_validate_gug216_receipt(instance))
 
     return errors
 

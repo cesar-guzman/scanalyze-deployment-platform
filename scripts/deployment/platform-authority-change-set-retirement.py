@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Invoke the AWS-enforced GUG-215 retained Change Set retirement PEP.
+"""Fail-closed client boundary for the GUG-215 retirement PEP.
 
-The human-facing client has no direct CloudFormation or DynamoDB mutation
-path. It invokes one immutable Lambda alias with an empty payload after
-verifying the exact identity-enhanced invoker role.
+GUG-216 proved that the STS-managed identity-context allowlist currently
+blocks ``lambda:InvokeFunction``. The historical AWS_PROFILE invocation path
+is therefore disabled. This file preserves the reviewed command surface but
+never exchanges tokens, assumes a role, or invokes Lambda.
 """
 from __future__ import annotations
 
@@ -13,9 +14,18 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tooling.platform_authority_identity_context_compatibility import (
+    COMPATIBLE_REVIEWED_ACTION,
+    bundled_compatibility_decision,
+)  # noqa: E402
 
 
 BROKER_FUNCTION_NAME = "scanalyze-platform-authority-gug215-retirement"
@@ -41,18 +51,6 @@ class AwsCliError(RuntimeError):
     """A sanitized AWS CLI read failed."""
 
 
-class AwsMutationUncertain(RuntimeError):
-    """A broker invocation did not return an attributable response."""
-
-
-def _partition(region: str) -> str:
-    if region.startswith("cn-"):
-        return "aws-cn"
-    if region.startswith("us-gov-"):
-        return "aws-us-gov"
-    return "aws"
-
-
 def _require_sso_environment() -> None:
     if any(os.environ.get(name) for name in FORBIDDEN_CREDENTIAL_ENV):
         raise RetirementAuthorizationError(
@@ -63,7 +61,7 @@ def _require_sso_environment() -> None:
 
 
 class AwsCli:
-    """Sanitized AWS CLI adapter for identity readback and broker invocation."""
+    """Sanitized AWS CLI adapter for read-only caller identity checks."""
 
     def __init__(self, *, region: str) -> None:
         if REGION.fullmatch(region) is None:
@@ -99,92 +97,6 @@ class AwsCli:
             raise AwsCliError("AWS read returned a non-object response")
         return value
 
-    def invoke_broker_once(self, *, alias: str) -> dict[str, Any]:
-        if alias not in BROKER_ALIASES:
-            raise RetirementAuthorizationError("broker alias is not authorized")
-        invocation_env = os.environ.copy()
-        invocation_env.update({"AWS_MAX_ATTEMPTS": "1", "AWS_RETRY_MODE": "standard"})
-        descriptor, output_name = tempfile.mkstemp(prefix="gug215-broker-", suffix=".json")
-        os.close(descriptor)
-        output_path = Path(output_name)
-        output_path.chmod(0o600)
-        try:
-            completed = subprocess.run(
-                self._command(
-                    "lambda",
-                    "invoke",
-                    "--function-name",
-                    f"{BROKER_FUNCTION_NAME}:{alias}",
-                    "--invocation-type",
-                    "RequestResponse",
-                    "--cli-binary-format",
-                    "raw-in-base64-out",
-                    "--payload",
-                    "{}",
-                    str(output_path),
-                ),
-                check=False,
-                capture_output=True,
-                text=True,
-                env=invocation_env,
-            )
-            if completed.returncode != 0:
-                raise AwsMutationUncertain("broker invocation response is ambiguous")
-            metadata = json.loads(completed.stdout or "{}")
-            response = json.loads(output_path.read_text(encoding="utf-8") or "{}")
-            allowed_response_keys = {
-                "status",
-                "reason_code",
-                "ledger_digest",
-                "next_required_control",
-            }
-            if (
-                not isinstance(metadata, dict)
-                or metadata.get("StatusCode") != 200
-                or metadata.get("FunctionError") is not None
-                or not isinstance(response, dict)
-                or set(response) - allowed_response_keys
-            ):
-                raise AwsMutationUncertain("broker invocation response is ambiguous")
-            return response
-        except json.JSONDecodeError as exc:
-            raise AwsMutationUncertain("broker invocation response is ambiguous") from exc
-        finally:
-            output_path.unlink(missing_ok=True)
-
-
-def _broker_identity(
-    client: AwsCli,
-    *,
-    authority_account_id: str,
-    region: str,
-    alias: str,
-) -> None:
-    if ACCOUNT_ID.fullmatch(authority_account_id) is None:
-        raise RetirementAuthorizationError("authority account ID is malformed")
-    expected_role = (
-        "ScanalyzeGug215ClassifierInvoker"
-        if alias == "classify"
-        else "ScanalyzeGug215ApproverInvoker"
-    )
-    response = client.get_caller_identity()
-    arn = response.get("Arn")
-    account = response.get("Account")
-    pattern = re.compile(
-        rf"^arn:{re.escape(_partition(region))}:sts::"
-        rf"{re.escape(authority_account_id)}:assumed-role/"
-        rf"{re.escape(expected_role)}/[A-Za-z0-9+=,.@_-]{{2,64}}$"
-    )
-    if (
-        account != authority_account_id
-        or not isinstance(arn, str)
-        or pattern.fullmatch(arn) is None
-    ):
-        raise RetirementAuthorizationError(
-            "caller does not use the exact identity-enhanced broker invocation role"
-        )
-
-
 def _cmd_broker(args: argparse.Namespace) -> None:
     alias = str(args.broker_alias)
     if alias == "classify" and not args.allow_broker_classification:
@@ -199,27 +111,10 @@ def _cmd_broker(args: argparse.Namespace) -> None:
         raise RetirementAuthorizationError(
             "reconciliation requires --allow-broker-reconciliation"
         )
-    _require_sso_environment()
-    client = AwsCli(region=args.region)
-    _broker_identity(
-        client,
-        authority_account_id=args.authority_account_id,
-        region=args.region,
-        alias=alias,
-    )
-    response = client.invoke_broker_once(alias=alias)
-    status = response.get("status")
-    if status == "DENY":
-        reason = response.get("reason_code", "BROKER_DENIED")
-        raise RetirementAuthorizationError(f"broker denied the request: {reason}")
-    if not isinstance(status, str):
-        raise RetirementAuthorizationError("broker response is incomplete")
-    print(f"BROKER_STATUS: {status}")
-    if isinstance(response.get("ledger_digest"), str):
-        print(f"LEDGER_DIGEST: {response['ledger_digest']}")
-    if isinstance(response.get("next_required_control"), str):
-        print(f"NEXT_REQUIRED_CONTROL: {response['next_required_control']}")
-    print("AWS_CHANGE: exact GUG-215 broker invocation only")
+    decision = bundled_compatibility_decision()
+    if decision.status != COMPATIBLE_REVIEWED_ACTION:
+        raise RetirementAuthorizationError(decision.status)
+    raise RetirementAuthorizationError("IDENTITY_ENHANCED_LIVE_ENTRYPOINT_NOT_REVIEWED")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -247,7 +142,7 @@ def main() -> int:
     args = _parser().parse_args()
     try:
         args.handler(args)
-    except (RetirementAuthorizationError, AwsCliError, AwsMutationUncertain) as exc:
+    except (RetirementAuthorizationError, AwsCliError) as exc:
         print(f"DENY: {exc}", file=sys.stderr)
         return 1
     return 0
