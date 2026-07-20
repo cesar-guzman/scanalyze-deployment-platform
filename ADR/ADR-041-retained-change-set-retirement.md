@@ -4,6 +4,7 @@
 - **Date:** 2026-07-19
 - **Work package:** GUG-215
 - **Amends:** ADR-034 and ADR-040
+- **Amended by:** ADR-042 / GUG-216
 - **Production:** **NO-GO**
 
 ## Context
@@ -80,10 +81,25 @@ immutable UserIds, permission-set assignments, provisioning and
 identity-enhanced sessions are reviewed and read back.
 
 An ordinary IAM Identity Center `AWS_PROFILE` does not create the required
-identity context. The repository does not yet implement the safe
-`CreateTokenWithIAM` plus STS `ProvidedContexts` credential adapter. The
-documented broker commands remain non-live interfaces until that separate
-prerequisite is implemented, reviewed and validated.
+identity context. ADR-042 / GUG-216 implements an offline, capability-bound
+`CreateTokenWithIAM` plus STS `ProvidedContexts` adapter contract and a
+compatibility guard. It does not expose a live browser or SDK entrypoint.
+
+That guard also proves a stricter downstream blocker: AWS STS automatically
+attaches `AWSIAMIdentityCenterAllowListForIdentityContext` to identity-enhanced
+sessions. The reviewed default `v12` document is an explicit `Deny` with a
+`NotAction` allowlist that does not contain `lambda:InvokeFunction`. The current
+GUG-215 invoker session therefore cannot call the broker Lambda, and a local
+role allow cannot override the managed explicit deny. The documented broker
+commands remain non-live interfaces until a newly reviewed AWS policy supports
+the exact action or a separate ADR establishes an equally strong compatible
+PEP.
+
+GUG-216 also records that César is the only current human operator. Repository
+implementation and read-only inventory do not satisfy this ADR's independent
+approval requirement. Live use still requires two different actual people and
+two different immutable Identity Store UserIds; placeholders, two profiles for
+one person and the founder bootstrap exception are not accepted.
 
 ### 3. Broker code and effective authority are deployment-bound
 
@@ -246,6 +262,11 @@ readback and durable ledger are the authority boundary.
 - A lost response cannot trigger a second delete request.
 - Deployment and Identity Center provisioning become explicit prerequisites;
   repository implementation alone cannot authorize live invocation.
+- The GUG-216 adapter closes the repository modeling gap but intentionally
+  stops before OAuth or STS while the reviewed managed policy excludes the
+  exact Lambda action.
+- A sole current operator does not weaken the two-person classifier/approver
+  invariant.
 - Account-level PAB and role/session revocation remain separate recovery gates.
 
 ## Alternatives rejected
@@ -258,6 +279,12 @@ readback and durable ledger are the authority boundary.
   authority or prevent later drift.
 - **Caller-supplied target or action:** request data cannot establish
   authorization.
+- **Omit `ProvidedContexts` or use ordinary SSO credentials:** that would remove
+  the immutable UserId boundary required by this ADR.
+- **Broaden IAM or add a Lambda resource policy:** an allow cannot override the
+  STS-managed explicit deny and would add a bypass path.
+- **Let one operator use two profiles:** profile/session separation is not
+  independent human approval.
 - **Invoke `$LATEST` or an unqualified function:** mutable code cannot anchor a
   one-shot control.
 - **Use IAM alone for the ledger:** a resource-policy deny is required to
@@ -289,6 +316,17 @@ reviewed bootstrap Plan.
 | Live inventory | Sanitized read-only observation only |
 | Live broker deployment | **Not performed** |
 | Live broker invocation | **Not performed** |
-| Live retirement | **Blocked** pending reviewed deployment, two independent immutable Identity Store users, assignments, provisioning, account-wide invoke inventory and exact readback |
-| Identity-enhanced credential adapter | **Blocked**; normal SSO profiles are not sufficient |
+| Live retirement | **Blocked** pending reviewed deployment, two independent human operators with different immutable Identity Store UserIds, assignments, provisioning, downstream action compatibility, account-wide invoke inventory and exact readback |
+| Identity-enhanced credential adapter | Offline adapter and compatibility guard implemented by ADR-042; no live entrypoint and normal SSO profiles remain insufficient |
+| Identity-context downstream compatibility | **Blocked**; reviewed managed-policy `v12` excludes `lambda:InvokeFunction` |
 | Production | **NO-GO** |
+
+## GUG-216 reference
+
+See
+[`ADR-042`](ADR-042-identity-enhanced-operator-session-compatibility.md), the
+[deployment reference](../docs/deployment/platform-authority-identity-enhanced-session.md)
+and the
+[operator runbook](../docs/operations/platform-authority-identity-enhanced-session.md)
+for the adapter, managed-policy compatibility guard, one-operator limitation
+and current live stop conditions.

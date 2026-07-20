@@ -773,11 +773,20 @@ def test_human_permission_sets_have_no_delete_or_ledger_write_allow() -> None:
             actions = statement["Action"]
             actions = [actions] if isinstance(actions, str) else actions
             (allows if statement["Effect"] == "Allow" else denies).update(actions)
-        assert allows == {"sts:AssumeRole", "sts:SetContext"}
+        assert allows == {
+            "sso-oauth:CreateTokenWithIAM",
+            "sts:AssumeRole",
+            "sts:SetContext",
+        }
         assert "cloudformation:DeleteChangeSet" in denies
         assert "dynamodb:PutItem" in denies
         assert "dynamodb:UpdateItem" in denies
-        assert expected_role in policy["Statement"][0]["Resource"]
+        assume_statement = next(
+            statement
+            for statement in policy["Statement"]
+            if statement["Sid"].startswith("AssumeExactIdentityEnhanced")
+        )
+        assert expected_role in assume_statement["Resource"]
 
 
 def test_normal_plan_cannot_delete_or_write_retirement_ledger() -> None:
