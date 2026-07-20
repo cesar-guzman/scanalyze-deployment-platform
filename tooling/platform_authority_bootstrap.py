@@ -166,6 +166,7 @@ def _validate_change_set_iam_boundary(
         "cloudformation:ValidateTemplate",
     }
     list_change_sets_action = "cloudformation:ListChangeSets"
+    get_template_action = "cloudformation:GetTemplate"
     protected = {
         "cloudformation:CreateChangeSet",
         "cloudformation:DeleteChangeSet",
@@ -174,6 +175,7 @@ def _validate_change_set_iam_boundary(
     all_cloudformation_actions: set[str] = set()
     by_action: dict[str, Mapping[str, Any]] = {}
     list_change_sets_statement: Mapping[str, Any] | None = None
+    get_template_statement: Mapping[str, Any] | None = None
     for raw_statement in statements:
         if not isinstance(raw_statement, Mapping) or raw_statement.get("Effect") != "Allow":
             continue
@@ -200,6 +202,20 @@ def _validate_change_set_iam_boundary(
                     "ListChangeSets must not contain an unsupported condition"
                 )
             list_change_sets_statement = raw_statement
+        if get_template_action in actions:
+            if actions != {get_template_action} or get_template_statement is not None:
+                raise BootstrapAuthorizationError(
+                    "GetTemplate must use one exact statement"
+                )
+            if raw_statement.get("Resource") != stack_arn:
+                raise BootstrapAuthorizationError(
+                    "GetTemplate must authorize the exact stack resource"
+                )
+            if "Condition" in raw_statement:
+                raise BootstrapAuthorizationError(
+                    "GetTemplate must not contain an unsupported condition"
+                )
+            get_template_statement = raw_statement
         for action in protected & actions:
             if actions != {action} or action in by_action:
                 raise BootstrapAuthorizationError(
@@ -212,13 +228,18 @@ def _validate_change_set_iam_boundary(
             by_action[action] = raw_statement
 
     present = set(by_action)
-    if present == {"cloudformation:CreateChangeSet", "cloudformation:DeleteChangeSet"}:
+    if present == {"cloudformation:CreateChangeSet"}:
         if list_change_sets_statement is None:
             raise BootstrapAuthorizationError(
                 "Plan authority must list Change Sets on the exact stack"
             )
+        if get_template_statement is None:
+            raise BootstrapAuthorizationError(
+                "Plan authority must read the original template on the exact stack"
+            )
         expected_cloudformation_actions = read_actions | present | {
             list_change_sets_action,
+            get_template_action,
             "cloudformation:TagResource"
         }
         expected_tags = {
@@ -238,13 +259,6 @@ def _validate_change_set_iam_boundary(
         if by_action["cloudformation:CreateChangeSet"].get("Condition") != create_condition:
             raise BootstrapAuthorizationError(
                 "CreateChangeSet is not bound to the exact name and request tags"
-            )
-        if (
-            by_action["cloudformation:DeleteChangeSet"].get("Condition")
-            != expected_name_condition
-        ):
-            raise BootstrapAuthorizationError(
-                "DeleteChangeSet is not bound to the exact Change Set name"
             )
         tag_statements = [
             statement
@@ -279,9 +293,9 @@ def _validate_change_set_iam_boundary(
                 "Change Set tag authorization is not exact and create-bound"
             )
     elif present == {"cloudformation:ExecuteChangeSet"}:
-        if list_change_sets_statement is not None:
+        if list_change_sets_statement is not None or get_template_statement is not None:
             raise BootstrapAuthorizationError(
-                "Apply authority must not add Change Set inventory scope"
+                "Apply authority must not add Plan-only recovery read scope"
             )
         expected_cloudformation_actions = read_actions | present
         if (
@@ -298,6 +312,50 @@ def _validate_change_set_iam_boundary(
     if all_cloudformation_actions != expected_cloudformation_actions:
         raise BootstrapAuthorizationError(
             "rendered policy contains unexpected CloudFormation authorization"
+        )
+
+    dynamodb_statements = [
+        statement
+        for statement in statements
+        if isinstance(statement, Mapping)
+        and any(
+            action.startswith("dynamodb:")
+            for action in _statement_actions(statement)
+        )
+    ]
+    if present == {"cloudformation:ExecuteChangeSet"}:
+        if dynamodb_statements:
+            raise BootstrapAuthorizationError(
+                "Apply authority must not access the recovery retirement ledger"
+            )
+        return
+
+    if len(dynamodb_statements) != 1:
+        raise BootstrapAuthorizationError(
+            "Plan must not receive retirement ledger authority"
+        )
+    deny = dynamodb_statements[0]
+    expected_denies = {
+        "cloudformation:DeleteChangeSet",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:PutItem",
+        "dynamodb:Scan",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem",
+    }
+    if (
+        deny.get("Sid") != "DenyDirectRetirementEffects"
+        or deny.get("Effect") != "Deny"
+        or _statement_actions(deny) != expected_denies
+        or deny.get("Resource") != "*"
+        or "Condition" in deny
+    ):
+        raise BootstrapAuthorizationError(
+            "Plan direct-retirement explicit-deny boundary is not exact"
         )
 
 

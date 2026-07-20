@@ -43,6 +43,13 @@ evidence.
 - `../operations/platform-authority-bootstrap-recovery.md`: uncertain-result,
   rollback-failure, retained-resource, GUG-214 exact-shell/Change Set preflight,
   and decommission recovery boundary.
+- `platform-authority-change-set-retirement.md`: GUG-215 version-pinned Lambda
+  PEP, two identity-enhanced immutable Identity Store users, invoke-only human
+  roles, resource-policy-protected CAS ledger, exact one-shot delete,
+  uncertainty reconciliation and live-execution boundary.
+- `../operations/platform-authority-retained-change-set-retirement.md`: exact
+  broker deployment readback, independent invocation, no-retry, revocation and
+  recovery-readiness runbook.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -189,3 +196,11 @@ For GUG-214, ingest only
 Do not ingest account/principal identifiers, permission-set assignments,
 stack IDs, Change Set names/ARNs, resource inventories, raw policies, AWS
 responses, audit exports, logs, screenshots or live evidence.
+
+For GUG-215, ingest only
+`../../_NotebookLM_Brain/30_GUG215_Retained_Change_Set_Retirement.md`.
+Do not ingest account/principal identifiers, Identity Store UserIds,
+permission-set assignments, identity-enhanced context, invoker or execution
+role ARNs, broker artifact/signing locators, live policies, ledger
+items/digests, stack IDs, Change Set names/ARNs/UUIDs, templates, resource
+inventories, AWS responses, audit exports, logs, screenshots or live evidence.

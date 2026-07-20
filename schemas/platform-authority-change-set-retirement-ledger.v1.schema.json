@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-change-set-retirement-ledger.v1.schema.json",
+  "title": "Platform Authority Change Set Retirement PEP Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "authority_account_id_digest",
+    "region",
+    "stack_name",
+    "retirement_id",
+    "stack_id_digest",
+    "change_set_id_digest",
+    "change_set_name_digest",
+    "template_sha256",
+    "resource_inventory_sha256",
+    "identity_binding_digest",
+    "identity_store_arn_digest",
+    "identity_center_instance_arn_digest",
+    "identity_center_application_arn_digest",
+    "classifier_identity_store_user_id_digest",
+    "approver_identity_store_user_id_digest",
+    "classifier_assignment_sha256",
+    "approver_assignment_sha256",
+    "classifier_invoker_policy_sha256",
+    "approver_invoker_policy_sha256",
+    "broker_code_sha256",
+    "broker_policy_sha256",
+    "identity_separation",
+    "state",
+    "version",
+    "attempt_count",
+    "approval_digest",
+    "attempt_digest",
+    "verification_digest",
+    "classified_at",
+    "approved_at",
+    "attempted_at",
+    "verified_at",
+    "effect_attribution",
+    "next_required_control",
+    "updated_at",
+    "ledger_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_change_set_retirement_pep_ledger"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "region": { "$ref": "#/$defs/region" },
+    "stack_name": { "const": "scanalyze-platform-authority-state-backend" },
+    "retirement_id": {
+      "type": "string",
+      "pattern": "^gug215#sha256:[a-f0-9]{64}$"
+    },
+    "stack_id_digest": { "$ref": "#/$defs/digest" },
+    "change_set_id_digest": { "$ref": "#/$defs/digest" },
+    "change_set_name_digest": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "resource_inventory_sha256": { "$ref": "#/$defs/digest" },
+    "identity_binding_digest": { "$ref": "#/$defs/digest" },
+    "identity_store_arn_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_instance_arn_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_application_arn_digest": { "$ref": "#/$defs/digest" },
+    "classifier_identity_store_user_id_digest": { "$ref": "#/$defs/digest" },
+    "approver_identity_store_user_id_digest": { "$ref": "#/$defs/digest" },
+    "classifier_assignment_sha256": { "$ref": "#/$defs/digest" },
+    "approver_assignment_sha256": { "$ref": "#/$defs/digest" },
+    "classifier_invoker_policy_sha256": { "$ref": "#/$defs/digest" },
+    "approver_invoker_policy_sha256": { "$ref": "#/$defs/digest" },
+    "broker_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "broker_policy_sha256": { "$ref": "#/$defs/digest" },
+    "identity_separation": {
+      "const": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+    },
+    "state": {
+      "enum": ["CLASSIFIED", "APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"]
+    },
+    "version": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "attempt_count": { "type": "integer", "minimum": 0, "maximum": 1 },
+    "approval_digest": { "$ref": "#/$defs/nullable_digest" },
+    "attempt_digest": { "$ref": "#/$defs/nullable_digest" },
+    "verification_digest": { "$ref": "#/$defs/nullable_digest" },
+    "classified_at": { "$ref": "#/$defs/timestamp" },
+    "approved_at": { "$ref": "#/$defs/nullable_timestamp" },
+    "attempted_at": { "$ref": "#/$defs/nullable_timestamp" },
+    "verified_at": { "$ref": "#/$defs/nullable_timestamp" },
+    "effect_attribution": {
+      "type": ["string", "null"],
+      "enum": [null, "UNPROVEN"]
+    },
+    "next_required_control": {
+      "enum": [
+        "INDEPENDENT_APPROVAL_REQUIRED",
+        "ONE_SHOT_ATTEMPT_REQUIRED",
+        "READ_ONLY_RECONCILIATION_REQUIRED",
+        "RETIREMENT_ROLE_REVOCATION_REQUIRED",
+        "PAB_AND_REVOCATION_REQUIRED"
+      ]
+    },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "ledger_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "CLASSIFIED" } } },
+      "then": {
+        "properties": {
+          "version": { "const": 1 },
+          "attempt_count": { "const": 0 },
+          "approval_digest": { "type": "null" },
+          "attempt_digest": { "type": "null" },
+          "verification_digest": { "type": "null" },
+          "approved_at": { "type": "null" },
+          "attempted_at": { "type": "null" },
+          "verified_at": { "type": "null" },
+          "effect_attribution": { "type": "null" },
+          "next_required_control": { "const": "INDEPENDENT_APPROVAL_REQUIRED" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "APPROVED" } } },
+      "then": {
+        "properties": {
+          "version": { "const": 2 },
+          "attempt_count": { "const": 0 },
+          "approval_digest": { "$ref": "#/$defs/digest" },
+          "attempt_digest": { "type": "null" },
+          "verification_digest": { "type": "null" },
+          "approved_at": { "$ref": "#/$defs/timestamp" },
+          "attempted_at": { "type": "null" },
+          "verified_at": { "type": "null" },
+          "effect_attribution": { "type": "null" },
+          "next_required_control": { "const": "ONE_SHOT_ATTEMPT_REQUIRED" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "ATTEMPTED" } } },
+      "then": {
+        "properties": {
+          "version": { "const": 3 },
+          "attempt_count": { "const": 1 },
+          "approval_digest": { "$ref": "#/$defs/digest" },
+          "attempt_digest": { "$ref": "#/$defs/digest" },
+          "verification_digest": { "type": "null" },
+          "approved_at": { "$ref": "#/$defs/timestamp" },
+          "attempted_at": { "$ref": "#/$defs/timestamp" },
+          "verified_at": { "type": "null" },
+          "effect_attribution": { "type": "null" },
+          "next_required_control": {
+            "const": "READ_ONLY_RECONCILIATION_REQUIRED"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "RETIRED_RECONCILED" } }
+      },
+      "then": {
+        "properties": {
+          "version": { "const": 4 },
+          "attempt_count": { "const": 1 },
+          "approval_digest": { "$ref": "#/$defs/digest" },
+          "attempt_digest": { "$ref": "#/$defs/digest" },
+          "verification_digest": { "$ref": "#/$defs/digest" },
+          "approved_at": { "$ref": "#/$defs/timestamp" },
+          "attempted_at": { "$ref": "#/$defs/timestamp" },
+          "verified_at": { "$ref": "#/$defs/timestamp" },
+          "effect_attribution": { "const": "UNPROVEN" },
+          "next_required_control": {
+            "enum": [
+              "RETIREMENT_ROLE_REVOCATION_REQUIRED",
+              "PAB_AND_REVOCATION_REQUIRED"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "nullable_digest": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }]
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "nullable_timestamp": {
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }]
+    }
+  }
+}

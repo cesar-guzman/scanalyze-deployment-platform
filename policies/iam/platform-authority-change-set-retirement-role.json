@@ -1,0 +1,33 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeExactIdentityEnhancedApproverInvoker",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetContext"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug215ApproverInvoker"
+    },
+    {
+      "Sid": "DenyDirectRetirementEffects",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DeleteStack",
+        "cloudformation:ExecuteChangeSet",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:PutItem",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem",
+        "lambda:InvokeAsync"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

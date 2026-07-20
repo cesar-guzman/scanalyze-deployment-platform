@@ -21,6 +21,12 @@
       "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*"
     },
     {
+      "Sid": "ReadOnlyExactBootstrapOriginalTemplate",
+      "Effect": "Allow",
+      "Action": "cloudformation:GetTemplate",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*"
+    },
+    {
       "Sid": "CreateOnlyExactBootstrapChangeSet",
       "Effect": "Allow",
       "Action": "cloudformation:CreateChangeSet",
@@ -38,17 +44,6 @@
             "service",
             "work_package"
           ]
-        }
-      }
-    },
-    {
-      "Sid": "DeleteOnlyExactBootstrapChangeSet",
-      "Effect": "Allow",
-      "Action": "cloudformation:DeleteChangeSet",
-      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
-      "Condition": {
-        "StringEquals": {
-          "cloudformation:ChangeSetName": "${change_set_name}"
         }
       }
     },
@@ -80,6 +75,23 @@
       "Sid": "ReadAccountPublicAccessBlock",
       "Effect": "Allow",
       "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDirectRetirementEffects",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DeleteChangeSet",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:PutItem",
+        "dynamodb:Scan",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem"
+      ],
       "Resource": "*"
     }
   ]

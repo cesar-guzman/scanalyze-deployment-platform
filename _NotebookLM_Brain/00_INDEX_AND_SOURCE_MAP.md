@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-16
+> **Última revisión editorial:** 2026-07-19
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -81,8 +81,9 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se maneja una excepción de founder con un solo operador sin degradar la aprobación independiente normal? | [ADR-037](../ADR/ADR-037-founder-bootstrap-single-operator-exception.md), [runbook de excepción](../docs/operations/founder-bootstrap-single-operator-exception.md), [delta de threat model GUG-209](../docs/security/gug-209-founder-bootstrap-exception-threat-model-delta.md) y [fuente sanitizada GUG-209](26_GUG209_Founder_Bootstrap_Exception.md) |
 | ¿Cómo se impide durablemente repetir el seed founder y cómo se prueba el backend antes de éxito? | [ADR-039](../ADR/ADR-039-durable-founder-bootstrap-pep.md), [referencia GUG-211](../docs/deployment/durable-founder-bootstrap-pep.md), [runbook PEP](../docs/operations/durable-founder-bootstrap-pep.md), [delta de threat model](../docs/security/gug-211-durable-founder-bootstrap-pep-threat-model-delta.md) y [fuente sanitizada GUG-211](28_GUG211_Durable_Founder_Bootstrap_PEP.md) |
 | ¿Cómo se recupera un shell de autoridad sin inferir recursos ni omitir Change Sets? | [ADR-040](../ADR/ADR-040-authority-recovery-preflight.md), [runbook de recuperación](../docs/operations/platform-authority-bootstrap-recovery.md), [delta GUG-214](../docs/security/gug-214-authority-recovery-preflight-threat-model-delta.md) y [fuente sanitizada GUG-214](29_GUG214_Authority_Recovery_Preflight.md) |
+| ¿Cómo se retira exactamente un Change Set retenido cuando falta la evidencia Plan original? | [ADR-041](../ADR/ADR-041-retained-change-set-retirement.md), [contrato GUG-215](../docs/deployment/platform-authority-change-set-retirement.md), [runbook de retiro](../docs/operations/platform-authority-retained-change-set-retirement.md), [delta GUG-215](../docs/security/gug-215-retained-change-set-retirement-threat-model-delta.md) y [fuente sanitizada GUG-215](30_GUG215_Retained_Change_Set_Retirement.md) |
 
-## Estado de evidencia al 2026-07-17
+## Estado de evidencia al 2026-07-19
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -114,6 +115,7 @@ Cuando dos documentos difieran, usar este orden:
 | PEP durable founder GUG-211 | **Implemented** sólo cuando el commit revisado contiene seed Organizations/StackSets exacto, ledger DynamoDB protegido, intent/ledger tipados, CAS antes de efectos, políticas Plan/Apply disjuntas, readback S3/KMS completo, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | No es evidencia live ni autorización AWS. Seed, Identity Center, Plan, Apply, revocación, GUG-206, GUG-125, aislamiento de dos deployments y producción siguen **Blocked / NO-GO** hasta su evidencia separada. |
 | Reparación de lectura de tags founder GUG-213 | **Implemented** sólo cuando el commit revisado separa `ListTagsForResource` en el ARN family S3 exacto y conserva reads posteriores tag-gated; **Locally validated** sólo con gates nombrados | El intento live creó la política exacta con cero targets y falló cerrado antes de StackSets/ledger. No se permite retry hasta CI, merge, main verification y reconciliación del permission set; producción sigue **NO-GO**. |
 | Preflight de recuperación de autoridad GUG-214 | **Implemented** sólo cuando el commit revisado contiene `preflight-recovery`, `ListChangeSets` exact-stack paginado, doble inventario founder, reads exactos de tabla/PITR, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | ReadOnly es evidencia independiente, no autoridad. PAB ausente, Change Set activo/ambiguo o recurso inferido bloquean. La validación live requiere policy provisionada y rol Plan exacto; producción sigue **NO-GO**. |
+| Retiro exacto de Change Set retenido GUG-215 | **Implemented** sólo cuando el commit revisado contiene Lambda PEP versionada, aliases `classify`/`retire`/`reconcile`, dos Identity Store UserIds inmutables distintos, roles humanos invoke-only, ledger DynamoDB con resource policy y `CLASSIFIED -> APPROVED -> ATTEMPTED -> RETIRED_RECONCILED`, PEP target por UUID/contenido, un solo delete sin retry, CLI broker-only, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | La inspección sanitizada observó un shell `REVIEW_IN_PROGRESS`, cero recursos y un Change Set `CREATE_COMPLETE` / `AVAILABLE` con cuatro cambios esperados. El broker/ledger y los bindings identity-enhanced de dos operadores independientes no fueron desplegados ni invocados. Clasificación y retiro live permanecen **Blocked**; ningún delete live fue ejecutado, CI está pendiente y producción sigue **NO-GO**. |
 
 ## Inventario del Brain
 
@@ -146,6 +148,7 @@ Cuando dos documentos difieran, usar este orden:
 | [27 — GUG-210 Change Set IAM Binding](27_GUG210_ChangeSet_IAM_Binding.md) | Stack ARN, condición ChangeSetName, tags de creación, verificación PEP y límites live |
 | [28 — GUG-211 Durable Founder Bootstrap PEP](28_GUG211_Durable_Founder_Bootstrap_PEP.md) | Seed exacto, ledger CAS durable, Plan/Apply de un intento, incertidumbre terminal, readback de backend, revocación y límites live |
 | [29 — GUG-214 Authority Recovery Preflight](29_GUG214_Authority_Recovery_Preflight.md) | Shell exacto, inventario paginado de Change Sets, PAB fail-closed, tabla/PITR exactos y límites live |
+| [30 — GUG-215 Retained Change Set Retirement](30_GUG215_Retained_Change_Set_Retirement.md) | Inspección target read-only, ledger CAS durable, identidad temporal exacta, policy digest, PEP por UUID, un delete sin retry, separación SSO honesta, reconciliación y límites live |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -193,6 +196,11 @@ Cuando dos documentos difieran, usar este orden:
     del Environment, o de nombres, inputs, variables, defaults o wildcards?
 22. ¿Apply descargó la versión exacta aprobada, revalidó state/contratos/release,
     consumió un solo intento y obtuvo health, o intenta re-planear/reintentar?
+23. ¿Un Change Set retenido sin receipt Plan original usa la Lambda PEP
+    versionada GUG-215, dos UserIds inmutables distintos, roles humanos
+    invoke-only, aliases calificados, ledger con resource policy y PEP por UUID,
+    o intenta reconstruir el Plan, mutar directamente, borrar el stack o
+    reintentar?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.
