@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_identity_context_proof_receipt",
+  "environment": "non-production",
+  "production": false,
+  "status": "IDENTITY_CONTEXT_PROOF_VERIFIED",
+  "binding_digest": "sha256:0101010101010101010101010101010101010101010101010101010101010101",
+  "managed_policy_version": "v12",
+  "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+  "required_action": "sts:SetContext",
+  "role_kind": "classifier",
+  "broker_alias": "retire",
+  "expected_user_id_digest": "sha256:0202020202020202020202020202020202020202020202020202020202020202",
+  "peer_user_id_digest": "sha256:0303030303030303030303030303030303030303030303030303030303030303",
+  "proof_role_arn_digest": "sha256:0404040404040404040404040404040404040404040404040404040404040404",
+  "proof_session_arn_digest": "sha256:0505050505050505050505050505050505050505050505050505050505050505",
+  "proof_expires_at": "2030-01-01T00:15:00Z",
+  "credentials_consumed": false,
+  "live_retirement_authorized": false,
+  "receipt_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}

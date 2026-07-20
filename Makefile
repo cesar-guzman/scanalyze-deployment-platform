@@ -425,9 +425,9 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-216, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-217, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
@@ -436,7 +436,9 @@ platform-authority-bootstrap-check:
 		$(TESTS_DIR)/test_deployment/test_gug214_authority_recovery_preflight.py \
 		$(TESTS_DIR)/test_deployment/test_gug215_retained_change_set_retirement.py \
 		$(TESTS_DIR)/test_deployment/test_gug216_identity_context_compatibility.py \
-		$(TESTS_DIR)/test_deployment/test_gug216_identity_enhanced_session.py
+		$(TESTS_DIR)/test_deployment/test_gug216_identity_enhanced_session.py \
+		$(TESTS_DIR)/test_deployment/test_gug217_identity_context_compatible_pep.py \
+		$(TESTS_DIR)/test_deployment/test_gug217_identity_context_pep_contracts.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \
 		--fixtures-dir $(FIXTURES_DIR) \
@@ -446,10 +448,12 @@ platform-authority-bootstrap-check:
 	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py compatibility-check
+	@$(PYTHON) scripts/deployment/platform-authority-identity-context-pep.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-identity-context-pep.py compatibility-check
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -865,11 +869,14 @@ docs-check: phase0-docs-check
 			ADR/ADR-039-durable-founder-bootstrap-pep.md \
 			ADR/ADR-041-retained-change-set-retirement.md \
 			ADR/ADR-042-identity-enhanced-operator-session-compatibility.md \
+			ADR/ADR-043-identity-context-compatible-retirement-pep.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
 			docs/deployment/platform-authority-account-bootstrap.md \
 			docs/deployment/durable-founder-bootstrap-pep.md \
+			docs/deployment/platform-authority-change-set-retirement.md \
+			docs/deployment/platform-authority-identity-context-pep.md \
 			docs/deployment/platform-authority-identity-enhanced-session.md \
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
@@ -880,11 +887,14 @@ docs-check: phase0-docs-check
 			docs/operations/nonproduction-live-engine-reconciliation.md \
 			docs/operations/platform-authority-bootstrap-recovery.md \
 			docs/operations/durable-founder-bootstrap-pep.md \
+			docs/operations/platform-authority-identity-context-pep.md \
+			docs/operations/platform-authority-retained-change-set-retirement.md \
 			docs/operations/platform-authority-identity-enhanced-session.md \
 			docs/security/gug-125-threat-model-delta.md \
 			docs/security/gug-206-threat-model-delta.md \
 			docs/security/gug-211-durable-founder-bootstrap-pep-threat-model-delta.md \
 			docs/security/gug-216-identity-enhanced-session-threat-model-delta.md \
+			docs/security/gug-217-identity-context-pep-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -896,6 +906,7 @@ docs-check: phase0-docs-check
 			_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md \
 			_NotebookLM_Brain/28_GUG211_Durable_Founder_Bootstrap_PEP.md \
 			_NotebookLM_Brain/31_GUG216_Identity_Enhanced_Operator_Session.md \
+			_NotebookLM_Brain/32_GUG217_Identity_Context_Compatible_Retirement_PEP.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-identity-context-proof-receipt.v1.schema.json",
+  "title": "Platform Authority Identity-Context Proof Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "status",
+    "binding_digest",
+    "managed_policy_version",
+    "managed_policy_digest",
+    "required_action",
+    "role_kind",
+    "broker_alias",
+    "expected_user_id_digest",
+    "peer_user_id_digest",
+    "proof_role_arn_digest",
+    "proof_session_arn_digest",
+    "proof_expires_at",
+    "credentials_consumed",
+    "live_retirement_authorized",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_identity_context_proof_receipt"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "status": { "const": "IDENTITY_CONTEXT_PROOF_VERIFIED" },
+    "binding_digest": { "$ref": "#/$defs/digest" },
+    "managed_policy_version": { "const": "v12" },
+    "managed_policy_digest": { "$ref": "#/$defs/digest" },
+    "required_action": { "const": "sts:SetContext" },
+    "role_kind": { "enum": ["classifier", "independent_approver"] },
+    "broker_alias": { "enum": ["classify", "retire", "reconcile"] },
+    "expected_user_id_digest": { "$ref": "#/$defs/digest" },
+    "peer_user_id_digest": { "$ref": "#/$defs/digest" },
+    "proof_role_arn_digest": { "$ref": "#/$defs/digest" },
+    "proof_session_arn_digest": { "$ref": "#/$defs/digest" },
+    "proof_expires_at": { "$ref": "#/$defs/timestamp" },
+    "credentials_consumed": { "const": false },
+    "live_retirement_authorized": { "const": false },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "role_kind": { "const": "classifier" } },
+        "required": ["role_kind"]
+      },
+      "then": { "properties": { "broker_alias": { "const": "classify" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "role_kind": { "const": "independent_approver" }
+        },
+        "required": ["role_kind"]
+      },
+      "then": {
+        "properties": {
+          "broker_alias": { "enum": ["retire", "reconcile"] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

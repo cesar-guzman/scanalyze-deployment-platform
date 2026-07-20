@@ -16,6 +16,19 @@ invoke Lambda, mutate the GUG-215 ledger or retire a Change Set.
 
 Production remains **NO-GO**.
 
+## GUG-217 amendment
+
+The compatibility result in this document remains valid for direct Lambda
+invocation. ADR-043 / GUG-217 introduces a separate proof-only PEP: an ordinary
+session invokes an exact `AWS_IAM` Function URL, and the broker then uses
+`CreateTokenWithIAM` plus STS `ProvidedContexts` only to establish a deny-all
+identity proof. The proof session never invokes Lambda or performs the effect.
+
+The GUG-216 offline adapter remains non-live and is not a credential fallback.
+See [the GUG-217 reference](platform-authority-identity-context-pep.md). That
+architecture has not been provisioned or invoked and still requires two
+independent humans.
+
 ## Current compatibility decision
 
 AWS STS automatically attaches the AWS-managed policy

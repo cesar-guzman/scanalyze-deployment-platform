@@ -53,6 +53,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-founder-pep-revocation": "platform-authority-founder-pep-revocation.v{version}.schema.json",
         "platform-authority-founder-revocation": "platform-authority-founder-revocation.v{version}.schema.json",
         "platform-authority-identity-context-compatibility-receipt": "platform-authority-identity-context-compatibility-receipt.v{version}.schema.json",
+        "platform-authority-identity-context-pep-binding": "platform-authority-identity-context-pep-binding.v{version}.schema.json",
+        "platform-authority-identity-context-pep-compatibility-receipt": "platform-authority-identity-context-pep-compatibility-receipt.v{version}.schema.json",
+        "platform-authority-identity-context-proof-receipt": "platform-authority-identity-context-proof-receipt.v{version}.schema.json",
         "platform-authority-identity-enhanced-binding": "platform-authority-identity-enhanced-binding.v{version}.schema.json",
         "platform-authority-identity-enhanced-session-receipt": "platform-authority-identity-enhanced-session-receipt.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
@@ -301,6 +304,12 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
         "classifier_invoker_policy_sha256",
         "approver_invoker_policy_sha256",
     )
+    if instance.get("schema_version") == "2":
+        identity_binding_fields += (
+            "classifier_proof_policy_sha256",
+            "approver_proof_policy_sha256",
+            "identity_center_application_actor_policy_sha256",
+        )
     identity_binding = {
         field: instance.get(field) for field in identity_binding_fields
     }
@@ -331,6 +340,18 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
         ledger_without_digest
     ):
         errors.append("ledger_digest must cover the complete durable record")
+    if instance.get("schema_version") == "2":
+        proofs = [
+            instance.get(field)
+            for field in (
+                "classifier_identity_proof_sha256",
+                "approver_identity_proof_sha256",
+                "reconciliation_identity_proof_sha256",
+            )
+            if instance.get(field) is not None
+        ]
+        if len(proofs) != len(set(proofs)):
+            errors.append("each durable identity proof must be unique")
     return errors
 
 
@@ -401,6 +422,97 @@ def _validate_gug216_receipt(instance: dict) -> list[str]:
     if instance.get("receipt_digest") != _gug215_canonical_digest(without_digest):
         return ["receipt_digest must cover the complete sanitized receipt"]
     return []
+
+
+def _validate_gug217_binding(instance: dict) -> list[str]:
+    errors: list[str] = []
+    classifier = instance.get("classifier_user_id")
+    approver = instance.get("approver_user_id")
+    if (
+        isinstance(classifier, str)
+        and isinstance(approver, str)
+        and classifier.lower() == approver.lower()
+    ):
+        errors.append("identity-context PEP requires two distinct UserIds")
+
+    account = instance.get("authority_account_id")
+    application = instance.get("identity_center_application_arn")
+    identity_store = instance.get("identity_store_arn")
+    identity_instance = instance.get("identity_center_instance_arn")
+    app_match = re.fullmatch(
+        r"arn:(aws(?:-[a-z]+)*):sso::([0-9]{12}):application/"
+        r"(ssoins-[A-Za-z0-9]{16})/(apl-[A-Za-z0-9]{16})",
+        application if isinstance(application, str) else "",
+    )
+    store_match = re.fullmatch(
+        r"arn:(aws(?:-[a-z]+)*):identitystore::([0-9]{12}):identitystore/"
+        r"d-[a-z0-9]{10,}",
+        identity_store if isinstance(identity_store, str) else "",
+    )
+    instance_match = re.fullmatch(
+        r"arn:(aws(?:-[a-z]+)*):sso:::instance/(ssoins-[A-Za-z0-9]{16})",
+        identity_instance if isinstance(identity_instance, str) else "",
+    )
+    if app_match and store_match and instance_match:
+        if (
+            app_match.group(1) != store_match.group(1)
+            or app_match.group(1) != instance_match.group(1)
+            or app_match.group(2) != store_match.group(2)
+            or app_match.group(3) != instance_match.group(2)
+        ):
+            errors.append("Identity Center application, store and instance must match")
+        if app_match.group(2) == account:
+            errors.append("authority and Identity Center management accounts must differ")
+
+    for field in (
+        "broker_execution_role_arn",
+        "classifier_proof_role_arn",
+        "approver_proof_role_arn",
+    ):
+        role = instance.get(field)
+        match = re.fullmatch(
+            r"arn:aws[a-z-]*:iam::([0-9]{12}):role/.+",
+            role if isinstance(role, str) else "",
+        )
+        if match and match.group(1) != account:
+            errors.append("all PEP roles must bind the authority account")
+
+    digest_fields = (
+        "authority_account_id",
+        "region",
+        "identity_center_application_arn",
+        "identity_center_instance_arn",
+        "identity_store_arn",
+        "redirect_uri",
+        "broker_execution_role_arn",
+        "classifier_user_id",
+        "approver_user_id",
+        "classifier_proof_role_arn",
+        "approver_proof_role_arn",
+        "proof_duration_seconds",
+        "max_token_lifetime_seconds",
+    )
+    digest_input = {
+        field: (
+            instance.get(field).lower()
+            if field in {"classifier_user_id", "approver_user_id"}
+            and isinstance(instance.get(field), str)
+            else instance.get(field)
+        )
+        for field in digest_fields
+    }
+    if instance.get("binding_digest") != _gug215_canonical_digest(digest_input):
+        errors.append("binding_digest must cover every immutable PEP binding")
+    return errors
+
+
+def _validate_gug217_proof_receipt(instance: dict) -> list[str]:
+    errors = _validate_gug216_receipt(instance)
+    if instance.get("expected_user_id_digest") == instance.get("peer_user_id_digest"):
+        errors.append("proof receipt requires distinct expected and peer users")
+    if instance.get("proof_role_arn_digest") == instance.get("proof_session_arn_digest"):
+        errors.append("proof role and proof session digests must be distinct")
+    return errors
 
 
 def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
@@ -539,7 +651,10 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
         if customer_value is not None and customer_value == deployment_value:
             errors.append("customer and deployment canonical values must be distinct")
 
-    if schema_name == "platform-authority-change-set-retirement-ledger.v1.schema.json":
+    if schema_name in {
+        "platform-authority-change-set-retirement-ledger.v1.schema.json",
+        "platform-authority-change-set-retirement-ledger.v2.schema.json",
+    }:
         errors.extend(_validate_gug215_ledger(instance))
 
     if schema_name == "platform-authority-identity-enhanced-binding.v1.schema.json":
@@ -548,8 +663,15 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     if schema_name in {
         "platform-authority-identity-context-compatibility-receipt.v1.schema.json",
         "platform-authority-identity-enhanced-session-receipt.v1.schema.json",
+        "platform-authority-identity-context-pep-compatibility-receipt.v1.schema.json",
     }:
         errors.extend(_validate_gug216_receipt(instance))
+
+    if schema_name == "platform-authority-identity-context-pep-binding.v1.schema.json":
+        errors.extend(_validate_gug217_binding(instance))
+
+    if schema_name == "platform-authority-identity-context-proof-receipt.v1.schema.json":
+        errors.extend(_validate_gug217_proof_receipt(instance))
 
     return errors
 

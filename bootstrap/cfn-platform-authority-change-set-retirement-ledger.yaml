@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Scanalyze GUG-215 retained Change Set retirement PEP. The stack creates one
-  retained DynamoDB ledger, one version-pinned Lambda broker, and two
-  identity-enhanced invocation roles. Human roles never receive
-  DeleteChangeSet or DynamoDB write authority.
+  Scanalyze GUG-215/GUG-217 retained Change Set retirement PEP. The stack
+  creates one retained DynamoDB ledger, one version-pinned Lambda broker,
+  three synchronous IAM-authenticated Function URLs, two ordinary invocation
+  roles, and two deny-all Identity Center proof roles. Human and proof roles
+  never receive DeleteChangeSet or DynamoDB write authority.
 
 Parameters:
   AuthorityAccountId:
@@ -54,6 +55,10 @@ Parameters:
     Type: String
     AllowedPattern: '^arn:aws[a-z-]*:sso::[0-9]{12}:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$'
     NoEcho: true
+  IdentityCenterRedirectUri:
+    Type: String
+    AllowedPattern: '^http://127\.0\.0\.1:[0-9]{4,5}/callback$'
+    NoEcho: true
   ClassifierIdentityStoreUserId:
     Type: String
     AllowedPattern: '^([0-9a-f]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
@@ -72,6 +77,15 @@ Parameters:
     Type: String
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
   ApproverInvokerPolicySha256:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  ClassifierProofPolicySha256:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  ApproverProofPolicySha256:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  IdentityCenterApplicationActorPolicySha256:
     Type: String
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
   ClassifierPermissionSetRoleArn:
@@ -217,6 +231,18 @@ Resources:
                       - !Ref RetirementId
                   'Null':
                     dynamodb:LeadingKeys: 'false'
+              - Sid: ExchangeExactIdentityContextCode
+                Effect: Allow
+                Action: sso-oauth:CreateTokenWithIAM
+                Resource: !Ref IdentityCenterApplicationArn
+              - Sid: EstablishExactDenyAllIdentityProof
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetContext
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ClassifierProof
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ApproverProof
               - Sid: ReadExactBrokerRolePolicies
                 Effect: Allow
                 Action:
@@ -228,6 +254,8 @@ Resources:
                   - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215BrokerExecution
                   - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215ClassifierInvoker
                   - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215ApproverInvoker
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ClassifierProof
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ApproverProof
               - Sid: ReadExactBrokerConfiguration
                 Effect: Allow
                 Action:
@@ -235,6 +263,7 @@ Resources:
                   - lambda:GetFunctionCodeSigningConfig
                   - lambda:GetFunctionConcurrency
                   - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionUrlConfig
                   - lambda:GetPolicy
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement
@@ -254,6 +283,9 @@ Resources:
                   - dynamodb:PartiQLInsert
                   - dynamodb:PartiQLUpdate
                   - dynamodb:TransactWriteItems
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
                 Resource: '*'
       Tags:
         - {Key: managed_by, Value: cloudformation}
@@ -268,7 +300,7 @@ Resources:
       FunctionName: scanalyze-platform-authority-gug215-retirement
       Description: GUG-215 exact retained Change Set retirement PEP
       Runtime: python3.12
-      Handler: tooling.platform_authority_change_set_retirement_broker.handler
+      Handler: tooling.platform_authority_identity_context_pep_runtime.handler
       Architectures: [x86_64]
       MemorySize: 256
       Timeout: 60
@@ -292,14 +324,20 @@ Resources:
           IDENTITY_STORE_ARN: !Ref IdentityStoreArn
           IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
           IDENTITY_CENTER_APPLICATION_ARN: !Ref IdentityCenterApplicationArn
+          IDENTITY_CENTER_REDIRECT_URI: !Ref IdentityCenterRedirectUri
           CLASSIFIER_IDENTITY_STORE_USER_ID: !Ref ClassifierIdentityStoreUserId
           APPROVER_IDENTITY_STORE_USER_ID: !Ref ApproverIdentityStoreUserId
           CLASSIFIER_ASSIGNMENT_SHA256: !Ref ClassifierAssignmentSha256
           APPROVER_ASSIGNMENT_SHA256: !Ref ApproverAssignmentSha256
           CLASSIFIER_INVOKER_POLICY_SHA256: !Ref ClassifierInvokerPolicySha256
           APPROVER_INVOKER_POLICY_SHA256: !Ref ApproverInvokerPolicySha256
+          CLASSIFIER_PROOF_POLICY_SHA256: !Ref ClassifierProofPolicySha256
+          APPROVER_PROOF_POLICY_SHA256: !Ref ApproverProofPolicySha256
+          IDENTITY_CENTER_APPLICATION_ACTOR_POLICY_SHA256: !Ref IdentityCenterApplicationActorPolicySha256
           CLASSIFIER_INVOKER_ROLE_NAME: ScanalyzeGug215ClassifierInvoker
           APPROVER_INVOKER_ROLE_NAME: ScanalyzeGug215ApproverInvoker
+          CLASSIFIER_PROOF_ROLE_NAME: ScanalyzeGug217ClassifierProof
+          APPROVER_PROOF_ROLE_NAME: ScanalyzeGug217ApproverProof
           CLASSIFIER_PERMISSION_SET_ROLE_ARN: !Ref ClassifierPermissionSetRoleArn
           APPROVER_PERMISSION_SET_ROLE_ARN: !Ref ApproverPermissionSetRoleArn
           BROKER_EXECUTION_ROLE_NAME: ScanalyzeGug215BrokerExecution
@@ -338,6 +376,33 @@ Resources:
       FunctionVersion: !GetAtt RetirementBrokerVersion.Version
       Name: reconcile
 
+  RetirementBrokerClassifyUrl:
+    Type: AWS::Lambda::Url
+    DependsOn: RetirementBrokerClassifyAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: classify
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
+  RetirementBrokerRetireUrl:
+    Type: AWS::Lambda::Url
+    DependsOn: RetirementBrokerRetireAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: retire
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
+  RetirementBrokerReconcileUrl:
+    Type: AWS::Lambda::Url
+    DependsOn: RetirementBrokerReconcileAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: reconcile
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
   ClassifierInvokerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -354,49 +419,25 @@ Resources:
             Condition:
               ArnEquals:
                 aws:PrincipalArn: !Ref ClassifierPermissionSetRoleArn
-          - Sid: SetVerifiedIdentityCenterContext
-            Effect: Allow
-            Principal:
-              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
-            Action: sts:SetContext
-            Condition:
-              ForAllValues:ArnEquals:
-                sts:RequestContextProviders:
-                  - arn:aws:iam::aws:contextProvider/IdentityCenter
-              StringEquals:
-                sts:RequestContext/identitystore:UserId: !Ref ClassifierIdentityStoreUserId
-              ArnEquals:
-                aws:PrincipalArn: !Ref ClassifierPermissionSetRoleArn
-                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
-                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
-                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
-              'Null':
-                sts:RequestContextProviders: 'false'
-                sts:RequestContext/identitystore:UserId: 'false'
-                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
-                sts:RequestContext/identitycenter:InstanceArn: 'false'
-                sts:RequestContext/identitycenter:ApplicationArn: 'false'
       Policies:
         - PolicyName: Gug215ClassifierInvokeOnly
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: InvokeExactClassifyAlias
+              - Sid: InvokeExactClassifyFunctionUrl
+                Effect: Allow
+                Action: lambda:InvokeFunctionUrl
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
+                Condition:
+                  StringEquals:
+                    lambda:FunctionUrlAuthType: AWS_IAM
+              - Sid: InvokeExactClassifyOnlyViaFunctionUrl
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
                 Condition:
-                  StringEquals:
-                    identitystore:UserId: !Ref ClassifierIdentityStoreUserId
-                  ArnEquals:
-                    identitystore:IdentityStoreArn: !Ref IdentityStoreArn
-                    identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
-                    identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
-                  'Null':
-                    identitystore:UserId: 'false'
-                    identitystore:IdentityStoreArn: 'false'
-                    identitycenter:InstanceArn: 'false'
-                    identitycenter:ApplicationArn: 'false'
+                  Bool:
+                    lambda:InvokedViaFunctionUrl: 'true'
               - Sid: DenyDirectRetirementEffects
                 Effect: Deny
                 Action:
@@ -429,51 +470,29 @@ Resources:
             Condition:
               ArnEquals:
                 aws:PrincipalArn: !Ref ApproverPermissionSetRoleArn
-          - Sid: SetVerifiedIdentityCenterContext
-            Effect: Allow
-            Principal:
-              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
-            Action: sts:SetContext
-            Condition:
-              ForAllValues:ArnEquals:
-                sts:RequestContextProviders:
-                  - arn:aws:iam::aws:contextProvider/IdentityCenter
-              StringEquals:
-                sts:RequestContext/identitystore:UserId: !Ref ApproverIdentityStoreUserId
-              ArnEquals:
-                aws:PrincipalArn: !Ref ApproverPermissionSetRoleArn
-                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
-                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
-                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
-              'Null':
-                sts:RequestContextProviders: 'false'
-                sts:RequestContext/identitystore:UserId: 'false'
-                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
-                sts:RequestContext/identitycenter:InstanceArn: 'false'
-                sts:RequestContext/identitycenter:ApplicationArn: 'false'
       Policies:
         - PolicyName: Gug215ApproverInvokeOnly
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: InvokeExactRetirementAliases
+              - Sid: InvokeExactRetirementFunctionUrls
+                Effect: Allow
+                Action: lambda:InvokeFunctionUrl
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
+                Condition:
+                  StringEquals:
+                    lambda:FunctionUrlAuthType: AWS_IAM
+              - Sid: InvokeExactRetirementOnlyViaFunctionUrls
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
                 Condition:
-                  StringEquals:
-                    identitystore:UserId: !Ref ApproverIdentityStoreUserId
-                  ArnEquals:
-                    identitystore:IdentityStoreArn: !Ref IdentityStoreArn
-                    identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
-                    identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
-                  'Null':
-                    identitystore:UserId: 'false'
-                    identitystore:IdentityStoreArn: 'false'
-                    identitycenter:InstanceArn: 'false'
-                    identitycenter:ApplicationArn: 'false'
+                  Bool:
+                    lambda:InvokedViaFunctionUrl: 'true'
               - Sid: DenyDirectRetirementEffects
                 Effect: Deny
                 Action:
@@ -490,6 +509,160 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource: '*'
 
+  ClassifierProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug217ClassifierProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeFromExactBroker
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn
+          - Sid: SetExactClassifierIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref ClassifierIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug217ZeroAuthorityProof
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyEveryProofSessionAction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-217}
+        - {Key: environment, Value: non-production}
+
+  ApproverProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug217ApproverProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeFromExactBroker
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn
+          - Sid: SetExactApproverIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref ApproverIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug217ZeroAuthorityProof
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyEveryProofSessionAction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-217}
+        - {Key: environment, Value: non-production}
+
+  ClassifierFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:classify
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ClassifierInvokerRole.Arn
+
+  ClassifierFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:classify
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ClassifierInvokerRole.Arn
+
+  ApproverRetireFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:retire
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  ApproverRetireFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:retire
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  ApproverReconcileFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:reconcile
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  ApproverReconcileFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:reconcile
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
 Outputs:
   ChangeSetRetirementLedgerName:
     Value: !Ref ChangeSetRetirementLedger
@@ -499,7 +672,13 @@ Outputs:
     Value: !Ref ClassifierInvokerRole
   ApproverInvokerRoleName:
     Value: !Ref ApproverInvokerRole
-  IdentityEnhancedContextRequired:
+  ClassifierFunctionUrl:
+    Value: !GetAtt RetirementBrokerClassifyUrl.FunctionUrl
+  RetireFunctionUrl:
+    Value: !GetAtt RetirementBrokerRetireUrl.FunctionUrl
+  ReconcileFunctionUrl:
+    Value: !GetAtt RetirementBrokerReconcileUrl.FunctionUrl
+  IdentityContextProofRequired:
     Value: 'true'
   LiveRetirementAuthorized:
     Description: Template implementation does not itself authorize deployment or invocation.

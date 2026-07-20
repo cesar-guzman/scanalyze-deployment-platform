@@ -4,10 +4,18 @@
 - **Date:** 2026-07-19
 - **Work package:** GUG-215
 - **Amends:** ADR-034 and ADR-040
-- **Amended by:** ADR-042 / GUG-216
+- **Amended by:** ADR-042 / GUG-216 and ADR-043 / GUG-217
 - **Production:** **NO-GO**
 
 ## Context
+
+> **Authoritative transport amendment:** ADR-043 replaces the direct
+> identity-enhanced Lambda invocation described in this ADR. GUG-217 uses an
+> ordinary exact Function URL invoker, then proves the immutable UserId inside
+> the broker through a deny-all STS identity-enhanced role. Where the transport,
+> request or invoker-role text below conflicts with ADR-043, ADR-043 controls.
+> The target, broker-only mutation, ledger CAS, one-attempt and independent-human
+> requirements in this ADR remain unchanged.
 
 The dedicated platform-authority account contains one retained, unexecuted
 CloudFormation Change Set on the canonical empty bootstrap shell. Sanitized
@@ -321,7 +329,7 @@ reviewed bootstrap Plan.
 | Identity-context downstream compatibility | **Blocked**; reviewed managed-policy `v12` excludes `lambda:InvokeFunction` |
 | Production | **NO-GO** |
 
-## GUG-216 reference
+## GUG-216 and GUG-217 references
 
 See
 [`ADR-042`](ADR-042-identity-enhanced-operator-session-compatibility.md), the
@@ -330,3 +338,14 @@ and the
 [operator runbook](../docs/operations/platform-authority-identity-enhanced-session.md)
 for the adapter, managed-policy compatibility guard, one-operator limitation
 and current live stop conditions.
+
+See
+[`ADR-043`](ADR-043-identity-context-compatible-retirement-pep.md), the
+[GUG-217 deployment reference](../docs/deployment/platform-authority-identity-context-pep.md)
+and the
+[GUG-217 operator runbook](../docs/operations/platform-authority-identity-context-pep.md)
+for the compatible proof-only transport. It preserves the `v12` Lambda deny,
+uses exact `AWS_IAM` Function URLs for ordinary invocation, records human proof
+before effect and keeps the broker execution role as the AWS effect principal.
+It has not been deployed or invoked. Two independent humans remain mandatory;
+César alone may perform synthetic repository validation only.

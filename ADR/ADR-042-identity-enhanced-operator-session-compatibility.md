@@ -4,9 +4,17 @@
 - **Date:** 2026-07-19
 - **Work package:** GUG-216
 - **Amends:** ADR-041
+- **Amended by:** ADR-043 / GUG-217
 - **Production:** **NO-GO**
 
 ## Context
+
+> **GUG-217 disposition:** The direct identity-enhanced-session-to-Lambda path
+> remains blocked exactly as this ADR records. ADR-043 does not broaden `v12`.
+> It uses `v12` only for the proof-role `sts:SetContext` step inside the broker;
+> an ordinary session reaches an exact `AWS_IAM` Function URL first. The proof
+> role denies every action and its credentials are never used. This preserves
+> the compatibility finding while replacing the downstream transport.
 
 ADR-041 requires the GUG-215 classifier and approver to reach their exact
 account-local invoker roles through IAM Identity Center identity-enhanced role
@@ -185,6 +193,12 @@ attribution and the ADR-041 one-shot PEP without weakening any deny. That work
 is outside GUG-216.
 
 ## Consequences
+
+ADR-043 provides the separately reviewed compatible PEP architecture requested
+by this ADR. The GUG-216 offline adapter and direct Lambda command remain
+non-live and must not be repurposed. GUG-217's proof receipt, exact Function URL
+and ledger binding are the authoritative path for any future retirement test.
+That path is still synthetic-only while César is the sole operator.
 
 - The missing identity-enhanced exchange is represented as a typed, testable
   repository boundary.
