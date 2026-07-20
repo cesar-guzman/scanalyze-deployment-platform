@@ -13,6 +13,19 @@ was created or changed. No Change Set was deleted or executed.
 
 Production is **NO-GO**.
 
+## GUG-217 disposition
+
+The direct Lambda attack path remains blocked by `v12`. GUG-217 does not add
+Lambda to the managed-policy compatibility set. It uses an ordinary exact
+Function URL caller and applies identity-enhanced context only inside the
+broker to a deny-all proof role. Human proof is then bound durably before the
+broker service principal performs any protected effect.
+
+The new secret-transport, Function URL, proof-role, ledger-ordering and honest
+attribution risks are modeled in the
+[GUG-217 threat-model delta](gug-217-identity-context-pep-threat-model-delta.md).
+No live token, STS proof, Function URL invocation or retirement has occurred.
+
 ## Assets
 
 - immutable classifier and approver Identity Store UserIds;

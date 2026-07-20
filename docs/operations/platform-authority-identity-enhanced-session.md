@@ -19,6 +19,19 @@ The current procedure is offline only. It does not authorize or perform:
 
 Production is **NO-GO**.
 
+## GUG-217 disposition
+
+This runbook remains authoritative for proving that an identity-enhanced
+session cannot directly invoke the GUG-215 Lambda under reviewed policy `v12`.
+Do not execute its historical direct path.
+
+ADR-043 / GUG-217 defines a different proof-only transport: an ordinary exact
+Function URL invocation reaches the broker, which then establishes a deny-all
+STS proof and binds its digest to the ledger. See the
+[GUG-217 runbook](platform-authority-identity-context-pep.md). The new path has
+not been deployed or invoked and remains blocked while only one human operator
+exists.
+
 ## Required people and duties
 
 ### Current state

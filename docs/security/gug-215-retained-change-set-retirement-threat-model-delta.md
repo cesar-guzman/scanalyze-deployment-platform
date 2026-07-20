@@ -11,6 +11,19 @@ It does not authorize deployment of the PEP, `ExecuteChangeSet`, `DeleteStack`,
 migration, destruction or redrive. No live GUG-215 stack or alias was deployed
 or invoked during repository implementation.
 
+## GUG-217 threat-model amendment
+
+ADR-043 replaces the direct identity-enhanced invocation boundary with an
+ordinary exact `AWS_IAM` Function URL plus an in-broker deny-all STS proof.
+Human proof is persisted by digest before the protected retirement effect; the
+broker execution role remains the CloudFormation and ledger principal, and
+native downstream `onBehalfOf` is not claimed.
+
+The GUG-215 target, ledger, one-attempt and no-retry controls remain in force.
+See the [GUG-217 threat-model delta](gug-217-identity-context-pep-threat-model-delta.md)
+for the request-secret, Function URL, proof-role and attribution threats. The
+path is not live validated and still requires two independent humans.
+
 ## Threats and controls
 
 | Threat | Control | Failure behavior |

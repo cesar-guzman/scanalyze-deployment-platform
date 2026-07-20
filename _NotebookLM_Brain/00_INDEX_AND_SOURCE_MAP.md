@@ -83,8 +83,9 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se recupera un shell de autoridad sin inferir recursos ni omitir Change Sets? | [ADR-040](../ADR/ADR-040-authority-recovery-preflight.md), [runbook de recuperación](../docs/operations/platform-authority-bootstrap-recovery.md), [delta GUG-214](../docs/security/gug-214-authority-recovery-preflight-threat-model-delta.md) y [fuente sanitizada GUG-214](29_GUG214_Authority_Recovery_Preflight.md) |
 | ¿Cómo se retira exactamente un Change Set retenido cuando falta la evidencia Plan original? | [ADR-041](../ADR/ADR-041-retained-change-set-retirement.md), [contrato GUG-215](../docs/deployment/platform-authority-change-set-retirement.md), [runbook de retiro](../docs/operations/platform-authority-retained-change-set-retirement.md), [delta GUG-215](../docs/security/gug-215-retained-change-set-retirement-threat-model-delta.md) y [fuente sanitizada GUG-215](30_GUG215_Retained_Change_Set_Retirement.md) |
 | ¿Cómo se obtiene una sesión identity-enhanced sin exponer secretos y cómo se comprueba que el servicio destino la soporta? | [ADR-042](../ADR/ADR-042-identity-enhanced-operator-session-compatibility.md), [contrato GUG-216](../docs/deployment/platform-authority-identity-enhanced-session.md), [runbook de sesión](../docs/operations/platform-authority-identity-enhanced-session.md), [delta GUG-216](../docs/security/gug-216-identity-enhanced-session-threat-model-delta.md) y [fuente sanitizada GUG-216](31_GUG216_Identity_Enhanced_Operator_Session.md) |
+| ¿Cómo se conserva la prueba inmutable de usuario cuando la sesión identity-enhanced no puede invocar Lambda? | [ADR-043](../ADR/ADR-043-identity-context-compatible-retirement-pep.md), [contrato GUG-217](../docs/deployment/platform-authority-identity-context-pep.md), [runbook GUG-217](../docs/operations/platform-authority-identity-context-pep.md), [delta GUG-217](../docs/security/gug-217-identity-context-pep-threat-model-delta.md) y [fuente sanitizada GUG-217](32_GUG217_Identity_Context_Compatible_Retirement_PEP.md) |
 
-## Estado de evidencia al 2026-07-19
+## Estado de evidencia al 2026-07-20
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -118,6 +119,7 @@ Cuando dos documentos difieran, usar este orden:
 | Preflight de recuperación de autoridad GUG-214 | **Implemented** sólo cuando el commit revisado contiene `preflight-recovery`, `ListChangeSets` exact-stack paginado, doble inventario founder, reads exactos de tabla/PITR, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | ReadOnly es evidencia independiente, no autoridad. PAB ausente, Change Set activo/ambiguo o recurso inferido bloquean. La validación live requiere policy provisionada y rol Plan exacto; producción sigue **NO-GO**. |
 | Retiro exacto de Change Set retenido GUG-215 | **Implemented** sólo cuando el commit revisado contiene Lambda PEP versionada, aliases `classify`/`retire`/`reconcile`, dos Identity Store UserIds inmutables distintos, roles humanos invoke-only, ledger DynamoDB con resource policy y `CLASSIFIED -> APPROVED -> ATTEMPTED -> RETIRED_RECONCILED`, PEP target por UUID/contenido, un solo delete sin retry, CLI broker-only, tests, ADR/runbooks/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | La inspección sanitizada observó un shell `REVIEW_IN_PROGRESS`, cero recursos y un Change Set `CREATE_COMPLETE` / `AVAILABLE` con cuatro cambios esperados. El broker/ledger y los bindings identity-enhanced de dos operadores independientes no fueron desplegados ni invocados. Clasificación y retiro live permanecen **Blocked**; ningún delete live fue ejecutado, CI está pendiente y producción sigue **NO-GO**. |
 | Sesión identity-enhanced y compatibilidad GUG-216 | **Implemented** en el worktree sólo cuando el commit revisado contiene guard de policy administrada, adapter one-shot capability-bound, bindings/receipts estrictos, policies exactas, tests, ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | El snapshot público `v12` es reproducibilidad offline, no evidencia live. Su `Deny` / `NotAction` excluye `lambda:InvokeFunction`, así que no se emite token, sesión STS ni invocación. César es el único operador actual y no satisface classifier+approver. CI, AWS live, segundo humano, GUG-215 y producción siguen **Blocked / NO-GO**. |
+| PEP compatible con identity context GUG-217 | **Implemented** sólo cuando el commit revisado contiene Function URLs `AWS_IAM` por alias, invocadores ordinarios exactos, proof roles deny-all, exchange OAuth/STS en broker, receipt digest en ledger antes del efecto, attribution explícita, schemas/tests/ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | `v12` se usa sólo para `sts:SetContext`, nunca como autoridad Lambda/CloudFormation. No hubo provisioning, token, sesión STS, invocación ni retiro live. César sigue siendo el único humano; falta approver independiente y producción sigue **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -152,6 +154,7 @@ Cuando dos documentos difieran, usar este orden:
 | [29 — GUG-214 Authority Recovery Preflight](29_GUG214_Authority_Recovery_Preflight.md) | Shell exacto, inventario paginado de Change Sets, PAB fail-closed, tabla/PITR exactos y límites live |
 | [30 — GUG-215 Retained Change Set Retirement](30_GUG215_Retained_Change_Set_Retirement.md) | Inspección target read-only, ledger CAS durable, identidad temporal exacta, policy digest, PEP por UUID, un delete sin retry, separación SSO honesta, reconciliación y límites live |
 | [31 — GUG-216 Identity-Enhanced Operator Session](31_GUG216_Identity_Enhanced_Operator_Session.md) | CreateTokenWithIAM/ProvidedContexts one-shot, guard de compatibilidad de policy administrada, secretos in-memory, separación humana y bloqueo Lambda live |
+| [32 — GUG-217 Identity-Context-Compatible Retirement PEP](32_GUG217_Identity_Context_Compatible_Retirement_PEP.md) | Function URLs AWS_IAM por alias, proof roles deny-all, secretos one-shot, proof digest durable antes del efecto, attribution broker y bloqueo por segundo humano |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -208,6 +211,10 @@ Cuando dos documentos difieran, usar este orden:
     conserva tokens/contexto sólo en memoria y exige dos personas/UserIds
     distintos, o intenta invocar Lambda pese al deny, omitir ProvidedContexts o
     convertir al único operador actual en classifier y approver?
+25. ¿El PEP compatible usa una sesión ordinaria sólo para el Function URL
+    exacto, limita `v12` a la prueba deny-all de `sts:SetContext`, persiste el
+    proof digest antes del efecto y atribuye honestamente CloudFormation al
+    broker, o intenta convertir la prueba en credencial de efecto?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

@@ -15,6 +15,18 @@ The implementation does not create Identity Center resources, issue a token,
 assume a live role, invoke Lambda, mutate the GUG-215 ledger or retire a Change
 Set. Production remains **NO-GO**.
 
+## GUG-217 update
+
+The GUG-216 compatibility result remains authoritative: an identity-enhanced
+session cannot directly invoke Lambda under reviewed policy `v12`. GUG-217
+does not broaden that policy. It uses `v12` only for the STS proof step inside
+the broker, where the target proof role denies every action.
+
+An ordinary exact `AWS_IAM` Function URL session reaches the broker first. The
+broker exchanges one code, proves the immutable UserId, discards the proof
+credentials and persists only a sanitized proof digest before the GUG-215
+effect. No live use occurred, and a second actual human remains required.
+
 ## Why a normal SSO profile is insufficient
 
 GUG-215 binds classifier and approver to different immutable Identity Store

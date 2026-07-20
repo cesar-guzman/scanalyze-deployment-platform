@@ -10,6 +10,20 @@ It never authorizes `ExecuteChangeSet`, `DeleteStack`, `CreateChangeSet`,
 Terraform Apply, seed, customer deployment, production, migration, destruction
 or redrive. The repository implementation did not deploy or invoke this path.
 
+## Current transport and runbook
+
+The historical direct identity-enhanced invocation phases in this runbook
+remain blocked by GUG-216 and must not be executed. ADR-043 / GUG-217 replaces
+that transport with exact ordinary-session `AWS_IAM` Function URLs followed by
+an in-broker deny-all STS identity proof. Use the
+[GUG-217 runbook](platform-authority-identity-context-pep.md) for that future
+path. It does not change the two-independent-human requirement, one-attempt
+ledger or no-retry behavior.
+
+No GUG-217 live deployment, token exchange, STS proof, Function URL invocation
+or retirement has occurred. César is the sole current operator, so the live
+procedure stops before provisioning or invocation.
+
 ## Roles and separation
 
 The workflow requires two genuinely independent IAM Identity Center users:

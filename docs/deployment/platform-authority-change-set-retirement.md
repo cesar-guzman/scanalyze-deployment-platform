@@ -11,6 +11,21 @@ The implementation does not authorize or perform deployment. It does not
 permit `ExecuteChangeSet`, `DeleteStack`, `CreateChangeSet`, Terraform Apply,
 seed, customer deployment, migration, destruction or production.
 
+## GUG-217 transport amendment
+
+ADR-043 replaces only the original direct identity-enhanced Lambda transport.
+The authoritative future path uses ordinary duty-scoped sessions to invoke
+exact `AWS_IAM`, `BUFFERED` Function URLs on aliases `classify`, `retire` and
+`reconcile`. Inside the broker, `CreateTokenWithIAM` and STS
+`ProvidedContexts` prove the exact human in a deny-all proof role. The proof
+digest is bound to the durable ledger before the protected retirement effect.
+
+The original direct broker CLI below remains blocked and historical. Use the
+[GUG-217 deployment reference](platform-authority-identity-context-pep.md) and
+[runbook](../operations/platform-authority-identity-context-pep.md) for the
+amended design. No GUG-217 live deployment or invocation has occurred, and two
+independent humans remain required.
+
 ## Authoritative architecture
 
 `bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml` defines
@@ -320,9 +335,10 @@ Change Set names/ARNs/UUIDs, templates, ledger documents or AWS responses.
 | Live inventory | Sanitized read-only observation only |
 | Broker/ledger stack deployed | **No** |
 | Identity-enhanced assignments validated | **No** |
-| Identity-enhanced credential adapter | Offline contract implemented by GUG-216; no reviewed live browser/SDK entrypoint |
-| Identity-context downstream compatibility | **Blocked**; reviewed managed-policy `v12` excludes `lambda:InvokeFunction` |
+| Direct identity-enhanced credential adapter | Offline GUG-216 contract remains blocked; reviewed `v12` excludes `lambda:InvokeFunction` |
+| GUG-217 proof-only transport | Repository implementation only; ordinary exact Function URL plus deny-all STS proof, not deployed or invoked |
 | Account-wide foreign alias-invoke inventory | **Not performed; live blocker** |
 | Broker aliases invoked | **No** |
+| Independent approver | **Blocked**; César is the only current human |
 | Live retirement | **Blocked** |
 | Production | **NO-GO** |

@@ -14,6 +14,18 @@ The repository implementation did not deploy or invoke the PEP. It did not
 delete or execute a Change Set, delete a stack, create customer infrastructure,
 run Terraform, seed an account or enable production.
 
+## GUG-217 update
+
+The original direct identity-enhanced Lambda transport remains blocked by
+managed policy `v12`. GUG-217 replaces only that transport: an ordinary exact
+`AWS_IAM` Function URL reaches the broker, which creates a deny-all STS identity
+proof and binds its sanitized digest to the ledger before the protected effect.
+
+The proof session never performs the effect. The broker execution role remains
+the AWS principal, and native downstream `onBehalfOf` is not claimed. Two
+different actual humans are still mandatory. César alone may run synthetic
+repository validation only.
+
 ## Why historical cancellation is not reused
 
 The historical bootstrap `cancel` path requires the original typed Plan. Live

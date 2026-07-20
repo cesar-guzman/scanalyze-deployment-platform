@@ -2,8 +2,9 @@
 
 The broker is the only runtime principal allowed to mutate the GUG-215 ledger
 or call ``DeleteChangeSet``. Human permission sets can only obtain
-identity-enhanced sessions for exact invocation roles and invoke a pinned
-Lambda alias. Request payloads never establish target, identity, or action.
+ordinary sessions for exact synchronous Function URLs. GUG-217 proves the
+human identity inside this version-pinned broker before the proof digest is
+persisted. Request payloads never establish target, identity, or action.
 
 The module intentionally emits only sanitized status codes. It does not log
 AWS responses, identifiers, Identity Store values, or control-plane payloads.
@@ -26,6 +27,7 @@ BROKER_FUNCTION_NAME = "scanalyze-platform-authority-gug215-retirement"
 BROKER_POLICY_NAME = "Gug215ExactRetirement"
 CLASSIFIER_INVOKER_POLICY_NAME = "Gug215ClassifierInvokeOnly"
 APPROVER_INVOKER_POLICY_NAME = "Gug215ApproverInvokeOnly"
+PROOF_POLICY_NAME = "Gug217ZeroAuthorityProof"
 ALIAS_CLASSIFY = "classify"
 ALIAS_RETIRE = "retire"
 ALIAS_RECONCILE = "reconcile"
@@ -98,9 +100,18 @@ LEDGER_KEYS = frozenset(
         "approver_assignment_sha256",
         "classifier_invoker_policy_sha256",
         "approver_invoker_policy_sha256",
+        "classifier_proof_policy_sha256",
+        "approver_proof_policy_sha256",
+        "identity_center_application_actor_policy_sha256",
         "broker_code_sha256",
         "broker_policy_sha256",
         "identity_separation",
+        "human_authentication_evidence",
+        "aws_effect_principal",
+        "native_on_behalf_of",
+        "classifier_identity_proof_sha256",
+        "approver_identity_proof_sha256",
+        "reconciliation_identity_proof_sha256",
         "state",
         "version",
         "attempt_count",
@@ -205,8 +216,13 @@ class BrokerConfig:
     approver_assignment_sha256: str
     classifier_invoker_policy_sha256: str
     approver_invoker_policy_sha256: str
+    classifier_proof_policy_sha256: str
+    approver_proof_policy_sha256: str
+    identity_center_application_actor_policy_sha256: str
     classifier_invoker_role_name: str
     approver_invoker_role_name: str
+    classifier_proof_role_name: str
+    approver_proof_role_name: str
     classifier_permission_set_role_arn: str
     approver_permission_set_role_arn: str
     broker_execution_role_name: str
@@ -242,6 +258,12 @@ class BrokerConfig:
                 "CLASSIFIER_POLICY_DIGEST_INVALID",
             ),
             (self.approver_invoker_policy_sha256, "APPROVER_POLICY_DIGEST_INVALID"),
+            (self.classifier_proof_policy_sha256, "CLASSIFIER_PROOF_POLICY_DIGEST_INVALID"),
+            (self.approver_proof_policy_sha256, "APPROVER_PROOF_POLICY_DIGEST_INVALID"),
+            (
+                self.identity_center_application_actor_policy_sha256,
+                "APPLICATION_ACTOR_POLICY_DIGEST_INVALID",
+            ),
         ):
             _require_digest(value, code)
         if BASE64_SHA256.fullmatch(self.expected_code_sha256) is None:
@@ -278,10 +300,20 @@ class BrokerConfig:
         for name in (
             self.classifier_invoker_role_name,
             self.approver_invoker_role_name,
+            self.classifier_proof_role_name,
+            self.approver_proof_role_name,
             self.broker_execution_role_name,
         ):
             if not re.fullmatch(r"[A-Za-z0-9+=,.@_-]{1,64}", name):
                 raise BrokerError("ROLE_BINDING_INVALID")
+        if (
+            self.classifier_invoker_role_name != "ScanalyzeGug215ClassifierInvoker"
+            or self.approver_invoker_role_name != "ScanalyzeGug215ApproverInvoker"
+            or self.classifier_proof_role_name != "ScanalyzeGug217ClassifierProof"
+            or self.approver_proof_role_name != "ScanalyzeGug217ApproverProof"
+            or self.broker_execution_role_name != "ScanalyzeGug215BrokerExecution"
+        ):
+            raise BrokerError("ROLE_BINDING_INVALID")
         permission_set_role_patterns = (
             (
                 self.classifier_permission_set_role_arn,
@@ -332,8 +364,15 @@ class BrokerConfig:
             approver_assignment_sha256=required("APPROVER_ASSIGNMENT_SHA256"),
             classifier_invoker_policy_sha256=required("CLASSIFIER_INVOKER_POLICY_SHA256"),
             approver_invoker_policy_sha256=required("APPROVER_INVOKER_POLICY_SHA256"),
+            classifier_proof_policy_sha256=required("CLASSIFIER_PROOF_POLICY_SHA256"),
+            approver_proof_policy_sha256=required("APPROVER_PROOF_POLICY_SHA256"),
+            identity_center_application_actor_policy_sha256=required(
+                "IDENTITY_CENTER_APPLICATION_ACTOR_POLICY_SHA256"
+            ),
             classifier_invoker_role_name=required("CLASSIFIER_INVOKER_ROLE_NAME"),
             approver_invoker_role_name=required("APPROVER_INVOKER_ROLE_NAME"),
+            classifier_proof_role_name=required("CLASSIFIER_PROOF_ROLE_NAME"),
+            approver_proof_role_name=required("APPROVER_PROOF_ROLE_NAME"),
             classifier_permission_set_role_arn=required(
                 "CLASSIFIER_PERMISSION_SET_ROLE_ARN"
             ),
@@ -392,6 +431,20 @@ class BrokerConfig:
         )
 
     @property
+    def classifier_proof_role_arn(self) -> str:
+        return (
+            f"arn:{self.partition}:iam::{self.authority_account_id}:"
+            f"role/{self.classifier_proof_role_name}"
+        )
+
+    @property
+    def approver_proof_role_arn(self) -> str:
+        return (
+            f"arn:{self.partition}:iam::{self.authority_account_id}:"
+            f"role/{self.approver_proof_role_name}"
+        )
+
+    @property
     def identity_binding(self) -> dict[str, str]:
         return {
             "identity_store_arn_digest": secret_digest(
@@ -413,6 +466,11 @@ class BrokerConfig:
             "approver_assignment_sha256": self.approver_assignment_sha256,
             "classifier_invoker_policy_sha256": self.classifier_invoker_policy_sha256,
             "approver_invoker_policy_sha256": self.approver_invoker_policy_sha256,
+            "classifier_proof_policy_sha256": self.classifier_proof_policy_sha256,
+            "approver_proof_policy_sha256": self.approver_proof_policy_sha256,
+            "identity_center_application_actor_policy_sha256": (
+                self.identity_center_application_actor_policy_sha256
+            ),
         }
 
     @property
@@ -427,6 +485,8 @@ class AwsClients(Protocol):
     kms: Any
     lambda_client: Any
     s3control: Any
+    sso_oidc: Any
+    sts: Any
 
 
 @dataclass(slots=True)
@@ -437,6 +497,8 @@ class BotoClients:
     kms: Any
     lambda_client: Any
     s3control: Any
+    sso_oidc: Any
+    sts: Any
 
     @classmethod
     def create(cls, region: str) -> "BotoClients":
@@ -453,6 +515,8 @@ class BotoClients:
             kms=boto3.client("kms", config=no_retry),
             lambda_client=boto3.client("lambda", config=no_retry),
             s3control=boto3.client("s3control", config=no_retry),
+            sso_oidc=boto3.client("sso-oidc", config=no_retry),
+            sts=boto3.client("sts", config=no_retry),
         )
 
 
@@ -499,18 +563,32 @@ class RetirementBroker:
         self.clients = clients
         self.now: Callable[[], datetime] = now or (lambda: datetime.now(tz=UTC))
 
-    def handle(self, *, alias: str, event: object) -> dict[str, Any]:
+    def handle(
+        self,
+        *,
+        alias: str,
+        event: object,
+        identity_proof_sha256: str,
+    ) -> dict[str, Any]:
         if alias not in ALLOWED_ALIASES:
             raise BrokerError("ALIAS_NOT_AUTHORIZED")
         if event != {}:
             raise BrokerError("REQUEST_AUTHORITY_FORBIDDEN")
+        _require_digest(identity_proof_sha256, "IDENTITY_PROOF_DIGEST_INVALID")
+        self.preflight(alias=alias)
+        if alias == ALIAS_CLASSIFY:
+            return self._classify(identity_proof_sha256)
+        if alias == ALIAS_RETIRE:
+            return self._retire(identity_proof_sha256)
+        return self._reconcile(identity_proof_sha256)
+
+    def preflight(self, *, alias: str) -> None:
+        """Read back every mutable PEP boundary without issuing a proof."""
+
+        if alias not in ALLOWED_ALIASES:
+            raise BrokerError("ALIAS_NOT_AUTHORIZED")
         self._verify_runtime_boundary(alias)
         self._verify_table_controls()
-        if alias == ALIAS_CLASSIFY:
-            return self._classify()
-        if alias == ALIAS_RETIRE:
-            return self._retire()
-        return self._reconcile()
 
     def _verify_invoker_role(
         self,
@@ -518,7 +596,6 @@ class RetirementBroker:
         role_name: str,
         role_arn: str,
         permission_set_role_arn: str,
-        identity_store_user_id: str,
         policy_name: str,
         expected_policy_sha256: str,
     ) -> None:
@@ -542,40 +619,6 @@ class RetirementBroker:
                         "ArnEquals": {"aws:PrincipalArn": permission_set_role_arn}
                     },
                 },
-                {
-                    "Sid": "SetVerifiedIdentityCenterContext",
-                    "Effect": "Allow",
-                    "Principal": {
-                        "AWS": (
-                            f"arn:{self.config.partition}:iam::"
-                            f"{self.config.authority_account_id}:root"
-                        )
-                    },
-                    "Action": "sts:SetContext",
-                    "Condition": {
-                        "ForAllValues:ArnEquals": {
-                            "sts:RequestContextProviders": [
-                                "arn:aws:iam::aws:contextProvider/IdentityCenter"
-                            ]
-                        },
-                        "StringEquals": {
-                            "sts:RequestContext/identitystore:UserId": identity_store_user_id
-                        },
-                        "ArnEquals": {
-                            "aws:PrincipalArn": permission_set_role_arn,
-                            "sts:RequestContext/identitystore:IdentityStoreArn": self.config.identity_store_arn,
-                            "sts:RequestContext/identitycenter:InstanceArn": self.config.identity_center_instance_arn,
-                            "sts:RequestContext/identitycenter:ApplicationArn": self.config.identity_center_application_arn,
-                        },
-                        "Null": {
-                            "sts:RequestContextProviders": "false",
-                            "sts:RequestContext/identitystore:UserId": "false",
-                            "sts:RequestContext/identitystore:IdentityStoreArn": "false",
-                            "sts:RequestContext/identitycenter:InstanceArn": "false",
-                            "sts:RequestContext/identitycenter:ApplicationArn": "false",
-                        },
-                    },
-                },
             ],
         }
         if (
@@ -597,6 +640,176 @@ class RetirementBroker:
         )
         if _policy_document_digest(policy.get("PolicyDocument")) != expected_policy_sha256:
             raise BrokerError("INVOKER_ROLE_POLICY_CHANGED")
+
+    def _verify_proof_role(
+        self,
+        *,
+        role_name: str,
+        role_arn: str,
+        identity_store_user_id: str,
+        expected_policy_sha256: str,
+        trust_sid: str,
+    ) -> None:
+        role = self.clients.iam.get_role(RoleName=role_name).get("Role")
+        if not isinstance(role, Mapping) or role.get("Arn") != role_arn:
+            raise BrokerError("PROOF_ROLE_READBACK_INVALID")
+        principal = (
+            f"arn:{self.config.partition}:iam::"
+            f"{self.config.authority_account_id}:root"
+        )
+        expected_trust = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "AssumeFromExactBroker",
+                    "Effect": "Allow",
+                    "Principal": {"AWS": principal},
+                    "Action": "sts:AssumeRole",
+                    "Condition": {
+                        "ArnEquals": {
+                            "aws:PrincipalArn": self.config.execution_role_arn
+                        }
+                    },
+                },
+                {
+                    "Sid": trust_sid,
+                    "Effect": "Allow",
+                    "Principal": {"AWS": principal},
+                    "Action": "sts:SetContext",
+                    "Condition": {
+                        "ForAllValues:ArnEquals": {
+                            "sts:RequestContextProviders": [
+                                "arn:aws:iam::aws:contextProvider/IdentityCenter"
+                            ]
+                        },
+                        "StringEquals": {
+                            "sts:RequestContext/identitystore:UserId": identity_store_user_id
+                        },
+                        "ArnEquals": {
+                            "aws:PrincipalArn": self.config.execution_role_arn,
+                            "sts:RequestContext/identitystore:IdentityStoreArn": self.config.identity_store_arn,
+                            "sts:RequestContext/identitycenter:InstanceArn": self.config.identity_center_instance_arn,
+                            "sts:RequestContext/identitycenter:ApplicationArn": self.config.identity_center_application_arn,
+                        },
+                        "Null": {
+                            "sts:RequestContextProviders": "false",
+                            "sts:RequestContext/identitystore:UserId": "false",
+                            "sts:RequestContext/identitystore:IdentityStoreArn": "false",
+                            "sts:RequestContext/identitycenter:InstanceArn": "false",
+                            "sts:RequestContext/identitycenter:ApplicationArn": "false",
+                        },
+                    },
+                },
+            ],
+        }
+        if (
+            role.get("AssumeRolePolicyDocument") != expected_trust
+            or role.get("PermissionsBoundary") is not None
+            or role.get("MaxSessionDuration") != 3600
+        ):
+            raise BrokerError("PROOF_ROLE_BOUNDARY_CHANGED")
+        inline = self.clients.iam.list_role_policies(RoleName=role_name).get(
+            "PolicyNames"
+        )
+        attached = self.clients.iam.list_attached_role_policies(
+            RoleName=role_name
+        ).get("AttachedPolicies")
+        if inline != [PROOF_POLICY_NAME] or attached not in ([], None):
+            raise BrokerError("PROOF_ROLE_POLICY_INVENTORY_CHANGED")
+        policy = self.clients.iam.get_role_policy(
+            RoleName=role_name,
+            PolicyName=PROOF_POLICY_NAME,
+        )
+        document = policy.get("PolicyDocument")
+        if (
+            _policy_document_digest(document) != expected_policy_sha256
+            or (
+                _strict_json_object(document, "PROOF_POLICY_INVALID")
+                if isinstance(document, str)
+                else document
+            )
+            != {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "DenyEveryProofSessionAction",
+                        "Effect": "Deny",
+                        "Action": "*",
+                        "Resource": "*",
+                    }
+                ],
+            }
+        ):
+            raise BrokerError("PROOF_ROLE_POLICY_CHANGED")
+
+    def _verify_function_url(self, *, alias: str, invoker_role_arn: str) -> None:
+        config = self.clients.lambda_client.get_function_url_config(
+            FunctionName=self.config.function_name,
+            Qualifier=alias,
+        )
+        function_arn = f"{self.config.function_arn}:{alias}"
+        url = config.get("FunctionUrl")
+        if (
+            config.get("AuthType") != "AWS_IAM"
+            or config.get("InvokeMode") != "BUFFERED"
+            or config.get("FunctionArn") != function_arn
+            or config.get("Cors") not in (None, {})
+            or not isinstance(url, str)
+            or not url.startswith("https://")
+            or not url.endswith(f".lambda-url.{self.config.region}.on.aws/")
+        ):
+            raise BrokerError("FUNCTION_URL_BOUNDARY_CHANGED")
+        response = self.clients.lambda_client.get_policy(
+            FunctionName=self.config.function_name,
+            Qualifier=alias,
+        )
+        document = _strict_json_object(
+            response.get("Policy"), "FUNCTION_URL_POLICY_INVALID"
+        )
+        statements = document.get("Statement")
+        if document.get("Version") != "2012-10-17" or not isinstance(
+            statements, list
+        ):
+            raise BrokerError("FUNCTION_URL_POLICY_INVALID")
+        normalized = {
+            (
+                statement.get("Effect"),
+                json.dumps(statement.get("Principal"), sort_keys=True),
+                statement.get("Action"),
+                statement.get("Resource"),
+                json.dumps(statement.get("Condition"), sort_keys=True),
+            )
+            for statement in statements
+            if isinstance(statement, Mapping)
+        }
+        expected = {
+            (
+                "Allow",
+                json.dumps({"AWS": invoker_role_arn}, sort_keys=True),
+                "lambda:InvokeFunctionUrl",
+                function_arn,
+                json.dumps(
+                    {
+                        "StringEquals": {
+                            "lambda:FunctionUrlAuthType": "AWS_IAM"
+                        }
+                    },
+                    sort_keys=True,
+                ),
+            ),
+            (
+                "Allow",
+                json.dumps({"AWS": invoker_role_arn}, sort_keys=True),
+                "lambda:InvokeFunction",
+                function_arn,
+                json.dumps(
+                    {"Bool": {"lambda:InvokedViaFunctionUrl": "true"}},
+                    sort_keys=True,
+                ),
+            ),
+        }
+        if normalized != expected:
+            raise BrokerError("FUNCTION_URL_POLICY_CHANGED")
 
     def _verify_runtime_boundary(self, alias: str) -> None:
         role = self.clients.iam.get_role(RoleName=self.config.broker_execution_role_name)
@@ -637,7 +850,6 @@ class RetirementBroker:
             role_name=self.config.classifier_invoker_role_name,
             role_arn=self.config.classifier_invoker_role_arn,
             permission_set_role_arn=self.config.classifier_permission_set_role_arn,
-            identity_store_user_id=self.config.classifier_identity_store_user_id,
             policy_name=CLASSIFIER_INVOKER_POLICY_NAME,
             expected_policy_sha256=self.config.classifier_invoker_policy_sha256,
         )
@@ -645,9 +857,22 @@ class RetirementBroker:
             role_name=self.config.approver_invoker_role_name,
             role_arn=self.config.approver_invoker_role_arn,
             permission_set_role_arn=self.config.approver_permission_set_role_arn,
-            identity_store_user_id=self.config.approver_identity_store_user_id,
             policy_name=APPROVER_INVOKER_POLICY_NAME,
             expected_policy_sha256=self.config.approver_invoker_policy_sha256,
+        )
+        self._verify_proof_role(
+            role_name=self.config.classifier_proof_role_name,
+            role_arn=self.config.classifier_proof_role_arn,
+            identity_store_user_id=self.config.classifier_identity_store_user_id,
+            expected_policy_sha256=self.config.classifier_proof_policy_sha256,
+            trust_sid="SetExactClassifierIdentityContext",
+        )
+        self._verify_proof_role(
+            role_name=self.config.approver_proof_role_name,
+            role_arn=self.config.approver_proof_role_arn,
+            identity_store_user_id=self.config.approver_identity_store_user_id,
+            expected_policy_sha256=self.config.approver_proof_policy_sha256,
+            trust_sid="SetExactApproverIdentityContext",
         )
         function = self.clients.lambda_client.get_function_configuration(
             FunctionName=f"{self.config.function_name}:{alias}"
@@ -680,7 +905,7 @@ class RetirementBroker:
         )
         if signing.get("CodeSigningConfigArn") != self.config.code_signing_config_arn:
             raise BrokerError("BROKER_CODE_SIGNING_CHANGED")
-        for qualifier in (None, alias, str(function["Version"])):
+        for qualifier in (None, str(function["Version"])):
             try:
                 self.clients.lambda_client.get_policy(
                     FunctionName=self.config.function_name,
@@ -697,6 +922,12 @@ class RetirementBroker:
                     raise BrokerError("BROKER_RESOURCE_POLICY_READ_FAILED") from exc
             else:
                 raise BrokerError("BROKER_RESOURCE_POLICY_CHANGED")
+        invoker_role_arn = (
+            self.config.classifier_invoker_role_arn
+            if alias == ALIAS_CLASSIFY
+            else self.config.approver_invoker_role_arn
+        )
+        self._verify_function_url(alias=alias, invoker_role_arn=invoker_role_arn)
 
     def _verify_table_controls(self) -> None:
         response = self.clients.dynamodb.describe_table(
@@ -1027,10 +1258,14 @@ class RetirementBroker:
             raise BrokerError("PAB_READBACK_INVALID")
         return {key: bool(value[key]) for key in sorted(PUBLIC_ACCESS_BLOCK_KEYS)}
 
-    def _base_ledger(self, evidence: Mapping[str, Any]) -> dict[str, Any]:
+    def _base_ledger(
+        self,
+        evidence: Mapping[str, Any],
+        identity_proof_sha256: str,
+    ) -> dict[str, Any]:
         timestamp = _timestamp(self.now())
         record: dict[str, Any] = {
-            "schema_version": "1",
+            "schema_version": "2",
             "record_type": "platform_authority_change_set_retirement_pep_ledger",
             "environment": "non-production",
             "production": False,
@@ -1050,6 +1285,12 @@ class RetirementBroker:
             "broker_code_sha256": self.config.expected_code_sha256,
             "broker_policy_sha256": self.config.expected_broker_policy_sha256,
             "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+            "human_authentication_evidence": "STS_EVALUATED_IDENTITY_CONTEXT",
+            "aws_effect_principal": "BROKER_EXECUTION_ROLE",
+            "native_on_behalf_of": False,
+            "classifier_identity_proof_sha256": identity_proof_sha256,
+            "approver_identity_proof_sha256": None,
+            "reconciliation_identity_proof_sha256": None,
             "state": "CLASSIFIED",
             "version": 1,
             "attempt_count": 0,
@@ -1089,7 +1330,7 @@ class RetirementBroker:
         ):
             raise BrokerError("LEDGER_STATE_INVALID")
         expected_bindings = {
-            "schema_version": "1",
+            "schema_version": "2",
             "record_type": "platform_authority_change_set_retirement_pep_ledger",
             "environment": "non-production",
             "production": False,
@@ -1109,6 +1350,9 @@ class RetirementBroker:
             "broker_code_sha256": self.config.expected_code_sha256,
             "broker_policy_sha256": self.config.expected_broker_policy_sha256,
             "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+            "human_authentication_evidence": "STS_EVALUATED_IDENTITY_CONTEXT",
+            "aws_effect_principal": "BROKER_EXECUTION_ROLE",
+            "native_on_behalf_of": False,
         }
         if any(record.get(key) != expected for key, expected in expected_bindings.items()):
             raise BrokerError("LEDGER_BINDING_CHANGED")
@@ -1121,6 +1365,27 @@ class RetirementBroker:
             == record.get("approver_identity_store_user_id_digest")
         ):
             raise BrokerError("LEDGER_BINDING_CHANGED")
+        proof_presence: dict[str, tuple[bool, bool, bool]] = {
+            "CLASSIFIED": (True, False, False),
+            "APPROVED": (True, True, False),
+            "ATTEMPTED": (True, True, False),
+            "RETIRED_RECONCILED": (True, True, True),
+        }
+        for field, present in zip(
+            (
+                "classifier_identity_proof_sha256",
+                "approver_identity_proof_sha256",
+                "reconciliation_identity_proof_sha256",
+            ),
+            proof_presence[state],
+            strict=True,
+        ):
+            value = record.get(field)
+            if present:
+                if not isinstance(value, str) or DIGEST.fullmatch(value) is None:
+                    raise BrokerError("IDENTITY_PROOF_LEDGER_INVALID")
+            elif value is not None:
+                raise BrokerError("IDENTITY_PROOF_LEDGER_INVALID")
         expected_fields: dict[str, tuple[bool, ...]] = {
             "CLASSIFIED": (False, False, False),
             "APPROVED": (True, False, False),
@@ -1164,7 +1429,11 @@ class RetirementBroker:
         }
         if record.get("next_required_control") not in expected_next_controls[state]:
             raise BrokerError("LEDGER_STATE_INVALID")
-        expected_attribution = "UNPROVEN" if verification_present else None
+        expected_attribution = (
+            "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
+            if verification_present
+            else None
+        )
         if record.get("effect_attribution") != expected_attribution:
             raise BrokerError("LEDGER_STATE_INVALID")
         return record
@@ -1286,11 +1555,22 @@ class RetirementBroker:
                 raise BrokerError("LEDGER_TRANSITION_UNCERTAIN") from exc
         return validated
 
-    def _classify(self) -> dict[str, Any]:
+    def _classify(self, identity_proof_sha256: str) -> dict[str, Any]:
+        existing = self._get_ledger(self.config.retirement_id)
+        if existing is not None:
+            if existing["state"] != "CLASSIFIED":
+                raise BrokerError("CLASSIFICATION_ALREADY_ADVANCED")
+            evidence = self._target_evidence()
+            self._require_evidence_matches_ledger(existing, evidence)
+            return {
+                "status": "CLASSIFIED_ALREADY_RECORDED",
+                "ledger_digest": existing["ledger_digest"],
+                "next_required_control": existing["next_required_control"],
+            }
         evidence = self._target_evidence()
         if evidence.get("retirement_id") != self.config.retirement_id:
             raise BrokerError("RETIREMENT_ID_CHANGED")
-        ledger = self._base_ledger(evidence)
+        ledger = self._base_ledger(evidence, identity_proof_sha256)
         self._create_ledger(ledger)
         return {
             "status": "CLASSIFIED",
@@ -1298,7 +1578,7 @@ class RetirementBroker:
             "next_required_control": ledger["next_required_control"],
         }
 
-    def _retire(self) -> dict[str, Any]:
+    def _retire(self, identity_proof_sha256: str) -> dict[str, Any]:
         # Read the durable claim before inspecting the live target. Once an
         # attempt exists, a missing Change Set is the expected ambiguous
         # outcome and must never cause a second DeleteChangeSet invocation.
@@ -1326,6 +1606,7 @@ class RetirementBroker:
                         "approver_identity_store_user_id_digest"
                     ],
                     "identity_binding_digest": current["identity_binding_digest"],
+                    "approver_identity_proof_sha256": identity_proof_sha256,
                     "decision": "RETIRE_EXACT_UNEXECUTED_CHANGE_SET",
                     "allowed_action": "scanalyze:RetireExactChangeSet",
                     "approved_at": approved_at,
@@ -1335,6 +1616,7 @@ class RetirementBroker:
                 current,
                 state="APPROVED",
                 approval_digest=approval_digest,
+                approver_identity_proof_sha256=identity_proof_sha256,
                 approved_at=approved_at,
                 next_required_control="ONE_SHOT_ATTEMPT_REQUIRED",
             )
@@ -1381,7 +1663,7 @@ class RetirementBroker:
             "next_required_control": "READ_ONLY_RECONCILIATION_REQUIRED",
         }
 
-    def _reconcile(self) -> dict[str, Any]:
+    def _reconcile(self, identity_proof_sha256: str) -> dict[str, Any]:
         # The durable deployment-bound key is authoritative. Live names or
         # IDs can never select a different ledger record.
         current = self._get_ledger(self.config.retirement_id)
@@ -1421,6 +1703,7 @@ class RetirementBroker:
                 "active_change_set_count": 0,
                 "target_absent": True,
                 "account_public_access_block": pab,
+                "reconciliation_identity_proof_sha256": identity_proof_sha256,
                 "verified_at": verified_at,
             }
         )
@@ -1440,8 +1723,9 @@ class RetirementBroker:
             current,
             state="RETIRED_RECONCILED",
             verification_digest=verification_digest,
+            reconciliation_identity_proof_sha256=identity_proof_sha256,
             verified_at=verified_at,
-            effect_attribution="UNPROVEN",
+            effect_attribution="BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF",
             next_required_control=next_control,
         )
         return {
@@ -1462,15 +1746,6 @@ def _alias_from_context(context: object) -> str:
 
 
 def handler(event: object, context: object) -> dict[str, Any]:
-    """Lambda entrypoint. Every exception is converted to a safe response."""
-    try:
-        config = BrokerConfig.from_environment()
-        broker = RetirementBroker(
-            config=config,
-            clients=BotoClients.create(config.region),
-        )
-        return broker.handle(alias=_alias_from_context(context), event=event)
-    except BrokerError as exc:
-        return {"status": "DENY", "reason_code": exc.code}
-    except Exception:
-        return {"status": "DENY", "reason_code": "BROKER_INTERNAL_ERROR"}
+    """Retained fail-closed shim; the template uses the GUG-217 URL handler."""
+    del event, context
+    return {"status": "DENY", "reason_code": "DIRECT_ENTRYPOINT_DISABLED"}

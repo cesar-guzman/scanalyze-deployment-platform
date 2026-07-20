@@ -82,6 +82,8 @@ APPLICATION_ARN = (
 )
 CLASSIFIER_ROLE = "ScanalyzeGug215ClassifierInvoker"
 APPROVER_ROLE = "ScanalyzeGug215ApproverInvoker"
+CLASSIFIER_PROOF_ROLE = "ScanalyzeGug217ClassifierProof"
+APPROVER_PROOF_ROLE = "ScanalyzeGug217ApproverProof"
 EXECUTION_ROLE = "ScanalyzeGug215BrokerExecution"
 CLASSIFIER_PERMISSION_SET_ROLE_ARN = (
     f"arn:aws:iam::{ACCOUNT}:role/aws-reserved/sso.amazonaws.com/"
@@ -141,6 +143,18 @@ APPROVER_INVOKER_POLICY = {
         }
     ],
 }
+PROOF_POLICY = {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "DenyEveryProofSessionAction",
+            "Effect": "Deny",
+            "Action": "*",
+            "Resource": "*",
+        }
+    ],
+}
+PROOF_POLICY_SHA256 = canonical_digest(PROOF_POLICY)
 ALL_TRUE_PAB = {
     "BlockPublicAcls": True,
     "BlockPublicPolicy": True,
@@ -151,6 +165,12 @@ ALL_TRUE_PAB = {
 
 def _digest(seed: str) -> str:
     return "sha256:" + __import__("hashlib").sha256(seed.encode("utf-8")).hexdigest()
+
+
+APPLICATION_ACTOR_POLICY_SHA256 = _digest("application-actor-policy")
+CLASSIFIER_IDENTITY_PROOF_SHA256 = _digest("classifier-identity-proof")
+APPROVER_IDENTITY_PROOF_SHA256 = _digest("approver-identity-proof")
+RECONCILIATION_IDENTITY_PROOF_SHA256 = _digest("reconciliation-identity-proof")
 
 
 def _config(**overrides: str) -> BrokerConfig:
@@ -173,8 +193,15 @@ def _config(**overrides: str) -> BrokerConfig:
             CLASSIFIER_INVOKER_POLICY
         ),
         "approver_invoker_policy_sha256": canonical_digest(APPROVER_INVOKER_POLICY),
+        "classifier_proof_policy_sha256": PROOF_POLICY_SHA256,
+        "approver_proof_policy_sha256": PROOF_POLICY_SHA256,
+        "identity_center_application_actor_policy_sha256": (
+            APPLICATION_ACTOR_POLICY_SHA256
+        ),
         "classifier_invoker_role_name": CLASSIFIER_ROLE,
         "approver_invoker_role_name": APPROVER_ROLE,
+        "classifier_proof_role_name": CLASSIFIER_PROOF_ROLE,
+        "approver_proof_role_name": APPROVER_PROOF_ROLE,
         "classifier_permission_set_role_arn": CLASSIFIER_PERMISSION_SET_ROLE_ARN,
         "approver_permission_set_role_arn": APPROVER_PERMISSION_SET_ROLE_ARN,
         "broker_execution_role_name": EXECUTION_ROLE,
@@ -217,8 +244,12 @@ class FakeIam:
         self.approver_trust_override: Mapping[str, Any] | None = None
         self.classifier_policy_document: Mapping[str, Any] = CLASSIFIER_INVOKER_POLICY
         self.approver_policy_document: Mapping[str, Any] = APPROVER_INVOKER_POLICY
+        self.classifier_proof_policy_document: Mapping[str, Any] = PROOF_POLICY
+        self.approver_proof_policy_document: Mapping[str, Any] = PROOF_POLICY
         self.classifier_inline_names = [CLASSIFIER_INVOKER_POLICY_NAME]
         self.approver_inline_names = [APPROVER_INVOKER_POLICY_NAME]
+        self.classifier_proof_inline_names = ["Gug217ZeroAuthorityProof"]
+        self.approver_proof_inline_names = ["Gug217ZeroAuthorityProof"]
 
     def _invoker_trust(self, *, classifier: bool) -> dict[str, Any]:
         principal = (
@@ -226,7 +257,6 @@ class FakeIam:
             if classifier
             else APPROVER_PERMISSION_SET_ROLE_ARN
         )
-        user_id = CLASSIFIER_USER_ID if classifier else APPROVER_USER_ID
         return {
             "Version": "2012-10-17",
             "Statement": [
@@ -237,8 +267,32 @@ class FakeIam:
                     "Action": "sts:AssumeRole",
                     "Condition": {"ArnEquals": {"aws:PrincipalArn": principal}},
                 },
+            ],
+        }
+
+    def _proof_trust(self, *, classifier: bool) -> dict[str, Any]:
+        user_id = CLASSIFIER_USER_ID if classifier else APPROVER_USER_ID
+        trust_sid = (
+            "SetExactClassifierIdentityContext"
+            if classifier
+            else "SetExactApproverIdentityContext"
+        )
+        return {
+            "Version": "2012-10-17",
+            "Statement": [
                 {
-                    "Sid": "SetVerifiedIdentityCenterContext",
+                    "Sid": "AssumeFromExactBroker",
+                    "Effect": "Allow",
+                    "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"},
+                    "Action": "sts:AssumeRole",
+                    "Condition": {
+                        "ArnEquals": {
+                            "aws:PrincipalArn": self.config.execution_role_arn
+                        }
+                    },
+                },
+                {
+                    "Sid": trust_sid,
                     "Effect": "Allow",
                     "Principal": {"AWS": f"arn:aws:iam::{ACCOUNT}:root"},
                     "Action": "sts:SetContext",
@@ -252,7 +306,7 @@ class FakeIam:
                             "sts:RequestContext/identitystore:UserId": user_id
                         },
                         "ArnEquals": {
-                            "aws:PrincipalArn": principal,
+                            "aws:PrincipalArn": self.config.execution_role_arn,
                             "sts:RequestContext/identitystore:IdentityStoreArn": IDENTITY_STORE_ARN,
                             "sts:RequestContext/identitycenter:InstanceArn": INSTANCE_ARN,
                             "sts:RequestContext/identitycenter:ApplicationArn": APPLICATION_ARN,
@@ -281,17 +335,24 @@ class FakeIam:
                 classifier=False
             )
             arn = self.config.approver_invoker_role_arn
+        elif RoleName == CLASSIFIER_PROOF_ROLE:
+            trust = self._proof_trust(classifier=True)
+            arn = self.config.classifier_proof_role_arn
+        elif RoleName == APPROVER_PROOF_ROLE:
+            trust = self._proof_trust(classifier=False)
+            arn = self.config.approver_proof_role_arn
         else:
             assert RoleName == EXECUTION_ROLE
             trust = self.trust
             arn = self.config.execution_role_arn
-        return {
-            "Role": {
-                "Arn": arn,
-                "AssumeRolePolicyDocument": trust,
-                "PermissionsBoundary": self.boundary,
-            }
+        role = {
+            "Arn": arn,
+            "AssumeRolePolicyDocument": trust,
+            "PermissionsBoundary": self.boundary,
         }
+        if RoleName in {CLASSIFIER_PROOF_ROLE, APPROVER_PROOF_ROLE}:
+            role["MaxSessionDuration"] = 3600
+        return {"Role": role}
 
     def list_role_policies(self, *, RoleName: str) -> dict[str, Any]:
         self.log.append("iam:list-role-policies")
@@ -299,12 +360,22 @@ class FakeIam:
             return {"PolicyNames": self.classifier_inline_names}
         if RoleName == APPROVER_ROLE:
             return {"PolicyNames": self.approver_inline_names}
+        if RoleName == CLASSIFIER_PROOF_ROLE:
+            return {"PolicyNames": self.classifier_proof_inline_names}
+        if RoleName == APPROVER_PROOF_ROLE:
+            return {"PolicyNames": self.approver_proof_inline_names}
         assert RoleName == EXECUTION_ROLE
         return {"PolicyNames": self.inline_names}
 
     def list_attached_role_policies(self, *, RoleName: str) -> dict[str, Any]:
         self.log.append("iam:list-attached-role-policies")
-        assert RoleName in {EXECUTION_ROLE, CLASSIFIER_ROLE, APPROVER_ROLE}
+        assert RoleName in {
+            EXECUTION_ROLE,
+            CLASSIFIER_ROLE,
+            APPROVER_ROLE,
+            CLASSIFIER_PROOF_ROLE,
+            APPROVER_PROOF_ROLE,
+        }
         return {"AttachedPolicies": self.attached}
 
     def get_role_policy(self, *, RoleName: str, PolicyName: str) -> dict[str, Any]:
@@ -315,6 +386,12 @@ class FakeIam:
         if RoleName == APPROVER_ROLE:
             assert PolicyName == APPROVER_INVOKER_POLICY_NAME
             return {"PolicyDocument": self.approver_policy_document}
+        if RoleName == CLASSIFIER_PROOF_ROLE:
+            assert PolicyName == "Gug217ZeroAuthorityProof"
+            return {"PolicyDocument": self.classifier_proof_policy_document}
+        if RoleName == APPROVER_PROOF_ROLE:
+            assert PolicyName == "Gug217ZeroAuthorityProof"
+            return {"PolicyDocument": self.approver_proof_policy_document}
         assert RoleName == EXECUTION_ROLE and PolicyName == BROKER_POLICY_NAME
         return {"PolicyDocument": self.policy_document}
 
@@ -331,6 +408,21 @@ class FakeLambda:
         self.concurrency = 1
         self.signing_arn = config.code_signing_config_arn
         self.resource_policy_qualifiers: set[str | None] = set()
+
+    def get_function_url_config(
+        self, *, FunctionName: str, Qualifier: str
+    ) -> dict[str, Any]:
+        self.log.append("lambda:get-function-url-config")
+        assert FunctionName == BROKER_FUNCTION_NAME
+        assert Qualifier in {ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE}
+        return {
+            "FunctionUrl": (
+                f"https://synthetic-{Qualifier}.lambda-url.{REGION}.on.aws/"
+            ),
+            "FunctionArn": f"{self.config.function_arn}:{Qualifier}",
+            "AuthType": "AWS_IAM",
+            "InvokeMode": "BUFFERED",
+        }
 
     def get_function_configuration(self, *, FunctionName: str) -> dict[str, Any]:
         self.log.append("lambda:get-function-configuration")
@@ -379,6 +471,44 @@ class FakeLambda:
                     {
                         "Version": "2012-10-17",
                         "Statement": [{"Effect": "Allow", "Principal": "*"}],
+                    }
+                )
+            }
+        if Qualifier in {ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE}:
+            invoker_role_arn = (
+                self.config.classifier_invoker_role_arn
+                if Qualifier == ALIAS_CLASSIFY
+                else self.config.approver_invoker_role_arn
+            )
+            function_arn = f"{self.config.function_arn}:{Qualifier}"
+            return {
+                "Policy": json.dumps(
+                    {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"AWS": invoker_role_arn},
+                                "Action": "lambda:InvokeFunctionUrl",
+                                "Resource": function_arn,
+                                "Condition": {
+                                    "StringEquals": {
+                                        "lambda:FunctionUrlAuthType": "AWS_IAM"
+                                    }
+                                },
+                            },
+                            {
+                                "Effect": "Allow",
+                                "Principal": {"AWS": invoker_role_arn},
+                                "Action": "lambda:InvokeFunction",
+                                "Resource": function_arn,
+                                "Condition": {
+                                    "Bool": {
+                                        "lambda:InvokedViaFunctionUrl": "true"
+                                    }
+                                },
+                            },
+                        ],
                     }
                 )
             }
@@ -698,6 +828,24 @@ def _broker(
     )
 
 
+def _handle(
+    broker: RetirementBroker,
+    *,
+    alias: str,
+    event: object | None = None,
+) -> dict[str, Any]:
+    proof_by_alias = {
+        ALIAS_CLASSIFY: CLASSIFIER_IDENTITY_PROOF_SHA256,
+        ALIAS_RETIRE: APPROVER_IDENTITY_PROOF_SHA256,
+        ALIAS_RECONCILE: RECONCILIATION_IDENTITY_PROOF_SHA256,
+    }
+    return broker.handle(
+        alias=alias,
+        event={} if event is None else event,
+        identity_proof_sha256=proof_by_alias[alias],
+    )
+
+
 def test_config_requires_two_distinct_immutable_identity_store_users() -> None:
     with pytest.raises(BrokerError, match="INDEPENDENT_OPERATOR_REQUIRED"):
         _config(approver_identity_store_user_id=CLASSIFIER_USER_ID)
@@ -748,7 +896,7 @@ def test_broker_rejects_payload_identity_locator_or_action() -> None:
         {"retirement_id": RETIREMENT_ID},
     ):
         with pytest.raises(BrokerError, match="REQUEST_AUTHORITY_FORBIDDEN"):
-            broker.handle(alias=ALIAS_CLASSIFY, event=payload)
+            _handle(broker, alias=ALIAS_CLASSIFY, event=payload)
     assert clients.cloudformation.delete_calls == 0
     assert clients.dynamodb.write_count == 0
 
@@ -757,7 +905,7 @@ def test_classification_requires_configured_retirement_id_to_match_live_target()
     config = _config(retirement_id="gug215#sha256:" + "f" * 64)
     broker, clients = _broker(config=config)
     with pytest.raises(BrokerError, match="RETIREMENT_ID_CHANGED"):
-        broker.handle(alias=ALIAS_CLASSIFY, event={})
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.dynamodb.write_count == 0
 
 
@@ -842,6 +990,10 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
     assert source.count("Type: AWS::Lambda::Function") == 1
     assert source.count("Type: AWS::Lambda::Version") == 1
     assert source.count("Type: AWS::Lambda::Alias") == 3
+    assert source.count("Type: AWS::Lambda::Url") == 3
+    assert source.count("Type: AWS::Lambda::Permission") == 6
+    assert source.count("AuthType: AWS_IAM") >= 3
+    assert source.count("InvokeMode: BUFFERED") == 3
     assert "CodeSha256: !Ref BrokerArtifactCodeSha256" in source
     assert "ReservedConcurrentExecutions: 1" in source
     assert "lambda:GetPolicy" in source
@@ -875,7 +1027,7 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
 
 def test_classification_is_service_owned_create_only_and_sanitized() -> None:
     broker, clients = _broker()
-    response = broker.handle(alias=ALIAS_CLASSIFY, event={})
+    response = _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert response["status"] == "CLASSIFIED"
     assert response["next_required_control"] == "INDEPENDENT_APPROVAL_REQUIRED"
     assert clients.dynamodb.write_count == 1
@@ -886,9 +1038,19 @@ def test_classification_is_service_owned_create_only_and_sanitized() -> None:
     assert CHANGE_SET_ID not in json.dumps(ledger)
     assert STACK_ID not in json.dumps(ledger)
     assert ledger["state"] == "CLASSIFIED"
+    assert ledger["schema_version"] == "2"
     assert ledger["version"] == 1
     assert ledger["attempt_count"] == 0
     assert ledger["identity_separation"] == "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+    assert ledger["human_authentication_evidence"] == "STS_EVALUATED_IDENTITY_CONTEXT"
+    assert ledger["aws_effect_principal"] == "BROKER_EXECUTION_ROLE"
+    assert ledger["native_on_behalf_of"] is False
+    assert (
+        ledger["classifier_identity_proof_sha256"]
+        == CLASSIFIER_IDENTITY_PROOF_SHA256
+    )
+    assert ledger["approver_identity_proof_sha256"] is None
+    assert ledger["reconciliation_identity_proof_sha256"] is None
     serialized = json.dumps(response)
     assert ACCOUNT not in serialized
     assert CHANGE_SET_NAME not in serialized
@@ -901,8 +1063,8 @@ def test_create_and_transition_response_loss_are_reconciled_by_exact_readback() 
     clients.dynamodb.raise_after_put_commit = True
     clients.dynamodb.raise_after_update_states = {"APPROVED", "ATTEMPTED"}
     broker, _ = _broker(clients)
-    classified = broker.handle(alias=ALIAS_CLASSIFY, event={})
-    retired = broker.handle(alias=ALIAS_RETIRE, event={})
+    classified = _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    retired = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert classified["status"] == "CLASSIFIED"
     assert retired["status"] == "RETIREMENT_ATTEMPTED"
     assert clients.dynamodb.ledger is not None
@@ -926,7 +1088,7 @@ def test_ledger_rejects_legacy_identity_fields_and_binding_drift(
     field: str, value: object, code: str
 ) -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.dynamodb.ledger is not None
     tampered = copy.deepcopy(clients.dynamodb.ledger)
     tampered[field] = value
@@ -938,7 +1100,7 @@ def test_ledger_rejects_legacy_identity_fields_and_binding_drift(
 
 def test_approved_ledger_is_resumable_without_reapproving() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.dynamodb.ledger is not None
     current = copy.deepcopy(clients.dynamodb.ledger)
     approved_at = "2030-01-01T00:00:01Z"
@@ -950,6 +1112,7 @@ def test_approved_ledger_is_resumable_without_reapproving() -> None:
                 "approver_identity_store_user_id_digest"
             ],
             "identity_binding_digest": current["identity_binding_digest"],
+            "approver_identity_proof_sha256": APPROVER_IDENTITY_PROOF_SHA256,
             "decision": "RETIRE_EXACT_UNEXECUTED_CHANGE_SET",
             "allowed_action": "scanalyze:RetireExactChangeSet",
             "approved_at": approved_at,
@@ -959,19 +1122,20 @@ def test_approved_ledger_is_resumable_without_reapproving() -> None:
         current,
         state="APPROVED",
         approval_digest=approval_digest,
+        approver_identity_proof_sha256=APPROVER_IDENTITY_PROOF_SHA256,
         approved_at=approved_at,
         next_required_control="ONE_SHOT_ATTEMPT_REQUIRED",
     )
-    response = broker.handle(alias=ALIAS_RETIRE, event={})
+    response = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert response["status"] == "RETIREMENT_ATTEMPTED"
     assert clients.cloudformation.delete_calls == 1
 
 
 def test_retirement_claims_approval_and_attempt_before_one_exact_delete() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     clients.log.clear()
-    response = broker.handle(alias=ALIAS_RETIRE, event={})
+    response = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert response["status"] == "RETIREMENT_ATTEMPTED"
     assert clients.cloudformation.delete_calls == 1
     assert clients.dynamodb.ledger is not None
@@ -989,12 +1153,12 @@ def test_retirement_claims_approval_and_attempt_before_one_exact_delete() -> Non
 
 def test_change_set_replacement_after_attempt_fails_closed_without_delete() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     # Classification is list call one, the pre-claim read is call two, and
     # the post-claim read is call three.
     clients.cloudformation.replace_change_set_on_list_call = 3
     with pytest.raises(BrokerError, match="LIVE_TARGET_CHANGED"):
-        broker.handle(alias=ALIAS_RETIRE, event={})
+        _handle(broker, alias=ALIAS_RETIRE, event={})
     assert clients.cloudformation.delete_calls == 0
     assert clients.dynamodb.ledger is not None
     assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
@@ -1003,50 +1167,57 @@ def test_change_set_replacement_after_attempt_fails_closed_without_delete() -> N
 
 def test_replay_after_attempt_never_reissues_delete() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     assert clients.cloudformation.delete_calls == 1
-    response = broker.handle(alias=ALIAS_RETIRE, event={})
+    response = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert response["status"] == "RECONCILIATION_REQUIRED"
     assert clients.cloudformation.delete_calls == 1
 
 
 def test_ambiguous_delete_leaves_durable_attempt_and_requires_reconcile() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     clients.cloudformation.delete_error = True
-    response = broker.handle(alias=ALIAS_RETIRE, event={})
+    response = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert response["status"] == "RECONCILIATION_REQUIRED"
     assert clients.dynamodb.ledger is not None
     assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
     assert clients.cloudformation.delete_calls == 1
-    second = broker.handle(alias=ALIAS_RETIRE, event={})
+    second = _handle(broker, alias=ALIAS_RETIRE, event={})
     assert second["status"] == "RECONCILIATION_REQUIRED"
     assert clients.cloudformation.delete_calls == 1
 
 
 def test_reconciliation_is_read_only_on_target_and_never_deletes_again() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     delete_calls = clients.cloudformation.delete_calls
-    response = broker.handle(alias=ALIAS_RECONCILE, event={})
+    response = _handle(broker, alias=ALIAS_RECONCILE, event={})
     assert response["status"] == "RETIRED_RECONCILED"
     assert response["next_required_control"] == "RETIREMENT_ROLE_REVOCATION_REQUIRED"
     assert clients.cloudformation.delete_calls == delete_calls
     assert clients.dynamodb.ledger is not None
     assert clients.dynamodb.ledger["state"] == "RETIRED_RECONCILED"
-    assert clients.dynamodb.ledger["effect_attribution"] == "UNPROVEN"
+    assert (
+        clients.dynamodb.ledger["effect_attribution"]
+        == "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
+    )
+    assert (
+        clients.dynamodb.ledger["reconciliation_identity_proof_sha256"]
+        == RECONCILIATION_IDENTITY_PROOF_SHA256
+    )
 
 
 def test_reconciliation_with_target_still_present_does_not_mutate_or_delete() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     clients.cloudformation.delete_error = True
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     before_writes = clients.dynamodb.write_count
     before_deletes = clients.cloudformation.delete_calls
-    response = broker.handle(alias=ALIAS_RECONCILE, event={})
+    response = _handle(broker, alias=ALIAS_RECONCILE, event={})
     assert response["status"] == "RECONCILIATION_REQUIRED"
     assert clients.dynamodb.write_count == before_writes
     assert clients.cloudformation.delete_calls == before_deletes
@@ -1054,22 +1225,22 @@ def test_reconciliation_with_target_still_present_does_not_mutate_or_delete() ->
 
 def test_reconciliation_rejects_foreign_change_sets() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
     clients.cloudformation.delete_error = True
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     clients.cloudformation.foreign_target = True
     with pytest.raises(BrokerError, match="RECONCILIATION_INVENTORY_AMBIGUOUS"):
-        broker.handle(alias=ALIAS_RECONCILE, event={})
+        _handle(broker, alias=ALIAS_RECONCILE, event={})
     assert clients.cloudformation.delete_calls == 1
 
 
 def test_reconciliation_rejects_recreated_stack_shell() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     clients.cloudformation.stack_id = REPLACEMENT_STACK_ID
     with pytest.raises(BrokerError, match="RECONCILIATION_SHELL_CHANGED"):
-        broker.handle(alias=ALIAS_RECONCILE, event={})
+        _handle(broker, alias=ALIAS_RECONCILE, event={})
     assert clients.dynamodb.ledger is not None
     assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
     assert clients.cloudformation.delete_calls == 1
@@ -1077,13 +1248,13 @@ def test_reconciliation_rejects_recreated_stack_shell() -> None:
 
 def test_reconciliation_revalidates_stack_continuity_before_terminal_cas() -> None:
     broker, clients = _broker()
-    broker.handle(alias=ALIAS_CLASSIFY, event={})
-    broker.handle(alias=ALIAS_RETIRE, event={})
+    _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    _handle(broker, alias=ALIAS_RETIRE, event={})
     # classify + two retire reads consume three stack reads; reconciliation
     # reads the original shell on call four and sees replacement on call five.
     clients.cloudformation.replace_stack_on_describe_call = 5
     with pytest.raises(BrokerError, match="RECONCILIATION_SHELL_CHANGED"):
-        broker.handle(alias=ALIAS_RECONCILE, event={})
+        _handle(broker, alias=ALIAS_RECONCILE, event={})
     assert clients.dynamodb.ledger is not None
     assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
     assert clients.cloudformation.delete_calls == 1
@@ -1101,7 +1272,7 @@ def test_reconciliation_revalidates_stack_continuity_before_terminal_cas() -> No
         ("routing", "BROKER_ALIAS_CHANGED"),
         ("signing", "BROKER_CODE_SIGNING_CHANGED"),
         ("base_resource_policy", "BROKER_RESOURCE_POLICY_CHANGED"),
-        ("alias_resource_policy", "BROKER_RESOURCE_POLICY_CHANGED"),
+        ("alias_resource_policy", "FUNCTION_URL_POLICY_CHANGED"),
         ("version_resource_policy", "BROKER_RESOURCE_POLICY_CHANGED"),
     ),
 )
@@ -1136,7 +1307,7 @@ def test_effective_broker_role_code_alias_and_signing_are_read_back(
         clients.lambda_client.resource_policy_qualifiers = {"7"}
     broker, _ = _broker(clients, config=config)
     with pytest.raises(BrokerError, match=code):
-        broker.handle(alias=ALIAS_CLASSIFY, event={})
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.cloudformation.delete_calls == 0
     assert clients.dynamodb.write_count == 0
 
@@ -1167,7 +1338,7 @@ def test_effective_invoker_trust_and_policy_are_read_back(
         clients.iam.classifier_inline_names.append("Foreign")
     broker, _ = _broker(clients)
     with pytest.raises(BrokerError, match=code):
-        broker.handle(alias=ALIAS_CLASSIFY, event={})
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.dynamodb.write_count == 0
     assert clients.cloudformation.delete_calls == 0
 
@@ -1199,7 +1370,7 @@ def test_ledger_controls_fail_closed_before_any_effect(mutation: str) -> None:
         clients.dynamodb.resource_policy["Statement"][0]["Principal"] = {"AWS": ACCOUNT}
     broker, _ = _broker(clients, config=config)
     with pytest.raises(BrokerError, match="LEDGER_"):
-        broker.handle(alias=ALIAS_CLASSIFY, event={})
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.cloudformation.delete_calls == 0
     assert clients.dynamodb.write_count == 0
 
@@ -1215,7 +1386,7 @@ def test_live_target_drift_blocks_before_ledger_or_delete(mutation: str) -> None
         clients.cloudformation.template_body = "changed"
     broker, _ = _broker(clients)
     with pytest.raises(BrokerError):
-        broker.handle(alias=ALIAS_CLASSIFY, event={})
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
     assert clients.dynamodb.write_count == 0
     assert clients.cloudformation.delete_calls == 0
 
@@ -1257,20 +1428,16 @@ def test_broker_source_has_no_logging_and_sdk_has_zero_retries() -> None:
     assert source.count("delete_change_set(") == 1
 
 
-def test_handler_converts_all_failures_to_sanitized_denials(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_direct_handler_is_permanently_fail_closed() -> None:
     module = __import__(
         "tooling.platform_authority_change_set_retirement_broker",
         fromlist=["handler"],
     )
-    monkeypatch.setattr(
-        module.BrokerConfig,
-        "from_environment",
-        classmethod(lambda cls: (_ for _ in ()).throw(BrokerError("SAFE_DENY"))),
-    )
     response = module.handler({}, SimpleNamespace(invoked_function_arn="invalid"))
-    assert response == {"status": "DENY", "reason_code": "SAFE_DENY"}
+    assert response == {
+        "status": "DENY",
+        "reason_code": "DIRECT_ENTRYPOINT_DISABLED",
+    }
 
 
 def test_policy_names_and_role_names_fit_identity_center_contracts() -> None:

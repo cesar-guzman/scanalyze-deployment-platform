@@ -57,6 +57,12 @@ evidence.
 - `../operations/platform-authority-identity-enhanced-session.md`: offline
   compatibility procedure, future live gates, two-person roster, stop
   conditions, uncertainty and evidence handling.
+- `platform-authority-identity-context-pep.md`: GUG-217 split ordinary
+  Function URL / identity-enhanced proof PEP, exact aliases, secret containment,
+  ledger-before-effect ordering, honest broker attribution and live boundary.
+- `../operations/platform-authority-identity-context-pep.md`: GUG-217
+  two-person preflight, exact readback, one-shot proof, reconciliation,
+  revocation, stop conditions and sanitized evidence procedure.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -219,3 +225,10 @@ application/grant/assignment inventories, permission-set or invoker role ARNs,
 authorization codes, PKCE material, access/refresh/ID tokens, identity-context
 assertions, temporary AWS credentials, CloudTrail, AWS responses, logs,
 screenshots or live evidence.
+
+For GUG-217, ingest only
+`../../_NotebookLM_Brain/32_GUG217_Identity_Context_Compatible_Retirement_PEP.md`.
+Do not ingest Function URLs, request bodies, authorization codes, PKCE values,
+tokens, identity-context assertions, temporary credentials, emails, UserIds,
+application/role/account identifiers, ledger items, Change Set locators,
+CloudTrail, AWS responses, logs, screenshots or live evidence.
