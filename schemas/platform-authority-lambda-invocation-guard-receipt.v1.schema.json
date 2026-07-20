@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-invocation-guard-receipt.v1.schema.json",
+  "title": "Platform Authority Lambda Invocation Guard Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "authority_account_id_digest",
+    "target_region",
+    "allowlist_digest",
+    "inventory_digest",
+    "evidence_source_mode",
+    "source_snapshot_digest",
+    "collector_principal_digest",
+    "source_snapshot_started_at",
+    "source_snapshot_completed_at",
+    "status",
+    "reason_code",
+    "coverage_complete",
+    "expected_authority_exact",
+    "snapshot_fresh",
+    "prohibited_edge_count",
+    "unknown_edge_count",
+    "denied_surface_count",
+    "decision_at",
+    "expires_at",
+    "next_required_control",
+    "aws_mutation_performed",
+    "lambda_invocation_performed",
+    "deployment_authorized",
+    "live_retirement_authorized",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_lambda_invocation_guard_receipt"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "target_region": { "$ref": "#/$defs/region" },
+    "allowlist_digest": { "$ref": "#/$defs/digest" },
+    "inventory_digest": { "$ref": "#/$defs/digest" },
+    "evidence_source_mode": {
+      "enum": ["AWS_READ_ONLY", "OFFLINE_UNVERIFIED"]
+    },
+    "source_snapshot_digest": { "$ref": "#/$defs/digest" },
+    "collector_principal_digest": { "$ref": "#/$defs/digest" },
+    "source_snapshot_started_at": { "$ref": "#/$defs/timestamp" },
+    "source_snapshot_completed_at": { "$ref": "#/$defs/timestamp" },
+    "status": {
+      "enum": [
+        "PREFLIGHT_PASSED_REVIEW_REQUIRED",
+        "BLOCKED_UNSAFE_AUTHORITY",
+        "BLOCKED_ACCESS_DENIED",
+        "BLOCKED_INCOMPLETE",
+        "BLOCKED_AMBIGUOUS",
+        "BLOCKED_DRIFT",
+        "BLOCKED_UNVERIFIED_SOURCE"
+      ]
+    },
+    "reason_code": {
+      "enum": [
+        "EXACT_AUTHORITY_REPORT_ONLY",
+        "UNSAFE_AUTHORITY_PRESENT",
+        "READ_ACCESS_DENIED",
+        "INVENTORY_INCOMPLETE",
+        "AMBIGUOUS_EVIDENCE",
+        "AUTHORITY_DRIFT_DETECTED",
+        "UNVERIFIED_EVIDENCE_SOURCE"
+      ]
+    },
+    "coverage_complete": { "type": "boolean" },
+    "expected_authority_exact": { "type": "boolean" },
+    "snapshot_fresh": { "type": "boolean" },
+    "prohibited_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "unknown_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "denied_surface_count": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "decision_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "next_required_control": {
+      "enum": [
+        "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION",
+        "REMOVE_UNSAFE_AUTHORITY",
+        "RESOLVE_ACCESS_DENIAL",
+        "COMPLETE_READ_ONLY_INVENTORY",
+        "RESOLVE_AMBIGUOUS_EVIDENCE",
+        "RESOLVE_AUTHORITY_DRIFT",
+        "COLLECT_AUTHENTICATED_AWS_INVENTORY"
+      ]
+    },
+    "aws_mutation_performed": { "const": false },
+    "lambda_invocation_performed": { "const": false },
+    "deployment_authorized": { "const": false },
+    "live_retirement_authorized": { "const": false },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "PREFLIGHT_PASSED_REVIEW_REQUIRED" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "coverage_complete": { "const": true },
+          "expected_authority_exact": { "const": true },
+          "snapshot_fresh": { "const": true },
+          "prohibited_edge_count": { "const": 0 },
+          "unknown_edge_count": { "const": 0 },
+          "denied_surface_count": { "const": 0 },
+          "evidence_source_mode": { "const": "AWS_READ_ONLY" },
+          "reason_code": { "const": "EXACT_AUTHORITY_REPORT_ONLY" },
+          "next_required_control": {
+            "const": "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "BLOCKED_UNSAFE_AUTHORITY" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "prohibited_edge_count": { "minimum": 1 },
+          "expected_authority_exact": { "const": false },
+          "reason_code": { "const": "UNSAFE_AUTHORITY_PRESENT" },
+          "next_required_control": { "const": "REMOVE_UNSAFE_AUTHORITY" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "BLOCKED_ACCESS_DENIED" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "coverage_complete": { "const": false },
+          "denied_surface_count": { "minimum": 1 },
+          "reason_code": { "const": "READ_ACCESS_DENIED" },
+          "next_required_control": { "const": "RESOLVE_ACCESS_DENIAL" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "BLOCKED_INCOMPLETE" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "coverage_complete": { "const": false },
+          "reason_code": { "const": "INVENTORY_INCOMPLETE" },
+          "next_required_control": { "const": "COMPLETE_READ_ONLY_INVENTORY" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "BLOCKED_AMBIGUOUS" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "expected_authority_exact": { "const": false },
+          "reason_code": { "const": "AMBIGUOUS_EVIDENCE" },
+          "next_required_control": { "const": "RESOLVE_AMBIGUOUS_EVIDENCE" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "BLOCKED_DRIFT" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "evidence_source_mode": { "const": "AWS_READ_ONLY" },
+          "coverage_complete": { "const": true },
+          "expected_authority_exact": { "const": false },
+          "snapshot_fresh": { "const": true },
+          "reason_code": { "const": "AUTHORITY_DRIFT_DETECTED" },
+          "next_required_control": { "const": "RESOLVE_AUTHORITY_DRIFT" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "BLOCKED_UNVERIFIED_SOURCE" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "evidence_source_mode": { "const": "OFFLINE_UNVERIFIED" },
+          "coverage_complete": { "const": false },
+          "expected_authority_exact": { "const": false },
+          "snapshot_fresh": { "const": false },
+          "reason_code": { "const": "UNVERIFIED_EVIDENCE_SOURCE" },
+          "next_required_control": {
+            "const": "COLLECT_AUTHENTICATED_AWS_INVENTORY"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_source_mode": { "const": "OFFLINE_UNVERIFIED" }
+        },
+        "required": ["evidence_source_mode"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "BLOCKED_UNVERIFIED_SOURCE" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-invocation-allowlist.v1.schema.json",
+  "title": "Platform Authority Lambda Invocation Allowlist v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "inventory_scope",
+    "authority_account_id_digest",
+    "target_region",
+    "source_template_sha256",
+    "source_policy_bundle_sha256",
+    "broker_artifact_code_sha256",
+    "broker_published_configuration_sha256",
+    "collector_role_principal_digest",
+    "expected_authority_edges",
+    "forbidden_authority_classes",
+    "live_effect_authorized",
+    "created_at",
+    "allowlist_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_lambda_invocation_allowlist"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "inventory_scope": {
+      "const": "ALL_ENABLED_REGIONS_AND_GLOBAL_IAM"
+    },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "target_region": { "$ref": "#/$defs/region" },
+    "source_template_sha256": { "$ref": "#/$defs/digest" },
+    "source_policy_bundle_sha256": { "$ref": "#/$defs/digest" },
+    "broker_artifact_code_sha256": { "$ref": "#/$defs/lambda_code_sha256" },
+    "broker_published_configuration_sha256": { "$ref": "#/$defs/digest" },
+    "collector_role_principal_digest": { "$ref": "#/$defs/digest" },
+    "expected_authority_edges": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/expected_edge" }
+    },
+    "forbidden_authority_classes": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/forbidden_authority_class" }
+    },
+    "live_effect_authorized": { "const": false },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "allowlist_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "lambda_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "forbidden_authority_class": {
+      "enum": [
+        "PUBLIC_PRINCIPAL",
+        "WILDCARD_ACTION",
+        "WILDCARD_RESOURCE",
+        "FUNCTION_URL_NONE",
+        "UNQUALIFIED_FUNCTION",
+        "LATEST_VERSION",
+        "NUMERIC_VERSION",
+        "ALTERNATE_ALIAS",
+        "CROSS_ACCOUNT_PRINCIPAL",
+        "SERVICE_PRINCIPAL",
+        "FEDERATED_PRINCIPAL",
+        "ALTERNATE_TRUST",
+        "UNSUPPORTED_POLICY_SEMANTICS",
+        "EVENT_SOURCE_MAPPING",
+        "AUTHORITY_MUTATION"
+      ]
+    },
+    "expected_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_class",
+        "source_type",
+        "duty",
+        "target_scope",
+        "action",
+        "condition_class",
+        "principal_digest",
+        "resource_digest",
+        "source_document_digest"
+      ],
+      "properties": {
+        "authority_class": { "enum": ["INVOCATION", "TRUST"] },
+        "source_type": {
+          "enum": [
+            "LAMBDA_RESOURCE_POLICY",
+            "IAM_ROLE_INLINE_POLICY",
+            "IAM_ROLE_TRUST_POLICY"
+          ]
+        },
+        "duty": { "enum": ["classifier", "independent_approver"] },
+        "target_scope": {
+          "enum": [
+            "EXACT_CLASSIFY_ALIAS",
+            "EXACT_RETIRE_ALIAS",
+            "EXACT_RECONCILE_ALIAS",
+            "CLASSIFIER_INVOKER_ROLE",
+            "APPROVER_INVOKER_ROLE"
+          ]
+        },
+        "action": {
+          "enum": [
+            "lambda:InvokeFunctionUrl",
+            "lambda:InvokeFunction",
+            "sts:AssumeRole"
+          ]
+        },
+        "condition_class": {
+          "enum": [
+            "FUNCTION_URL_AUTH_TYPE_AWS_IAM",
+            "INVOKED_VIA_FUNCTION_URL_TRUE",
+            "EXACT_PERMISSION_SET_TRUST"
+          ]
+        },
+        "principal_digest": { "$ref": "#/$defs/digest" },
+        "resource_digest": { "$ref": "#/$defs/digest" },
+        "source_document_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}
