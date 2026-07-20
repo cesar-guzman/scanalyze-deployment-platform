@@ -146,6 +146,11 @@ tests pass.
 - A future AWS-managed policy version may change semantics and requires a new
   canonical review.
 
+GUG-218 addresses the additive-authority blind spot with a complete,
+collector-sealed, report-only IAM/Lambda graph. Caller-authored offline evidence
+always blocks. The package does not eliminate residual TOCTOU or administrator
+risk and does not itself authorize rollout.
+
 ## Evidence handling
 
 Sanitized evidence may include public managed-policy ARN/version/digest,
@@ -178,3 +183,4 @@ Function URLs, CloudTrail, ledger documents, Change Set IDs or AWS responses.
 - [Lambda Function URL authorization](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)
 - [Lambda Function URL monitoring](https://docs.aws.amazon.com/lambda/latest/dg/urls-monitoring.html)
 - [CloudTrail user identity](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)
+- [GUG-218 threat-model delta](gug-218-lambda-invocation-authority-threat-model-delta.md)

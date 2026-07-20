@@ -63,6 +63,12 @@ evidence.
 - `../operations/platform-authority-identity-context-pep.md`: GUG-217
   two-person preflight, exact readback, one-shot proof, reconciliation,
   revocation, stop conditions and sanitized evidence procedure.
+- `platform-authority-lambda-invocation-authority.md`: GUG-218 complete IAM and
+  Lambda authority graph, collector-sealed provenance, strict pagination,
+  report-only receipt and rollout boundary.
+- `../operations/platform-authority-lambda-invocation-authority.md`: GUG-218
+  authenticated read-only capture, unverified-offline boundary, independent
+  review, stop conditions and private-evidence handling.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -232,3 +238,10 @@ Do not ingest Function URLs, request bodies, authorization codes, PKCE values,
 tokens, identity-context assertions, temporary credentials, emails, UserIds,
 application/role/account identifiers, ledger items, Change Set locators,
 CloudTrail, AWS responses, logs, screenshots or live evidence.
+
+For GUG-218, ingest only
+`../../_NotebookLM_Brain/33_GUG218_Lambda_Invocation_Authority.md`.
+Do not ingest account IDs, ARNs, users, groups, roles, policy documents,
+permissions boundaries, Function URLs, versions, aliases, event-source
+mappings, profile names, AWS responses, raw inventory, logs, screenshots or
+live evidence.

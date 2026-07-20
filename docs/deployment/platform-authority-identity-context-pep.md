@@ -188,7 +188,10 @@ must be separately authorized and evidenced:
 7. GUG-215 ledger, resource policy, stack and exact retained target proved;
 8. non-production execution authorization, monitoring, no-retry response and
    revocation plan approved;
-9. account-wide inventory proves no alternate invoker, writer or deleter;
+9. GUG-218 produces a fresh, authenticated, collector-sealed
+   `REVIEW_SAFE_REPORT_ONLY` account-wide inventory with no alternate invoker,
+   mutator, writer or deleter, and a separately reviewed preventive guardrail
+   is active; `OFFLINE_UNVERIFIED` evidence never satisfies this gate;
 10. fresh recovery preflight remains fail-closed.
 
 The current one-person roster fails gate 2. Stop before live provisioning or
@@ -215,3 +218,4 @@ invocation.
 - [GUG-217 threat-model delta](../security/gug-217-identity-context-pep-threat-model-delta.md)
 - [GUG-215 retirement contract](platform-authority-change-set-retirement.md)
 - [GUG-216 compatibility contract](platform-authority-identity-enhanced-session.md)
+- [GUG-218 Lambda authority inventory](platform-authority-lambda-invocation-authority.md)

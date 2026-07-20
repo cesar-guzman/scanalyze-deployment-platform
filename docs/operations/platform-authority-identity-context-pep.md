@@ -95,6 +95,11 @@ If deployment is authorized in a future change, read back and compare:
    policy;
 8. account-wide absence of foreign invocation and mutation authority.
 
+Use the GUG-218 capture/analyzer for item 8. A report-only receipt does not
+authorize deployment or invocation. Require authenticated collector provenance,
+a fresh repeat observation and a separately reviewed preventive control before
+any live window. `OFFLINE_UNVERIFIED` evidence always blocks.
+
 Drift or incomplete evidence stops the procedure. Do not repair in place from
 an execution session.
 
@@ -211,3 +216,6 @@ history, proxies or support bundles.
 | Two-person roster | **Blocked**; one current human |
 | Live retirement | **Blocked** |
 | Production | **NO-GO** |
+
+See [GUG-218 account-wide authority inventory](../deployment/platform-authority-lambda-invocation-authority.md)
+for the read-only capture and offline analysis boundary.

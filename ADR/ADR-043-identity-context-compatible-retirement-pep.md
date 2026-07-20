@@ -199,6 +199,12 @@ GUG-216 and GUG-217 provisioning, account-wide authority inventory, exact
 readback, CI, non-production execution authorization, revocation and recovery
 gates pass.
 
+ADR-044/GUG-218 defines that inventory as a separate read-only capture and
+pure analyzer. Only collector-sealed authenticated evidence can produce
+`REVIEW_SAFE_REPORT_ONLY`; offline caller-authored evidence always blocks. A
+clean result is still an observation, not a live invocation authorization or
+preventive guardrail.
+
 ## Consequences
 
 - The reviewed `v12` policy no longer needs to authorize Lambda; it is used
@@ -268,3 +274,4 @@ requires a separate approved package.
 - [Lambda Function URLs](https://docs.aws.amazon.com/lambda/latest/dg/urls-invocation.html)
 - [Lambda Function URL authorization](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)
 - [CloudTrail user identity](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html)
+- [ADR-044 account-wide Lambda authority inventory](ADR-044-account-wide-lambda-invocation-authority.md)

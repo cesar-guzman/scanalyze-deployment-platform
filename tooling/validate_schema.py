@@ -11,12 +11,12 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 try:
     import jsonschema
-    from jsonschema import Draft202012Validator, ValidationError
+    from jsonschema import Draft202012Validator, FormatChecker, ValidationError
     HAS_JSONSCHEMA = True
 except ImportError:
     HAS_JSONSCHEMA = False
@@ -58,6 +58,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-identity-context-proof-receipt": "platform-authority-identity-context-proof-receipt.v{version}.schema.json",
         "platform-authority-identity-enhanced-binding": "platform-authority-identity-enhanced-binding.v{version}.schema.json",
         "platform-authority-identity-enhanced-session-receipt": "platform-authority-identity-enhanced-session-receipt.v{version}.schema.json",
+        "platform-authority-lambda-invocation-allowlist": "platform-authority-lambda-invocation-allowlist.v{version}.schema.json",
+        "platform-authority-lambda-invocation-inventory": "platform-authority-lambda-invocation-inventory.v{version}.schema.json",
+        "platform-authority-lambda-invocation-guard-receipt": "platform-authority-lambda-invocation-guard-receipt.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
         "release-deployment-projection": "release-deployment-projection.v{version}.schema.json",
         "release-trust-policy": "release-trust-policy.v{version}.schema.json",
@@ -515,7 +518,679 @@ def _validate_gug217_proof_receipt(instance: dict) -> list[str]:
     return errors
 
 
-def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
+GUG218_FORBIDDEN_AUTHORITY_CLASSES = frozenset(
+    {
+        "PUBLIC_PRINCIPAL",
+        "WILDCARD_ACTION",
+        "WILDCARD_RESOURCE",
+        "FUNCTION_URL_NONE",
+        "UNQUALIFIED_FUNCTION",
+        "LATEST_VERSION",
+        "NUMERIC_VERSION",
+        "ALTERNATE_ALIAS",
+        "CROSS_ACCOUNT_PRINCIPAL",
+        "SERVICE_PRINCIPAL",
+        "FEDERATED_PRINCIPAL",
+        "ALTERNATE_TRUST",
+        "UNSUPPORTED_POLICY_SEMANTICS",
+        "EVENT_SOURCE_MAPPING",
+        "AUTHORITY_MUTATION",
+    }
+)
+GUG218_COVERAGE_SURFACES = frozenset(
+    {
+        "region_discovery",
+        "lambda_functions",
+        "lambda_aliases",
+        "lambda_versions",
+        "lambda_function_urls",
+        "lambda_resource_policies",
+        "lambda_event_source_mappings",
+        "iam_account_authorization",
+    }
+)
+GUG218_LAMBDA_CODE_SHA256_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+
+
+def _gug218_expected_authority_edges() -> frozenset[tuple[str, ...]]:
+    expected: set[tuple[str, ...]] = set()
+    aliases = (
+        ("classifier", "EXACT_CLASSIFY_ALIAS"),
+        ("independent_approver", "EXACT_RETIRE_ALIAS"),
+        ("independent_approver", "EXACT_RECONCILE_ALIAS"),
+    )
+    actions = (
+        (
+            "lambda:InvokeFunctionUrl",
+            "FUNCTION_URL_AUTH_TYPE_AWS_IAM",
+        ),
+        (
+            "lambda:InvokeFunction",
+            "INVOKED_VIA_FUNCTION_URL_TRUE",
+        ),
+    )
+    for source_type in (
+        "LAMBDA_RESOURCE_POLICY",
+        "IAM_ROLE_INLINE_POLICY",
+    ):
+        for duty, target_scope in aliases:
+            for action, condition_class in actions:
+                expected.add(
+                    (
+                        "INVOCATION",
+                        source_type,
+                        duty,
+                        target_scope,
+                        action,
+                        condition_class,
+                    )
+                )
+    expected.update(
+        {
+            (
+                "TRUST",
+                "IAM_ROLE_TRUST_POLICY",
+                "classifier",
+                "CLASSIFIER_INVOKER_ROLE",
+                "sts:AssumeRole",
+                "EXACT_PERMISSION_SET_TRUST",
+            ),
+            (
+                "TRUST",
+                "IAM_ROLE_TRUST_POLICY",
+                "independent_approver",
+                "APPROVER_INVOKER_ROLE",
+                "sts:AssumeRole",
+                "EXACT_PERMISSION_SET_TRUST",
+            ),
+        }
+    )
+    return frozenset(expected)
+
+
+GUG218_EXPECTED_AUTHORITY_EDGES = _gug218_expected_authority_edges()
+
+
+def _gug218_allowlist_edge_tuple(edge: object) -> tuple[str, ...] | None:
+    if not isinstance(edge, dict):
+        return None
+    values = tuple(
+        edge.get(field)
+        for field in (
+            "authority_class",
+            "source_type",
+            "duty",
+            "target_scope",
+            "action",
+            "condition_class",
+        )
+    )
+    return values if all(isinstance(value, str) for value in values) else None
+
+
+def _gug218_inventory_edge_tuple(edge: object) -> tuple[str, ...] | None:
+    if not isinstance(edge, dict):
+        return None
+    action = {
+        "INVOKE_FUNCTION_URL": "lambda:InvokeFunctionUrl",
+        "INVOKE_FUNCTION": "lambda:InvokeFunction",
+        "ASSUME_ROLE": "sts:AssumeRole",
+    }.get(edge.get("action_class"))
+    values = (
+        edge.get("authority_class"),
+        edge.get("source_type"),
+        edge.get("duty"),
+        edge.get("target_scope"),
+        action,
+        edge.get("condition_class"),
+    )
+    return values if all(isinstance(value, str) for value in values) else None
+
+
+def _gug218_expected_principal_kind(edge: dict) -> str | None:
+    duty = edge.get("duty")
+    if duty == "classifier":
+        suffix = "CLASSIFIER"
+    elif duty == "independent_approver":
+        suffix = "APPROVER"
+    else:
+        return None
+    if edge.get("authority_class") == "TRUST":
+        return f"EXACT_{suffix}_PERMISSION_SET"
+    if edge.get("authority_class") == "INVOCATION":
+        return f"EXACT_{suffix}_ROLE"
+    return None
+
+
+def _gug218_allowlist_edge_binding_tuple(
+    edge: object,
+) -> tuple[str, ...] | None:
+    if not isinstance(edge, dict):
+        return None
+    principal_kind = _gug218_expected_principal_kind(edge)
+    shape = _gug218_allowlist_edge_tuple(edge)
+    if shape is None:
+        return None
+    values = (
+        *shape,
+        principal_kind,
+        edge.get("principal_digest"),
+        edge.get("resource_digest"),
+        edge.get("source_document_digest"),
+    )
+    return values if len(values) == 10 and all(
+        isinstance(value, str) for value in values
+    ) else None
+
+
+def _gug218_inventory_edge_binding_tuple(
+    edge: object,
+) -> tuple[str, ...] | None:
+    if not isinstance(edge, dict):
+        return None
+    shape = _gug218_inventory_edge_tuple(edge)
+    if shape is None:
+        return None
+    values = (
+        *shape,
+        edge.get("principal_kind"),
+        edge.get("principal_digest"),
+        edge.get("resource_digest"),
+        edge.get("source_document_digest"),
+    )
+    return values if all(isinstance(value, str) for value in values) else None
+
+
+def _gug218_validate_evaluation_time(
+    *,
+    evaluation_at: datetime | None,
+    completed_at: datetime | None,
+    expires_at: datetime | None,
+    label: str,
+) -> list[str]:
+    if (
+        not isinstance(evaluation_at, datetime)
+        or evaluation_at.tzinfo is None
+        or evaluation_at.utcoffset() is None
+    ):
+        return [f"{label} requires a trusted timezone-aware evaluation_at"]
+    if completed_at is None or expires_at is None:
+        return []
+    trusted_now = evaluation_at.astimezone(UTC)
+    if completed_at > trusted_now:
+        return [f"{label} cannot be accepted before collection completes"]
+    if trusted_now >= expires_at:
+        return [f"{label} evidence is expired at evaluation time"]
+    return []
+
+
+def _validate_gug218_allowlist(instance: dict) -> list[str]:
+    errors: list[str] = []
+    broker_artifact_code_sha256 = instance.get("broker_artifact_code_sha256")
+    if (
+        not isinstance(broker_artifact_code_sha256, str)
+        or GUG218_LAMBDA_CODE_SHA256_RE.fullmatch(broker_artifact_code_sha256)
+        is None
+    ):
+        errors.append(
+            "broker_artifact_code_sha256 must be the exact Lambda CodeSha256 base64 digest"
+        )
+
+    edges = instance.get("expected_authority_edges")
+    edge_list = edges if isinstance(edges, list) else []
+    edge_tuples = {
+        value
+        for edge in edge_list
+        if (value := _gug218_allowlist_edge_tuple(edge)) is not None
+    }
+    if len(edge_list) != 14 or edge_tuples != GUG218_EXPECTED_AUTHORITY_EDGES:
+        errors.append("allowlist must contain the exact fourteen reviewed authority edges")
+
+    forbidden = instance.get("forbidden_authority_classes")
+    if not isinstance(forbidden, list) or set(forbidden) != GUG218_FORBIDDEN_AUTHORITY_CLASSES:
+        errors.append("allowlist must enumerate every fail-closed authority class")
+
+    classifier_principals = {
+        edge.get("principal_digest")
+        for edge in edge_list
+        if isinstance(edge, dict)
+        and edge.get("authority_class") == "INVOCATION"
+        and edge.get("duty") == "classifier"
+    }
+    approver_principals = {
+        edge.get("principal_digest")
+        for edge in edge_list
+        if isinstance(edge, dict)
+        and edge.get("authority_class") == "INVOCATION"
+        and edge.get("duty") == "independent_approver"
+    }
+    if len(classifier_principals) != 1 or len(approver_principals) != 1:
+        errors.append("each duty must bind exactly one invoker role digest")
+    elif classifier_principals == approver_principals:
+        errors.append("classifier and approver invoker roles must remain distinct")
+
+    collector_principal = instance.get("collector_role_principal_digest")
+    if collector_principal in classifier_principals | approver_principals:
+        errors.append("collector role must remain distinct from both invoker duties")
+
+    trust_targets = {
+        edge.get("duty"): edge.get("resource_digest")
+        for edge in edge_list
+        if isinstance(edge, dict) and edge.get("authority_class") == "TRUST"
+    }
+    classifier_principal = next(iter(classifier_principals), None)
+    approver_principal = next(iter(approver_principals), None)
+    if trust_targets.get("classifier") != classifier_principal:
+        errors.append("classifier trust must target the reviewed invoker role")
+    if trust_targets.get("independent_approver") != approver_principal:
+        errors.append("approver trust must target the reviewed invoker role")
+
+    without_digest = {
+        key: value for key, value in instance.items() if key != "allowlist_digest"
+    }
+    if instance.get("allowlist_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("allowlist_digest must cover the complete reviewed contract")
+    return errors
+
+
+def _validate_gug218_inventory(
+    instance: dict,
+    *,
+    expected_allowlist: dict | None = None,
+    evaluation_at: datetime | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    coverage = instance.get("coverage")
+    coverage_map = coverage if isinstance(coverage, dict) else {}
+    if set(coverage_map) != GUG218_COVERAGE_SURFACES:
+        errors.append("inventory must cover every account-wide read surface")
+    coverage_statuses = {
+        value.get("status")
+        for value in coverage_map.values()
+        if isinstance(value, dict)
+    }
+    coverage_complete = coverage_statuses == {"COMPLETE"}
+
+    edges = instance.get("authority_edges")
+    edge_list = edges if isinstance(edges, list) else []
+    expected_edges = [
+        edge for edge in edge_list if isinstance(edge, dict) and edge.get("verdict") == "EXPECTED_EXACT"
+    ]
+    prohibited_edges = [
+        edge for edge in edge_list if isinstance(edge, dict) and edge.get("verdict") == "PROHIBITED"
+    ]
+    unknown_edges = [
+        edge for edge in edge_list if isinstance(edge, dict) and edge.get("verdict") == "UNKNOWN"
+    ]
+    mutating_edges = [
+        edge
+        for edge in edge_list
+        if isinstance(edge, dict) and edge.get("authority_class") == "AUTHORITY_MUTATION"
+    ]
+    count_bindings = (
+        ("observed_edge_count", len(edge_list)),
+        ("expected_edge_count", len(expected_edges)),
+        ("prohibited_edge_count", len(prohibited_edges)),
+        ("unknown_edge_count", len(unknown_edges)),
+        ("mutating_authority_count", len(mutating_edges)),
+    )
+    for field, expected in count_bindings:
+        if instance.get(field) != expected:
+            errors.append(f"{field} must match the sanitized authority edge inventory")
+
+    source_started = _gug215_timestamp(instance.get("source_snapshot_started_at"))
+    source_completed = _gug215_timestamp(
+        instance.get("source_snapshot_completed_at")
+    )
+    started = _gug215_timestamp(instance.get("scan_started_at"))
+    completed = _gug215_timestamp(instance.get("scan_completed_at"))
+    expires = _gug215_timestamp(instance.get("expires_at"))
+    if (
+        source_started is None
+        or source_completed is None
+        or started is None
+        or completed is None
+        or expires is None
+    ):
+        errors.append("inventory timestamps must be valid UTC instants")
+    elif not (source_started <= source_completed <= started <= completed < expires):
+        errors.append("inventory timestamps must be monotonic and unexpired at completion")
+    elif started - source_completed > timedelta(minutes=5):
+        errors.append("authenticated source snapshot must not be older than five minutes")
+    elif expires - completed > timedelta(minutes=5):
+        errors.append("inventory evidence lifetime must not exceed five minutes")
+
+    enabled_regions = instance.get("enabled_region_count")
+    scanned_regions = instance.get("scanned_region_count")
+    status = instance.get("status")
+    evidence_source_mode = instance.get("evidence_source_mode")
+    unsupported_policy_semantics_detected = instance.get(
+        "unsupported_policy_semantics_detected"
+    )
+    structural_drift_detected = instance.get("structural_drift_detected")
+    expected_tuples = {
+        value
+        for edge in expected_edges
+        if (value := _gug218_inventory_edge_tuple(edge)) is not None
+    }
+    expected_bindings: set[tuple[str, ...]] = set()
+    observed_bindings = {
+        value
+        for edge in expected_edges
+        if (value := _gug218_inventory_edge_binding_tuple(edge)) is not None
+    }
+    allowlist_context_valid = isinstance(expected_allowlist, dict)
+    if allowlist_context_valid:
+        allowlist_edges = expected_allowlist.get("expected_authority_edges")
+        if isinstance(allowlist_edges, list):
+            expected_bindings = {
+                value
+                for edge in allowlist_edges
+                if (value := _gug218_allowlist_edge_binding_tuple(edge)) is not None
+            }
+        common_bindings = (
+            ("allowlist_digest", "allowlist_digest"),
+            ("authority_account_id_digest", "authority_account_id_digest"),
+            ("target_region", "target_region"),
+            ("source_template_sha256", "source_template_sha256"),
+            ("collector_principal_digest", "collector_role_principal_digest"),
+        )
+        for inventory_field, allowlist_field in common_bindings:
+            if instance.get(inventory_field) != expected_allowlist.get(allowlist_field):
+                errors.append(
+                    f"{inventory_field} must match the reviewed allowlist"
+                )
+    authority_exact = (
+        allowlist_context_valid
+        and len(expected_edges) == 14
+        and expected_tuples == GUG218_EXPECTED_AUTHORITY_EDGES
+        and len(expected_bindings) == 14
+        and observed_bindings == expected_bindings
+        and not prohibited_edges
+        and not unknown_edges
+        and not mutating_edges
+    )
+    regions_complete = (
+        isinstance(enabled_regions, int)
+        and enabled_regions > 0
+        and scanned_regions == enabled_regions
+    )
+    if status == "REVIEW_SAFE_REPORT_ONLY":
+        if not allowlist_context_valid:
+            errors.append(
+                "report-only safe status requires the reviewed allowlist context"
+            )
+        errors.extend(
+            _gug218_validate_evaluation_time(
+                evaluation_at=evaluation_at,
+                completed_at=completed,
+                expires_at=expires,
+                label="report-only safe inventory",
+            )
+        )
+        if evidence_source_mode != "AWS_READ_ONLY":
+            errors.append("report-only safe status requires authenticated AWS read evidence")
+        if not coverage_complete:
+            errors.append("report-only safe status requires complete read coverage")
+        if not regions_complete:
+            errors.append("report-only safe status requires every enabled region")
+        if not authority_exact:
+            errors.append("report-only safe status requires the exact fourteen authority edges")
+        if unsupported_policy_semantics_detected is not False:
+            errors.append("report-only safe status rejects unsupported policy semantics")
+        if structural_drift_detected is not False:
+            errors.append("report-only safe status rejects structural authority drift")
+    elif status == "FOREIGN_AUTHORITY_PRESENT":
+        if not prohibited_edges:
+            errors.append("foreign authority status requires a prohibited edge")
+    elif status == "INVENTORY_INCOMPLETE":
+        if coverage_complete and regions_complete:
+            errors.append("incomplete status requires incomplete coverage or region inventory")
+    elif status == "POLICY_SEMANTICS_UNSUPPORTED":
+        if (
+            unsupported_policy_semantics_detected is not True
+            and not unknown_edges
+            and "AMBIGUOUS" not in coverage_statuses
+        ):
+            errors.append(
+                "unsupported policy status requires a detector flag, unknown edge or ambiguous read"
+            )
+    elif status == "DRIFT_DETECTED":
+        if structural_drift_detected is not True:
+            errors.append("drift status requires explicit structural authority drift")
+    elif status == "OFFLINE_UNVERIFIED":
+        if evidence_source_mode != "OFFLINE_UNVERIFIED":
+            errors.append("offline status requires explicitly unverified source evidence")
+
+    if (
+        evidence_source_mode == "OFFLINE_UNVERIFIED"
+        and status != "OFFLINE_UNVERIFIED"
+    ):
+        errors.append("offline evidence can never produce an AWS inventory decision")
+
+    without_digest = {
+        key: value for key, value in instance.items() if key != "inventory_digest"
+    }
+    if instance.get("inventory_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("inventory_digest must cover the complete sanitized snapshot")
+    return errors
+
+
+def _validate_gug218_guard_receipt(
+    instance: dict,
+    *,
+    expected_allowlist: dict | None = None,
+    expected_inventory: dict | None = None,
+    evaluation_at: datetime | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    source_started = _gug215_timestamp(instance.get("source_snapshot_started_at"))
+    source_completed = _gug215_timestamp(
+        instance.get("source_snapshot_completed_at")
+    )
+    decision = _gug215_timestamp(instance.get("decision_at"))
+    expires = _gug215_timestamp(instance.get("expires_at"))
+    if (
+        source_started is None
+        or source_completed is None
+        or decision is None
+        or expires is None
+    ):
+        errors.append("guard receipt timestamps must be valid UTC instants")
+    elif not (source_started <= source_completed <= decision < expires):
+        errors.append("guard receipt must expire after its decision")
+    elif decision - source_completed > timedelta(minutes=5):
+        errors.append("guard receipt cannot rely on stale source evidence")
+    elif expires - decision > timedelta(minutes=5):
+        errors.append("guard receipt lifetime must not exceed five minutes")
+
+    evidence_source_mode = instance.get("evidence_source_mode")
+    if instance.get("status") == "PREFLIGHT_PASSED_REVIEW_REQUIRED":
+        if not isinstance(expected_allowlist, dict) or not isinstance(
+            expected_inventory, dict
+        ):
+            errors.append(
+                "report-only pass requires the bound allowlist and inventory context"
+            )
+        errors.extend(
+            _gug218_validate_evaluation_time(
+                evaluation_at=evaluation_at,
+                completed_at=decision,
+                expires_at=expires,
+                label="report-only pass receipt",
+            )
+        )
+        if evidence_source_mode != "AWS_READ_ONLY":
+            errors.append("report-only pass requires authenticated AWS read evidence")
+        if not all(
+            instance.get(field) is True
+            for field in (
+                "coverage_complete",
+                "expected_authority_exact",
+                "snapshot_fresh",
+            )
+        ):
+            errors.append("report-only pass requires complete, exact and fresh evidence")
+        if any(
+            instance.get(field) != 0
+            for field in (
+                "prohibited_edge_count",
+                "unknown_edge_count",
+                "denied_surface_count",
+            )
+        ):
+            errors.append("report-only pass cannot contain a blocked authority surface")
+
+    if instance.get("status") == "BLOCKED_UNVERIFIED_SOURCE":
+        if evidence_source_mode != "OFFLINE_UNVERIFIED":
+            errors.append("unverified-source block requires explicit offline provenance")
+        if any(
+            instance.get(field) is not False
+            for field in (
+                "coverage_complete",
+                "expected_authority_exact",
+                "snapshot_fresh",
+            )
+        ):
+            errors.append("unverified-source block cannot claim authoritative evidence")
+
+    if instance.get("status") == "BLOCKED_DRIFT":
+        if evidence_source_mode != "AWS_READ_ONLY":
+            errors.append("drift block requires authenticated AWS read evidence")
+        if instance.get("coverage_complete") is not True:
+            errors.append("drift block requires complete inventory coverage")
+        if instance.get("expected_authority_exact") is not False:
+            errors.append("drift block cannot claim exact expected authority")
+        if instance.get("snapshot_fresh") is not True:
+            errors.append("drift block requires fresh evidence")
+
+    if (
+        evidence_source_mode == "OFFLINE_UNVERIFIED"
+        and instance.get("status") != "BLOCKED_UNVERIFIED_SOURCE"
+    ):
+        errors.append("offline evidence can never produce a preflight decision")
+
+    if isinstance(expected_allowlist, dict) and isinstance(expected_inventory, dict):
+        common_bindings = (
+            ("environment", "environment"),
+            ("production", "production"),
+            ("evidence_source_mode", "evidence_source_mode"),
+            ("source_snapshot_digest", "source_snapshot_digest"),
+            ("collector_principal_digest", "collector_principal_digest"),
+            ("source_snapshot_started_at", "source_snapshot_started_at"),
+            ("source_snapshot_completed_at", "source_snapshot_completed_at"),
+            ("authority_account_id_digest", "authority_account_id_digest"),
+            ("target_region", "target_region"),
+            ("allowlist_digest", "allowlist_digest"),
+            ("inventory_digest", "inventory_digest"),
+        )
+        for receipt_field, source_field in common_bindings:
+            source = (
+                expected_allowlist
+                if receipt_field == "allowlist_digest"
+                else expected_inventory
+            )
+            if instance.get(receipt_field) != source.get(source_field):
+                errors.append(
+                    f"{receipt_field} must match the bound evidence bundle"
+                )
+        inventory_completed = _gug215_timestamp(
+            expected_inventory.get("scan_completed_at")
+        )
+        inventory_expires = _gug215_timestamp(expected_inventory.get("expires_at"))
+        if (
+            decision is not None
+            and inventory_completed is not None
+            and decision < inventory_completed
+        ):
+            errors.append("guard decision cannot precede inventory completion")
+        if (
+            expires is not None
+            and inventory_expires is not None
+            and expires > inventory_expires
+        ):
+            errors.append("guard receipt cannot outlive the bound inventory")
+
+        coverage = expected_inventory.get("coverage")
+        coverage_values = (
+            list(coverage.values()) if isinstance(coverage, dict) else []
+        )
+        coverage_statuses = [
+            value.get("status")
+            for value in coverage_values
+            if isinstance(value, dict)
+        ]
+        expected_coverage_complete = (
+            expected_inventory.get("evidence_source_mode") == "AWS_READ_ONLY"
+            and expected_inventory.get("status") != "INVENTORY_INCOMPLETE"
+            and len(coverage_statuses) == len(GUG218_COVERAGE_SURFACES)
+            and set(coverage_statuses) == {"COMPLETE"}
+        )
+        denied_surfaces = sum(
+            status == "ACCESS_DENIED" for status in coverage_statuses
+        )
+        inventory_status = expected_inventory.get("status")
+        if inventory_status == "REVIEW_SAFE_REPORT_ONLY":
+            expected_status = "PREFLIGHT_PASSED_REVIEW_REQUIRED"
+            expected_reason = "EXACT_AUTHORITY_REPORT_ONLY"
+            expected_next = "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+        elif inventory_status == "FOREIGN_AUTHORITY_PRESENT":
+            expected_status = "BLOCKED_UNSAFE_AUTHORITY"
+            expected_reason = "UNSAFE_AUTHORITY_PRESENT"
+            expected_next = "REMOVE_UNSAFE_AUTHORITY"
+        elif inventory_status == "POLICY_SEMANTICS_UNSUPPORTED":
+            expected_status = "BLOCKED_AMBIGUOUS"
+            expected_reason = "AMBIGUOUS_EVIDENCE"
+            expected_next = "RESOLVE_AMBIGUOUS_EVIDENCE"
+        elif inventory_status == "DRIFT_DETECTED":
+            expected_status = "BLOCKED_DRIFT"
+            expected_reason = "AUTHORITY_DRIFT_DETECTED"
+            expected_next = "RESOLVE_AUTHORITY_DRIFT"
+        elif inventory_status == "OFFLINE_UNVERIFIED":
+            expected_status = "BLOCKED_UNVERIFIED_SOURCE"
+            expected_reason = "UNVERIFIED_EVIDENCE_SOURCE"
+            expected_next = "COLLECT_AUTHENTICATED_AWS_INVENTORY"
+        elif denied_surfaces:
+            expected_status = "BLOCKED_ACCESS_DENIED"
+            expected_reason = "READ_ACCESS_DENIED"
+            expected_next = "RESOLVE_ACCESS_DENIAL"
+        else:
+            expected_status = "BLOCKED_INCOMPLETE"
+            expected_reason = "INVENTORY_INCOMPLETE"
+            expected_next = "COMPLETE_READ_ONLY_INVENTORY"
+        expected_values = {
+            "status": expected_status,
+            "reason_code": expected_reason,
+            "next_required_control": expected_next,
+            "coverage_complete": expected_coverage_complete,
+            "expected_authority_exact": inventory_status
+            == "REVIEW_SAFE_REPORT_ONLY",
+            "prohibited_edge_count": expected_inventory.get(
+                "prohibited_edge_count"
+            ),
+            "unknown_edge_count": expected_inventory.get("unknown_edge_count"),
+            "denied_surface_count": denied_surfaces,
+        }
+        for field, expected in expected_values.items():
+            if instance.get(field) != expected:
+                errors.append(f"{field} must match the bound inventory decision")
+
+    without_digest = {
+        key: value for key, value in instance.items() if key != "receipt_digest"
+    }
+    if instance.get("receipt_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("receipt_digest must cover the complete report-only decision")
+    return errors
+
+
+def validate_semantics(
+    instance: dict,
+    schema_path: Path,
+    *,
+    gug218_allowlist: dict | None = None,
+    gug218_inventory: dict | None = None,
+    evaluation_at: datetime | None = None,
+) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
 
     Messages intentionally name fields without echoing rejected identity values.
@@ -673,6 +1348,90 @@ def validate_semantics(instance: dict, schema_path: Path) -> list[str]:
     if schema_name == "platform-authority-identity-context-proof-receipt.v1.schema.json":
         errors.extend(_validate_gug217_proof_receipt(instance))
 
+    if schema_name == "platform-authority-lambda-invocation-allowlist.v1.schema.json":
+        errors.extend(_validate_gug218_allowlist(instance))
+
+    if schema_name == "platform-authority-lambda-invocation-inventory.v1.schema.json":
+        errors.extend(
+            _validate_gug218_inventory(
+                instance,
+                expected_allowlist=gug218_allowlist,
+                evaluation_at=evaluation_at,
+            )
+        )
+
+    if schema_name == "platform-authority-lambda-invocation-guard-receipt.v1.schema.json":
+        errors.extend(
+            _validate_gug218_guard_receipt(
+                instance,
+                expected_allowlist=gug218_allowlist,
+                expected_inventory=gug218_inventory,
+                evaluation_at=evaluation_at,
+            )
+        )
+
+    return errors
+
+
+def validate_gug218_evidence_bundle(
+    *,
+    allowlist: dict,
+    inventory: dict,
+    receipt: dict,
+    evaluation_at: datetime | None,
+) -> list[str]:
+    """Validate one complete GUG-218 evidence chain at a trusted instant."""
+
+    errors: list[str] = []
+    if not HAS_JSONSCHEMA:
+        return ["jsonschema dependency is required for GUG-218 bundle validation"]
+    schema_dir = Path(__file__).resolve().parents[1] / "schemas"
+    records = (
+        (
+            "allowlist",
+            allowlist,
+            "platform-authority-lambda-invocation-allowlist.v1.schema.json",
+        ),
+        (
+            "inventory",
+            inventory,
+            "platform-authority-lambda-invocation-inventory.v1.schema.json",
+        ),
+        (
+            "receipt",
+            receipt,
+            "platform-authority-lambda-invocation-guard-receipt.v1.schema.json",
+        ),
+    )
+    for label, record, schema_name in records:
+        schema = load_json(schema_dir / schema_name)
+        errors.extend(
+            f"{label}: {error.message}"
+            for error in Draft202012Validator(
+                schema, format_checker=FormatChecker()
+            ).iter_errors(record)
+        )
+    errors.extend(
+        f"allowlist: {error}"
+        for error in _validate_gug218_allowlist(allowlist)
+    )
+    errors.extend(
+        f"inventory: {error}"
+        for error in _validate_gug218_inventory(
+            inventory,
+            expected_allowlist=allowlist,
+            evaluation_at=evaluation_at,
+        )
+    )
+    errors.extend(
+        f"receipt: {error}"
+        for error in _validate_gug218_guard_receipt(
+            receipt,
+            expected_allowlist=allowlist,
+            expected_inventory=inventory,
+            evaluation_at=evaluation_at,
+        )
+    )
     return errors
 
 
@@ -685,9 +1444,69 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
     fixture_clean = {k: v for k, v in fixture.items() if k != "_test_metadata"}
 
     try:
-        validator = Draft202012Validator(schema)
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
         validator.validate(fixture_clean)
-        semantic_errors = validate_semantics(fixture_clean, schema_path)
+        metadata = fixture.get("_test_metadata")
+        evaluation_at = _gug215_timestamp(
+            metadata.get("trusted_evaluation_at")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if (
+            evaluation_at is None
+            and fixture_path.name
+            in {
+                "platform-authority-lambda-invocation-inventory-v1-synthetic.json",
+                "platform-authority-lambda-invocation-guard-receipt-v1-synthetic.json",
+            }
+        ):
+            evaluation_at = datetime(2026, 7, 20, 10, 2, tzinfo=UTC)
+        if (
+            schema_path.name
+            == "platform-authority-lambda-invocation-inventory.v1.schema.json"
+            and fixture_clean.get("status") == "REVIEW_SAFE_REPORT_ONLY"
+        ):
+            gug218_valid_dir = fixture_path.parent.parent / "valid"
+            allowlist = load_json(
+                gug218_valid_dir
+                / "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+            )
+            allowlist.pop("_test_metadata", None)
+            semantic_errors = validate_semantics(
+                fixture_clean,
+                schema_path,
+                gug218_allowlist=allowlist,
+                evaluation_at=evaluation_at,
+            )
+        elif (
+            schema_path.name
+            == "platform-authority-lambda-invocation-guard-receipt.v1.schema.json"
+            and fixture_clean.get("status")
+            == "PREFLIGHT_PASSED_REVIEW_REQUIRED"
+        ):
+            gug218_valid_dir = fixture_path.parent.parent / "valid"
+            allowlist = load_json(
+                gug218_valid_dir
+                / "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+            )
+            inventory = load_json(
+                gug218_valid_dir
+                / "platform-authority-lambda-invocation-inventory-v1-synthetic.json"
+            )
+            allowlist.pop("_test_metadata", None)
+            inventory.pop("_test_metadata", None)
+            semantic_errors = validate_gug218_evidence_bundle(
+                allowlist=allowlist,
+                inventory=inventory,
+                receipt=fixture_clean,
+                evaluation_at=evaluation_at,
+            )
+        else:
+            semantic_errors = validate_semantics(
+                fixture_clean,
+                schema_path,
+                evaluation_at=evaluation_at,
+            )
         if semantic_errors:
             return False, f"FAIL: {semantic_errors[0]}"
         return True, "PASS"
