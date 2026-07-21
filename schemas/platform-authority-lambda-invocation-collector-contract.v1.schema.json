@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-invocation-collector-contract.v1.schema.json",
+  "title": "Platform Authority Lambda Invocation Collector Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "authority_account_id_digest",
+    "target_region",
+    "identity_center_region",
+    "partition",
+    "broker_function_name_digest",
+    "permission_set_name",
+    "permission_set_description",
+    "session_duration",
+    "relay_state_present",
+    "inline_policy_template_sha256",
+    "collector_inline_policy_digest",
+    "managed_policy_arns",
+    "customer_managed_policy_references",
+    "permissions_boundary_present",
+    "collector_role_iam_arn_digest",
+    "collector_role_sts_arn_digest",
+    "aws_profile_authoritative",
+    "lambda_invocation_authorized",
+    "aws_mutation_authorized",
+    "live_effect_authorized",
+    "created_at",
+    "collector_contract_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_lambda_invocation_collector_contract"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "target_region": { "$ref": "#/$defs/region" },
+    "identity_center_region": { "$ref": "#/$defs/region" },
+    "partition": { "enum": ["aws", "aws-us-gov", "aws-cn"] },
+    "broker_function_name_digest": { "$ref": "#/$defs/digest" },
+    "permission_set_name": {
+      "const": "ScanalyzeAuthorityLambdaAudit"
+    },
+    "permission_set_description": {
+      "const": "GUG-219 read-only account-wide Lambda invocation-authority inventory"
+    },
+    "session_duration": { "const": "PT1H" },
+    "relay_state_present": { "const": false },
+    "inline_policy_template_sha256": { "$ref": "#/$defs/digest" },
+    "collector_inline_policy_digest": { "$ref": "#/$defs/digest" },
+    "managed_policy_arns": {
+      "type": "array",
+      "maxItems": 0,
+      "items": false
+    },
+    "customer_managed_policy_references": {
+      "type": "array",
+      "maxItems": 0,
+      "items": false
+    },
+    "permissions_boundary_present": { "const": false },
+    "collector_role_iam_arn_digest": { "$ref": "#/$defs/digest" },
+    "collector_role_sts_arn_digest": { "$ref": "#/$defs/digest" },
+    "aws_profile_authoritative": { "const": false },
+    "lambda_invocation_authorized": { "const": false },
+    "aws_mutation_authorized": { "const": false },
+    "live_effect_authorized": { "const": false },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "collector_contract_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

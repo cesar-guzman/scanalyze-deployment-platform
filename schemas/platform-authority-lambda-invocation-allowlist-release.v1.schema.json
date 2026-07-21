@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-invocation-allowlist-release.v1.schema.json",
+  "title": "Platform Authority Lambda Invocation Allowlist Release v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "release_status",
+    "authority_account_id_digest",
+    "target_region",
+    "source_commit",
+    "source_template_sha256",
+    "source_policy_bundle_sha256",
+    "broker_artifact_code_sha256",
+    "broker_published_configuration_sha256",
+    "collector_contract_digest",
+    "collector_role_principal_digest",
+    "candidate_snapshot_digest",
+    "expected_authority_edges_digest",
+    "allowlist_digest",
+    "created_at",
+    "expires_at",
+    "aws_readonly_inventory_eligible",
+    "live_effect_authorized",
+    "deployment_authorized",
+    "release_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_lambda_invocation_allowlist_release"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "release_status": { "const": "MATERIALIZED_REVIEW_REQUIRED" },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "target_region": { "$ref": "#/$defs/region" },
+    "source_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "source_template_sha256": { "$ref": "#/$defs/digest" },
+    "source_policy_bundle_sha256": { "$ref": "#/$defs/digest" },
+    "broker_artifact_code_sha256": { "$ref": "#/$defs/lambda_code_sha256" },
+    "broker_published_configuration_sha256": { "$ref": "#/$defs/digest" },
+    "collector_contract_digest": { "$ref": "#/$defs/digest" },
+    "collector_role_principal_digest": { "$ref": "#/$defs/digest" },
+    "candidate_snapshot_digest": { "$ref": "#/$defs/digest" },
+    "expected_authority_edges_digest": { "$ref": "#/$defs/digest" },
+    "allowlist_digest": { "$ref": "#/$defs/digest" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "aws_readonly_inventory_eligible": { "const": true },
+    "live_effect_authorized": { "const": false },
+    "deployment_authorized": { "const": false },
+    "release_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "lambda_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

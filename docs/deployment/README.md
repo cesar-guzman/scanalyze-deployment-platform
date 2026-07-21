@@ -69,6 +69,12 @@ evidence.
 - `../operations/platform-authority-lambda-invocation-authority.md`: GUG-218
   authenticated read-only capture, unverified-offline boundary, independent
   review, stop conditions and private-evidence handling.
+- `platform-authority-lambda-invocation-materialization.md`: GUG-219
+  deterministic candidate-to-allowlist materialization, dedicated Identity
+  Center collector contract, short-lived release anchor and fresh-capture gate.
+- `../operations/platform-authority-lambda-invocation-materialization.md`:
+  GUG-219 private-evidence handling, two-capture procedure, stop conditions and
+  separately authorized live-enablement boundary.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -245,3 +251,9 @@ Do not ingest account IDs, ARNs, users, groups, roles, policy documents,
 permissions boundaries, Function URLs, versions, aliases, event-source
 mappings, profile names, AWS responses, raw inventory, logs, screenshots or
 live evidence.
+
+For GUG-219, ingest only
+`../../_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md`.
+Do not ingest candidate or fresh snapshots, collector role ARNs, session names,
+account identifiers, rendered policies, release bundles, AWS responses, profile
+names, logs, screenshots or live evidence.

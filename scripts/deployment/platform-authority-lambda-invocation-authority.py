@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -32,6 +33,11 @@ from tooling.platform_authority_lambda_invocation_authority import (  # noqa: E4
     TargetBinding,
     analyze_authority_inventory,
     validate_reviewed_allowlist,
+)
+from tooling.platform_authority_lambda_invocation_materializer import (  # noqa: E402
+    LambdaAuthorityMaterializationError,
+    validate_fresh_capture,
+    validate_release_bundle,
 )
 from tooling.validate_schema import validate_gug218_evidence_bundle  # noqa: E402
 
@@ -77,6 +83,57 @@ def _read_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AuthorityInventoryError("INPUT_JSON_INVALID")
     return value
+
+
+def _read_private_object(path: Path) -> dict[str, Any]:
+    candidate = Path(path)
+    if candidate.is_symlink():
+        raise AuthorityInventoryError("PRIVATE_INPUT_SYMLINK_FORBIDDEN")
+    resolved = candidate.resolve(strict=False)
+    repo = REPO_ROOT.resolve()
+    if resolved == repo or repo in resolved.parents:
+        raise AuthorityInventoryError("PRIVATE_INPUT_INSIDE_REPOSITORY")
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(resolved, flags)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_mode & 0o077
+        ):
+            raise AuthorityInventoryError("PRIVATE_INPUT_MODE_INVALID")
+        with os.fdopen(descriptor, "r", encoding="utf-8", closefd=True) as stream:
+            descriptor = -1
+            value = json.load(stream, object_pairs_hook=_reject_duplicate_keys)
+    except AuthorityInventoryError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise AuthorityInventoryError("PRIVATE_INPUT_INVALID") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(value, dict):
+        raise AuthorityInventoryError("INPUT_JSON_INVALID")
+    return value
+
+
+def _require_distinct_private_inputs(paths: list[Path]) -> None:
+    resolved = [Path(path).resolve(strict=False) for path in paths]
+    if len(set(resolved)) != len(resolved):
+        raise AuthorityInventoryError("PRIVATE_INPUT_ALIAS_FORBIDDEN")
+    try:
+        for index, left in enumerate(resolved):
+            for right in resolved[index + 1 :]:
+                if os.path.samefile(left, right):
+                    raise AuthorityInventoryError("PRIVATE_INPUT_ALIAS_FORBIDDEN")
+    except AuthorityInventoryError:
+        raise
+    except OSError as exc:
+        raise AuthorityInventoryError("PRIVATE_INPUT_INVALID") from exc
 
 
 def _timestamp(value: datetime) -> str:
@@ -128,14 +185,53 @@ def _aws_snapshot(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _run(args: argparse.Namespace) -> int:
-    allowlist = _read_object(args.allowlist)
-    args.expected_collector_principal_digest = validate_reviewed_allowlist(
-        allowlist=allowlist,
-        binding=_binding(args),
-        expected_allowlist_digest=args.expected_allowlist_digest,
-    )
+    if args.command == "aws-readonly":
+        _require_distinct_private_inputs(
+            [
+                args.allowlist,
+                args.collector_contract,
+                args.release_manifest,
+                args.candidate_snapshot,
+            ]
+        )
+        allowlist = _read_private_object(args.allowlist)
+        collector_contract = _read_private_object(args.collector_contract)
+        release = _read_private_object(args.release_manifest)
+        candidate_snapshot = _read_private_object(args.candidate_snapshot)
+        args.expected_collector_principal_digest = validate_release_bundle(
+            allowlist=allowlist,
+            release=release,
+            collector_contract=collector_contract,
+            binding=_binding(args),
+            expected_release_digest=args.expected_release_manifest_digest,
+            evaluation_at=_timestamp(datetime.now(tz=UTC).replace(microsecond=0)),
+        )
+    else:
+        allowlist = _read_object(args.allowlist)
+        collector_contract = None
+        release = None
+        candidate_snapshot = None
+        args.expected_collector_principal_digest = validate_reviewed_allowlist(
+            allowlist=allowlist,
+            binding=_binding(args),
+            expected_allowlist_digest=args.expected_allowlist_digest,
+        )
     snapshot = args.snapshot_loader(args)
     decision = datetime.now(tz=UTC).replace(microsecond=0)
+    if args.command == "aws-readonly":
+        assert collector_contract is not None
+        assert release is not None
+        assert candidate_snapshot is not None
+        validate_fresh_capture(
+            candidate_snapshot=candidate_snapshot,
+            fresh_snapshot=snapshot,
+            allowlist=allowlist,
+            release=release,
+            collector_contract=collector_contract,
+            binding=_binding(args),
+            expected_release_digest=args.expected_release_manifest_digest,
+            evaluation_at=_timestamp(decision),
+        )
     inventory, receipt = analyze_authority_inventory(
         allowlist=allowlist,
         snapshot=snapshot,
@@ -156,14 +252,6 @@ def _run(args: argparse.Namespace) -> int:
 
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--allowlist", type=Path, required=True)
-    parser.add_argument(
-        "--expected-allowlist-digest",
-        required=True,
-        help=(
-            "Canonical digest supplied independently by the reviewed release "
-            "or deployment contract"
-        ),
-    )
     parser.add_argument("--authority-account-id", required=True)
     parser.add_argument("--region", required=True)
     parser.add_argument("--function-name", required=True)
@@ -185,6 +273,14 @@ def _parser() -> argparse.ArgumentParser:
         help="Analyze an existing raw read-only snapshot without AWS access",
     )
     _common(offline)
+    offline.add_argument(
+        "--expected-allowlist-digest",
+        required=True,
+        help=(
+            "Canonical digest supplied independently by the reviewed release "
+            "or deployment contract"
+        ),
+    )
     offline.add_argument("--snapshot", type=Path, required=True)
     offline.set_defaults(
         snapshot_loader=_offline_snapshot,
@@ -199,6 +295,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     _common(aws_readonly)
+    aws_readonly.add_argument("--collector-contract", type=Path, required=True)
+    aws_readonly.add_argument("--release-manifest", type=Path, required=True)
+    aws_readonly.add_argument("--candidate-snapshot", type=Path, required=True)
+    aws_readonly.add_argument(
+        "--expected-release-manifest-digest",
+        required=True,
+        help="Release digest supplied through an independently reviewed anchor",
+    )
     aws_readonly.add_argument("--profile", required=True)
     aws_readonly.add_argument(
         "--ttl-minutes", type=int, choices=range(1, 6), default=5
@@ -223,6 +327,9 @@ def main() -> int:
         return _run(args)
     except AuthorityInventoryError as exc:
         print(f"BLOCKED: {exc.code}", file=sys.stderr)
+        return 1
+    except LambdaAuthorityMaterializationError as exc:
+        print(f"BLOCKED: {exc}", file=sys.stderr)
         return 1
     except Exception:
         # Never expose SDK exception payloads, local paths, profiles, policy
