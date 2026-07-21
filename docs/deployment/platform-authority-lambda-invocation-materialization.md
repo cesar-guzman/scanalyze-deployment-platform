@@ -80,7 +80,8 @@ session duration:                     PT1H
 AWS-managed policies:                 none
 customer-managed policy references:  none
 permissions boundary:                none
-relay/secondary assume role:         none
+unreviewed actions:                   explicitly denied
+secondary `sts:AssumeRole`:          explicitly denied
 Lambda invocation:                   explicitly denied
 IAM/Lambda mutation:                 explicitly denied
 deployment/production authority:     none
@@ -104,6 +105,35 @@ separately authorized Identity Center readback must prove assignment,
 provisioning, `PT1H`, relay state and attachments. GUG-219 consumes that
 private binding and validates the resulting IAM role, trust, inline policy,
 managed-policy absence and permissions-boundary absence.
+
+The explicit `DenyUnreviewedActions` statement is required and its `NotAction`
+exception set must equal the exact reviewed read surface. The explicit
+`DenyGetPolicyOutsideExactBroker` and
+`DenyFunctionReadsOutsideAuthorityAccount` statements prevent resource-based
+policies from expanding listed reads to a foreign function or account.
+Function-scoped list actions use only the authority-account function ARN;
+`Resource: "*"` is reserved for Lambda discovery APIs without resource-level
+support. The explicit `DenyRoleChaining` statement is also required. An
+implicit deny is not
+an adequate no-relay boundary because a same-account role trust can grant a
+role session `sts:AssumeRole` through a resource-based policy.
+
+GUG-220 provides the separately authorized provisioning and exact readback
+contract. A verified GUG-220 result enables only this report-only collector
+handoff and does not alter GUG-219's two-capture, evidence-custody or governance
+requirements.
+
+The accepted GUG-220 handoff must derive from an intent with a maximum
+15-minute TTL and canonical digest bindings to the live Identity Center
+`InstanceArn`, `IdentityStoreId` and exact authority SAML provider ARN. It
+must also bind an existing reviewed commit whose critical GUG-219/GUG-220
+bytes match and whose policy was sealed once for mutation and readback.
+Pre-hardening intents without those fields
+are obsolete. A collector-policy change must have forced target reprovisioning,
+and `READBACK_VERIFIED` must include non-null permission-set and role ARN
+digests with assignment, provisioning and role verification all true. Private
+inputs are descriptor-read with `O_NOFOLLOW`, current-owner and exact `0600`
+checks.
 
 ## Two-capture contract
 
@@ -238,4 +268,5 @@ repository facts only and do not replace an authenticated AWS capture.
 - [ADR-045](../../ADR/ADR-045-reviewed-lambda-authority-allowlist-and-collector.md)
 - [Operations runbook](../operations/platform-authority-lambda-invocation-materialization.md)
 - [Threat-model delta](../security/gug-219-lambda-authority-materialization-threat-model-delta.md)
+- [GUG-220 provisioning contract](platform-authority-lambda-audit-permission-set.md)
 - [GUG-218 inventory contract](platform-authority-lambda-invocation-authority.md)

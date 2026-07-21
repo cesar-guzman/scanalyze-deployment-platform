@@ -8,6 +8,31 @@
       "Resource": "*"
     },
     {
+      "Sid": "DenyRoleChaining",
+      "Effect": "Deny",
+      "Action": "sts:AssumeRole",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyUnreviewedActions",
+      "Effect": "Deny",
+      "NotAction": [
+        "ec2:DescribeRegions",
+        "iam:GetAccountAuthorizationDetails",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "lambda:GetPolicy",
+        "lambda:ListAliases",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctions",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "DiscoverEnabledRegions",
       "Effect": "Allow",
       "Action": "ec2:DescribeRegions",
@@ -24,15 +49,22 @@
       "Resource": "*"
     },
     {
-      "Sid": "ListCompleteLambdaSurface",
+      "Sid": "ListAccountLambdaSurface",
       "Effect": "Allow",
       "Action": [
         "lambda:ListAliases",
-        "lambda:ListEventSourceMappings",
         "lambda:ListFunctionEventInvokeConfigs",
-        "lambda:ListFunctions",
         "lambda:ListFunctionUrlConfigs",
         "lambda:ListVersionsByFunction"
+      ],
+      "Resource": "arn:${aws_partition}:lambda:*:${authority_account_id}:function:*"
+    },
+    {
+      "Sid": "DiscoverCompleteLambdaSurface",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctions"
       ],
       "Resource": "*"
     },
@@ -46,6 +78,26 @@
         "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:${broker_function_name}",
         "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:${broker_function_name}:*"
       ]
+    },
+    {
+      "Sid": "DenyGetPolicyOutsideExactBroker",
+      "Effect": "Deny",
+      "Action": "lambda:GetPolicy",
+      "NotResource": [
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:${broker_function_name}",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:${broker_function_name}:*"
+      ]
+    },
+    {
+      "Sid": "DenyFunctionReadsOutsideAuthorityAccount",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:ListAliases",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction"
+      ],
+      "NotResource": "arn:${aws_partition}:lambda:*:${authority_account_id}:function:*"
     },
     {
       "Sid": "DenyLambdaInvocationAndMutation",

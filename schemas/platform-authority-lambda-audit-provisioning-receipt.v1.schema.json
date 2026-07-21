@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-provisioning-receipt.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Provisioning Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "status",
+    "intent_digest",
+    "permission_set_arn_digest",
+    "collector_role_iam_arn_digest",
+    "account_assignment_verified",
+    "permission_set_provisioning_verified",
+    "collector_role_verified",
+    "binding_written",
+    "aws_mutation_attempted",
+    "ambiguous_response",
+    "mutation_retry_attempted",
+    "independent_review_present",
+    "approval_authorized",
+    "protected_retirement_authorized",
+    "lambda_invocation_authorized",
+    "customer_deployment_authorized",
+    "production_authorized",
+    "created_at",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_lambda_audit_provisioning_receipt" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "status": {
+      "enum": [
+        "PLAN_ONLY",
+        "READBACK_VERIFIED",
+        "READBACK_INCOMPLETE",
+        "UNCERTAIN_RECONCILE_ONLY",
+        "BLOCKED_DRIFT"
+      ]
+    },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "permission_set_arn_digest": {
+      "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "collector_role_iam_arn_digest": {
+      "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "account_assignment_verified": { "type": "boolean" },
+    "permission_set_provisioning_verified": { "type": "boolean" },
+    "collector_role_verified": { "type": "boolean" },
+    "binding_written": { "type": "boolean" },
+    "aws_mutation_attempted": { "type": "boolean" },
+    "ambiguous_response": { "type": "boolean" },
+    "mutation_retry_attempted": { "const": false },
+    "independent_review_present": { "const": false },
+    "approval_authorized": { "const": false },
+    "protected_retirement_authorized": { "const": false },
+    "lambda_invocation_authorized": { "const": false },
+    "customer_deployment_authorized": { "const": false },
+    "production_authorized": { "const": false },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "READBACK_VERIFIED" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "permission_set_arn_digest": { "$ref": "#/$defs/digest" },
+          "collector_role_iam_arn_digest": { "$ref": "#/$defs/digest" },
+          "account_assignment_verified": { "const": true },
+          "permission_set_provisioning_verified": { "const": true },
+          "collector_role_verified": { "const": true },
+          "ambiguous_response": { "const": false }
+        }
+      },
+      "else": {
+        "properties": {
+          "collector_role_iam_arn_digest": { "type": "null" },
+          "account_assignment_verified": { "const": false },
+          "permission_set_provisioning_verified": { "const": false },
+          "collector_role_verified": { "const": false },
+          "binding_written": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["PLAN_ONLY", "BLOCKED_DRIFT"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "aws_mutation_attempted": { "const": false },
+          "ambiguous_response": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "UNCERTAIN_RECONCILE_ONLY" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "aws_mutation_attempted": { "const": true },
+          "ambiguous_response": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "READBACK_INCOMPLETE" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "aws_mutation_attempted": { "const": false },
+          "ambiguous_response": { "const": true }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

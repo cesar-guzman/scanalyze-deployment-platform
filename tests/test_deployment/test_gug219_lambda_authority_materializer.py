@@ -562,6 +562,76 @@ def test_rendered_collector_policy_has_only_exact_reviewed_placeholders() -> Non
     assert "lambda:GetPolicy" in serialized
     assert "lambda:Invoke*" in serialized
     assert "iam:Create*" in serialized
+    assert {
+        "Sid": "DenyRoleChaining",
+        "Effect": "Deny",
+        "Action": "sts:AssumeRole",
+        "Resource": "*",
+    } in policy["Statement"]
+    allowed_actions = {
+        action
+        for statement in policy["Statement"]
+        if statement["Effect"] == "Allow"
+        for action in (
+            statement["Action"]
+            if isinstance(statement["Action"], list)
+            else [statement["Action"]]
+        )
+    }
+    deny_unreviewed = next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "DenyUnreviewedActions"
+    )
+    assert set(deny_unreviewed) == {"Sid", "Effect", "NotAction", "Resource"}
+    assert deny_unreviewed["Effect"] == "Deny"
+    assert deny_unreviewed["Resource"] == "*"
+    assert set(deny_unreviewed["NotAction"]) == allowed_actions
+    list_account_surface = next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "ListAccountLambdaSurface"
+    )
+    assert set(list_account_surface["Action"]) == {
+        "lambda:ListAliases",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction",
+    }
+    assert list_account_surface["Resource"] == (
+        f"arn:aws:lambda:*:{ACCOUNT}:function:*"
+    )
+    discovery_surface = next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "DiscoverCompleteLambdaSurface"
+    )
+    assert set(discovery_surface["Action"]) == {
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctions",
+    }
+    assert discovery_surface["Resource"] == "*"
+    deny_foreign_get_policy = next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "DenyGetPolicyOutsideExactBroker"
+    )
+    assert deny_foreign_get_policy == {
+        "Sid": "DenyGetPolicyOutsideExactBroker",
+        "Effect": "Deny",
+        "Action": "lambda:GetPolicy",
+        "NotResource": [binding().function_arn, f"{binding().function_arn}:*"],
+    }
+    assert next(
+        statement
+        for statement in policy["Statement"]
+        if statement["Sid"] == "DenyFunctionReadsOutsideAuthorityAccount"
+    ) == {
+        "Sid": "DenyFunctionReadsOutsideAuthorityAccount",
+        "Effect": "Deny",
+        "Action": list_account_surface["Action"],
+        "NotResource": f"arn:aws:lambda:*:{ACCOUNT}:function:*",
+    }
     assert not any(
         statement["Effect"] == "Allow"
         and any(
@@ -573,6 +643,42 @@ def test_rendered_collector_policy_has_only_exact_reviewed_placeholders() -> Non
             )
         )
         for statement in policy["Statement"]
+    )
+
+
+def test_collector_policy_explicitly_denies_resource_policy_expansion() -> None:
+    policy = materializer().render_collector_inline_policy(
+        binding=binding(), repo_root=REPO_ROOT
+    )
+    statements = policy["Statement"]
+
+    assert {
+        "Sid": "DenyGetPolicyOutsideExactBroker",
+        "Effect": "Deny",
+        "Action": "lambda:GetPolicy",
+        "NotResource": [binding().function_arn, f"{binding().function_arn}:*"],
+    } in statements
+    assert {
+        "Sid": "DenyFunctionReadsOutsideAuthorityAccount",
+        "Effect": "Deny",
+        "Action": [
+            "lambda:ListAliases",
+            "lambda:ListFunctionEventInvokeConfigs",
+            "lambda:ListFunctionUrlConfigs",
+            "lambda:ListVersionsByFunction",
+        ],
+        "NotResource": f"arn:aws:lambda:*:{ACCOUNT}:function:*",
+    } in statements
+    assert not any(
+        statement["Effect"] == "Allow"
+        and "lambda:GetPolicy"
+        in (
+            statement["Action"]
+            if isinstance(statement["Action"], list)
+            else [statement["Action"]]
+        )
+        and statement.get("Resource") == "*"
+        for statement in statements
     )
 
 

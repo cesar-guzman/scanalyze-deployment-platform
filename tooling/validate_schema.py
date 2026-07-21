@@ -63,6 +63,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-lambda-invocation-collector-contract": "platform-authority-lambda-invocation-collector-contract.v{version}.schema.json",
         "platform-authority-lambda-invocation-inventory": "platform-authority-lambda-invocation-inventory.v{version}.schema.json",
         "platform-authority-lambda-invocation-guard-receipt": "platform-authority-lambda-invocation-guard-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-execution-ledger": "platform-authority-lambda-audit-execution-ledger.v{version}.schema.json",
+        "platform-authority-lambda-audit-provisioning-intent": "platform-authority-lambda-audit-provisioning-intent.v{version}.schema.json",
+        "platform-authority-lambda-audit-provisioning-receipt": "platform-authority-lambda-audit-provisioning-receipt.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
         "release-deployment-projection": "release-deployment-projection.v{version}.schema.json",
         "release-trust-policy": "release-trust-policy.v{version}.schema.json",
@@ -833,6 +836,129 @@ def _validate_gug219_release(
     return errors
 
 
+def _validate_gug220_provisioning_intent(instance: dict) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value for key, value in instance.items() if key != "intent_digest"
+    }
+    if instance.get("intent_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("intent_digest must cover the complete provisioning intent")
+    if any(
+        instance.get(field) is not False
+        for field in (
+            "production",
+            "independent_review_present",
+            "approval_authorized",
+            "protected_retirement_authorized",
+            "lambda_invocation_authorized",
+            "customer_deployment_authorized",
+            "production_authorized",
+        )
+    ):
+        errors.append("provisioning intent must not authorize runtime or production effects")
+    created = _gug215_timestamp(instance.get("created_at"))
+    expires = _gug215_timestamp(instance.get("expires_at"))
+    if (
+        created is not None
+        and expires is not None
+        and (not created < expires or expires - created > timedelta(minutes=15))
+    ):
+        errors.append("provisioning intent validity window must be positive and at most fifteen minutes")
+    return errors
+
+
+def _validate_gug220_execution_ledger(instance: dict) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value for key, value in instance.items() if key != "ledger_digest"
+    }
+    if instance.get("ledger_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("ledger_digest must cover the complete execution ledger")
+    if (
+        instance.get("production") is not False
+        or instance.get("mutation_attempt_limit") != 1
+        or instance.get("mutation_retry_authorized") is not False
+    ):
+        errors.append("execution ledger must consume exactly one non-production attempt")
+    return errors
+
+
+def _validate_gug220_provisioning_receipt(instance: dict) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value for key, value in instance.items() if key != "receipt_digest"
+    }
+    if instance.get("receipt_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("receipt_digest must cover the complete provisioning receipt")
+    if any(
+        instance.get(field) is not False
+        for field in (
+            "production",
+            "mutation_retry_attempted",
+            "independent_review_present",
+            "approval_authorized",
+            "protected_retirement_authorized",
+            "lambda_invocation_authorized",
+            "customer_deployment_authorized",
+            "production_authorized",
+        )
+    ):
+        errors.append("provisioning receipt must not overclaim authority")
+    if instance.get("status") == "READBACK_VERIFIED":
+        digests = (
+            instance.get("permission_set_arn_digest"),
+            instance.get("collector_role_iam_arn_digest"),
+        )
+        if not all(
+            instance.get(field) is True
+            for field in (
+                "account_assignment_verified",
+                "permission_set_provisioning_verified",
+                "collector_role_verified",
+            )
+        ) or any(
+            not isinstance(value, str)
+            or re.fullmatch(r"sha256:[a-f0-9]{64}", value) is None
+            for value in digests
+        ):
+            errors.append(
+                "verified receipt must bind permission set, collector role, assignment, provisioning, and role readback"
+            )
+    elif any(
+        instance.get(field) is not False
+        for field in (
+            "account_assignment_verified",
+            "permission_set_provisioning_verified",
+            "collector_role_verified",
+            "binding_written",
+        )
+    ) or instance.get("collector_role_iam_arn_digest") is not None:
+        errors.append("non-verified receipt must not claim verified authority")
+    status = instance.get("status")
+    if status in {"PLAN_ONLY", "BLOCKED_DRIFT"} and (
+        instance.get("aws_mutation_attempted") is not False
+        or instance.get("ambiguous_response") is not False
+    ):
+        errors.append("plan or blocked receipt must not claim a mutation")
+    if status == "UNCERTAIN_RECONCILE_ONLY" and (
+        instance.get("aws_mutation_attempted") is not True
+        or instance.get("ambiguous_response") is not True
+    ):
+        errors.append("uncertain receipt must prove one ambiguous mutation attempt")
+    if status == "READBACK_INCOMPLETE" and (
+        instance.get("aws_mutation_attempted") is not False
+        or instance.get("ambiguous_response") is not True
+    ):
+        errors.append("incomplete readback must not claim a mutation attempt")
+    if (
+        instance.get("ambiguous_response") is True
+        and instance.get("status")
+        not in {"READBACK_INCOMPLETE", "UNCERTAIN_RECONCILE_ONLY"}
+    ):
+        errors.append("ambiguous response must require read-only reconciliation")
+    return errors
+
+
 def _validate_gug218_inventory(
     instance: dict,
     *,
@@ -1402,6 +1528,15 @@ def validate_semantics(
                 expected_collector_contract=gug219_collector_contract,
             )
         )
+
+    if schema_name == "platform-authority-lambda-audit-provisioning-intent.v1.schema.json":
+        errors.extend(_validate_gug220_provisioning_intent(instance))
+
+    if schema_name == "platform-authority-lambda-audit-execution-ledger.v1.schema.json":
+        errors.extend(_validate_gug220_execution_ledger(instance))
+
+    if schema_name == "platform-authority-lambda-audit-provisioning-receipt.v1.schema.json":
+        errors.extend(_validate_gug220_provisioning_receipt(instance))
 
     if schema_name == "platform-authority-lambda-invocation-inventory.v1.schema.json":
         errors.extend(

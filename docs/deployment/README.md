@@ -75,6 +75,16 @@ evidence.
 - `../operations/platform-authority-lambda-invocation-materialization.md`:
   GUG-219 private-evidence handling, two-capture procedure, stop conditions and
   separately authorized live-enablement boundary.
+- `platform-authority-lambda-audit-permission-set.md`: GUG-220 exact Identity
+  Center collector contract, single-user bootstrap assignment, one-target
+  provisioning, 15-minute live-instance/store-bound intents, forced
+  reprovision after policy change, intent-bound one-shot execution ledger,
+  ambiguity handling and effective IAM readback.
+- `../operations/platform-authority-lambda-audit-permission-set.md`: GUG-220
+  planning, obsolete-intent handling, descriptor-safe private custody, bounded
+  mutation with receipt reservation, replay prevention, reconciliation,
+  verified receipt and report-only GUG-219 handoff procedure. Its typed
+  inventory includes intent, execution-ledger and receipt schemas.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -254,6 +264,9 @@ live evidence.
 
 For GUG-219, ingest only
 `../../_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md`.
+For GUG-220, ingest only
+`../../_NotebookLM_Brain/35_GUG220_Lambda_Audit_Permission_Set.md`.
 Do not ingest candidate or fresh snapshots, collector role ARNs, session names,
 account identifiers, rendered policies, release bundles, AWS responses, profile
-names, logs, screenshots or live evidence.
+names, live `InstanceArn`/`IdentityStoreId` values, private intents, logs,
+screenshots or live evidence.
