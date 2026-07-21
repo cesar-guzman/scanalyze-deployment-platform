@@ -59,6 +59,8 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-identity-enhanced-binding": "platform-authority-identity-enhanced-binding.v{version}.schema.json",
         "platform-authority-identity-enhanced-session-receipt": "platform-authority-identity-enhanced-session-receipt.v{version}.schema.json",
         "platform-authority-lambda-invocation-allowlist": "platform-authority-lambda-invocation-allowlist.v{version}.schema.json",
+        "platform-authority-lambda-invocation-allowlist-release": "platform-authority-lambda-invocation-allowlist-release.v{version}.schema.json",
+        "platform-authority-lambda-invocation-collector-contract": "platform-authority-lambda-invocation-collector-contract.v{version}.schema.json",
         "platform-authority-lambda-invocation-inventory": "platform-authority-lambda-invocation-inventory.v{version}.schema.json",
         "platform-authority-lambda-invocation-guard-receipt": "platform-authority-lambda-invocation-guard-receipt.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
@@ -793,6 +795,44 @@ def _validate_gug218_allowlist(instance: dict) -> list[str]:
     return errors
 
 
+def _validate_gug219_collector_contract(instance: dict) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value
+        for key, value in instance.items()
+        if key != "collector_contract_digest"
+    }
+    if instance.get("collector_contract_digest") != _gug215_canonical_digest(
+        without_digest
+    ):
+        errors.append("collector_contract_digest must cover the complete collector contract")
+    return errors
+
+
+def _validate_gug219_release(
+    instance: dict, *, expected_collector_contract: dict | None = None
+) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value for key, value in instance.items() if key != "release_digest"
+    }
+    if instance.get("release_digest") != _gug215_canonical_digest(without_digest):
+        errors.append("release_digest must cover the complete materialized release")
+    if isinstance(expected_collector_contract, dict) and instance.get(
+        "collector_contract_digest"
+    ) != expected_collector_contract.get("collector_contract_digest"):
+        errors.append("release must bind the reviewed collector contract digest")
+    created = _gug215_timestamp(instance.get("created_at"))
+    expires = _gug215_timestamp(instance.get("expires_at"))
+    if (
+        created is not None
+        and expires is not None
+        and (not created < expires or expires - created > timedelta(minutes=5))
+    ):
+        errors.append("release validity window must be positive and at most five minutes")
+    return errors
+
+
 def _validate_gug218_inventory(
     instance: dict,
     *,
@@ -1189,6 +1229,7 @@ def validate_semantics(
     *,
     gug218_allowlist: dict | None = None,
     gug218_inventory: dict | None = None,
+    gug219_collector_contract: dict | None = None,
     evaluation_at: datetime | None = None,
 ) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
@@ -1351,6 +1392,17 @@ def validate_semantics(
     if schema_name == "platform-authority-lambda-invocation-allowlist.v1.schema.json":
         errors.extend(_validate_gug218_allowlist(instance))
 
+    if schema_name == "platform-authority-lambda-invocation-collector-contract.v1.schema.json":
+        errors.extend(_validate_gug219_collector_contract(instance))
+
+    if schema_name == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json":
+        errors.extend(
+            _validate_gug219_release(
+                instance,
+                expected_collector_contract=gug219_collector_contract,
+            )
+        )
+
     if schema_name == "platform-authority-lambda-invocation-inventory.v1.schema.json":
         errors.extend(
             _validate_gug218_inventory(
@@ -1462,6 +1514,22 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
         ):
             evaluation_at = datetime(2026, 7, 20, 10, 2, tzinfo=UTC)
         if (
+            schema_path.name
+            == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json"
+        ):
+            valid_dir = fixture_path.parent.parent / "valid"
+            collector = load_json(
+                valid_dir
+                / "platform-authority-lambda-invocation-collector-contract-v1-synthetic.json"
+            )
+            collector.pop("_test_metadata", None)
+            semantic_errors = validate_semantics(
+                fixture_clean,
+                schema_path,
+                gug219_collector_contract=collector,
+                evaluation_at=evaluation_at,
+            )
+        elif (
             schema_path.name
             == "platform-authority-lambda-invocation-inventory.v1.schema.json"
             and fixture_clean.get("status") == "REVIEW_SAFE_REPORT_ONLY"

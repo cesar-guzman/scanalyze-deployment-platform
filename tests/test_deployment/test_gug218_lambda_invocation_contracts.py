@@ -164,7 +164,16 @@ def test_negative_gug218_fixtures_fail_closed(fixture_path: Path) -> None:
         _validator(schema_path).validate(instance)
     except ValidationError:
         return
-    assert validate_semantics(instance, schema_path)
+    semantic_kwargs = {}
+    if (
+        schema_path.name
+        == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json"
+    ):
+        semantic_kwargs["gug219_collector_contract"] = _load(
+            VALID
+            / "platform-authority-lambda-invocation-collector-contract-v1-synthetic.json"
+        )
+    assert validate_semantics(instance, schema_path, **semantic_kwargs)
 
 
 def test_repository_fixture_validator_uses_reviewed_valid_bundle_context() -> None:
