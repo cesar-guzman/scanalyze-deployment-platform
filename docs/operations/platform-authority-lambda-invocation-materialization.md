@@ -70,9 +70,10 @@ Require all of the following:
 - assignment only within the separately authorized target account.
 
 Provisioning, changing or assigning the permission set is a stop condition for
-this runbook. Request a separate change authorization instead. The GUG-219
-CLI does not perform this readback; it consumes the resulting private binding
-and validates the account-local IAM/STS role and effective IAM policy surface.
+this runbook. Use only the separately authorized GUG-220 provisioning and
+exact-readback package. The GUG-219 CLI does not perform this readback; it
+consumes the resulting private binding and validates the account-local IAM/STS
+role and effective IAM policy surface.
 
 Treat the configured `AWS_PROFILE` as a selector, not evidence. Call
 `sts:GetCallerIdentity`, verify the exact account, normalize the returned
@@ -418,8 +419,8 @@ or policies under this runbook; those require separately authorized rollback.
 
 1. Verify exact merged SHA and green required checks on `main`.
 2. Record repository evidence in GUG-219 without live identifiers.
-3. Obtain explicit authorization for any future permission-set provisioning.
-4. Provision and read back the exact collector contract in a separate package.
+3. Obtain explicit authorization for the GUG-220 permission-set package.
+4. Provision and read back the exact collector contract through GUG-220.
 5. Obtain a read-only window for A, materialize privately and freeze digests.
 6. Record the absent independent reviewer.
 7. Obtain a second read-only window and collect B.
@@ -443,3 +444,15 @@ Deployment authorized: no
 Live validated: no
 Production: NO-GO
 ```
+
+See the [GUG-220 provisioning runbook](platform-authority-lambda-audit-permission-set.md)
+for the mutation, ambiguity and exact-readback boundary.
+
+Before accepting the private collector binding, confirm that the GUG-220
+receipt derives from a non-expired intent whose validity never exceeded 15
+minutes and whose live Identity Center Instance/Identity Store digests were
+revalidated before effect. Reject pre-hardening intents, null permission-set or
+role ARN digests, any false assignment/provisioning/role verification gate, and
+policy changes without explicit target reprovisioning. Read the private input
+through the descriptor-safe `O_NOFOLLOW`, current-owner and exact `0600`
+procedure; a path-only check is not sufficient.

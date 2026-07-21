@@ -85,12 +85,20 @@ separation.
 | Collector can invoke or mutate Lambda/IAM | Exact policy digest plus explicit-deny and negative-action validation | Collector not eligible |
 | `AWS_PROFILE` is treated as authority | STS account/principal comparison is authoritative; profile is never serialized | Stop after STS |
 | Identity Center suffix is guessed or reused from another account | A separately authorized readback supplies the exact private binding; GUG-219 cross-binds IAM and STS role forms | Principal mismatch blocks |
+| Stale, dirty or rebound GUG-220 intent/source supplies the collector binding | Existing reviewed source commit with byte-equal critical sources, one sealed policy object, maximum 15-minute TTL and exact live `InstanceArn`/`IdentityStoreId`/SAML-provider digest revalidation; pre-hardening intents are obsolete | Handoff blocked |
+| Collector inline policy changed without target reprovisioning | GUG-220 forces `ProvisionPermissionSet` after every material policy change and verifies target IAM state | Handoff blocked |
+| Same-account role trust grants the collector a secondary-role relay despite implicit identity deny | Exact collector policy explicitly denies `sts:AssumeRole`; rendered-policy digest and target readback must match | Collector ineligible |
+| A resource policy grants an action omitted from the collector allowlist | `DenyUnreviewedActions` denies every action outside the exact reviewed `NotAction` exception set | Collector ineligible |
+| A function resource policy grants an otherwise listed read on a foreign function/account | `lambda:GetPolicy` has an explicit deny outside the exact broker; function-scoped list actions have an explicit deny outside authority-account function ARNs; only non-resource-level discovery remains `Resource: "*"` | Collector ineligible |
+| Collector role trusts another same-account AWS SSO provider | GUG-220 binds the unique provider digest at plan time and requires exact trust-principal equality | Handoff blocked |
+| GUG-220 overclaims readback with a missing concrete object | Non-null permission-set/role ARN digests and true assignment/provisioning/role gates are mandatory | Handoff blocked |
 | STS session name changes the principal digest | Normalize to exact assumed-role base while retaining permission-set suffix | Stable role binding; foreign role blocks |
 | IAM role ARN and STS assumed-role ARN are hashed inconsistently | One reviewed canonicalization contract derives the comparison principal | Contract test fails closed |
 | A is relabeled as B | Distinct nonces, timestamps and snapshot digests; session refresh is recorded operationally | Bundle rejected |
 | B reuses cached pages from A | Fresh collector-owned pagination and snapshot seal required | Incomplete/replayed evidence blocks |
 | AWS changes after A but before B | B is fresh and compared with frozen bindings | Drift detected; no safe report |
 | Materialized files are overwritten | Exclusive create, `O_NOFOLLOW`, owner-only mode, outside repository | Write rejected |
+| GUG-220 private input follows a symlink or changes after a path check | Descriptor-based `O_NOFOLLOW` and `fstat` enforce regular file, current owner and exact `0600` mode | Input rejected |
 | Live allowlist or raw snapshot enters Git/CI/Linear | Operational-path rejection, documentation boundary and security tests | Publication blocked; incident handling |
 | Unknown provider configuration field is omitted from digest | Pinned Lambda provider-field projection rejects unreviewed configuration fields; GUG-219 record containers use exact keys | Materialization or B blocked |
 | Incomplete/denied read is treated as absence | GUG-218 strict pagination and no denied-read fallback | `INVENTORY_INCOMPLETE` |

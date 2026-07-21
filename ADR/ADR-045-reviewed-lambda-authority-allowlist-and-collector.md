@@ -147,7 +147,16 @@ The desired permission set has:
 - no AWS-managed policy;
 - no customer-managed policy reference;
 - no permissions boundary;
-- no relay, source or secondary assume-role authority;
+- an explicit `DenyUnreviewedActions` `NotAction` boundary whose exception set
+  is exactly the reviewed read-only action set, so no account-local resource
+  policy can add an unreviewed service action;
+- `lambda:GetPolicy` is explicitly denied outside the exact broker function
+  and qualifiers, while function-scoped Lambda list actions are allowed only
+  on function ARNs in the authority account and explicitly denied everywhere
+  else; only Lambda discovery actions without resource-level support use
+  `Resource: "*"`;
+- an explicit `Deny` for `sts:AssumeRole`, so same-account resource-based
+  trust cannot turn the collector session into a secondary-role relay;
 - no Lambda invocation permission;
 - no IAM or Lambda mutation permission; and
 - no production or deployment authority.
@@ -158,6 +167,28 @@ change and readback of its assignment, provisioning status, session duration,
 relay state and attachments. The GUG-219 collector does not call Identity
 Center APIs; it consumes a private binding and validates the resulting IAM/STS
 role, trust, inline policy, managed-policy absence and boundary absence.
+
+GUG-220 and ADR-046 define that separate bounded provisioning and exact
+readback package. Its single direct-user assignment is a bootstrap mechanism,
+not independent approval; GUG-219 continues to consume only the verified
+private collector binding. The GUG-220 intent is live-bound by canonical
+digests of the Identity Center `InstanceArn`, `IdentityStoreId` and the exact
+account-local AWS SSO SAML provider ARN, expires no more than 15 minutes after
+creation, binds an existing reviewed source commit with byte-equal critical
+GUG-219/GUG-220 sources, and is revalidated before every mutation and final
+evidence. One sealed policy object is consumed without worktree re-read. An
+intent created before those fields became mandatory is obsolete. Installing or
+changing the collector inline policy forces target reprovisioning, and
+`READBACK_VERIFIED` requires non-null digests for both the permission-set and
+role ARNs plus positive assignment, provisioning and role verification.
+The exact inline policy includes `DenyUnreviewedActions`,
+`DenyGetPolicyOutsideExactBroker`,
+`DenyFunctionReadsOutsideAuthorityAccount` and `DenyRoleChaining`; relying on
+the absence of
+an identity-policy `Allow` is insufficient because a same-account role trust
+can otherwise grant a role session `sts:AssumeRole` through a resource policy.
+The role trust must name the exact SAML provider observed during planning; a
+different same-account `AWSSO_*_DO_NOT_DELETE` provider is rejected.
 
 `AWS_PROFILE` is only a local credential-provider selector. It is not recorded
 in the allowlist and never establishes authority. After `sts:GetCallerIdentity`,
@@ -180,6 +211,11 @@ collector binding and raw AWS evidence are operational trust material. They
 must be written create-only, without following symlinks, owner-only, and
 outside the repository. They must not enter Git, CI artifacts, Linear,
 NotebookLM, chat, logs or support bundles.
+
+GUG-220 private inputs are accepted only through descriptor-based
+`O_NOFOLLOW` reads followed by `fstat` verification of a regular file owned by
+the current effective user with mode exactly `0600`. A path-only check does not
+establish evidence custody.
 
 The current GUG-218 wrapper keeps raw B in memory and emits only sanitized
 inventory and receipt records. Retaining B later would require separate
@@ -281,7 +317,7 @@ package and requires separately authorized rollback.
 
 1. Verify the merged commit and required checks on `main`.
 2. Obtain separate authorization for any Identity Center provisioning and
-   assignment of the exact collector contract.
+   assignment of the exact collector contract through GUG-220.
 3. Separately read back the effective permission-set contract and actual
    `AWSReservedSSO_*` role before collection.
 4. Obtain an explicit read-only window and perform candidate A.
@@ -300,4 +336,5 @@ package and requires separately authorized rollback.
 - [ADR-044](ADR-044-account-wide-lambda-invocation-authority.md)
 - [GUG-218 deployment contract](../docs/deployment/platform-authority-lambda-invocation-authority.md)
 - [GUG-218 operations runbook](../docs/operations/platform-authority-lambda-invocation-authority.md)
+- [ADR-046](ADR-046-lambda-audit-permission-set-provisioning.md)
 - [IAM Identity Center permission sets](https://docs.aws.amazon.com/singlesignon/latest/userguide/permissionsetsconcept.html)

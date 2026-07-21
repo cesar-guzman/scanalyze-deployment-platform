@@ -47,8 +47,16 @@ ScanalyzeAuthorityLambdaAudit
 ```
 
 It contains only the exact GUG-218 inline read policy. It has no AWS-managed
-policies, customer-managed policy references, permissions boundary, secondary
-role relay, Lambda invocation or IAM/Lambda mutation authority.
+policies, customer-managed policy references or permissions boundary.
+`DenyUnreviewedActions` blocks every action outside the exact reviewed read
+set, including resource-policy grants. It also explicitly denies
+`sts:AssumeRole`; the STS deny prevents same-account trust from creating a
+secondary-role relay.
+`DenyGetPolicyOutsideExactBroker` limits `lambda:GetPolicy` to the broker and
+its qualifiers. `DenyFunctionReadsOutsideAuthorityAccount` denies the
+resource-scoped Lambda list actions outside authority-account function ARNs;
+only discovery actions without resource-level support retain
+`Resource: "*"`.
 
 The local AWS profile is only a credential selector. STS proves the account and
 actual principal. The opaque `AWSReservedSSO_*` suffix must come from a
@@ -58,6 +66,17 @@ canonical digest.
 
 GUG-219 documents and validates this contract but does not provision or assign
 the permission set.
+
+GUG-220 owns that separately authorized provisioning boundary. Its intent is
+valid for no more than 15 minutes and binds digests of the live Identity Center
+`InstanceArn`, `IdentityStoreId` and exact authority SAML provider ARN plus an
+existing reviewed source commit with byte-equal critical runtime; older
+pre-hardening intents are obsolete.
+An inline-policy change forces explicit target reprovisioning. The handoff is
+eligible only when exact readback supplies non-null permission-set and role ARN
+digests and verifies assignment, provisioning and the account-local role.
+Private inputs use descriptor-based `O_NOFOLLOW`, current-owner and exact
+`0600` checks.
 
 ## Independent digest channel
 
@@ -119,6 +138,9 @@ After main and CI verification, any permission-set provisioning requires a
 separate authorized change and effective-policy readback. Candidate A and B
 each require their own explicit read-only window. Only sanitized status, counts
 and digests may leave the private evidence boundary.
+
+Never feed GUG-219 a GUG-220 intent produced before the 15-minute TTL and live
+Instance/Identity Store digest bindings became mandatory.
 
 A different human reviewer and separately reviewed preventive/deployment
 controls remain mandatory before any production decision.
