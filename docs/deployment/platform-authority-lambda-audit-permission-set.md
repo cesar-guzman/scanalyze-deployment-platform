@@ -197,6 +197,23 @@ Never commit or publish:
 - local profile names; or
 - Candidate A/B raw snapshots and releases.
 
+## Live outcome and GUG-221 recovery boundary
+
+The authorized GUG-220 mutation window is consumed. Its result was
+`UNCERTAIN_RECONCILE_ONLY`; no write retry is authorized. Sanitized read-only
+reconciliation proved that the exact collector permission set exists while
+the inline policy, direct assignment, authority-account provisioning and
+account-local collector role remain absent or unverified.
+
+Do not delete or reset the GUG-220 ledger and do not run GUG-220 `apply` again.
+GUG-221 owns the only reviewed repair path. It limits the human
+`ScanalyzeLambdaAuditRepair` permission set to exact private Lambda aliases,
+requires the exact partial state and a separate provider-backed DynamoDB CAS
+ledger, and exposes exactly three server-side effects: policy installation,
+direct `USER` assignment and target provisioning. Its final readback must
+satisfy every GUG-220 verification gate before this contract can hand off to
+GUG-219.
+
 ## GUG-219 handoff
 
 Only after exact readback and a fresh dedicated SSO session may the private
@@ -219,7 +236,9 @@ present, collection stops as blocked; GUG-220 does not deploy it.
 | Schemas, policies, CLI, tests and docs | Repository implemented on exact reviewed commit only |
 | Named local gates | Locally validated only |
 | Required PR checks | CI validated only for exact commit |
-| Permission-set readback | Live validated only after authenticated exact provider verification |
+| GUG-220 live execution | Ledger consumed; `UNCERTAIN_RECONCILE_ONLY` |
+| Permission-set readback | Partial live state only; collector not verified |
+| GUG-221 repair | **Blocked** until separately reviewed broker stacks, invoke-only human boundary, authorization and exact readback |
 | Candidate A/B | Read-only report material only |
 | Current direct user assignment | Bootstrap operation; **not independent approval** |
 | GUG-215 retirement | **Blocked** pending two different humans |
@@ -231,3 +250,4 @@ present, collection stops as blocked; GUG-220 does not deploy it.
 - [Operations runbook](../operations/platform-authority-lambda-audit-permission-set.md)
 - [Threat-model delta](../security/gug-220-lambda-audit-permission-set-threat-model-delta.md)
 - [GUG-219 materialization contract](platform-authority-lambda-invocation-materialization.md)
+- [GUG-221 repair contract](platform-authority-lambda-audit-provisioning-repair.md)

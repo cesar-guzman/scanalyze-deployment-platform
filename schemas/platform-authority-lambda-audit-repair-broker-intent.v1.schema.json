@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-broker-intent.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Repair Broker Intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "mode", "repair_id", "source_commit",
+    "function_version", "plan_function_version", "function_qualifier", "authority_account_id",
+    "management_account_id", "region", "instance_arn", "identity_store_id",
+    "permission_set_arn", "permission_set_name", "repair_invoker_permission_set_arn",
+    "repair_invoker_permission_set_name", "repair_invoker_permission_set_description",
+    "repair_invoker_session_duration", "repair_invoker_relay_state",
+    "expected_repair_invoker_tags", "principal_type", "principal_id",
+    "target_account_id", "collector_policy_digest", "repair_invoker_policy_digest",
+    "original_gug220_ledger_digest", "repair_ledger_kms_key_arn",
+    "expected_artifact_code_sha256", "expected_code_signing_config_arn",
+    "expected_signing_profile_version_arn",
+    "expected_permission_set_tags",
+    "repair_service_role_arn", "read_service_role_arn", "collector_saml_provider_arn",
+    "identity_center_kms_mode", "identity_center_kms_key_arn", "not_before",
+    "not_after", "expected_boto3_version", "expected_botocore_version",
+    "authorized_mutations"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_broker_intent.v1" },
+    "mode": { "const": "repair" },
+    "repair_id": { "type": "string", "pattern": "^gug221-[a-f0-9]{64}$" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "plan_function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "function_qualifier": { "const": "repair-v1" },
+    "authority_account_id": { "const": "042360977644" },
+    "management_account_id": { "const": "839393571433" },
+    "region": { "const": "us-east-1" },
+    "instance_arn": { "type": "string", "pattern": "^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$" },
+    "identity_store_id": { "type": "string", "pattern": "^d-[0-9a-f]{10}$" },
+    "permission_set_arn": { "type": "string", "pattern": "^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$" },
+    "permission_set_name": { "const": "ScanalyzeAuthorityLambdaAudit" },
+    "repair_invoker_permission_set_arn": { "type": "string", "pattern": "^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$" },
+    "repair_invoker_permission_set_name": { "const": "ScanalyzeLambdaAuditRepair" },
+    "repair_invoker_permission_set_description": { "const": "GUG-221 invoke-only private repair PEP boundary" },
+    "repair_invoker_session_duration": { "const": "PT1H" },
+    "repair_invoker_relay_state": { "type": "null" },
+    "expected_repair_invoker_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "managed_by", "production", "service", "source_commit", "work_package"],
+      "properties": {
+        "environment": { "const": "non-production" },
+        "managed_by": { "const": "cloudformation" },
+        "production": { "const": "false" },
+        "service": { "const": "scanalyze-platform-authority" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "work_package": { "const": "GUG-221" }
+      }
+    },
+    "principal_type": { "const": "USER" },
+    "principal_id": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "target_account_id": { "const": "042360977644" },
+    "collector_policy_digest": { "$ref": "#/$defs/digest" },
+    "repair_invoker_policy_digest": { "$ref": "#/$defs/digest" },
+    "original_gug220_ledger_digest": { "$ref": "#/$defs/digest" },
+    "repair_ledger_kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:kms:us-east-1:042360977644:key/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "expected_artifact_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "expected_code_signing_config_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[a-z0-9]{17}$"
+    },
+    "expected_signing_profile_version_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$"
+    },
+    "expected_permission_set_tags": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_.:/=+@-]{1,128}$" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "repair_service_role_arn": { "const": "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairMutationServiceRole" },
+    "read_service_role_arn": { "const": "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole" },
+    "collector_saml_provider_arn": { "type": "string", "pattern": "^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$" },
+    "identity_center_kms_mode": { "enum": ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"] },
+    "identity_center_kms_key_arn": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^arn:aws:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$" }
+      ]
+    },
+    "not_before": { "$ref": "#/$defs/timestamp" },
+    "not_after": { "$ref": "#/$defs/timestamp" },
+    "expected_boto3_version": { "$ref": "#/$defs/sdk_version" },
+    "expected_botocore_version": { "$ref": "#/$defs/sdk_version" },
+    "authorized_mutations": { "$ref": "#/$defs/mutations" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "identity_center_kms_mode": { "const": "AWS_OWNED_KMS_KEY" } }, "required": ["identity_center_kms_mode"] },
+      "then": { "properties": { "identity_center_kms_key_arn": { "type": "null" } } },
+      "else": { "properties": { "identity_center_kms_key_arn": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "sdk_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "mutations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "sso:PutInlinePolicyToPermissionSet" },
+        { "const": "sso:CreateAccountAssignment" },
+        { "const": "sso:ProvisionPermissionSet" }
+      ],
+      "minItems": 3, "maxItems": 3
+    }
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/platform-authority-lambda-audit-repair-package-manifest.v1.schema.json",
+  "title": "GUG-221 deterministic Lambda repair package manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "source_commit",
+    "archive_name", "archive_format", "archive_sha256", "lambda_code_sha256",
+    "archive_size_bytes", "handlers", "runtime_dependencies", "entries",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_package.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "archive_name": { "const": "scanalyze-gug221-lambda-audit-repair.zip" },
+    "archive_format": { "const": "ZIP_STORED_FIXED_METADATA" },
+    "archive_sha256": { "$ref": "#/$defs/digest" },
+    "lambda_code_sha256": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
+    "archive_size_bytes": { "type": "integer", "minimum": 1 },
+    "handlers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "repair", "reconcile"],
+      "properties": {
+        "plan": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.plan_handler" },
+        "repair": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler" },
+        "reconcile": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.reconcile_handler" }
+      }
+    },
+    "runtime_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aws_sdk", "runtime_lock_path", "expected_boto3_version", "expected_botocore_version"],
+      "properties": {
+        "aws_sdk": { "const": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD" },
+        "runtime_lock_path": { "const": "gug221_runtime_lock.json" },
+        "expected_boto3_version": { "$ref": "#/$defs/sdk_version" },
+        "expected_botocore_version": { "$ref": "#/$defs/sdk_version" }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": {
+            "enum": [
+              "gug221_runtime_lock.json",
+              "policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json",
+              "policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-invocation-inspector-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-invoker-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json",
+              "policies/iam/platform-authority-lambda-invocation-inventory-role.json",
+              "tooling/__init__.py",
+              "tooling/platform_authority_lambda_audit_repair_broker.py",
+              "tooling/platform_authority_lambda_audit_repair_broker_runtime.py",
+              "tooling/platform_authority_lambda_audit_repair_iam_verifier.py",
+              "tooling/platform_authority_lambda_audit_repair_invocation_authority.py",
+              "tooling/platform_authority_lambda_invocation_authority.py",
+              "tooling/platform_authority_lambda_invocation_materializer.py"
+            ]
+          },
+          "sha256": { "$ref": "#/$defs/digest" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "allOf": [
+        { "contains": { "properties": { "path": { "const": "gug221_runtime_lock.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-invocation-inspector-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-invoker-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-invocation-inventory-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/__init__.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker_runtime.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_iam_verifier.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_invocation_authority.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_authority.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_materializer.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sdk_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+  }
+}

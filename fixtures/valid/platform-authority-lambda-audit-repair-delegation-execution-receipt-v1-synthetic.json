@@ -1,0 +1,76 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_delegation_execution_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "A_DELEGATION_EXECUTION_TRACE",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "deployment_contract_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "delegation_change_set_receipt_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "change_set_arn": "arn:aws:cloudformation:us-east-1:839393571433:changeSet/gug221-lambda-audit-repair-delegation-create/22222222-3333-4444-8555-666666666666",
+  "change_set_uuid": "22222222-3333-4444-8555-666666666666",
+  "stack_arn": "arn:aws:cloudformation:us-east-1:839393571433:stack/scanalyze-platform-authority-lambda-audit-repair-delegation/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+  "client_request_token": "gug221-a-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "client_request_token_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "execute_request_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "executor_arn_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "execute_event": {
+    "event_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "event_time": "2026-07-22T12:32:00Z",
+    "event_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "stack_event_count": 10,
+  "stack_events_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "terminal_resources": [
+    {
+      "event_id": "mutation-complete",
+      "event_time": "2026-07-22T12:34:00Z",
+      "logical_resource_id": "MutationServiceRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "event_id": "readback-complete",
+      "event_time": "2026-07-22T12:34:00Z",
+      "logical_resource_id": "ReadbackServiceRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "event_id": "assignment-complete",
+      "event_time": "2026-07-22T12:35:00Z",
+      "logical_resource_id": "RepairInvokerAssignment",
+      "resource_type": "AWS::SSO::Assignment",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "event_id": "permission-set-complete",
+      "event_time": "2026-07-22T12:34:00Z",
+      "logical_resource_id": "RepairInvokerPermissionSet",
+      "resource_type": "AWS::SSO::PermissionSet",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "event_id": "stack-complete",
+      "event_time": "2026-07-22T12:35:00Z",
+      "logical_resource_id": "scanalyze-platform-authority-lambda-audit-repair-delegation",
+      "resource_type": "AWS::CloudFormation::Stack",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "executed_at": "2026-07-22T12:32:00Z",
+  "stack_completed_at": "2026-07-22T12:35:00Z",
+  "verifier": {
+    "profile": "839393571433_ReadOnlyAccess",
+    "account_id": "839393571433",
+    "caller_arn": "arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_0123456789abcdef/synthetic@example.invalid"
+  },
+  "evaluated_at": "2026-07-22T12:40:00Z",
+  "evidence_status": "DELEGATION_EXECUTION_READ_ONLY_VERIFIED",
+  "authority_status": "PROVIDER_DERIVED_EXECUTION_TRACE_NOT_EXECUTION_AUTHORITY",
+  "production_status": "NO-GO"
+}

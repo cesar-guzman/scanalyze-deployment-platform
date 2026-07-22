@@ -1,0 +1,194 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteSanitizedPlanLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-authority-lambda-audit-plan:*"
+    },
+    {
+      "Sid": "ReadExactRepairLedgerControls",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug221-repair-ledger"
+    },
+    {
+      "Sid": "CreateExactPlannedLedgerItem",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug221-repair-ledger",
+      "Condition": {
+        "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": ["${repair_id}"]},
+        "Null": {"dynamodb:LeadingKeys": "false"}
+      }
+    },
+    {
+      "Sid": "AssumeExactReadbackServiceRole",
+      "Effect": "Allow",
+      "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
+      "Resource": "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole"
+    },
+    {
+      "Sid": "AssumeExactInvocationAuthorityInspector",
+      "Effect": "Allow",
+      "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
+      "Resource": "arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector"
+    },
+    {
+      "Sid": "DiscoverLocalCollectorRoleByReviewedNamePrefix",
+      "Effect": "Allow",
+      "Action": "iam:ListRoles",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactLocalIdentityCenterRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": [
+        "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityLambdaAudit_*",
+        "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeLambdaAuditRepair_*"
+      ]
+    },
+    {
+      "Sid": "ReadExactLocalPepExecutionRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": [
+        "arn:aws:iam::042360977644:role/ScanalyzeLambdaAuditRepairPlan",
+        "arn:aws:iam::042360977644:role/ScanalyzeLambdaAuditRepairExecution",
+        "arn:aws:iam::042360977644:role/ScanalyzeLambdaAuditRepairReconcile"
+      ]
+    },
+    {
+      "Sid": "ReadExactPepRuntimeConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetAlias",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionEventInvokeConfig",
+        "lambda:ListAliases",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1"
+      ]
+    },
+    {
+      "Sid": "ReadExactCodeSigningConfiguration",
+      "Effect": "Allow",
+      "Action": "lambda:GetCodeSigningConfig",
+      "Resource": "${code_signing_config_arn}"
+    },
+    {
+      "Sid": "ProveNoLambdaResourcePolicyOrFunctionUrl",
+      "Effect": "Allow",
+      "Action": ["lambda:GetFunctionUrlConfig", "lambda:GetPolicy"],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:*",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1"
+      ]
+    },
+    {
+      "Sid": "InventoryLambdaFunctionsAndEventSources",
+      "Effect": "Allow",
+      "Action": ["lambda:ListEventSourceMappings", "lambda:ListFunctions"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DescribeExactLedgerKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "${repair_ledger_kms_key_arn}"
+    },
+    {
+      "Sid": "ReadExactLedgerKeyAliasInventory",
+      "Effect": "Allow",
+      "Action": "kms:ListAliases",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRoleUseOutsideExactPlanFunction",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "ArnNotEquals": {
+          "lambda:SourceFunctionArn": "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryProtectedEffect",
+      "Effect": "Deny",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem",
+        "identitystore:*",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:CreateRole",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:DeleteRole",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "lambda:AddPermission",
+        "lambda:CreateFunction",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "sso:*",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

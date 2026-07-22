@@ -48,6 +48,12 @@ missing. Never use the default AWS profile.
 
 ## Phase 1 — Dedicated collector readiness
 
+The live GUG-220 ledger is consumed and its sanitized reconciliation is
+partial: permission set present, policy/assignment/provisioning/collector role
+absent or unverified. Do not execute Candidate A and do not rerun GUG-220.
+Follow the separately reviewed GUG-221 repair runbook and require its
+`READBACK_VERIFIED` receipt first.
+
 Before candidate A, separately prove through authorized read-only Identity
 Center/IAM inspection that
 the active session corresponds to the dedicated permission set:
@@ -419,14 +425,16 @@ or policies under this runbook; those require separately authorized rollback.
 
 1. Verify exact merged SHA and green required checks on `main`.
 2. Record repository evidence in GUG-219 without live identifiers.
-3. Obtain explicit authorization for the GUG-220 permission-set package.
-4. Provision and read back the exact collector contract through GUG-220.
-5. Obtain a read-only window for A, materialize privately and freeze digests.
-6. Record the absent independent reviewer.
-7. Obtain a second read-only window and collect B.
-8. Publish only the sanitized GUG-218 result.
-9. Add a different human reviewer before rollout approval.
-10. Complete preventive guardrail and non-production rollout gates before any
+3. Preserve the consumed GUG-220 ledger and partial-state evidence.
+4. Bootstrap/read back the exact GUG-221 authority and management broker
+   stacks plus the invoke-only human permission set under separate authorization.
+5. Repair and read back the exact collector contract through GUG-221.
+6. Obtain a read-only window for A, materialize privately and freeze digests.
+7. Record the absent independent reviewer.
+8. Obtain a second read-only window and collect B.
+9. Publish only the sanitized GUG-218 result.
+10. Add a different human reviewer before rollout approval.
+11. Complete preventive guardrail and non-production rollout gates before any
     production decision.
 
 ## Public closeout template
@@ -456,3 +464,6 @@ role ARN digests, any false assignment/provisioning/role verification gate, and
 policy changes without explicit target reprovisioning. Read the private input
 through the descriptor-safe `O_NOFOLLOW`, current-owner and exact `0600`
 procedure; a path-only check is not sufficient.
+
+See the [GUG-221 repair runbook](platform-authority-lambda-audit-provisioning-repair.md)
+for the exact partial-state gate, dedicated executor and no-retry repair.

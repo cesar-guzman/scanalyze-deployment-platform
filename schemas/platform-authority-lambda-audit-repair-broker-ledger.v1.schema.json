@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-broker-ledger.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Repair Broker Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "repair_id", "intent_digest", "ledger_digest",
+    "source_commit", "original_gug220_ledger_digest", "authority_account_id",
+    "management_account_id", "region", "status", "stage", "effects_attempted",
+    "effects_completed", "plan_function_version", "repair_function_version",
+    "repair_not_before", "repair_not_after", "planned_state_digest",
+    "state_digest", "planned_at", "provider_immutable", "claim_condition",
+    "mutation_retry_attempted", "production_authorized"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_broker_ledger.v1" },
+    "repair_id": { "type": "string", "pattern": "^gug221-[a-f0-9]{64}$" },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "ledger_digest": { "$ref": "#/$defs/digest" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "original_gug220_ledger_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "management_account_id": { "const": "839393571433" },
+    "region": { "const": "us-east-1" },
+    "status": {
+      "enum": [
+        "PLAN_VERIFIED", "CLAIMED", "ATTEMPTING_1", "COMPLETED_1", "ATTEMPTING_2",
+        "COMPLETED_2", "ATTEMPTING_3", "COMPLETED_3", "REPAIR_VERIFIED",
+        "UNCERTAIN_RECONCILE_ONLY"
+      ]
+    },
+    "stage": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+    "effects_attempted": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "effects_completed": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "plan_function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "repair_function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "repair_not_before": { "$ref": "#/$defs/timestamp" },
+    "repair_not_after": { "$ref": "#/$defs/timestamp" },
+    "planned_state_digest": { "$ref": "#/$defs/digest" },
+    "state_digest": { "$ref": "#/$defs/digest" },
+    "planned_at": { "$ref": "#/$defs/timestamp" },
+    "claimed_at": { "$ref": "#/$defs/timestamp" },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "provider_immutable": { "const": true },
+    "claim_condition": { "const": "attribute_not_exists(repair_id)" },
+    "mutation_retry_attempted": { "const": false },
+    "production_authorized": { "const": false }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "PLAN_VERIFIED" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "stage": { "const": "PLAN_STATE_VERIFIED" },
+          "effects_attempted": { "const": 0 },
+          "effects_completed": { "const": 0 }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["claimed_at"] },
+            { "required": ["updated_at"] }
+          ]
+        }
+      },
+      "else": { "required": ["claimed_at", "updated_at"] }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "status": { "const": "PLAN_VERIFIED" },
+            "stage": { "const": "PLAN_STATE_VERIFIED" },
+            "effects_attempted": { "const": 0 },
+            "effects_completed": { "const": 0 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "CLAIMED" },
+            "stage": { "const": "BEFORE_FIRST_EFFECT" },
+            "effects_attempted": { "const": 0 },
+            "effects_completed": { "const": 0 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "ATTEMPTING_1" },
+            "stage": { "const": "BEFORE_PUT_INLINE_POLICY" },
+            "effects_attempted": { "const": 0 },
+            "effects_completed": { "const": 0 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "COMPLETED_1" },
+            "stage": { "const": "AFTER_PUT_INLINE_POLICY" },
+            "effects_attempted": { "const": 1 },
+            "effects_completed": { "const": 1 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "ATTEMPTING_2" },
+            "stage": { "const": "BEFORE_CREATE_ACCOUNT_ASSIGNMENT" },
+            "effects_attempted": { "const": 1 },
+            "effects_completed": { "const": 1 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "COMPLETED_2" },
+            "stage": { "const": "AFTER_CREATE_ACCOUNT_ASSIGNMENT" },
+            "effects_attempted": { "const": 2 },
+            "effects_completed": { "const": 2 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "ATTEMPTING_3" },
+            "stage": { "const": "BEFORE_PROVISION_PERMISSION_SET" },
+            "effects_attempted": { "const": 2 },
+            "effects_completed": { "const": 2 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "COMPLETED_3" },
+            "stage": { "const": "AFTER_PROVISION_PERMISSION_SET" },
+            "effects_attempted": { "const": 3 },
+            "effects_completed": { "const": 3 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "REPAIR_VERIFIED" },
+            "stage": { "const": "FINAL_READBACK_VERIFIED" },
+            "effects_attempted": { "const": 3 },
+            "effects_completed": { "const": 3 }
+          }
+        },
+        {
+          "properties": {
+            "status": { "const": "UNCERTAIN_RECONCILE_ONLY" }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_PUT_INLINE_POLICY" },
+                "effects_attempted": { "const": 1 },
+                "effects_completed": { "const": 0 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_PUT_INLINE_POLICY_LEDGER_COMMIT" },
+                "effects_attempted": { "const": 1 },
+                "effects_completed": { "const": 1 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_CREATE_ACCOUNT_ASSIGNMENT" },
+                "effects_attempted": { "const": 2 },
+                "effects_completed": { "const": 1 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_CREATE_ACCOUNT_ASSIGNMENT_LEDGER_COMMIT" },
+                "effects_attempted": { "const": 2 },
+                "effects_completed": { "const": 2 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_PROVISION_PERMISSION_SET" },
+                "effects_attempted": { "const": 3 },
+                "effects_completed": { "const": 2 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT" },
+                "effects_attempted": { "const": 3 },
+                "effects_completed": { "const": 3 }
+              }
+            },
+            {
+              "properties": {
+                "stage": { "const": "UNCERTAIN_FINAL_READBACK" },
+                "effects_attempted": { "const": 3 },
+                "effects_completed": { "const": 3 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" }
+  }
+}

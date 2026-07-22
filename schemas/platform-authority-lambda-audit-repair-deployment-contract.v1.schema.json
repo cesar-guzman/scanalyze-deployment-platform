@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-deployment-contract.v1.schema.json",
+  "title": "GUG-221 operator choices without provider authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "authority_account_id",
+    "management_account_id", "source_commit", "repair_not_before",
+    "repair_not_after", "delegation_change_set_creator_arn",
+    "delegation_change_set_executor_arn", "pep_change_set_creator_arn",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_deployment_contract.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "authority_account_id": { "const": "042360977644" },
+    "management_account_id": { "const": "839393571433" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "repair_not_before": { "$ref": "#/$defs/timestamp" },
+    "repair_not_after": { "$ref": "#/$defs/timestamp" },
+    "delegation_change_set_creator_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_ScanalyzeFounderPepSeed_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"
+    },
+    "delegation_change_set_executor_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_ScanalyzeFounderPepSeed_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"
+    },
+    "pep_change_set_creator_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_ScanalyzeFounderBootstrapPlan_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"
+    },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

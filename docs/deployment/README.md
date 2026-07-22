@@ -85,6 +85,15 @@ evidence.
   mutation with receipt reservation, replay prevention, reconciliation,
   verified receipt and report-only GUG-219 handoff procedure. Its typed
   inventory includes intent, execution-ledger and receipt schemas.
+- `platform-authority-lambda-audit-provisioning-repair.md`: GUG-221 exact
+  partial-state recovery contract, invoke-only human boundary, private
+  server-side PEP, separate Plan/repair/reconcile functions, exact account-wide
+  invocation-authority inspector, durable Plan-before-repair CAS, three ordered
+  mutations and complete SSO/IAM readback.
+- `../operations/platform-authority-lambda-audit-provisioning-repair.md`:
+  GUG-221 two-stack bootstrap boundary, provider-read-only Plan preflight plus
+  create-only durable gate, no-retry repair, read-only reconciliation,
+  containment and report-only handoff procedure.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
@@ -266,7 +275,10 @@ For GUG-219, ingest only
 `../../_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md`.
 For GUG-220, ingest only
 `../../_NotebookLM_Brain/35_GUG220_Lambda_Audit_Permission_Set.md`.
+For GUG-221, ingest only
+`../../_NotebookLM_Brain/36_GUG221_Lambda_Audit_Provisioning_Repair.md`.
 Do not ingest candidate or fresh snapshots, collector role ARNs, session names,
 account identifiers, rendered policies, release bundles, AWS responses, profile
-names, live `InstanceArn`/`IdentityStoreId` values, private intents, logs,
-screenshots or live evidence.
+names, live `InstanceArn`/`IdentityStoreId` values, private intents, repair
+ledgers/receipts, executor bindings or policies, logs, screenshots or live
+evidence.

@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-broker-topology.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Repair Broker Topology v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "environment", "region",
+    "authority_account_id", "management_account_id", "human_permission_set",
+    "functions", "management_service_roles", "ledger", "event", "transport_guard",
+    "authorized_mutations", "human_raw_api_authorized",
+    "independent_approval_present", "deployment_authorized", "production_authorized"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_broker_topology.v1" },
+    "environment": { "const": "non-production" },
+    "region": { "const": "us-east-1" },
+    "authority_account_id": { "const": "042360977644" },
+    "management_account_id": { "const": "839393571433" },
+    "human_permission_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "principal_type", "assignment_account_id", "allowed_actions", "denied_action_families"],
+      "properties": {
+        "name": { "const": "ScanalyzeLambdaAuditRepair" },
+        "principal_type": { "const": "USER" },
+        "assignment_account_id": { "const": "042360977644" },
+        "allowed_actions": {
+          "type": "array", "prefixItems": [{ "const": "lambda:InvokeFunction" }],
+          "minItems": 1, "maxItems": 1
+        },
+        "denied_action_families": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "sso:*" }, { "const": "identitystore:*" },
+            { "const": "iam:*" }, { "const": "sts:AssumeRole" },
+            { "const": "dynamodb:*" }
+          ],
+          "minItems": 5, "maxItems": 5
+        }
+      }
+    },
+    "functions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repair", "read"],
+      "properties": {
+        "repair": { "$ref": "#/$defs/repairFunction" },
+        "read": { "$ref": "#/$defs/readFunction" }
+      }
+    },
+    "management_service_roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation", "readback"],
+      "properties": {
+        "mutation": { "const": "ScanalyzeLambdaAuditRepairMutationServiceRole" },
+        "readback": { "const": "ScanalyzeLambdaAuditRepairReadbackServiceRole" }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table_name", "provider_immutable", "claim_condition", "writer"],
+      "properties": {
+        "table_name": { "const": "scanalyze-platform-authority-gug221-repair-ledger" },
+        "provider_immutable": { "const": true },
+        "claim_condition": { "const": "attribute_not_exists(repair_id)" },
+        "writer": { "const": "ScanalyzeLambdaAuditRepairExecution" }
+      }
+    },
+    "event": { "type": "object", "maxProperties": 0 },
+    "transport_guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_context_custom", "maximum_retry_attempts", "maximum_event_age_seconds", "asynchronous_effects_authorized"],
+      "properties": {
+        "client_context_custom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scanalyze_transport", "scanalyze_work_package"],
+          "properties": {
+            "scanalyze_transport": { "const": "REQUEST_RESPONSE" },
+            "scanalyze_work_package": { "const": "GUG-221" }
+          }
+        },
+        "maximum_retry_attempts": { "const": 0 },
+        "maximum_event_age_seconds": { "const": 60 },
+        "asynchronous_effects_authorized": { "const": false }
+      }
+    },
+    "authorized_mutations": { "$ref": "#/$defs/mutations" },
+    "human_raw_api_authorized": { "const": false },
+    "independent_approval_present": { "const": false },
+    "deployment_authorized": { "const": false },
+    "production_authorized": { "const": false }
+  },
+  "$defs": {
+    "repairFunction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "aliases", "execution_role", "reserved_concurrency", "public_url"],
+      "properties": {
+        "name": { "const": "scanalyze-authority-lambda-audit-repair" },
+        "aliases": { "type": "array", "prefixItems": [{ "const": "repair-v1" }], "minItems": 1, "maxItems": 1 },
+        "execution_role": { "const": "ScanalyzeLambdaAuditRepairExecution" },
+        "reserved_concurrency": { "const": 1 },
+        "public_url": { "const": false }
+      }
+    },
+    "readFunction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "aliases", "execution_role", "reserved_concurrency", "public_url"],
+      "properties": {
+        "name": { "const": "scanalyze-authority-lambda-audit-reconcile" },
+        "aliases": {
+          "type": "array", "prefixItems": [{ "const": "plan-v1" }, { "const": "reconcile-v1" }],
+          "minItems": 2, "maxItems": 2
+        },
+        "execution_role": { "const": "ScanalyzeLambdaAuditRepairReconcile" },
+        "reserved_concurrency": { "const": 1 },
+        "public_url": { "const": false }
+      }
+    },
+    "mutations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "sso:PutInlinePolicyToPermissionSet" },
+        { "const": "sso:CreateAccountAssignment" },
+        { "const": "sso:ProvisionPermissionSet" }
+      ],
+      "minItems": 3, "maxItems": 3
+    }
+  }
+}

@@ -125,6 +125,22 @@ only and a clean result remains report-only.
 If the reviewed GUG-217 Lambda authority surface is absent, the sequence stops
 as blocked. GUG-220 does not deploy or invoke it.
 
+## Live outcome and repair boundary
+
+The authorized GUG-220 execution consumed its one-shot ledger and ended
+`UNCERTAIN_RECONCILE_ONLY`. A duplicate invocation was rejected before AWS
+mutation. Sanitized read-only reconciliation proved the exact collector
+permission set exists, but its inline policy, direct assignment, target
+provisioning and account-local collector role are absent or unverified.
+
+This is partial live evidence, not a retryable failure or a completed
+collector. The GUG-220 ledger remains consumed and must not be deleted,
+overwritten or reused. GUG-221 defines the only reviewed repair: an
+invoke-only `ScanalyzeLambdaAuditRepair` human boundary, private server-side
+PEP, exact partial-state gate, provider-backed DynamoDB CAS ledger, three
+missing effects and complete SSO/IAM readback. Until GUG-221 reaches a durable
+verified result, Candidate A/B remain blocked.
+
 ## Evidence state
 
 | Evidence | State |
@@ -132,7 +148,9 @@ as blocked. GUG-220 does not deploy or invoke it.
 | Permission-set contracts, tests and documentation | Implemented only on exact reviewed GUG-220 commit |
 | Local validation | Named gates only |
 | CI validation | Exact required checks only |
-| Identity Center and IAM state | Live validated only after complete exact readback |
+| GUG-220 mutation | `UNCERTAIN_RECONCILE_ONLY`; ledger consumed |
+| Identity Center and IAM state | Partial live observation; collector not verified |
+| GUG-221 repair | Blocked until separate authorization and exact readback |
 | Candidate A/B | Private report-only evidence only |
 | Independent human approval | **Blocked** while one human is on the roster |
 | GUG-215 retirement | **Blocked** pending two different humans |
@@ -154,3 +172,7 @@ Use [ADR-046](../ADR/ADR-046-lambda-audit-permission-set-provisioning.md), the
 the [runbook](../docs/operations/platform-authority-lambda-audit-permission-set.md)
 and the [threat-model delta](../docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md)
 as the authoritative GUG-220 documentation package.
+
+Use the sanitized
+[GUG-221 source](36_GUG221_Lambda_Audit_Provisioning_Repair.md) only for the
+separate repair boundary; it does not amend or reopen the GUG-220 ledger.

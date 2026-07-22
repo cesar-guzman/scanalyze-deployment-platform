@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "record_type": "scanalyze.platform_authority.lambda_audit_repair_broker_receipt.v1",
+  "mode": "reconcile",
+  "status": "RECONCILE_VERIFIED",
+  "repair_id_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "function_version": "8",
+  "function_qualifier": "reconcile-v1",
+  "region": "us-east-1",
+  "authority_account_suffix": "7644",
+  "management_account_suffix": "1433",
+  "intent_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ledger_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "state_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "effects_attempted": 2,
+  "effects_completed": 2,
+  "mutation_attribution": "PROVEN_BY_DURABLE_LEDGER",
+  "required_next_action": "NONE",
+  "generated_at": "2026-07-21T15:05:00Z",
+  "production_status": "NO-GO"
+}

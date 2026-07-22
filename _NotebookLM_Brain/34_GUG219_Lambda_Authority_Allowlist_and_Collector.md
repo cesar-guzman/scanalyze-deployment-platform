@@ -78,6 +78,14 @@ digests and verifies assignment, provisioning and the account-local role.
 Private inputs use descriptor-based `O_NOFOLLOW`, current-owner and exact
 `0600` checks.
 
+The first authorized GUG-220 window is now consumed. Sanitized reconciliation
+found the collector permission set present but its policy, assignment,
+provisioning and collector role absent or unverified. That state is not a
+collector handoff and GUG-220 cannot be retried. GUG-221 must repair the exact
+partial state through the invoke-only `ScanalyzeLambdaAuditRepair` boundary
+and private server-side PEP, then complete Identity Center/IAM readback before
+Candidate A.
+
 ## Independent digest channel
 
 The allowlist contains its own canonical digest. A different typed release
@@ -128,7 +136,8 @@ derived until a different human reviews the frozen binding and result.
 | Candidate A | In-process STS-validated, self-sealed private materialization input only; not AWS-signed |
 | Allowlist/release anchor | Private candidate trust material |
 | Candidate B | Later report-only observation if bundle passes |
-| Identity Center provisioning | Not performed by this package |
+| GUG-220 provisioning | Partial/uncertain; original ledger consumed |
+| GUG-221 repair | Blocked until separately authorized and verified |
 | Independent reviewer | **Blocked** while one human is on the roster |
 | Deployment and production | **NO-GO** |
 
@@ -141,6 +150,8 @@ and digests may leave the private evidence boundary.
 
 Never feed GUG-219 a GUG-220 intent produced before the 15-minute TTL and live
 Instance/Identity Store digest bindings became mandatory.
+Never feed it the observed partial GUG-220 state or a GUG-221 receipt without
+complete collector readback.
 
 A different human reviewer and separately reviewed preventive/deployment
 controls remain mandatory before any production decision.
@@ -152,3 +163,6 @@ the [deployment contract](../docs/deployment/platform-authority-lambda-invocatio
 the [runbook](../docs/operations/platform-authority-lambda-invocation-materialization.md)
 and the [threat-model delta](../docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md)
 as the authoritative GUG-219 documentation package.
+
+Use [GUG-221](36_GUG221_Lambda_Audit_Provisioning_Repair.md) for the sanitized
+repair boundary; raw repair evidence never enters NotebookLM.

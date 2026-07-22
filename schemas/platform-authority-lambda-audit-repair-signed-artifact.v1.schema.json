@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/platform-authority-lambda-audit-repair-signed-artifact.v1.schema.json",
+  "title": "GUG-221 signed Lambda artifact Change Set handoff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "source_commit",
+    "unsigned_manifest_sha256", "unsigned_archive_sha256", "signing_job",
+    "signed_artifact", "expected_sdk_versions", "verifier", "source_review", "cloudformation_parameters",
+    "evaluated_at", "evidence_status", "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_signed_artifact.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "unsigned_manifest_sha256": { "$ref": "#/$defs/digest" },
+    "unsigned_archive_sha256": { "$ref": "#/$defs/digest" },
+    "signing_job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "job_owner", "platform_id", "profile_version_arn", "signature_expires_at", "source"],
+      "properties": {
+        "job_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f-]{36}$" },
+        "job_owner": { "const": "042360977644" },
+        "platform_id": { "const": "AWSLambda-SHA384-ECDSA" },
+        "profile_version_arn": { "$ref": "#/$defs/profile_arn" },
+        "signature_expires_at": { "$ref": "#/$defs/timestamp" },
+        "source": { "$ref": "#/$defs/source_object" }
+      }
+    },
+    "signed_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "key", "version", "archive_sha256", "lambda_code_sha256", "size_bytes"],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "key": { "type": "string", "pattern": "^scanalyze/platform-authority/gug-221/signed/[A-Za-z0-9._/-]+\\.zip$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "archive_sha256": { "$ref": "#/$defs/digest" },
+        "lambda_code_sha256": { "$ref": "#/$defs/lambda_digest" },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "expected_sdk_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boto3", "botocore"],
+      "properties": {
+        "boto3": { "$ref": "#/$defs/sdk_version" },
+        "botocore": { "$ref": "#/$defs/sdk_version" }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "042360977644_ReadOnlyAccess" },
+        "account_id": { "const": "042360977644" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    },
+    "source_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "branch", "source_commit", "source_tree", "pull_request_number", "pull_request_head_commit", "pull_request_head_tree", "merged_at", "required_checks", "branch_protection_strict", "evidence_status"],
+      "properties": {
+        "repository": { "const": "cesar-guzman/scanalyze-deployment-platform" },
+        "branch": { "const": "main" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "source_tree": { "$ref": "#/$defs/commit" },
+        "pull_request_number": { "type": "integer", "minimum": 1 },
+        "pull_request_head_commit": { "$ref": "#/$defs/commit" },
+        "pull_request_head_tree": { "$ref": "#/$defs/commit" },
+        "merged_at": { "$ref": "#/$defs/timestamp" },
+        "required_checks": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "$ref": "#/$defs/check_microservices" },
+            { "$ref": "#/$defs/check_lint" },
+            { "$ref": "#/$defs/check_python" },
+            { "$ref": "#/$defs/check_terraform" },
+            { "$ref": "#/$defs/check_manifest" },
+            { "$ref": "#/$defs/check_repro" }
+          ],
+          "items": false
+        },
+        "branch_protection_strict": { "const": true },
+        "evidence_status": { "const": "MERGED_MAIN_REQUIRED_CHECKS_VERIFIED" }
+      }
+    },
+    "cloudformation_parameters": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "prefixItems": [
+        { "$ref": "#/$defs/source_commit_parameter" },
+        { "$ref": "#/$defs/boto3_parameter" },
+        { "$ref": "#/$defs/botocore_parameter" },
+        { "$ref": "#/$defs/repair_bucket_parameter" },
+        { "$ref": "#/$defs/repair_key_parameter" },
+        { "$ref": "#/$defs/repair_version_parameter" },
+        { "$ref": "#/$defs/repair_digest_parameter" },
+        { "$ref": "#/$defs/reconcile_bucket_parameter" },
+        { "$ref": "#/$defs/reconcile_key_parameter" },
+        { "$ref": "#/$defs/reconcile_version_parameter" },
+        { "$ref": "#/$defs/reconcile_digest_parameter" },
+        { "$ref": "#/$defs/profile_parameter" }
+      ],
+      "items": false
+    },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": { "const": "SIGNED_ARTIFACT_BOUND_FOR_CHANGE_SET_REVIEW" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lambda_digest": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
+    "sdk_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+    "profile_arn": { "type": "string", "pattern": "^arn:aws:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$" },
+    "source_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bucket", "key", "version"],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "key": { "type": "string", "pattern": "^scanalyze/platform-authority/gug-221/unsigned/[A-Za-z0-9._/-]+\\.zip$" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "green_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "conclusion", "app_id", "app_slug"],
+      "properties": {
+        "name": { "type": "string" },
+        "conclusion": { "const": "success" },
+        "app_id": { "const": 15368 },
+        "app_slug": { "const": "github-actions" }
+      }
+    },
+    "check_microservices": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Microservices validation gate" } } }] },
+    "check_lint": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Lint, security, and schema checks" } } }] },
+    "check_python": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Python tests" } } }] },
+    "check_terraform": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Terraform validate (no AWS)" } } }] },
+    "check_manifest": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Validate deployment manifest schema" } } }] },
+    "check_repro": { "allOf": [{ "$ref": "#/$defs/green_check" }, { "properties": { "name": { "const": "Verify clean clone reproducibility" } } }] },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ParameterKey", "ParameterValue"],
+      "properties": {
+        "ParameterKey": { "type": "string", "minLength": 1 },
+        "ParameterValue": { "type": "string" }
+      }
+    },
+    "source_commit_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "SourceCommit" }, "ParameterValue": { "$ref": "#/$defs/commit" } } }] },
+    "boto3_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ExpectedBoto3Version" }, "ParameterValue": { "$ref": "#/$defs/sdk_version" } } }] },
+    "botocore_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ExpectedBotocoreVersion" }, "ParameterValue": { "$ref": "#/$defs/sdk_version" } } }] },
+    "repair_bucket_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairArtifactBucket" }, "ParameterValue": { "$ref": "#/$defs/bucket" } } }] },
+    "repair_key_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairArtifactKey" }, "ParameterValue": { "type": "string" } } }] },
+    "repair_version_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairArtifactVersion" }, "ParameterValue": { "type": "string", "minLength": 1 } } }] },
+    "repair_digest_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairArtifactCodeSha256" }, "ParameterValue": { "$ref": "#/$defs/lambda_digest" } } }] },
+    "reconcile_bucket_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ReconcileArtifactBucket" }, "ParameterValue": { "$ref": "#/$defs/bucket" } } }] },
+    "reconcile_key_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ReconcileArtifactKey" }, "ParameterValue": { "type": "string" } } }] },
+    "reconcile_version_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ReconcileArtifactVersion" }, "ParameterValue": { "type": "string", "minLength": 1 } } }] },
+    "reconcile_digest_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ReconcileArtifactCodeSha256" }, "ParameterValue": { "$ref": "#/$defs/lambda_digest" } } }] },
+    "profile_parameter": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "SigningProfileVersionArn" }, "ParameterValue": { "$ref": "#/$defs/profile_arn" } } }] }
+  }
+}
