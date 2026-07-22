@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-19
+> **Última revisión editorial:** 2026-07-21
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -87,8 +87,9 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se prueba que no existe autoridad Lambda aditiva antes de habilitar el PEP? | [ADR-044](../ADR/ADR-044-account-wide-lambda-invocation-authority.md), [contrato GUG-218](../docs/deployment/platform-authority-lambda-invocation-authority.md), [runbook GUG-218](../docs/operations/platform-authority-lambda-invocation-authority.md), [delta GUG-218](../docs/security/gug-218-lambda-invocation-authority-threat-model-delta.md) y [fuente sanitizada GUG-218](33_GUG218_Lambda_Invocation_Authority.md) |
 | ¿Cómo se produce la allowlist GUG-218 sin copiar evidencia sintética ni confiar en un perfil AWS? | [ADR-045](../ADR/ADR-045-reviewed-lambda-authority-allowlist-and-collector.md), [contrato GUG-219](../docs/deployment/platform-authority-lambda-invocation-materialization.md), [runbook GUG-219](../docs/operations/platform-authority-lambda-invocation-materialization.md), [delta GUG-219](../docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md) y [fuente sanitizada GUG-219](34_GUG219_Lambda_Authority_Allowlist_and_Collector.md) |
 | ¿Cómo se provisiona y verifica el collector Lambda mínimo sin confiar en nombres locales, intents stale ni respuestas asíncronas ambiguas? | [ADR-046](../ADR/ADR-046-lambda-audit-permission-set-provisioning.md), [contrato GUG-220](../docs/deployment/platform-authority-lambda-audit-permission-set.md), [runbook GUG-220](../docs/operations/platform-authority-lambda-audit-permission-set.md), [delta GUG-220](../docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md) y [fuente sanitizada GUG-220](35_GUG220_Lambda_Audit_Permission_Set.md) |
+| ¿Cómo se repara el estado parcial exacto del collector sin reintentar GUG-220 ni usar autoridad administrativa amplia? | [ADR-047](../ADR/ADR-047-lambda-audit-provisioning-repair.md), [contrato GUG-221](../docs/deployment/platform-authority-lambda-audit-provisioning-repair.md), [runbook GUG-221](../docs/operations/platform-authority-lambda-audit-provisioning-repair.md), [delta GUG-221](../docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md) y [fuente sanitizada GUG-221](36_GUG221_Lambda_Audit_Provisioning_Repair.md) |
 
-## Estado de evidencia al 2026-07-21
+## Estado de evidencia al 2026-07-22
 
 | Capacidad | Estado | Límite de la evidencia |
 |---|---|---|
@@ -126,6 +127,7 @@ Cuando dos documentos difieran, usar este orden:
 | Inventario account-wide de autoridad Lambda GUG-218 | **Implemented** sólo cuando el commit revisado contiene snapshot tipado, procedencia sellada, paginación estricta, grafo cerrado de 14 edges, cero mutadores, analizador puro, adapter read-only, receipt sanitizado, policy mínima, tests, ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | Sólo una captura autenticada puede producir `REVIEW_SAFE_REPORT_ONLY`; `OFFLINE_UNVERIFIED` siempre bloquea. Ningún receipt autoriza efectos. No hubo lectura AWS, invoke, token, STS, provisioning ni despliegue. Falta guardrail preventivo, inventario live repetido y segundo humano; producción sigue **Blocked / NO-GO**. |
 | Materialización de allowlist y collector GUG-219 | **Implemented** sólo cuando el commit revisado contiene contrato de permission set dedicado, renderer determinista, release anchor de cinco minutos, dos capturas distintas, almacenamiento privado create-only, schemas, tests, ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | Este paquete no crea ni provisiona el permission set, no despliega GUG-217 y no realiza AWS calls. Una sola persona puede producir evidencia report-only, pero no satisface la aprobación independiente de GUG-215. Live validation y producción siguen **Blocked / NO-GO**. |
 | Provisioning del collector Lambda GUG-220 | **Implemented** sólo cuando el commit revisado contiene contrato exacto `ScanalyzeAuthorityLambdaAudit`, policy exclusiva, `PT1H`, intent máximo 15 minutos ligado por digest al Instance/Identity Store live y al directorio privado `0700`, ledger one-shot `O_EXCL` por `intent_digest`, receipt reservado antes del write, asignación directa bootstrap, provisioning o reprovisioning explícito a un único target, reconciliación sin retry, paginación IAM completa, una sola instancia Identity Center `ACTIVE`, readback con ambos ARN digests y tres gates positivos, custodia `O_NOFOLLOW`/owner/`0600`, schemas de intent/ledger/receipt, tests, ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | Replay falla `EXECUTION_LEDGER_ALREADY_CONSUMED`; timeout, `OSError` o falla post-write queda `UNCERTAIN_RECONCILE_ONLY`. Intents v1 anteriores al hardening son obsoletos. Los IDs/ARNs/evidencia live permanecen privados. Una asignación a un único operador no es aprobación independiente; Candidate A/B son read-only y GUG-215 sigue bloqueado hasta dos humanos. Producción sigue **NO-GO**. |
+| Reparación del provisioning Lambda GUG-221 | **Implemented** sólo cuando el commit revisado contiene el invocador exacto `ScanalyzeLambdaAuditRepair` sin APIs crudas, funciones/aliases privados y versionados para Plan/repair/reconcile, seis roles separados incluido el inspector exacto, grafo account-wide verificado en cada snapshot, Plan durable create-only obligatorio, repair update-only, policy de sólo tres mutaciones detrás del PEP, intent corto, ledger DynamoDB CAS provider-backed, receipt sanitizado, reconciliación sin retry, lineage exacto de Phase A con `ClientRequestToken`/CloudTrail/StackEvents, readback SSO+IAM completo, schemas, tests, ADR/runbook/threat model y fuente sanitizada | El ledger GUG-220 permanece consumido: sólo puede leerse para sellar su digest y jamás mutarse o reutilizarse. Los dos stacks requieren bootstrap y readback separados; cualquier ambigüedad queda reconcile-only. No hay validación live. Candidate A/B, aprobación independiente y producción siguen **Blocked / NO-GO**. |
 
 ## Inventario del Brain
 
@@ -164,6 +166,7 @@ Cuando dos documentos difieran, usar este orden:
 | [33 — GUG-218 Lambda Invocation Authority](33_GUG218_Lambda_Invocation_Authority.md) | Inventario IAM/Lambda account-wide, grafo exacto, paginación estricta, receipt report-only y límites live |
 | [34 — GUG-219 Lambda Authority Allowlist and Collector](34_GUG219_Lambda_Authority_Allowlist_and_Collector.md) | Renderer determinista desde evidencia privada, collector Identity Center mínimo, release anchor y segunda captura obligatoria |
 | [35 — GUG-220 Lambda Audit Permission Set](35_GUG220_Lambda_Audit_Permission_Set.md) | Permission set exacto, intent live-bound de máximo 15 minutos, ledger one-shot y receipt reservado, asignación bootstrap de un operador, provisioning/reprovisioning de un target, custodia privada descriptor-safe, reconciliación sin retry, paginación completa, readback completo y handoff report-only |
+| [36 — GUG-221 Lambda Audit Provisioning Repair](36_GUG221_Lambda_Audit_Provisioning_Repair.md) | Estado parcial exacto, invocador humano Lambda-only, funciones Plan/repair/reconcile, inspector account-wide, Plan durable obligatorio, tres mutaciones ordenadas, ledger DynamoDB CAS, lineage exacto Phase A, ambigüedad terminal, readback Identity Center/IAM y NO-GO |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -224,6 +227,12 @@ Cuando dos documentos difieran, usar este orden:
     exacto, limita `v12` a la prueba deny-all de `sts:SetContext`, persiste el
     proof digest antes del efecto y atribuye honestamente CloudFormation al
     broker, o intenta convertir la prueba en credencial de efecto?
+26. ¿La reparación del collector acepta exclusivamente el estado parcial
+    GUG-220 observado, limita al humano `ScanalyzeLambdaAuditRepair` a aliases
+    privados exactos, reclama un ledger DynamoDB CAS provider-backed antes del
+    primer efecto y limita el service role a policy, asignación y provisioning,
+    o intenta reusar el ledger anterior, ampliar la autoridad o reintentar tras
+    ambigüedad?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

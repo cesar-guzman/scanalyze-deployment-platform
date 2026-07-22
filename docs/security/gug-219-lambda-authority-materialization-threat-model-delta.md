@@ -92,6 +92,9 @@ separation.
 | A function resource policy grants an otherwise listed read on a foreign function/account | `lambda:GetPolicy` has an explicit deny outside the exact broker; function-scoped list actions have an explicit deny outside authority-account function ARNs; only non-resource-level discovery remains `Resource: "*"` | Collector ineligible |
 | Collector role trusts another same-account AWS SSO provider | GUG-220 binds the unique provider digest at plan time and requires exact trust-principal equality | Handoff blocked |
 | GUG-220 overclaims readback with a missing concrete object | Non-null permission-set/role ARN digests and true assignment/provisioning/role gates are mandatory | Handoff blocked |
+| The consumed partial GUG-220 state is accepted as collector readiness | GUG-221 exact-state repair and complete readback are mandatory before Candidate A | Handoff blocked |
+| GUG-220 is retried or its ledger is reset | Original ledger remains consumed; GUG-221 uses a separate intent and provider-backed CAS ledger | Mutation blocked |
+| Broad administrator/founder authority repairs the collector | GUG-221 human session can only invoke exact aliases; private service roles own the three effects | Session ineligible |
 | STS session name changes the principal digest | Normalize to exact assumed-role base while retaining permission-set suffix | Stable role binding; foreign role blocks |
 | IAM role ARN and STS assumed-role ARN are hashed inconsistently | One reviewed canonicalization contract derives the comparison principal | Contract test fails closed |
 | A is relabeled as B | Distinct nonces, timestamps and snapshot digests; session refresh is recorded operationally | Bundle rejected |
@@ -144,6 +147,8 @@ clean report -> Lambda/Change Set/deployment/production effect
   anchor channel require their own governance.
 - A clean inventory is detective evidence, not a preventive control.
 - One current human cannot independently approve the result.
+- Candidate A/B remain blocked until GUG-221 repairs the exact partial state
+  and verifies the collector session.
 
 ## Evidence classification
 
@@ -154,7 +159,8 @@ clean report -> Lambda/Change Set/deployment/production effect
 | CI validation | Exact required checks only after completion |
 | Candidate A | Materialization input only |
 | Candidate B | Report-only observation only |
-| Identity Center mutation | **Not authorized / not performed** |
+| GUG-220 Identity Center mutation | Partial/uncertain; original ledger consumed |
+| GUG-221 repair | **Blocked** until separately authorized and verified |
 | Independent approval | **Blocked** with one human |
 | Deployment / production | **Blocked / NO-GO** |
 
@@ -164,3 +170,4 @@ clean report -> Lambda/Change Set/deployment/production effect
 - [Deployment contract](../deployment/platform-authority-lambda-invocation-materialization.md)
 - [Operations runbook](../operations/platform-authority-lambda-invocation-materialization.md)
 - [GUG-218 threat-model delta](gug-218-lambda-invocation-authority-threat-model-delta.md)
+- [GUG-221 threat-model delta](gug-221-lambda-audit-provisioning-repair-threat-model-delta.md)

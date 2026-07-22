@@ -1,0 +1,46 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_gug220_evidence.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "gug220_intent_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "gug220_ledger_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "gug220_receipt_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "management_account_id": "839393571433",
+  "authority_account_id": "042360977644",
+  "region": "us-east-1",
+  "identity_center_instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+  "identity_store_id": "d-0123456789",
+  "collector_saml_provider_arn": "arn:aws:iam::042360977644:saml-provider/AWSSSO_0123456789abcdef_DO_NOT_DELETE",
+  "identity_center_kms_mode": "AWS_OWNED_KMS_KEY",
+  "identity_center_kms_key_arn": null,
+  "principal_id": "0123456789-12345678-1234-1234-1234-123456789abc",
+  "collector_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-1234567890abcdef",
+  "collector_permission_set_exists": true,
+  "collector_inline_policy_present": false,
+  "collector_account_assignments": [],
+  "collector_provisioned_account_ids": [],
+  "collector_role_present": false,
+  "instance_metadata_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "principal_metadata_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "saml_provider_metadata_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "collector_permission_set_metadata_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "collector_permission_set_tags_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "provider_state_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+  "verifiers": {
+    "management": {
+      "profile": "839393571433_ReadOnlyAccess",
+      "account_id": "839393571433",
+      "caller_arn": "arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_0123456789abcdef/synthetic@example.invalid"
+    },
+    "authority": {
+      "profile": "042360977644_ReadOnlyAccess",
+      "account_id": "042360977644",
+      "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_1c38063fd41ea692/synthetic@example.invalid"
+    }
+  },
+  "evaluated_at": "2026-07-22T12:30:00Z",
+  "evidence_status": "GUG220_PARTIAL_STATE_READ_ONLY_RECONCILED",
+  "authority_status": "PROVIDER_DERIVED_NOT_EXECUTION_AUTHORITY",
+  "production_status": "NO-GO",
+  "evidence_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+}

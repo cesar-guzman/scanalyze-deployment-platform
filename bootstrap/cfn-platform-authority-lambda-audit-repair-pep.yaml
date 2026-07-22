@@ -1,0 +1,1252 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze GUG-221 authority-account server-side PEP. Creates a retained
+  Plan-to-Repair ledger, private version-pinned plan, repair, and reconcile
+  Lambdas, and strictly separated authority execution roles. This template
+  does not authorize deployment, invocation, or production.
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    Default: '042360977644'
+    AllowedValues: ['042360977644']
+  ManagementAccountId:
+    Type: String
+    Default: '839393571433'
+    AllowedValues: ['839393571433']
+  SourceCommit:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{40}$'
+  RepairId:
+    Type: String
+    AllowedPattern: '^gug221-[a-f0-9]{64}$'
+  PrincipalId:
+    Type: String
+    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  IdentityStoreId:
+    Type: String
+    AllowedPattern: '^d-[0-9a-f]{10}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    AllowedPattern: '^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  CollectorPermissionSetArn:
+    Type: String
+    AllowedPattern: '^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
+  RepairInvokerPermissionSetArn:
+    Type: String
+    AllowedPattern: '^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
+  CollectorPolicyDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+  RepairInvokerPolicyDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+  OriginalGug220LedgerDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+  ExpectedPermissionSetTagsJson:
+    Type: String
+    MinLength: 2
+    MaxLength: 2048
+  RepairNotBefore:
+    Type: String
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  RepairNotAfter:
+    Type: String
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  CollectorSamlProviderArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$'
+  IdentityCenterKmsMode:
+    Type: String
+    AllowedValues:
+      - AWS_OWNED_KMS_KEY
+      - CUSTOMER_MANAGED_KEY
+  IdentityCenterKmsKeyArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+  ExpectedBoto3Version:
+    Type: String
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  ExpectedBotocoreVersion:
+    Type: String
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  RepairArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  RepairArtifactKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-221/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
+  RepairArtifactVersion:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  RepairArtifactCodeSha256:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'
+  ReconcileArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  ReconcileArtifactKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-221/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
+  ReconcileArtifactVersion:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  ReconcileArtifactCodeSha256:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'
+  SigningProfileVersionArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$'
+
+Rules:
+  AccountAndRegionMustMatch:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AWS::AccountId
+          - '042360977644'
+        AssertDescription: The PEP may exist only in authority account 042360977644.
+      - Assert: !Equals
+          - !Ref AWS::Region
+          - us-east-1
+        AssertDescription: The PEP may exist only in us-east-1.
+  AwsOwnedKmsMustNotCarryKeyArn:
+    RuleCondition: !Equals
+      - !Ref IdentityCenterKmsMode
+      - AWS_OWNED_KMS_KEY
+    Assertions:
+      - Assert: !Equals
+          - !Ref IdentityCenterKmsKeyArn
+          - ''
+        AssertDescription: AWS-owned Identity Center KMS mode cannot carry a customer key ARN.
+  CustomerManagedKmsRequiresExactKeyArn:
+    RuleCondition: !Equals
+      - !Ref IdentityCenterKmsMode
+      - CUSTOMER_MANAGED_KEY
+    Assertions:
+      - Assert: !Not
+          - !Equals
+            - !Ref IdentityCenterKmsKeyArn
+            - ''
+        AssertDescription: Customer-managed Identity Center KMS mode requires the exact management-account key ARN.
+  BothFunctionsMustUseTheSameReviewedArtifact:
+    Assertions:
+      - Assert: !Equals [!Ref RepairArtifactBucket, !Ref ReconcileArtifactBucket]
+        AssertDescription: Repair and reconcile must use the same reviewed artifact bucket.
+      - Assert: !Equals [!Ref RepairArtifactKey, !Ref ReconcileArtifactKey]
+        AssertDescription: Repair and reconcile must use the same reviewed artifact key.
+      - Assert: !Equals [!Ref RepairArtifactVersion, !Ref ReconcileArtifactVersion]
+        AssertDescription: Repair and reconcile must use the same immutable S3 object version.
+      - Assert: !Equals [!Ref RepairArtifactCodeSha256, !Ref ReconcileArtifactCodeSha256]
+        AssertDescription: Repair and reconcile must use the same Lambda CodeSha256.
+
+Resources:
+  RepairLedgerKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: GUG-221 retained repair-ledger encryption key
+      Enabled: true
+      EnableKeyRotation: true
+      RotationPeriodInDays: 365
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DelegateAdministrationToExactAuthorityAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: PermitDynamoDbCryptographicUseOnlyFromAuthorityAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AuthorityAccountId
+                kms:ViaService: dynamodb.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:dynamodb:tableName: scanalyze-platform-authority-gug221-repair-ledger
+                kms:EncryptionContext:aws:dynamodb:subscriberId: !Ref AuthorityAccountId
+          - Sid: PermitDynamoDbGrantOnlyForAwsResource
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: kms:CreateGrant
+            Resource: '*'
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: 'true'
+              StringEquals:
+                kms:CallerAccount: !Ref AuthorityAccountId
+                kms:ViaService: dynamodb.us-east-1.amazonaws.com
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairLedgerKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/scanalyze/platform-authority/gug221-repair-ledger
+      TargetKeyId: !Ref RepairLedgerKey
+
+  RepairLedger:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: scanalyze-platform-authority-gug221-repair-ledger
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: repair_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: repair_id
+          KeyType: HASH
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt RepairLedgerKey.Arn
+      TableClass: STANDARD
+      ResourcePolicy:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyPlanCreationOutsidePlanExecution
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt PlanExecutionRole.Arn
+            - Sid: DenyPlanConsumptionOutsideRepairExecution
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt RepairExecutionRole.Arn
+            - Sid: DenyEveryUnsupportedLedgerMutation
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:BatchWriteItem
+                - dynamodb:DeleteItem
+                - dynamodb:PartiQLDelete
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+                - dynamodb:TransactWriteItems
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: data_class, Value: control-metadata}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-repair
+      RetentionInDays: 365
+
+  PlanLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-plan
+      RetentionInDays: 365
+
+  ReconcileLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-reconcile
+      RetentionInDays: 365
+
+  PlanExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairPlan
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug221ReadOnlyPlanAndLedgerCreation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedPlanLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-authority-lambda-audit-plan:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+              - Sid: CreateExactPlannedLedgerItem
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Ref RepairId
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactReadbackServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector
+              - Sid: DiscoverLocalCollectorRoleByReviewedNamePrefix
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityLambdaAudit_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeLambdaAuditRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairReconcile
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactPlanFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+              - Sid: DenyEveryProtectedEffect
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
+                  - identitystore:*
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:CreateRole
+                  - iam:DeletePolicy
+                  - iam:DeletePolicyVersion
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+
+  RepairExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairExecution
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug221RepairExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedRepairLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-authority-lambda-audit-repair:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+              - Sid: ConsumeExactPlannedLedgerItem
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Ref RepairId
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactMutationServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairMutationServiceRole
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector
+              - Sid: DiscoverLocalCollectorRoleByReviewedNamePrefix
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityLambdaAudit_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeLambdaAuditRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairReconcile
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactRepairFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+              - Sid: DenyDirectIdentityCenterAndRelay
+                Effect: Deny
+                Action:
+                  - identitystore:*
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:CreateRole
+                  - iam:DeletePolicy
+                  - iam:DeletePolicyVersion
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:SetDefaultPolicyVersion
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+
+  ReconcileExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairReconcile
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug221ReadOnlyReconciliation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedReconcileLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-authority-lambda-audit-reconcile:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+              - Sid: ReadExactRepairLedgerItem
+                Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Ref RepairId
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactReadbackServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector
+              - Sid: DiscoverLocalCollectorRoleByReviewedNamePrefix
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityLambdaAudit_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeLambdaAuditRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairReconcile
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:plan-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:repair-v1
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactReconcileFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+              - Sid: DenyEveryProtectedEffect
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:PutItem
+                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
+                  - identitystore:*
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:CreateRole
+                  - iam:DeletePolicy
+                  - iam:DeletePolicyVersion
+                  - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+
+  InvocationAuthorityInspectorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairAuthorityInspector
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromExactGug221ExecutionRoles
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AuthorityAccountId
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !GetAtt PlanExecutionRole.Arn
+                  - !GetAtt RepairExecutionRole.Arn
+                  - !GetAtt ReconcileExecutionRole.Arn
+      Policies:
+        - PolicyName: Gug221InvocationAuthorityInspection
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadCallerIdentity
+                Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: '*'
+              - Sid: DenyRoleChaining
+                Effect: Deny
+                Action: sts:AssumeRole
+                Resource: '*'
+              - Sid: DenyUnreviewedActions
+                Effect: Deny
+                NotAction:
+                  - ec2:DescribeRegions
+                  - iam:GetAccountAuthorizationDetails
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - lambda:GetPolicy
+                  - lambda:ListAliases
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctions
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                  - sts:GetCallerIdentity
+                Resource: '*'
+              - Sid: DiscoverEnabledRegions
+                Effect: Allow
+                Action: ec2:DescribeRegions
+                Resource: '*'
+              - Sid: ReadCompleteIamAuthorizationGraph
+                Effect: Allow
+                Action:
+                  - iam:GetAccountAuthorizationDetails
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                Resource: '*'
+              - Sid: ListAccountLambdaSurface
+                Effect: Allow
+                Action:
+                  - lambda:ListAliases
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AuthorityAccountId}:function:*
+              - Sid: DiscoverCompleteLambdaSurface
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: ReadExactGug221LambdaPolicies
+                Effect: Allow
+                Action: lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+              - Sid: DenyGetPolicyOutsideExactGug221Functions
+                Effect: Deny
+                Action: lambda:GetPolicy
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+              - Sid: DenyFunctionReadsOutsideAuthorityAccount
+                Effect: Deny
+                Action:
+                  - lambda:ListAliases
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                NotResource: !Sub arn:${AWS::Partition}:lambda:*:${AuthorityAccountId}:function:*
+              - Sid: DenyLambdaInvocationAndMutation
+                Effect: Deny
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:Invoke*
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:UpdateFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionUrlConfig
+                Resource: '*'
+              - Sid: DenyIamMutation
+                Effect: Deny
+                Action:
+                  - iam:Add*
+                  - iam:Attach*
+                  - iam:Create*
+                  - iam:Delete*
+                  - iam:Detach*
+                  - iam:PassRole
+                  - iam:Put*
+                  - iam:Remove*
+                  - iam:Set*
+                  - iam:Tag*
+                  - iam:Untag*
+                  - iam:Update*
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+
+  RepairCodeSigningConfig:
+    Type: AWS::Lambda::CodeSigningConfig
+    Properties:
+      Description: GUG-221 enforce-only reviewed signer
+      AllowedPublishers:
+        SigningProfileVersionArns:
+          - !Ref SigningProfileVersionArn
+      CodeSigningPolicies:
+        UntrustedArtifactOnDeployment: Enforce
+
+  PlanFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - RepairLedger
+      - PlanLogGroup
+    Properties:
+      FunctionName: scanalyze-authority-lambda-audit-plan
+      Description: GUG-221 read-only plan proof and create-only ledger gate
+      Runtime: python3.12
+      Handler: tooling.platform_authority_lambda_audit_repair_broker_runtime.plan_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt PlanExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref ReconcileArtifactBucket
+        S3Key: !Ref ReconcileArtifactKey
+        S3ObjectVersion: !Ref ReconcileArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          COLLECTOR_PERMISSION_SET_ARN: !Ref CollectorPermissionSetArn
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          COLLECTOR_POLICY_DIGEST: !Ref CollectorPolicyDigest
+          REPAIR_INVOKER_POLICY_DIGEST: !Ref RepairInvokerPolicyDigest
+          ORIGINAL_GUG220_LEDGER_DIGEST: !Ref OriginalGug220LedgerDigest
+          EXPECTED_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPermissionSetTagsJson
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref ReconcileArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          COLLECTOR_SAML_PROVIDER_ARN: !Ref CollectorSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref PlanFunction
+      CodeSha256: !Ref ReconcileArtifactCodeSha256
+      Description: GUG-221 reviewed immutable plan version
+
+  PlanAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref PlanFunction
+      FunctionVersion: !GetAtt PlanFunctionVersion.Version
+      Name: plan-v1
+
+  PlanEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: PlanAlias
+    Properties:
+      FunctionName: !Ref PlanFunction
+      Qualifier: plan-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  RepairFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - RepairLedger
+      - RepairLogGroup
+    Properties:
+      FunctionName: scanalyze-authority-lambda-audit-repair
+      Description: GUG-221 exact one-shot Lambda audit provisioning repair PEP
+      Runtime: python3.12
+      Handler: tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 600
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt RepairExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref RepairArtifactBucket
+        S3Key: !Ref RepairArtifactKey
+        S3ObjectVersion: !Ref RepairArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          COLLECTOR_PERMISSION_SET_ARN: !Ref CollectorPermissionSetArn
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          COLLECTOR_POLICY_DIGEST: !Ref CollectorPolicyDigest
+          REPAIR_INVOKER_POLICY_DIGEST: !Ref RepairInvokerPolicyDigest
+          ORIGINAL_GUG220_LEDGER_DIGEST: !Ref OriginalGug220LedgerDigest
+          EXPECTED_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPermissionSetTagsJson
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref RepairArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          PLAN_FUNCTION_VERSION: !GetAtt PlanFunctionVersion.Version
+          COLLECTOR_SAML_PROVIDER_ARN: !Ref CollectorSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref RepairFunction
+      CodeSha256: !Ref RepairArtifactCodeSha256
+      Description: GUG-221 reviewed immutable repair version
+
+  RepairAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref RepairFunction
+      FunctionVersion: !GetAtt RepairFunctionVersion.Version
+      Name: repair-v1
+
+  RepairEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: RepairAlias
+    Properties:
+      FunctionName: !Ref RepairFunction
+      Qualifier: repair-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  ReconcileFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - RepairLedger
+      - ReconcileLogGroup
+    Properties:
+      FunctionName: scanalyze-authority-lambda-audit-reconcile
+      Description: GUG-221 read-only reconciliation PEP
+      Runtime: python3.12
+      Handler: tooling.platform_authority_lambda_audit_repair_broker_runtime.reconcile_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt ReconcileExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref ReconcileArtifactBucket
+        S3Key: !Ref ReconcileArtifactKey
+        S3ObjectVersion: !Ref ReconcileArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          COLLECTOR_PERMISSION_SET_ARN: !Ref CollectorPermissionSetArn
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          COLLECTOR_POLICY_DIGEST: !Ref CollectorPolicyDigest
+          REPAIR_INVOKER_POLICY_DIGEST: !Ref RepairInvokerPolicyDigest
+          ORIGINAL_GUG220_LEDGER_DIGEST: !Ref OriginalGug220LedgerDigest
+          EXPECTED_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPermissionSetTagsJson
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref ReconcileArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          PLAN_FUNCTION_VERSION: !GetAtt PlanFunctionVersion.Version
+          REPAIR_FUNCTION_VERSION: !GetAtt RepairFunctionVersion.Version
+          COLLECTOR_SAML_PROVIDER_ARN: !Ref CollectorSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ReconcileFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      CodeSha256: !Ref ReconcileArtifactCodeSha256
+      Description: GUG-221 reviewed immutable reconcile version
+
+  ReconcileAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      FunctionVersion: !GetAtt ReconcileFunctionVersion.Version
+      Name: reconcile-v1
+
+  ReconcileEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ReconcileAlias
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      Qualifier: reconcile-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+Outputs:
+  RepairLedgerName:
+    Value: !Ref RepairLedger
+  RepairLedgerKeyArn:
+    Value: !GetAtt RepairLedgerKey.Arn
+  RepairFunctionAliasArn:
+    Value: !Ref RepairAlias
+  PlanFunctionAliasArn:
+    Value: !Ref PlanAlias
+  ReconcileFunctionAliasArn:
+    Value: !Ref ReconcileAlias
+  RepairExecutionRoleArn:
+    Value: !GetAtt RepairExecutionRole.Arn
+  PlanExecutionRoleArn:
+    Value: !GetAtt PlanExecutionRole.Arn
+  ReconcileExecutionRoleArn:
+    Value: !GetAtt ReconcileExecutionRole.Arn
+  InvocationAuthorityInspectorRoleArn:
+    Value: !GetAtt InvocationAuthorityInspectorRole.Arn
+  ProductionAuthorized:
+    Value: 'false'

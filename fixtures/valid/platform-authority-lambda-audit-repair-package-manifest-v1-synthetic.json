@@ -1,0 +1,42 @@
+{
+  "_test_metadata": { "synthetic": true, "contains_live_data": false },
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_package.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "archive_name": "scanalyze-gug221-lambda-audit-repair.zip",
+  "archive_format": "ZIP_STORED_FIXED_METADATA",
+  "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lambda_code_sha256": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=",
+  "archive_size_bytes": 1,
+  "handlers": {
+    "plan": "tooling.platform_authority_lambda_audit_repair_broker_runtime.plan_handler",
+    "repair": "tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler",
+    "reconcile": "tooling.platform_authority_lambda_audit_repair_broker_runtime.reconcile_handler"
+  },
+  "runtime_dependencies": {
+    "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
+    "runtime_lock_path": "gug221_runtime_lock.json",
+    "expected_boto3_version": "1.40.0",
+    "expected_botocore_version": "1.40.0"
+  },
+  "entries": [
+    { "path": "gug221_runtime_lock.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-repair-invocation-inspector-role.json", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-repair-invoker-role.json", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json", "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "size_bytes": 1 },
+    { "path": "policies/iam/platform-authority-lambda-invocation-inventory-role.json", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "size_bytes": 1 },
+    { "path": "tooling/__init__.py", "sha256": "7777777777777777777777777777777777777777777777777777777777777777", "size_bytes": 0 },
+    { "path": "tooling/platform_authority_lambda_audit_repair_broker.py", "sha256": "8888888888888888888888888888888888888888888888888888888888888888", "size_bytes": 1 },
+    { "path": "tooling/platform_authority_lambda_audit_repair_broker_runtime.py", "sha256": "9999999999999999999999999999999999999999999999999999999999999999", "size_bytes": 1 },
+    { "path": "tooling/platform_authority_lambda_audit_repair_iam_verifier.py", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size_bytes": 1 },
+    { "path": "tooling/platform_authority_lambda_audit_repair_invocation_authority.py", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "size_bytes": 1 },
+    { "path": "tooling/platform_authority_lambda_invocation_authority.py", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "size_bytes": 1 },
+    { "path": "tooling/platform_authority_lambda_invocation_materializer.py", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "size_bytes": 1 }
+  ],
+  "production_status": "NO-GO"
+}

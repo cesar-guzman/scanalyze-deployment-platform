@@ -1,0 +1,64 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_pep_change_set_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "B_PEP_CHANGE_SET",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "signed_artifact_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "deployment_contract_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "gug220_intent_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "gug220_ledger_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "gug220_receipt_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "gug220_evidence_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+  "gug220_provider_state_sha256": "abababababababababababababababababababababababababababababababab",
+  "delegation_live_receipt_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+  "parameter_handoff_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+  "template_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+  "change_set": {
+    "arn": "arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/11111111-2222-4333-8444-555555555555",
+    "uuid": "11111111-2222-4333-8444-555555555555",
+    "name": "gug221-lambda-audit-repair-pep-create",
+    "stack_arn": "arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "stack_name": "scanalyze-platform-authority-lambda-audit-repair-pep",
+    "type": "CREATE", "status": "CREATE_COMPLETE", "execution_status": "AVAILABLE",
+    "on_stack_failure": "ROLLBACK", "capabilities": ["CAPABILITY_NAMED_IAM"],
+    "tags": {
+      "environment": "non-production", "managed_by": "cloudformation", "production": "false",
+      "service": "scanalyze-platform-authority", "source_commit": "1111111111111111111111111111111111111111", "work_package": "GUG-221"
+    },
+    "parameters_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "resource_changes": [
+      {"logical_resource_id": "PlanAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PlanEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileExecutionRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileFunction", "resource_type": "AWS::Lambda::Function", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileFunctionVersion", "resource_type": "AWS::Lambda::Version", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "ReconcileLogGroup", "resource_type": "AWS::Logs::LogGroup", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairCodeSigningConfig", "resource_type": "AWS::Lambda::CodeSigningConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairExecutionRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairFunction", "resource_type": "AWS::Lambda::Function", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairFunctionVersion", "resource_type": "AWS::Lambda::Version", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairLedger", "resource_type": "AWS::DynamoDB::Table", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairLedgerKey", "resource_type": "AWS::KMS::Key", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairLedgerKeyAlias", "resource_type": "AWS::KMS::Alias", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "RepairLogGroup", "resource_type": "AWS::Logs::LogGroup", "action": "Add", "replacement": "False"}
+    ],
+    "create_event": {
+      "event_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "event_time": "2026-07-22T12:50:00Z",
+      "event_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "verifier": {
+    "profile": "042360977644_ReadOnlyAccess", "account_id": "042360977644",
+    "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_1c38063fd41ea692/synthetic@example.invalid"
+  },
+  "evaluated_at": "2026-07-22T12:51:00Z",
+  "evidence_status": "PEP_CHANGE_SET_READ_ONLY_VERIFIED_AFTER_LIVE_DELEGATION",
+  "authority_status": "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY",
+  "production_status": "NO-GO"
+}

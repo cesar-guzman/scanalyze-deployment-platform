@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-delegation-change-set-receipt.v1.schema.json",
+  "title": "GUG-221 Phase A delegation Change Set read-only receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "phase",
+    "source_commit", "deployment_contract_sha256", "gug220_intent_sha256",
+    "gug220_ledger_sha256", "gug220_receipt_sha256",
+    "gug220_evidence_sha256", "gug220_provider_state_sha256",
+    "parameter_handoff_sha256", "template_sha256", "change_set",
+    "execution_contract",
+    "verifier", "evaluated_at", "evidence_status", "authority_status",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_delegation_change_set_receipt.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "phase": { "const": "A_DELEGATION_CHANGE_SET" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "deployment_contract_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_intent_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_ledger_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_evidence_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_provider_state_sha256": { "$ref": "#/$defs/digest" },
+    "parameter_handoff_sha256": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "change_set": { "$ref": "#/$defs/change_set" },
+    "execution_contract": { "$ref": "#/$defs/execution_contract" },
+    "verifier": { "$ref": "#/$defs/management_verifier" },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": { "const": "DELEGATION_CHANGE_SET_READ_ONLY_VERIFIED" },
+    "authority_status": { "const": "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "stack_tags": {
+      "type": "object", "additionalProperties": false,
+      "required": ["environment", "managed_by", "production", "service", "source_commit", "work_package"],
+      "properties": {
+        "environment": { "const": "non-production" }, "managed_by": { "const": "cloudformation" },
+        "production": { "const": "false" }, "service": { "const": "scanalyze-platform-authority" },
+        "source_commit": { "$ref": "#/$defs/commit" }, "work_package": { "const": "GUG-221" }
+      }
+    },
+    "create_event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_id", "event_time", "event_digest"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuid" },
+        "event_time": { "$ref": "#/$defs/timestamp" },
+        "event_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "execution_contract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["client_request_token", "client_request_token_sha256", "execute_request_sha256", "executor_arn_sha256"],
+      "properties": {
+        "client_request_token": { "type": "string", "pattern": "^gug221-a-[0-9a-f]{48}$" },
+        "client_request_token_sha256": { "$ref": "#/$defs/digest" },
+        "execute_request_sha256": { "$ref": "#/$defs/digest" },
+        "executor_arn_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "resource_change": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_resource_id", "resource_type", "action", "replacement"],
+      "properties": {
+        "logical_resource_id": { "type": "string" }, "resource_type": { "type": "string" },
+        "action": { "const": "Add" }, "replacement": { "const": "False" }
+      }
+    },
+    "r_mutation_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "MutationServiceRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
+    "r_readback_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReadbackServiceRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
+    "r_invoker_assignment": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairInvokerAssignment" }, "resource_type": { "const": "AWS::SSO::Assignment" } } }] },
+    "r_invoker_ps": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairInvokerPermissionSet" }, "resource_type": { "const": "AWS::SSO::PermissionSet" } } }] },
+    "change_set": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "arn", "uuid", "name", "stack_arn", "stack_name", "type", "status",
+        "execution_status", "on_stack_failure", "capabilities", "tags",
+        "parameters_sha256", "resource_changes", "create_event"
+      ],
+      "properties": {
+        "arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:839393571433:changeSet/gug221-lambda-audit-repair-delegation-create/[0-9a-fA-F-]{36}$" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "name": { "const": "gug221-lambda-audit-repair-delegation-create" },
+        "stack_arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:839393571433:stack/scanalyze-platform-authority-lambda-audit-repair-delegation/[0-9a-fA-F-]{36}$" },
+        "stack_name": { "const": "scanalyze-platform-authority-lambda-audit-repair-delegation" },
+        "type": { "const": "CREATE" }, "status": { "const": "CREATE_COMPLETE" },
+        "execution_status": { "const": "AVAILABLE" }, "on_stack_failure": { "const": "ROLLBACK" },
+        "capabilities": { "type": "array", "prefixItems": [{ "const": "CAPABILITY_NAMED_IAM" }], "items": false, "minItems": 1, "maxItems": 1 },
+        "tags": { "$ref": "#/$defs/stack_tags" },
+        "parameters_sha256": { "$ref": "#/$defs/digest" },
+        "resource_changes": {
+          "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true,
+          "prefixItems": [
+            { "$ref": "#/$defs/r_mutation_role" }, { "$ref": "#/$defs/r_readback_role" },
+            { "$ref": "#/$defs/r_invoker_assignment" }, { "$ref": "#/$defs/r_invoker_ps" }
+          ],
+          "items": false
+        },
+        "create_event": { "$ref": "#/$defs/create_event" }
+      }
+    },
+    "management_verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "839393571433_ReadOnlyAccess" },
+        "account_id": { "const": "839393571433" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    }
+  }
+}

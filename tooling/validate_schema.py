@@ -14,6 +14,11 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 try:
     import jsonschema
     from jsonschema import Draft202012Validator, FormatChecker, ValidationError
@@ -66,6 +71,20 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-lambda-audit-execution-ledger": "platform-authority-lambda-audit-execution-ledger.v{version}.schema.json",
         "platform-authority-lambda-audit-provisioning-intent": "platform-authority-lambda-audit-provisioning-intent.v{version}.schema.json",
         "platform-authority-lambda-audit-provisioning-receipt": "platform-authority-lambda-audit-provisioning-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-broker-topology": "platform-authority-lambda-audit-repair-broker-topology.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-broker-intent": "platform-authority-lambda-audit-repair-broker-intent.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-broker-ledger": "platform-authority-lambda-audit-repair-broker-ledger.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-broker-receipt": "platform-authority-lambda-audit-repair-broker-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-delegation-parameters": "platform-authority-lambda-audit-repair-delegation-parameters.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-delegation-change-set-receipt": "platform-authority-lambda-audit-repair-delegation-change-set-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-delegation-execution-receipt": "platform-authority-lambda-audit-repair-delegation-execution-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-delegation-live-receipt": "platform-authority-lambda-audit-repair-delegation-live-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-deployment-contract": "platform-authority-lambda-audit-repair-deployment-contract.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-gug220-evidence": "platform-authority-lambda-audit-repair-gug220-evidence.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-pep-parameters": "platform-authority-lambda-audit-repair-pep-parameters.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-pep-change-set-receipt": "platform-authority-lambda-audit-repair-pep-change-set-receipt.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-package-manifest": "platform-authority-lambda-audit-repair-package-manifest.v{version}.schema.json",
+        "platform-authority-lambda-audit-repair-signed-artifact": "platform-authority-lambda-audit-repair-signed-artifact.v{version}.schema.json",
         "release-attestation": "release-attestation.v{version}.schema.json",
         "release-deployment-projection": "release-deployment-projection.v{version}.schema.json",
         "release-trust-policy": "release-trust-policy.v{version}.schema.json",
@@ -959,6 +978,245 @@ def _validate_gug220_provisioning_receipt(instance: dict) -> list[str]:
     return errors
 
 
+GUG221_REPAIR_MUTATIONS = (
+    "sso:PutInlinePolicyToPermissionSet",
+    "sso:CreateAccountAssignment",
+    "sso:ProvisionPermissionSet",
+)
+
+
+def _validate_gug221_broker_topology(instance: dict) -> list[str]:
+    """Ensure the human has only exact private Lambda invocation authority."""
+    errors: list[str] = []
+    human = instance.get("human_permission_set")
+    ledger = instance.get("ledger")
+    if not isinstance(human, dict) or human.get("allowed_actions") != [
+        "lambda:InvokeFunction"
+    ]:
+        errors.append("GUG-221 human authority must be exact Lambda invocation only")
+    if instance.get("human_raw_api_authorized") is not False:
+        errors.append("GUG-221 human authority must deny raw control-plane APIs")
+    if instance.get("event") != {}:
+        errors.append("GUG-221 broker event must be exactly empty")
+    transport = instance.get("transport_guard")
+    if not isinstance(transport, dict) or transport != {
+        "client_context_custom": {
+            "scanalyze_transport": "REQUEST_RESPONSE",
+            "scanalyze_work_package": "GUG-221",
+        },
+        "maximum_retry_attempts": 0,
+        "maximum_event_age_seconds": 60,
+        "asynchronous_effects_authorized": False,
+    }:
+        errors.append("GUG-221 requires the exact synchronous-only transport guard")
+    if instance.get("authorized_mutations") != list(GUG221_REPAIR_MUTATIONS):
+        errors.append("GUG-221 server mutation sequence must remain exact")
+    if not isinstance(ledger, dict) or (
+        ledger.get("provider_immutable") is not True
+        or ledger.get("claim_condition") != "attribute_not_exists(repair_id)"
+    ):
+        errors.append("GUG-221 requires the provider-backed one-shot CAS ledger")
+    return errors
+
+
+def _validate_gug221_broker_intent(instance: dict) -> list[str]:
+    """Validate mode/alias/effect bindings and the bounded repair window."""
+    errors: list[str] = []
+    mode = instance.get("mode")
+    expected_alias = {
+        "plan": "plan-v1",
+        "repair": "repair-v1",
+        "reconcile": "reconcile-v1",
+    }.get(mode)
+    if expected_alias is None or instance.get("function_qualifier") != expected_alias:
+        errors.append("GUG-221 mode must derive from the exact published alias")
+    mutations = instance.get("authorized_mutations")
+    if mode == "repair":
+        if mutations != list(GUG221_REPAIR_MUTATIONS):
+            errors.append("repair intent must preserve the exact mutation sequence")
+    elif mutations != []:
+        errors.append("read-only broker modes must not authorize mutations")
+    collector_arn = instance.get("permission_set_arn")
+    invoker_arn = instance.get("repair_invoker_permission_set_arn")
+    if collector_arn == invoker_arn:
+        errors.append("collector and repair invoker permission sets must differ")
+    elif isinstance(collector_arn, str) and isinstance(invoker_arn, str):
+        collector_instance = collector_arn.rsplit("/", 2)[-2]
+        invoker_instance = invoker_arn.rsplit("/", 2)[-2]
+        if collector_instance != invoker_instance:
+            errors.append("collector and repair invoker must share one Identity Center instance")
+    invoker_tags = instance.get("expected_repair_invoker_tags")
+    if not isinstance(invoker_tags, dict) or invoker_tags.get("source_commit") != instance.get(
+        "source_commit"
+    ):
+        errors.append("repair invoker tags must bind the exact source commit")
+    not_before = _gug215_timestamp(instance.get("not_before"))
+    not_after = _gug215_timestamp(instance.get("not_after"))
+    if (
+        not_before is not None
+        and not_after is not None
+        and (not not_before < not_after or not_after - not_before > timedelta(minutes=15))
+    ):
+        errors.append("GUG-221 intent window must be positive and at most fifteen minutes")
+    return errors
+
+
+def _validate_gug221_broker_ledger(instance: dict) -> list[str]:
+    """Validate the durable CAS barrier without inferring provider effects."""
+    errors: list[str] = []
+    status = instance.get("status")
+    stage = instance.get("stage")
+    attempted = instance.get("effects_attempted")
+    completed = instance.get("effects_completed")
+    if (
+        not isinstance(attempted, int)
+        or isinstance(attempted, bool)
+        or not isinstance(completed, int)
+        or isinstance(completed, bool)
+        or completed > attempted
+    ):
+        errors.append("GUG-221 ledger effect counters are invalid")
+    if (
+        instance.get("provider_immutable") is not True
+        or instance.get("claim_condition") != "attribute_not_exists(repair_id)"
+        or instance.get("mutation_retry_attempted") is not False
+        or instance.get("production_authorized") is not False
+    ):
+        errors.append("GUG-221 ledger must remain provider-backed, one-shot, and non-production")
+    exact_progress = {
+        "CLAIMED": ("BEFORE_FIRST_EFFECT", 0, 0),
+        "ATTEMPTING_1": ("BEFORE_PUT_INLINE_POLICY", 0, 0),
+        "COMPLETED_1": ("AFTER_PUT_INLINE_POLICY", 1, 1),
+        "ATTEMPTING_2": ("BEFORE_CREATE_ACCOUNT_ASSIGNMENT", 1, 1),
+        "COMPLETED_2": ("AFTER_CREATE_ACCOUNT_ASSIGNMENT", 2, 2),
+        "ATTEMPTING_3": ("BEFORE_PROVISION_PERMISSION_SET", 2, 2),
+        "COMPLETED_3": ("AFTER_PROVISION_PERMISSION_SET", 3, 3),
+        "REPAIR_VERIFIED": ("FINAL_READBACK_VERIFIED", 3, 3),
+    }
+    uncertain_progress = {
+        "UNCERTAIN_PUT_INLINE_POLICY": (1, 0),
+        "UNCERTAIN_PUT_INLINE_POLICY_LEDGER_COMMIT": (1, 1),
+        "UNCERTAIN_CREATE_ACCOUNT_ASSIGNMENT": (2, 1),
+        "UNCERTAIN_CREATE_ACCOUNT_ASSIGNMENT_LEDGER_COMMIT": (2, 2),
+        "UNCERTAIN_PROVISION_PERMISSION_SET": (3, 2),
+        "UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT": (3, 3),
+        "UNCERTAIN_FINAL_READBACK": (3, 3),
+    }
+    if status in exact_progress:
+        if (stage, attempted, completed) != exact_progress[status]:
+            errors.append("GUG-221 ledger status, stage, and counters are inconsistent")
+    elif status == "UNCERTAIN_RECONCILE_ONLY":
+        if stage not in uncertain_progress or (attempted, completed) != uncertain_progress.get(stage):
+            errors.append("GUG-221 uncertain ledger progress is inconsistent")
+    else:
+        errors.append("GUG-221 ledger status is unsupported")
+
+    claimed_at = _gug215_timestamp(instance.get("claimed_at"))
+    updated_at = _gug215_timestamp(instance.get("updated_at"))
+    state_digest = instance.get("state_digest")
+    if status == "CLAIMED":
+        if "updated_at" in instance or "state_digest" in instance:
+            errors.append("GUG-221 unadvanced claim must not contain transition evidence")
+    elif updated_at is None or not isinstance(state_digest, str):
+        errors.append("GUG-221 advanced ledger must contain transition evidence")
+    elif claimed_at is not None and updated_at < claimed_at:
+        errors.append("GUG-221 ledger timestamps are out of order")
+    return errors
+
+
+def _validate_gug221_broker_receipt(instance: dict) -> list[str]:
+    """Reject every public outcome outside the exact runtime state matrix."""
+    errors: list[str] = []
+    mode = instance.get("mode")
+    status = instance.get("status")
+    qualifier = instance.get("function_qualifier")
+    attempted = instance.get("effects_attempted")
+    completed = instance.get("effects_completed")
+    ledger = instance.get("ledger_digest")
+    attribution = instance.get("mutation_attribution")
+    next_action = instance.get("required_next_action")
+    if (
+        type(attempted) is not int
+        or type(completed) is not int
+        or attempted not in range(4)
+        or completed not in range(4)
+        or completed > attempted
+    ):
+        errors.append("GUG-221 receipt cannot complete more effects than attempted")
+    mode_qualifiers = {
+        "plan": "plan-v1",
+        "repair": "repair-v1",
+        "reconcile": "reconcile-v1",
+    }
+    if mode_qualifiers.get(mode) != qualifier:
+        errors.append("GUG-221 receipt mode must match the exact published alias")
+
+    if status == "PLAN_VERIFIED":
+        if (mode, qualifier, ledger, attempted, completed, attribution, next_action) != (
+            "plan", "plan-v1", None, 0, 0, "UNPROVEN", "NONE"
+        ):
+            errors.append("GUG-221 plan receipt overclaims its read-only proof")
+    elif status == "REPAIR_VERIFIED":
+        if (
+            mode != "repair"
+            or qualifier != "repair-v1"
+            or not isinstance(ledger, str)
+            or (attempted, completed) != (3, 3)
+            or attribution != "PROVEN_BY_DURABLE_LEDGER"
+            or next_action != "NONE"
+        ):
+            errors.append("GUG-221 verified repair must be proven by the durable ledger")
+    elif status == "RECONCILE_VERIFIED":
+        if (
+            mode != "reconcile"
+            or qualifier != "reconcile-v1"
+            or not isinstance(ledger, str)
+            or (attempted, completed) not in {(2, 2), (3, 2), (3, 3)}
+            or attribution != "PROVEN_BY_DURABLE_LEDGER"
+            or next_action != "NONE"
+        ):
+            errors.append("GUG-221 verified reconciliation must prove the final durable state")
+    elif status == "BLOCKED":
+        if next_action != "REVIEW_BLOCKER":
+            errors.append("GUG-221 blocked receipt must require blocker review")
+        if ledger is None:
+            if (mode, qualifier, attempted, completed, attribution) != (
+                "reconcile", "reconcile-v1", 0, 0, "UNPROVEN"
+            ):
+                errors.append("GUG-221 unbound blocker must not claim durable progress")
+        else:
+            proven_progress = {(1, 1), (2, 2)}
+            if mode != "repair" or qualifier != "repair-v1" or (
+                (attempted, completed) == (0, 0) and attribution != "UNPROVEN"
+            ) or (
+                (attempted, completed) in proven_progress
+                and attribution != "PROVEN_BY_DURABLE_LEDGER"
+            ) or (attempted, completed) not in ({(0, 0)} | proven_progress):
+                errors.append("GUG-221 ledger-bound blocker has impossible progress")
+    elif status == "UNCERTAIN_RECONCILE_ONLY":
+        if next_action != "INVOKE_RECONCILE_ALIAS":
+            errors.append("GUG-221 uncertainty must require the read-only reconcile alias")
+        if ledger is None:
+            if (mode, qualifier, attempted, completed, attribution) != (
+                "repair", "repair-v1", 0, 0, "UNPROVEN"
+            ):
+                errors.append("GUG-221 invisible claim uncertainty must remain unproven")
+        else:
+            uncertain_progress = {(1, 0), (1, 1), (2, 1), (2, 2), (3, 2), (3, 3)}
+            if (
+                mode not in {"repair", "reconcile"}
+                or qualifier != mode_qualifiers.get(mode)
+                or (attempted, completed) not in uncertain_progress
+                or attribution != "PROVEN_BY_DURABLE_LEDGER"
+            ):
+                errors.append("GUG-221 ledger-bound uncertainty has impossible progress")
+    else:
+        errors.append("GUG-221 receipt status is unsupported")
+    if instance.get("production_status") != "NO-GO":
+        errors.append("GUG-221 receipt must preserve Production NO-GO")
+    return errors
+
+
 def _validate_gug218_inventory(
     instance: dict,
     *,
@@ -1537,6 +1795,32 @@ def validate_semantics(
 
     if schema_name == "platform-authority-lambda-audit-provisioning-receipt.v1.schema.json":
         errors.extend(_validate_gug220_provisioning_receipt(instance))
+
+    if schema_name == "platform-authority-lambda-audit-repair-broker-topology.v1.schema.json":
+        errors.extend(_validate_gug221_broker_topology(instance))
+
+    if schema_name == "platform-authority-lambda-audit-repair-broker-intent.v1.schema.json":
+        errors.extend(_validate_gug221_broker_intent(instance))
+
+    if schema_name == "platform-authority-lambda-audit-repair-broker-ledger.v1.schema.json":
+        errors.extend(_validate_gug221_broker_ledger(instance))
+
+    if schema_name == "platform-authority-lambda-audit-repair-broker-receipt.v1.schema.json":
+        errors.extend(_validate_gug221_broker_receipt(instance))
+
+    if schema_name == "platform-authority-lambda-audit-repair-signed-artifact.v1.schema.json":
+        try:
+            from tooling.platform_authority_lambda_audit_repair_signed_artifact import (
+                SignedArtifactError,
+                validate_signed_artifact_receipt,
+            )
+        except ImportError as exc:
+            errors.append(f"GUG-221 signed-artifact validator unavailable: {exc}")
+        else:
+            try:
+                validate_signed_artifact_receipt(instance)
+            except SignedArtifactError as exc:
+                errors.append(f"GUG-221 signed-artifact receipt invalid: {exc}")
 
     if schema_name == "platform-authority-lambda-invocation-inventory.v1.schema.json":
         errors.extend(

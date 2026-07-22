@@ -1,0 +1,68 @@
+{
+  "_test_metadata": { "synthetic": true, "contains_live_data": false, "expected_failure": "CFN parameter drift" },
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_signed_artifact.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "unsigned_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "unsigned_archive_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "signing_job": {
+    "job_id": "11111111-2222-4333-8444-555555555555",
+    "job_owner": "042360977644",
+    "platform_id": "AWSLambda-SHA384-ECDSA",
+    "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug221/ABCDEFGHIJ",
+    "signature_expires_at": "2027-07-21T00:00:00Z",
+    "source": { "bucket": "scanalyze-gug221-artifacts-7644", "key": "scanalyze/platform-authority/gug-221/unsigned/repair.zip", "version": "UnsignedVersion1" }
+  },
+  "signed_artifact": {
+    "bucket": "scanalyze-gug221-artifacts-7644",
+    "key": "scanalyze/platform-authority/gug-221/signed/11111111-2222-4333-8444-555555555555.zip",
+    "version": "SignedVersion1",
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "lambda_code_sha256": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=",
+    "size_bytes": 1024
+  },
+  "expected_sdk_versions": { "boto3": "1.40.0", "botocore": "1.40.0" },
+  "verifier": {
+    "profile": "042360977644_ReadOnlyAccess",
+    "account_id": "042360977644",
+    "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_1c38063fd41ea692/synthetic@example.invalid"
+  },
+  "source_review": {
+    "repository": "cesar-guzman/scanalyze-deployment-platform",
+    "branch": "main",
+    "source_commit": "1111111111111111111111111111111111111111",
+    "source_tree": "2222222222222222222222222222222222222222",
+    "pull_request_number": 36,
+    "pull_request_head_commit": "3333333333333333333333333333333333333333",
+    "pull_request_head_tree": "2222222222222222222222222222222222222222",
+    "merged_at": "2026-07-21T00:00:00Z",
+    "required_checks": [
+      { "name": "Microservices validation gate", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" },
+      { "name": "Lint, security, and schema checks", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" },
+      { "name": "Python tests", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" },
+      { "name": "Terraform validate (no AWS)", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" },
+      { "name": "Validate deployment manifest schema", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" },
+      { "name": "Verify clean clone reproducibility", "conclusion": "success", "app_id": 15368, "app_slug": "github-actions" }
+    ],
+    "branch_protection_strict": true,
+    "evidence_status": "MERGED_MAIN_REQUIRED_CHECKS_VERIFIED"
+  },
+  "cloudformation_parameters": [
+    { "ParameterKey": "SourceCommit", "ParameterValue": "1111111111111111111111111111111111111111" },
+    { "ParameterKey": "ExpectedBoto3Version", "ParameterValue": "1.40.0" },
+    { "ParameterKey": "ExpectedBotocoreVersion", "ParameterValue": "1.40.0" },
+    { "ParameterKey": "RepairArtifactBucket", "ParameterValue": "scanalyze-gug221-artifacts-7644" },
+    { "ParameterKey": "RepairArtifactKey", "ParameterValue": "scanalyze/platform-authority/gug-221/signed/11111111-2222-4333-8444-555555555555.zip" },
+    { "ParameterKey": "RepairArtifactVersion", "ParameterValue": "SignedVersion1" },
+    { "ParameterKey": "RepairArtifactCodeSha256", "ParameterValue": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=" },
+    { "ParameterKey": "ReconcileArtifactBucket", "ParameterValue": "scanalyze-gug221-artifacts-7644" },
+    { "ParameterKey": "ReconcileArtifactKey", "ParameterValue": "scanalyze/platform-authority/gug-221/signed/foreign.zip" },
+    { "ParameterKey": "ReconcileArtifactVersion", "ParameterValue": "SignedVersion1" },
+    { "ParameterKey": "ReconcileArtifactCodeSha256", "ParameterValue": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=" },
+    { "ParameterKey": "SigningProfileVersionArn", "ParameterValue": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug221/ABCDEFGHIJ" }
+  ],
+  "evaluated_at": "2026-07-21T00:00:00Z",
+  "evidence_status": "SIGNED_ARTIFACT_BOUND_FOR_CHANGE_SET_REVIEW",
+  "production_status": "NO-GO"
+}

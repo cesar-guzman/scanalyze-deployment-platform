@@ -1,0 +1,491 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze GUG-221 management-account delegation. Creates exact cross-account
+  mutation and readback service roles plus a human Identity Center permission
+  set that can invoke only the three private authority-account Lambda aliases.
+  Humans never receive raw SSO, Identity Store, IAM, STS relay, or ledger-write
+  authority. This template does not authorize deployment or production.
+
+Parameters:
+  ManagementAccountId:
+    Type: String
+    Default: '839393571433'
+    AllowedValues: ['839393571433']
+  AuthorityAccountId:
+    Type: String
+    Default: '042360977644'
+    AllowedValues: ['042360977644']
+  SourceCommit:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{40}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  IdentityStoreArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:identitystore::839393571433:identitystore/d-[a-z0-9]{10,}$'
+  RepairPrincipalId:
+    Type: String
+    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+  RepairPrincipalUserArn:
+    Type: String
+    AllowedPattern: '^arn:aws:identitystore:::user/(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+  AuditPermissionSetArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
+  UseIdentityCenterCustomerManagedKms:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+  IdentityCenterKmsKeyArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-z-]*:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+
+Rules:
+  AccountAndRegionMustMatch:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AWS::AccountId
+          - '839393571433'
+        AssertDescription: Delegation may exist only in management account 839393571433.
+      - Assert: !Equals
+          - !Ref AWS::Region
+          - us-east-1
+        AssertDescription: Delegation may exist only in us-east-1.
+  IdentityCenterKmsMustBeExactWhenEnabled:
+    Assertions:
+      - Assert: !Or
+          - !And
+              - !Equals [!Ref UseIdentityCenterCustomerManagedKms, 'false']
+              - !Equals [!Ref IdentityCenterKmsKeyArn, '']
+          - !And
+              - !Equals [!Ref UseIdentityCenterCustomerManagedKms, 'true']
+              - !Not [!Equals [!Ref IdentityCenterKmsKeyArn, '']]
+        AssertDescription: Identity Center KMS mode and key ARN must be an exact pair.
+
+Conditions:
+  IdentityCenterCustomerManagedKmsEnabled: !Equals
+    - !Ref UseIdentityCenterCustomerManagedKms
+    - 'true'
+
+Resources:
+  MutationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairMutationServiceRole
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromExactRepairLambdaRole
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::042360977644:root
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: '042360977644'
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeLambdaAuditRepairExecution
+      Policies:
+        - PolicyName: Gug221ExactRepairMutations
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadExactIdentityCenterObjects
+                Effect: Allow
+                Action:
+                  - sso:DescribeInstance
+                  - sso:DescribePermissionSet
+                  - sso:GetInlinePolicyForPermissionSet
+                  - sso:GetPermissionsBoundaryForPermissionSet
+                  - sso:ListAccountsForProvisionedPermissionSet
+                  - sso:ListCustomerManagedPolicyReferencesInPermissionSet
+                  - sso:ListManagedPoliciesInPermissionSet
+                  - sso:ListTagsForResource
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Ref AuditPermissionSetArn
+                  - !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ListAssignmentsAcrossObservedAccounts
+                Effect: Allow
+                Action: sso:ListAccountAssignments
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Ref AuditPermissionSetArn
+                  - !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+                  - !Sub arn:${AWS::Partition}:sso:::account/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ListExactPendingIdentityCenterOperations
+                Effect: Allow
+                Action:
+                  - sso:DescribeAccountAssignmentCreationStatus
+                  - sso:DescribeAccountAssignmentDeletionStatus
+                  - sso:DescribePermissionSetProvisioningStatus
+                  - sso:ListAccountAssignmentCreationStatus
+                  - sso:ListAccountAssignmentDeletionStatus
+                  - sso:ListPermissionSetProvisioningStatus
+                Resource: !Ref IdentityCenterInstanceArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: PerformOnlyThreeExactRepairMutations
+                Effect: Allow
+                Action:
+                  - sso:CreateAccountAssignment
+                  - sso:ProvisionPermissionSet
+                  - sso:PutInlinePolicyToPermissionSet
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Ref AuditPermissionSetArn
+                  - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ReadExactRepairPrincipal
+                Effect: Allow
+                Action: identitystore:DescribeUser
+                Resource:
+                  - !Ref IdentityStoreArn
+                  - !Ref RepairPrincipalUserArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    identitystore:PrimaryRegion: us-east-1
+              - Sid: ReadExactPepServiceRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairMutationServiceRole
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole
+              - !If
+                - IdentityCenterCustomerManagedKmsEnabled
+                - Sid: DecryptOnlyThroughExactIdentityCenterInstance
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref IdentityCenterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: sso.us-east-1.amazonaws.com
+                      kms:EncryptionContext:aws:sso:instance-arn: !Ref IdentityCenterInstanceArn
+                - !Ref AWS::NoValue
+              - !If
+                - IdentityCenterCustomerManagedKmsEnabled
+                - Sid: DecryptOnlyThroughExactIdentityStore
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref IdentityCenterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: identitystore.us-east-1.amazonaws.com
+                      kms:EncryptionContext:aws:identitystore:identitystore-arn: !Ref IdentityStoreArn
+                - !Ref AWS::NoValue
+              - Sid: DenyEveryOtherIdentityCenterMutation
+                Effect: Deny
+                Action:
+                  - sso:AttachCustomerManagedPolicyReferenceToPermissionSet
+                  - sso:AttachManagedPolicyToPermissionSet
+                  - sso:CreatePermissionSet
+                  - sso:DeleteAccountAssignment
+                  - sso:DeleteInlinePolicyFromPermissionSet
+                  - sso:DeletePermissionSet
+                  - sso:DeletePermissionsBoundaryFromPermissionSet
+                  - sso:DetachCustomerManagedPolicyReferenceFromPermissionSet
+                  - sso:DetachManagedPolicyFromPermissionSet
+                  - sso:PutPermissionsBoundaryToPermissionSet
+                  - sso:TagResource
+                  - sso:UntagResource
+                  - sso:UpdatePermissionSet
+                Resource: '*'
+              - Sid: DenyRelayAndUnrelatedServices
+                Effect: Deny
+                Action:
+                  - lambda:*
+                  - sts:AssumeRole
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                  - sts:AssumeRoot
+                  - sts:GetFederationToken
+                  - sts:GetSessionToken
+                  - sts:SetContext
+                  - sts:TagSession
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ReadbackServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeLambdaAuditRepairReadbackServiceRole
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromExactPlanOrReconcileLambdaRoles
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::042360977644:root
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: '042360977644'
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeLambdaAuditRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeLambdaAuditRepairReconcile
+      Policies:
+        - PolicyName: Gug221ExactReadback
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadExactIdentityCenterObjects
+                Effect: Allow
+                Action:
+                  - sso:DescribeInstance
+                  - sso:DescribePermissionSet
+                  - sso:GetInlinePolicyForPermissionSet
+                  - sso:GetPermissionsBoundaryForPermissionSet
+                  - sso:ListAccountsForProvisionedPermissionSet
+                  - sso:ListCustomerManagedPolicyReferencesInPermissionSet
+                  - sso:ListManagedPoliciesInPermissionSet
+                  - sso:ListTagsForResource
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Ref AuditPermissionSetArn
+                  - !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ListAssignmentsAcrossObservedAccounts
+                Effect: Allow
+                Action: sso:ListAccountAssignments
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Ref AuditPermissionSetArn
+                  - !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+                  - !Sub arn:${AWS::Partition}:sso:::account/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ListExactPendingIdentityCenterOperations
+                Effect: Allow
+                Action:
+                  - sso:DescribeAccountAssignmentCreationStatus
+                  - sso:DescribeAccountAssignmentDeletionStatus
+                  - sso:DescribePermissionSetProvisioningStatus
+                  - sso:ListAccountAssignmentCreationStatus
+                  - sso:ListAccountAssignmentDeletionStatus
+                  - sso:ListPermissionSetProvisioningStatus
+                Resource: !Ref IdentityCenterInstanceArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
+              - Sid: ReadExactRepairPrincipal
+                Effect: Allow
+                Action: identitystore:DescribeUser
+                Resource:
+                  - !Ref IdentityStoreArn
+                  - !Ref RepairPrincipalUserArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    identitystore:PrimaryRegion: us-east-1
+              - Sid: ReadExactPepServiceRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairMutationServiceRole
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole
+              - !If
+                - IdentityCenterCustomerManagedKmsEnabled
+                - Sid: DecryptOnlyThroughExactIdentityCenterInstance
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref IdentityCenterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: sso.us-east-1.amazonaws.com
+                      kms:EncryptionContext:aws:sso:instance-arn: !Ref IdentityCenterInstanceArn
+                - !Ref AWS::NoValue
+              - !If
+                - IdentityCenterCustomerManagedKmsEnabled
+                - Sid: DecryptOnlyThroughExactIdentityStore
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref IdentityCenterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: identitystore.us-east-1.amazonaws.com
+                      kms:EncryptionContext:aws:identitystore:identitystore-arn: !Ref IdentityStoreArn
+                - !Ref AWS::NoValue
+              - Sid: DenyEveryProtectedEffectAndRelay
+                Effect: Deny
+                Action:
+                  - lambda:*
+                  - sso:AttachCustomerManagedPolicyReferenceToPermissionSet
+                  - sso:AttachManagedPolicyToPermissionSet
+                  - sso:CreateAccountAssignment
+                  - sso:CreatePermissionSet
+                  - sso:DeleteAccountAssignment
+                  - sso:DeleteInlinePolicyFromPermissionSet
+                  - sso:DeletePermissionSet
+                  - sso:DeletePermissionsBoundaryFromPermissionSet
+                  - sso:DetachCustomerManagedPolicyReferenceFromPermissionSet
+                  - sso:DetachManagedPolicyFromPermissionSet
+                  - sso:ProvisionPermissionSet
+                  - sso:PutInlinePolicyToPermissionSet
+                  - sso:PutPermissionsBoundaryToPermissionSet
+                  - sso:TagResource
+                  - sso:UntagResource
+                  - sso:UpdatePermissionSet
+                  - sts:AssumeRole
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                  - sts:AssumeRoot
+                  - sts:GetFederationToken
+                  - sts:GetSessionToken
+                  - sts:SetContext
+                  - sts:TagSession
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairInvokerPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      Name: ScanalyzeLambdaAuditRepair
+      Description: GUG-221 invoke-only private repair PEP boundary
+      SessionDuration: PT1H
+      InlinePolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: InvokeOnlyExactPrivatePepAliases
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource:
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+          - Sid: DenyEveryOtherLambdaInvocation
+            Effect: Deny
+            Action: lambda:InvokeFunction
+            NotResource:
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1
+          - Sid: DenyAllLegacyAsyncInvocation
+            Effect: Deny
+            Action: lambda:InvokeAsync
+            Resource: '*'
+          - Sid: DenyAllFunctionUrls
+            Effect: Deny
+            Action: lambda:InvokeFunctionUrl
+            Resource: '*'
+          - Sid: DenyRawControlPlaneAndRelay
+            Effect: Deny
+            Action:
+              - identitystore:*
+              - iam:*
+              - sso:*
+              - sts:AssumeRole
+              - sts:AssumeRoleWithSAML
+              - sts:AssumeRoleWithWebIdentity
+              - sts:AssumeRoot
+              - sts:GetFederationToken
+              - sts:GetSessionToken
+              - sts:SetContext
+              - sts:TagSession
+            Resource: '*'
+          - Sid: DenyLedgerWritesAndLambdaMutation
+            Effect: Deny
+            Action:
+              - dynamodb:BatchWriteItem
+              - dynamodb:DeleteItem
+              - dynamodb:PartiQLDelete
+              - dynamodb:PartiQLInsert
+              - dynamodb:PartiQLUpdate
+              - dynamodb:PutItem
+              - dynamodb:TransactWriteItems
+              - dynamodb:UpdateItem
+              - lambda:AddPermission
+              - lambda:CreateEventSourceMapping
+              - lambda:CreateFunction
+              - lambda:CreateFunctionUrlConfig
+              - lambda:DeleteEventSourceMapping
+              - lambda:DeleteFunction
+              - lambda:DeleteFunctionEventInvokeConfig
+              - lambda:DeleteFunctionUrlConfig
+              - lambda:PutFunctionEventInvokeConfig
+              - lambda:RemovePermission
+              - lambda:UpdateEventSourceMapping
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:UpdateFunctionEventInvokeConfig
+              - lambda:UpdateFunctionUrlConfig
+            Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+
+  RepairInvokerAssignment:
+    Type: AWS::SSO::Assignment
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      PermissionSetArn: !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+      PrincipalId: !Ref RepairPrincipalId
+      PrincipalType: USER
+      TargetId: '042360977644'
+      TargetType: AWS_ACCOUNT
+
+Outputs:
+  MutationServiceRoleArn:
+    Value: !GetAtt MutationServiceRole.Arn
+  ReadbackServiceRoleArn:
+    Value: !GetAtt ReadbackServiceRole.Arn
+  RepairInvokerPermissionSetArn:
+    Value: !GetAtt RepairInvokerPermissionSet.PermissionSetArn
+  RepairPrincipalIdDigestRequired:
+    Description: Exact principal remains sensitive and must be recorded only by digest.
+    Value: 'true'
+  ProductionAuthorized:
+    Value: 'false'

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-pep-change-set-receipt.v1.schema.json",
+  "title": "GUG-221 Phase B PEP Change Set read-only receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "phase", "source_commit",
+    "signed_artifact_receipt_sha256", "deployment_contract_sha256",
+    "gug220_intent_sha256", "gug220_ledger_sha256",
+    "gug220_receipt_sha256", "gug220_evidence_sha256",
+    "gug220_provider_state_sha256",
+    "delegation_live_receipt_sha256", "parameter_handoff_sha256",
+    "template_sha256", "change_set", "verifier", "evaluated_at",
+    "evidence_status", "authority_status", "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_pep_change_set_receipt.v1" },
+    "schema_version": { "const": 1 }, "work_package": { "const": "GUG-221" },
+    "phase": { "const": "B_PEP_CHANGE_SET" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "signed_artifact_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "deployment_contract_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_intent_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_ledger_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_evidence_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_provider_state_sha256": { "$ref": "#/$defs/digest" },
+    "delegation_live_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "parameter_handoff_sha256": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "change_set": { "$ref": "#/$defs/change_set" },
+    "verifier": { "$ref": "#/$defs/authority_verifier" },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": { "const": "PEP_CHANGE_SET_READ_ONLY_VERIFIED_AFTER_LIVE_DELEGATION" },
+    "authority_status": { "const": "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "stack_tags": {
+      "type": "object", "additionalProperties": false,
+      "required": ["environment", "managed_by", "production", "service", "source_commit", "work_package"],
+      "properties": {
+        "environment": { "const": "non-production" }, "managed_by": { "const": "cloudformation" },
+        "production": { "const": "false" }, "service": { "const": "scanalyze-platform-authority" },
+        "source_commit": { "$ref": "#/$defs/commit" }, "work_package": { "const": "GUG-221" }
+      }
+    },
+    "create_event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_id", "event_time", "event_digest"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuid" }, "event_time": { "$ref": "#/$defs/timestamp" },
+        "event_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "resource_change": {
+      "type": "object", "additionalProperties": false,
+      "required": ["logical_resource_id", "resource_type", "action", "replacement"],
+      "properties": {
+        "logical_resource_id": { "type": "string" }, "resource_type": { "type": "string" },
+        "action": { "const": "Add" }, "replacement": { "const": "False" }
+      }
+    },
+    "r_plan_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanAlias" }, "resource_type": { "const": "AWS::Lambda::Alias" } } }] },
+    "r_plan_event": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanEventInvokeConfig" }, "resource_type": { "const": "AWS::Lambda::EventInvokeConfig" } } }] },
+    "r_reconcile_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileAlias" }, "resource_type": { "const": "AWS::Lambda::Alias" } } }] },
+    "r_reconcile_event": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileEventInvokeConfig" }, "resource_type": { "const": "AWS::Lambda::EventInvokeConfig" } } }] },
+    "r_reconcile_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileExecutionRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
+    "r_reconcile_function": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileFunction" }, "resource_type": { "const": "AWS::Lambda::Function" } } }] },
+    "r_reconcile_version": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileFunctionVersion" }, "resource_type": { "const": "AWS::Lambda::Version" } } }] },
+    "r_reconcile_log": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileLogGroup" }, "resource_type": { "const": "AWS::Logs::LogGroup" } } }] },
+    "r_repair_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairAlias" }, "resource_type": { "const": "AWS::Lambda::Alias" } } }] },
+    "r_repair_csc": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairCodeSigningConfig" }, "resource_type": { "const": "AWS::Lambda::CodeSigningConfig" } } }] },
+    "r_repair_event": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairEventInvokeConfig" }, "resource_type": { "const": "AWS::Lambda::EventInvokeConfig" } } }] },
+    "r_repair_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairExecutionRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
+    "r_repair_function": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairFunction" }, "resource_type": { "const": "AWS::Lambda::Function" } } }] },
+    "r_repair_version": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairFunctionVersion" }, "resource_type": { "const": "AWS::Lambda::Version" } } }] },
+    "r_ledger": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairLedger" }, "resource_type": { "const": "AWS::DynamoDB::Table" } } }] },
+    "r_ledger_key": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairLedgerKey" }, "resource_type": { "const": "AWS::KMS::Key" } } }] },
+    "r_ledger_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairLedgerKeyAlias" }, "resource_type": { "const": "AWS::KMS::Alias" } } }] },
+    "r_repair_log": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "RepairLogGroup" }, "resource_type": { "const": "AWS::Logs::LogGroup" } } }] },
+    "change_set": {
+      "type": "object", "additionalProperties": false,
+      "required": ["arn", "uuid", "name", "stack_arn", "stack_name", "type", "status", "execution_status", "on_stack_failure", "capabilities", "tags", "parameters_sha256", "resource_changes", "create_event"],
+      "properties": {
+        "arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/[0-9a-fA-F-]{36}$" },
+        "uuid": { "$ref": "#/$defs/uuid" }, "name": { "const": "gug221-lambda-audit-repair-pep-create" },
+        "stack_arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/[0-9a-fA-F-]{36}$" },
+        "stack_name": { "const": "scanalyze-platform-authority-lambda-audit-repair-pep" },
+        "type": { "const": "CREATE" }, "status": { "const": "CREATE_COMPLETE" },
+        "execution_status": { "const": "AVAILABLE" }, "on_stack_failure": { "const": "ROLLBACK" },
+        "capabilities": { "type": "array", "prefixItems": [{ "const": "CAPABILITY_NAMED_IAM" }], "items": false, "minItems": 1, "maxItems": 1 },
+        "tags": { "$ref": "#/$defs/stack_tags" }, "parameters_sha256": { "$ref": "#/$defs/digest" },
+        "resource_changes": {
+          "type": "array", "minItems": 18, "maxItems": 18, "uniqueItems": true,
+          "prefixItems": [
+            { "$ref": "#/$defs/r_plan_alias" }, { "$ref": "#/$defs/r_plan_event" },
+            { "$ref": "#/$defs/r_reconcile_alias" }, { "$ref": "#/$defs/r_reconcile_event" },
+            { "$ref": "#/$defs/r_reconcile_role" }, { "$ref": "#/$defs/r_reconcile_function" },
+            { "$ref": "#/$defs/r_reconcile_version" }, { "$ref": "#/$defs/r_reconcile_log" },
+            { "$ref": "#/$defs/r_repair_alias" }, { "$ref": "#/$defs/r_repair_csc" },
+            { "$ref": "#/$defs/r_repair_event" }, { "$ref": "#/$defs/r_repair_role" },
+            { "$ref": "#/$defs/r_repair_function" }, { "$ref": "#/$defs/r_repair_version" },
+            { "$ref": "#/$defs/r_ledger" }, { "$ref": "#/$defs/r_ledger_key" },
+            { "$ref": "#/$defs/r_ledger_alias" }, { "$ref": "#/$defs/r_repair_log" }
+          ],
+          "items": false
+        },
+        "create_event": { "$ref": "#/$defs/create_event" }
+      }
+    },
+    "authority_verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "042360977644_ReadOnlyAccess" }, "account_id": { "const": "042360977644" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    }
+  }
+}

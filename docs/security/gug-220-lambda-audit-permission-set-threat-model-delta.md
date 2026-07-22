@@ -11,6 +11,13 @@ mutation, broker deployment, token exchange, STS provided contexts, Change Set
 operations, Terraform Apply, customer deployment, migration, destruction,
 redrive and production. Production remains **NO-GO**.
 
+The authorized GUG-220 live ledger is now consumed. The terminal result was
+`UNCERTAIN_RECONCILE_ONLY`; sanitized read-only reconciliation proved the
+collector permission set exists while policy, assignment, target provisioning
+and collector-role verification remain absent. Replaying GUG-220 is an explicit
+threat, not a recovery action. GUG-221 / ADR-047 owns a separate exact-state
+repair and must leave the original ledger untouched.
+
 ## Assets
 
 - reviewed GUG-219 policy-template bytes and canonical digest;
@@ -115,6 +122,9 @@ separation.
 | One operator is represented as two approvers | Explicit governance field and separate human-roster gate | Independent approval remains false |
 | Candidate A/B clean result authorizes retirement | Report-only classifications and GUG-215 two-human gate | No protected effect |
 | Missing GUG-217 runtime triggers deployment | Candidate sequence stops as blocked; deployment excluded | No AWS effect |
+| Partial GUG-220 state is treated as permission to retry | Consumed GUG-220 ledger plus separate GUG-221 intent, private PEP and durable ledger | GUG-220 mutation remains blocked |
+| GUG-221 reuses or deletes the GUG-220 ledger | Separate artifact types and provider-backed CAS record; runbook prohibition | Repair rejected and evidence incident raised |
+| Broad founder/admin authority repairs the partial state | Human `ScanalyzeLambdaAuditRepair` can invoke only exact private aliases; service roles own raw APIs | Session ineligible |
 
 ## Attack-path result
 
@@ -166,6 +176,8 @@ clean Candidate B -> Change Set retirement or production
 - GUG-218 is detective evidence; a separate preventive guardrail is still
   required.
 - GUG-215 cannot proceed safely until a second human is available.
+- The GUG-220 state is partial and cannot be repaired without the separately
+  reviewed GUG-221 invoke-only boundary and no-retry server-side PEP.
 
 ## Evidence classification
 
@@ -190,3 +202,4 @@ clean Candidate B -> Change Set retirement or production
 - [Deployment contract](../deployment/platform-authority-lambda-audit-permission-set.md)
 - [Operations runbook](../operations/platform-authority-lambda-audit-permission-set.md)
 - [GUG-219 threat-model delta](gug-219-lambda-authority-materialization-threat-model-delta.md)
+- [GUG-221 threat-model delta](gug-221-lambda-audit-provisioning-repair-threat-model-delta.md)

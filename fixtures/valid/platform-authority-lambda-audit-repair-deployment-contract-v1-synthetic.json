@@ -1,0 +1,14 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_deployment_contract.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "authority_account_id": "042360977644",
+  "management_account_id": "839393571433",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "repair_not_before": "2026-07-22T12:00:00Z",
+  "repair_not_after": "2026-07-22T12:15:00Z",
+  "delegation_change_set_creator_arn": "arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_ScanalyzeFounderPepSeed_0123456789abcdef/synthetic@example.invalid",
+  "delegation_change_set_executor_arn": "arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_ScanalyzeFounderPepSeed_0123456789abcdef/synthetic@example.invalid",
+  "pep_change_set_creator_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_ScanalyzeFounderBootstrapPlan_0123456789abcdef/synthetic@example.invalid",
+  "production_status": "NO-GO"
+}

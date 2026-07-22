@@ -225,6 +225,23 @@ A clean Candidate B remains `REVIEW_SAFE_REPORT_ONLY`. GUG-215 retirement is
 still blocked until two different humans can satisfy classifier and approver
 duties.
 
+### 7. Record the live partial outcome and defer repair to GUG-221
+
+The first authorized GUG-220 live execution consumed its one-shot ledger and
+ended `UNCERTAIN_RECONCILE_ONLY`. A duplicate invocation was rejected before
+an AWS write. Subsequent read-only reconciliation established the sanitized
+partial state: the exact collector permission set exists, while its inline
+policy, direct assignment, target provisioning and account-local collector
+role are absent or unverified.
+
+This outcome does not reopen GUG-220. Its ledger remains consumed and must not
+be deleted, replaced or reused. GUG-221 / ADR-047 defines a separately reviewed
+repair behind private versioned Lambda aliases. The human invoker has no raw
+Identity Center authority; a provider-backed DynamoDB CAS barrier precedes
+exactly the three missing effects and complete SSO/IAM readback. Until GUG-221
+reaches a durable `REPAIR_VERIFIED` or `RECONCILE_VERIFIED` result, the GUG-219 collector handoff remains
+blocked. Production remains **NO-GO**.
+
 ## Consequences
 
 - The GUG-219 collector can be attributed to one exact least-privilege
@@ -236,6 +253,8 @@ duties.
 - Provider ambiguity cannot cause an automatic duplicate or broadened retry.
 - Provisioning evidence and Lambda-authority evidence remain separate records.
 - Production, customer deployment and Change Set retirement remain blocked.
+- The observed partial live state requires GUG-221; GUG-220 cannot repair or
+  retry it.
 
 ## Alternatives rejected
 
@@ -297,6 +316,9 @@ containment package. Do not use GUG-220 to mutate unrelated state.
 - `schemas/platform-authority-lambda-audit-execution-ledger.v1.schema.json`
 - `schemas/platform-authority-lambda-audit-provisioning-receipt.v1.schema.json`
 
+The GUG-221 repair artifacts are deliberately separate and are not valid
+substitutes for any GUG-220 artifact.
+
 The intent authorizes a bounded candidate window, the ledger consumes it
 before effect, and the receipt classifies the observed outcome. None may be
 used as a substitute for another.
@@ -307,3 +329,4 @@ used as a substitute for another.
 - [Deployment contract](../docs/deployment/platform-authority-lambda-audit-permission-set.md)
 - [Operations runbook](../docs/operations/platform-authority-lambda-audit-permission-set.md)
 - [Threat-model delta](../docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md)
+- [ADR-047 repair boundary](ADR-047-lambda-audit-provisioning-repair.md)
