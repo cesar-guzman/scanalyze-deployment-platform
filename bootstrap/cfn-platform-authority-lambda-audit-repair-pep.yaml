@@ -204,6 +204,8 @@ Resources:
 
   RepairLedgerKeyAlias:
     Type: AWS::KMS::Alias
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       AliasName: alias/scanalyze/platform-authority/gug221-repair-ledger
       TargetKeyId: !Ref RepairLedgerKey
@@ -279,6 +281,12 @@ Resources:
     Properties:
       LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-repair
       RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
 
   PlanLogGroup:
     Type: AWS::Logs::LogGroup
@@ -287,6 +295,12 @@ Resources:
     Properties:
       LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-plan
       RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
 
   ReconcileLogGroup:
     Type: AWS::Logs::LogGroup
@@ -295,6 +309,12 @@ Resources:
     Properties:
       LogGroupName: /aws/lambda/scanalyze-authority-lambda-audit-reconcile
       RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
 
   PlanExecutionRole:
     Type: AWS::IAM::Role
@@ -1000,6 +1020,13 @@ Resources:
           - !Ref SigningProfileVersionArn
       CodeSigningPolicies:
         UntrustedArtifactOnDeployment: Enforce
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
 
   PlanFunction:
     Type: AWS::Lambda::Function
@@ -1049,6 +1076,7 @@ Resources:
       Tags:
         - {Key: managed_by, Value: cloudformation}
         - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
         - {Key: work_package, Value: GUG-221}
         - {Key: environment, Value: non-production}
         - {Key: production, Value: 'false'}
@@ -1125,6 +1153,7 @@ Resources:
       Tags:
         - {Key: managed_by, Value: cloudformation}
         - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
         - {Key: work_package, Value: GUG-221}
         - {Key: environment, Value: non-production}
         - {Key: production, Value: 'false'}
@@ -1202,6 +1231,7 @@ Resources:
       Tags:
         - {Key: managed_by, Value: cloudformation}
         - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
         - {Key: work_package, Value: GUG-221}
         - {Key: environment, Value: non-production}
         - {Key: production, Value: 'false'}

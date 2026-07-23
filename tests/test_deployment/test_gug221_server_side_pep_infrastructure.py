@@ -843,7 +843,7 @@ def test_standalone_policy_artifacts_preserve_the_same_boundaries() -> None:
     assert _actions(reconcile_assume) == {"sts:AssumeRole", "sts:SetSourceIdentity"}
 
 
-def test_reviewed_package_exports_only_plan_repair_and_reconcile_handlers() -> None:
+def test_reviewed_package_exports_only_reviewed_private_handlers() -> None:
     source = _source(PACKAGE_MODULE)
     match = re.search(
         r"(?ms)^HANDLERS = \{(?P<body>.*?)^\}\n",
@@ -851,9 +851,13 @@ def test_reviewed_package_exports_only_plan_repair_and_reconcile_handlers() -> N
     )
     assert match is not None
     observed = dict(
-        re.findall(r'^\s+"([a-z]+)": "([^"]+)",$', match.group("body"), re.M)
+        re.findall(r'^\s+"([a-z_]+)": "([^"]+)",$', match.group("body"), re.M)
     )
     assert observed == {
+        "phase_b_broker": (
+            "tooling.platform_authority_lambda_audit_repair_phase_b_runtime."
+            "handler"
+        ),
         "plan": (
             "tooling.platform_authority_lambda_audit_repair_broker_runtime."
             "plan_handler"

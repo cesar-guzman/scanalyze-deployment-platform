@@ -23,8 +23,9 @@
     "handlers": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["plan", "repair", "reconcile"],
+      "required": ["phase_b_broker", "plan", "repair", "reconcile"],
       "properties": {
+        "phase_b_broker": { "const": "tooling.platform_authority_lambda_audit_repair_phase_b_runtime.handler" },
         "plan": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.plan_handler" },
         "repair": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler" },
         "reconcile": { "const": "tooling.platform_authority_lambda_audit_repair_broker_runtime.reconcile_handler" }
@@ -43,8 +44,8 @@
     },
     "entries": {
       "type": "array",
-      "minItems": 16,
-      "maxItems": 16,
+      "minItems": 25,
+      "maxItems": 25,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -54,6 +55,7 @@
           "path": {
             "enum": [
               "gug221_runtime_lock.json",
+              "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json",
               "policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json",
               "policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json",
               "policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json",
@@ -61,12 +63,20 @@
               "policies/iam/platform-authority-lambda-audit-repair-invoker-role.json",
               "policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json",
               "policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-phase-b-application-actor-policy.json",
+              "policies/iam/platform-authority-lambda-audit-repair-phase-b-broker-execution-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-phase-b-invoker-role.json",
+              "policies/iam/platform-authority-lambda-audit-repair-phase-b-proof-role.json",
               "policies/iam/platform-authority-lambda-invocation-inventory-role.json",
               "tooling/__init__.py",
               "tooling/platform_authority_lambda_audit_repair_broker.py",
               "tooling/platform_authority_lambda_audit_repair_broker_runtime.py",
               "tooling/platform_authority_lambda_audit_repair_iam_verifier.py",
               "tooling/platform_authority_lambda_audit_repair_invocation_authority.py",
+              "tooling/platform_authority_lambda_audit_repair_phase_b_pep.py",
+              "tooling/platform_authority_lambda_audit_repair_phase_b_runtime.py",
+              "tooling/platform_authority_lambda_audit_repair_phase_b_topology.py",
+              "tooling/platform_authority_identity_context_compatibility.py",
               "tooling/platform_authority_lambda_invocation_authority.py",
               "tooling/platform_authority_lambda_invocation_materializer.py"
             ]
@@ -77,6 +87,7 @@
       },
       "allOf": [
         { "contains": { "properties": { "path": { "const": "gug221_runtime_lock.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
@@ -84,12 +95,20 @@
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-invoker-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-phase-b-application-actor-policy.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-phase-b-broker-execution-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-phase-b-invoker-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-phase-b-proof-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-invocation-inventory-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/__init__.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker_runtime.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_iam_verifier.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_invocation_authority.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_phase_b_pep.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_phase_b_runtime.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_phase_b_topology.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_identity_context_compatibility.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_authority.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_materializer.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 }
       ]

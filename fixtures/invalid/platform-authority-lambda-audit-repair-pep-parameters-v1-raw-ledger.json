@@ -12,6 +12,7 @@
   "gug220_receipt_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
   "gug220_evidence_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
   "delegation_live_receipt_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+  "phase_b_identity_materialization_receipt_sha256": "abababababababababababababababababababababababababababababababab",
   "template_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
   "stack_tags": {
     "environment": "non-production", "managed_by": "cloudformation", "production": "false",
