@@ -94,6 +94,7 @@ PERMISSION_SET_ARN = re.compile(
     r"arn:aws:sso:::permissionSet/ssoins-[0-9a-f]{16}/ps-[0-9a-f]{16}"
 )
 MAX_PAGES = 100
+CLI_PAGE_ITEMS = 100
 MAX_POLLS = 60
 
 
@@ -512,14 +513,17 @@ def _page(
     operation: str,
     result_key: str,
     *args: str,
+    page_size_supported: bool = True,
 ) -> list[Any]:
     token: str | None = None
     seen: set[str] = set()
     result: list[Any] = []
     for _ in range(MAX_PAGES):
-        call = [*args, "--no-paginate"]
+        call = [*args, "--max-items", str(CLI_PAGE_ITEMS)]
+        if page_size_supported:
+            call.extend(("--page-size", str(CLI_PAGE_ITEMS)))
         if token is not None:
-            call.extend(("--next-token", token))
+            call.extend(("--starting-token", token))
         response = client.run(service, operation, *call)
         if not isinstance(response, Mapping):
             raise AwsReadError("AWS_PAGE_MALFORMED")
@@ -542,13 +546,20 @@ def _page(
 
 
 def _iam_roles(client: AwsCli) -> list[dict[str, Any]]:
-    marker: str | None = None
+    token: str | None = None
     seen: set[str] = set()
     result: list[dict[str, Any]] = []
     for _ in range(MAX_PAGES):
-        args = ["--path-prefix", "/aws-reserved/sso.amazonaws.com/", "--no-paginate"]
-        if marker is not None:
-            args.extend(("--marker", marker))
+        args = [
+            "--path-prefix",
+            "/aws-reserved/sso.amazonaws.com/",
+            "--max-items",
+            str(CLI_PAGE_ITEMS),
+            "--page-size",
+            str(CLI_PAGE_ITEMS),
+        ]
+        if token is not None:
+            args.extend(("--starting-token", token))
         response = client.run("iam", "list-roles", *args)
         if not isinstance(response, Mapping) or not isinstance(response.get("Roles"), list):
             raise AwsReadError("IAM_ROLE_INVENTORY_MALFORMED")
@@ -556,47 +567,57 @@ def _iam_roles(client: AwsCli) -> list[dict[str, Any]]:
         if any(not isinstance(item, dict) for item in roles):
             raise AwsReadError("IAM_ROLE_INVENTORY_MALFORMED")
         result.extend(roles)
-        if response.get("IsTruncated") is not True:
+        next_token = response.get("NextToken")
+        if next_token is None:
+            if response.get("IsTruncated") is True:
+                raise AwsReadError("IAM_ROLE_PAGE_AMBIGUOUS")
             return result
-        next_marker = response.get("Marker")
         if (
-            not isinstance(next_marker, str)
-            or not next_marker
-            or next_marker in seen
+            not isinstance(next_token, str)
+            or not next_token
+            or next_token in seen
         ):
             raise AwsReadError("IAM_ROLE_PAGE_AMBIGUOUS")
-        seen.add(next_marker)
-        marker = next_marker
+        seen.add(next_token)
+        token = next_token
     raise AwsReadError("IAM_ROLE_PAGE_LIMIT_EXCEEDED")
 
 
 def _iam_page(
     client: AwsCli, operation: str, result_key: str, *args: str
 ) -> list[Any]:
-    marker: str | None = None
+    token: str | None = None
     seen: set[str] = set()
     result: list[Any] = []
     for _ in range(MAX_PAGES):
-        call = [*args, "--no-paginate"]
-        if marker is not None:
-            call.extend(("--marker", marker))
+        call = [
+            *args,
+            "--max-items",
+            str(CLI_PAGE_ITEMS),
+            "--page-size",
+            str(CLI_PAGE_ITEMS),
+        ]
+        if token is not None:
+            call.extend(("--starting-token", token))
         response = client.run("iam", operation, *call)
         if not isinstance(response, Mapping) or not isinstance(
             response.get(result_key), list
         ):
             raise AwsReadError("IAM_PAGE_MALFORMED")
         result.extend(response[result_key])
-        if response.get("IsTruncated") is not True:
+        next_token = response.get("NextToken")
+        if next_token is None:
+            if response.get("IsTruncated") is True:
+                raise AwsReadError("IAM_PAGE_AMBIGUOUS")
             return result
-        next_marker = response.get("Marker")
         if (
-            not isinstance(next_marker, str)
-            or not next_marker
-            or next_marker in seen
+            not isinstance(next_token, str)
+            or not next_token
+            or next_token in seen
         ):
             raise AwsReadError("IAM_PAGE_AMBIGUOUS")
-        seen.add(next_marker)
-        marker = next_marker
+        seen.add(next_token)
+        token = next_token
     raise AwsReadError("IAM_PAGE_LIMIT_EXCEEDED")
 
 
@@ -948,6 +969,7 @@ class IdentityCenterAdapter:
             instance_arn,
             "--resource-arn",
             arn,
+            page_size_supported=False,
         )
         policy_response = self.management.run(
             "sso-admin",
@@ -1063,6 +1085,7 @@ class IdentityCenterAdapter:
         tags = _page(
             self.management, "sso-admin", "list-tags-for-resource", "Tags",
             "--instance-arn", instance_arn, "--resource-arn", arn,
+            page_size_supported=False,
         )
         normalized = {
             item.get("Key"): item.get("Value") for item in tags if isinstance(item, Mapping)

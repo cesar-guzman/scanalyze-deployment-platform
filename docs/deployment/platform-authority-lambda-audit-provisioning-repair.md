@@ -440,6 +440,31 @@ Existing GUG-221 schemas and fixtures remain typed offline evidence. They do
 not grant direct human mutation authority and cannot replace the server-side
 ledger or PEP.
 
+## Readback compatibility invariants
+
+- SSO Admin and IAM inventory use the AWS CLI paginator contract, not raw
+  service request fields. Each bounded request supplies `--max-items` and,
+  when the service operation exposes a page-size member, an equal
+  `--page-size`; `list-tags-for-resource` explicitly omits unsupported
+  `--page-size`. Every operation resumes only through `--starting-token`,
+  consumes only `NextToken`, and rejects token replay or a truncated IAM
+  response that lacks the CLI continuation token.
+- No inventory helper may combine `--no-paginate` with a manual continuation,
+  pass `--next-token`, or expose a raw IAM `Marker` as a CLI option.
+- The operational `$LATEST` description and immutable version description are
+  separately exact for Plan, repair and reconcile. CloudFormation and runtime
+  tests bind all six values.
+- `PLAN_VERIFIED` is valid only as
+  `PLAN_STATE_VERIFIED` with zero effects, matching planned/current state,
+  no claim timestamps and one durable ledger digest. Its public receipt must
+  use `PROVEN_BY_DURABLE_LEDGER` and require `INVOKE_REPAIR_ALIAS`.
+- The semantic validator reconstructs the immutable initial Plan binding from
+  every ledger state and recomputes its raw lowercase SHA-256. CAS transition
+  fields remain governed by the exact status/stage/counter matrix; modified
+  binding data is rejected offline before it can be cited as evidence.
+- A null-ledger, `UNPROVEN` or terminal `NONE` Plan receipt is legacy-invalid
+  and cannot cross the schema/evidence boundary.
+
 ## Portability contract
 
 For a new customer or authority installation, generate a new immutable binding

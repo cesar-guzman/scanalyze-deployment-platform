@@ -454,6 +454,7 @@ platform-authority-bootstrap-check:
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_package.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_signed_artifact.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_local_control_plane.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_post_merge_regressions.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_server_side_pep_infrastructure.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \

@@ -590,7 +590,7 @@ def test_manual_pagination_collects_every_page_and_rejects_token_replay() -> Non
         def run(self, service: str, operation: str, *args: str) -> dict[str, Any]:
             del service, operation
             self.calls.append(args)
-            if "--next-token" not in args:
+            if "--starting-token" not in args:
                 return {"Values": ["first"], "NextToken": "token-1"}
             if self.replay:
                 return {"Values": ["second"], "NextToken": "token-1"}
@@ -601,7 +601,23 @@ def test_manual_pagination_collects_every_page_and_rejects_token_replay() -> Non
         "first",
         "second",
     ]
-    assert all("--no-paginate" in call for call in client.calls)
+    expected_limit = str(module.CLI_PAGE_ITEMS)
+    assert client.calls == [
+        ("--max-items", expected_limit, "--page-size", expected_limit),
+        (
+            "--max-items",
+            expected_limit,
+            "--page-size",
+            expected_limit,
+            "--starting-token",
+            "token-1",
+        ),
+    ]
+    assert all(
+        forbidden not in call
+        for call in client.calls
+        for forbidden in ("--no-paginate", "--next-token", "--marker")
+    )
 
     with pytest.raises(module.AwsReadError, match="AWS_PAGE_TOKEN_AMBIGUOUS"):
         module._page(
@@ -609,31 +625,159 @@ def test_manual_pagination_collects_every_page_and_rejects_token_replay() -> Non
         )
 
 
+def test_list_tags_pagination_omits_unsupported_page_size() -> None:
+    module = _module("gug220_cli_list_tags_pagination")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(self, service: str, operation: str, *args: str) -> dict[str, Any]:
+            assert service == "sso-admin"
+            assert operation == "list-tags-for-resource"
+            self.calls.append(args)
+            if "--starting-token" not in args:
+                return {"Tags": [{"Key": "first"}], "NextToken": "tag-page-2"}
+            return {"Tags": [{"Key": "second"}]}
+
+    client = FakeClient()
+    base = (
+        "--instance-arn",
+        "arn:aws:sso:::instance/ssoins-0123456789abcdef",
+        "--resource-arn",
+        "arn:aws:sso:::permissionSet/ssoins-0123456789abcdef/ps-0123456789abcdef",
+    )
+    assert module._page(
+        client,
+        "sso-admin",
+        "list-tags-for-resource",
+        "Tags",
+        *base,
+        page_size_supported=False,
+    ) == [{"Key": "first"}, {"Key": "second"}]
+    expected_limit = str(module.CLI_PAGE_ITEMS)
+    assert client.calls == [
+        (*base, "--max-items", expected_limit),
+        (*base, "--max-items", expected_limit, "--starting-token", "tag-page-2"),
+    ]
+    assert all("--page-size" not in call for call in client.calls)
+    assert "page_size_supported=False" in inspect.getsource(
+        module.IdentityCenterAdapter.readback
+    )
+    assert "page_size_supported=False" in inspect.getsource(
+        module.IdentityCenterAdapter.partial_state
+    )
+
+
+@pytest.mark.parametrize("next_token", ("", 7))
+def test_manual_pagination_rejects_malformed_next_token(next_token: object) -> None:
+    module = _module("gug220_cli_malformed_pagination_token")
+
+    class FakeClient:
+        def run(self, *_: str) -> dict[str, Any]:
+            return {"Values": [], "NextToken": next_token}
+
+    with pytest.raises(module.AwsReadError, match="AWS_PAGE_TOKEN_AMBIGUOUS"):
+        module._page(FakeClient(), "sso-admin", "list-values", "Values")
+
+
 def test_iam_pagination_cannot_hide_a_later_policy() -> None:
     module = _module("gug220_cli_iam_pagination")
 
     class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
         def run(self, service: str, operation: str, *args: str) -> dict[str, Any]:
             assert service == "iam"
             assert operation == "list-attached-role-policies"
-            if "--marker" not in args:
+            assert "--max-items" in args
+            assert "--page-size" in args
+            assert "--no-paginate" not in args
+            assert "--marker" not in args
+            self.calls.append(args)
+            if "--starting-token" not in args:
                 return {
                     "AttachedPolicies": [],
-                    "IsTruncated": True,
-                    "Marker": "next-page",
+                    "NextToken": "next-page",
                 }
             return {
                 "AttachedPolicies": [{"PolicyName": "ForeignPolicy"}],
-                "IsTruncated": False,
             }
 
+    client = FakeClient()
     assert module._iam_page(
-        FakeClient(),
+        client,
         "list-attached-role-policies",
         "AttachedPolicies",
         "--role-name",
         "synthetic-role",
     ) == [{"PolicyName": "ForeignPolicy"}]
+    expected_limit = str(module.CLI_PAGE_ITEMS)
+    assert client.calls == [
+        (
+            "--role-name",
+            "synthetic-role",
+            "--max-items",
+            expected_limit,
+            "--page-size",
+            expected_limit,
+        ),
+        (
+            "--role-name",
+            "synthetic-role",
+            "--max-items",
+            expected_limit,
+            "--page-size",
+            expected_limit,
+            "--starting-token",
+            "next-page",
+        ),
+    ]
+
+
+@pytest.mark.parametrize("helper", ("role", "policy"))
+def test_iam_pagination_rejects_truncation_without_cli_token(helper: str) -> None:
+    module = _module(f"gug220_cli_iam_truncation_{helper}")
+
+    class FakeClient:
+        def run(self, *_: str) -> dict[str, Any]:
+            key = "Roles" if helper == "role" else "AttachedPolicies"
+            return {key: [], "IsTruncated": True}
+
+    error = "IAM_ROLE_PAGE_AMBIGUOUS" if helper == "role" else "IAM_PAGE_AMBIGUOUS"
+    with pytest.raises(module.AwsReadError, match=error):
+        if helper == "role":
+            module._iam_roles(FakeClient())
+        else:
+            module._iam_page(
+                FakeClient(),
+                "list-attached-role-policies",
+                "AttachedPolicies",
+                "--role-name",
+                "synthetic-role",
+            )
+
+
+def test_iam_role_pagination_cannot_hide_a_later_reserved_role() -> None:
+    module = _module("gug220_cli_iam_role_pagination")
+
+    class FakeClient:
+        def run(self, service: str, operation: str, *args: str) -> dict[str, Any]:
+            assert service == "iam"
+            assert operation == "list-roles"
+            assert "--path-prefix" in args
+            assert "--max-items" in args
+            assert "--page-size" in args
+            assert "--no-paginate" not in args
+            assert "--marker" not in args
+            if "--starting-token" not in args:
+                return {"Roles": [], "NextToken": "next-page"}
+            return {"Roles": [{"RoleName": "AWSReservedSSO_Synthetic"}]}
+
+    assert module._iam_roles(FakeClient()) == [
+        {"RoleName": "AWSReservedSSO_Synthetic"}
+    ]
 
 
 @pytest.mark.parametrize("inventory", ("inactive", "multiple-pages"))
@@ -659,7 +803,7 @@ def test_identity_center_instance_inventory_is_active_unique(
                     ),
                 }
             assert service == "sso-admin" and operation == "list-instances"
-            if inventory == "multiple-pages" and "--next-token" not in args:
+            if inventory == "multiple-pages" and "--starting-token" not in args:
                 return {"Instances": [item], "NextToken": "next-page"}
             if inventory == "multiple-pages":
                 return {"Instances": [copy.deepcopy(item)]}

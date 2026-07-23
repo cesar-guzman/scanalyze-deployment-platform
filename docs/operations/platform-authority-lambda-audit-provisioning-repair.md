@@ -476,6 +476,28 @@ Required final proof:
 | Final SSO and IAM readback exact | Record verified non-production evidence only |
 | Independent reviewer absent | Governance remains blocked |
 
+## Post-merge readback preflight
+
+Before any newly authorized live non-production attempt, verify the exact
+merged commit contains the GUG-221 post-merge regression coverage and that:
+
+1. the CLI pagination tests prove a second SSO Admin page, a second IAM role
+   page and a second IAM policy page are collected through
+   `--starting-token`; the `list-tags-for-resource` case must omit unsupported
+   `--page-size` while retaining the exact bounded `--max-items` value;
+2. no tested invocation contains `--no-paginate`, `--next-token` or
+   `--marker`;
+3. the local control-plane snapshot accepts the exact operational `$LATEST`
+   and immutable-version descriptions declared by CloudFormation; and
+4. both a ledger carrying the canonical immutable Plan-binding digest and its
+   durable public receipt pass JSON Schema plus semantic validation in Plan
+   and advanced states, while modified binding data and the legacy unproven
+   receipt fail.
+
+Failure of any item is `BLOCKED`. Do not compensate with an AWS console query,
+manual first-page inspection, relaxed description comparison, edited receipt,
+ledger replay or direct provider mutation.
+
 ## Evidence handling
 
 Private evidence must be create-only or versioned, owner-restricted and outside

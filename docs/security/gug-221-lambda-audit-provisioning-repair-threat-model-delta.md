@@ -312,6 +312,32 @@ The client therefore collapses all such failures to
 - GUG-218/GUG-219 remain report-only and do not authorize Lambda invocation or
   production.
 
+## Post-merge review delta
+
+The post-merge and independent reviews found no fail-open path, but confirmed
+seven defects across five failure categories that could deny valid operation
+or weaken offline evidence integrity:
+
+- invalid AWS CLI continuation flags could make second-page SSO/IAM state
+  unverifiable;
+- an unsupported page-size flag could make permission-set tag readback
+  unverifiable even on the first page;
+- one shared Lambda description expectation could reject the reviewed
+  operational functions before ledger access;
+- the semantic validator could reject the valid durable Plan ledger and Plan
+  receipt required by the runtime.
+- the semantic validator did not independently verify that a ledger carried
+  the digest of its immutable initial Plan binding.
+
+The remediation keeps the secure failure mode while restoring compatibility:
+bounded capability-aware CLI-native pagination, exact function-versus-version
+description bindings, a reconstructed immutable Plan-binding digest, and one consistent
+durable Plan matrix across producer, runtime, invoker, JSON Schema and semantic
+validation. Unsupported page-size options, token ambiguity, raw IAM truncation
+without a CLI token, description drift, ledger tampering, state-digest mismatch
+and legacy unproven Plan evidence all remain denied. No permission, trust,
+action, resource scope or live execution authority was added.
+
 ## Evidence classification
 
 | Class | Current claim |

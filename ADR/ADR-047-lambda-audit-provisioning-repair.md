@@ -378,6 +378,37 @@ destructive operations requiring another issue, authorization and readback.
 Repository rollback is a reviewed revert; deployed versioned aliases must not
 be repointed without a separately reviewed change.
 
+## Post-merge contract reconciliation
+
+The post-merge review and independent pre-publication review identified seven
+fail-closed availability or evidence-integrity defects in the offline
+implementation. They did not create a path around the PEP, but they would
+block valid readback or accept invalid offline evidence:
+
+- AWS CLI pagination used service-style continuation flags for SSO Admin and
+  IAM. All affected collectors now use bounded CLI pages with equal
+  `--max-items`/`--page-size`, consume only the CLI `NextToken`, and continue
+  only with `--starting-token`; malformed, missing, repeated or excessive
+  pagination remains terminal.
+- `list-tags-for-resource` has no service page-size member and therefore does
+  not accept the AWS CLI `--page-size` option. The shared paginator now makes
+  this capability explicit while retaining `--max-items`, `NextToken`, bounded
+  pages and replay rejection; both tag-readback call sites bind the exception.
+- Lambda `$LATEST` resources and immutable published versions intentionally
+  have different descriptions. Runtime validation now binds the exact
+  description for each resource class and function kind instead of accepting
+  alternatives.
+- The semantic evidence validator now recognizes the create-only
+  `PLAN_VERIFIED` ledger state and the durable Plan receipt contract already
+  required by the JSON schemas, runtime and invoker. Legacy unproven Plan
+  evidence remains invalid, and the validator independently recomputes the
+  canonical SHA-256 of the immutable Plan binding reconstructed from every
+  GUG-221 ledger state before accepting it.
+
+These corrections are repository-only until independently reviewed, merged,
+verified on `main`, and separately authorized for live non-production use.
+They do not authorize replay of the consumed GUG-220 ledger or any AWS action.
+
 ## Evidence classification
 
 | Evidence class | Current status |
