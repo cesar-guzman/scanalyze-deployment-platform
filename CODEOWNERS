@@ -4,6 +4,15 @@
 # Default owner
 *                           @cesar-guzman
 
+# Human contribution and review governance
+CONTRIBUTING.md             @cesar-guzman
+SECURITY.md                 @cesar-guzman
+.github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman
+.github/ISSUE_TEMPLATE/     @cesar-guzman
+docs/engineering/           @cesar-guzman
+tooling/validate_contributor_contract.py  @cesar-guzman
+tests/test_contributor_contract.py  @cesar-guzman
+
 # Architecture decisions require architecture review
 ADR/                        @cesar-guzman
 

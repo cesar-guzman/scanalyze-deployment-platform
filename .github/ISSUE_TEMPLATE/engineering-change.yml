@@ -1,0 +1,141 @@
+name: Engineering change intake
+description: Mirror a Ready Linear issue before starting a Scanalyze code change.
+title: "[GUG-___] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Internal work is planned and owned in Linear. This form does not replace
+        the Linear issue and does not authorize implementation, AWS access, or
+        production activity. Never include secrets, customer data, PII, raw
+        Terraform plans/state, production logs, or credentials.
+
+  - type: input
+    id: linear_issue
+    attributes:
+      label: Linear issue
+      description: Required primary issue in the Scanalyze Product & Platform Delivery project.
+      placeholder: GUG-123
+    validations:
+      required: true
+
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      description: Named human accountable for the issue and pull request.
+      placeholder: GitHub username or team member name
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk class
+      options:
+        - P0 — security, tenant, data, IAM, IaC, CI/CD authority, contract, or production impact
+        - P1 — bounded product or operational behavior
+        - P2 — documentation, tests, or low-risk maintenance
+    validations:
+      required: true
+
+  - type: input
+    id: component
+    attributes:
+      label: Repository component
+      description: One bounded component or an explicitly justified cross-component scope.
+      placeholder: backend/workers/scanalyze-ocr-worker
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment boundary
+      options:
+        - Local/offline only — no AWS
+        - Read-only cloud assessment — profile and region required
+        - Non-production write requested — separate approval required
+        - Production impact — NO-GO until explicit approval
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and impact
+      description: Describe the observed problem, users/systems affected, and evidence basis.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and exclusions
+      description: List in-scope and out-of-scope work.
+      placeholder: |
+        In scope:
+        -
+
+        Out of scope:
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable, testable outcomes.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security, tenant, and data analysis
+      description: Address auth, authorization, tenant binding, secrets, PII, logging, IAM, and abuse/failure paths.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation and evidence plan
+      description: Identify focused tests, broader gates, negative cases, and sanitized evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout and rollback/recovery
+      description: State sequencing, feature flags, observability, stop conditions, and recovery.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies, decisions, and reviewers
+      description: Link blockers, ADR/threat model, and required independent reviewers.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Intake confirmations
+      options:
+        - label: The Linear issue is Ready and this intake mirrors the same scope.
+          required: true
+        - label: No secret, customer data, PII, state, raw plan, credential, or production payload is included.
+          required: true
+        - label: One issue, one branch, one worktree, and one pull request will be used.
+          required: true
+        - label: No cloud or production mutation is authorized by this form.
+          required: true
+
