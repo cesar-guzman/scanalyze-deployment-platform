@@ -1,0 +1,352 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteOnlyOwnSanitizedLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:${aws_partition}:logs:${region}:${authority_account_id}:log-group:/aws/lambda/scanalyze-platform-authority-gug221-phase-b-broker:*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        }
+      }
+    },
+    {
+      "Sid": "VerifyOnlyExactBrokerTopologyEvidenceSignature",
+      "Effect": "Allow",
+      "Action": "kms:Verify",
+      "Resource": "${topology_signing_key_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "StringEquals": {
+          "kms:MessageType": "DIGEST",
+          "kms:SigningAlgorithm": "ECDSA_SHA_256"
+        }
+      }
+    },
+    {
+      "Sid": "ExchangeOnlyExactUserAuthorizationCode",
+      "Effect": "Allow",
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "${identity_center_application_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${execution_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${execution_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "EstablishOnlyExactDenyAllProof",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetContext"
+      ],
+      "Resource": "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug221PhaseBProof",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${execution_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${execution_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "UseOnlyExactOneShotLedgerItem",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${authority_account_id}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": [
+            "${execution_id}"
+          ]
+        },
+        "Null": {
+          "dynamodb:EnclosingOperation": "true",
+          "dynamodb:LeadingKeys": "false"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactPhaseBChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DescribeChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-lambda-audit-repair-pep/*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}",
+          "cloudformation:ChangeSetName": "gug221-lambda-audit-repair-pep-create"
+        }
+      }
+    },
+    {
+      "Sid": "ExecuteOnlyExactPhaseBChangeSetDuringWindow",
+      "Effect": "Allow",
+      "Action": "cloudformation:ExecuteChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-lambda-audit-repair-pep/*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker"
+        },
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}",
+          "cloudformation:ChangeSetName": "gug221-lambda-audit-repair-pep-create"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${execution_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${execution_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactSignedArtifactsViaCloudFormation",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": [
+        "arn:${aws_partition}:s3:::${repair_artifact_bucket}/${repair_artifact_key}",
+        "arn:${aws_partition}:s3:::${reconcile_artifact_bucket}/${reconcile_artifact_key}"
+      ],
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyExactPepIamResourcesViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:TagRole"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeLambdaAuditRepairPlan",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeLambdaAuditRepairExecution",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeLambdaAuditRepairReconcile",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector"
+      ],
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyTaggedPepKmsKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:CreateGrant",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:EnableKeyRotation",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:PutKeyPolicy",
+        "kms:TagResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyExactPepLedgerViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:UpdateTable"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${authority_account_id}:table/scanalyze-platform-authority-gug221-repair-ledger",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyExactPepLogsViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:ListTagsForResource",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource"
+      ],
+      "Resource": "arn:${aws_partition}:logs:${region}:${authority_account_id}:log-group:/aws/lambda/scanalyze-authority-lambda-audit-*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyExactPepLambdasViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateAlias",
+        "lambda:CreateCodeSigningConfig",
+        "lambda:CreateFunction",
+        "lambda:DeleteAlias",
+        "lambda:DeleteCodeSigningConfig",
+        "lambda:DeleteFunction",
+        "lambda:GetAlias",
+        "lambda:GetCodeSigningConfig",
+        "lambda:GetFunction",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionEventInvokeConfig",
+        "lambda:GetPolicy",
+        "lambda:ListAliases",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctions",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction",
+        "lambda:PublishVersion",
+        "lambda:PutFunctionConcurrency",
+        "lambda:PutFunctionEventInvokeConfig",
+        "lambda:TagResource",
+        "lambda:UpdateAlias",
+        "lambda:UpdateFunctionCodeSigningConfig"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:code-signing-config:*"
+      ],
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyAlternateCloudFormationMutations",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:DeleteStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:UpdateTerminationProtection"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyProofCredentialsFromAnyEffect",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+        "sts:TagSession"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDestructiveOrUnboundedDownstreamActions",
+      "Effect": "Deny",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:Scan",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicy",
+        "iam:PutUserPolicy",
+        "kms:ScheduleKeyDeletion",
+        "s3:GetObject"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyTransactionalLedgerItemOperations",
+      "Effect": "Deny",
+      "Action": [
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${authority_account_id}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "dynamodb:EnclosingOperation": [
+            "TransactGetItems",
+            "TransactWriteItems"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -92,10 +92,11 @@ Profile names, emails, session names and payload data are not authority.
 
 ## Reviewed source and signed artifact
 
-The Lambda ZIP is a closed sixteen-entry archive: fifteen tracked runtime and
-policy files plus one generated SDK lock. It includes eight standalone IAM
-contracts and the GUG-218 authority collector/analyzer used for effective-role
-and invocation-graph readback. The builder validates the local
+The Lambda ZIP is a closed twenty-five-entry archive: twenty-four tracked
+runtime and policy files plus one generated SDK lock. It includes twelve
+standalone IAM contracts, the reviewed Identity Center managed-policy snapshot,
+the Phase B proof-only broker, and the GUG-218 authority collector/analyzer used
+for effective-role and invocation-graph readback. The builder validates the local
 tools against the exact reviewed commit and packages source bytes read directly
 from the Git object database, so `assume-unchanged` and a worktree time-of-check
 to time-of-use replacement cannot substitute runtime code.
@@ -121,12 +122,102 @@ deriving/verifying the 29-value PEP Change Set. A contract cannot carry raw
 principal, instance/store, SAML/KMS, collector/invoker ARN, ledger digest or
 repair ID. This package creates or executes neither Change Set.
 
+The Phase B template has an exact ordered inventory of 23 resources. Review
+evidence derives a separate `gug221-b-*` execution token and binds the exact
+qualified private broker alias and broker service role. Post-execution readback
+requires one matching CloudTrail
+`ExecuteChangeSet`, all 23 terminal resources plus the root stack, and exact
+live template/parameter/tag/resource equality. An 18-resource legacy fixture,
+foreign actor, missing token, duplicate event, rollback or state-only
+equivalence is blocked.
+
+The human path is ordinary invoke-only SSO to that exact qualified alias. The
+broker uses `CreateTokenWithIAM` Authorization Code + PKCE and exactly one STS
+`ProvidedContext` to obtain a deny-all proof of the named human and exact
+operation. It consumes the durable one-shot CAS before effect. A separate
+broker service role, not the SSO or proof role, executes the exact Change Set;
+`native_on_behalf_of = false`, so proof and effect attribution remain distinct.
+There is no Function URL or direct SSO CloudFormation path.
+
+The broker application, actor policy, alias/version, invoke-only assignment,
+deny-all proof role, broker service role, ledger and revocation topology must
+all be deployed and provider-readback verified before Phase B. The exact broker
+handler and dependencies are included in the same closed deterministic signed
+ZIP.
+
+The authority-account precondition template has exactly nine resources and
+includes the broker Lambda topology, broker/proof roles, ledger and log group,
+plus an alias-bound async configuration with zero retries, a 60-second event
+age and no destination. It accepts the application and invoker ARNs as inputs;
+it does not create the Identity Center application, permission set, assignment
+or materialized SSO role. A separate reviewed management/Identity Center
+materialization receipt is required and is not implemented here, so live Phase
+B remains blocked.
+
+The fail-closed DAG is identity materialization receipt → PEP handoff/receipt
+→ PRE_B handoff/receipt → execution/effect/readback. Operator-supplied
+application/invoker/signing ARNs, broker role and topology are never
+authority. The target receipt schema and self-digest are not authentication;
+runtime remains `BLOCKED_IDENTITY_PRECONDITION_NOT_MATERIALIZED` until a live
+producer supplies direct-provider or KMS-verifiable proof.
+
+The typed precondition handoff rebuilds the package from the exact Git commit,
+matches the signed manifest, renders the four effective policies and binds 37
+parameters. Its read-only receipt accepts only the exact nine-resource CREATE
+Change Set. Neither artifact authorizes creation or execution. This PR does
+not deploy or activate those controls.
+
+The live topology receipt cannot be embedded in that immutable Lambda version:
+the collector observes the alias/version only after it exists, and a second
+version carrying the receipt would invalidate that observation. The version
+therefore carries only static topology inputs and the exact KMS verification
+key/algorithm. Fresh readback is separately signed, binds the static
+`broker_topology_sha256`, and travels in the exact synchronous event.
+
+The static environment is also closed and attested. `PhaseBIdentityBinding`
+projects exactly 37 string variables covering the fixed account/identity,
+roles, execution contract, policy digests, artifact tuple and topology
+verification inputs. Direct provider readback accepts only
+`Environment == {"Variables": <that exact map>}`; a missing environment,
+omitted variable, extra variable, non-string entry or altered value fails
+closed. The receipt never serializes these sensitive bindings. It carries
+`topology_state_digest`, computed from provider state whose Lambda subtree
+contains `environment_variables_sha256`; the receipt digest and KMS signature
+then cover that topology digest.
+Fresh topology evidence and its digest remain outside the environment and enter
+only through the one-shot synchronous payload.
+
+The broker treats the event only as a carrier. It rejects extra fields before
+client creation, enforces the 4 KiB evidence limit, validates freshness,
+static/policy/key/algorithm bindings and canonical digest, then requires
+`kms:Verify`. Only success can precede OIDC, STS, ledger or CloudFormation.
+The fresh receipt digest is retained downstream but excluded from immutable
+topology and binding digests.
+
+The ledger protects the DynamoDB APIs that support table resource policies:
+policy replacement/removal, table deletion/update, backup/export/PITR restore,
+PITR/TTL, auto-scaling, streaming, tag, broad data and transactional access
+are denied for every principal. Readback accepts only TTL `DISABLED` without
+an `AttributeName`, while preserving read-only provider calls and the broker's
+direct exact-key CAS. Legacy global-table, import and restore-from-backup APIs
+need a separate account/organization guardrail; until it is implemented and
+live-read back, account-wide immutability and production remain NO-GO.
+
 Sequential Phase B readback preserves but does not bind the observation-only
 `evaluated_at` fields on the outer live receipt and nested Phase A execution
 trace. All provider events, tokens, actors, terminal resources, digests and
-verifier identities remain immutable. Post-invocation metadata, response or
-receipt failures are always uncertain and force `reconcile-v1`; they are never
-presented as a safe pre-invocation blocker.
+verifier identities remain immutable. The trace is followed by a separate
+direct-provider effective-state receipt for IAM, Lambda, DynamoDB, KMS and Logs.
+The receipt does not equate stability with correctness. It resolves the exact
+reviewed template and 29-parameter PEP handoff, then requires semantic digest
+equality for each of the 23 resources. Extra Lambda inventory, DynamoDB
+global/restore/throughput state, IAM boundaries, KMS algorithms/aliases and
+Logs data-protection inheritance remain fail-closed drift.
+The runtime receipt proves only gate consumption and closure pending;
+revocation requires provider proof that assignment/invoke authority are gone,
+no operation is pending, sessions expired and the ledger remains consumed.
+Raw authorization codes, PKCE verifiers, tokens, identity contexts, STS
+credentials, physical IDs and request payloads are never logged or persisted.
 
 ## Provider-backed durable Plan and one-shot claim
 

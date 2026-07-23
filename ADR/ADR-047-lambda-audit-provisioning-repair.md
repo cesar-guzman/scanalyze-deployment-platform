@@ -150,7 +150,7 @@ does not prove that the ZIP contains the reviewed source. The deployment chain
 therefore has two independent fail-closed anchors:
 
 1. a deterministic builder proves a clean exact Git commit, tracked source
-   bytes, a closed sixteen-entry archive and an internal lock for the exact
+   bytes, a closed twenty-five-entry archive and an internal lock for the exact
    managed SDK versions; and
 2. a read-only verifier rebuilds that package, reads the Signer job and exact
    S3 source/signed versions directly from AWS, requires versioning and
@@ -205,6 +205,185 @@ empty rollback triggers/notifications, no `RoleARN`, no import/nested/deployment
 mode, exact unmasked parameters/tags/template/resource inventory and one exact
 CloudTrail `CreateChangeSet` event. The tool contains no Create, Execute or
 Delete operation. Repository and read-only evidence remain **NO-GO**.
+
+### 3C. Bind Phase B execution to the reviewed 23-resource PEP
+
+Phase B is not deployable merely because its CREATE Change Set passed read-only
+review. Human identity and mutation authority are deliberately separate. An
+ordinary, invoke-only SSO session may call only one exact qualified private
+Lambda broker alias. It cannot call CloudFormation, assume the broker execution
+role, use a Function URL or send an operator-selected target.
+
+The broker performs the reviewed IAM Identity Center
+`CreateTokenWithIAM` Authorization Code flow with PKCE and passes the opaque
+identity context to one STS `AssumeRole` call with exactly one
+`ProvidedContext`. The target proof role is deny-all: it proves the named
+human and exact operation binding, but cannot execute the Change Set or any
+downstream mutation. The resulting proof receipt records
+`native_on_behalf_of = false`; human proof attribution and effect attribution
+are intentionally different.
+
+Fresh topology evidence is not a Lambda environment variable and is not part of
+the published-version snapshot. The pre-Phase-B stack contains only the static
+topology binding, exact KMS signing-key ARN and signature algorithm. After the
+alias exists, read-only provider collection binds live state to that static
+`broker_topology_sha256`; a separate KMS boundary signs its canonical digest.
+The invoke-only client carries the complete receipt in the exact synchronous
+payload while `ClientContext` remains the exact transport marker.
+
+The immutable broker environment is itself an attested provider boundary, not
+an unreviewed configuration channel. `PhaseBIdentityBinding` projects exactly
+37 string variables into the published version. Readback accepts only an
+`Environment` object whose sole member is `Variables` and whose key/value map
+is exactly equal to that canonical projection. A missing `Environment`,
+missing variable, additional variable, non-string entry or altered value is
+`BROKER_TOPOLOGY_LAMBDA_ENVIRONMENT_MISMATCH`; no topology receipt becomes
+eligible for signature.
+
+The collector does not serialize those values into evidence. It computes
+`environment_variables_sha256` over the versioned
+`phase_b_broker_environment_projection` record and places that digest in the
+Lambda subtree of provider state. The enclosing `topology_state_digest` covers
+that subtree, and the receipt digest and KMS signature cover
+`topology_state_digest`. This creates an explicit
+environment-projection → topology-state → signed-receipt chain without
+exposing identity or execution bindings in the receipt. Fresh topology JSON,
+its provider digest, tokens and all other invocation-scoped evidence remain
+outside the Lambda environment.
+
+The broker rejects an async, missing or expanded request before creating any
+AWS client. It then checks the 4 KiB evidence bound, schema, freshness, static
+topology and policy digests, key and algorithm, and calls only `kms:Verify`.
+Only after success may OIDC, STS, DynamoDB or CloudFormation clients exist. The
+fresh receipt digest enters proof, ledger and effect receipts but is excluded
+from immutable topology and binding digests; otherwise first readback would
+depend on a Lambda version that already embedded that readback.
+
+Before the first protected effect, the broker consumes the exact Phase B
+execution binding through a durable one-shot compare-and-swap transition. Only
+the separately scoped broker service role may then call `ExecuteChangeSet` for
+the exact UUID-bearing Change Set ARN, stack ARN and derived
+`gug221-b-*` `ClientRequestToken`. The broker role, not the SSO session or proof
+role, is the effect actor. Because the reviewed Change Set rejects `RoleARN`,
+CloudFormation uses that broker role's caller credentials; downstream
+IAM/KMS/DynamoDB/Logs/Lambda/S3 actions remain restricted to the exact reviewed
+inventory and `aws:CalledVia = cloudformation.amazonaws.com`.
+
+The Phase B ledger is fail-closed at the DynamoDB resource-policy boundary.
+It denies every principal from replacing or removing the policy, deleting or
+structurally updating the table, creating a backup or export, restoring from
+PITR, changing PITR/TTL/auto scaling/streaming destinations/tags, using
+PartiQL, batch or query/scan access, or wrapping the exact item APIs in a
+transaction. Provider readback requires TTL to be exactly `DISABLED` with no
+`AttributeName`. Only Get/List/Describe operations and the broker's direct,
+exact-key `GetItem`/`PutItem`/`UpdateItem` CAS remain available.
+
+DynamoDB resource policies do not support legacy global-table APIs, imports or
+restore-from-backup. The broker role grants none of those actions, but blocking
+them for every other same-account principal requires a separately reviewed
+account/organization guardrail. Until that guardrail and live readback exist,
+this package cannot claim account-wide ledger immutability and production
+remains NO-GO.
+
+The reviewed PEP template contains exactly 23 resources. Its Change Set schema,
+synthetic fixture and verifier must carry the same ordered logical-ID/type map;
+an 18-resource legacy fixture, missing Plan resources, additional resource,
+replacement or order drift is invalid. After the separately authorized
+execution, a read-only verifier requires one matching CloudTrail
+`ExecuteChangeSet` event, the exact actor and token, complete terminal
+StackEvents for all 23 resources plus the stack root, the original template,
+parameters and tags, and an exact live resource inventory. Rollback, partial
+completion, duplicate events, pagination ambiguity or state equivalence without
+execution lineage remains blocked. That CloudFormation trace is necessary but
+not proof that provider controls are effective. A second read-only receipt
+must query IAM, Lambda, DynamoDB, KMS and CloudWatch Logs directly, enumerate
+all 23 physical resources from trusted stack metadata, compare two complete
+snapshots and emit only resource/digest evidence. Raw physical IDs are private
+inputs and never appear in receipts, logs or repository artifacts.
+Snapshot stability alone is insufficient. The verifier resolves the reviewed
+template with the exact 29-parameter PEP handoff, builds one expected semantic
+contract per resource and requires its digest to equal the direct-provider
+contract digest in both snapshots. Extra Lambda aliases, versions or async
+configurations; DynamoDB global replicas, witnesses, restore/stream/throughput
+state; IAM boundaries; KMS algorithms/replicas/aliases; and Logs data-protection
+state are drift. Provider-assigned IAM role IDs are explicitly limited to
+format validation plus two-snapshot stability and never treated as
+template-derived configuration.
+The Signer profile-version ARN is compared to the PEP handoff. The
+provider-assigned signing-job ARN must be present, belong to the exact
+account/Region and remain stable across both snapshots; this classifies the
+observation but does not claim exact signing-job provenance without a separate
+signed-artifact receipt.
+
+The KMS key, KMS alias, DynamoDB table and log groups are retained so rollback
+does not require destructive authority; only non-retained IAM/Lambda resources
+receive exact rollback permissions.
+
+That retention changes the failure contract. A failed or rolled-back Phase B
+operation with any surviving key/alias, table or log group is
+`FAILED_RETAINED_RESOURCES`, not a clean rollback and not a retryable empty
+state. Read-only provider inventory must bind the candidates to the exact
+Change Set, stack-event lineage and physical identifiers. Names, tags and
+expected configuration are insufficient ownership evidence and never
+authorize adoption. Candidates remain quarantined because their canonical
+names may collide with another deployment and their KMS, DynamoDB or Logs
+footprint may continue to incur cost. Cleanup of those resources belongs to a
+separate reviewed child issue with exact destructive authorization and
+post-cleanup readback.
+
+The broker alias, application registration, invoke-only SSO authority, proof
+role, broker execution role, one-shot ledger and revocation topology are
+preconditions, not Phase B resources. They require reviewed changes and direct
+provider readback before the protected Change Set can become eligible.
+
+The authority-account pre-Phase-B template is deliberately narrower: its exact
+nine-resource inventory creates the broker Lambda topology, broker/proof IAM
+roles, one-shot ledger and log group. It includes one alias-bound
+`AWS::Lambda::EventInvokeConfig` with zero retries, a 60-second maximum event
+age and no destination. It accepts the Identity Center application ARN and
+materialized invoker principal as inputs; it does **not** create the
+application, permission set, assignment or provisioned `AWSReservedSSO_*`
+role. Those management/Identity Center resources require a separate reviewed
+materialization receipt. That layer is not implemented by this repository-only
+change, so live Phase B remains blocked.
+
+The accepted DAG is strictly:
+provider-authenticated Identity materialization receipt → PEP parameter
+handoff/Change Set receipt → PRE_B handoff/Change Set receipt →
+execution/effect/readback. The deployment contract cannot supply the broker
+role, topology digest, application ARN, invoker ARN, Code Signing Config or
+topology signing key. A JSON document with valid shape and a self-consistent
+digest is fabricable and is therefore rejected with
+`BLOCKED_IDENTITY_PRECONDITION_NOT_MATERIALIZED`. Until a separate live
+producer authenticates that receipt through direct provider revalidation or
+an exact KMS-verifiable envelope, neither the PEP nor PRE_B builder can emit a
+handoff.
+
+The typed
+`phase_b_precondition_parameters.v1` handoff rebuilds the deterministic package
+from the exact Git commit, proves its manifest matches the signed-artifact
+receipt, renders the four reviewed IAM policies with a closed placeholder set
+and binds exactly 37 parameters. The
+`phase_b_precondition_change_set_receipt.v1` verifier then accepts only the
+exact nine-resource CREATE Change Set. Neither artifact is execution
+authority. This PR deploys none of the topology and performs no AWS mutation.
+
+The runtime result proves only that the exact execution gate was consumed and
+that closure is pending. It must not claim provider revocation. Revocation is
+verified only after read-only provider evidence proves removal of the human
+assignment and alias invocation authority, absence of pending Identity Center
+operations, expiry of all possible sessions and preservation of the consumed
+one-shot ledger. No receipt contains authorization codes, PKCE verifiers,
+access tokens, identity-context blobs, STS credentials, presigned values,
+physical resource IDs or request payloads.
+
+The design follows the AWS IAM Identity Center identity-enhanced session
+contract: the identity context is opaque, is passed to STS as one
+`ProvidedContext`, and does not make the proof role the native effect actor.
+See [identity-enhanced IAM role sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/trustedidentitypropagation-identity-enhanced-iam-role-sessions.html),
+[`CreateTokenWithIAM`](https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/API_CreateTokenWithIAM.html),
+[application actor policies](https://docs.aws.amazon.com/singlesignon/latest/userguide/iam-auth-access-using-resource-based-policies.html)
+and [`AssumeRole` `ProvidedContexts`](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html).
 
 ### 4. Require a durable Plan record before repair
 
@@ -346,6 +525,9 @@ alias and repair of provider state require separate, exact authorization.
 - A guard failure after `ATTEMPTING_n` and before provider dispatch consumes
   the repair conservatively. Reconciliation and a new reviewed repair are
   required; the original ledger is never replayed.
+- A failed Phase B stack can leave retained KMS, DynamoDB and Logs resources.
+  They remain quarantined as `FAILED_RETAINED_RESOURCES`; no matching name,
+  tag or configuration permits adoption, retry or inferred ownership.
 - A single operator remains a governance blocker for independent approval.
 - Production remains **NO-GO**.
 
@@ -377,6 +559,16 @@ removal, permission-set deletion, table deletion or stack deletion are separate
 destructive operations requiring another issue, authorization and readback.
 Repository rollback is a reviewed revert; deployed versioned aliases must not
 be repointed without a separately reviewed change.
+
+If Phase B fails after creating a retained KMS key/alias, DynamoDB table or log
+group, preserve the stack/Change Set lineage and perform only complete
+read-only provider inventory. Mark every discovered candidate quarantined as
+`FAILED_RETAINED_RESOURCES`; do not infer ownership from a canonical name,
+expected tag or template match, and do not reuse or delete a candidate to
+resolve a name collision. Record continuing cost exposure. Any cleanup must be
+a separate child package naming the exact KMS, DynamoDB and Logs resources,
+their evidence-retention dependencies, destructive authorization and
+independent post-cleanup readback.
 
 ## Post-merge contract reconciliation
 

@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-phase-b-one-shot-execution-ledger.v1.schema.json",
+  "title": "GUG-221 Phase B One-Shot Execution Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "execution_id",
+    "binding_digest",
+    "proof_receipt_digest",
+    "execution_request_digest",
+    "broker_topology_sha256",
+    "broker_topology_provider_evidence_digest",
+    "invoker_policy_sha256",
+    "broker_policy_sha256",
+    "proof_policy_sha256",
+    "application_actor_policy_sha256",
+    "stack_arn",
+    "change_set_arn",
+    "client_request_token",
+    "execution_not_before",
+    "execution_not_after",
+    "claimed_at",
+    "terminal_at",
+    "status",
+    "attempts",
+    "execution_gate_consumed",
+    "wall_clock_window_expired",
+    "execution_ambiguous",
+    "retry_permitted",
+    "native_on_behalf_of",
+    "ledger_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "record_type": {"const": "platform_authority_lambda_audit_repair_phase_b_one_shot_execution_ledger"},
+    "environment": {"const": "non-production"},
+    "production": {"const": false},
+    "execution_id": {"type": "string", "pattern": "^gug221-phase-b-[0-9a-f]{64}$"},
+    "binding_digest": {"$ref": "#/$defs/digest"},
+    "proof_receipt_digest": {"$ref": "#/$defs/digest"},
+    "execution_request_digest": {"$ref": "#/$defs/digest"},
+    "broker_topology_sha256": {"$ref": "#/$defs/digest"},
+    "broker_topology_provider_evidence_digest": {"$ref": "#/$defs/nonzero_digest"},
+    "invoker_policy_sha256": {"$ref": "#/$defs/raw_digest"},
+    "broker_policy_sha256": {"$ref": "#/$defs/raw_digest"},
+    "proof_policy_sha256": {"$ref": "#/$defs/raw_digest"},
+    "application_actor_policy_sha256": {"$ref": "#/$defs/raw_digest"},
+    "stack_arn": {"$ref": "#/$defs/stack_arn"},
+    "change_set_arn": {"$ref": "#/$defs/change_set_arn"},
+    "client_request_token": {"$ref": "#/$defs/client_token"},
+    "execution_not_before": {"$ref": "#/$defs/timestamp"},
+    "execution_not_after": {"$ref": "#/$defs/timestamp"},
+    "claimed_at": {"$ref": "#/$defs/timestamp"},
+    "terminal_at": {
+      "oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]
+    },
+    "status": {"enum": ["ATTEMPTED", "DISPATCH_ACCEPTED", "UNCERTAIN_RECONCILE_ONLY"]},
+    "attempts": {"const": 1},
+    "execution_gate_consumed": {"const": true},
+    "wall_clock_window_expired": {"type": "boolean"},
+    "execution_ambiguous": {"type": "boolean"},
+    "retry_permitted": {"const": false},
+    "native_on_behalf_of": {"const": false},
+    "ledger_digest": {"$ref": "#/$defs/digest"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "ATTEMPTED"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "terminal_at": {"type": "null"},
+          "execution_ambiguous": {"const": false}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "DISPATCH_ACCEPTED"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "terminal_at": {"$ref": "#/$defs/timestamp"},
+          "execution_ambiguous": {"const": false}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "UNCERTAIN_RECONCILE_ONLY"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "terminal_at": {"$ref": "#/$defs/timestamp"},
+          "execution_ambiguous": {"const": true}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "nonzero_digest": {"type": "string", "pattern": "^sha256:(?!0{64})[0-9a-f]{64}$"},
+    "raw_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "stack_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/[0-9a-fA-F-]{36}$"
+    },
+    "change_set_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/[0-9a-fA-F-]{36}$"
+    },
+    "client_token": {"type": "string", "pattern": "^gug221-b-[0-9a-f]{48}$"}
+  }
+}

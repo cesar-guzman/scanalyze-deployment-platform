@@ -1,0 +1,9 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_pep_execution_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "B_PEP_EXECUTION_TRACE",
+  "phase_b_precondition_parameter_handoff_sha256": "dededededededededededededededededededededededededededededededede",
+  "phase_b_precondition_change_set_receipt_sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+  "production_status": "GO"
+}

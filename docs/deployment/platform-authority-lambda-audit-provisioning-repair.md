@@ -147,10 +147,12 @@ caller is not authority.
 
 ## Deterministic signed-artifact boundary
 
-The deployable Lambda artifact is closed over exactly fifteen tracked source
-files plus `gug221_runtime_lock.json`. The tracked set includes eight
-standalone IAM policy contracts, the GUG-218 inventory/analyzer modules and the
-closed verifiers that render and compare effective authority. The
+The deployable Lambda artifact is closed over exactly twenty-four tracked
+source files plus `gug221_runtime_lock.json`. The tracked set includes the
+standalone IAM policy contracts for the original broker and the Phase B
+proof-only broker, the reviewed Identity Center managed-policy snapshot, the
+GUG-218 inventory/analyzer modules and the closed verifiers that render and
+compare effective authority. The
 package builder accepts only a clean
 40-character Git `HEAD`, proves its local builder/verifier tools and every
 source are tracked and byte-identical to that commit, then packages source
@@ -184,7 +186,7 @@ commit and independently converge all of these facts:
   delete marker and exact-version `HeadObject` plus `GetObject` readback;
 - byte-for-byte equality between the source object and the deterministic local
   rebuild; and
-- a readable signed ZIP with exactly the sixteen reviewed entries, no duplicate,
+- a readable signed ZIP with exactly the twenty-five reviewed entries, no duplicate,
   encrypted, symlink or additional executable entry.
 
 The verifier accepts no operator-supplied AWS readback JSON or downloaded ZIP.
@@ -243,6 +245,196 @@ token. A state-equivalent stack, manually selected token, foreign actor,
 duplicate execution event, incomplete event page or missing terminal event is
 not accepted as execution provenance. The execution trace receipt is
 create-only, private evidence and remains non-authoritative and **NO-GO**.
+
+Phase B applies the same execution-lineage rule independently, but it does not
+make an SSO session the CloudFormation actor. The review derives a distinct
+`gug221-b-*` token and request digest for an exact qualified private Lambda
+broker alias. An ordinary invoke-only SSO session may call only that alias; it
+has no CloudFormation, downstream mutation, proof-role or broker-role authority.
+The reviewed template, Change Set schema and fixture must agree on the exact
+ordered inventory of 23 PEP resources. After a separately authorized
+execution, readback accepts only one exact CloudTrail event, all 23 terminal
+resource events plus the root stack, and an exact live template, parameter,
+tag and resource inventory. A legacy 18-resource receipt, state-only
+equivalence, foreign executor, omitted/replaced token, duplicate event,
+rollback, partial completion or pagination gap is blocked.
+
+The broker performs `CreateTokenWithIAM` with Authorization Code + PKCE,
+accepts no caller-supplied authority, and passes the returned opaque identity
+context to exactly one STS `AssumeRole` request as exactly one
+`ProvidedContext`. The proof role is deny-all and binds the human proof to the
+exact Phase B operation. It cannot execute the Change Set. The broker consumes
+the operation through one durable compare-and-swap gate before any effect; a
+second or ambiguous attempt remains denied. A separate broker service role then
+calls `ExecuteChangeSet` for only the reviewed stack, UUID-bearing Change Set
+and derived token. The receipt records `native_on_behalf_of = false`: proof
+attribution is the human, while CloudTrail effect attribution is the broker.
+
+No CloudFormation `RoleARN` is accepted. CloudFormation uses the broker service
+role's caller credentials, whose downstream grants are limited to the exact
+reviewed resources under `aws:CalledVia = cloudformation.amazonaws.com`. The
+ordinary SSO role cannot inherit those grants. The flow uses direct signed
+Lambda `InvokeFunction` against the qualified alias; no Function URL or
+unqualified alias/function ARN is allowed.
+
+Provider topology evidence is invocation-scoped. CloudFormation and the
+published Lambda version contain no provider receipt JSON or fresh receipt
+digest; they contain only immutable topology inputs, expected static
+`broker_topology_sha256`, KMS signing-key ARN and `ECDSA_SHA_256`. After the
+qualified alias exists, read-only collection emits a canonical provider
+receipt bound to the same static topology digest and a separate KMS boundary
+signs it.
+
+`tooling/platform_authority_lambda_audit_repair_phase_b_invoker.py` makes one
+`RequestResponse` call carrying the complete signed object as
+`broker_topology_evidence`. `ClientContext` remains exactly
+`transport + execution_id + broker_topology_sha256`. The broker rejects extra
+event fields before client creation, enforces the 4 KiB evidence limit, checks
+freshness and all static bindings, and requires `kms:Verify` before OIDC, STS,
+ledger or CloudFormation access. The dynamic receipt digest is recorded in
+proof/ledger/effect evidence but is not an immutable topology/binding input.
+
+### Exact immutable environment projection
+
+The published broker version receives one canonical projection from
+`PhaseBIdentityBinding`. It consists of exactly these 37 string-valued keys:
+
+```text
+AUTHORITY_ACCOUNT_ID
+MANAGEMENT_ACCOUNT_ID
+AUTHORITY_REGION
+IDENTITY_CENTER_APPLICATION_ARN
+IDENTITY_CENTER_INSTANCE_ARN
+IDENTITY_STORE_ARN
+IDENTITY_CENTER_REDIRECT_URI
+OPERATOR_IDENTITY_STORE_USER_ID
+INVOKER_ROLE_ARN
+BROKER_EXECUTION_ROLE_ARN
+PROOF_ROLE_ARN
+EXECUTION_LEDGER_TABLE_ARN
+EXACT_STACK_ARN
+EXACT_CHANGE_SET_ARN
+EXACT_CLIENT_REQUEST_TOKEN
+EXECUTION_NOT_BEFORE
+CONFIGURED_EXECUTION_ID
+EXECUTION_NOT_AFTER
+PHASE_B_INTENT_DIGEST
+CHANGE_SET_RECEIPT_DIGEST
+TEMPLATE_DIGEST
+PARAMETERS_DIGEST
+RESOURCE_INVENTORY_DIGEST
+LEDGER_CONTROLS_DIGEST
+OAUTH_STATE_DIGEST
+INVOKER_POLICY_SHA256
+BROKER_POLICY_SHA256
+PROOF_POLICY_SHA256
+APPLICATION_ACTOR_POLICY_SHA256
+BROKER_ARTIFACT_BUCKET
+BROKER_ARTIFACT_KEY
+BROKER_ARTIFACT_VERSION
+BROKER_ARTIFACT_CODE_SHA256
+BROKER_CODE_SIGNING_CONFIG_ARN
+BROKER_TOPOLOGY_SIGNING_KEY_ARN
+BROKER_TOPOLOGY_SIGNATURE_ALGORITHM
+EXPECTED_BROKER_TOPOLOGY_SHA256
+```
+
+Neither CloudFormation parameters nor provider state may add an implicit
+default or supplemental authority. The `Environment` member of direct Lambda
+readback must equal exactly `{"Variables": <the canonical map above>}`:
+`Environment` may contain no sibling field, the key set must match exactly,
+every key and value must be a string, and every value must equal the
+corresponding `PhaseBIdentityBinding` projection. Omitted, additional, renamed,
+non-string or altered entries fail closed as
+`BROKER_TOPOLOGY_LAMBDA_ENVIRONMENT_MISMATCH`.
+
+The collector records only
+`environment_variables_sha256 = sha256(canonical
+phase_b_broker_environment_projection)`, never the variable values. That
+digest is part of the Lambda provider-state subtree; `topology_state_digest`
+covers the complete provider state; and the receipt digest and KMS signature
+cover `topology_state_digest`. Consequently, a changed environment cannot
+produce a valid signed topology receipt by changing only an outer status flag.
+
+Fresh `broker_topology_evidence`, its provider-evidence digest, authorization
+codes, PKCE material, tokens, opaque identity context and STS credentials are
+invocation-scoped and are prohibited from the environment. Provider evidence
+travels only in the exact synchronous payload after the immutable alias exists.
+
+The identity application, invoke-only assignment, exact broker alias, proof
+role, broker service role, one-shot ledger and revocation controls must all be
+deployed and provider-readback verified before Phase B. They cannot be
+bootstrapped by the 23-resource Change Set they protect.
+
+The authority-account pre-Phase-B template covers only nine resources: the
+broker Lambda/version/alias/permission/event configuration, broker and proof
+roles, ledger and log group. It references the immutable signed ZIP by bucket,
+key, version, code digest and Code Signing Config, and its
+`AWS::Lambda::EventInvokeConfig` on `broker-v1` has
+`MaximumRetryAttempts=0`, `MaximumEventAgeInSeconds=60` and no destination.
+It does **not** create the Identity Center application, permission set,
+assignment or materialized invoker role; their ARNs are trusted only after a
+separate reviewed management/Identity Center materialization receipt and
+provider readback. That receipt-producing layer is still unimplemented, so it
+is a live-enablement blocker rather than repository-only publication blocker.
+
+The dependency chain is provider-authenticated identity receipt → PEP handoff
+and reviewed PEP Change Set → PRE_B handoff and reviewed PRE_B Change Set →
+execution/effect/readback. The deployment contract contains no broker role or
+topology mirror. The 37 PRE_B values are derived from those receipts, reviewed
+Git objects and the signed package; there is no free provider-parameter map.
+The repository schema describes the target identity receipt, but a
+self-digest does not authenticate it. Runtime intentionally returns
+`BLOCKED_IDENTITY_PRECONDITION_NOT_MATERIALIZED` until a live producer adds
+direct provider/KMS-verifiable authentication.
+
+`phase_b_precondition_parameters.v1` reconstructs the deterministic package
+from the exact Git object and signed-artifact receipt, rejects a worktree
+substitution, renders the four reviewed IAM policies with an exact placeholder
+allowlist and emits exactly 37 parameters. Its companion read-only Change Set
+receipt accepts exactly the reviewed template and nine ordered resource
+changes. Readback also must prove that no unqualified or published-version
+async configuration exists. Neither receipt authorizes creation or execution.
+This repository-only PR does not deploy the stack, activate an assignment,
+obtain a token, invoke the broker or execute CloudFormation.
+
+The one-shot ledger resource policy is a durable boundary for the DynamoDB
+APIs that support table resource policies. It denies all principals from
+removing/replacing the policy, deleting or updating the table, creating
+backups/exports, restoring from PITR, changing PITR/TTL/auto scaling/streaming
+destinations/tags, using PartiQL/batch/query/scan, or wrapping the broker's
+item calls in a transaction. The read-only topology collector calls
+`DescribeTimeToLive` and accepts only `DISABLED` with no `AttributeName`;
+Get/List/Describe and direct exact-key CAS operations remain available.
+
+Legacy global-table APIs, imports and restore-from-backup do not support this
+resource-policy boundary. The broker role grants none of them. A reviewed
+account/organization guardrail and live readback are still required before any
+account-wide immutability or production claim.
+
+The immediate runtime receipt proves only `execution_gate_consumed` and
+`closure_pending`; it is not a revocation receipt. Provider revocation requires
+fresh evidence that the USER assignment and invoke authority were removed,
+there are no pending Identity Center operations, every possible session has
+expired and the one-shot ledger is still consumed.
+
+The CloudFormation execution trace is necessary but insufficient. A distinct
+direct-provider effective-state receipt reads IAM, Lambda, DynamoDB, KMS and
+CloudWatch Logs using only Get/List/Describe APIs, requires two stable complete
+snapshots and proves all 23 resources. Physical IDs remain private inputs; raw
+IDs, authorization codes, PKCE verifiers, tokens, identity-context blobs, STS
+credentials and request payloads are never written to receipts or logs.
+Two identical provider snapshots do not prove conformance by themselves. The
+collector resolves the reviewed template with the exact PEP parameter handoff
+and requires every resource's expected and observed semantic digests to match.
+Unexpected global DynamoDB state, Lambda inventory, IAM boundary, KMS
+configuration/alias or Logs data-protection inheritance fails closed.
+
+AWS contracts used by this design are documented in
+[identity-enhanced IAM role sessions](https://docs.aws.amazon.com/singlesignon/latest/userguide/trustedidentitypropagation-identity-enhanced-iam-role-sessions.html),
+[`CreateTokenWithIAM`](https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/API_CreateTokenWithIAM.html),
+[application actor policies](https://docs.aws.amazon.com/singlesignon/latest/userguide/iam-auth-access-using-resource-based-policies.html)
+and [`AssumeRole` `ProvidedContexts`](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html).
 
 The signed-artifact binding digest covers every receipt field except the
 provider observation timestamp `evaluated_at`. Phase B requires canonical
@@ -425,7 +617,10 @@ prefix alone cannot produce `REPAIR_VERIFIED`.
 | `bootstrap/cfn-platform-authority-lambda-audit-repair-pep.yaml` | Authority-account Plan/repair/reconcile functions, versions, aliases, four local IAM roles, KMS and durable ledger |
 | `bootstrap/cfn-platform-authority-lambda-audit-repair-delegation.yaml` | Management service roles, human invoker permission set and exact assignment |
 | `tooling/platform_authority_lambda_audit_repair_broker.py` | Pure empty-event, configuration, state, ledger and receipt contracts |
-| `tooling/platform_authority_lambda_audit_repair_package.py` | Clean-commit deterministic package and runtime lock |
+| `tooling/platform_authority_lambda_audit_repair_phase_b_pep.py` | Pure proof-only identity, one-shot ledger and effect contracts |
+| `tooling/platform_authority_lambda_audit_repair_phase_b_runtime.py` | Phase B AWS adapters and synchronous broker handler |
+| `tooling/platform_authority_lambda_audit_repair_phase_b_invoker.py` | Exact one-call synchronous payload carrying fresh signed topology evidence |
+| `tooling/platform_authority_lambda_audit_repair_package.py` | Clean-commit deterministic package and runtime lock for all four private handlers |
 | `tooling/platform_authority_lambda_audit_repair_signed_artifact.py` | Direct read-only Signer/S3 verification and exact signed CFN handoff |
 | `tooling/platform_authority_lambda_audit_repair_change_set.py` | Create-only 29+10 parameter handoff and read-only exact comparator for both Change Sets |
 | `policies/iam/platform-authority-lambda-audit-repair-invoker-role.json` | Exact human alias invocation only |

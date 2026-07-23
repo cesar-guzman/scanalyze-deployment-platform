@@ -11,7 +11,9 @@
     "gug220_receipt_sha256", "gug220_evidence_sha256",
     "gug220_provider_state_sha256",
     "delegation_live_receipt_sha256", "parameter_handoff_sha256",
-    "template_sha256", "change_set", "verifier", "evaluated_at",
+    "phase_b_identity_materialization_receipt_sha256",
+    "template_sha256", "change_set",
+    "execution_contract", "verifier", "evaluated_at",
     "evidence_status", "authority_status", "production_status"
   ],
   "properties": {
@@ -28,8 +30,10 @@
     "gug220_provider_state_sha256": { "$ref": "#/$defs/digest" },
     "delegation_live_receipt_sha256": { "$ref": "#/$defs/digest" },
     "parameter_handoff_sha256": { "$ref": "#/$defs/digest" },
+    "phase_b_identity_materialization_receipt_sha256": { "$ref": "#/$defs/digest" },
     "template_sha256": { "$ref": "#/$defs/digest" },
     "change_set": { "$ref": "#/$defs/change_set" },
+    "execution_contract": { "$ref": "#/$defs/execution_contract" },
     "verifier": { "$ref": "#/$defs/authority_verifier" },
     "evaluated_at": { "$ref": "#/$defs/timestamp" },
     "evidence_status": { "const": "PEP_CHANGE_SET_READ_ONLY_VERIFIED_AFTER_LIVE_DELEGATION" },
@@ -58,6 +62,17 @@
         "event_digest": { "$ref": "#/$defs/digest" }
       }
     },
+    "execution_contract": {
+      "type": "object", "additionalProperties": false,
+      "required": ["client_request_token", "client_request_token_sha256", "execute_request_sha256", "effect_principal_arn_sha256", "phase_b_identity_materialization_receipt_sha256"],
+      "properties": {
+        "client_request_token": { "type": "string", "pattern": "^gug221-b-[0-9a-f]{48}$" },
+        "client_request_token_sha256": { "$ref": "#/$defs/digest" },
+        "execute_request_sha256": { "$ref": "#/$defs/digest" },
+        "effect_principal_arn_sha256": { "$ref": "#/$defs/digest" },
+        "phase_b_identity_materialization_receipt_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
     "resource_change": {
       "type": "object", "additionalProperties": false,
       "required": ["logical_resource_id", "resource_type", "action", "replacement"],
@@ -66,8 +81,13 @@
         "action": { "const": "Add" }, "replacement": { "const": "False" }
       }
     },
+    "r_invocation_authority_inspector_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "InvocationAuthorityInspectorRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
     "r_plan_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanAlias" }, "resource_type": { "const": "AWS::Lambda::Alias" } } }] },
     "r_plan_event": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanEventInvokeConfig" }, "resource_type": { "const": "AWS::Lambda::EventInvokeConfig" } } }] },
+    "r_plan_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanExecutionRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
+    "r_plan_function": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanFunction" }, "resource_type": { "const": "AWS::Lambda::Function" } } }] },
+    "r_plan_version": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanFunctionVersion" }, "resource_type": { "const": "AWS::Lambda::Version" } } }] },
+    "r_plan_log": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "PlanLogGroup" }, "resource_type": { "const": "AWS::Logs::LogGroup" } } }] },
     "r_reconcile_alias": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileAlias" }, "resource_type": { "const": "AWS::Lambda::Alias" } } }] },
     "r_reconcile_event": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileEventInvokeConfig" }, "resource_type": { "const": "AWS::Lambda::EventInvokeConfig" } } }] },
     "r_reconcile_role": { "allOf": [{ "$ref": "#/$defs/resource_change" }, { "properties": { "logical_resource_id": { "const": "ReconcileExecutionRole" }, "resource_type": { "const": "AWS::IAM::Role" } } }] },
@@ -97,9 +117,12 @@
         "capabilities": { "type": "array", "prefixItems": [{ "const": "CAPABILITY_NAMED_IAM" }], "items": false, "minItems": 1, "maxItems": 1 },
         "tags": { "$ref": "#/$defs/stack_tags" }, "parameters_sha256": { "$ref": "#/$defs/digest" },
         "resource_changes": {
-          "type": "array", "minItems": 18, "maxItems": 18, "uniqueItems": true,
+          "type": "array", "minItems": 23, "maxItems": 23, "uniqueItems": true,
           "prefixItems": [
+            { "$ref": "#/$defs/r_invocation_authority_inspector_role" },
             { "$ref": "#/$defs/r_plan_alias" }, { "$ref": "#/$defs/r_plan_event" },
+            { "$ref": "#/$defs/r_plan_role" }, { "$ref": "#/$defs/r_plan_function" },
+            { "$ref": "#/$defs/r_plan_version" }, { "$ref": "#/$defs/r_plan_log" },
             { "$ref": "#/$defs/r_reconcile_alias" }, { "$ref": "#/$defs/r_reconcile_event" },
             { "$ref": "#/$defs/r_reconcile_role" }, { "$ref": "#/$defs/r_reconcile_function" },
             { "$ref": "#/$defs/r_reconcile_version" }, { "$ref": "#/$defs/r_reconcile_log" },

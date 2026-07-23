@@ -17,18 +17,23 @@ from tooling.platform_authority_lambda_audit_repair_change_set import (  # noqa:
     DELEGATION_TEMPLATE_PATH,
     EXPECTED_MANAGEMENT_PROFILE,
     EXPECTED_PROFILE,
+    PHASE_B_PRECONDITION_TEMPLATE_PATH,
     REGION,
     TEMPLATE_PATH,
     ChangeSetHandoffError,
     _reviewed_template_bytes,
+    build_phase_b_precondition_parameter_handoff,
     build_delegation_parameter_handoff,
     collect_gug220_live_evidence_read_only,
     prepare_pep_parameter_handoff,
     read_private_json,
     readback_delegation_live,
+    readback_pep_execution_with_effective_state_read_only,
     verify_delegation_change_set_read_only,
+    verify_phase_b_precondition_change_set_read_only,
     verify_pep_change_set_read_only,
     write_private_json,
+    write_private_json_pair_atomic,
 )
 from tooling.platform_authority_lambda_audit_repair_package import canonical_json  # noqa: E402
 
@@ -45,6 +50,11 @@ def _profiles(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--management-profile", required=True, choices=(EXPECTED_MANAGEMENT_PROFILE,)
     )
+    parser.add_argument("--region", default=REGION, choices=(REGION,))
+
+
+def _authority_profile(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--authority-profile", required=True, choices=(EXPECTED_PROFILE,))
     parser.add_argument("--region", default=REGION, choices=(REGION,))
 
 
@@ -99,6 +109,11 @@ def parse_args() -> argparse.Namespace:
     phase_b_prepare.add_argument("--gug220-evidence", required=True, type=Path)
     phase_b_prepare.add_argument("--signed-receipt", required=True, type=Path)
     phase_b_prepare.add_argument("--delegation-live-receipt", required=True, type=Path)
+    phase_b_prepare.add_argument(
+        "--phase-b-identity-materialization-receipt",
+        required=True,
+        type=Path,
+    )
     phase_b_prepare.add_argument("--output-parameters", required=True, type=Path)
 
     phase_b_verify = commands.add_parser(
@@ -111,9 +126,115 @@ def parse_args() -> argparse.Namespace:
     phase_b_verify.add_argument("--signed-receipt", required=True, type=Path)
     phase_b_verify.add_argument("--delegation-parameter-handoff", required=True, type=Path)
     phase_b_verify.add_argument("--delegation-live-receipt", required=True, type=Path)
+    phase_b_verify.add_argument(
+        "--phase-b-identity-materialization-receipt",
+        required=True,
+        type=Path,
+    )
     phase_b_verify.add_argument("--pep-parameter-handoff", required=True, type=Path)
     phase_b_verify.add_argument("--change-set-arn", required=True)
     phase_b_verify.add_argument("--output-receipt", required=True, type=Path)
+
+    phase_b_readback = commands.add_parser(
+        "readback-pep",
+        help=(
+            "prove the separately executed Phase B stack using read-only "
+            "CloudFormation and CloudTrail APIs"
+        ),
+    )
+    _authority_profile(phase_b_readback)
+    _chain_arguments(phase_b_readback)
+    phase_b_readback.add_argument("--gug220-evidence", required=True, type=Path)
+    phase_b_readback.add_argument("--signed-receipt", required=True, type=Path)
+    phase_b_readback.add_argument(
+        "--delegation-live-receipt", required=True, type=Path
+    )
+    phase_b_readback.add_argument(
+        "--pep-parameter-handoff", required=True, type=Path
+    )
+    phase_b_readback.add_argument(
+        "--pep-change-set-receipt", required=True, type=Path
+    )
+    phase_b_readback.add_argument(
+        "--phase-b-identity-materialization-receipt",
+        required=True,
+        type=Path,
+    )
+    phase_b_readback.add_argument(
+        "--phase-b-precondition-parameter-handoff",
+        required=True,
+        type=Path,
+    )
+    phase_b_readback.add_argument(
+        "--phase-b-precondition-change-set-receipt",
+        required=True,
+        type=Path,
+    )
+    phase_b_readback.add_argument(
+        "--broker-effect-receipt", required=True, type=Path
+    )
+    phase_b_readback.add_argument(
+        "--output-cloudformation-trace-receipt", required=True, type=Path
+    )
+    phase_b_readback.add_argument(
+        "--output-effective-state-receipt", required=True, type=Path
+    )
+
+    phase_b_precondition_prepare = commands.add_parser(
+        "prepare-phase-b-precondition",
+        help=(
+            "derive PRE_B broker parameters only from identity materialization "
+            "and the reviewed PEP Change Set receipt"
+        ),
+    )
+    _chain_arguments(phase_b_precondition_prepare)
+    phase_b_precondition_prepare.add_argument(
+        "--signed-receipt", required=True, type=Path
+    )
+    phase_b_precondition_prepare.add_argument(
+        "--phase-b-identity-materialization-receipt",
+        required=True,
+        type=Path,
+    )
+    phase_b_precondition_prepare.add_argument(
+        "--pep-parameter-handoff", required=True, type=Path
+    )
+    phase_b_precondition_prepare.add_argument(
+        "--pep-change-set-receipt", required=True, type=Path
+    )
+    phase_b_precondition_prepare.add_argument(
+        "--output-parameters", required=True, type=Path
+    )
+
+    phase_b_precondition_verify = commands.add_parser(
+        "verify-phase-b-precondition",
+        help="verify the already-created PRE_B broker Change Set",
+    )
+    _authority_profile(phase_b_precondition_verify)
+    _chain_arguments(phase_b_precondition_verify)
+    phase_b_precondition_verify.add_argument(
+        "--signed-receipt", required=True, type=Path
+    )
+    phase_b_precondition_verify.add_argument(
+        "--phase-b-identity-materialization-receipt",
+        required=True,
+        type=Path,
+    )
+    phase_b_precondition_verify.add_argument(
+        "--pep-parameter-handoff", required=True, type=Path
+    )
+    phase_b_precondition_verify.add_argument(
+        "--pep-change-set-receipt", required=True, type=Path
+    )
+    phase_b_precondition_verify.add_argument(
+        "--phase-b-precondition-parameter-handoff",
+        required=True,
+        type=Path,
+    )
+    phase_b_precondition_verify.add_argument("--change-set-arn", required=True)
+    phase_b_precondition_verify.add_argument(
+        "--output-receipt", required=True, type=Path
+    )
     return parser.parse_args()
 
 
@@ -131,26 +252,39 @@ def _aws_clients(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, An
     authority_session = boto3.Session(
         profile_name=args.authority_profile, region_name=args.region
     )
-    management_session = boto3.Session(
-        profile_name=args.management_profile, region_name=args.region
-    )
     authority = {
         service: authority_session.client(service, config=config)
-        for service in ("sts", "iam", "cloudformation", "cloudtrail", "signer", "s3")
-    }
-    management = {
-        service: management_session.client(service, config=config)
         for service in (
             "sts",
-            "sso-admin",
-            "identitystore",
-            "kms",
-            "organizations",
             "iam",
             "cloudformation",
             "cloudtrail",
+            "signer",
+            "s3",
+            "lambda",
+            "dynamodb",
+            "kms",
+            "logs",
         )
     }
+    management: dict[str, Any] = {}
+    if hasattr(args, "management_profile"):
+        management_session = boto3.Session(
+            profile_name=args.management_profile, region_name=args.region
+        )
+        management = {
+            service: management_session.client(service, config=config)
+            for service in (
+                "sts",
+                "sso-admin",
+                "identitystore",
+                "kms",
+                "organizations",
+                "iam",
+                "cloudformation",
+                "cloudtrail",
+            )
+        }
     return authority, management
 
 
@@ -164,6 +298,14 @@ def _read_chain(args: argparse.Namespace) -> tuple[dict, dict, dict, dict]:
             args.gug220_receipt,
         )
     )
+
+
+def _validate_readback_output_paths(
+    cloudformation_trace_path: Path,
+    effective_state_path: Path,
+) -> None:
+    if cloudformation_trace_path.resolve() == effective_state_path.resolve():
+        raise ChangeSetHandoffError("PEP_READBACK_OUTPUT_PATHS_MUST_DIFFER")
 
 
 def _fresh_evidence(
@@ -206,6 +348,9 @@ def main() -> int:
                 source_root=ROOT,
                 signed_receipt_path=args.signed_receipt,
                 delegation_live_receipt_path=args.delegation_live_receipt,
+                phase_b_identity_materialization_receipt_path=(
+                    args.phase_b_identity_materialization_receipt
+                ),
                 deployment_contract_path=args.deployment_contract,
                 gug220_intent_path=args.gug220_intent,
                 gug220_ledger_path=args.gug220_ledger,
@@ -215,6 +360,55 @@ def main() -> int:
             )
             result = {
                 "phase": "B_PEP_PARAMETERS",
+                "parameter_count": len(handoff["parameters"]),
+                "authority_status": handoff["authority_status"],
+                "production_status": handoff["production_status"],
+            }
+        elif args.command == "prepare-phase-b-precondition":
+            signed = dict(
+                read_private_json(args.signed_receipt, source_root=ROOT)
+            )
+            identity_materialization_receipt = dict(
+                read_private_json(
+                    args.phase_b_identity_materialization_receipt,
+                    source_root=ROOT,
+                )
+            )
+            pep_handoff = dict(
+                read_private_json(
+                    args.pep_parameter_handoff,
+                    source_root=ROOT,
+                )
+            )
+            pep_change_set_receipt = dict(
+                read_private_json(
+                    args.pep_change_set_receipt,
+                    source_root=ROOT,
+                )
+            )
+            precondition_template = _reviewed_template_bytes(
+                source_root=ROOT,
+                source_commit=str(signed["source_commit"]),
+                template_path=PHASE_B_PRECONDITION_TEMPLATE_PATH,
+            )
+            handoff = build_phase_b_precondition_parameter_handoff(
+                source_root=ROOT,
+                signed_receipt=signed,
+                deployment_contract=contract,
+                phase_b_identity_materialization_receipt=(
+                    identity_materialization_receipt
+                ),
+                pep_parameter_handoff=pep_handoff,
+                pep_change_set_receipt=pep_change_set_receipt,
+                reviewed_template_bytes=precondition_template,
+            )
+            write_private_json(
+                value=handoff,
+                output_path=args.output_parameters,
+                source_root=ROOT,
+            )
+            result = {
+                "phase": "PRE_B_BROKER_PARAMETERS",
                 "parameter_count": len(handoff["parameters"]),
                 "authority_status": handoff["authority_status"],
                 "production_status": handoff["production_status"],
@@ -261,37 +455,116 @@ def main() -> int:
                     "evidence_status": evidence["evidence_status"],
                     "production_status": "NO-GO",
                 }
+            elif args.command == "verify-phase-b-precondition":
+                signed = dict(
+                    read_private_json(args.signed_receipt, source_root=ROOT)
+                )
+                identity_materialization_receipt = dict(
+                    read_private_json(
+                        args.phase_b_identity_materialization_receipt,
+                        source_root=ROOT,
+                    )
+                )
+                pep_handoff = dict(
+                    read_private_json(
+                        args.pep_parameter_handoff,
+                        source_root=ROOT,
+                    )
+                )
+                pep_change_set_receipt = dict(
+                    read_private_json(
+                        args.pep_change_set_receipt,
+                        source_root=ROOT,
+                    )
+                )
+                precondition_handoff = dict(
+                    read_private_json(
+                        args.phase_b_precondition_parameter_handoff,
+                        source_root=ROOT,
+                    )
+                )
+                precondition_template = _reviewed_template_bytes(
+                    source_root=ROOT,
+                    source_commit=str(signed["source_commit"]),
+                    template_path=PHASE_B_PRECONDITION_TEMPLATE_PATH,
+                )
+                result_receipt = (
+                    verify_phase_b_precondition_change_set_read_only(
+                        source_root=ROOT,
+                        profile_name=args.authority_profile,
+                        region=args.region,
+                        change_set_arn=args.change_set_arn,
+                        parameter_handoff=precondition_handoff,
+                        signed_receipt=signed,
+                        deployment_contract=contract,
+                        phase_b_identity_materialization_receipt=(
+                            identity_materialization_receipt
+                        ),
+                        pep_parameter_handoff=pep_handoff,
+                        pep_change_set_receipt=pep_change_set_receipt,
+                        reviewed_template_bytes=precondition_template,
+                        sts_client=authority["sts"],
+                        cloudformation_client=authority["cloudformation"],
+                        cloudtrail_client=authority["cloudtrail"],
+                    )
+                )
+                write_private_json(
+                    value=result_receipt,
+                    output_path=args.output_receipt,
+                    source_root=ROOT,
+                )
+                result = {
+                    "phase": result_receipt["phase"],
+                    "evidence_status": result_receipt["evidence_status"],
+                    "production_status": result_receipt["production_status"],
+                }
             else:
                 evidence = dict(read_private_json(args.gug220_evidence, source_root=ROOT))
-                delegation_handoff = dict(
-                    read_private_json(args.parameter_handoff, source_root=ROOT)
-                ) if args.command != "verify-pep" else dict(
-                    read_private_json(args.delegation_parameter_handoff, source_root=ROOT)
-                )
+                if args.command == "verify-pep":
+                    delegation_handoff = dict(
+                        read_private_json(
+                            args.delegation_parameter_handoff, source_root=ROOT
+                        )
+                    )
+                elif args.command in ("verify-delegation", "readback-delegation"):
+                    delegation_handoff = dict(
+                        read_private_json(args.parameter_handoff, source_root=ROOT)
+                    )
+                else:
+                    delegation_handoff = {}
                 delegation_template = _reviewed_template_bytes(
                     source_root=ROOT,
                     source_commit=contract["source_commit"],
                     template_path=DELEGATION_TEMPLATE_PATH,
                 )
-                common = {
-                    "source_root": ROOT,
-                    "profile_name": args.management_profile,
-                    "authority_profile_name": args.authority_profile,
-                    "region": args.region,
-                    "deployment_contract": contract,
-                    "gug220_intent": intent,
-                    "gug220_ledger": ledger,
-                    "gug220_receipt": receipt,
-                    "gug220_evidence": evidence,
-                    "reviewed_template_bytes": delegation_template,
-                    "sts_client": management["sts"],
-                    "management_sso_admin_client": management["sso-admin"],
-                    "management_identitystore_client": management["identitystore"],
-                    "management_kms_client": management["kms"],
-                    "management_organizations_client": management["organizations"],
-                    "authority_sts_client": authority["sts"],
-                    "authority_iam_client": authority["iam"],
-                }
+                common = {}
+                if args.command not in (
+                    "readback-pep",
+                    "verify-phase-b-precondition",
+                ):
+                    common = {
+                        "source_root": ROOT,
+                        "profile_name": args.management_profile,
+                        "authority_profile_name": args.authority_profile,
+                        "region": args.region,
+                        "deployment_contract": contract,
+                        "gug220_intent": intent,
+                        "gug220_ledger": ledger,
+                        "gug220_receipt": receipt,
+                        "gug220_evidence": evidence,
+                        "reviewed_template_bytes": delegation_template,
+                        "sts_client": management["sts"],
+                        "management_sso_admin_client": management["sso-admin"],
+                        "management_identitystore_client": management[
+                            "identitystore"
+                        ],
+                        "management_kms_client": management["kms"],
+                        "management_organizations_client": management[
+                            "organizations"
+                        ],
+                        "authority_sts_client": authority["sts"],
+                        "authority_iam_client": authority["iam"],
+                    }
                 if args.command == "verify-delegation":
                     result_receipt = verify_delegation_change_set_read_only(
                         **common,
@@ -347,12 +620,18 @@ def main() -> int:
                         source_root=ROOT,
                     )
                     output = args.output_live_receipt
-                else:
+                elif args.command == "verify-pep":
                     local_signed = dict(
                         read_private_json(args.signed_receipt, source_root=ROOT)
                     )
                     live = dict(
                         read_private_json(args.delegation_live_receipt, source_root=ROOT)
+                    )
+                    identity_materialization_receipt = dict(
+                        read_private_json(
+                            args.phase_b_identity_materialization_receipt,
+                            source_root=ROOT,
+                        )
                     )
                     pep_handoff = dict(
                         read_private_json(args.pep_parameter_handoff, source_root=ROOT)
@@ -376,6 +655,9 @@ def main() -> int:
                         gug220_evidence=evidence,
                         delegation_handoff=delegation_handoff,
                         delegation_live_receipt=live,
+                        phase_b_identity_materialization_receipt=(
+                            identity_materialization_receipt
+                        ),
                         pep_handoff=pep_handoff,
                         reviewed_template_bytes=pep_template,
                         reviewed_delegation_template_bytes=delegation_template,
@@ -395,7 +677,121 @@ def main() -> int:
                         authority_iam_client=authority["iam"],
                     )
                     output = args.output_receipt
-                write_private_json(value=result_receipt, output_path=output, source_root=ROOT)
+                else:
+                    local_signed = dict(
+                        read_private_json(args.signed_receipt, source_root=ROOT)
+                    )
+                    live = dict(
+                        read_private_json(
+                            args.delegation_live_receipt, source_root=ROOT
+                        )
+                    )
+                    identity_materialization_receipt = dict(
+                        read_private_json(
+                            args.phase_b_identity_materialization_receipt,
+                            source_root=ROOT,
+                        )
+                    )
+                    pep_handoff = dict(
+                        read_private_json(
+                            args.pep_parameter_handoff, source_root=ROOT
+                        )
+                    )
+                    pep_change_set_receipt = dict(
+                        read_private_json(
+                            args.pep_change_set_receipt, source_root=ROOT
+                        )
+                    )
+                    precondition_handoff = dict(
+                        read_private_json(
+                            args.phase_b_precondition_parameter_handoff,
+                            source_root=ROOT,
+                        )
+                    )
+                    precondition_change_set_receipt = dict(
+                        read_private_json(
+                            args.phase_b_precondition_change_set_receipt,
+                            source_root=ROOT,
+                        )
+                    )
+                    broker_effect_receipt = dict(
+                        read_private_json(
+                            args.broker_effect_receipt, source_root=ROOT
+                        )
+                    )
+                    _validate_readback_output_paths(
+                        args.output_cloudformation_trace_receipt,
+                        args.output_effective_state_receipt,
+                    )
+                    pep_template = _reviewed_template_bytes(
+                        source_root=ROOT,
+                        source_commit=local_signed["source_commit"],
+                        template_path=TEMPLATE_PATH,
+                    )
+                    precondition_template = _reviewed_template_bytes(
+                        source_root=ROOT,
+                        source_commit=local_signed["source_commit"],
+                        template_path=PHASE_B_PRECONDITION_TEMPLATE_PATH,
+                    )
+                    chained_receipts = (
+                        readback_pep_execution_with_effective_state_read_only(
+                            source_root=ROOT,
+                            profile_name=args.authority_profile,
+                            region=args.region,
+                            signed_receipt=local_signed,
+                            deployment_contract=contract,
+                            gug220_intent=intent,
+                            gug220_ledger=ledger,
+                            gug220_receipt=receipt,
+                            gug220_evidence=evidence,
+                            delegation_live_receipt=live,
+                            phase_b_identity_materialization_receipt=(
+                                identity_materialization_receipt
+                            ),
+                            pep_handoff=pep_handoff,
+                            pep_change_set_receipt=pep_change_set_receipt,
+                            phase_b_precondition_parameter_handoff=(
+                                precondition_handoff
+                            ),
+                            phase_b_precondition_change_set_receipt=(
+                                precondition_change_set_receipt
+                            ),
+                            broker_effect_receipt=broker_effect_receipt,
+                            reviewed_template_bytes=pep_template,
+                            reviewed_phase_b_precondition_template_bytes=(
+                                precondition_template
+                            ),
+                            sts_client=authority["sts"],
+                            cloudformation_client=authority["cloudformation"],
+                            cloudtrail_client=authority["cloudtrail"],
+                            iam_client=authority["iam"],
+                            lambda_client=authority["lambda"],
+                            dynamodb_client=authority["dynamodb"],
+                            kms_client=authority["kms"],
+                            logs_client=authority["logs"],
+                        )
+                    )
+                    write_private_json_pair_atomic(
+                        first_value=chained_receipts[
+                            "cloudformation_trace_receipt"
+                        ],
+                        first_output_path=args.output_cloudformation_trace_receipt,
+                        second_value=chained_receipts[
+                            "effective_state_receipt"
+                        ],
+                        second_output_path=args.output_effective_state_receipt,
+                        source_root=ROOT,
+                    )
+                    result_receipt = chained_receipts[
+                        "effective_state_receipt"
+                    ]
+                    output = None
+                if output is not None:
+                    write_private_json(
+                        value=result_receipt,
+                        output_path=output,
+                        source_root=ROOT,
+                    )
                 result = {
                     "phase": result_receipt["phase"],
                     "evidence_status": result_receipt["evidence_status"],

@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeOnlyExactQualifiedPhaseBBroker",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker:broker-v1"
+    },
+    {
+      "Sid": "DenyCloudFormationAndAllDownstreamAuthority",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "dynamodb:*",
+        "iam:*",
+        "kms:*",
+        "logs:*",
+        "s3:*",
+        "sso-oauth:*",
+        "sts:AssumeRole",
+        "sts:SetContext",
+        "sts:TagSession"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyAnyOtherSynchronousLambda",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunction",
+      "NotResource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug221-phase-b-broker:broker-v1"
+    },
+    {
+      "Sid": "DenyLegacyInvokeAsyncAndFunctionUrl",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunctionUrl"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

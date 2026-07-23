@@ -10,6 +10,7 @@
     "deployment_contract_sha256", "gug220_intent_sha256",
     "gug220_ledger_sha256", "gug220_receipt_sha256",
     "gug220_evidence_sha256", "delegation_live_receipt_sha256",
+    "phase_b_identity_materialization_receipt_sha256",
     "template_sha256", "stack_tags", "parameters", "authority_status",
     "production_status"
   ],
@@ -27,6 +28,9 @@
     "gug220_receipt_sha256": { "$ref": "#/$defs/digest" },
     "gug220_evidence_sha256": { "$ref": "#/$defs/digest" },
     "delegation_live_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "phase_b_identity_materialization_receipt_sha256": {
+      "$ref": "#/$defs/digest"
+    },
     "template_sha256": { "$ref": "#/$defs/digest" },
     "stack_tags": { "$ref": "#/$defs/stack_tags" },
     "parameters": {

@@ -1,0 +1,68 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_phase_b_precondition_change_set_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "PRE_B_BROKER_CHANGE_SET",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "signed_artifact_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "reviewed_package_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "phase_b_identity_materialization_receipt_sha256": "1010101010101010101010101010101010101010101010101010101010101010",
+  "pep_parameter_handoff_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "pep_change_set_receipt_sha256": "1212121212121212121212121212121212121212121212121212121212121212",
+  "parameter_handoff_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "reviewed_template_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "reviewed_policy_sha256": {
+    "InvokerPolicySha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "BrokerPolicySha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "ProofPolicySha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "ApplicationActorPolicySha256": "8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "broker_topology_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "change_set": {
+    "arn": "arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-phase-b-broker-pep-create/11111111-2222-4333-8444-555555555555",
+    "uuid": "11111111-2222-4333-8444-555555555555",
+    "name": "gug221-phase-b-broker-pep-create",
+    "stack_arn": "arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-gug221-phase-b-broker-pep/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "stack_name": "scanalyze-platform-authority-gug221-phase-b-broker-pep",
+    "type": "CREATE",
+    "status": "CREATE_COMPLETE",
+    "execution_status": "AVAILABLE",
+    "on_stack_failure": "ROLLBACK",
+    "capabilities": ["CAPABILITY_NAMED_IAM"],
+    "tags": {
+      "environment": "non-production",
+      "managed_by": "cloudformation",
+      "production": "false",
+      "service": "scanalyze-platform-authority",
+      "source_commit": "1111111111111111111111111111111111111111",
+      "work_package": "GUG-221"
+    },
+    "parameters_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "resource_changes": [
+      {"logical_resource_id": "PhaseBBrokerEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerExecuteAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerExecutionRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerFunction", "resource_type": "AWS::Lambda::Function", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerInvokePermission", "resource_type": "AWS::Lambda::Permission", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerLogGroup", "resource_type": "AWS::Logs::LogGroup", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBBrokerVersion", "resource_type": "AWS::Lambda::Version", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBExecutionLedger", "resource_type": "AWS::DynamoDB::Table", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PhaseBProofRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"}
+    ],
+    "create_event": {
+      "event_id": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      "event_time": "2026-07-23T12:01:00Z",
+      "event_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "verifier": {
+    "profile": "042360977644_ReadOnlyAccess",
+    "account_id": "042360977644",
+    "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_1c38063fd41ea692/synthetic@example.invalid"
+  },
+  "evaluated_at": "2026-07-23T12:02:00Z",
+  "evidence_status": "PRE_B_CHANGE_SET_READ_ONLY_VERIFIED",
+  "authority_status": "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY",
+  "production_status": "GO",
+  "receipt_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
