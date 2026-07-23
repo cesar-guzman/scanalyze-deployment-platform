@@ -6,6 +6,7 @@ from tooling.validate_contributor_contract import (
     missing_required_terms,
     relative_link_errors,
     validate,
+    walkthrough_command_errors,
 )
 
 
@@ -19,6 +20,25 @@ def test_github_walkthrough_is_part_of_the_required_contract() -> None:
     from tooling.validate_contributor_contract import REQUIRED_FILES
 
     assert walkthrough in REQUIRED_FILES
+
+
+def test_github_walkthrough_rejects_incompatible_pr_create_flags(
+    tmp_path: Path,
+) -> None:
+    walkthrough = (
+        tmp_path / "docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md"
+    )
+    walkthrough.parent.mkdir(parents=True)
+    walkthrough.write_text(
+        "```bash\n"
+        "gh pr create --draft --web\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    assert walkthrough_command_errors(tmp_path) == [
+        "GitHub walkthrough must not combine gh pr create --draft and --web"
+    ]
 
 
 def test_missing_required_term_is_reported(tmp_path: Path) -> None:

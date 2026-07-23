@@ -134,6 +134,7 @@ CODEOWNER_ENTRIES = (
 
 LINK_RE = re.compile(r"!?\[[^\]]*]\(([^)]+)\)")
 ISSUE_ID_RE = re.compile(r"(?m)^\s+-?\s*id:\s*([a-z0-9_]+)\s*$")
+BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)\n```", re.DOTALL)
 
 
 def _read(repo_root: Path, relative_path: Path) -> str:
@@ -222,6 +223,29 @@ def repository_entrypoint_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     return errors
 
 
+def walkthrough_command_errors(repo_root: Path = REPO_ROOT) -> list[str]:
+    walkthrough = (
+        repo_root / "docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md"
+    )
+    if not walkthrough.is_file():
+        return []
+
+    errors: list[str] = []
+    for block in BASH_BLOCK_RE.findall(
+        walkthrough.read_text(encoding="utf-8")
+    ):
+        if (
+            "gh pr create" in block
+            and "--draft" in block
+            and "--web" in block
+        ):
+            errors.append(
+                "GitHub walkthrough must not combine gh pr create "
+                "--draft and --web"
+            )
+    return errors
+
+
 def _git_contains(repo_root: Path, relative_path: Path) -> bool:
     git_path = relative_path.as_posix().rstrip("/")
     result = subprocess.run(
@@ -269,6 +293,7 @@ def validate(repo_root: Path = REPO_ROOT) -> list[str]:
     errors.extend(issue_form_errors(repo_root))
     errors.extend(codeowner_errors(repo_root))
     errors.extend(repository_entrypoint_errors(repo_root))
+    errors.extend(walkthrough_command_errors(repo_root))
     errors.extend(relative_link_errors(repo_root))
     return errors
 

@@ -466,11 +466,15 @@ URL, or push a second issue into the same branch.
 
 ## 14. Open a Draft pull request
 
+GitHub CLI does not support combining `--draft` and `--web` in the same
+`gh pr create` invocation. Choose one of the following paths.
+
+### Browser path
+
 Open the browser-based PR form so the repository template is visible:
 
 ```bash
 gh pr create \
-  --draft \
   --base main \
   --head chore/gug-123-short-topic \
   --web
@@ -484,8 +488,29 @@ In GitHub:
 4. Identify risk, environment, validation, validation not run, rollback, and
    reviewer focus.
 5. Confirm base `main` and the expected head branch.
-6. Keep the PR as **Draft** until the author checklist is complete.
-7. Request the independent reviewer required by the risk class.
+6. Use the create-button menu to select **Create draft pull request**.
+7. Keep the PR as **Draft** until the author checklist is complete.
+8. Request the independent reviewer required by the risk class.
+
+### Terminal path
+
+Create the Draft PR directly from the terminal and use the repository template
+as the initial body:
+
+```bash
+gh pr create \
+  --draft \
+  --base main \
+  --head chore/gug-123-short-topic \
+  --title "[GUG-123] Short outcome" \
+  --template .github/PULL_REQUEST_TEMPLATE.md
+```
+
+Then open the created PR and complete its description before requesting review:
+
+```bash
+gh pr view --web
+```
 
 The PR updates automatically when new commits are pushed to the same branch.
 After a material push, update the description and request re-review.
