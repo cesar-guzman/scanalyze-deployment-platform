@@ -179,10 +179,15 @@ _KMS_KEY_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 REPAIR_FUNCTION_DESCRIPTION = (
-    "GUG-221 reviewed immutable repair version"
+    "GUG-221 exact one-shot Lambda audit provisioning repair PEP"
 )
-PLAN_FUNCTION_DESCRIPTION = "GUG-221 reviewed immutable durable plan version"
-READ_FUNCTION_DESCRIPTION = "GUG-221 reviewed immutable reconcile version"
+PLAN_FUNCTION_DESCRIPTION = (
+    "GUG-221 read-only plan proof and create-only ledger gate"
+)
+READ_FUNCTION_DESCRIPTION = "GUG-221 read-only reconciliation PEP"
+REPAIR_FUNCTION_VERSION_DESCRIPTION = "GUG-221 reviewed immutable repair version"
+PLAN_FUNCTION_VERSION_DESCRIPTION = "GUG-221 reviewed immutable plan version"
+READ_FUNCTION_VERSION_DESCRIPTION = "GUG-221 reviewed immutable reconcile version"
 REPAIR_FUNCTION_HANDLER = (
     "tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler"
 )
@@ -773,11 +778,19 @@ class AwsLocalControlPlaneAdapter:
             "repair": REPAIR_FUNCTION_HANDLER,
             "reconcile": READ_FUNCTION_HANDLER,
         }[function_kind]
-        expected_description = {
-            "plan": PLAN_FUNCTION_DESCRIPTION,
-            "repair": REPAIR_FUNCTION_DESCRIPTION,
-            "reconcile": READ_FUNCTION_DESCRIPTION,
-        }[function_kind]
+        expected_description = (
+            {
+                "plan": PLAN_FUNCTION_DESCRIPTION,
+                "repair": REPAIR_FUNCTION_DESCRIPTION,
+                "reconcile": READ_FUNCTION_DESCRIPTION,
+            }
+            if version == "$LATEST"
+            else {
+                "plan": PLAN_FUNCTION_VERSION_DESCRIPTION,
+                "repair": REPAIR_FUNCTION_VERSION_DESCRIPTION,
+                "reconcile": READ_FUNCTION_VERSION_DESCRIPTION,
+            }
+        )[function_kind]
         expected_timeout = FUNCTION_TIMEOUT_SECONDS[function_kind]
         environment = self._mapping(
             response.get("Environment"), "LAMBDA_ENVIRONMENT_CHANGED"

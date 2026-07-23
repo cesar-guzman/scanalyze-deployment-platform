@@ -166,7 +166,7 @@ Cuando dos documentos difieran, usar este orden:
 | [33 — GUG-218 Lambda Invocation Authority](33_GUG218_Lambda_Invocation_Authority.md) | Inventario IAM/Lambda account-wide, grafo exacto, paginación estricta, receipt report-only y límites live |
 | [34 — GUG-219 Lambda Authority Allowlist and Collector](34_GUG219_Lambda_Authority_Allowlist_and_Collector.md) | Renderer determinista desde evidencia privada, collector Identity Center mínimo, release anchor y segunda captura obligatoria |
 | [35 — GUG-220 Lambda Audit Permission Set](35_GUG220_Lambda_Audit_Permission_Set.md) | Permission set exacto, intent live-bound de máximo 15 minutos, ledger one-shot y receipt reservado, asignación bootstrap de un operador, provisioning/reprovisioning de un target, custodia privada descriptor-safe, reconciliación sin retry, paginación completa, readback completo y handoff report-only |
-| [36 — GUG-221 Lambda Audit Provisioning Repair](36_GUG221_Lambda_Audit_Provisioning_Repair.md) | Estado parcial exacto, invocador humano Lambda-only, funciones Plan/repair/reconcile, inspector account-wide, Plan durable obligatorio, tres mutaciones ordenadas, ledger DynamoDB CAS, lineage exacto Phase A, ambigüedad terminal, readback Identity Center/IAM y NO-GO |
+| [36 — GUG-221 Lambda Audit Provisioning Repair](36_GUG221_Lambda_Audit_Provisioning_Repair.md) | Estado parcial exacto, paginación CLI SSO/IAM completa, invocador humano Lambda-only, funciones y versiones con contratos exactos, Plan durable obligatorio, ledger DynamoDB CAS, lineage exacto Phase A, ambigüedad terminal, readback Identity Center/IAM y NO-GO |
 
 ## Reglas de ingestión y mantenimiento
 

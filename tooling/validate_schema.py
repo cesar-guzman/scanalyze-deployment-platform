@@ -308,6 +308,53 @@ def _gug215_canonical_digest(value: dict) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _gug221_canonical_digest(value: dict) -> str:
+    """Match the raw lowercase digest used by the GUG-221 broker runtime."""
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _gug221_initial_ledger_binding(instance: dict) -> dict:
+    """Reconstruct the immutable Plan record whose digest survives CAS updates."""
+    binding_fields = (
+        "schema_version",
+        "record_type",
+        "repair_id",
+        "intent_digest",
+        "source_commit",
+        "original_gug220_ledger_digest",
+        "authority_account_id",
+        "management_account_id",
+        "region",
+        "plan_function_version",
+        "repair_function_version",
+        "repair_not_before",
+        "repair_not_after",
+        "planned_state_digest",
+        "provider_immutable",
+        "claim_condition",
+        "mutation_retry_attempted",
+        "production_authorized",
+        "planned_at",
+    )
+    initial = {field: instance.get(field) for field in binding_fields}
+    initial.update(
+        {
+            "status": "PLAN_VERIFIED",
+            "stage": "PLAN_STATE_VERIFIED",
+            "effects_attempted": 0,
+            "effects_completed": 0,
+            "state_digest": instance.get("planned_state_digest"),
+        }
+    )
+    return initial
+
+
 def _validate_gug215_ledger(instance: dict) -> list[str]:
     errors: list[str] = []
     state = instance.get("state")
@@ -1064,6 +1111,10 @@ def _validate_gug221_broker_intent(instance: dict) -> list[str]:
 def _validate_gug221_broker_ledger(instance: dict) -> list[str]:
     """Validate the durable CAS barrier without inferring provider effects."""
     errors: list[str] = []
+    if instance.get("ledger_digest") != _gug221_canonical_digest(
+        _gug221_initial_ledger_binding(instance)
+    ):
+        errors.append("GUG-221 ledger_digest must cover the immutable Plan binding")
     status = instance.get("status")
     stage = instance.get("stage")
     attempted = instance.get("effects_attempted")
@@ -1084,6 +1135,7 @@ def _validate_gug221_broker_ledger(instance: dict) -> list[str]:
     ):
         errors.append("GUG-221 ledger must remain provider-backed, one-shot, and non-production")
     exact_progress = {
+        "PLAN_VERIFIED": ("PLAN_STATE_VERIFIED", 0, 0),
         "CLAIMED": ("BEFORE_FIRST_EFFECT", 0, 0),
         "ATTEMPTING_1": ("BEFORE_PUT_INLINE_POLICY", 0, 0),
         "COMPLETED_1": ("AFTER_PUT_INLINE_POLICY", 1, 1),
@@ -1114,12 +1166,18 @@ def _validate_gug221_broker_ledger(instance: dict) -> list[str]:
     claimed_at = _gug215_timestamp(instance.get("claimed_at"))
     updated_at = _gug215_timestamp(instance.get("updated_at"))
     state_digest = instance.get("state_digest")
-    if status == "CLAIMED":
-        if "updated_at" in instance or "state_digest" in instance:
-            errors.append("GUG-221 unadvanced claim must not contain transition evidence")
-    elif updated_at is None or not isinstance(state_digest, str):
+    if status == "PLAN_VERIFIED":
+        if "claimed_at" in instance or "updated_at" in instance:
+            errors.append("GUG-221 plan ledger must precede the mutation claim")
+        if state_digest != instance.get("planned_state_digest"):
+            errors.append("GUG-221 plan ledger state must match the reviewed state")
+    elif (
+        claimed_at is None
+        or updated_at is None
+        or not isinstance(state_digest, str)
+    ):
         errors.append("GUG-221 advanced ledger must contain transition evidence")
-    elif claimed_at is not None and updated_at < claimed_at:
+    elif updated_at < claimed_at:
         errors.append("GUG-221 ledger timestamps are out of order")
     return errors
 
@@ -1152,10 +1210,15 @@ def _validate_gug221_broker_receipt(instance: dict) -> list[str]:
         errors.append("GUG-221 receipt mode must match the exact published alias")
 
     if status == "PLAN_VERIFIED":
-        if (mode, qualifier, ledger, attempted, completed, attribution, next_action) != (
-            "plan", "plan-v1", None, 0, 0, "UNPROVEN", "NONE"
+        if (
+            mode != "plan"
+            or qualifier != "plan-v1"
+            or not isinstance(ledger, str)
+            or (attempted, completed) != (0, 0)
+            or attribution != "PROVEN_BY_DURABLE_LEDGER"
+            or next_action != "INVOKE_REPAIR_ALIAS"
         ):
-            errors.append("GUG-221 plan receipt overclaims its read-only proof")
+            errors.append("GUG-221 plan receipt must prove its durable ledger gate")
     elif status == "REPAIR_VERIFIED":
         if (
             mode != "repair"

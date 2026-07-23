@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from tooling import platform_authority_lambda_audit_repair_broker_runtime as runtime
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUTHORITY_TEMPLATE = (
@@ -189,6 +191,21 @@ def test_authority_template_is_private_version_pinned_and_async_bounded() -> Non
         assert "MemorySize: 1024" in function
     assert "Timeout: 90" not in source
     assert "MemorySize: 256" not in source
+
+
+def test_authority_template_lambda_descriptions_match_runtime_contract() -> None:
+    source = _source(AUTHORITY_TEMPLATE)
+    expected = {
+        "PlanFunction": runtime.PLAN_FUNCTION_DESCRIPTION,
+        "PlanFunctionVersion": runtime.PLAN_FUNCTION_VERSION_DESCRIPTION,
+        "RepairFunction": runtime.REPAIR_FUNCTION_DESCRIPTION,
+        "RepairFunctionVersion": runtime.REPAIR_FUNCTION_VERSION_DESCRIPTION,
+        "ReconcileFunction": runtime.READ_FUNCTION_DESCRIPTION,
+        "ReconcileFunctionVersion": runtime.READ_FUNCTION_VERSION_DESCRIPTION,
+    }
+
+    for resource_name, description in expected.items():
+        assert f"Description: {description}" in _resource(source, resource_name)
 
 
 def test_all_functions_use_one_reviewed_package_and_guard_managed_sdk_versions() -> None:

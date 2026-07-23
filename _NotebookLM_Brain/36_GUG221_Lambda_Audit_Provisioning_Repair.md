@@ -226,6 +226,21 @@ non-production logins after an exact authorization, but multiple sessions do
 not create an independent reviewer. Independent approval and production
 separation of duties remain blocked.
 
+## Post-merge hardening amendment
+
+Seven independent review findings were reconciled without expanding authority.
+SSO Admin and IAM inventory now use bounded, operation-capability-aware AWS CLI
+pagination with `NextToken`/`--starting-token`, exact page limits and replay
+rejection; `list-tags-for-resource` omits the unsupported `--page-size`. Runtime
+readback binds distinct exact descriptions for each operational `$LATEST`
+function and immutable version. The evidence validator accepts the same
+durable `PLAN_VERIFIED` ledger and receipt matrix already produced and required
+by the runtime, invoker and JSON schemas, reconstructs and hashes the immutable
+initial Plan binding for every ledger state, and rejects modified or legacy
+unproven Plan evidence. This amendment is
+implemented and locally testable only; it is not live validation or permission
+to invoke the PEP.
+
 `ClientContext` proves synchronous transport only; the handler does not
 authenticate that named person. Caller attribution remains in the exclusive
 Identity Center assignment, IAM invoke edge, CloudTrail and account-wide

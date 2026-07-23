@@ -188,11 +188,19 @@ def _function(
             "repair": runtime.REPAIR_FUNCTION_HANDLER,
             "reconcile": runtime.READ_FUNCTION_HANDLER,
         }[function_kind],
-        "Description": {
-            "plan": runtime.PLAN_FUNCTION_DESCRIPTION,
-            "repair": runtime.REPAIR_FUNCTION_DESCRIPTION,
-            "reconcile": runtime.READ_FUNCTION_DESCRIPTION,
-        }[function_kind],
+        "Description": (
+            {
+                "plan": "GUG-221 read-only plan proof and create-only ledger gate",
+                "repair": "GUG-221 exact one-shot Lambda audit provisioning repair PEP",
+                "reconcile": "GUG-221 read-only reconciliation PEP",
+            }
+            if version == "$LATEST"
+            else {
+                "plan": "GUG-221 reviewed immutable plan version",
+                "repair": "GUG-221 reviewed immutable repair version",
+                "reconcile": "GUG-221 reviewed immutable reconcile version",
+            }
+        )[function_kind],
         "Timeout": runtime.FUNCTION_TIMEOUT_SECONDS[function_kind],
         "MemorySize": runtime.FUNCTION_MEMORY_SIZE_MB,
         "CodeSha256": CODE_SHA,

@@ -3,7 +3,7 @@
   "record_type": "scanalyze.platform_authority.lambda_audit_repair_broker_ledger.v1",
   "repair_id": "gug221-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "intent_digest": "1111111111111111111111111111111111111111111111111111111111111111",
-  "ledger_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "ledger_digest": "a820416e57c8ce0d72db6d377bb0b9b10c817ca564840f42698bc3ad0b140c9c",
   "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "original_gug220_ledger_digest": "3333333333333333333333333333333333333333333333333333333333333333",
   "authority_account_id": "042360977644",
