@@ -546,6 +546,12 @@ def test_deployment_contract_rejects_raw_authority() -> None:
         ("repair_invoker_permission_set_arn", COLLECTOR_ARN),
         ("gug220_ledger_digest", "sha256:" + "c" * 64),
         ("identity_center_instance_arn", INSTANCE_ARN),
+        (
+            "phase_b_broker_execution_role_arn",
+            "arn:aws:iam::042360977644:role/"
+            "ScanalyzeGug221PhaseBBrokerExecution",
+        ),
+        ("phase_b_broker_topology_sha256", "a" * 64),
     ):
         forged = {**contract, field: value}
         with pytest.raises(ChangeSetHandoffError, match="DEPLOYMENT_CONTRACT_INVALID"):

@@ -20,10 +20,16 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import tempfile
 from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
-from tooling.platform_authority_lambda_audit_repair_package import canonical_json
+from tooling.platform_authority_lambda_audit_repair_package import (
+    SOURCE_PATHS,
+    RepairPackageError,
+    build_repair_package,
+    canonical_json,
+)
 from tooling.platform_authority_lambda_audit_permission_set import (
     COLLECTOR_PERMISSION_SET_DESCRIPTION,
     COLLECTOR_PERMISSION_SET_NAME,
@@ -39,6 +45,13 @@ from tooling.platform_authority_lambda_invocation_authority import (
 )
 from tooling.platform_authority_lambda_audit_repair_broker import (
     canonical_digest as plain_canonical_digest,
+)
+from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (
+    BROKER_TOPOLOGY_SIGNATURE_ALGORITHM,
+    PhaseBIdentityBinding,
+    PhaseBPepError,
+    calculate_broker_topology_sha256,
+    canonical_digest as phase_b_canonical_digest,
 )
 from tooling.platform_authority_lambda_audit_repair_iam_verifier import (
     AwsIamEffectiveVerifier,
@@ -87,6 +100,38 @@ DELEGATION_LIVE_RECEIPT_TYPE = (
 )
 PEP_CHANGE_SET_RECEIPT_TYPE = (
     "scanalyze.platform_authority.lambda_audit_repair_pep_change_set_receipt.v1"
+)
+PEP_EXECUTION_RECEIPT_TYPE = (
+    "scanalyze.platform_authority.lambda_audit_repair_pep_execution_receipt.v1"
+)
+PHASE_B_IDENTITY_MATERIALIZATION_RECEIPT_TYPE = (
+    "scanalyze.platform_authority.lambda_audit_repair_"
+    "phase_b_identity_materialization_receipt.v1"
+)
+PHASE_B_PRECONDITION_HANDOFF_TYPE = (
+    "scanalyze.platform_authority.lambda_audit_repair_"
+    "phase_b_precondition_parameters.v1"
+)
+PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_TYPE = (
+    "scanalyze.platform_authority.lambda_audit_repair_"
+    "phase_b_precondition_change_set_receipt.v1"
+)
+PHASE_B_PRECONDITION_STACK_NAME = (
+    "scanalyze-platform-authority-gug221-phase-b-broker-pep"
+)
+PHASE_B_PRECONDITION_CHANGE_SET_NAME = (
+    "gug221-phase-b-broker-pep-create"
+)
+PHASE_B_PRECONDITION_TEMPLATE_PATH = (
+    "bootstrap/cfn-platform-authority-lambda-audit-repair-"
+    "phase-b-broker-pep.yaml"
+)
+PHASE_B_BROKER_EXECUTION_ROLE_ARN = (
+    "arn:aws:iam::042360977644:role/"
+    "ScanalyzeGug221PhaseBBrokerExecution"
+)
+PHASE_B_LEDGER_TABLE_NAME = (
+    "scanalyze-platform-authority-gug221-phase-b-execution-ledger"
 )
 PRODUCTION_STATUS = "NO-GO"
 MAX_PRIVATE_JSON_BYTES = 128 * 1024
@@ -171,6 +216,76 @@ DELEGATION_PARAMETER_KEYS = (
     "UseIdentityCenterCustomerManagedKms",
     "IdentityCenterKmsKeyArn",
 )
+PHASE_B_PRECONDITION_PARAMETER_KEYS = (
+    "AuthorityAccountId",
+    "ManagementAccountId",
+    "IdentityCenterApplicationArn",
+    "IdentityCenterInstanceArn",
+    "IdentityStoreArn",
+    "IdentityCenterRedirectUri",
+    "OperatorIdentityStoreUserId",
+    "InvokerPrincipalArn",
+    "ExactStackArn",
+    "ExactChangeSetArn",
+    "ExactClientRequestToken",
+    "ExactExecutionId",
+    "ExecutionNotBefore",
+    "ExecutionNotAfter",
+    "PhaseBIntentDigest",
+    "ChangeSetReceiptDigest",
+    "TemplateDigest",
+    "ParametersDigest",
+    "ResourceInventoryDigest",
+    "LedgerControlsDigest",
+    "OauthStateDigest",
+    "BrokerArtifactBucket",
+    "BrokerArtifactKey",
+    "BrokerArtifactVersion",
+    "BrokerArtifactCodeSha256",
+    "BrokerCodeSigningConfigArn",
+    "RepairArtifactBucket",
+    "RepairArtifactKey",
+    "ReconcileArtifactBucket",
+    "ReconcileArtifactKey",
+    "InvokerPolicySha256",
+    "BrokerPolicySha256",
+    "ProofPolicySha256",
+    "ApplicationActorPolicySha256",
+    "BrokerTopologySigningKeyArn",
+    "BrokerTopologySignatureAlgorithm",
+    "ExpectedBrokerTopologySha256",
+)
+PHASE_B_PRECONDITION_POLICY_PATHS = {
+    "InvokerPolicySha256": Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-invoker-role.json"
+    ),
+    "BrokerPolicySha256": Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-"
+        "phase-b-broker-execution-role.json"
+    ),
+    "ProofPolicySha256": Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-proof-role.json"
+    ),
+    "ApplicationActorPolicySha256": Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-"
+        "phase-b-application-actor-policy.json"
+    ),
+}
+PHASE_B_PRECONDITION_RESOURCE_TYPES = {
+    "PhaseBBrokerEventInvokeConfig": "AWS::Lambda::EventInvokeConfig",
+    "PhaseBBrokerExecuteAlias": "AWS::Lambda::Alias",
+    "PhaseBBrokerExecutionRole": "AWS::IAM::Role",
+    "PhaseBBrokerFunction": "AWS::Lambda::Function",
+    "PhaseBBrokerInvokePermission": "AWS::Lambda::Permission",
+    "PhaseBBrokerLogGroup": "AWS::Logs::LogGroup",
+    "PhaseBBrokerVersion": "AWS::Lambda::Version",
+    "PhaseBExecutionLedger": "AWS::DynamoDB::Table",
+    "PhaseBProofRole": "AWS::IAM::Role",
+}
 EXPECTED_CAPABILITIES = ("CAPABILITY_NAMED_IAM",)
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -240,6 +355,43 @@ _DELEGATION_CHANGE_SET_ARN_RE = re.compile(
     rf"{re.escape(DELEGATION_CHANGE_SET_NAME)}/"
     rf"(?P<uuid>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
     rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}})$"
+)
+_PHASE_B_PRECONDITION_STACK_ARN_RE = re.compile(
+    rf"^arn:aws:cloudformation:us-east-1:042360977644:stack/"
+    rf"{re.escape(PHASE_B_PRECONDITION_STACK_NAME)}/"
+    rf"(?P<uuid>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
+    rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}})$"
+)
+_PHASE_B_PRECONDITION_CHANGE_SET_ARN_RE = re.compile(
+    rf"^arn:aws:cloudformation:us-east-1:042360977644:changeSet/"
+    rf"{re.escape(PHASE_B_PRECONDITION_CHANGE_SET_NAME)}/"
+    rf"(?P<uuid>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
+    rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}})$"
+)
+_PHASE_B_POLICY_PLACEHOLDER_RE = re.compile(r"\$\{([a-z_]+)\}")
+_PHASE_B_APPLICATION_ARN_RE = re.compile(
+    r"^arn:aws:sso::839393571433:application/"
+    r"ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$"
+)
+_PHASE_B_IDENTITY_STORE_ARN_RE = re.compile(
+    r"^arn:aws:identitystore::839393571433:identitystore/d-[0-9a-f]{10}$"
+)
+_PHASE_B_REDIRECT_URI_RE = re.compile(
+    r"^http://127\.0\.0\.1:[1-9][0-9]{3,4}/callback$"
+)
+_PHASE_B_INVOKER_ARN_RE = re.compile(
+    r"^arn:aws:iam::042360977644:role/aws-reserved/"
+    r"sso\.amazonaws\.com/us-east-1/"
+    r"AWSReservedSSO_ScanalyzeGug221PhaseBInvoker_[0-9a-f]{16}$"
+)
+_PHASE_B_CODE_SIGNING_CONFIG_ARN_RE = re.compile(
+    r"^arn:aws:lambda:us-east-1:042360977644:"
+    r"code-signing-config:csc-[A-Za-z0-9]{17}$"
+)
+_PHASE_B_TOPOLOGY_SIGNING_KEY_ARN_RE = re.compile(
+    r"^arn:aws:kms:us-east-1:042360977644:key/"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
 
@@ -336,6 +488,170 @@ def validate_deployment_contract(contract: Mapping[str, Any]) -> None:
         raise ChangeSetHandoffError("DEPLOYMENT_CONTRACT_WINDOW_INVALID")
 
 
+def _phase_b_identity_materialization_receipt_digest(
+    receipt: Mapping[str, Any],
+) -> str:
+    return _digest(
+        {
+            key: value
+            for key, value in receipt.items()
+            if key != "receipt_sha256"
+        }
+    )
+
+
+def validate_phase_b_identity_materialization_receipt(
+    receipt: Mapping[str, Any],
+    *,
+    source_commit: str,
+) -> None:
+    """Validate provider-derived identity inputs before any PEP handoff.
+
+    This receipt is deliberately an input-only contract.  This module has no
+    producer for it: a synthetic or operator-authored document cannot establish
+    that Identity Center, the application assignment, the invoker role, code
+    signing configuration, and topology signing key exist in provider state.
+    """
+
+    required = {
+        "artifact_type",
+        "schema_version",
+        "work_package",
+        "phase",
+        "source_commit",
+        "authority_account_id",
+        "management_account_id",
+        "region",
+        "identity_center_application_arn",
+        "identity_center_instance_arn",
+        "identity_store_arn",
+        "identity_center_redirect_uri",
+        "operator_identity_store_user_id",
+        "invoker_principal_arn",
+        "broker_code_signing_config_arn",
+        "broker_topology_signing_key_arn",
+        "oauth_state_digest",
+        "provider_state_sha256",
+        "checks",
+        "verifiers",
+        "evaluated_at",
+        "evidence_status",
+        "authority_status",
+        "production_status",
+        "receipt_sha256",
+    }
+    checks = receipt.get("checks")
+    verifiers = receipt.get("verifiers")
+    expected_checks = {
+        "application_verified": True,
+        "single_operator_assignment_verified": True,
+        "invoker_role_verified": True,
+        "code_signing_config_verified": True,
+        "topology_signing_key_verified": True,
+        "pending_operations_absent": True,
+        "alternate_assignments_absent": True,
+    }
+    expected_verifier_keys = {"management", "authority"}
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt) != required
+        or receipt.get("artifact_type")
+        != PHASE_B_IDENTITY_MATERIALIZATION_RECEIPT_TYPE
+        or receipt.get("schema_version") != 1
+        or receipt.get("work_package") != WORK_PACKAGE
+        or receipt.get("phase") != "PRE_B_IDENTITY_MATERIALIZATION"
+        or receipt.get("source_commit") != source_commit
+        or receipt.get("authority_account_id") != AUTHORITY_ACCOUNT_ID
+        or receipt.get("management_account_id") != MANAGEMENT_ACCOUNT_ID
+        or receipt.get("region") != REGION
+        or _PHASE_B_APPLICATION_ARN_RE.fullmatch(
+            str(receipt.get("identity_center_application_arn"))
+        )
+        is None
+        or _INSTANCE_ARN_RE.fullmatch(
+            str(receipt.get("identity_center_instance_arn"))
+        )
+        is None
+        or _PHASE_B_IDENTITY_STORE_ARN_RE.fullmatch(
+            str(receipt.get("identity_store_arn"))
+        )
+        is None
+        or _PHASE_B_REDIRECT_URI_RE.fullmatch(
+            str(receipt.get("identity_center_redirect_uri"))
+        )
+        is None
+        or _PRINCIPAL_ID_RE.fullmatch(
+            str(receipt.get("operator_identity_store_user_id"))
+        )
+        is None
+        or _PHASE_B_INVOKER_ARN_RE.fullmatch(
+            str(receipt.get("invoker_principal_arn"))
+        )
+        is None
+        or _PHASE_B_CODE_SIGNING_CONFIG_ARN_RE.fullmatch(
+            str(receipt.get("broker_code_signing_config_arn"))
+        )
+        is None
+        or _PHASE_B_TOPOLOGY_SIGNING_KEY_ARN_RE.fullmatch(
+            str(receipt.get("broker_topology_signing_key_arn"))
+        )
+        is None
+        or _PREFIXED_DIGEST_RE.fullmatch(
+            str(receipt.get("oauth_state_digest"))
+        )
+        is None
+        or _DIGEST_RE.fullmatch(
+            str(receipt.get("provider_state_sha256"))
+        )
+        is None
+        or checks != expected_checks
+        or not isinstance(verifiers, Mapping)
+        or set(verifiers) != expected_verifier_keys
+        or receipt.get("evidence_status")
+        != "PHASE_B_IDENTITY_MATERIALIZATION_PROVIDER_VERIFIED"
+        or receipt.get("authority_status")
+        != "PROVIDER_DERIVED_NOT_EXECUTION_AUTHORITY"
+        or receipt.get("production_status") != PRODUCTION_STATUS
+        or receipt.get("receipt_sha256")
+        != _phase_b_identity_materialization_receipt_digest(receipt)
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_IDENTITY_MATERIALIZATION_RECEIPT_INVALID"
+        )
+    for name, account_id, profile, caller_pattern in (
+        (
+            "management",
+            MANAGEMENT_ACCOUNT_ID,
+            EXPECTED_MANAGEMENT_PROFILE,
+            _MANAGEMENT_CALLER_ARN_RE,
+        ),
+        ("authority", AUTHORITY_ACCOUNT_ID, EXPECTED_PROFILE, _CALLER_ARN_RE),
+    ):
+        verifier = verifiers.get(name)
+        if (
+            not isinstance(verifier, Mapping)
+            or set(verifier) != {"profile", "account_id", "caller_arn"}
+            or verifier.get("profile") != profile
+            or verifier.get("account_id") != account_id
+            or caller_pattern.fullmatch(str(verifier.get("caller_arn"))) is None
+        ):
+            raise ChangeSetHandoffError(
+                "PHASE_B_IDENTITY_MATERIALIZATION_RECEIPT_INVALID"
+            )
+    _timestamp(
+        receipt.get("evaluated_at"),
+        "PHASE_B_IDENTITY_MATERIALIZATION_RECEIPT_TIME_INVALID",
+    )
+    # Shape and self-digest prove only that the target contract is well formed.
+    # No live producer currently emits a KMS-authenticated receipt and this
+    # module deliberately has no direct provider revalidation path.  Therefore
+    # even a structurally valid document is not authorization to build the PEP
+    # or PRE_B handoffs.
+    raise ChangeSetHandoffError(
+        "BLOCKED_IDENTITY_PRECONDITION_NOT_MATERIALIZED"
+    )
+
+
 def _permission_set_tags(source_commit: str) -> dict[str, str]:
     return {
         "environment": "non-production",
@@ -357,7 +673,12 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _reviewed_git_object_bytes(
-    *, source_root: Path, source_commit: str, relative_path: str, error_code: str
+    *,
+    source_root: Path,
+    source_commit: str,
+    relative_path: str,
+    error_code: str,
+    allow_empty: bool = False,
 ) -> bytes:
     """Read immutable reviewed bytes from the exact Git object, never the worktree."""
 
@@ -379,7 +700,7 @@ def _reviewed_git_object_bytes(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ChangeSetHandoffError(error_code) from exc
-    if not result.stdout:
+    if not result.stdout and not allow_empty:
         raise ChangeSetHandoffError(error_code)
     return result.stdout
 
@@ -1415,6 +1736,631 @@ def _stack_tags(source_commit: str) -> dict[str, str]:
     }
 
 
+def _reviewed_signed_package_manifest(
+    *,
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Rebuild the unsigned package from Git and bind it to the Signer receipt.
+
+    Schema validation alone cannot prove that a locally supplied Signer
+    receipt represents the reviewed source commit.  This reconstruction reads
+    every package entry from the exact Git object, rebuilds the deterministic
+    archive, and compares both public digests before any Phase B parameter is
+    derived.
+    """
+
+    validate_signed_artifact_receipt(signed_receipt)
+    source_commit = str(signed_receipt.get("source_commit"))
+    versions = signed_receipt.get("expected_sdk_versions")
+    if not isinstance(versions, Mapping):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_SIGNED_PACKAGE_INVALID"
+        )
+    try:
+        committed_sources = {
+            path: _reviewed_git_object_bytes(
+                source_root=source_root,
+                source_commit=source_commit,
+                relative_path=path.as_posix(),
+                error_code="REVIEWED_PACKAGE_SOURCE_UNAVAILABLE",
+                allow_empty=path == Path("tooling/__init__.py"),
+            )
+            for path in SOURCE_PATHS
+        }
+        package = build_repair_package(
+            source_root=source_root,
+            source_commit=source_commit,
+            expected_boto3_version=str(versions.get("boto3")),
+            expected_botocore_version=str(versions.get("botocore")),
+            committed_sources=committed_sources,
+        )
+    except RepairPackageError as exc:
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_SIGNED_PACKAGE_INVALID"
+        ) from exc
+    if (
+        sha256(canonical_json(package.manifest).encode("utf-8")).hexdigest()
+        != signed_receipt.get("unsigned_manifest_sha256")
+        or sha256(package.archive).hexdigest()
+        != signed_receipt.get("unsigned_archive_sha256")
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_SIGNED_PACKAGE_DRIFT"
+        )
+    return package.manifest
+
+
+def _render_phase_b_policy_value(
+    value: Any,
+    *,
+    replacements: Mapping[str, str],
+) -> Any:
+    """Render the reviewed placeholder dialect and reject every unknown key."""
+
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ChangeSetHandoffError("REVIEWED_IAM_POLICY_INVALID")
+        return {
+            key: _render_phase_b_policy_value(
+                nested,
+                replacements=replacements,
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _render_phase_b_policy_value(
+                nested,
+                replacements=replacements,
+            )
+            for nested in value
+        ]
+    if isinstance(value, str):
+        unknown = {
+            match.group(1)
+            for match in _PHASE_B_POLICY_PLACEHOLDER_RE.finditer(value)
+            if match.group(1) not in replacements
+        }
+        if unknown:
+            raise ChangeSetHandoffError(
+                "REVIEWED_IAM_POLICY_PLACEHOLDER_INVALID"
+            )
+        rendered = _PHASE_B_POLICY_PLACEHOLDER_RE.sub(
+            lambda match: replacements[match.group(1)],
+            value,
+        )
+        if "${" in rendered:
+            raise ChangeSetHandoffError(
+                "REVIEWED_IAM_POLICY_PLACEHOLDER_INVALID"
+            )
+        return rendered
+    if value is None or type(value) in {bool, int, float}:
+        return value
+    raise ChangeSetHandoffError("REVIEWED_IAM_POLICY_INVALID")
+
+
+def _phase_b_precondition_policy_replacements(
+    values: Mapping[str, str],
+) -> dict[str, str]:
+    required = {
+        "IdentityCenterApplicationArn",
+        "ExecutionNotBefore",
+        "ExecutionNotAfter",
+        "ExactExecutionId",
+        "RepairArtifactBucket",
+        "RepairArtifactKey",
+        "ReconcileArtifactBucket",
+        "ReconcileArtifactKey",
+        "BrokerTopologySigningKeyArn",
+    }
+    if (
+        not isinstance(values, Mapping)
+        or not required.issubset(values)
+        or any(
+            not isinstance(values[key], str) or not values[key]
+            for key in required
+        )
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_POLICY_BINDING_INVALID"
+        )
+    return {
+        "aws_partition": "aws",
+        "region": REGION,
+        "authority_account_id": AUTHORITY_ACCOUNT_ID,
+        "broker_execution_role_arn": PHASE_B_BROKER_EXECUTION_ROLE_ARN,
+        "topology_signing_key_arn": values[
+            "BrokerTopologySigningKeyArn"
+        ],
+        "identity_center_application_arn": values[
+            "IdentityCenterApplicationArn"
+        ],
+        "execution_not_before": values["ExecutionNotBefore"],
+        "execution_not_after": values["ExecutionNotAfter"],
+        "execution_id": values["ExactExecutionId"],
+        "repair_artifact_bucket": values["RepairArtifactBucket"],
+        "repair_artifact_key": values["RepairArtifactKey"],
+        "reconcile_artifact_bucket": values["ReconcileArtifactBucket"],
+        "reconcile_artifact_key": values["ReconcileArtifactKey"],
+    }
+
+
+def _phase_b_precondition_policy_documents(
+    *,
+    source_root: Path,
+    source_commit: str,
+    values: Mapping[str, str],
+) -> dict[str, Mapping[str, Any]]:
+    replacements = _phase_b_precondition_policy_replacements(values)
+    documents: dict[str, Mapping[str, Any]] = {}
+    for parameter_key, relative_path in (
+        PHASE_B_PRECONDITION_POLICY_PATHS.items()
+    ):
+        rendered = _render_phase_b_policy_value(
+            _reviewed_policy_object(
+                source_root=source_root,
+                source_commit=source_commit,
+                relative_path=relative_path,
+            ),
+            replacements=replacements,
+        )
+        if not isinstance(rendered, Mapping):
+            raise ChangeSetHandoffError("REVIEWED_IAM_POLICY_INVALID")
+        documents[parameter_key] = rendered
+    return documents
+
+
+def _phase_b_precondition_policy_digests(
+    *,
+    source_root: Path,
+    source_commit: str,
+    values: Mapping[str, str],
+) -> dict[str, str]:
+    """Hash exact rendered policies, never unresolved Git placeholders."""
+
+    return {
+        parameter_key: plain_canonical_digest(document)
+        for parameter_key, document in (
+            _phase_b_precondition_policy_documents(
+                source_root=source_root,
+                source_commit=source_commit,
+                values=values,
+            ).items()
+        )
+    }
+
+
+def _phase_b_precondition_execution_id(values: Mapping[str, str]) -> str:
+    execution_request_digest = phase_b_canonical_digest(
+        {
+            "ChangeSetName": values["ExactChangeSetArn"],
+            "StackName": values["ExactStackArn"],
+            "ClientRequestToken": values["ExactClientRequestToken"],
+        }
+    )
+    digest = phase_b_canonical_digest(
+        {
+            "phase": "B_PEP_EXECUTION",
+            "execution_request_digest": execution_request_digest,
+            "not_before": values["ExecutionNotBefore"],
+            "not_after": values["ExecutionNotAfter"],
+        }
+    ).removeprefix("sha256:")
+    return "gug221-phase-b-" + digest
+
+
+def _phase_b_precondition_topology_sha256(
+    values: Mapping[str, str],
+) -> str:
+    return calculate_broker_topology_sha256(
+        {
+            "authority_account_id": AUTHORITY_ACCOUNT_ID,
+            "management_account_id": MANAGEMENT_ACCOUNT_ID,
+            "region": REGION,
+            "identity_center_application_arn": values[
+                "IdentityCenterApplicationArn"
+            ],
+            "identity_center_instance_arn": values[
+                "IdentityCenterInstanceArn"
+            ],
+            "identity_store_arn": values["IdentityStoreArn"],
+            "operator_user_id_digest": phase_b_canonical_digest(
+                {
+                    "identity_store_user_id": values[
+                        "OperatorIdentityStoreUserId"
+                    ].lower()
+                }
+            ),
+            "invoker_role_arn": values["InvokerPrincipalArn"],
+            "broker_execution_role_arn": PHASE_B_BROKER_EXECUTION_ROLE_ARN,
+            "proof_role_arn": (
+                "arn:aws:iam::042360977644:role/"
+                "ScanalyzeGug221PhaseBProof"
+            ),
+            "ledger_table_arn": (
+                "arn:aws:dynamodb:us-east-1:042360977644:table/"
+                + PHASE_B_LEDGER_TABLE_NAME
+            ),
+            "broker_alias_arn": (
+                "arn:aws:lambda:us-east-1:042360977644:function:"
+                "scanalyze-platform-authority-gug221-phase-b-broker:"
+                "broker-v1"
+            ),
+            "broker_artifact_bucket": values["BrokerArtifactBucket"],
+            "broker_artifact_key": values["BrokerArtifactKey"],
+            "broker_artifact_version": values["BrokerArtifactVersion"],
+            "broker_artifact_code_sha256": values[
+                "BrokerArtifactCodeSha256"
+            ],
+            "broker_code_signing_config_arn": values[
+                "BrokerCodeSigningConfigArn"
+            ],
+            "invoker_policy_sha256": values["InvokerPolicySha256"],
+            "broker_policy_sha256": values["BrokerPolicySha256"],
+            "proof_policy_sha256": values["ProofPolicySha256"],
+            "application_actor_policy_sha256": values[
+                "ApplicationActorPolicySha256"
+            ],
+            "topology_signing_key_arn": values[
+                "BrokerTopologySigningKeyArn"
+            ],
+            "topology_signature_algorithm": (
+                BROKER_TOPOLOGY_SIGNATURE_ALGORITHM
+            ),
+        }
+    )
+
+
+def _validate_phase_b_precondition_binding(
+    values: Mapping[str, str],
+) -> None:
+    """Reuse the runtime binding validator before any Change Set can be trusted."""
+
+    try:
+        PhaseBIdentityBinding(
+            authority_account_id=AUTHORITY_ACCOUNT_ID,
+            management_account_id=MANAGEMENT_ACCOUNT_ID,
+            region=REGION,
+            identity_center_application_arn=values[
+                "IdentityCenterApplicationArn"
+            ],
+            identity_center_instance_arn=values[
+                "IdentityCenterInstanceArn"
+            ],
+            identity_store_arn=values["IdentityStoreArn"],
+            redirect_uri=values["IdentityCenterRedirectUri"],
+            operator_user_id=values["OperatorIdentityStoreUserId"],
+            invoker_role_arn=values["InvokerPrincipalArn"],
+            broker_execution_role_arn=PHASE_B_BROKER_EXECUTION_ROLE_ARN,
+            proof_role_arn=(
+                "arn:aws:iam::042360977644:role/"
+                "ScanalyzeGug221PhaseBProof"
+            ),
+            ledger_table_arn=(
+                "arn:aws:dynamodb:us-east-1:042360977644:table/"
+                + PHASE_B_LEDGER_TABLE_NAME
+            ),
+            stack_arn=values["ExactStackArn"],
+            change_set_arn=values["ExactChangeSetArn"],
+            client_request_token=values["ExactClientRequestToken"],
+            phase_b_intent_digest=values["PhaseBIntentDigest"],
+            change_set_receipt_digest=values["ChangeSetReceiptDigest"],
+            template_digest=values["TemplateDigest"],
+            parameters_digest=values["ParametersDigest"],
+            resource_inventory_digest=values["ResourceInventoryDigest"],
+            ledger_controls_digest=values["LedgerControlsDigest"],
+            oauth_state_digest=values["OauthStateDigest"],
+            invoker_policy_sha256=values["InvokerPolicySha256"],
+            broker_policy_sha256=values["BrokerPolicySha256"],
+            proof_policy_sha256=values["ProofPolicySha256"],
+            application_actor_policy_sha256=values[
+                "ApplicationActorPolicySha256"
+            ],
+            broker_artifact_bucket=values["BrokerArtifactBucket"],
+            broker_artifact_key=values["BrokerArtifactKey"],
+            broker_artifact_version=values["BrokerArtifactVersion"],
+            broker_artifact_code_sha256=values[
+                "BrokerArtifactCodeSha256"
+            ],
+            broker_code_signing_config_arn=values[
+                "BrokerCodeSigningConfigArn"
+            ],
+            broker_topology_provider_evidence_digest=None,
+            broker_topology_signing_key_arn=values[
+                "BrokerTopologySigningKeyArn"
+            ],
+            broker_topology_signature_algorithm=values[
+                "BrokerTopologySignatureAlgorithm"
+            ],
+            expected_broker_topology_sha256=values[
+                "ExpectedBrokerTopologySha256"
+            ],
+            configured_execution_id=values["ExactExecutionId"],
+            execution_not_before=_timestamp(
+                values["ExecutionNotBefore"],
+                "PHASE_B_PRECONDITION_WINDOW_INVALID",
+            ),
+            execution_not_after=_timestamp(
+                values["ExecutionNotAfter"],
+                "PHASE_B_PRECONDITION_WINDOW_INVALID",
+            ),
+        )
+    except (KeyError, PhaseBPepError) as exc:
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_PROVIDER_BINDING_INVALID"
+        ) from exc
+
+
+def build_phase_b_precondition_parameter_handoff(
+    *,
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+) -> Mapping[str, Any]:
+    """Derive all PRE_B parameters exclusively from validated upstream proof."""
+
+    signed = _signed_parameter_values(signed_receipt)
+    source_commit = signed["SourceCommit"]
+    validate_deployment_contract(deployment_contract)
+    if source_commit != deployment_contract.get("source_commit"):
+        raise ChangeSetHandoffError("SOURCE_COMMIT_CHAIN_MISMATCH")
+    validate_phase_b_identity_materialization_receipt(
+        phase_b_identity_materialization_receipt,
+        source_commit=source_commit,
+    )
+    _validate_pep_change_set_receipt_binding(
+        receipt=pep_change_set_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+    )
+    identity_receipt_sha256 = (
+        _phase_b_identity_materialization_receipt_digest(
+            phase_b_identity_materialization_receipt
+        )
+    )
+    if (
+        not isinstance(pep_parameter_handoff, Mapping)
+        or pep_parameter_handoff.get("source_commit") != source_commit
+        or pep_parameter_handoff.get("deployment_contract_sha256")
+        != _digest(deployment_contract)
+        or pep_parameter_handoff.get(
+            "phase_b_identity_materialization_receipt_sha256"
+        )
+        != identity_receipt_sha256
+        or pep_change_set_receipt.get("parameter_handoff_sha256")
+        != _digest(pep_parameter_handoff)
+        or pep_change_set_receipt.get(
+            "phase_b_identity_materialization_receipt_sha256"
+        )
+        != identity_receipt_sha256
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_PEP_CHAIN_INVALID"
+        )
+    pep_change_set = pep_change_set_receipt["change_set"]
+    execution_contract = pep_change_set_receipt["execution_contract"]
+    reviewed_package_manifest = _reviewed_signed_package_manifest(
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+    )
+    reviewed_template = _reviewed_template_bytes(
+        source_root=source_root,
+        source_commit=source_commit,
+        template_path=PHASE_B_PRECONDITION_TEMPLATE_PATH,
+    )
+    if reviewed_template_bytes != reviewed_template:
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_REVIEWED_TEMPLATE_DRIFT"
+        )
+    _, resource_types = _template_contract(
+        reviewed_template_bytes,
+        expected_parameter_keys=PHASE_B_PRECONDITION_PARAMETER_KEYS,
+    )
+    if resource_types != PHASE_B_PRECONDITION_RESOURCE_TYPES:
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_RESOURCE_INVENTORY_DRIFT"
+        )
+    phase_b_intent_digest = phase_b_canonical_digest(
+        {
+            "work_package": WORK_PACKAGE,
+            "phase": "B_PEP_EXECUTION",
+            "source_commit": source_commit,
+            "deployment_contract_sha256": _digest(deployment_contract),
+            "phase_b_identity_materialization_receipt_sha256": (
+                identity_receipt_sha256
+            ),
+            "pep_parameter_handoff_sha256": _digest(
+                pep_parameter_handoff
+            ),
+            "pep_change_set_receipt_sha256": _digest(
+                pep_change_set_receipt
+            ),
+        }
+    )
+    ledger_controls_digest = phase_b_canonical_digest(
+        {
+            "work_package": WORK_PACKAGE,
+            "phase": "PRE_B_BROKER_CHANGE_SET",
+            "main_execution_contract": execution_contract,
+            "main_template_sha256": pep_change_set_receipt[
+                "template_sha256"
+            ],
+            "precondition_template_sha256": sha256(
+                reviewed_template_bytes
+            ).hexdigest(),
+            "one_shot": True,
+            "retry_permitted": False,
+            "ambiguous_outcome_requires_read_only_reconciliation": True,
+        }
+    )
+    values = {
+        "AuthorityAccountId": AUTHORITY_ACCOUNT_ID,
+        "ManagementAccountId": MANAGEMENT_ACCOUNT_ID,
+        "IdentityCenterApplicationArn": (
+            phase_b_identity_materialization_receipt[
+                "identity_center_application_arn"
+            ]
+        ),
+        "IdentityCenterInstanceArn": (
+            phase_b_identity_materialization_receipt[
+                "identity_center_instance_arn"
+            ]
+        ),
+        "IdentityStoreArn": phase_b_identity_materialization_receipt[
+            "identity_store_arn"
+        ],
+        "IdentityCenterRedirectUri": (
+            phase_b_identity_materialization_receipt[
+                "identity_center_redirect_uri"
+            ]
+        ),
+        "OperatorIdentityStoreUserId": (
+            phase_b_identity_materialization_receipt[
+                "operator_identity_store_user_id"
+            ]
+        ),
+        "InvokerPrincipalArn": phase_b_identity_materialization_receipt[
+            "invoker_principal_arn"
+        ],
+        "ExactStackArn": pep_change_set["stack_arn"],
+        "ExactChangeSetArn": pep_change_set["arn"],
+        "ExactClientRequestToken": execution_contract[
+            "client_request_token"
+        ],
+        "ExecutionNotBefore": deployment_contract["repair_not_before"],
+        "ExecutionNotAfter": deployment_contract["repair_not_after"],
+        "PhaseBIntentDigest": phase_b_intent_digest,
+        "ChangeSetReceiptDigest": phase_b_canonical_digest(
+            pep_change_set_receipt
+        ),
+        "TemplateDigest": (
+            "sha256:" + str(pep_change_set_receipt["template_sha256"])
+        ),
+        "ParametersDigest": phase_b_canonical_digest(
+            pep_parameter_handoff["parameters"]
+        ),
+        "ResourceInventoryDigest": phase_b_canonical_digest(
+            pep_change_set["resource_changes"]
+        ),
+        "LedgerControlsDigest": ledger_controls_digest,
+        "OauthStateDigest": phase_b_identity_materialization_receipt[
+            "oauth_state_digest"
+        ],
+        "BrokerCodeSigningConfigArn": (
+            phase_b_identity_materialization_receipt[
+                "broker_code_signing_config_arn"
+            ]
+        ),
+        "BrokerTopologySigningKeyArn": (
+            phase_b_identity_materialization_receipt[
+                "broker_topology_signing_key_arn"
+            ]
+        ),
+        "BrokerArtifactBucket": signed["RepairArtifactBucket"],
+        "BrokerArtifactKey": signed["RepairArtifactKey"],
+        "BrokerArtifactVersion": signed["RepairArtifactVersion"],
+        "BrokerArtifactCodeSha256": signed["RepairArtifactCodeSha256"],
+        "RepairArtifactBucket": signed["RepairArtifactBucket"],
+        "RepairArtifactKey": signed["RepairArtifactKey"],
+        "ReconcileArtifactBucket": signed["ReconcileArtifactBucket"],
+        "ReconcileArtifactKey": signed["ReconcileArtifactKey"],
+        "BrokerTopologySignatureAlgorithm": (
+            BROKER_TOPOLOGY_SIGNATURE_ALGORITHM
+        ),
+    }
+    values["ExactExecutionId"] = _phase_b_precondition_execution_id(values)
+    policy_digests = _phase_b_precondition_policy_digests(
+        source_root=source_root,
+        source_commit=source_commit,
+        values=values,
+    )
+    values.update(policy_digests)
+    values["ExpectedBrokerTopologySha256"] = (
+        _phase_b_precondition_topology_sha256(values)
+    )
+    if set(values) != set(PHASE_B_PRECONDITION_PARAMETER_KEYS):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_PARAMETER_SET_INCOMPLETE"
+        )
+    _validate_phase_b_precondition_binding(values)
+    parameters = [
+        {"ParameterKey": key, "ParameterValue": values[key]}
+        for key in PHASE_B_PRECONDITION_PARAMETER_KEYS
+    ]
+    return {
+        "artifact_type": PHASE_B_PRECONDITION_HANDOFF_TYPE,
+        "schema_version": 1,
+        "work_package": WORK_PACKAGE,
+        "phase": "PRE_B_BROKER_CHANGE_SET",
+        "source_commit": source_commit,
+        "stack_name": PHASE_B_PRECONDITION_STACK_NAME,
+        "change_set_name": PHASE_B_PRECONDITION_CHANGE_SET_NAME,
+        "signed_artifact_receipt_sha256": (
+            _signed_receipt_binding_digest(signed_receipt)
+        ),
+        "reviewed_package_manifest_sha256": sha256(
+            canonical_json(reviewed_package_manifest).encode("utf-8")
+        ).hexdigest(),
+        "phase_b_identity_materialization_receipt_sha256": (
+            identity_receipt_sha256
+        ),
+        "pep_parameter_handoff_sha256": _digest(
+            pep_parameter_handoff
+        ),
+        "pep_change_set_receipt_sha256": _digest(
+            pep_change_set_receipt
+        ),
+        "reviewed_template_path": PHASE_B_PRECONDITION_TEMPLATE_PATH,
+        "reviewed_template_sha256": sha256(
+            reviewed_template_bytes
+        ).hexdigest(),
+        "reviewed_policy_sha256": dict(sorted(policy_digests.items())),
+        "broker_topology_sha256": values[
+            "ExpectedBrokerTopologySha256"
+        ],
+        "stack_tags": _stack_tags(source_commit),
+        "parameters": parameters,
+        "parameters_sha256": _digest(parameters),
+        "authority_status": "NON_AUTHORITATIVE_DERIVATION_ONLY",
+        "production_status": PRODUCTION_STATUS,
+    }
+
+
+def validate_phase_b_precondition_parameter_handoff(
+    *,
+    handoff: Mapping[str, Any],
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+) -> None:
+    expected = build_phase_b_precondition_parameter_handoff(
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+    )
+    if handoff != expected:
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_PARAMETER_HANDOFF_DRIFT"
+        )
+
+
 def _delegation_parameter_values(
     *, source_commit: str, derived: Mapping[str, str]
 ) -> dict[str, str]:
@@ -1531,12 +2477,20 @@ def build_pep_parameter_handoff(
     gug220_receipt: Mapping[str, Any],
     gug220_evidence: Mapping[str, Any],
     delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
     template_bytes: bytes,
 ) -> Mapping[str, Any]:
     """Phase B: derive 29 PEP parameters after Phase A live readback."""
 
     signed = _signed_parameter_values(signed_receipt)
     validate_deployment_contract(deployment_contract)
+    source_commit = signed["SourceCommit"]
+    if source_commit != deployment_contract["source_commit"]:
+        raise ChangeSetHandoffError("SOURCE_COMMIT_CHAIN_MISMATCH")
+    validate_phase_b_identity_materialization_receipt(
+        phase_b_identity_materialization_receipt,
+        source_commit=source_commit,
+    )
     derived = validate_gug220_evidence_chain(
         source_root=source_root,
         deployment_contract=deployment_contract,
@@ -1554,9 +2508,6 @@ def build_pep_parameter_handoff(
         gug220_receipt=gug220_receipt,
         gug220_evidence=gug220_evidence,
     )
-    source_commit = signed["SourceCommit"]
-    if source_commit != deployment_contract["source_commit"]:
-        raise ChangeSetHandoffError("SOURCE_COMMIT_CHAIN_MISMATCH")
     invoker_arn = str(delegation_live_receipt["repair_invoker_permission_set_arn"])
     if (
         _PERMISSION_SET_ARN_RE.fullmatch(invoker_arn) is None
@@ -1614,6 +2565,11 @@ def build_pep_parameter_handoff(
         "gug220_evidence_sha256": _digest(gug220_evidence),
         "delegation_live_receipt_sha256": (
             _delegation_live_receipt_binding_digest(delegation_live_receipt)
+        ),
+        "phase_b_identity_materialization_receipt_sha256": (
+            _phase_b_identity_materialization_receipt_digest(
+                phase_b_identity_materialization_receipt
+            )
         ),
         "template_sha256": sha256(template_bytes).hexdigest(),
         "stack_tags": _stack_tags(source_commit),
@@ -1713,6 +2669,111 @@ def write_private_json(
         raise ChangeSetHandoffError("PRIVATE_OUTPUT_WRITE_FAILED") from exc
 
 
+def write_private_json_pair_atomic(
+    *,
+    first_value: Mapping[str, Any],
+    first_output_path: Path,
+    second_value: Mapping[str, Any],
+    second_output_path: Path,
+    source_root: Path,
+) -> None:
+    """Failure-atomically publish two private receipts.
+
+    Both payloads are durably staged in their destination directories before
+    either destination is reserved.  Existing destinations are never
+    overwritten.  Any handled reservation or rename failure removes every
+    reservation/publication before returning an error.  Destination
+    directories must be private to the current user so another principal
+    cannot swap a reserved name between ``O_EXCL`` and ``rename``.
+    """
+
+    targets = (
+        _private_path(
+            first_output_path, source_root=source_root, must_exist=False
+        ),
+        _private_path(
+            second_output_path, source_root=source_root, must_exist=False
+        ),
+    )
+    if targets[0] == targets[1]:
+        raise ChangeSetHandoffError("PRIVATE_OUTPUT_PATH_COLLISION")
+    for target in targets:
+        try:
+            parent = target.parent
+            metadata = parent.lstat()
+        except OSError as exc:
+            raise ChangeSetHandoffError("PRIVATE_OUTPUT_PAIR_WRITE_FAILED") from exc
+        if (
+            parent.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_mode & 0o077
+        ):
+            raise ChangeSetHandoffError("PRIVATE_OUTPUT_DIRECTORY_UNSAFE")
+    payloads = (
+        (canonical_json(first_value) + "\n").encode("utf-8"),
+        (canonical_json(second_value) + "\n").encode("utf-8"),
+    )
+    staged: list[Path] = []
+    reserved: list[Path] = []
+    try:
+        for target, payload in zip(targets, payloads, strict=True):
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                dir=target.parent,
+            )
+            temporary = Path(temporary_name)
+            staged.append(temporary)
+            with os.fdopen(descriptor, "wb") as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+        for target in targets:
+            descriptor = os.open(
+                target,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            reserved.append(target)
+            os.close(descriptor)
+
+        for temporary, target in zip(staged, targets, strict=True):
+            os.rename(temporary, target)
+        for parent in {target.parent for target in targets}:
+            descriptor = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    except OSError as exc:
+        for target in reversed(reserved):
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for temporary in staged:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for parent in {target.parent for target in targets}:
+            try:
+                descriptor = os.open(parent, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            except OSError:
+                pass
+        raise ChangeSetHandoffError("PRIVATE_OUTPUT_PAIR_WRITE_FAILED") from exc
+
+
 def _read_gug220_private_chain(
     *,
     source_root: Path,
@@ -1739,6 +2800,7 @@ def prepare_pep_parameter_handoff(
     source_root: Path,
     signed_receipt_path: Path,
     delegation_live_receipt_path: Path,
+    phase_b_identity_materialization_receipt_path: Path,
     deployment_contract_path: Path,
     gug220_intent_path: Path,
     gug220_ledger_path: Path,
@@ -1756,6 +2818,10 @@ def prepare_pep_parameter_handoff(
     )
     signed = read_private_json(signed_receipt_path, source_root=source_root)
     live = read_private_json(delegation_live_receipt_path, source_root=source_root)
+    identity_materialization_receipt = read_private_json(
+        phase_b_identity_materialization_receipt_path,
+        source_root=source_root,
+    )
     validate_signed_artifact_receipt(signed)
     template = _reviewed_template_bytes(
         source_root=source_root, source_commit=str(signed.get("source_commit"))
@@ -1769,6 +2835,9 @@ def prepare_pep_parameter_handoff(
         gug220_receipt=receipt,
         gug220_evidence=evidence,
         delegation_live_receipt=live,
+        phase_b_identity_materialization_receipt=(
+            identity_materialization_receipt
+        ),
         template_bytes=template,
     )
     write_private_json(value=handoff, output_path=output_path, source_root=source_root)
@@ -2198,6 +3267,347 @@ def _verify_exact_change_set(
     }
 
 
+def _validate_phase_b_precondition_change_set_projection(
+    change_set: Mapping[str, Any],
+    *,
+    parameter_handoff: Mapping[str, Any],
+) -> None:
+    if not isinstance(change_set, Mapping):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_INVALID"
+        )
+    arn_match = _PHASE_B_PRECONDITION_CHANGE_SET_ARN_RE.fullmatch(
+        str(change_set.get("arn"))
+    )
+    stack_match = _PHASE_B_PRECONDITION_STACK_ARN_RE.fullmatch(
+        str(change_set.get("stack_arn"))
+    )
+    expected_changes = [
+        {
+            "logical_resource_id": logical_id,
+            "resource_type": resource_type,
+            "action": "Add",
+            "replacement": "False",
+        }
+        for logical_id, resource_type in sorted(
+            PHASE_B_PRECONDITION_RESOURCE_TYPES.items()
+        )
+    ]
+    create_event = change_set.get("create_event")
+    if (
+        set(change_set)
+        != {
+            "arn",
+            "uuid",
+            "name",
+            "stack_arn",
+            "stack_name",
+            "type",
+            "status",
+            "execution_status",
+            "on_stack_failure",
+            "capabilities",
+            "tags",
+            "parameters_sha256",
+            "resource_changes",
+            "create_event",
+        }
+        or arn_match is None
+        or stack_match is None
+        or change_set.get("uuid") != arn_match.group("uuid")
+        or change_set.get("name")
+        != PHASE_B_PRECONDITION_CHANGE_SET_NAME
+        or change_set.get("stack_name") != PHASE_B_PRECONDITION_STACK_NAME
+        or change_set.get("type") != "CREATE"
+        or change_set.get("status") != "CREATE_COMPLETE"
+        or change_set.get("execution_status") != "AVAILABLE"
+        or change_set.get("on_stack_failure") != "ROLLBACK"
+        or change_set.get("capabilities") != list(EXPECTED_CAPABILITIES)
+        or change_set.get("tags") != parameter_handoff.get("stack_tags")
+        or change_set.get("parameters_sha256")
+        != parameter_handoff.get("parameters_sha256")
+        or change_set.get("resource_changes") != expected_changes
+        or not isinstance(create_event, Mapping)
+        or set(create_event) != {"event_id", "event_time", "event_digest"}
+        or not isinstance(create_event.get("event_id"), str)
+        or not create_event.get("event_id")
+        or _DIGEST_RE.fullmatch(str(create_event.get("event_digest"))) is None
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_INVALID"
+        )
+    _timestamp(
+        create_event.get("event_time"),
+        "PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_TIME_INVALID",
+    )
+
+
+def validate_phase_b_precondition_change_set_receipt(
+    *,
+    receipt: Mapping[str, Any],
+    parameter_handoff: Mapping[str, Any],
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+) -> None:
+    validate_phase_b_precondition_parameter_handoff(
+        handoff=parameter_handoff,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+    )
+    change_set = receipt.get("change_set")
+    verifier = receipt.get("verifier")
+    stable = {
+        key: value
+        for key, value in receipt.items()
+        if key != "receipt_digest"
+    }
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt)
+        != {
+            "artifact_type",
+            "schema_version",
+            "work_package",
+            "phase",
+            "source_commit",
+            "signed_artifact_receipt_sha256",
+            "reviewed_package_manifest_sha256",
+            "phase_b_identity_materialization_receipt_sha256",
+            "pep_parameter_handoff_sha256",
+            "pep_change_set_receipt_sha256",
+            "parameter_handoff_sha256",
+            "reviewed_template_sha256",
+            "reviewed_policy_sha256",
+            "broker_topology_sha256",
+            "change_set",
+            "verifier",
+            "evaluated_at",
+            "evidence_status",
+            "authority_status",
+            "production_status",
+            "receipt_digest",
+        }
+        or receipt.get("artifact_type")
+        != PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_TYPE
+        or receipt.get("schema_version") != 1
+        or receipt.get("work_package") != WORK_PACKAGE
+        or receipt.get("phase") != "PRE_B_BROKER_CHANGE_SET"
+        or receipt.get("source_commit")
+        != parameter_handoff.get("source_commit")
+        or receipt.get("signed_artifact_receipt_sha256")
+        != parameter_handoff.get("signed_artifact_receipt_sha256")
+        or receipt.get("reviewed_package_manifest_sha256")
+        != parameter_handoff.get("reviewed_package_manifest_sha256")
+        or receipt.get("phase_b_identity_materialization_receipt_sha256")
+        != parameter_handoff.get(
+            "phase_b_identity_materialization_receipt_sha256"
+        )
+        or receipt.get("pep_parameter_handoff_sha256")
+        != parameter_handoff.get("pep_parameter_handoff_sha256")
+        or receipt.get("pep_change_set_receipt_sha256")
+        != parameter_handoff.get("pep_change_set_receipt_sha256")
+        or receipt.get("parameter_handoff_sha256")
+        != _digest(parameter_handoff)
+        or receipt.get("reviewed_template_sha256")
+        != parameter_handoff.get("reviewed_template_sha256")
+        or receipt.get("reviewed_policy_sha256")
+        != parameter_handoff.get("reviewed_policy_sha256")
+        or receipt.get("broker_topology_sha256")
+        != parameter_handoff.get("broker_topology_sha256")
+        or not isinstance(change_set, Mapping)
+        or not isinstance(verifier, Mapping)
+        or set(verifier) != {"profile", "account_id", "caller_arn"}
+        or verifier.get("profile") != EXPECTED_PROFILE
+        or verifier.get("account_id") != AUTHORITY_ACCOUNT_ID
+        or _CALLER_ARN_RE.fullmatch(str(verifier.get("caller_arn")))
+        is None
+        or receipt.get("evidence_status")
+        != "PRE_B_CHANGE_SET_READ_ONLY_VERIFIED"
+        or receipt.get("authority_status")
+        != "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY"
+        or receipt.get("production_status") != PRODUCTION_STATUS
+        or receipt.get("receipt_digest") != _digest(stable)
+    ):
+        raise ChangeSetHandoffError(
+            "PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_INVALID"
+        )
+    _timestamp(
+        receipt.get("evaluated_at"),
+        "PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_TIME_INVALID",
+    )
+    _validate_phase_b_precondition_change_set_projection(
+        change_set,
+        parameter_handoff=parameter_handoff,
+    )
+
+
+def verify_phase_b_precondition_change_set_read_only(
+    *,
+    source_root: Path,
+    profile_name: str,
+    region: str,
+    change_set_arn: str,
+    parameter_handoff: Mapping[str, Any],
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+    sts_client: Any,
+    cloudformation_client: Any,
+    cloudtrail_client: Any,
+    now: datetime | None = None,
+) -> Mapping[str, Any]:
+    """Verify the already-created 9-resource precondition Change Set."""
+
+    validate_phase_b_precondition_parameter_handoff(
+        handoff=parameter_handoff,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+    )
+    if profile_name != EXPECTED_PROFILE or region != REGION:
+        raise ChangeSetHandoffError("VERIFIER_PROFILE_OR_REGION_INVALID")
+    identity = _aws_call(sts_client.get_caller_identity)
+    if (
+        identity.get("Account") != AUTHORITY_ACCOUNT_ID
+        or _CALLER_ARN_RE.fullmatch(str(identity.get("Arn"))) is None
+    ):
+        raise ChangeSetHandoffError("VERIFIER_IDENTITY_INVALID")
+    change_set = _verify_exact_change_set(
+        cloudformation_client=cloudformation_client,
+        cloudtrail_client=cloudtrail_client,
+        account_id=AUTHORITY_ACCOUNT_ID,
+        creator_arn=str(deployment_contract["pep_change_set_creator_arn"]),
+        change_set_arn=change_set_arn,
+        change_set_name=PHASE_B_PRECONDITION_CHANGE_SET_NAME,
+        stack_name=PHASE_B_PRECONDITION_STACK_NAME,
+        change_set_arn_re=_PHASE_B_PRECONDITION_CHANGE_SET_ARN_RE,
+        stack_arn_re=_PHASE_B_PRECONDITION_STACK_ARN_RE,
+        reviewed_template_bytes=reviewed_template_bytes,
+        expected_parameter_keys=PHASE_B_PRECONDITION_PARAMETER_KEYS,
+        parameters=parameter_handoff["parameters"],
+        tags=parameter_handoff["stack_tags"],
+    )
+    result = {
+        "artifact_type": (
+            PHASE_B_PRECONDITION_CHANGE_SET_RECEIPT_TYPE
+        ),
+        "schema_version": 1,
+        "work_package": WORK_PACKAGE,
+        "phase": "PRE_B_BROKER_CHANGE_SET",
+        "source_commit": parameter_handoff["source_commit"],
+        "signed_artifact_receipt_sha256": parameter_handoff[
+            "signed_artifact_receipt_sha256"
+        ],
+        "reviewed_package_manifest_sha256": parameter_handoff[
+            "reviewed_package_manifest_sha256"
+        ],
+        "phase_b_identity_materialization_receipt_sha256": (
+            parameter_handoff[
+                "phase_b_identity_materialization_receipt_sha256"
+            ]
+        ),
+        "pep_parameter_handoff_sha256": parameter_handoff[
+            "pep_parameter_handoff_sha256"
+        ],
+        "pep_change_set_receipt_sha256": parameter_handoff[
+            "pep_change_set_receipt_sha256"
+        ],
+        "parameter_handoff_sha256": _digest(parameter_handoff),
+        "reviewed_template_sha256": parameter_handoff[
+            "reviewed_template_sha256"
+        ],
+        "reviewed_policy_sha256": parameter_handoff[
+            "reviewed_policy_sha256"
+        ],
+        "broker_topology_sha256": parameter_handoff[
+            "broker_topology_sha256"
+        ],
+        "change_set": change_set,
+        "verifier": {
+            "profile": profile_name,
+            "account_id": identity["Account"],
+            "caller_arn": identity["Arn"],
+        },
+        "evaluated_at": _utc_text(now),
+        "evidence_status": "PRE_B_CHANGE_SET_READ_ONLY_VERIFIED",
+        "authority_status": (
+            "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY"
+        ),
+        "production_status": PRODUCTION_STATUS,
+    }
+    result["receipt_digest"] = _digest(result)
+    validate_phase_b_precondition_change_set_receipt(
+        receipt=result,
+        parameter_handoff=parameter_handoff,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+    )
+    return result
+
+
+def validate_phase_b_execution_preconditions(
+    *,
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    reviewed_phase_b_precondition_template_bytes: bytes,
+) -> None:
+    """Validate the complete PRE_B chain before any effect/readback client."""
+
+    validate_phase_b_identity_materialization_receipt(
+        phase_b_identity_materialization_receipt,
+        source_commit=str(deployment_contract.get("source_commit")),
+    )
+    validate_phase_b_precondition_change_set_receipt(
+        receipt=phase_b_precondition_change_set_receipt,
+        parameter_handoff=phase_b_precondition_parameter_handoff,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        reviewed_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+    )
+
+
 def verify_delegation_change_set_read_only(
     *,
     source_root: Path,
@@ -2366,6 +3776,63 @@ def _delegation_execution_contract(
         ).hexdigest(),
         "execute_request_sha256": _digest(request),
         "executor_arn_sha256": sha256(executor_arn.encode("utf-8")).hexdigest(),
+    }
+
+
+def _pep_execution_contract(
+    *,
+    source_commit: str,
+    deployment_contract_sha256: str,
+    parameter_handoff_sha256: str,
+    phase_b_identity_materialization_receipt_sha256: str,
+    template_sha256: str,
+    change_set: Mapping[str, Any],
+) -> Mapping[str, str]:
+    """Derive the immutable base execution binding without a PRE_B cycle.
+
+    Broker topology is intentionally absent here.  It is derived only after
+    this reviewed Change Set receipt exists and is then bound by the mandatory
+    PRE_B handoff and PRE_B Change Set receipt.
+    """
+
+    if _DIGEST_RE.fullmatch(
+        phase_b_identity_materialization_receipt_sha256
+    ) is None:
+        raise ChangeSetHandoffError("PEP_BROKER_BINDING_INVALID")
+    effect_principal_arn = PHASE_B_BROKER_EXECUTION_ROLE_ARN
+    token_payload = {
+        "work_package": WORK_PACKAGE,
+        "phase": "B_PEP_EXECUTION",
+        "source_commit": source_commit,
+        "deployment_contract_sha256": deployment_contract_sha256,
+        "parameter_handoff_sha256": parameter_handoff_sha256,
+        "phase_b_identity_materialization_receipt_sha256": (
+            phase_b_identity_materialization_receipt_sha256
+        ),
+        "template_sha256": template_sha256,
+        "change_set_sha256": _digest(change_set),
+        "effect_principal_arn_sha256": sha256(
+            effect_principal_arn.encode("utf-8")
+        ).hexdigest(),
+    }
+    client_request_token = "gug221-b-" + _digest(token_payload)[:48]
+    request = {
+        "changeSetName": change_set.get("arn"),
+        "stackName": change_set.get("stack_arn"),
+        "clientRequestToken": client_request_token,
+    }
+    return {
+        "client_request_token": client_request_token,
+        "client_request_token_sha256": sha256(
+            client_request_token.encode("utf-8")
+        ).hexdigest(),
+        "execute_request_sha256": _digest(request),
+        "effect_principal_arn_sha256": sha256(
+            effect_principal_arn.encode("utf-8")
+        ).hexdigest(),
+        "phase_b_identity_materialization_receipt_sha256": (
+            phase_b_identity_materialization_receipt_sha256
+        ),
     }
 
 
@@ -2668,6 +4135,548 @@ def _verify_execute_change_set_event(
     }
 
 
+def _validate_phase_b_broker_effect_receipt(
+    *,
+    receipt: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+) -> str:
+    """Validate the private broker result before trusting provider traces.
+
+    The broker receipt is never copied into a durable CloudFormation receipt.
+    Only its canonical digest crosses the readback boundary.
+    """
+
+    execution = pep_change_set_receipt.get("execution_contract")
+    change_set = pep_change_set_receipt.get("change_set")
+    precondition_parameters = _normalize_parameters(
+        phase_b_precondition_parameter_handoff.get("parameters"),
+        expected_keys=PHASE_B_PRECONDITION_PARAMETER_KEYS,
+    )
+    if (
+        phase_b_precondition_change_set_receipt.get(
+            "parameter_handoff_sha256"
+        )
+        != _digest(phase_b_precondition_parameter_handoff)
+        or phase_b_precondition_change_set_receipt.get(
+            "pep_change_set_receipt_sha256"
+        )
+        != _digest(pep_change_set_receipt)
+        or phase_b_precondition_change_set_receipt.get(
+            "broker_topology_sha256"
+        )
+        != phase_b_precondition_parameter_handoff.get(
+            "broker_topology_sha256"
+        )
+        or phase_b_precondition_change_set_receipt.get("receipt_digest")
+        != _digest(
+            {
+                key: value
+                for key, value in phase_b_precondition_change_set_receipt.items()
+                if key != "receipt_digest"
+            }
+        )
+    ):
+        raise ChangeSetHandoffError(
+            "PEP_PHASE_B_PRECONDITION_BINDING_INVALID"
+        )
+    required = {
+        "schema_version",
+        "record_type",
+        "environment",
+        "production",
+        "status",
+        "execution_id",
+        "binding_digest",
+        "proof_receipt_digest",
+        "ledger_digest",
+        "closure_pending_receipt_digest",
+        "execution_request_digest",
+        "broker_topology_sha256",
+        "broker_topology_provider_evidence_digest",
+        "invoker_policy_sha256",
+        "broker_policy_sha256",
+        "proof_policy_sha256",
+        "application_actor_policy_sha256",
+        "stack_arn",
+        "change_set_arn",
+        "client_request_token",
+        "effect_principal_type",
+        "effect_principal_arn",
+        "proof_credentials_used_for_effect",
+        "attempts",
+        "execution_ambiguous",
+        "retry_permitted",
+        "one_shot_execution_gate_consumed",
+        "native_on_behalf_of",
+        "provider_revocation_pending",
+        "authority_revoked",
+        "production_status",
+        "receipt_digest",
+    }
+    stable = {
+        key: value for key, value in receipt.items() if key != "receipt_digest"
+    }
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt) != required
+        or not isinstance(execution, Mapping)
+        or not isinstance(change_set, Mapping)
+        or receipt.get("schema_version") != "1"
+        or receipt.get("record_type")
+        != (
+            "platform_authority_lambda_audit_repair_phase_b_"
+            "broker_effect_receipt"
+        )
+        or receipt.get("environment") != "non-production"
+        or receipt.get("production") is not False
+        or receipt.get("status") != "DISPATCH_ACCEPTED"
+        or _PREFIXED_DIGEST_RE.fullmatch(
+            str(receipt.get("binding_digest"))
+        )
+        is None
+        or any(
+            _PREFIXED_DIGEST_RE.fullmatch(str(receipt.get(field))) is None
+            for field in (
+                "proof_receipt_digest",
+                "ledger_digest",
+                "closure_pending_receipt_digest",
+                "execution_request_digest",
+                "broker_topology_sha256",
+                "broker_topology_provider_evidence_digest",
+                "receipt_digest",
+            )
+        )
+        or any(
+            _DIGEST_RE.fullmatch(str(receipt.get(field))) is None
+            for field in (
+                "invoker_policy_sha256",
+                "broker_policy_sha256",
+                "proof_policy_sha256",
+                "application_actor_policy_sha256",
+            )
+        )
+        or receipt.get("execution_request_digest")
+        != "sha256:" + str(execution.get("execute_request_sha256"))
+        or receipt.get("broker_topology_sha256")
+        != precondition_parameters["ExpectedBrokerTopologySha256"]
+        or receipt.get("broker_topology_provider_evidence_digest")
+        == "sha256:" + "0" * 64
+        or any(
+            receipt.get(receipt_field)
+            != precondition_parameters[parameter_key]
+            for receipt_field, parameter_key in (
+                ("invoker_policy_sha256", "InvokerPolicySha256"),
+                ("broker_policy_sha256", "BrokerPolicySha256"),
+                ("proof_policy_sha256", "ProofPolicySha256"),
+                (
+                    "application_actor_policy_sha256",
+                    "ApplicationActorPolicySha256",
+                ),
+            )
+        )
+        or receipt.get("stack_arn") != change_set.get("stack_arn")
+        or receipt.get("change_set_arn") != change_set.get("arn")
+        or receipt.get("client_request_token")
+        != execution.get("client_request_token")
+        or receipt.get("effect_principal_type") != "AWS_SERVICE_ROLE"
+        or receipt.get("effect_principal_arn")
+        != PHASE_B_BROKER_EXECUTION_ROLE_ARN
+        or receipt.get("execution_id")
+        != precondition_parameters["ExactExecutionId"]
+        or receipt.get("proof_credentials_used_for_effect") is not False
+        or receipt.get("attempts") != 1
+        or receipt.get("execution_ambiguous") is not False
+        or receipt.get("retry_permitted") is not False
+        or receipt.get("one_shot_execution_gate_consumed") is not True
+        or receipt.get("native_on_behalf_of") is not False
+        or receipt.get("provider_revocation_pending") is not True
+        or receipt.get("authority_revoked") is not False
+        or receipt.get("production_status") != PRODUCTION_STATUS
+        or receipt.get("receipt_digest")
+        != "sha256:" + plain_canonical_digest(stable)
+    ):
+        raise ChangeSetHandoffError("PEP_BROKER_EFFECT_RECEIPT_INVALID")
+    execution_id = receipt.get("execution_id")
+    if (
+        not isinstance(execution_id, str)
+        or re.fullmatch(r"gug221-phase-b-[0-9a-f]{64}", execution_id)
+        is None
+    ):
+        raise ChangeSetHandoffError("PEP_BROKER_EFFECT_RECEIPT_INVALID")
+    return _digest(receipt)
+
+
+def _readback_phase_b_ledger_provider_state(
+    *,
+    dynamodb_client: Any,
+    broker_effect_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    execute_event: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Read and bind the exact terminal one-shot ledger item."""
+
+    execution_id = str(broker_effect_receipt.get("execution_id"))
+    try:
+        response = dynamodb_client.get_item(
+            TableName=PHASE_B_LEDGER_TABLE_NAME,
+            Key={"execution_id": {"S": execution_id}},
+            ConsistentRead=True,
+            ReturnConsumedCapacity="NONE",
+        )
+    except Exception:
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_UNCERTAIN") from None
+    if not isinstance(response, Mapping) or not isinstance(
+        response.get("Item"), Mapping
+    ):
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_UNCERTAIN")
+    item = response["Item"]
+    string_fields = {
+        "schema_version",
+        "record_type",
+        "environment",
+        "execution_id",
+        "binding_digest",
+        "proof_receipt_digest",
+        "execution_request_digest",
+        "broker_topology_sha256",
+        "broker_topology_provider_evidence_digest",
+        "invoker_policy_sha256",
+        "broker_policy_sha256",
+        "proof_policy_sha256",
+        "application_actor_policy_sha256",
+        "stack_arn",
+        "change_set_arn",
+        "client_request_token",
+        "execution_not_before",
+        "execution_not_after",
+        "claimed_at",
+        "terminal_at",
+        "status",
+        "ledger_digest",
+        "closure_pending_receipt_digest",
+        "closure_status",
+    }
+    boolean_fields = {
+        "production",
+        "execution_gate_consumed",
+        "wall_clock_window_expired",
+        "execution_ambiguous",
+        "retry_permitted",
+        "native_on_behalf_of",
+    }
+    required = string_fields | boolean_fields | {"attempts"}
+    if set(item) != required:
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_INVALID")
+    normalized: dict[str, Any] = {}
+    for field in string_fields:
+        value = item.get(field)
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {"S"}
+            or not isinstance(value.get("S"), str)
+        ):
+            raise ChangeSetHandoffError("PEP_LEDGER_READBACK_INVALID")
+        normalized[field] = value["S"]
+    for field in boolean_fields:
+        value = item.get(field)
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {"BOOL"}
+            or not isinstance(value.get("BOOL"), bool)
+        ):
+            raise ChangeSetHandoffError("PEP_LEDGER_READBACK_INVALID")
+        normalized[field] = value["BOOL"]
+    attempts = item.get("attempts")
+    if (
+        not isinstance(attempts, Mapping)
+        or set(attempts) != {"N"}
+        or attempts.get("N") != "1"
+    ):
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_INVALID")
+    normalized["attempts"] = 1
+
+    ledger_fields = required - {
+        "closure_pending_receipt_digest",
+        "closure_status",
+    }
+    stable_ledger = {
+        key: normalized[key]
+        for key in ledger_fields
+        if key != "ledger_digest"
+    }
+    common_fields = {
+        "execution_id",
+        "binding_digest",
+        "proof_receipt_digest",
+        "execution_request_digest",
+        "broker_topology_sha256",
+        "broker_topology_provider_evidence_digest",
+        "invoker_policy_sha256",
+        "broker_policy_sha256",
+        "proof_policy_sha256",
+        "application_actor_policy_sha256",
+        "stack_arn",
+        "change_set_arn",
+        "client_request_token",
+        "status",
+        "ledger_digest",
+        "closure_pending_receipt_digest",
+    }
+    expected_execution_id = (
+        "gug221-phase-b-"
+        + plain_canonical_digest(
+            {
+                "phase": "B_PEP_EXECUTION",
+                "execution_request_digest": normalized[
+                    "execution_request_digest"
+                ],
+                "not_before": normalized["execution_not_before"],
+                "not_after": normalized["execution_not_after"],
+            }
+        )
+    )
+    not_before = _timestamp(
+        normalized["execution_not_before"], "PEP_LEDGER_READBACK_INVALID"
+    )
+    not_after = _timestamp(
+        normalized["execution_not_after"], "PEP_LEDGER_READBACK_INVALID"
+    )
+    claimed_at = _timestamp(
+        normalized["claimed_at"], "PEP_LEDGER_READBACK_INVALID"
+    )
+    terminal_at = _timestamp(
+        normalized["terminal_at"], "PEP_LEDGER_READBACK_INVALID"
+    )
+    executed_at = _timestamp(
+        str(execute_event.get("event_time")), "PEP_LEDGER_READBACK_INVALID"
+    )
+    if (
+        any(
+            normalized[field] != broker_effect_receipt.get(field)
+            for field in common_fields
+        )
+        or normalized["execution_id"] != expected_execution_id
+        or normalized["execution_not_before"]
+        != deployment_contract.get("repair_not_before")
+        or normalized["execution_not_after"]
+        != deployment_contract.get("repair_not_after")
+        or not_before >= not_after
+        or claimed_at < not_before
+        or claimed_at > executed_at
+        or executed_at > terminal_at
+        or terminal_at >= not_after
+        or normalized["schema_version"] != "1"
+        or normalized["record_type"]
+        != (
+            "platform_authority_lambda_audit_repair_phase_b_"
+            "one_shot_execution_ledger"
+        )
+        or normalized["environment"] != "non-production"
+        or normalized["production"] is not False
+        or normalized["status"] != "DISPATCH_ACCEPTED"
+        or normalized["attempts"] != 1
+        or normalized["execution_gate_consumed"] is not True
+        or normalized["wall_clock_window_expired"] is not False
+        or normalized["execution_ambiguous"] is not False
+        or normalized["retry_permitted"] is not False
+        or normalized["native_on_behalf_of"] is not False
+        or normalized["closure_status"] != "PROVIDER_REVOCATION_PENDING"
+        or normalized["ledger_digest"]
+        != "sha256:" + plain_canonical_digest(stable_ledger)
+    ):
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_INVALID")
+
+    readback = {
+        "table_name_sha256": sha256(
+            PHASE_B_LEDGER_TABLE_NAME.encode("utf-8")
+        ).hexdigest(),
+        "execution_id_sha256": sha256(execution_id.encode("utf-8")).hexdigest(),
+        "binding_digest": normalized["binding_digest"],
+        "proof_receipt_digest": normalized["proof_receipt_digest"],
+        "ledger_digest": normalized["ledger_digest"],
+        "closure_pending_receipt_digest": normalized[
+            "closure_pending_receipt_digest"
+        ],
+        "execution_request_digest": normalized["execution_request_digest"],
+        "broker_topology_sha256": normalized["broker_topology_sha256"],
+        "broker_topology_provider_evidence_digest": normalized[
+            "broker_topology_provider_evidence_digest"
+        ],
+        "status": normalized["status"],
+        "attempts": normalized["attempts"],
+        "execution_gate_consumed": normalized["execution_gate_consumed"],
+        "execution_ambiguous": normalized["execution_ambiguous"],
+        "retry_permitted": normalized["retry_permitted"],
+        "native_on_behalf_of": normalized["native_on_behalf_of"],
+        "closure_status": normalized["closure_status"],
+    }
+    return readback
+
+
+def _verify_pep_execute_change_set_event(
+    *,
+    cloudtrail_client: Any,
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    broker_effect_receipt: Mapping[str, Any],
+    stack_creation_time: datetime,
+    verification_time: datetime,
+) -> Mapping[str, str]:
+    """Prove one exact Phase B execution event without performing a mutation."""
+
+    change_set = _validate_pep_change_set_receipt_binding(
+        receipt=change_set_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+    )
+    execution = change_set_receipt["execution_contract"]
+    create_event_time = _timestamp(
+        change_set["create_event"]["event_time"],
+        "PEP_CHANGE_SET_RECEIPT_TIME_INVALID",
+    )
+    repair_not_before = _timestamp(
+        deployment_contract["repair_not_before"],
+        "DEPLOYMENT_CONTRACT_WINDOW_INVALID",
+    )
+    repair_not_after = _timestamp(
+        deployment_contract["repair_not_after"],
+        "DEPLOYMENT_CONTRACT_WINDOW_INVALID",
+    )
+    if (
+        verification_time.tzinfo is None
+        or verification_time.utcoffset() is None
+        or verification_time < create_event_time
+        or stack_creation_time < create_event_time - timedelta(minutes=5)
+        or stack_creation_time > verification_time
+    ):
+        raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EXECUTION_WINDOW_INVALID")
+    verification_time = verification_time.astimezone(UTC)
+    expected_request = {
+        "changeSetName": change_set["arn"],
+        "stackName": change_set["stack_arn"],
+        "clientRequestToken": execution["client_request_token"],
+    }
+    if execution["execute_request_sha256"] != _digest(expected_request):
+        raise ChangeSetHandoffError("PEP_EXECUTION_CONTRACT_INVALID")
+
+    events: list[Mapping[str, Any]] = []
+    token: str | None = None
+    seen: set[str] = set()
+    for _ in range(MAX_CHANGE_SET_PAGES):
+        request: dict[str, Any] = {
+            "LookupAttributes": [
+                {"AttributeKey": "EventName", "AttributeValue": "ExecuteChangeSet"}
+            ],
+            "StartTime": create_event_time - timedelta(minutes=5),
+            "EndTime": verification_time + timedelta(minutes=5),
+        }
+        if token is not None:
+            request["NextToken"] = token
+        response = _aws_call(cloudtrail_client.lookup_events, **request)
+        page = response.get("Events")
+        if not isinstance(page, list) or any(
+            not isinstance(item, Mapping) for item in page
+        ):
+            raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EVENT_PAGE_INVALID")
+        events.extend(page)
+        next_token = response.get("NextToken")
+        if next_token is None:
+            break
+        if not isinstance(next_token, str) or not next_token or next_token in seen:
+            raise ChangeSetHandoffError("PEP_CLOUDTRAIL_PAGINATION_INVALID")
+        seen.add(next_token)
+        token = next_token
+    else:
+        raise ChangeSetHandoffError("PEP_CLOUDTRAIL_PAGINATION_EXCEEDED")
+
+    matches: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    for envelope in events:
+        raw = envelope.get("CloudTrailEvent")
+        if not isinstance(raw, str):
+            raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EVENT_INVALID")
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EVENT_INVALID") from exc
+        if not isinstance(event, Mapping):
+            raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EVENT_INVALID")
+        request = event.get("requestParameters")
+        if (
+            isinstance(request, Mapping)
+            and (
+                request.get("clientRequestToken")
+                == execution["client_request_token"]
+                or request.get("changeSetName") == change_set["arn"]
+            )
+        ):
+            matches.append((envelope, event))
+    if len(matches) != 1:
+        raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EXECUTE_EVENT_NOT_UNIQUE")
+
+    _validate_phase_b_broker_effect_receipt(
+        receipt=broker_effect_receipt,
+        pep_change_set_receipt=change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+    )
+    envelope, event = matches[0]
+    identity = event.get("userIdentity")
+    session_context = (
+        identity.get("sessionContext") if isinstance(identity, Mapping) else None
+    )
+    session_issuer = (
+        session_context.get("sessionIssuer")
+        if isinstance(session_context, Mapping)
+        else None
+    )
+    event_time = _provider_datetime(
+        envelope.get("EventTime"), "PEP_CLOUDTRAIL_EVENT_TIME_INVALID"
+    )
+    if (
+        event.get("eventSource") != "cloudformation.amazonaws.com"
+        or event.get("eventName") != "ExecuteChangeSet"
+        or event.get("eventCategory") != "Management"
+        or event.get("awsRegion") != REGION
+        or event.get("recipientAccountId") != AUTHORITY_ACCOUNT_ID
+        or event.get("readOnly") is not False
+        or not isinstance(identity, Mapping)
+        or identity.get("type") != "AssumedRole"
+        or identity.get("accountId") != AUTHORITY_ACCOUNT_ID
+        or not isinstance(session_issuer, Mapping)
+        or session_issuer.get("type") != "Role"
+        or session_issuer.get("accountId") != AUTHORITY_ACCOUNT_ID
+        or session_issuer.get("arn")
+        != PHASE_B_BROKER_EXECUTION_ROLE_ARN
+        or event.get("requestParameters") != expected_request
+        or event.get("errorCode") not in (None, "")
+        or event.get("errorMessage") not in (None, "")
+        or event_time < create_event_time
+        or event_time < stack_creation_time
+        or event_time < repair_not_before
+        or event_time >= repair_not_after
+        or event_time > verification_time
+        or not isinstance(envelope.get("EventId"), str)
+        or not envelope.get("EventId")
+    ):
+        raise ChangeSetHandoffError("PEP_CLOUDTRAIL_EXECUTE_EVENT_DRIFT")
+    return {
+        "event_id": str(envelope["EventId"]),
+        "event_time": _utc_text(event_time),
+        "event_digest": _digest(event),
+    }
+
+
 def _verify_stack_operation_events(
     *,
     cloudformation_client: Any,
@@ -2675,6 +4684,10 @@ def _verify_stack_operation_events(
     client_request_token: str,
     execute_event_time: datetime,
     expected_resource_types: Mapping[str, str],
+    stack_name: str = DELEGATION_STACK_NAME,
+    error_prefix: str = "DELEGATION",
+    require_progress_events: bool = False,
+    include_stack_events: bool = False,
 ) -> Mapping[str, Any]:
     events = _paginate_next_token(
         cloudformation_client,
@@ -2683,18 +4696,19 @@ def _verify_stack_operation_events(
         StackName=stack_arn,
     )
     all_expected_types = {
-        DELEGATION_STACK_NAME: "AWS::CloudFormation::Stack",
+        stack_name: "AWS::CloudFormation::Stack",
         **dict(expected_resource_types),
     }
     operation_events: list[dict[str, Any]] = []
     terminal: dict[str, dict[str, Any]] = {}
+    progress: dict[str, list[dict[str, Any]]] = {}
     seen_event_ids: set[str] = set()
     for item in events:
         if not isinstance(item, Mapping):
-            raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_INVALID")
+            raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_INVALID")
         event_id = item.get("EventId")
         event_time = _provider_datetime(
-            item.get("Timestamp"), "DELEGATION_STACK_EVENT_TIME_INVALID"
+            item.get("Timestamp"), f"{error_prefix}_STACK_EVENT_TIME_INVALID"
         )
         logical_id = item.get("LogicalResourceId")
         resource_type = item.get("ResourceType")
@@ -2705,34 +4719,41 @@ def _verify_stack_operation_events(
             or not event_id
             or event_id in seen_event_ids
             or item.get("StackId") != stack_arn
-            or item.get("StackName") != DELEGATION_STACK_NAME
+            or item.get("StackName") != stack_name
             or not isinstance(logical_id, str)
             or not isinstance(resource_type, str)
             or not isinstance(status, str)
         ):
-            raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_INVALID")
+            raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_INVALID")
         seen_event_ids.add(event_id)
         if token != client_request_token:
             if not (
-                logical_id == DELEGATION_STACK_NAME
+                logical_id == stack_name
                 and resource_type == "AWS::CloudFormation::Stack"
                 and status == "REVIEW_IN_PROGRESS"
                 and event_time <= execute_event_time
             ):
-                raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_TOKEN_DRIFT")
+                raise ChangeSetHandoffError(
+                    f"{error_prefix}_STACK_EVENT_TOKEN_DRIFT"
+                )
             continue
         if (
-            event_time < execute_event_time - timedelta(minutes=5)
+            event_time
+            < (
+                execute_event_time
+                if require_progress_events
+                else execute_event_time - timedelta(minutes=5)
+            )
             or logical_id not in all_expected_types
             or resource_type != all_expected_types[logical_id]
             or status not in {"CREATE_IN_PROGRESS", "CREATE_COMPLETE"}
         ):
-            raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_DRIFT")
+            raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_DRIFT")
         physical_id = item.get("PhysicalResourceId")
         if physical_id is not None and (
             not isinstance(physical_id, str) or not physical_id
         ):
-            raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_DRIFT")
+            raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_DRIFT")
         normalized = {
             "event_id": event_id,
             "event_time": _utc_text(event_time),
@@ -2746,23 +4767,88 @@ def _verify_stack_operation_events(
             ),
         }
         operation_events.append(normalized)
-        if status == "CREATE_COMPLETE":
+        if status == "CREATE_IN_PROGRESS":
+            progress.setdefault(logical_id, []).append(normalized)
+        else:
             if logical_id in terminal or physical_id is None:
-                raise ChangeSetHandoffError("DELEGATION_STACK_EVENT_DRIFT")
+                raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_DRIFT")
             terminal[logical_id] = normalized
     if set(terminal) != set(all_expected_types):
-        raise ChangeSetHandoffError("DELEGATION_STACK_TERMINAL_EVENT_MISSING")
-    if terminal[DELEGATION_STACK_NAME]["physical_resource_id_sha256"] != sha256(
+        raise ChangeSetHandoffError(
+            f"{error_prefix}_STACK_TERMINAL_EVENT_MISSING"
+        )
+    if require_progress_events:
+        if set(progress) != set(all_expected_types):
+            raise ChangeSetHandoffError(
+                f"{error_prefix}_STACK_PROGRESS_EVENT_MISSING"
+            )
+        for logical_id, progress_events in progress.items():
+            terminal_time = _timestamp(
+                terminal[logical_id]["event_time"],
+                f"{error_prefix}_STACK_EVENT_TIME_INVALID",
+            )
+            if any(
+                _timestamp(
+                    event["event_time"],
+                    f"{error_prefix}_STACK_EVENT_TIME_INVALID",
+                )
+                >= terminal_time
+                for event in progress_events
+            ):
+                raise ChangeSetHandoffError(
+                    f"{error_prefix}_STACK_EVENT_SEQUENCE_INVALID"
+                )
+    if terminal[stack_name]["physical_resource_id_sha256"] != sha256(
         stack_arn.encode("utf-8")
     ).hexdigest():
-        raise ChangeSetHandoffError("DELEGATION_STACK_TERMINAL_EVENT_DRIFT")
+        raise ChangeSetHandoffError(
+            f"{error_prefix}_STACK_TERMINAL_EVENT_DRIFT"
+        )
+    if len(operation_events) > 240:
+        raise ChangeSetHandoffError(f"{error_prefix}_STACK_EVENT_COUNT_EXCEEDED")
     operation_events.sort(key=lambda item: (item["event_time"], item["event_id"]))
     terminal_resources = [terminal[key] for key in sorted(terminal)]
-    return {
+    result: dict[str, Any] = {
         "stack_event_count": len(operation_events),
         "stack_events_sha256": _digest(operation_events),
         "terminal_resources": terminal_resources,
     }
+    if include_stack_events:
+        token_sha256 = sha256(client_request_token.encode("utf-8")).hexdigest()
+        stack_events = []
+        for logical_id in sorted(all_expected_types):
+            in_progress_events = sorted(
+                (
+                    {
+                        "event_id": event["event_id"],
+                        "event_time": event["event_time"],
+                        "physical_resource_id_sha256": event[
+                            "physical_resource_id_sha256"
+                        ],
+                    }
+                    for event in progress.get(logical_id, [])
+                ),
+                key=lambda item: (item["event_time"], item["event_id"]),
+            )
+            complete = terminal[logical_id]
+            stack_events.append(
+                {
+                    "logical_resource_id": logical_id,
+                    "resource_type": all_expected_types[logical_id],
+                    "client_request_token_sha256": token_sha256,
+                    "in_progress_events": in_progress_events,
+                    "complete_event": {
+                        "event_id": complete["event_id"],
+                        "event_time": complete["event_time"],
+                        "physical_resource_id_sha256": complete[
+                            "physical_resource_id_sha256"
+                        ],
+                    },
+                }
+            )
+        result["stack_events"] = stack_events
+        result["stack_events_sha256"] = _digest(stack_events)
+    return result
 
 
 def verify_delegation_execution_read_only(
@@ -3515,6 +5601,7 @@ def verify_pep_change_set_read_only(
     gug220_evidence: Mapping[str, Any],
     delegation_handoff: Mapping[str, Any],
     delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
     pep_handoff: Mapping[str, Any],
     reviewed_template_bytes: bytes,
     reviewed_delegation_template_bytes: bytes,
@@ -3536,6 +5623,10 @@ def verify_pep_change_set_read_only(
 ) -> Mapping[str, Any]:
     """Phase B: revalidate live Phase A, then verify only the PEP Change Set."""
 
+    validate_phase_b_identity_materialization_receipt(
+        phase_b_identity_materialization_receipt,
+        source_commit=str(deployment_contract.get("source_commit")),
+    )
     if profile_name != EXPECTED_PROFILE or region != REGION:
         raise ChangeSetHandoffError("VERIFIER_PROFILE_OR_REGION_INVALID")
     identity = _aws_call(authority_sts_client.get_caller_identity)
@@ -3606,6 +5697,9 @@ def verify_pep_change_set_read_only(
         gug220_receipt=gug220_receipt,
         gug220_evidence=gug220_evidence,
         delegation_live_receipt=fresh_live,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
         template_bytes=reviewed_template_bytes,
     )
     change_set = _verify_exact_change_set(
@@ -3623,6 +5717,21 @@ def verify_pep_change_set_read_only(
         parameters=pep_handoff["parameters"],
         tags=pep_handoff["stack_tags"],
     )
+    deployment_contract_sha256 = _digest(deployment_contract)
+    parameter_handoff_sha256 = _digest(pep_handoff)
+    template_sha256 = sha256(reviewed_template_bytes).hexdigest()
+    execution_contract = _pep_execution_contract(
+        source_commit=str(fresh_signed_receipt["source_commit"]),
+        deployment_contract_sha256=deployment_contract_sha256,
+        parameter_handoff_sha256=parameter_handoff_sha256,
+        phase_b_identity_materialization_receipt_sha256=(
+            _phase_b_identity_materialization_receipt_digest(
+                phase_b_identity_materialization_receipt
+            )
+        ),
+        template_sha256=template_sha256,
+        change_set=change_set,
+    )
     return {
         "artifact_type": PEP_CHANGE_SET_RECEIPT_TYPE,
         "schema_version": 1,
@@ -3632,7 +5741,7 @@ def verify_pep_change_set_read_only(
         "signed_artifact_receipt_sha256": _signed_receipt_binding_digest(
             fresh_signed_receipt
         ),
-        "deployment_contract_sha256": _digest(deployment_contract),
+        "deployment_contract_sha256": deployment_contract_sha256,
         "gug220_intent_sha256": _digest(gug220_intent),
         "gug220_ledger_sha256": _digest(gug220_ledger),
         "gug220_receipt_sha256": _digest(gug220_receipt),
@@ -3643,9 +5752,15 @@ def verify_pep_change_set_read_only(
         "delegation_live_receipt_sha256": (
             _delegation_live_receipt_binding_digest(fresh_live)
         ),
-        "parameter_handoff_sha256": _digest(pep_handoff),
-        "template_sha256": sha256(reviewed_template_bytes).hexdigest(),
+        "parameter_handoff_sha256": parameter_handoff_sha256,
+        "phase_b_identity_materialization_receipt_sha256": (
+            _phase_b_identity_materialization_receipt_digest(
+                phase_b_identity_materialization_receipt
+            )
+        ),
+        "template_sha256": template_sha256,
         "change_set": change_set,
+        "execution_contract": execution_contract,
         "verifier": {
             "profile": profile_name,
             "account_id": identity["Account"],
@@ -3655,4 +5770,1290 @@ def verify_pep_change_set_read_only(
         "evidence_status": "PEP_CHANGE_SET_READ_ONLY_VERIFIED_AFTER_LIVE_DELEGATION",
         "authority_status": "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY",
         "production_status": PRODUCTION_STATUS,
+    }
+
+
+def _pep_expected_resource_types() -> dict[str, str]:
+    return {
+        "InvocationAuthorityInspectorRole": "AWS::IAM::Role",
+        "PlanAlias": "AWS::Lambda::Alias",
+        "PlanEventInvokeConfig": "AWS::Lambda::EventInvokeConfig",
+        "PlanExecutionRole": "AWS::IAM::Role",
+        "PlanFunction": "AWS::Lambda::Function",
+        "PlanFunctionVersion": "AWS::Lambda::Version",
+        "PlanLogGroup": "AWS::Logs::LogGroup",
+        "ReconcileAlias": "AWS::Lambda::Alias",
+        "ReconcileEventInvokeConfig": "AWS::Lambda::EventInvokeConfig",
+        "ReconcileExecutionRole": "AWS::IAM::Role",
+        "ReconcileFunction": "AWS::Lambda::Function",
+        "ReconcileFunctionVersion": "AWS::Lambda::Version",
+        "ReconcileLogGroup": "AWS::Logs::LogGroup",
+        "RepairAlias": "AWS::Lambda::Alias",
+        "RepairCodeSigningConfig": "AWS::Lambda::CodeSigningConfig",
+        "RepairEventInvokeConfig": "AWS::Lambda::EventInvokeConfig",
+        "RepairExecutionRole": "AWS::IAM::Role",
+        "RepairFunction": "AWS::Lambda::Function",
+        "RepairFunctionVersion": "AWS::Lambda::Version",
+        "RepairLedger": "AWS::DynamoDB::Table",
+        "RepairLedgerKey": "AWS::KMS::Key",
+        "RepairLedgerKeyAlias": "AWS::KMS::Alias",
+        "RepairLogGroup": "AWS::Logs::LogGroup",
+    }
+
+
+def _validate_pep_change_set_receipt_binding(
+    *,
+    receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Validate immutable Phase B review and execution bindings."""
+
+    validate_deployment_contract(deployment_contract)
+    validate_phase_b_identity_materialization_receipt(
+        phase_b_identity_materialization_receipt,
+        source_commit=str(deployment_contract["source_commit"]),
+    )
+    required = {
+        "artifact_type",
+        "schema_version",
+        "work_package",
+        "phase",
+        "source_commit",
+        "signed_artifact_receipt_sha256",
+        "deployment_contract_sha256",
+        "gug220_intent_sha256",
+        "gug220_ledger_sha256",
+        "gug220_receipt_sha256",
+        "gug220_evidence_sha256",
+        "gug220_provider_state_sha256",
+        "delegation_live_receipt_sha256",
+        "parameter_handoff_sha256",
+        "phase_b_identity_materialization_receipt_sha256",
+        "template_sha256",
+        "change_set",
+        "execution_contract",
+        "verifier",
+        "evaluated_at",
+        "evidence_status",
+        "authority_status",
+        "production_status",
+    }
+    change_set = receipt.get("change_set")
+    verifier = receipt.get("verifier")
+    digest_fields = {
+        "signed_artifact_receipt_sha256",
+        "deployment_contract_sha256",
+        "gug220_intent_sha256",
+        "gug220_ledger_sha256",
+        "gug220_receipt_sha256",
+        "gug220_evidence_sha256",
+        "gug220_provider_state_sha256",
+        "delegation_live_receipt_sha256",
+        "parameter_handoff_sha256",
+        "phase_b_identity_materialization_receipt_sha256",
+        "template_sha256",
+    }
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt) != required
+        or receipt.get("artifact_type") != PEP_CHANGE_SET_RECEIPT_TYPE
+        or receipt.get("schema_version") != 1
+        or receipt.get("work_package") != WORK_PACKAGE
+        or receipt.get("phase") != "B_PEP_CHANGE_SET"
+        or receipt.get("source_commit") != deployment_contract["source_commit"]
+        or receipt.get("deployment_contract_sha256") != _digest(deployment_contract)
+        or receipt.get("phase_b_identity_materialization_receipt_sha256")
+        != _phase_b_identity_materialization_receipt_digest(
+            phase_b_identity_materialization_receipt
+        )
+        or any(
+            _DIGEST_RE.fullmatch(str(receipt.get(field))) is None
+            for field in digest_fields
+        )
+        or not isinstance(change_set, Mapping)
+        or not isinstance(verifier, Mapping)
+        or verifier.get("profile") != EXPECTED_PROFILE
+        or verifier.get("account_id") != AUTHORITY_ACCOUNT_ID
+        or _CALLER_ARN_RE.fullmatch(str(verifier.get("caller_arn"))) is None
+        or receipt.get("evidence_status")
+        != "PEP_CHANGE_SET_READ_ONLY_VERIFIED_AFTER_LIVE_DELEGATION"
+        or receipt.get("authority_status")
+        != "REVIEW_EVIDENCE_ONLY_NOT_EXECUTION_AUTHORITY"
+        or receipt.get("production_status") != PRODUCTION_STATUS
+    ):
+        raise ChangeSetHandoffError("PEP_CHANGE_SET_RECEIPT_INVALID")
+
+    expected_change_keys = {
+        "arn",
+        "uuid",
+        "name",
+        "stack_arn",
+        "stack_name",
+        "type",
+        "status",
+        "execution_status",
+        "on_stack_failure",
+        "capabilities",
+        "tags",
+        "parameters_sha256",
+        "resource_changes",
+        "create_event",
+    }
+    arn_match = _CHANGE_SET_ARN_RE.fullmatch(str(change_set.get("arn")))
+    stack_match = _STACK_ARN_RE.fullmatch(str(change_set.get("stack_arn")))
+    create_event = change_set.get("create_event")
+    expected_changes = [
+        {
+            "logical_resource_id": logical_id,
+            "resource_type": resource_type,
+            "action": "Add",
+            "replacement": "False",
+        }
+        for logical_id, resource_type in sorted(
+            _pep_expected_resource_types().items()
+        )
+    ]
+    if (
+        set(change_set) != expected_change_keys
+        or arn_match is None
+        or stack_match is None
+        or change_set.get("uuid") != arn_match.group("uuid")
+        or change_set.get("name") != CHANGE_SET_NAME
+        or change_set.get("stack_name") != STACK_NAME
+        or change_set.get("type") != "CREATE"
+        or change_set.get("status") != "CREATE_COMPLETE"
+        or change_set.get("execution_status") != "AVAILABLE"
+        or change_set.get("on_stack_failure") != "ROLLBACK"
+        or change_set.get("capabilities") != list(EXPECTED_CAPABILITIES)
+        or change_set.get("tags")
+        != _permission_set_tags(str(deployment_contract["source_commit"]))
+        or _DIGEST_RE.fullmatch(str(change_set.get("parameters_sha256"))) is None
+        or change_set.get("resource_changes") != expected_changes
+        or not isinstance(create_event, Mapping)
+        or set(create_event) != {"event_id", "event_time", "event_digest"}
+        or not isinstance(create_event.get("event_id"), str)
+        or not create_event.get("event_id")
+        or _DIGEST_RE.fullmatch(str(create_event.get("event_digest"))) is None
+    ):
+        raise ChangeSetHandoffError("PEP_CHANGE_SET_RECEIPT_INVALID")
+    _timestamp(create_event.get("event_time"), "PEP_CHANGE_SET_RECEIPT_TIME_INVALID")
+    _timestamp(receipt.get("evaluated_at"), "PEP_CHANGE_SET_RECEIPT_TIME_INVALID")
+    expected_execution = _pep_execution_contract(
+        source_commit=str(receipt["source_commit"]),
+        deployment_contract_sha256=str(receipt["deployment_contract_sha256"]),
+        parameter_handoff_sha256=str(receipt["parameter_handoff_sha256"]),
+        phase_b_identity_materialization_receipt_sha256=str(
+            receipt["phase_b_identity_materialization_receipt_sha256"]
+        ),
+        template_sha256=str(receipt["template_sha256"]),
+        change_set=change_set,
+    )
+    if receipt.get("execution_contract") != expected_execution:
+        raise ChangeSetHandoffError("PEP_EXECUTION_CONTRACT_INVALID")
+    return change_set
+
+
+def validate_pep_change_set_receipt(
+    *,
+    receipt: Mapping[str, Any],
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    gug220_intent: Mapping[str, Any],
+    gug220_ledger: Mapping[str, Any],
+    gug220_receipt: Mapping[str, Any],
+    gug220_evidence: Mapping[str, Any],
+    delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_handoff: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+) -> Mapping[str, Any]:
+    change_set = _validate_pep_change_set_receipt_binding(
+        receipt=receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+    )
+    validate_signed_artifact_receipt(signed_receipt)
+    validate_delegation_live_receipt(
+        receipt=delegation_live_receipt,
+        source_root=source_root,
+        deployment_contract=deployment_contract,
+        gug220_intent=gug220_intent,
+        gug220_ledger=gug220_ledger,
+        gug220_receipt=gug220_receipt,
+        gug220_evidence=gug220_evidence,
+    )
+    validate_pep_parameter_handoff(
+        handoff=pep_handoff,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        gug220_intent=gug220_intent,
+        gug220_ledger=gug220_ledger,
+        gug220_receipt=gug220_receipt,
+        gug220_evidence=gug220_evidence,
+        delegation_live_receipt=delegation_live_receipt,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        template_bytes=reviewed_template_bytes,
+    )
+    if (
+        receipt.get("signed_artifact_receipt_sha256")
+        != _signed_receipt_binding_digest(signed_receipt)
+        or receipt.get("gug220_intent_sha256") != _digest(gug220_intent)
+        or receipt.get("gug220_ledger_sha256") != _digest(gug220_ledger)
+        or receipt.get("gug220_receipt_sha256") != _digest(gug220_receipt)
+        or receipt.get("gug220_evidence_sha256") != _digest(gug220_evidence)
+        or receipt.get("gug220_provider_state_sha256")
+        != delegation_live_receipt.get("gug220_provider_state_sha256")
+        or receipt.get("delegation_live_receipt_sha256")
+        != _delegation_live_receipt_binding_digest(delegation_live_receipt)
+        or receipt.get("parameter_handoff_sha256") != _digest(pep_handoff)
+        or receipt.get("phase_b_identity_materialization_receipt_sha256")
+        != _phase_b_identity_materialization_receipt_digest(
+            phase_b_identity_materialization_receipt
+        )
+        or receipt.get("template_sha256")
+        != sha256(reviewed_template_bytes).hexdigest()
+    ):
+        raise ChangeSetHandoffError("PEP_CHANGE_SET_RECEIPT_CHAIN_INVALID")
+    return change_set
+
+
+def _pep_output_readback(
+    *,
+    stack: Mapping[str, Any],
+    resource_map: Mapping[str, tuple[str, str]],
+) -> dict[str, str]:
+    outputs = stack.get("Outputs")
+    if not isinstance(outputs, list):
+        raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+    output_map: dict[str, str] = {}
+    for item in outputs:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) - {"OutputKey", "OutputValue", "Description", "ExportName"}
+            or not isinstance(item.get("OutputKey"), str)
+            or not isinstance(item.get("OutputValue"), str)
+            or not item["OutputValue"]
+            or item["OutputKey"] in output_map
+        ):
+            raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+        output_map[item["OutputKey"]] = item["OutputValue"]
+    expected_keys = {
+        "RepairLedgerName",
+        "RepairLedgerKeyArn",
+        "RepairFunctionAliasArn",
+        "PlanFunctionAliasArn",
+        "ReconcileFunctionAliasArn",
+        "RepairExecutionRoleArn",
+        "PlanExecutionRoleArn",
+        "ReconcileExecutionRoleArn",
+        "InvocationAuthorityInspectorRoleArn",
+        "ProductionAuthorized",
+    }
+    if set(output_map) != expected_keys or output_map["ProductionAuthorized"] != "false":
+        raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+    direct_bindings = {
+        "RepairLedgerName": "RepairLedger",
+        "RepairFunctionAliasArn": "RepairAlias",
+        "PlanFunctionAliasArn": "PlanAlias",
+        "ReconcileFunctionAliasArn": "ReconcileAlias",
+    }
+    if any(
+        output_map[output_key] != resource_map[logical_id][1]
+        for output_key, logical_id in direct_bindings.items()
+    ):
+        raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+    key_id = resource_map["RepairLedgerKey"][1]
+    if output_map["RepairLedgerKeyArn"] != (
+        f"arn:aws:kms:{REGION}:{AUTHORITY_ACCOUNT_ID}:key/{key_id}"
+    ):
+        raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+    role_bindings = {
+        "RepairExecutionRoleArn": "RepairExecutionRole",
+        "PlanExecutionRoleArn": "PlanExecutionRole",
+        "ReconcileExecutionRoleArn": "ReconcileExecutionRole",
+        "InvocationAuthorityInspectorRoleArn": "InvocationAuthorityInspectorRole",
+    }
+    for output_key, logical_id in role_bindings.items():
+        value = output_map[output_key]
+        physical_id = resource_map[logical_id][1]
+        if (
+            not value.startswith(f"arn:aws:iam::{AUTHORITY_ACCOUNT_ID}:role/")
+            or not value.endswith("/" + physical_id)
+        ):
+            raise ChangeSetHandoffError("PEP_STACK_OUTPUT_DRIFT")
+    return dict(sorted(output_map.items()))
+
+
+def _pep_output_snapshot(output_map: Mapping[str, str]) -> list[dict[str, str]]:
+    """Return a deterministic receipt-safe projection of PEP stack outputs."""
+
+    return [
+        {
+            "output_key": key,
+            "output_value_sha256": sha256(value.encode("utf-8")).hexdigest(),
+        }
+        for key, value in sorted(output_map.items())
+    ]
+
+
+def _pep_resource_snapshot(
+    resource_map: Mapping[str, tuple[str, str]],
+) -> list[dict[str, str]]:
+    """Return exact logical/type bindings without exposing physical identifiers."""
+
+    return [
+        {
+            "logical_resource_id": logical_id,
+            "resource_type": resource_type,
+            "physical_resource_id_sha256": sha256(
+                physical_id.encode("utf-8")
+            ).hexdigest(),
+        }
+        for logical_id, (resource_type, physical_id) in sorted(
+            resource_map.items()
+        )
+    ]
+
+
+def _validate_phase_b_ledger_readback_binding(
+    *,
+    readback: Any,
+    readback_sha256: Any,
+    broker_effect_receipt: Mapping[str, Any],
+) -> None:
+    required = {
+        "table_name_sha256",
+        "execution_id_sha256",
+        "binding_digest",
+        "proof_receipt_digest",
+        "ledger_digest",
+        "closure_pending_receipt_digest",
+        "execution_request_digest",
+        "broker_topology_sha256",
+        "broker_topology_provider_evidence_digest",
+        "status",
+        "attempts",
+        "execution_gate_consumed",
+        "execution_ambiguous",
+        "retry_permitted",
+        "native_on_behalf_of",
+        "closure_status",
+    }
+    if (
+        not isinstance(readback, Mapping)
+        or set(readback) != required
+        or readback_sha256 != _digest(readback)
+        or _DIGEST_RE.fullmatch(str(readback_sha256)) is None
+        or readback.get("table_name_sha256")
+        != sha256(PHASE_B_LEDGER_TABLE_NAME.encode("utf-8")).hexdigest()
+        or readback.get("execution_id_sha256")
+        != sha256(
+            str(broker_effect_receipt.get("execution_id")).encode("utf-8")
+        ).hexdigest()
+        or any(
+            readback.get(field) != broker_effect_receipt.get(field)
+            for field in (
+                "binding_digest",
+                "proof_receipt_digest",
+                "ledger_digest",
+                "closure_pending_receipt_digest",
+                "execution_request_digest",
+                "broker_topology_sha256",
+                "broker_topology_provider_evidence_digest",
+                "status",
+                "attempts",
+                "execution_ambiguous",
+                "retry_permitted",
+                "native_on_behalf_of",
+            )
+        )
+        or readback.get("execution_gate_consumed") is not True
+        or readback.get("closure_status") != "PROVIDER_REVOCATION_PENDING"
+    ):
+        raise ChangeSetHandoffError("PEP_LEDGER_READBACK_BINDING_INVALID")
+
+
+def validate_pep_execution_receipt(
+    *,
+    receipt: Mapping[str, Any],
+    source_root: Path,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_parameter_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    reviewed_phase_b_precondition_template_bytes: bytes,
+    broker_effect_receipt: Mapping[str, Any],
+) -> None:
+    validate_phase_b_execution_preconditions(
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_parameter_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        reviewed_phase_b_precondition_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+    )
+    change_set = _validate_pep_change_set_receipt_binding(
+        receipt=pep_change_set_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+    )
+    required = {
+        "artifact_type",
+        "schema_version",
+        "work_package",
+        "phase",
+        "source_commit",
+        "deployment_contract_sha256",
+        "pep_change_set_receipt_sha256",
+        "phase_b_precondition_parameter_handoff_sha256",
+        "phase_b_precondition_change_set_receipt_sha256",
+        "broker_effect_receipt_sha256",
+        "broker_ledger_provider_readback",
+        "broker_ledger_provider_readback_sha256",
+        "change_set_arn",
+        "change_set_uuid",
+        "stack_arn",
+        "client_request_token",
+        "client_request_token_sha256",
+        "execute_request_sha256",
+        "effect_principal_arn_sha256",
+        "execute_event",
+        "stack_event_count",
+        "stack_events",
+        "stack_events_sha256",
+        "terminal_resources",
+        "stack_parameters_sha256",
+        "stack_tags",
+        "stack_outputs",
+        "stack_outputs_sha256",
+        "stack_resources",
+        "stack_resources_sha256",
+        "cloudformation_projection_sha256",
+        "executed_at",
+        "stack_completed_at",
+        "verifier",
+        "evaluated_at",
+        "evidence_status",
+        "authority_status",
+        "production_status",
+    }
+    execution = pep_change_set_receipt["execution_contract"]
+    execute_event = receipt.get("execute_event")
+    stack_events = receipt.get("stack_events")
+    terminal = receipt.get("terminal_resources")
+    stack_outputs = receipt.get("stack_outputs")
+    stack_resources = receipt.get("stack_resources")
+    verifier = receipt.get("verifier")
+    expected_terminal = {
+        **_pep_expected_resource_types(),
+        STACK_NAME: "AWS::CloudFormation::Stack",
+    }
+    cloudformation_projection = {
+        key: receipt.get(key)
+        for key in (
+            "stack_parameters_sha256",
+            "stack_tags",
+            "stack_outputs_sha256",
+            "stack_resources_sha256",
+        )
+    }
+    _validate_phase_b_ledger_readback_binding(
+        readback=receipt.get("broker_ledger_provider_readback"),
+        readback_sha256=receipt.get(
+            "broker_ledger_provider_readback_sha256"
+        ),
+        broker_effect_receipt=broker_effect_receipt,
+    )
+    if (
+        not isinstance(receipt, Mapping)
+        or set(receipt) != required
+        or receipt.get("artifact_type") != PEP_EXECUTION_RECEIPT_TYPE
+        or receipt.get("schema_version") != 1
+        or receipt.get("work_package") != WORK_PACKAGE
+        or receipt.get("phase") != "B_PEP_EXECUTION_TRACE"
+        or receipt.get("source_commit") != deployment_contract["source_commit"]
+        or receipt.get("deployment_contract_sha256") != _digest(deployment_contract)
+        or receipt.get("pep_change_set_receipt_sha256")
+        != _digest(pep_change_set_receipt)
+        or receipt.get(
+            "phase_b_precondition_parameter_handoff_sha256"
+        )
+        != _digest(phase_b_precondition_parameter_handoff)
+        or receipt.get(
+            "phase_b_precondition_change_set_receipt_sha256"
+        )
+        != _digest(phase_b_precondition_change_set_receipt)
+        or receipt.get("broker_effect_receipt_sha256")
+        != _validate_phase_b_broker_effect_receipt(
+            receipt=broker_effect_receipt,
+            pep_change_set_receipt=pep_change_set_receipt,
+            phase_b_precondition_parameter_handoff=(
+                phase_b_precondition_parameter_handoff
+            ),
+            phase_b_precondition_change_set_receipt=(
+                phase_b_precondition_change_set_receipt
+            ),
+        )
+        or receipt.get("change_set_arn") != change_set["arn"]
+        or receipt.get("change_set_uuid") != change_set["uuid"]
+        or receipt.get("stack_arn") != change_set["stack_arn"]
+        or receipt.get("client_request_token")
+        != execution["client_request_token"]
+        or receipt.get("client_request_token_sha256")
+        != execution["client_request_token_sha256"]
+        or receipt.get("execute_request_sha256")
+        != execution["execute_request_sha256"]
+        or receipt.get("effect_principal_arn_sha256")
+        != execution["effect_principal_arn_sha256"]
+        or not isinstance(execute_event, Mapping)
+        or set(execute_event) != {"event_id", "event_time", "event_digest"}
+        or not isinstance(execute_event.get("event_id"), str)
+        or not execute_event.get("event_id")
+        or _DIGEST_RE.fullmatch(str(execute_event.get("event_digest"))) is None
+        or not isinstance(receipt.get("stack_event_count"), int)
+        or receipt.get("stack_event_count", 0) < 2 * len(expected_terminal)
+        or receipt.get("stack_event_count", 0) > 240
+        or not isinstance(stack_events, list)
+        or len(stack_events) != len(expected_terminal)
+        or receipt.get("stack_events_sha256") != _digest(stack_events)
+        or _DIGEST_RE.fullmatch(str(receipt.get("stack_events_sha256"))) is None
+        or not isinstance(terminal, list)
+        or len(terminal) != len(expected_terminal)
+        or _DIGEST_RE.fullmatch(str(receipt.get("stack_parameters_sha256")))
+        is None
+        or receipt.get("stack_tags")
+        != _permission_set_tags(str(deployment_contract["source_commit"]))
+        or not isinstance(stack_outputs, list)
+        or receipt.get("stack_outputs_sha256") != _digest(stack_outputs)
+        or _DIGEST_RE.fullmatch(str(receipt.get("stack_outputs_sha256"))) is None
+        or not isinstance(stack_resources, list)
+        or len(stack_resources) != len(_pep_expected_resource_types())
+        or receipt.get("stack_resources_sha256") != _digest(stack_resources)
+        or _DIGEST_RE.fullmatch(str(receipt.get("stack_resources_sha256")))
+        is None
+        or receipt.get("cloudformation_projection_sha256")
+        != _digest(cloudformation_projection)
+        or not isinstance(verifier, Mapping)
+        or verifier.get("profile") != EXPECTED_PROFILE
+        or verifier.get("account_id") != AUTHORITY_ACCOUNT_ID
+        or _CALLER_ARN_RE.fullmatch(str(verifier.get("caller_arn"))) is None
+        or receipt.get("evidence_status")
+        != "CLOUDFORMATION_EXECUTION_TRACE_VERIFIED"
+        or receipt.get("authority_status")
+        != "PROVIDER_DERIVED_CLOUDFORMATION_TRACE_NOT_EFFECTIVE_STATE"
+        or receipt.get("production_status") != PRODUCTION_STATUS
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+    observed_terminal: dict[str, str] = {}
+    for item in terminal:
+        if (
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "event_id",
+                "event_time",
+                "logical_resource_id",
+                "resource_type",
+                "resource_status",
+                "physical_resource_id_sha256",
+            }
+            or not isinstance(item.get("event_id"), str)
+            or not item.get("event_id")
+            or item.get("resource_status") != "CREATE_COMPLETE"
+            or _DIGEST_RE.fullmatch(
+                str(item.get("physical_resource_id_sha256"))
+            )
+            is None
+            or not isinstance(item.get("logical_resource_id"), str)
+            or item["logical_resource_id"] in observed_terminal
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        _timestamp(item.get("event_time"), "PEP_EXECUTION_RECEIPT_TIME_INVALID")
+        observed_terminal[item["logical_resource_id"]] = str(
+            item.get("resource_type")
+        )
+    if (
+        observed_terminal != expected_terminal
+        or list(observed_terminal) != list(expected_terminal)
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+
+    expected_resource_snapshot_types = _pep_expected_resource_types()
+    observed_resource_snapshot: dict[str, str] = {}
+    for item in stack_resources:
+        if (
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "logical_resource_id",
+                "resource_type",
+                "physical_resource_id_sha256",
+            }
+            or not isinstance(item.get("logical_resource_id"), str)
+            or item["logical_resource_id"] in observed_resource_snapshot
+            or _DIGEST_RE.fullmatch(
+                str(item.get("physical_resource_id_sha256"))
+            )
+            is None
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        observed_resource_snapshot[item["logical_resource_id"]] = str(
+            item.get("resource_type")
+        )
+    if (
+        observed_resource_snapshot != expected_resource_snapshot_types
+        or list(observed_resource_snapshot) != sorted(
+            expected_resource_snapshot_types
+        )
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+
+    expected_output_keys = {
+        "InvocationAuthorityInspectorRoleArn",
+        "PlanExecutionRoleArn",
+        "PlanFunctionAliasArn",
+        "ProductionAuthorized",
+        "ReconcileExecutionRoleArn",
+        "ReconcileFunctionAliasArn",
+        "RepairExecutionRoleArn",
+        "RepairFunctionAliasArn",
+        "RepairLedgerKeyArn",
+        "RepairLedgerName",
+    }
+    observed_output_keys: list[str] = []
+    for item in stack_outputs:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"output_key", "output_value_sha256"}
+            or not isinstance(item.get("output_key"), str)
+            or item["output_key"] in observed_output_keys
+            or _DIGEST_RE.fullmatch(str(item.get("output_value_sha256")))
+            is None
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        observed_output_keys.append(item["output_key"])
+    if (
+        set(observed_output_keys) != expected_output_keys
+        or observed_output_keys != sorted(expected_output_keys)
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+    production_output = next(
+        item
+        for item in stack_outputs
+        if item["output_key"] == "ProductionAuthorized"
+    )
+    if production_output["output_value_sha256"] != sha256(
+        b"false"
+    ).hexdigest():
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+
+    expected_transition_types = {
+        **_pep_expected_resource_types(),
+        STACK_NAME: "AWS::CloudFormation::Stack",
+    }
+    observed_transition_types: dict[str, str] = {}
+    event_ids: set[str] = {str(execute_event["event_id"])}
+    transition_event_count = 0
+    complete_by_logical_id: dict[str, Mapping[str, Any]] = {}
+    for transition in stack_events:
+        if (
+            not isinstance(transition, Mapping)
+            or set(transition)
+            != {
+                "logical_resource_id",
+                "resource_type",
+                "client_request_token_sha256",
+                "in_progress_events",
+                "complete_event",
+            }
+            or not isinstance(transition.get("logical_resource_id"), str)
+            or transition["logical_resource_id"] in observed_transition_types
+            or transition.get("client_request_token_sha256")
+            != receipt.get("client_request_token_sha256")
+            or not isinstance(transition.get("in_progress_events"), list)
+            or not transition["in_progress_events"]
+            or not isinstance(transition.get("complete_event"), Mapping)
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        logical_id = transition["logical_resource_id"]
+        observed_transition_types[logical_id] = str(
+            transition.get("resource_type")
+        )
+        complete_event = transition["complete_event"]
+        if (
+            set(complete_event)
+            != {
+                "event_id",
+                "event_time",
+                "physical_resource_id_sha256",
+            }
+            or not isinstance(complete_event.get("event_id"), str)
+            or not complete_event["event_id"]
+            or complete_event["event_id"] in event_ids
+            or _DIGEST_RE.fullmatch(
+                str(complete_event.get("physical_resource_id_sha256"))
+            )
+            is None
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        complete_time = _timestamp(
+            complete_event.get("event_time"),
+            "PEP_EXECUTION_RECEIPT_TIME_INVALID",
+        )
+        event_ids.add(complete_event["event_id"])
+        transition_event_count += 1
+        complete_by_logical_id[logical_id] = complete_event
+        for progress_event in transition["in_progress_events"]:
+            if (
+                not isinstance(progress_event, Mapping)
+                or set(progress_event)
+                != {
+                    "event_id",
+                    "event_time",
+                    "physical_resource_id_sha256",
+                }
+                or not isinstance(progress_event.get("event_id"), str)
+                or not progress_event["event_id"]
+                or progress_event["event_id"] in event_ids
+                or (
+                    progress_event.get("physical_resource_id_sha256")
+                    is not None
+                    and _DIGEST_RE.fullmatch(
+                        str(progress_event.get("physical_resource_id_sha256"))
+                    )
+                    is None
+                )
+            ):
+                raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+            progress_time = _timestamp(
+                progress_event.get("event_time"),
+                "PEP_EXECUTION_RECEIPT_TIME_INVALID",
+            )
+            if progress_time > complete_time:
+                raise ChangeSetHandoffError(
+                    "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+                )
+            event_ids.add(progress_event["event_id"])
+            transition_event_count += 1
+    if (
+        observed_transition_types != expected_transition_types
+        or list(observed_transition_types) != sorted(expected_transition_types)
+        or transition_event_count != receipt.get("stack_event_count")
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+
+    terminal_by_logical_id = {
+        item["logical_resource_id"]: item for item in terminal
+    }
+    resource_by_logical_id = {
+        item["logical_resource_id"]: item for item in stack_resources
+    }
+    for logical_id, complete_event in complete_by_logical_id.items():
+        terminal_event = terminal_by_logical_id.get(logical_id)
+        if (
+            terminal_event is None
+            or terminal_event["event_id"] != complete_event["event_id"]
+            or terminal_event["event_time"] != complete_event["event_time"]
+            or terminal_event["physical_resource_id_sha256"]
+            != complete_event["physical_resource_id_sha256"]
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+        if (
+            logical_id in expected_resource_snapshot_types
+            and resource_by_logical_id[logical_id][
+                "physical_resource_id_sha256"
+            ]
+            != complete_event["physical_resource_id_sha256"]
+        ):
+            raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_INVALID")
+
+    executed_at = _timestamp(
+        receipt.get("executed_at"), "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+    )
+    completed_at = _timestamp(
+        receipt.get("stack_completed_at"), "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+    )
+    evaluated_at = _timestamp(
+        receipt.get("evaluated_at"), "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+    )
+    repair_not_before = _timestamp(
+        deployment_contract["repair_not_before"],
+        "DEPLOYMENT_CONTRACT_WINDOW_INVALID",
+    )
+    repair_not_after = _timestamp(
+        deployment_contract["repair_not_after"],
+        "DEPLOYMENT_CONTRACT_WINDOW_INVALID",
+    )
+    max_terminal_time = max(
+        _timestamp(
+            item["event_time"], "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+        )
+        for item in terminal
+    )
+    if (
+        receipt.get("executed_at") != execute_event.get("event_time")
+        or completed_at < executed_at
+        or executed_at < repair_not_before
+        or executed_at >= repair_not_after
+        or max_terminal_time != completed_at
+        or executed_at > evaluated_at
+        or completed_at > evaluated_at
+    ):
+        raise ChangeSetHandoffError("PEP_EXECUTION_RECEIPT_TIME_INVALID")
+    for transition in stack_events:
+        for event in [
+            *transition["in_progress_events"],
+            transition["complete_event"],
+        ]:
+            event_time = _timestamp(
+                event["event_time"], "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+            )
+            if event_time < executed_at or event_time > completed_at:
+                raise ChangeSetHandoffError(
+                    "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+                )
+
+
+def _readback_pep_execution_trace_and_private_ids(
+    *,
+    source_root: Path,
+    profile_name: str,
+    region: str,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    gug220_intent: Mapping[str, Any],
+    gug220_ledger: Mapping[str, Any],
+    gug220_receipt: Mapping[str, Any],
+    gug220_evidence: Mapping[str, Any],
+    delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    broker_effect_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+    reviewed_phase_b_precondition_template_bytes: bytes,
+    sts_client: Any,
+    cloudformation_client: Any,
+    cloudtrail_client: Any,
+    dynamodb_client: Any,
+    now: datetime | None = None,
+) -> tuple[Mapping[str, Any], Mapping[str, str]]:
+    """Read back an already-executed Phase B stack using read-only APIs only."""
+
+    validate_phase_b_execution_preconditions(
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        reviewed_phase_b_precondition_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+    )
+    if profile_name != EXPECTED_PROFILE or region != REGION:
+        raise ChangeSetHandoffError("VERIFIER_PROFILE_OR_REGION_INVALID")
+    identity = _aws_call(sts_client.get_caller_identity)
+    if (
+        identity.get("Account") != AUTHORITY_ACCOUNT_ID
+        or _CALLER_ARN_RE.fullmatch(str(identity.get("Arn"))) is None
+    ):
+        raise ChangeSetHandoffError("VERIFIER_IDENTITY_INVALID")
+    change_set = validate_pep_change_set_receipt(
+        receipt=pep_change_set_receipt,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        gug220_intent=gug220_intent,
+        gug220_ledger=gug220_ledger,
+        gug220_receipt=gug220_receipt,
+        gug220_evidence=gug220_evidence,
+        delegation_live_receipt=delegation_live_receipt,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_handoff=pep_handoff,
+        reviewed_template_bytes=reviewed_template_bytes,
+    )
+    stacks = _aws_call(
+        cloudformation_client.describe_stacks, StackName=STACK_NAME
+    ).get("Stacks")
+    if (
+        not isinstance(stacks, list)
+        or len(stacks) != 1
+        or not isinstance(stacks[0], Mapping)
+    ):
+        raise ChangeSetHandoffError("PEP_STACK_READBACK_INVALID")
+    stack = stacks[0]
+    expected_parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in pep_handoff["parameters"]
+    }
+    stack_arn = stack.get("StackId")
+    if (
+        stack_arn != change_set["stack_arn"]
+        or stack.get("StackName") != STACK_NAME
+        or stack.get("StackStatus") != "CREATE_COMPLETE"
+        or stack.get("Capabilities") != list(EXPECTED_CAPABILITIES)
+        or _normalize_parameters(stack.get("Parameters")) != expected_parameters
+        or _normalize_tags(stack.get("Tags")) != pep_handoff["stack_tags"]
+    ):
+        raise ChangeSetHandoffError("PEP_STACK_DRIFT")
+    stack_creation_time = _provider_datetime(
+        stack.get("CreationTime"), "PEP_STACK_CREATION_TIME_INVALID"
+    )
+
+    template = _aws_call(
+        cloudformation_client.get_template,
+        StackName=str(stack_arn),
+        TemplateStage="Original",
+    ).get("TemplateBody")
+    if not isinstance(template, str) or template.encode("utf-8") != reviewed_template_bytes:
+        raise ChangeSetHandoffError("PEP_STACK_TEMPLATE_DRIFT")
+    _, expected_resource_types = _template_contract(reviewed_template_bytes)
+    if expected_resource_types != _pep_expected_resource_types():
+        raise ChangeSetHandoffError("PEP_REVIEWED_RESOURCE_INVENTORY_DRIFT")
+    resources = _paginate_next_token(
+        cloudformation_client,
+        "list_stack_resources",
+        "StackResourceSummaries",
+        StackName=str(stack_arn),
+    )
+    resource_map: dict[str, tuple[str, str]] = {}
+    for item in resources:
+        if (
+            not isinstance(item, Mapping)
+            or item.get("ResourceStatus") != "CREATE_COMPLETE"
+            or not isinstance(item.get("LogicalResourceId"), str)
+            or not isinstance(item.get("ResourceType"), str)
+            or not isinstance(item.get("PhysicalResourceId"), str)
+            or not item["PhysicalResourceId"]
+            or item["LogicalResourceId"] in resource_map
+        ):
+            raise ChangeSetHandoffError("PEP_STACK_RESOURCE_DRIFT")
+        resource_map[item["LogicalResourceId"]] = (
+            item["ResourceType"],
+            item["PhysicalResourceId"],
+        )
+    if {
+        logical_id: details[0]
+        for logical_id, details in resource_map.items()
+    } != expected_resource_types:
+        raise ChangeSetHandoffError("PEP_STACK_RESOURCE_DRIFT")
+    output_map = _pep_output_readback(stack=stack, resource_map=resource_map)
+
+    verification_time = now or datetime.now(UTC)
+    execute_event = _verify_pep_execute_change_set_event(
+        cloudtrail_client=cloudtrail_client,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        broker_effect_receipt=broker_effect_receipt,
+        stack_creation_time=stack_creation_time,
+        verification_time=verification_time,
+    )
+    broker_ledger_provider_readback = (
+        _readback_phase_b_ledger_provider_state(
+            dynamodb_client=dynamodb_client,
+            broker_effect_receipt=broker_effect_receipt,
+            deployment_contract=deployment_contract,
+            execute_event=execute_event,
+        )
+    )
+    execution = pep_change_set_receipt["execution_contract"]
+    stack_event_proof = _verify_stack_operation_events(
+        cloudformation_client=cloudformation_client,
+        stack_arn=str(stack_arn),
+        client_request_token=str(execution["client_request_token"]),
+        execute_event_time=_timestamp(
+            execute_event["event_time"], "PEP_CLOUDTRAIL_EVENT_TIME_INVALID"
+        ),
+        expected_resource_types=expected_resource_types,
+        stack_name=STACK_NAME,
+        error_prefix="PEP",
+        require_progress_events=True,
+        include_stack_events=True,
+    )
+    stack_completed_at = max(
+        _timestamp(
+            item["event_time"], "PEP_EXECUTION_RECEIPT_TIME_INVALID"
+        )
+        for item in stack_event_proof["terminal_resources"]
+    )
+    stack_outputs = _pep_output_snapshot(output_map)
+    stack_resources = _pep_resource_snapshot(resource_map)
+    cloudformation_projection = {
+        "stack_parameters_sha256": _digest(pep_handoff["parameters"]),
+        "stack_tags": dict(pep_handoff["stack_tags"]),
+        "stack_outputs_sha256": _digest(stack_outputs),
+        "stack_resources_sha256": _digest(stack_resources),
+    }
+    verifier = {
+        "profile": profile_name,
+        "account_id": identity["Account"],
+        "caller_arn": identity["Arn"],
+    }
+    result = {
+        "artifact_type": PEP_EXECUTION_RECEIPT_TYPE,
+        "schema_version": 1,
+        "work_package": WORK_PACKAGE,
+        "phase": "B_PEP_EXECUTION_TRACE",
+        "source_commit": deployment_contract["source_commit"],
+        "deployment_contract_sha256": _digest(deployment_contract),
+        "pep_change_set_receipt_sha256": _digest(pep_change_set_receipt),
+        "phase_b_precondition_parameter_handoff_sha256": _digest(
+            phase_b_precondition_parameter_handoff
+        ),
+        "phase_b_precondition_change_set_receipt_sha256": _digest(
+            phase_b_precondition_change_set_receipt
+        ),
+        "broker_effect_receipt_sha256": _digest(broker_effect_receipt),
+        "broker_ledger_provider_readback": broker_ledger_provider_readback,
+        "broker_ledger_provider_readback_sha256": _digest(
+            broker_ledger_provider_readback
+        ),
+        "change_set_arn": change_set["arn"],
+        "change_set_uuid": change_set["uuid"],
+        "stack_arn": stack_arn,
+        "client_request_token": execution["client_request_token"],
+        "client_request_token_sha256": execution["client_request_token_sha256"],
+        "execute_request_sha256": execution["execute_request_sha256"],
+        "effect_principal_arn_sha256": execution[
+            "effect_principal_arn_sha256"
+        ],
+        "execute_event": execute_event,
+        **stack_event_proof,
+        **cloudformation_projection,
+        "stack_outputs": stack_outputs,
+        "stack_resources": stack_resources,
+        "cloudformation_projection_sha256": _digest(
+            cloudformation_projection
+        ),
+        "executed_at": execute_event["event_time"],
+        "stack_completed_at": _utc_text(stack_completed_at),
+        "verifier": verifier,
+        "evaluated_at": _utc_text(verification_time),
+        "evidence_status": "CLOUDFORMATION_EXECUTION_TRACE_VERIFIED",
+        "authority_status": (
+            "PROVIDER_DERIVED_CLOUDFORMATION_TRACE_NOT_EFFECTIVE_STATE"
+        ),
+        "production_status": PRODUCTION_STATUS,
+    }
+    validate_pep_execution_receipt(
+        receipt=result,
+        source_root=source_root,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_parameter_handoff=pep_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        reviewed_phase_b_precondition_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+        broker_effect_receipt=broker_effect_receipt,
+    )
+    private_physical_ids = {
+        logical_id: physical_id
+        for logical_id, (_, physical_id) in resource_map.items()
+    }
+    return result, private_physical_ids
+
+
+def readback_pep_execution_read_only(
+    *,
+    source_root: Path,
+    profile_name: str,
+    region: str,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    gug220_intent: Mapping[str, Any],
+    gug220_ledger: Mapping[str, Any],
+    gug220_receipt: Mapping[str, Any],
+    gug220_evidence: Mapping[str, Any],
+    delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    broker_effect_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+    reviewed_phase_b_precondition_template_bytes: bytes,
+    sts_client: Any,
+    cloudformation_client: Any,
+    cloudtrail_client: Any,
+    dynamodb_client: Any,
+    now: datetime | None = None,
+) -> Mapping[str, Any]:
+    """Return only the sanitized CloudFormation execution trace."""
+
+    trace, _ = _readback_pep_execution_trace_and_private_ids(
+        source_root=source_root,
+        profile_name=profile_name,
+        region=region,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        gug220_intent=gug220_intent,
+        gug220_ledger=gug220_ledger,
+        gug220_receipt=gug220_receipt,
+        gug220_evidence=gug220_evidence,
+        delegation_live_receipt=delegation_live_receipt,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_handoff=pep_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        broker_effect_receipt=broker_effect_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+        reviewed_phase_b_precondition_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+        sts_client=sts_client,
+        cloudformation_client=cloudformation_client,
+        cloudtrail_client=cloudtrail_client,
+        dynamodb_client=dynamodb_client,
+        now=now,
+    )
+    return trace
+
+
+def readback_pep_execution_with_effective_state_read_only(
+    *,
+    source_root: Path,
+    profile_name: str,
+    region: str,
+    signed_receipt: Mapping[str, Any],
+    deployment_contract: Mapping[str, Any],
+    gug220_intent: Mapping[str, Any],
+    gug220_ledger: Mapping[str, Any],
+    gug220_receipt: Mapping[str, Any],
+    gug220_evidence: Mapping[str, Any],
+    delegation_live_receipt: Mapping[str, Any],
+    phase_b_identity_materialization_receipt: Mapping[str, Any],
+    pep_handoff: Mapping[str, Any],
+    pep_change_set_receipt: Mapping[str, Any],
+    phase_b_precondition_parameter_handoff: Mapping[str, Any],
+    phase_b_precondition_change_set_receipt: Mapping[str, Any],
+    broker_effect_receipt: Mapping[str, Any],
+    reviewed_template_bytes: bytes,
+    reviewed_phase_b_precondition_template_bytes: bytes,
+    sts_client: Any,
+    cloudformation_client: Any,
+    cloudtrail_client: Any,
+    iam_client: Any,
+    lambda_client: Any,
+    dynamodb_client: Any,
+    kms_client: Any,
+    logs_client: Any,
+    now: datetime | None = None,
+) -> Mapping[str, Mapping[str, Any]]:
+    """Chain sanitized CloudFormation trace to exact direct-provider state."""
+
+    trace, physical_ids = _readback_pep_execution_trace_and_private_ids(
+        source_root=source_root,
+        profile_name=profile_name,
+        region=region,
+        signed_receipt=signed_receipt,
+        deployment_contract=deployment_contract,
+        gug220_intent=gug220_intent,
+        gug220_ledger=gug220_ledger,
+        gug220_receipt=gug220_receipt,
+        gug220_evidence=gug220_evidence,
+        delegation_live_receipt=delegation_live_receipt,
+        phase_b_identity_materialization_receipt=(
+            phase_b_identity_materialization_receipt
+        ),
+        pep_handoff=pep_handoff,
+        pep_change_set_receipt=pep_change_set_receipt,
+        phase_b_precondition_parameter_handoff=(
+            phase_b_precondition_parameter_handoff
+        ),
+        phase_b_precondition_change_set_receipt=(
+            phase_b_precondition_change_set_receipt
+        ),
+        broker_effect_receipt=broker_effect_receipt,
+        reviewed_template_bytes=reviewed_template_bytes,
+        reviewed_phase_b_precondition_template_bytes=(
+            reviewed_phase_b_precondition_template_bytes
+        ),
+        sts_client=sts_client,
+        cloudformation_client=cloudformation_client,
+        cloudtrail_client=cloudtrail_client,
+        dynamodb_client=dynamodb_client,
+        now=now,
+    )
+    from tooling.platform_authority_lambda_audit_repair_effective_state import (
+        collect_effective_state_read_only,
+    )
+
+    effective_state = collect_effective_state_read_only(
+        phase_b_execution_receipt=trace,
+        physical_resource_ids=physical_ids,
+        reviewed_template_bytes=reviewed_template_bytes,
+        pep_parameter_handoff=pep_handoff,
+        iam_client=iam_client,
+        lambda_client=lambda_client,
+        dynamodb_client=dynamodb_client,
+        kms_client=kms_client,
+        logs_client=logs_client,
+        evaluated_at=now,
+    )
+    return {
+        "cloudformation_trace_receipt": trace,
+        "effective_state_receipt": effective_state,
     }

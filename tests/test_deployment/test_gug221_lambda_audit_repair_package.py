@@ -93,6 +93,8 @@ import json
 import sys
 sys.path[:] = [sys.argv[1], *[item for item in sys.path if item != sys.argv[2]]]
 from tooling import platform_authority_lambda_audit_repair_broker_runtime as runtime
+from tooling import platform_authority_lambda_audit_repair_phase_b_runtime as phase_b_runtime
+from tooling import platform_authority_lambda_audit_repair_phase_b_topology as phase_b_topology
 collector = runtime.load_bundled_collector_policy()
 invoker = runtime.load_bundled_repair_invoker_policy()
 assert '${' not in json.dumps(collector, sort_keys=True)
@@ -100,6 +102,8 @@ assert '${' not in json.dumps(invoker, sort_keys=True)
 assert callable(runtime.plan_handler)
 assert callable(runtime.repair_handler)
 assert callable(runtime.reconcile_handler)
+assert callable(phase_b_runtime.handler)
+assert callable(phase_b_topology.collect_unsigned_broker_topology_evidence)
 """
     result = subprocess.run(
         [sys.executable, "-I", "-c", code, str(extracted), str(ROOT)],
@@ -124,7 +128,7 @@ def test_package_rejects_invalid_commit_missing_source_and_symlink(tmp_path: Pat
 def test_manifest_shape_is_strict_json_serializable() -> None:
     built = _build()
     decoded = json.loads(json.dumps(built.manifest))
-    assert len(decoded["entries"]) == len(PACKAGE_PATHS) == 16
+    assert len(decoded["entries"]) == len(PACKAGE_PATHS) == 25
     assert decoded["runtime_dependencies"] == {
         "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
         "runtime_lock_path": "gug221_runtime_lock.json",

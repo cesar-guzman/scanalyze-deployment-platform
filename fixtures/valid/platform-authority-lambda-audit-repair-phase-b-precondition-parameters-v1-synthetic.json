@@ -1,0 +1,184 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_phase_b_precondition_parameters.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "PRE_B_BROKER_CHANGE_SET",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "stack_name": "scanalyze-platform-authority-gug221-phase-b-broker-pep",
+  "change_set_name": "gug221-phase-b-broker-pep-create",
+  "signed_artifact_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "reviewed_package_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "phase_b_identity_materialization_receipt_sha256": "1010101010101010101010101010101010101010101010101010101010101010",
+  "pep_parameter_handoff_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "pep_change_set_receipt_sha256": "1212121212121212121212121212121212121212121212121212121212121212",
+  "reviewed_template_path": "bootstrap/cfn-platform-authority-lambda-audit-repair-phase-b-broker-pep.yaml",
+  "reviewed_template_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "reviewed_policy_sha256": {
+    "InvokerPolicySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "BrokerPolicySha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "ProofPolicySha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "ApplicationActorPolicySha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "broker_topology_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+  "stack_tags": {
+    "environment": "non-production",
+    "managed_by": "cloudformation",
+    "production": "false",
+    "service": "scanalyze-platform-authority",
+    "source_commit": "1111111111111111111111111111111111111111",
+    "work_package": "GUG-221"
+  },
+  "parameters": [
+    {
+      "ParameterKey": "AuthorityAccountId",
+      "ParameterValue": "042360977644"
+    },
+    {
+      "ParameterKey": "ManagementAccountId",
+      "ParameterValue": "839393571433"
+    },
+    {
+      "ParameterKey": "IdentityCenterApplicationArn",
+      "ParameterValue": "arn:aws:sso::839393571433:application/ssoins-1234567890abcdef/apl-abcdef1234567890"
+    },
+    {
+      "ParameterKey": "IdentityCenterInstanceArn",
+      "ParameterValue": "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    },
+    {
+      "ParameterKey": "IdentityStoreArn",
+      "ParameterValue": "arn:aws:identitystore::839393571433:identitystore/d-0123456789"
+    },
+    {
+      "ParameterKey": "IdentityCenterRedirectUri",
+      "ParameterValue": "http://127.0.0.1:49152/callback"
+    },
+    {
+      "ParameterKey": "OperatorIdentityStoreUserId",
+      "ParameterValue": "0123456789-12345678-1234-1234-1234-1234567890ab"
+    },
+    {
+      "ParameterKey": "InvokerPrincipalArn",
+      "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeGug221PhaseBInvoker_0123456789abcdef"
+    },
+    {
+      "ParameterKey": "ExactStackArn",
+      "ParameterValue": "arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    },
+    {
+      "ParameterKey": "ExactChangeSetArn",
+      "ParameterValue": "arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/11111111-2222-4333-8444-555555555555"
+    },
+    {
+      "ParameterKey": "ExactClientRequestToken",
+      "ParameterValue": "gug221-b-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "ParameterKey": "ExactExecutionId",
+      "ParameterValue": "gug221-phase-b-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "ParameterKey": "ExecutionNotBefore",
+      "ParameterValue": "2026-07-23T12:00:00Z"
+    },
+    {
+      "ParameterKey": "ExecutionNotAfter",
+      "ParameterValue": "2026-07-23T12:15:00Z"
+    },
+    {
+      "ParameterKey": "PhaseBIntentDigest",
+      "ParameterValue": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "ParameterKey": "ChangeSetReceiptDigest",
+      "ParameterValue": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "ParameterKey": "TemplateDigest",
+      "ParameterValue": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "ParameterKey": "ParametersDigest",
+      "ParameterValue": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "ParameterKey": "ResourceInventoryDigest",
+      "ParameterValue": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    {
+      "ParameterKey": "LedgerControlsDigest",
+      "ParameterValue": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    {
+      "ParameterKey": "OauthStateDigest",
+      "ParameterValue": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    {
+      "ParameterKey": "BrokerArtifactBucket",
+      "ParameterValue": "scanalyze-gug221-artifacts-7644"
+    },
+    {
+      "ParameterKey": "BrokerArtifactKey",
+      "ParameterValue": "scanalyze/platform-authority/gug-221/signed/11111111-2222-4333-8444-555555555555.zip"
+    },
+    {
+      "ParameterKey": "BrokerArtifactVersion",
+      "ParameterValue": "SignedVersion1"
+    },
+    {
+      "ParameterKey": "BrokerArtifactCodeSha256",
+      "ParameterValue": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo="
+    },
+    {
+      "ParameterKey": "BrokerCodeSigningConfigArn",
+      "ParameterValue": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-0123456789abcdef0"
+    },
+    {
+      "ParameterKey": "RepairArtifactBucket",
+      "ParameterValue": "scanalyze-gug221-artifacts-7644"
+    },
+    {
+      "ParameterKey": "RepairArtifactKey",
+      "ParameterValue": "scanalyze/platform-authority/gug-221/signed/11111111-2222-4333-8444-555555555555.zip"
+    },
+    {
+      "ParameterKey": "ReconcileArtifactBucket",
+      "ParameterValue": "scanalyze-gug221-artifacts-7644"
+    },
+    {
+      "ParameterKey": "ReconcileArtifactKey",
+      "ParameterValue": "scanalyze/platform-authority/gug-221/signed/11111111-2222-4333-8444-555555555555.zip"
+    },
+    {
+      "ParameterKey": "InvokerPolicySha256",
+      "ParameterValue": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "ParameterKey": "BrokerPolicySha256",
+      "ParameterValue": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    {
+      "ParameterKey": "ProofPolicySha256",
+      "ParameterValue": "6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    {
+      "ParameterKey": "ApplicationActorPolicySha256",
+      "ParameterValue": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    {
+      "ParameterKey": "BrokerTopologySigningKeyArn",
+      "ParameterValue": "arn:aws:kms:us-east-1:042360977644:key/11111111-2222-4333-8444-555555555555"
+    },
+    {
+      "ParameterKey": "BrokerTopologySignatureAlgorithm",
+      "ParameterValue": "ECDSA_SHA_256"
+    },
+    {
+      "ParameterKey": "ExpectedBrokerTopologySha256",
+      "ParameterValue": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  ],
+  "parameters_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+  "authority_status": "NON_AUTHORITATIVE_DERIVATION_ONLY",
+  "production_status": "NO-GO"
+}

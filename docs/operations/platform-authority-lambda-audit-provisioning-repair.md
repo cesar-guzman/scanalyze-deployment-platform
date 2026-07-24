@@ -37,6 +37,9 @@ not convert technical controls into a production approval claim.
 - `bootstrap/cfn-platform-authority-lambda-audit-repair-pep.yaml`;
 - `bootstrap/cfn-platform-authority-lambda-audit-repair-delegation.yaml`;
 - exact standalone policy digests;
+- the reviewed pre-Phase-B broker package, exact qualified alias, invoke-only
+  SSO policy, application actor policy, deny-all proof role, broker service
+  role, one-shot ledger and provider readback receipts;
 - private, validated installation bindings for instance/store, immutable
   `USER`, permission-set ARN/tags, SAML provider, KMS mode/key and account roles;
 - sanitized proof that the GUG-220 ledger remains consumed and unchanged;
@@ -85,6 +88,8 @@ Before creating any Change Set, independently compare the proposed parameters
 and derived artifacts against the reviewed commit:
 
 - both account IDs and `us-east-1`;
+- the exact Phase B creator session plus separately bound invoke-only SSO,
+  broker and deny-all proof authorities;
 - exact principal type `USER` and private principal ID;
 - exact collector permission-set ARN/name/tags;
 - source commit, Lambda package SHA-256 and code-signing config;
@@ -274,6 +279,182 @@ Phase A live receipt. Run `verify-pep` against the one existing PEP CREATE
 Change Set. That verifier refreshes Signer/S3, GUG-220 and the entire Phase A
 live state before inspecting Phase B. Never pass a raw invoker ARN.
 
+The reviewed Phase B receipt must contain exactly 23 ordered resource changes,
+the UUID-bearing Change Set and stack ARNs, and one deterministic
+`gug221-b-*` execution contract bound to the exact broker operation. A receipt
+carrying the former 18-resource inventory, another broker, a Phase A token or
+an operator-selected token is ineligible.
+
+Do not execute Phase B until a separate reviewed pre-Phase-B infrastructure
+change has deployed the broker handler from the same immutable signed ZIP and
+direct-provider readback has verified all of the following:
+
+- one ordinary SSO role with only direct `lambda:InvokeFunction` on the exact
+  qualified private broker alias;
+- one reviewed IAM Identity Center application using Authorization Code + PKCE,
+  its exact application actor policy and no alternate grant or redirect;
+- one deny-all proof role whose trust accepts exactly one STS
+  `ProvidedContext` for the exact identity and operation;
+- one broker service role with only the exact Phase B CloudFormation and
+  downstream `aws:CalledVia` authority;
+- one durable one-shot ledger with the exact unconsumed operation binding; and
+- complete revocation topology with no alternate alias, Function URL, async
+  path or foreign assignment.
+
+The nine-resource authority-account template does not create the first two
+items in that list. `IdentityCenterApplicationArn` and `InvokerPrincipalArn`
+are inputs, not evidence: do not copy them from a console, shell variable,
+deployment contract or prior receipt. A separate management/Identity Center
+change must create and provision the application/permission-set/assignment
+topology, then emit a typed direct-provider receipt that binds those values.
+That materialization and receipt are not implemented in this repository-only
+change. Until they exist, classify Phase B as
+`BLOCKED_IDENTITY_PRECONDITION_NOT_MATERIALIZED`; do not create the
+pre-Phase-B Change Set or attempt the broker flow.
+
+Do not hand-author that receipt. Schema conformance and a canonical self-digest
+are not authentication. The current command path validates the target shape
+and then fails closed because no live provider/KMS-authenticated producer is
+implemented. The only permitted order is identity materialization receipt,
+PEP handoff/receipt, PRE_B handoff/receipt, then execution/effect/readback.
+Omitting or changing either PRE_B artifact blocks before STS, CloudFormation,
+DynamoDB or any effect client.
+
+For the authority-account portion, generate only the typed
+`phase_b_precondition_parameters.v1` handoff. It must rebuild the signed
+package from the exact Git commit, match the signed manifest, render the four
+effective policy documents, and contain exactly 37 ordered parameters. Review
+only the exact nine-resource CREATE Change Set and persist only
+`phase_b_precondition_change_set_receipt.v1`. Either artifact remains
+read-only evidence and must never be treated as execution authority.
+
+Do not place the provider receipt in CloudFormation parameters or Lambda
+environment variables. Create the immutable alias from the static topology
+binding and KMS verification key/algorithm, then collect and sign fresh
+provider evidence and supply it only as `broker_topology_evidence` in the exact
+synchronous invocation payload.
+
+Before signing topology evidence, inspect direct `GetFunctionConfiguration`
+readback for the immutable published version. The response is acceptable only
+when `Environment` contains exactly one member, `Variables`, and that map is
+the exact 37-variable projection returned by
+`PhaseBIdentityBinding.broker_environment_variables`. Do not reconstruct,
+merge or normalize this map from shell variables, profiles, payloads, prior
+receipts or operator input.
+
+The canonical projection covers account/region, Identity Center application
+and store, redirect/operator, all three roles, ledger, exact stack/Change Set/
+token/window/execution ID, intent and receipt digests, template/parameter/
+inventory/ledger/OAuth digests, four policy digests, immutable artifact tuple,
+Code Signing Config, topology signing key/algorithm and expected static
+topology digest. Its exact key list is defined in the deployment guide. Any
+missing `Environment`, omitted key, additional key, non-string entry or value
+drift is terminal `BROKER_TOPOLOGY_LAMBDA_ENVIRONMENT_MISMATCH`; do not sign,
+invoke, retry or repair in place.
+
+Confirm that the provider-state Lambda subtree contains
+`environment_variables_sha256` for the canonical projection, not its raw
+values. Confirm that changing any projected value changes
+`topology_state_digest`, and that the receipt digest/KMS signature binds that
+state digest. Fresh topology evidence and its digest must remain absent from
+the environment and appear only in the one-shot synchronous invocation.
+
+The invoker preserves the exact `ClientContext` custom map (`transport`,
+`execution_id`, `broker_topology_sha256`). Missing or extra event fields, an
+evidence object larger than 4 KiB, stale/future evidence, a different static or
+policy digest, key/algorithm, canonical digest or KMS signature are terminal
+denies. Do not retry. These checks and `kms:Verify` precede creation of
+OIDC/STS/DynamoDB/CloudFormation clients and the one-shot CAS.
+
+Ledger readback must also prove that the exact resource policy denies every
+principal from `PutResourcePolicy`, `DeleteResourcePolicy`, `DeleteTable`,
+`UpdateTable`, `CreateBackup`, `ExportTableToPointInTime`,
+`RestoreTableToPointInTime`, `UpdateContinuousBackups`, `UpdateTimeToLive`,
+auto-scaling, streaming and tag mutations. It must also reject
+PartiQL/batch/query/scan access and transactional use of the broker's direct
+item permissions through `dynamodb:EnclosingOperation`.
+`DescribeTimeToLive` must return exactly `DISABLED` and omit `AttributeName`.
+Any different, incomplete or unreadable result blocks before ledger access;
+do not repair the ledger in place or relax its policy.
+
+Do not treat this receipt as an account-wide guardrail for legacy
+global-table APIs, imports or restore-from-backup; DynamoDB does not support
+those APIs in table resource policies. Their absence from the broker role is
+necessary but not sufficient. Production requires a separate reviewed
+account/organization guardrail and live proof.
+
+The deterministic ZIP already closes over the Phase B handler, its pure PEP,
+the managed-policy snapshot and all four reviewed policy contracts. This PR
+does not deploy or activate those controls. When a future change
+authorizes their live use, the operator authenticates through the reviewed
+Authorization Code + PKCE helper and invokes only the qualified broker alias
+through the signed Lambda API. The one-call payload helper is
+`tooling/platform_authority_lambda_audit_repair_phase_b_invoker.py`; it does not
+claim the receipt is authenticated locally because the broker owns KMS
+verification. The authorization helper must bind a loopback callback, use a
+cryptographically random PKCE verifier/state, accept one callback, and keep the
+authorization code, verifier, tokens, opaque identity context and STS
+credentials out of arguments, shell history, files, receipts and logs.
+
+The broker must pass the opaque context to exactly one STS `ProvidedContext`
+for the deny-all proof role, bind that proof to the exact receipt, consume the
+one-shot CAS gate and only then let its separate service role call the exact
+`ExecuteChangeSet`. The proof role never mutates AWS. Record
+`native_on_behalf_of = false`; the human proof and broker effect actors are
+separate. There is no direct `aws cloudformation execute-change-set` operator
+command and no Function URL fallback.
+
+After the operation reaches a terminal state, use only the fixed read-only
+profiles to prove the execution lineage and the live 23-resource stack:
+
+```bash
+python scripts/deployment/platform-authority-lambda-audit-repair-change-set.py \
+  readback-pep \
+  --authority-profile 042360977644_ReadOnlyAccess \
+  --region us-east-1 \
+  --deployment-contract '<same private deployment contract>' \
+  --gug220-intent '<same intent>' --gug220-ledger '<same ledger>' \
+  --gug220-receipt '<same receipt>' \
+  --gug220-evidence "$PRIVATE_BUILD_DIR/gug221-gug220-live-evidence.json" \
+  --signed-receipt "$PRIVATE_BUILD_DIR/gug221-signed-artifact-receipt.json" \
+  --delegation-live-receipt "$PRIVATE_BUILD_DIR/gug221-delegation-live-readback.json" \
+  --pep-parameter-handoff "$PRIVATE_BUILD_DIR/gug221-pep-parameters.json" \
+  --pep-change-set-receipt "$PRIVATE_BUILD_DIR/gug221-pep-change-set-verification.json" \
+  --broker-effect-receipt "$PRIVATE_BUILD_DIR/gug221-phase-b-broker-effect.json" \
+  --output-cloudformation-trace-receipt "$PRIVATE_BUILD_DIR/gug221-pep-execution-trace.json" \
+  --output-effective-state-receipt "$PRIVATE_BUILD_DIR/gug221-pep-effective-state.json"
+```
+
+`readback-pep` has no mutation API. It fails unless CloudTrail identifies the
+exact broker service-role actor and token, StackEvents prove the root plus all
+23 resources reached `CREATE_COMPLETE`, and live template, parameters, tags,
+outputs and resource inventory still equal the reviewed contract. That receipt
+is a CloudFormation execution trace, not effective-state proof. The command
+also performs the separate direct-provider readback and writes it to the
+explicit effective-state output; either output is withheld if the complete
+chain cannot be proven.
+
+A separate direct-provider readback must then inspect IAM, Lambda, DynamoDB,
+KMS and CloudWatch Logs with only Get/List/Describe operations, derive physical
+IDs only from trusted stack metadata, compare two complete snapshots and prove
+all 23 controls. Never emit raw physical IDs. Missing, duplicated, foreign,
+rolled-back, unstable, paginated-incompletely or access-denied evidence remains
+`BLOCKED`.
+
+Do not accept two identical snapshots as sufficient proof. Resolve the reviewed
+template with the exact 29-parameter PEP handoff and require
+`expected_state_sha256 == observed_state_sha256` for each ordered resource.
+Treat extra Lambda aliases/versions/async configs, DynamoDB global or restore
+state, throughput/stream drift, IAM boundaries, KMS algorithms/aliases and Logs
+data-protection inheritance as `EFFECTIVE_STATE_CONFORMANCE_DRIFT`.
+
+The broker runtime receipt may state only that the execution gate was consumed
+and closure is pending. Classify revocation as verified only after provider
+readback proves the SSO assignment and invoke edge were removed, no Identity
+Center operation is pending, all possible sessions expired and the durable
+gate remains consumed. Until then, no execution or revocation success claim is
+eligible.
+
 Fresh readback will legitimately change the outer live receipt timestamp and
 the nested execution receipt `evaluated_at`. The verifier excludes only those
 observation timestamps from equality and digest binding. Do not manually edit
@@ -287,31 +468,37 @@ files remain mode `0600` outside Git. If CloudFormation nevertheless returns
 or treat the preparation digest as live proof. The verifier has no Create,
 Execute or Delete path and uses SDK retries disabled.
 
-## Phase 3 — Deploy the control plane only under separate authorization
+## Phase 3 — Provider-specific post-deployment validation
 
-The two reviewed stacks have different account ownership:
+Phase 2C is the only phase in this runbook that describes separately
+authorized execution of the reviewed Phase A and Phase B Change Sets. Phase 3
+does not deploy, update, retry or repair either stack. Enter it only when both
+Phase 2C readbacks are eligible and bind the exact execution lineage. If either
+stack is absent, incomplete, failed or not bound to its reviewed receipt, stop;
+do not use this phase to create or execute another Change Set.
 
-1. deploy the management delegation stack in the account ending in `1433`;
-2. read back the mutation/readback service-role trust and effective inline
-   policies;
-3. deploy the authority PEP stack in the account ending in `7644`;
-4. read back KMS, DynamoDB, all three functions, published versions, code
-   hashes, code signing, execution roles, the invocation inspector and aliases;
-   and
-5. confirm the human permission set can invoke only the three exact aliases.
+Use fresh read-only provider APIs to corroborate controls that generic
+CloudFormation stack readback cannot prove by itself:
 
-Use reviewed CloudFormation Change Sets. Do not use direct IAM edits to make a
-failed template succeed. Do not repoint an alias to `$LATEST` or an unreviewed
-version.
+1. in the management account ending in `1433`, read back the
+   mutation/readback service-role trust and effective inline policies;
+2. in the authority account ending in `7644`, read back KMS, DynamoDB, all
+   three functions, published versions, code hashes, code signing, execution
+   roles, the invocation inspector, aliases and retained log groups; and
+3. confirm the human permission set can invoke only the three exact aliases.
 
-This order is intentional and has no circular principal dependency. Before
-the authority execution roles exist, IAM can resolve the authority account
-root used in each management trust policy. That root is not broad execution
-authority: `aws:PrincipalAccount` plus `ArnEquals aws:PrincipalArn` restricts
-assumption to the one future exact Lambda execution-role ARN. After deploying
-the authority stack, verify both caller and target policies allow the paired
-`sts:AssumeRole` and `sts:SetSourceIdentity` actions on that exact edge. Never
-remove the ARN condition to resolve a deployment failure.
+Do not call CloudFormation Create, Execute, Update or Delete operations in this
+phase. Do not use direct IAM edits to make a failed template appear valid. Do
+not repoint an alias to `$LATEST` or an unreviewed version.
+
+The reviewed management-first dependency is intentional and has no circular
+principal dependency. Before the authority execution roles existed, IAM could
+resolve the authority account root used in each management trust policy. That
+root is not broad execution authority: `aws:PrincipalAccount` plus `ArnEquals
+aws:PrincipalArn` restricts assumption to the one exact Lambda execution-role
+ARN. Provider validation must prove both caller and target policies allow the
+paired `sts:AssumeRole` and `sts:SetSourceIdentity` actions on that exact edge.
+Never remove the ARN condition to resolve a deployment failure.
 
 The authority stack must prove:
 
@@ -347,6 +534,49 @@ An extra version or alias, changed alias target, protected-role reuse,
 duplicate entry, inaccessible page or pagination-token replay is a hard
 `BLOCKED` result. Do not infer exclusivity from `GetFunction` or the three
 expected aliases alone.
+
+### Failed Phase B with retained resources
+
+The Phase B template intentionally retains the KMS key and alias, DynamoDB
+ledger table and all three Lambda log groups on deletion, replacement or
+rollback. A failed or rolled-back Phase B operation can therefore leave live
+provider resources after CloudFormation stops managing some or all of them.
+Classify that terminal condition as `FAILED_RETAINED_RESOURCES`; it is neither
+a clean rollback nor authority to execute Phase B again.
+
+Under the fixed read-only profiles, capture a complete, paginated inventory
+that binds:
+
+- the UUID-bearing stack and Change Set, terminal stack events and every
+  observed physical resource identifier;
+- the retained KMS key and alias, including key state, policy, rotation and
+  tags;
+- the DynamoDB table, including encryption, deletion protection, PITR,
+  resource policy and tags; and
+- the three log groups, including exact names, retention and tags.
+
+Keep the complete inventory in private evidence and publish only sanitized
+status, counts and digests. A matching name, alias, tag, template value or
+expected configuration is discovery evidence only. It does not prove that a
+resource belongs to this failed execution, is complete, is safe to reuse or
+may be adopted. Missing physical IDs, denied reads, incomplete pagination or
+conflicting provenance keeps the state `FAILED_RETAINED_RESOURCES`.
+
+Quarantine every candidate retained resource and block another Phase B
+creation while the canonical KMS alias, DynamoDB table name or log-group name
+could collide. Do not import, rename, retarget, update, delete or silently
+adopt a candidate to make a retry succeed. Retained KMS keys, DynamoDB storage
+and CloudWatch Logs can continue to incur cost; record the owner, cost
+exposure, retention requirement and next review time without treating cost as
+destructive authorization.
+
+Cleanup is not part of rollback or this runbook. Open a separate reviewed
+child issue that names the exact KMS key/alias, DynamoDB table and log groups,
+preserves ledger and audit requirements, evaluates dependencies and cost, and
+defines explicit destructive authorization plus independent post-cleanup
+readback. Until that child closes or a separately reviewed recovery proves an
+exact non-destructive disposition, keep the resources quarantined, the
+canonical names unavailable and production **NO-GO**.
 
 ## Phase 4 — Invoke the durable Plan gate
 
@@ -473,6 +703,8 @@ Required final proof:
 | CAS transition fails | Stop; read-only reconcile |
 | Pagination/access is incomplete | `BLOCKED`; resolve read access only |
 | Foreign principal/account/policy/role exists | `BLOCKED`; open containment issue |
+| Phase B fails or rolls back with a retained KMS/DynamoDB/Logs candidate | `FAILED_RETAINED_RESOURCES`; inventory read-only and quarantine; do not redeploy, adopt or delete |
+| A retained canonical name collides or continues to incur cost | Keep quarantined; record cost and open a separately authorized cleanup child |
 | Final SSO and IAM readback exact | Record verified non-production evidence only |
 | Independent reviewer absent | Governance remains blocked |
 
@@ -521,6 +753,13 @@ repeat an operation. Assignment deletion, deprovisioning, policy removal,
 permission-set deletion, table deletion, key deletion and stack deletion are
 outside GUG-221 and require a new reviewed issue and explicit destructive
 authorization.
+
+A failed Phase B stack with a surviving retained KMS key/alias, DynamoDB table
+or log group remains `FAILED_RETAINED_RESOURCES` even if CloudFormation reports
+rollback completion. Preserve its complete read-only inventory and quarantine
+the canonical names. Any cleanup must be the separately reviewed child
+described above; name collision or continuing cost does not authorize deletion
+or inferred adoption.
 
 If excess authority is observed, stop all collector use, preserve evidence,
 deny further repair invocations and open a containment package. Do not mutate

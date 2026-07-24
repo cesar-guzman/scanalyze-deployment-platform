@@ -13,6 +13,7 @@
   "gug220_provider_state_sha256": "abababababababababababababababababababababababababababababababab",
   "delegation_live_receipt_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
   "parameter_handoff_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+  "phase_b_identity_materialization_receipt_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
   "template_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
   "change_set": {
     "arn": "arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/11111111-2222-4333-8444-555555555555",
@@ -28,8 +29,13 @@
     },
     "parameters_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "resource_changes": [
+      {"logical_resource_id": "InvocationAuthorityInspectorRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
       {"logical_resource_id": "PlanAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
       {"logical_resource_id": "PlanEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PlanExecutionRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PlanFunction", "resource_type": "AWS::Lambda::Function", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PlanFunctionVersion", "resource_type": "AWS::Lambda::Version", "action": "Add", "replacement": "False"},
+      {"logical_resource_id": "PlanLogGroup", "resource_type": "AWS::Logs::LogGroup", "action": "Add", "replacement": "False"},
       {"logical_resource_id": "ReconcileAlias", "resource_type": "AWS::Lambda::Alias", "action": "Add", "replacement": "False"},
       {"logical_resource_id": "ReconcileEventInvokeConfig", "resource_type": "AWS::Lambda::EventInvokeConfig", "action": "Add", "replacement": "False"},
       {"logical_resource_id": "ReconcileExecutionRole", "resource_type": "AWS::IAM::Role", "action": "Add", "replacement": "False"},
@@ -52,6 +58,13 @@
       "event_time": "2026-07-22T12:50:00Z",
       "event_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     }
+  },
+  "execution_contract": {
+    "client_request_token": "gug221-b-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "client_request_token_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "execute_request_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "effect_principal_arn_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "phase_b_identity_materialization_receipt_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
   },
   "verifier": {
     "profile": "042360977644_ReadOnlyAccess", "account_id": "042360977644",

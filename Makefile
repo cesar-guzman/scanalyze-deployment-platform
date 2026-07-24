@@ -449,11 +449,18 @@ platform-authority-bootstrap-check:
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker_runtime.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_change_set.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_effective_state.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_iam_verifier.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_invoker.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_package.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_signed_artifact.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_local_control_plane.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_broker_hardening.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_identity_materialization_receipt.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_precondition_handoff.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_execution_contracts.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_execution_readback.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_signed_payload_invoker.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_post_merge_regressions.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_server_side_pep_infrastructure.py
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \

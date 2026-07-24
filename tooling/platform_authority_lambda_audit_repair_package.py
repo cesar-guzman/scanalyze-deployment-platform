@@ -1,7 +1,7 @@
 """Build the deterministic, closed GUG-221 Lambda deployment package.
 
 The package contains only the reviewed Python modules and policy templates
-required by both private Lambda handlers.  ZIP metadata is fixed and entries
+required by every private Lambda handler.  ZIP metadata is fixed and entries
 are stored rather than deflated so the archive is byte-for-byte reproducible
 across zlib implementations.  This module performs no AWS operation.
 """
@@ -29,11 +29,13 @@ ARCHIVE_NAME = "scanalyze-gug221-lambda-audit-repair.zip"
 MANIFEST_NAME = "scanalyze-gug221-lambda-audit-repair.manifest.json"
 FIXED_ZIP_TIMESTAMP = (2026, 7, 21, 0, 0, 0)
 HANDLERS = {
+    "phase_b_broker": "tooling.platform_authority_lambda_audit_repair_phase_b_runtime.handler",
     "plan": "tooling.platform_authority_lambda_audit_repair_broker_runtime.plan_handler",
     "repair": "tooling.platform_authority_lambda_audit_repair_broker_runtime.repair_handler",
     "reconcile": "tooling.platform_authority_lambda_audit_repair_broker_runtime.reconcile_handler",
 }
 SOURCE_PATHS = (
+    Path("policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json"),
     Path("policies/iam/platform-authority-lambda-audit-plan-authority-execution-role.json"),
     Path("policies/iam/platform-authority-lambda-audit-reconcile-authority-execution-role.json"),
     Path("policies/iam/platform-authority-lambda-audit-repair-authority-execution-role.json"),
@@ -41,12 +43,32 @@ SOURCE_PATHS = (
     Path("policies/iam/platform-authority-lambda-audit-repair-invoker-role.json"),
     Path("policies/iam/platform-authority-lambda-audit-repair-mutation-service-role.json"),
     Path("policies/iam/platform-authority-lambda-audit-repair-readback-service-role.json"),
+    Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-application-actor-policy.json"
+    ),
+    Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-broker-execution-role.json"
+    ),
+    Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-invoker-role.json"
+    ),
+    Path(
+        "policies/iam/"
+        "platform-authority-lambda-audit-repair-phase-b-proof-role.json"
+    ),
     Path("policies/iam/platform-authority-lambda-invocation-inventory-role.json"),
     Path("tooling/__init__.py"),
     Path("tooling/platform_authority_lambda_audit_repair_broker.py"),
     Path("tooling/platform_authority_lambda_audit_repair_broker_runtime.py"),
     Path("tooling/platform_authority_lambda_audit_repair_iam_verifier.py"),
     Path("tooling/platform_authority_lambda_audit_repair_invocation_authority.py"),
+    Path("tooling/platform_authority_lambda_audit_repair_phase_b_pep.py"),
+    Path("tooling/platform_authority_lambda_audit_repair_phase_b_runtime.py"),
+    Path("tooling/platform_authority_lambda_audit_repair_phase_b_topology.py"),
+    Path("tooling/platform_authority_identity_context_compatibility.py"),
     Path("tooling/platform_authority_lambda_invocation_authority.py"),
     Path("tooling/platform_authority_lambda_invocation_materializer.py"),
 )
