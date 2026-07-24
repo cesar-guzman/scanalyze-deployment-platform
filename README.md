@@ -111,6 +111,25 @@ No validation target authorizes AWS mutation.
 Passing local gates does not replace a real image build and reviewed Terraform
 plan in non-production before any production release.
 
+## Contributing
+
+Human contributors start with [`CONTRIBUTING.md`](CONTRIBUTING.md). It defines
+the end-to-end Linear-to-branch-to-PR workflow, risk classification, review,
+testing, documentation, evidence, rollback, cloud boundaries, and Definition of
+Done. Security vulnerabilities must be reported privately according to
+[`SECURITY.md`](SECURITY.md).
+
+New team members should also follow the step-by-step
+[`GitHub contributor walkthrough`](docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md)
+to request and verify access, understand the GitHub interface, create an
+isolated worktree, open a Draft PR, interpret checks, and perform a review.
+
+The repository validates this contract offline:
+
+```bash
+make contributor-docs-check
+```
+
 ## Safety principles
 
 1. Evidence before claims
