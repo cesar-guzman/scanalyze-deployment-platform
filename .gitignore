@@ -41,6 +41,10 @@ tests/preconditions/layer_contract_matrix/fixtures/
 *~
 .DS_Store
 
+# Claude Code local state (shared project policy remains versioned)
+CLAUDE.local.md
+.claude/settings.local.json
+
 # Environment
 .env
 .env.*

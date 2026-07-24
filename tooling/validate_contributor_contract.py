@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -14,7 +15,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_FILES = (
     Path("CONTRIBUTING.md"),
+    Path("CLAUDE.md"),
     Path("SECURITY.md"),
+    Path(".claude/settings.json"),
+    Path("docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md"),
+    Path("docs/engineering/CLAUDE_CODE_SETUP.md"),
     Path("docs/engineering/CODE_REVIEW_STANDARD.md"),
     Path("docs/engineering/DOCUMENTATION_STANDARD.md"),
     Path("docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md"),
@@ -49,10 +54,46 @@ REQUIRED_TERMS = {
         "approved",
         "deployed",
     ),
+    Path("CLAUDE.md"): (
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "linear is the durable source",
+        "one issue equals one branch, one isolated worktree, and one pull request",
+        "do not run aws cli commands",
+        "validation not run",
+        "no unauthorized remote, aws, or production action occurred",
+    ),
     Path("SECURITY.md"): (
         "report a vulnerability privately",
         "do not open a public github issue",
         "accidental secret or data disclosure",
+    ),
+    Path("docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md"): (
+        "human accountability",
+        "control hierarchy",
+        "linear is the delivery control plane",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "automatic fallback",
+        "human plan gate",
+        "prompt injection",
+        "ai output is not evidence",
+        "enterprise control",
+        "continuous improvement",
+    ),
+    Path("docs/engineering/CLAUDE_CODE_SETUP.md"): (
+        "v2.1.197",
+        "claude doctor",
+        "claude auth status --text",
+        "inspect before trusting project configuration",
+        "claude --model opusplan --permission-mode plan",
+        "/status",
+        "/permissions",
+        "/memory",
+        "planning resolves to `claude-opus-4-8`",
+        "execution resolves to `claude-sonnet-5`",
+        "enterprise managed-settings target",
+        "clean-room rehearsal",
     ),
     Path("docs/engineering/CODE_REVIEW_STANDARD.md"): (
         "[p0]",
@@ -103,6 +144,10 @@ REQUIRED_TERMS = {
         "cloud and production boundary",
         "reviewer focus",
         "author checklist",
+        "ai assistance",
+        "planning model",
+        "execution model",
+        "human verification performed",
     ),
 }
 
@@ -124,7 +169,9 @@ ISSUE_FORM_IDS = {
 
 CODEOWNER_ENTRIES = (
     "CONTRIBUTING.md",
+    "CLAUDE.md",
     "SECURITY.md",
+    ".claude/",
     ".github/PULL_REQUEST_TEMPLATE.md",
     ".github/ISSUE_TEMPLATE/",
     "docs/engineering/",
@@ -135,6 +182,41 @@ CODEOWNER_ENTRIES = (
 LINK_RE = re.compile(r"!?\[[^\]]*]\(([^)]+)\)")
 ISSUE_ID_RE = re.compile(r"(?m)^\s+-?\s*id:\s*([a-z0-9_]+)\s*$")
 BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)\n```", re.DOTALL)
+
+CLAUDE_REQUIRED_MODELS = {
+    "opusplan",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+}
+
+CLAUDE_REQUIRED_DENIES = {
+    "Read(.env)",
+    "Read(.env.*)",
+    "Read(**/*.tfstate)",
+    "Read(~/.aws/**)",
+    "Read(~/.ssh/**)",
+    "Bash(git push *)",
+    "Bash(git reset --hard *)",
+    "Bash(git clean *)",
+    "Bash(gh pr create *)",
+    "Bash(gh pr review *)",
+    "Bash(gh pr merge *)",
+    "Bash(terraform apply *)",
+    "Bash(terraform destroy *)",
+    "Bash(aws *)",
+    "Bash(rm *)",
+}
+
+CLAUDE_REQUIRED_DENIED_ENV_VARS = {
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+}
 
 
 def _read(repo_root: Path, relative_path: Path) -> str:
@@ -208,6 +290,14 @@ def repository_entrypoint_errors(repo_root: Path = REPO_ROOT) -> list[str]:
         encoding="utf-8"
     ):
         errors.append("README.md must link to CONTRIBUTING.md")
+    elif (
+        "AI_ASSISTED_DEVELOPMENT_STANDARD.md"
+        not in readme.read_text(encoding="utf-8")
+        or "CLAUDE_CODE_SETUP.md" not in readme.read_text(encoding="utf-8")
+    ):
+        errors.append(
+            "README.md must link to the AI standard and Claude Code setup"
+        )
 
     makefile = repo_root / "Makefile"
     if makefile.is_file():
@@ -220,6 +310,90 @@ def repository_entrypoint_errors(repo_root: Path = REPO_ROOT) -> list[str]:
             )
     else:
         errors.append("Makefile is missing")
+    return errors
+
+
+def claude_configuration_errors(
+    repo_root: Path = REPO_ROOT,
+) -> list[str]:
+    errors: list[str] = []
+    settings_path = repo_root / ".claude/settings.json"
+    if not settings_path.is_file():
+        return errors
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return [f".claude/settings.json is invalid JSON: {exc}"]
+
+    if (
+        settings.get("$schema")
+        != "https://json.schemastore.org/claude-code-settings.json"
+    ):
+        errors.append("Claude settings must reference the official JSON schema")
+    if settings.get("model") != "opusplan":
+        errors.append("Claude settings model must be opusplan")
+    if set(settings.get("availableModels", [])) != CLAUDE_REQUIRED_MODELS:
+        errors.append(
+            "Claude availableModels must contain only opusplan, "
+            "claude-opus-4-8, and claude-sonnet-5"
+        )
+    if settings.get("fallbackModel") != []:
+        errors.append("Claude fallbackModel must be an empty list")
+    if settings.get("effortLevel") != "high":
+        errors.append("Claude effortLevel must be high")
+    if settings.get("disableAutoMode") != "disable":
+        errors.append("Claude Auto mode must be disabled")
+    if settings.get("disableRemoteControl") is not True:
+        errors.append("Claude Remote Control must be disabled")
+    if settings.get("disableArtifact") is not True:
+        errors.append("Claude Artifact publication must be disabled")
+
+    env = settings.get("env", {})
+    if env.get("ANTHROPIC_DEFAULT_OPUS_MODEL") != "claude-opus-4-8":
+        errors.append("Claude Opus alias must pin claude-opus-4-8")
+    if env.get("ANTHROPIC_DEFAULT_SONNET_MODEL") != "claude-sonnet-5":
+        errors.append("Claude Sonnet alias must pin claude-sonnet-5")
+
+    permissions = settings.get("permissions", {})
+    if permissions.get("defaultMode") != "plan":
+        errors.append("Claude permissions.defaultMode must be plan")
+    if permissions.get("disableBypassPermissionsMode") != "disable":
+        errors.append("Claude bypass permissions mode must be disabled")
+    denied = set(permissions.get("deny", []))
+    for rule in sorted(CLAUDE_REQUIRED_DENIES - denied):
+        errors.append(f"Claude settings missing deny rule: {rule}")
+
+    sandbox = settings.get("sandbox", {})
+    if sandbox.get("enabled") is not True:
+        errors.append("Claude sandbox must be enabled")
+    if sandbox.get("autoAllowBashIfSandboxed") is not False:
+        errors.append("Claude sandbox must not auto-allow Bash")
+    if sandbox.get("allowUnsandboxedCommands") is not False:
+        errors.append("Claude unsandboxed command escape must be disabled")
+
+    denied_env_vars = {
+        entry.get("name")
+        for entry in sandbox.get("credentials", {}).get("envVars", [])
+        if entry.get("mode") == "deny"
+    }
+    for name in sorted(CLAUDE_REQUIRED_DENIED_ENV_VARS - denied_env_vars):
+        errors.append(f"Claude sandbox must deny credential variable: {name}")
+
+    instructions = repo_root / "CLAUDE.md"
+    if instructions.is_file():
+        line_count = len(instructions.read_text(encoding="utf-8").splitlines())
+        if line_count > 200:
+            errors.append(
+                f"CLAUDE.md must stay at or below 200 lines; found {line_count}"
+            )
+
+    gitignore = repo_root / ".gitignore"
+    if gitignore.is_file():
+        ignored = set(gitignore.read_text(encoding="utf-8").splitlines())
+        for required in ("CLAUDE.local.md", ".claude/settings.local.json"):
+            if required not in ignored:
+                errors.append(f".gitignore must exclude Claude local state: {required}")
     return errors
 
 
@@ -293,6 +467,7 @@ def validate(repo_root: Path = REPO_ROOT) -> list[str]:
     errors.extend(issue_form_errors(repo_root))
     errors.extend(codeowner_errors(repo_root))
     errors.extend(repository_entrypoint_errors(repo_root))
+    errors.extend(claude_configuration_errors(repo_root))
     errors.extend(walkthrough_command_errors(repo_root))
     errors.extend(relative_link_errors(repo_root))
     return errors

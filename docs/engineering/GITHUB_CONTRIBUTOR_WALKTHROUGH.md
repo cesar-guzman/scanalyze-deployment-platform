@@ -6,12 +6,12 @@
 |---|---|
 | Owner | Platform Engineering |
 | Audience | New contributors, reviewers, code owners, maintainers, and access administrators |
-| Status | REVIEW DRAFT; becomes CURRENT only after approval and merge to `main` |
+| Status | CURRENT |
 | Scope | `cesar-guzman/scanalyze-deployment-platform` |
-| Last verified | 2026-07-23 against `main@0f3dc10` and GitHub repository metadata |
+| Last verified | 2026-07-23 against `main@1c779bf` and GitHub repository metadata |
 | Review cadence | Quarterly and after an access, ownership, branch-protection, or GitHub UI change |
 | Related policy | [`CONTRIBUTING.md`](../../CONTRIBUTING.md) |
-| Related controls | [`CODE_REVIEW_STANDARD.md`](CODE_REVIEW_STANDARD.md), [`GITHUB_ENFORCEMENT_BASELINE.md`](GITHUB_ENFORCEMENT_BASELINE.md), and [`SECURITY.md`](../../SECURITY.md) |
+| Related controls | [`CODE_REVIEW_STANDARD.md`](CODE_REVIEW_STANDARD.md), [`GITHUB_ENFORCEMENT_BASELINE.md`](GITHUB_ENFORCEMENT_BASELINE.md), [`AI_ASSISTED_DEVELOPMENT_STANDARD.md`](AI_ASSISTED_DEVELOPMENT_STANDARD.md), [`CLAUDE_CODE_SETUP.md`](CLAUDE_CODE_SETUP.md), and [`SECURITY.md`](../../SECURITY.md) |
 
 This walkthrough explains how a human contributor obtains access, recognizes
 the repository's sources of truth, navigates GitHub, works locally, opens and
@@ -379,6 +379,13 @@ git status --short
 git rev-parse HEAD
 ```
 
+When Claude Code is used, first complete
+[`CLAUDE_CODE_SETUP.md`](CLAUDE_CODE_SETUP.md). Inspect `CLAUDE.md` and
+`.claude/settings.json` before accepting project trust. Start in Plan Mode with
+Opus 4.8, record and obtain human approval of the plan in Linear, then execute
+only that approved scope with Sonnet 5. Do not use fallback, Auto, or bypass
+mode. The human performs commit, push, PR, review-response, and Linear writes.
+
 During implementation:
 
 - change only files required by the issue;
@@ -637,21 +644,28 @@ A new contributor completes this sequence before receiving a runtime change:
    - `CONTRIBUTING.md`;
    - `SECURITY.md`;
    - this walkthrough;
-   - `CODE_REVIEW_STANDARD.md`.
+   - `CODE_REVIEW_STANDARD.md`;
+   - `AI_ASSISTED_DEVELOPMENT_STANDARD.md`;
+   - `CLAUDE_CODE_SETUP.md`.
 5. The contributor creates a P2 documentation issue worktree from current
    `origin/main`.
-6. The contributor runs `make contributor-docs-check`.
-7. The contributor opens a Draft PR using the template.
-8. The contributor practices one structured review comment on another safe PR.
-9. An independent reviewer validates the final SHA.
-10. The onboarding owner records completion and the contributor's permitted
+6. When using Claude Code, the contributor verifies `/status`, `/model`,
+   `/permissions`, and `/memory`; plans with Opus 4.8 and executes the approved
+   plan with Sonnet 5.
+7. The contributor runs `make contributor-docs-check`.
+8. The contributor opens a Draft PR using the template and discloses AI use.
+9. The contributor practices one structured review comment on another safe PR.
+10. An independent reviewer validates the final SHA.
+11. The onboarding owner records completion and the contributor's permitted
     component scope in Linear.
 
-For Emiliano, reviewing the GUG-111 contributor-governance PR is an appropriate
-first supervised activity once that branch has been pushed and the Draft PR
-exists. It exercises navigation, issue/PR scope comparison, documentation
-review, checks, comment structure, and approval boundaries without granting
-runtime or cloud authority.
+For Emiliano, GUG-262 is the first supervised activity. He performs the
+clean-room Claude Code setup and onboarding rehearsal, records only sanitized
+evidence in Linear, fixes gaps in the same issue branch, moves the Draft PR to
+Ready for Review, and requests César's independent approval. It exercises
+Linear/GitHub scope comparison, model and permission verification,
+documentation review, checks, comment structure, and approval boundaries
+without granting runtime or cloud authority.
 
 ## 21. Offboarding and periodic review
 

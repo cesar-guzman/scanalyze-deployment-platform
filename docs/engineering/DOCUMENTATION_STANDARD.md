@@ -20,6 +20,8 @@ reviewable, and explicit about what is current, proposed, verified, and approved
 | Repository purpose and entrypoints | `README.md` |
 | Human contribution policy | `CONTRIBUTING.md` |
 | GitHub access and contributor onboarding | `docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md` |
+| AI-assisted development policy | `docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md` |
+| Claude Code installation and daily workflow | `docs/engineering/CLAUDE_CODE_SETUP.md` |
 | Security reporting | `SECURITY.md` |
 | Component setup and operation | nearest component `README.md` |
 | Architecture decisions | `ADR/` |

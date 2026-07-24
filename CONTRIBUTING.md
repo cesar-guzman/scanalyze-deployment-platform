@@ -10,7 +10,7 @@
 | Scope | `cesar-guzman/scanalyze-deployment-platform` |
 | Work tracking | Linear project `Scanalyze — Product & Platform Delivery` |
 | Review cadence | Quarterly and after a material incident or governance change |
-| Last verified | 2026-07-23 against `main@0f3dc10` |
+| Last verified | 2026-07-23 against `main@1c779bf` |
 
 This is the canonical human contribution policy for the Scanalyze repository.
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
@@ -26,6 +26,9 @@ Before changing code:
 1. Read this guide, [`README.md`](README.md), and the documentation for the
    component you will change. New contributors also complete the
    [`GitHub contributor walkthrough`](docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md).
+   AI-assisted work also follows the
+   [`AI-assisted development standard`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md)
+   and the tool-specific setup procedure.
 2. Confirm that the work has one Ready Linear issue with an owner, acceptance
    criteria, risk class, repository, environment boundary, and rollback plan.
 3. Start from the current `origin/main`, not an old local checkout.
@@ -121,6 +124,8 @@ Before the first technical issue is assigned, a team member MUST complete:
 - local toolchain versions reconciled with `.tool-versions`,
   `.terraform-version`, workflow pins, and component instructions;
 - read-through of this guide, `SECURITY.md`, relevant ADRs, and component docs;
+- when using AI, verified installation and clean-room rehearsal of the
+  repository's approved AI baseline;
 - one low-risk onboarding pull request completed under independent review.
 
 The end-to-end access, GitHub interface, clone, worktree, pull request, checks,
@@ -251,6 +256,26 @@ Contributors MUST NOT:
 - create a new dependency without explaining ownership, license, security,
   maintenance, and rollback impact.
 
+### AI-assisted implementation
+
+AI is an engineering aid, not an accountable author, reviewer, approver, or
+operator. All AI-assisted work MUST follow
+[`docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md).
+Claude Code users MUST also follow
+[`docs/engineering/CLAUDE_CODE_SETUP.md`](docs/engineering/CLAUDE_CODE_SETUP.md)
+and the versioned `CLAUDE.md` and `.claude/settings.json` baseline.
+
+The current model contract is Claude Opus 4.8 for exploration/planning and
+Claude Sonnet 5 for execution only after explicit human plan approval. Silent
+model fallback is prohibited. A human remains accountable for the final diff,
+validation, commit, remote writes, pull request, review responses, and Linear
+updates.
+
+Never give an AI tool secrets, customer material, PII, raw OCR, production
+logs, Terraform state/plans, or credentials. AI output is not evidence that a
+test passed, a review occurred, or a deployment is safe. No AI session
+authorizes AWS, production, merge, or self-approval.
+
 ## 8. Security and sensitive data
 
 Never commit, paste into a pull request, attach to an issue, or print in CI:
@@ -379,6 +404,8 @@ request MUST:
 - identify auth, tenant, data, IAM, Terraform, CI/CD, and production impact;
 - include focused and broad validation with exact outcomes;
 - include documentation, rollout, rollback, and recovery notes;
+- disclose AI assistance, exact planning/execution models, and human
+  verification, or state that AI was not used;
 - contain only sanitized evidence;
 - be small enough to review confidently.
 
@@ -533,8 +560,8 @@ If practice and this document diverge:
 4. add a regression test when the rule can be automated;
 5. record the owner and verification date.
 
-Questions and proposed improvements belong in GUG-111 or a scoped successor
-issue. Security reports follow `SECURITY.md`.
+Questions and proposed improvements belong in GUG-111, GUG-262, or a scoped
+successor issue. Security reports follow `SECURITY.md`.
 
 ## External references
 

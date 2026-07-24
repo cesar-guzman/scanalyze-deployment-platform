@@ -1,7 +1,11 @@
+import json
 from pathlib import Path
 
 from tooling.validate_contributor_contract import (
+    CLAUDE_REQUIRED_DENIES,
+    CLAUDE_REQUIRED_MODELS,
     ISSUE_FORM_IDS,
+    claude_configuration_errors,
     issue_form_errors,
     missing_required_terms,
     relative_link_errors,
@@ -20,6 +24,18 @@ def test_github_walkthrough_is_part_of_the_required_contract() -> None:
     from tooling.validate_contributor_contract import REQUIRED_FILES
 
     assert walkthrough in REQUIRED_FILES
+
+
+def test_claude_baseline_is_part_of_the_required_contract() -> None:
+    from tooling.validate_contributor_contract import REQUIRED_FILES
+
+    assert Path("CLAUDE.md") in REQUIRED_FILES
+    assert Path(".claude/settings.json") in REQUIRED_FILES
+    assert (
+        Path("docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md")
+        in REQUIRED_FILES
+    )
+    assert Path("docs/engineering/CLAUDE_CODE_SETUP.md") in REQUIRED_FILES
 
 
 def test_github_walkthrough_rejects_incompatible_pr_create_flags(
@@ -74,3 +90,60 @@ def test_relative_link_cannot_escape_repository(tmp_path: Path) -> None:
     assert errors == [
         "CONTRIBUTING.md: link escapes repository: ../outside.md"
     ]
+
+
+def test_claude_configuration_rejects_model_and_permission_drift(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / ".claude/settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "$schema": (
+                    "https://json.schemastore.org/"
+                    "claude-code-settings.json"
+                ),
+                "model": "sonnet",
+                "availableModels": ["sonnet"],
+                "fallbackModel": ["haiku"],
+                "effortLevel": "low",
+                "permissions": {
+                    "defaultMode": "acceptEdits",
+                    "disableBypassPermissionsMode": "enable",
+                    "deny": [],
+                },
+                "sandbox": {
+                    "enabled": False,
+                    "autoAllowBashIfSandboxed": True,
+                    "allowUnsandboxedCommands": True,
+                    "credentials": {"envVars": []},
+                },
+                "env": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    errors = claude_configuration_errors(tmp_path)
+
+    assert "Claude settings model must be opusplan" in errors
+    assert "Claude fallbackModel must be an empty list" in errors
+    assert "Claude permissions.defaultMode must be plan" in errors
+    assert "Claude sandbox must be enabled" in errors
+    assert any("missing deny rule" in error for error in errors)
+    assert any("deny credential variable" in error for error in errors)
+
+
+def test_claude_configuration_contract_names_exact_models_and_denies() -> None:
+    assert CLAUDE_REQUIRED_MODELS == {
+        "opusplan",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+    }
+    assert {
+        "Bash(git push *)",
+        "Bash(gh pr create *)",
+        "Bash(terraform apply *)",
+        "Bash(aws *)",
+    }.issubset(CLAUDE_REQUIRED_DENIES)

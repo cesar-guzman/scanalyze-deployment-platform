@@ -124,6 +124,14 @@ New team members should also follow the step-by-step
 to request and verify access, understand the GitHub interface, create an
 isolated worktree, open a Draft PR, interpret checks, and perform a review.
 
+AI-assisted work follows the
+[`AI-assisted development standard`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md).
+Claude Code users configure and verify their environment with the
+[`Claude Code setup and daily workflow`](docs/engineering/CLAUDE_CODE_SETUP.md).
+The repository defaults to Opus 4.8 for planning and Sonnet 5 for execution
+after human plan approval; AI does not replace Linear, testing, independent
+review, or production authorization.
+
 The repository validates this contract offline:
 
 ```bash

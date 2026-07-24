@@ -6,7 +6,9 @@
 
 # Human contribution and review governance
 CONTRIBUTING.md             @cesar-guzman
+CLAUDE.md                   @cesar-guzman
 SECURITY.md                 @cesar-guzman
+.claude/                    @cesar-guzman
 .github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman
 .github/ISSUE_TEMPLATE/     @cesar-guzman
 docs/engineering/           @cesar-guzman

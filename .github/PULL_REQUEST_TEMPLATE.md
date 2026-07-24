@@ -57,6 +57,20 @@ when there is no impact. Never paste sensitive evidence. -->
 - Terraform/IaC ownership:
 - New dependency and rationale:
 
+## AI assistance
+
+- AI tool and CLI version: none / `<TOOL_AND_VERSION>`
+- Planning model: none / `claude-opus-4-8`
+- Execution model: none / `claude-sonnet-5`
+- AI-assisted phases: none / planning / implementation / tests / documentation / review preparation
+- Human plan approval and reference:
+- Human verification performed:
+- AI-generated output used as evidence: **none** / explain:
+
+- [ ] AI use is disclosed accurately, or no AI was used.
+- [ ] No secret, customer material, PII, raw OCR, production log, Terraform state/plan, or credential was provided to AI.
+- [ ] The human author reviewed and is accountable for the final diff.
+
 ## Validation performed
 
 List the exact command, scope, revision when relevant, and result.
@@ -122,6 +136,7 @@ documents, PII, or signed URLs. -->
 - [ ] I started from current `origin/main` in an issue-specific worktree.
 - [ ] This PR contains no unrelated changes.
 - [ ] I reviewed the final diff and checked for secrets/sensitive artifacts.
+- [ ] I disclosed AI assistance and verified the exact models used.
 - [ ] Acceptance criteria and Linear scope match this change.
 - [ ] Focused tests pass and broader applicable gates are reported above.
 - [ ] Auth, tenant, data, retry/idempotency, DLQ, and rollback behavior are covered where relevant.
@@ -129,4 +144,3 @@ documents, PII, or signed URLs. -->
 - [ ] I did not weaken tests, scanners, CI, CODEOWNERS, or branch controls.
 - [ ] I did not perform an unauthorized AWS or production action.
 - [ ] Every claim above distinguishes merge, deployment, runtime evidence, and approval.
-
