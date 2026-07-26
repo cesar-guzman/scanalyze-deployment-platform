@@ -266,6 +266,22 @@ class TestDigestFromContentUriNegative:
     def test_no_host(self):
         assert _digest_from_content_uri(f"https:///sha256/{GOOD_DIGEST}/f.zip") is None
 
+    def test_dot_segment_after_digest(self):
+        uri = f"https://host/sha256/{GOOD_DIGEST}/../evil.zip"
+        assert _digest_from_content_uri(uri) is None
+
+    def test_single_dot_segment_after_digest(self):
+        uri = f"https://host/sha256/{GOOD_DIGEST}/./artifact.zip"
+        assert _digest_from_content_uri(uri) is None
+
+    def test_nested_dot_segment_traversal(self):
+        uri = f"https://host/sha256/{GOOD_DIGEST}/nested/../../evil.zip"
+        assert _digest_from_content_uri(uri) is None
+
+    def test_dot_segment_before_marker(self):
+        uri = f"https://host/releases/../sha256/{GOOD_DIGEST}/artifact.zip"
+        assert _digest_from_content_uri(uri) is None
+
 
 # ── GUG-124 Integration tests: evaluate_release archive branch ───────
 
@@ -470,6 +486,75 @@ class TestArchiveDigestBindingRedundantSlash:
         hex_part = digest.removeprefix("sha256:")
         manifest["artifacts"][target_id]["uri"] = (
             f"https://artifacts.invalid//sha256/{hex_part}/lambda.zip"
+        )
+        _rebind_manifest(manifest, attestation)
+
+        decision = _evaluate((manifest, attestation, policy))
+        assert decision.allowed is False
+        assert decision.code in {"ARTIFACT_DIGEST_MISMATCH", "RELEASE_SCHEMA_INVALID"}
+
+
+class TestArchiveDigestBindingDotSegment:
+    """Dot-segment traversal rejection in archive URIs.
+
+    A downstream HTTP client, CDN, proxy, or origin that normalises dot
+    segments could resolve outside the content-addressed digest directory.
+    The helper and the gate must reject any path containing . or .. segments.
+    """
+
+    def test_dot_dot_after_digest(self, bundle):
+        """../evil.zip after digest → rejected."""
+        manifest, attestation, policy = copy.deepcopy(bundle)
+        target_id = "identity-pre-token-lambda"
+        digest = manifest["artifacts"][target_id]["digest"]
+        hex_part = digest.removeprefix("sha256:")
+        manifest["artifacts"][target_id]["uri"] = (
+            f"https://artifacts.invalid/sha256/{hex_part}/../evil.zip"
+        )
+        _rebind_manifest(manifest, attestation)
+
+        decision = _evaluate((manifest, attestation, policy))
+        assert decision.allowed is False
+        assert decision.code in {"ARTIFACT_DIGEST_MISMATCH", "RELEASE_SCHEMA_INVALID"}
+
+    def test_single_dot_after_digest(self, bundle):
+        """./artifact.zip after digest → rejected."""
+        manifest, attestation, policy = copy.deepcopy(bundle)
+        target_id = "identity-pre-token-lambda"
+        digest = manifest["artifacts"][target_id]["digest"]
+        hex_part = digest.removeprefix("sha256:")
+        manifest["artifacts"][target_id]["uri"] = (
+            f"https://artifacts.invalid/sha256/{hex_part}/./artifact.zip"
+        )
+        _rebind_manifest(manifest, attestation)
+
+        decision = _evaluate((manifest, attestation, policy))
+        assert decision.allowed is False
+        assert decision.code in {"ARTIFACT_DIGEST_MISMATCH", "RELEASE_SCHEMA_INVALID"}
+
+    def test_nested_traversal_after_digest(self, bundle):
+        """nested/../../evil.zip after digest → rejected."""
+        manifest, attestation, policy = copy.deepcopy(bundle)
+        target_id = "identity-pre-token-lambda"
+        digest = manifest["artifacts"][target_id]["digest"]
+        hex_part = digest.removeprefix("sha256:")
+        manifest["artifacts"][target_id]["uri"] = (
+            f"https://artifacts.invalid/sha256/{hex_part}/nested/../../evil.zip"
+        )
+        _rebind_manifest(manifest, attestation)
+
+        decision = _evaluate((manifest, attestation, policy))
+        assert decision.allowed is False
+        assert decision.code in {"ARTIFACT_DIGEST_MISMATCH", "RELEASE_SCHEMA_INVALID"}
+
+    def test_dot_segment_before_marker(self, bundle):
+        """/../sha256/<digest>/artifact.zip → rejected (non-canonical prefix)."""
+        manifest, attestation, policy = copy.deepcopy(bundle)
+        target_id = "identity-pre-token-lambda"
+        digest = manifest["artifacts"][target_id]["digest"]
+        hex_part = digest.removeprefix("sha256:")
+        manifest["artifacts"][target_id]["uri"] = (
+            f"https://artifacts.invalid/releases/../sha256/{hex_part}/artifact.zip"
         )
         _rebind_manifest(manifest, attestation)
 

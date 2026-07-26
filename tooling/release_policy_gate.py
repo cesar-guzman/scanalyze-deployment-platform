@@ -13,6 +13,7 @@ import base64
 import copy
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -192,7 +193,7 @@ def _digest_from_uri(uri: str) -> str | None:
 
 
 _ACCEPTED_CONTENT_URI_SCHEMES = frozenset({"s3", "https"})
-_HEX64_RE = __import__("re").compile(r"^[a-f0-9]{64}$")
+_HEX64_RE = re.compile(r"^[a-f0-9]{64}$")
 
 
 def _digest_from_content_uri(uri: str) -> str | None:
@@ -236,6 +237,12 @@ def _digest_from_content_uri(uri: str) -> str | None:
     # the URI contained redundant slashes such as //).
     raw_segments = raw_path[1:].split("/")
     if "" in raw_segments:
+        return None
+
+    # Reject dot segments (. and ..) anywhere in the path.  A downstream
+    # HTTP client, CDN, proxy, or origin that normalises dot segments could
+    # resolve outside the content-addressed digest directory.
+    if any(seg in (".", "..") for seg in raw_segments):
         return None
 
     # Locate every 'sha256' marker among the segments.
