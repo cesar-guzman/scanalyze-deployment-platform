@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { useAuth } from 'react-oidc-context';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';

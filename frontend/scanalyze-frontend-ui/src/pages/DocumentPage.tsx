@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { useDocumentPolling } from '../hooks/useDocumentPolling';
 import { documentApi } from '../api/documentApi';
 import type { DocumentArtifact } from '../api/documentApi';

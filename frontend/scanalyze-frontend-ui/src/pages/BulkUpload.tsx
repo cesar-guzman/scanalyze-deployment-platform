@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import axios from 'axios';
 import { documentApi } from '../api/documentApi';
 import { batchApi } from '../api/batchApi';
@@ -130,6 +130,8 @@ export const BulkUpload: React.FC = () => {
 
     // Si terminamos de procesar todos
     if (pendingTasks.length === 0 && runningTasks.length === 0) {
+      // This effect is the upload state-machine coordinator.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBatchStatus('COMPLETED');
       return;
     }

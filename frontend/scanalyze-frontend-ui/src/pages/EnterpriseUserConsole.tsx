@@ -120,8 +120,11 @@ export const EnterpriseUserConsole: React.FC = () => {
   };
 
   useEffect(() => {
+    // Capability changes intentionally start external membership and audit synchronization.
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (canManage) void loadMembershipData(stateFilter);
     if (canAudit) void loadAuditData();
+    /* eslint-enable react-hooks/set-state-in-effect */
     // Capability changes are tied to a new access token. Filter changes are handled explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage, canAudit]);

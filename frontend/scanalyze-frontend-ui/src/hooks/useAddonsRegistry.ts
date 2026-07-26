@@ -66,6 +66,8 @@ export function useAddonsRegistry(): UseAddonsRegistryResult {
 
   useEffect(() => {
     mountedRef.current = true;
+    // Mount intentionally starts the external registry synchronization.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRegistry();
     return () => {
       mountedRef.current = false;
