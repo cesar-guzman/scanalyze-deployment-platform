@@ -56,6 +56,24 @@ The expected policy digest is a separate trust root, not a value read from the m
 
 Examples include `LEGACY_MANIFEST_DENIED`, `MANIFEST_DIGEST_MISMATCH`, `TOOLCHAIN_MISMATCH`, `EVIDENCE_SUBJECT_MISMATCH`, `CRITICAL_FINDING`, `WAIVER_EXPIRED`, `UNTRUSTED_SIGNER`, and `SIGNATURE_INVALID`. Any non-zero command result is a release `NO-GO`; automation must not retry by disabling checks or substituting caller values.
 
+## Archive URI content-addressed binding
+
+Archive artifacts (lambdas, frontend bundles) use HTTPS or S3 content-addressed URIs with the canonical form:
+
+```text
+<scheme>://<host>/<optional-prefix>/sha256/<64-lowercase-hex-digest>/<artifact-path>
+```
+
+The gate enforces the following structural invariants:
+
+- **Exact `/sha256/<digest>/` cross-field equality.** The digest extracted from the canonical path segment must equal the declared `artifact.digest`. A digest appearing only in a filename, parent segment, query string, or fragment does not constitute authority.
+- **Single marker.** Exactly one `sha256` path segment must exist. Multiple markers create ambiguity and are rejected.
+- **No dot segments.** Path segments `.` and `..` are rejected anywhere in the URI. A downstream HTTP client, CDN, proxy, or origin that normalises dot segments could resolve outside the content-addressed directory.
+- **No redundant slashes.** Empty path segments (from `//`) are rejected.
+- **Schema and semantic validation are separate controls.** The `release.v2` JSON Schema (`content_uri` pattern) rejects many malformed URIs at schema validation time. The `_digest_from_content_uri()` helper provides a second, structural cross-field check after schema validation passes. Both are required; neither replaces the other.
+
+GUG-125 owns live registry copy and destination digest readback.
+
 ## Build and tool constraints
 
 - `scripts/microservices/build-push.sh` rejects every base image without `@sha256`, including local validation builds; the release gate additionally requires the runner and every service base image to match the externally approved trust policy.

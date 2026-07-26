@@ -13,6 +13,7 @@ import base64
 import copy
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -191,6 +192,81 @@ def _digest_from_uri(uri: str) -> str | None:
     return f"sha256:{suffix}" if len(suffix) == 64 else None
 
 
+_ACCEPTED_CONTENT_URI_SCHEMES = frozenset({"s3", "https"})
+_HEX64_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _digest_from_content_uri(uri: str) -> str | None:
+    """Extract the canonical content digest from a content-addressed archive URI.
+
+    A valid content-addressed URI has exactly one path segment pair:
+        /sha256/<64-lowercase-hex-digest>/
+    followed by at least one artifact-path segment.
+
+    Returns:
+        The digest as 'sha256:<hex>' if exactly one unambiguous canonical
+        digest marker is found.  None otherwise.
+
+    Properties:
+        - Pure function: no network, filesystem, or environment access.
+        - Deterministic: same input always produces the same output.
+        - Fail-closed: returns None for any ambiguous or malformed input.
+        - Does not log the full URI to avoid leaking sensitive paths.
+    """
+    from urllib.parse import urlsplit
+
+    try:
+        parsed = urlsplit(uri)
+    except Exception:
+        return None
+
+    if parsed.scheme not in _ACCEPTED_CONTENT_URI_SCHEMES:
+        return None
+
+    if not parsed.hostname:
+        return None
+
+    if parsed.query or parsed.fragment:
+        return None
+
+    raw_path = parsed.path
+    if not raw_path or raw_path[0] != "/":
+        return None
+
+    # Split path into raw segments. Reject if any segment is empty (i.e.
+    # the URI contained redundant slashes such as //).
+    raw_segments = raw_path[1:].split("/")
+    if "" in raw_segments:
+        return None
+
+    # Reject dot segments (. and ..) anywhere in the path.  A downstream
+    # HTTP client, CDN, proxy, or origin that normalises dot segments could
+    # resolve outside the content-addressed digest directory.
+    if any(seg in (".", "..") for seg in raw_segments):
+        return None
+
+    # Locate every 'sha256' marker among the segments.
+    marker_indices = [i for i, s in enumerate(raw_segments) if s == "sha256"]
+    if len(marker_indices) != 1:
+        return None
+
+    idx = marker_indices[0]
+
+    # The digest must be the very next segment.
+    if idx + 1 >= len(raw_segments):
+        return None
+    candidate = raw_segments[idx + 1]
+
+    if not _HEX64_RE.match(candidate):
+        return None
+
+    # At least one artifact-path segment must follow the digest.
+    if idx + 2 >= len(raw_segments):
+        return None
+
+    return f"sha256:{candidate}"
+
+
 def evaluate_release(
     manifest: Mapping[str, Any],
     attestation: Mapping[str, Any],
@@ -337,10 +413,18 @@ def evaluate_release(
                     claimed_manifest_digest,
                 )
         else:
-            if digest.removeprefix("sha256:") not in artifact["uri"]:
+            uri_digest = _digest_from_content_uri(artifact["uri"])
+            if uri_digest is None:
                 return _failed(
                     "ARTIFACT_DIGEST_MISMATCH",
-                    f"{artifact_id} archive URI is not content-addressed.",
+                    f"{artifact_id} archive URI is not a valid content-addressed form.",
+                    checks,
+                    claimed_manifest_digest,
+                )
+            if uri_digest != digest:
+                return _failed(
+                    "ARTIFACT_DIGEST_MISMATCH",
+                    f"{artifact_id} archive URI digest does not match declared artifact digest.",
                     checks,
                     claimed_manifest_digest,
                 )
