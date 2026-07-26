@@ -73,18 +73,34 @@ contracts never merge by coincidental key name. Typed projections carry the
 verified envelope metadata and schema outputs to consumers that need a whole
 contract object.
 
-The resolver writes an owner-only resolution artifact outside the repository.
-The artifact has its own canonical digest and contains sanitized contract
-evidence plus the exact materialized variables.
+The resolver writes an owner-only resolution v2 artifact outside the
+repository. The artifact has its own canonical digest and contains the complete
+validated Terraform contract envelopes needed for deterministic projection. It
+does not contain a second, independently editable `variables` map.
+
+Resolution v1 cannot prove output-variable or typed-contract projections
+because it retains only summary evidence beside already materialized values.
+It remains available as historical rollback evidence, but the active resolver
+emits only v2 and the active pre-plan validator rejects v1 downgrade.
 
 ### 5. Terraform plan has no fallback
 
-`terraform-layer.sh` requires an external resolution artifact, verifies its
-digest, exact canonical DAG contract set and producers, and exact
-customer/deployment/account/region/release-version/release-digest/consumer tuple,
-materializes an owner-only temporary var-file, verifies the caller account, and
-then invokes Terraform. The temporary file is removed on success, error, or
-signal. No missing value is inferred or fabricated.
+`terraform-layer.sh` requires an external resolution artifact. The validator
+verifies its digest, exact canonical DAG contract set, full envelope/output
+schemas and digests, producers, state ownership, freshness, and exact
+customer/deployment/account/region/release-version/release-digest/consumer
+tuple. One shared projection implementation reconstructs metadata,
+output-variable, and typed-contract bindings from that evidence and the
+catalog, then materializes an owner-only temporary var-file.
+
+Before backend authorization, AWS identity lookup, or Terraform, the wrapper
+rejects every ambient `TF_*` variable by name without printing its value.
+Terraform init and plan run through an empty environment populated only with
+explicit system/AWS credential inputs plus canonical `TF_IN_AUTOMATION`,
+`TF_INPUT`, and an empty wrapper-owned CLI configuration. Temporary contract,
+backend, CLI-configuration, and environment artifacts are removed on success,
+error, or signal. No missing value or environmental Terraform authority is
+inferred, accepted, or silently scrubbed.
 
 Local apply remains disabled by ADR-017. Live SSM read/write, remote backend
 ownership, OIDC/IAM, signed supply-chain evidence, and exact saved-plan apply
@@ -95,6 +111,10 @@ belong respectively to GUG-125, GUG-122, GUG-123, and GUG-124.
 - A wrong customer, deployment, account, region, release, producer, schema,
   state key, digest, target, or freshness window fails before Terraform plan.
 - Contract output names do not establish authority; catalog bindings do.
+- Materialized values are reconstructed from verified v2 contract evidence;
+  variable names and a self-consistent resolution digest are not sufficient.
+- Ambient `TF_VAR_*`, `TF_CLI_ARGS*`, workspace, provider, data-directory,
+  plugin, and logging configuration fail closed before AWS or Terraform.
 - Resolution files and materialized tfvars are mode `0600` and cannot live in
   the repository.
 - Error messages identify the failed invariant without printing contract
@@ -108,9 +128,11 @@ Merge does not publish SSM, initialize a backend, create AWS resources, or
 authorize a deployment. GUG-122 may start only after reviewed merge and main
 verification of this ADR and its code.
 
-Rollback is a normal revert of the GUG-121 commit. Existing v1 schemas remain
-available, but selecting them requires an explicit DAG/catalog version; no
-automatic downgrade or `latest` lookup is permitted.
+Rollback is a normal revert of the remediation commit before resolution v2 is
+consumed by an authorized engine. Existing resolution v1 remains historical
+evidence only; rollback must not silently restore the fail-open v1 active path.
+After v2 consumption, use a reviewed forward fix or explicit version rollback.
+No automatic downgrade or `latest` lookup is permitted.
 
 ## Evidence classification
 

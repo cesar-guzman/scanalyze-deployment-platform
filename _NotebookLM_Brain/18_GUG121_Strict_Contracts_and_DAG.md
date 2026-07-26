@@ -15,16 +15,23 @@ edge y addons avanzan de forma aditiva a v2; sus schemas v1 permanecen sólo
 para rollback explícito.
 
 El resolver rechaza contratos faltantes, extra, duplicados, ajenos, alterados,
-stale, futuros o dirigidos al consumer incorrecto. El wrapper de Terraform no
-tiene fallback: exige una resolución con digest, revalida el conjunto y los
-productores exactos del DAG/catálogo, valida el tuple exacto,
-materializa un tfvars 0600 fuera del repo y lo elimina al terminar.
+stale, futuros o dirigidos al consumer incorrecto. La resolución activa v2
+contiene evidencia contractual canónica y no un mapa `variables` duplicado. Un
+proyector compartido reconstruye bindings de metadata, outputs y contrato
+tipado desde catálogo, schemas y digests verificados; v1 queda sólo como
+evidencia histórica y la ruta activa rechaza downgrade.
+
+El wrapper de Terraform no tiene fallback: rechaza cualquier `TF_*` ambiental
+antes de backend, AWS o Terraform, materializa un tfvars 0600 fuera del repo y
+ejecuta init/plan con ambiente hijo controlado. No imprime valores rechazados y
+elimina artefactos temporales al terminar.
 
 ## Límites de evidencia
 
 - **Implemented:** candidato de código, schemas, DAG, catálogo, productores,
   resolver, guard de plan, documentación y pruebas.
-- **Locally validated:** únicamente los comandos reportados para el candidato.
+- **Locally validated:** únicamente pruebas sintéticas y comandos offline
+  reportados para el candidato.
 - **CI validated:** pendiente del PR y SHA exactos.
 - **Live validated:** no.
 - **AWS/SSM/backend/apply/deployment:** no ejecutado.

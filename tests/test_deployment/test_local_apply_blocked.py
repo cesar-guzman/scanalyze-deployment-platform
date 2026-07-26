@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import textwrap
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 import yaml
 
 from tooling.validate_digest import canonicalize, compute_digest
@@ -42,8 +44,37 @@ def _write_executable(path: Path, source: str) -> None:
 
 
 def _resolution(layer: str, *, tamper: bool = False) -> dict:
+    outputs = {
+        "ecs_execution_role_arn": (
+            f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeEcsExecution"
+        ),
+        "ecs_task_role_arns": {
+            "scanalyze-ingest-api": (
+                f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeIngestTask"
+            )
+        },
+    }
+    contract = {
+        "schema_version": "2",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "aws_account_id": ACCOUNT_ID,
+        "region": "global",
+        "scope": "global",
+        "layer": "global",
+        "producer": "roots/global",
+        "release_version": RELEASE_VERSION,
+        "release_digest": RELEASE_DIGEST,
+        "output_schema_version": "global/v1",
+        "outputs": outputs,
+        "contract_digest": compute_digest(canonicalize(outputs)),
+        "produced_at": "2026-07-14T00:00:00Z",
+        "terraform_workspace": "default",
+        "state_key": f"{DEPLOYMENT_ID}/global/terraform.tfstate",
+        "module_source_digest": "sha256:" + ("d" * 64),
+    }
     document = {
-        "schema_version": "1",
+        "schema_version": "2",
         "consumer_layer": layer,
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
@@ -52,25 +83,14 @@ def _resolution(layer: str, *, tamper: bool = False) -> dict:
         "release_digest": RELEASE_DIGEST,
         "release_version": RELEASE_VERSION,
         "resolved_at": "2026-07-14T00:05:00Z",
-        "required_contracts": [
-            {
-                "contract_id": "global/v1",
-                "contract_digest": "sha256:" + ("c" * 64),
-                "module_source_digest": "sha256:" + ("d" * 64),
-                "producer": "roots/global",
-                "release_version": RELEASE_VERSION,
-                "produced_at": "2026-07-14T00:00:00Z",
-            }
-        ],
-        "variables": {
-            "upstream_contract_digest": "sha256:" + ("c" * 64),
-            "expected_upstream_digest": "sha256:" + ("c" * 64),
-            "upstream_schema_version": "1",
-        },
+        "max_contract_age_seconds": 3600,
+        "required_contracts": [contract],
     }
     document["resolution_digest"] = compute_digest(canonicalize(document))
     if tamper:
-        document["variables"]["upstream_schema_version"] = "9"
+        document["required_contracts"][0]["outputs"][
+            "ecs_execution_role_arn"
+        ] = f"arn:aws:iam::{ACCOUNT_ID}:role/Unreviewed"
     return document
 
 
@@ -210,6 +230,7 @@ def _run_layer_plan(
     *,
     include_resolution: bool = True,
     tamper_resolution: bool = False,
+    ambient_environment: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict, str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -217,6 +238,9 @@ def _run_layer_plan(
     plan_dir.mkdir()
     capture_path = tmp_path / "terraform-variables.json"
     backend_capture_path = tmp_path / "terraform-backend.hcl"
+    terraform_environment_path = tmp_path / "terraform-environment.txt"
+    aws_marker_path = tmp_path / "aws-called"
+    terraform_marker_path = tmp_path / "terraform-called"
     resolution_path = tmp_path / "resolution.json"
     resolution_path.write_text(
         json.dumps(_resolution("network", tamper=tamper_resolution)),
@@ -230,20 +254,23 @@ def _run_layer_plan(
         f"""
         #!/usr/bin/env bash
         set -euo pipefail
+        printf 'called\n' > {shlex.quote(str(aws_marker_path))}
         printf '%s\n' '{ACCOUNT_ID}'
         """,
     )
     _write_executable(
         fake_bin / "terraform",
-        """
+        f"""
         #!/usr/bin/env bash
         set -euo pipefail
+        printf 'called\n' > {shlex.quote(str(terraform_marker_path))}
+        compgen -e | sort > {shlex.quote(str(terraform_environment_path))}
         is_init=false
         for argument in "$@"; do
           case "$argument" in
             init) is_init=true ;;
-            -backend-config=*) cp "${argument#-backend-config=}" "$BACKEND_CAPTURE_PATH" ;;
-            -var-file=*) cp "${argument#-var-file=}" "$CAPTURE_PATH" ;;
+            -backend-config=*) cp "${{argument#-backend-config=}}" {shlex.quote(str(backend_capture_path))} ;;
+            -var-file=*) cp "${{argument#-var-file=}}" {shlex.quote(str(capture_path))} ;;
           esac
         done
         [[ "$is_init" == true ]] && exit 0
@@ -292,8 +319,8 @@ def _run_layer_plan(
 
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{Path(sys.executable).parent}:{env['PATH']}"
-    env["CAPTURE_PATH"] = str(capture_path)
-    env["BACKEND_CAPTURE_PATH"] = str(backend_capture_path)
+    if ambient_environment:
+        env.update(ambient_environment)
     result = subprocess.run(
         command,
         cwd=REPO_ROOT,
@@ -408,11 +435,18 @@ def test_plan_rejects_tampered_resolution_before_terraform(tmp_path: Path) -> No
 
 
 def test_plan_uses_only_verified_materialized_variables(tmp_path: Path) -> None:
-    result, captured, backend = _run_layer_plan(tmp_path)
+    result, captured, backend = _run_layer_plan(
+        tmp_path,
+        ambient_environment={"UNREVIEWED_AMBIENT": "must-not-reach-terraform"},
+    )
     assert result.returncode == 0, result.stderr
     assert captured == {
-        "upstream_contract_digest": "sha256:" + ("c" * 64),
-        "expected_upstream_digest": "sha256:" + ("c" * 64),
+        "upstream_contract_digest": _resolution("network")[
+            "required_contracts"
+        ][0]["contract_digest"],
+        "expected_upstream_digest": _resolution("network")[
+            "required_contracts"
+        ][0]["contract_digest"],
         "upstream_schema_version": "1",
     }
     assert not list((tmp_path / "plans").glob(".*.auto.tfvars.json"))
@@ -421,13 +455,25 @@ def test_plan_uses_only_verified_materialized_variables(tmp_path: Path) -> None:
     assert f'allowed_account_ids = ["{ACCOUNT_ID}"]' in backend
     assert not list((tmp_path / "plans").glob(".*.backend.hcl"))
     assert not list((tmp_path / "plans").glob(".*.backend-binding.json"))
+    environment_names = set(
+        (tmp_path / "terraform-environment.txt").read_text().splitlines()
+    )
+    assert {
+        name for name in environment_names if name.startswith("TF_")
+    } == {
+        "TF_CLI_CONFIG_FILE",
+        "TF_IN_AUTOMATION",
+        "TF_INPUT",
+    }
+    assert "UNREVIEWED_AMBIENT" not in environment_names
 
 
 def test_resolution_validator_rejects_self_consistent_noncanonical_evidence(
     tmp_path: Path,
 ) -> None:
     resolution = _resolution("network")
-    resolution["required_contracts"][0]["contract_id"] = "network/v2"
+    resolution["required_contracts"][0]["output_schema_version"] = "network/v2"
+    resolution["required_contracts"][0]["layer"] = "network"
     resolution["required_contracts"][0]["producer"] = "roots/network"
     digest_input = {
         key: value for key, value in resolution.items() if key != "resolution_digest"
@@ -472,11 +518,13 @@ def test_resolution_validator_rejects_self_consistent_noncanonical_evidence(
     assert not materialized.exists()
 
 
-def test_resolution_validator_rejects_self_consistent_undeclared_variable(
+def test_resolution_validator_rejects_legacy_variables_authority(
     tmp_path: Path,
 ) -> None:
     resolution = _resolution("network")
-    resolution["variables"]["vpc_id"] = "vpc-not-authorized-for-this-consumer"
+    resolution["variables"] = {
+        "vpc_id": "vpc-not-authorized-for-this-consumer"
+    }
     digest_input = {
         key: value for key, value in resolution.items() if key != "resolution_digest"
     }
@@ -516,5 +564,278 @@ def test_resolution_validator_rejects_self_consistent_undeclared_variable(
     )
 
     assert result.returncode == 1
-    assert "canonical consumer bindings" in result.stderr
+    assert "resolution schema validation failed" in result.stderr
     assert not materialized.exists()
+
+
+@pytest.mark.parametrize(
+    ("evidence_path", "rejected_value"),
+    [
+        (("contract_digest",), "sha256:" + ("9" * 64)),
+        (("output_schema_version",), "global/v9"),
+        (
+            ("outputs", "ecs_execution_role_arn"),
+            f"arn:aws:iam::{ACCOUNT_ID}:role/Unreviewed",
+        ),
+    ],
+)
+def test_active_validator_rejects_self_consistent_contract_evidence_tampering(
+    tmp_path: Path,
+    evidence_path: tuple[str, ...],
+    rejected_value: str,
+) -> None:
+    resolution = _resolution("network")
+    target = resolution["required_contracts"][0]
+    for key in evidence_path[:-1]:
+        target = target[key]
+    target[evidence_path[-1]] = rejected_value
+    resolution["resolution_digest"] = compute_digest(
+        canonicalize(
+            {
+                key: value
+                for key, value in resolution.items()
+                if key != "resolution_digest"
+            }
+        )
+    )
+    resolution_path = tmp_path / "resolution.json"
+    resolution_path.write_text(json.dumps(resolution), encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert rejected_value not in result.stdout + result.stderr
+    assert not materialized.exists()
+
+
+def test_active_validator_rejects_resolution_v1_downgrade(
+    tmp_path: Path,
+) -> None:
+    resolution = {
+        "schema_version": "1",
+        "consumer_layer": "network",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "aws_account_id": ACCOUNT_ID,
+        "region": "us-east-1",
+        "release_version": RELEASE_VERSION,
+        "release_digest": RELEASE_DIGEST,
+        "resolved_at": "2026-07-14T00:05:00Z",
+        "required_contracts": [
+            {
+                "contract_id": "global/v1",
+                "contract_digest": "sha256:" + ("c" * 64),
+                "module_source_digest": "sha256:" + ("d" * 64),
+                "producer": "roots/global",
+                "release_version": RELEASE_VERSION,
+                "produced_at": "2026-07-14T00:00:00Z",
+            }
+        ],
+        "variables": {
+            "upstream_contract_digest": "sha256:" + ("c" * 64),
+            "expected_upstream_digest": "sha256:" + ("c" * 64),
+            "upstream_schema_version": "1",
+        },
+    }
+    resolution["resolution_digest"] = compute_digest(canonicalize(resolution))
+    resolution_path = tmp_path / "resolution-v1.json"
+    resolution_path.write_text(json.dumps(resolution), encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--schema",
+            str(REPO_ROOT / "schemas/contract-resolution.v1.schema.json"),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "schema downgrade is forbidden" in result.stderr
+    assert not materialized.exists()
+
+
+def test_active_validator_rejects_duplicate_json_keys(
+    tmp_path: Path,
+) -> None:
+    resolution = _resolution("network")
+    encoded = json.dumps(resolution)
+    encoded = encoded.replace(
+        '"consumer_layer": "network"',
+        '"consumer_layer": "edge", "consumer_layer": "network"',
+        1,
+    )
+    resolution_path = tmp_path / "resolution-duplicate-key.json"
+    resolution_path.write_text(encoded, encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "duplicate object key" in result.stderr
+    assert not materialized.exists()
+
+
+def test_active_validator_rejects_resolution_symlink(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "resolution-target.json"
+    target.write_text(json.dumps(_resolution("network")), encoding="utf-8")
+    target.chmod(0o600)
+    resolution_path = tmp_path / "resolution-link.json"
+    resolution_path.symlink_to(target)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "symlink" in result.stderr
+    assert not materialized.exists()
+
+
+@pytest.mark.parametrize(
+    ("variable_name", "rejected_value"),
+    [
+        ("TF_VAR_service_definitions", '{"unsafe":true}'),
+        ("TF_VAR_domain_name", "unreviewed.invalid"),
+        ("TF_VAR_unreviewed_input", "future-input"),
+        ("TF_CLI_ARGS", "-var=domain_name=unreviewed.invalid"),
+        ("TF_CLI_ARGS", "-var-file=unreviewed.tfvars"),
+        ("TF_CLI_ARGS_plan", "-target=module.unreviewed"),
+        ("TF_CLI_ARGS_plan", "-replace=module.unreviewed"),
+        ("TF_CLI_ARGS_plan", "-destroy"),
+        ("TF_WORKSPACE", "unreviewed"),
+        ("TF_REATTACH_PROVIDERS", '{"unsafe":"provider"}'),
+        ("TF_CLI_CONFIG_FILE", "unreviewed.tfrc"),
+        ("TF_DATA_DIR", "unreviewed-data"),
+        ("TF_PLUGIN_CACHE_DIR", "unreviewed-cache"),
+        ("TF_LOG", "TRACE"),
+        ("TF_LOG_PATH", "unreviewed.log"),
+    ],
+)
+def test_plan_rejects_ambient_terraform_environment_before_any_subprocess(
+    tmp_path: Path,
+    variable_name: str,
+    rejected_value: str,
+) -> None:
+    result, captured, backend = _run_layer_plan(
+        tmp_path,
+        ambient_environment={variable_name: rejected_value},
+    )
+
+    assert result.returncode != 0
+    assert variable_name in result.stderr
+    assert rejected_value not in result.stdout + result.stderr
+    assert not (tmp_path / "aws-called").exists()
+    assert not (tmp_path / "terraform-called").exists()
+    assert captured == {}
+    assert backend == ""
+    assert not list((tmp_path / "plans").iterdir())

@@ -12,6 +12,17 @@ info() { printf 'INFO: %s\n' "$*"; }
 pass() { printf 'PASS: %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 
+reject_ambient_terraform_environment() {
+  local variable_name
+  while IFS= read -r variable_name; do
+    case "$variable_name" in
+      TF_*)
+        die "Ambient Terraform environment variable is prohibited: ${variable_name}"
+        ;;
+    esac
+  done < <(compgen -e)
+}
+
 ACTION="${1:-}"
 shift || die "usage: terraform-layer.sh plan [options]"
 
@@ -19,6 +30,7 @@ if [[ "$ACTION" == "apply" ]]; then
   die "Local Terraform apply is disabled by ADR-017. Only verified plans are supported."
 fi
 [[ "$ACTION" == "plan" ]] || die "Unknown action: ${ACTION}. Only local plan is supported."
+reject_ambient_terraform_environment
 
 LAYER=""
 PLAN_DIR=""
@@ -85,8 +97,12 @@ BACKEND_CONFIG="${ABS_PLAN_DIR}/.${LAYER}.$$.backend.hcl"
 BACKEND_BINDING="${ABS_PLAN_DIR}/.${LAYER}.$$.backend-binding.json"
 PLAN_FILE="${ABS_PLAN_DIR}/${LAYER}.tfplan"
 PLAN_SUMMARY="${ABS_PLAN_DIR}/${LAYER}-plan-summary.txt"
+TERRAFORM_HOME=""
 cleanup() {
   rm -f -- "$MATERIALIZED_VARS" "$BACKEND_CONFIG" "$BACKEND_BINDING"
+  if [[ -n "$TERRAFORM_HOME" && -d "$TERRAFORM_HOME" ]]; then
+    rm -rf -- "$TERRAFORM_HOME"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -144,8 +160,48 @@ if grep -q '^variable "release_manifest_digest"' "${ROOT_DIR}"/*.tf; then
   terraform_variables+=("-var=release_manifest_digest=${RELEASE_DIGEST}")
 fi
 
+TERRAFORM_BIN="$(command -v terraform)" \
+  || die "Terraform executable is not available"
+TERRAFORM_HOME="$(mktemp -d "${ABS_PLAN_DIR}/.${LAYER}.terraform-home.XXXXXX")" \
+  || die "Unable to create controlled Terraform environment"
+chmod 0700 "$TERRAFORM_HOME"
+mkdir -m 0700 "$TERRAFORM_HOME/tmp"
+printf '' > "${TERRAFORM_HOME}/terraform.rc"
+chmod 0600 "${TERRAFORM_HOME}/terraform.rc"
+
+terraform_environment=(
+  "HOME=${TERRAFORM_HOME}"
+  "PATH=${PATH:-/usr/bin:/bin}"
+  "TMPDIR=${TERRAFORM_HOME}/tmp"
+  "LC_ALL=C"
+  "TF_IN_AUTOMATION=1"
+  "TF_INPUT=0"
+  "TF_CLI_CONFIG_FILE=${TERRAFORM_HOME}/terraform.rc"
+  "AWS_REGION=${REGION}"
+  "AWS_DEFAULT_REGION=${REGION}"
+)
+preserved_aws_environment=(
+  AWS_ACCESS_KEY_ID
+  AWS_SECRET_ACCESS_KEY
+  AWS_SESSION_TOKEN
+  AWS_WEB_IDENTITY_TOKEN_FILE
+  AWS_ROLE_ARN
+  AWS_ROLE_SESSION_NAME
+  AWS_PROFILE
+  AWS_CONFIG_FILE
+  AWS_SHARED_CREDENTIALS_FILE
+  AWS_SDK_LOAD_CONFIG
+  AWS_EC2_METADATA_DISABLED
+)
+for variable_name in "${preserved_aws_environment[@]}"; do
+  variable_value="${!variable_name:-}"
+  if [[ -n "$variable_value" ]]; then
+    terraform_environment+=("${variable_name}=${variable_value}")
+  fi
+done
+
 info "Initializing verified registry-backed layer plan..."
-terraform -chdir="$ROOT_DIR" init \
+env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$ROOT_DIR" init \
   -input=false \
   -no-color \
   -reconfigure \
@@ -153,7 +209,7 @@ terraform -chdir="$ROOT_DIR" init \
   >/dev/null
 
 info "Planning verified layer..."
-terraform -chdir="$ROOT_DIR" plan \
+env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$ROOT_DIR" plan \
   -input=false \
   -no-color \
   -out="$PLAN_FILE" \

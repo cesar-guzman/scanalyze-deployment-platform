@@ -87,9 +87,11 @@ make gitops-orchestrator-check
 
 `publish-contract.py` renders a candidate envelope to a local output file. It
 does not write SSM. `resolve-contracts.py` accepts only explicitly acknowledged
-test fixtures and creates a content-bound owner-readable resolution outside the
-repository. `terraform-layer.sh` requires that resolution and has no fallback.
-Live reads and writes remain disabled.
+test fixtures and creates a content-bound owner-readable resolution v2 outside
+the repository. Resolution v2 carries the canonical Terraform envelopes needed
+for deterministic catalog projection and does not carry independently editable
+materialized variables. `terraform-layer.sh` requires that resolution, rejects
+ambient `TF_*`, and has no fallback. Live reads and writes remain disabled.
 
 The identity stage's local fixture and mock-provider tests prove only schema,
 binding, DAG, and Terraform configuration behavior. They do not prove live SSM

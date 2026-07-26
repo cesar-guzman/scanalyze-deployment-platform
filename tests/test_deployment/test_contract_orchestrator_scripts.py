@@ -242,13 +242,13 @@ def test_publish_then_resolve_writes_content_bound_resolution_to_mode_0600(
     assert "resolved 1 contract(s)" in result.stdout
     assert ACCOUNT_ID not in result.stdout
     resolution = json.loads(var_file.read_text(encoding="utf-8"))
+    assert resolution["schema_version"] == "2"
     assert resolution["consumer_layer"] == "network"
     assert resolution["customer_id"] == CUSTOMER_ID
     assert resolution["release_version"] == RELEASE_VERSION
-    assert resolution["required_contracts"][0]["contract_id"] == "global/v1"
-    assert resolution["variables"]["upstream_contract_digest"] == (
-        resolution["variables"]["expected_upstream_digest"]
-    )
+    assert resolution["required_contracts"][0]["output_schema_version"] == "global/v1"
+    assert resolution["required_contracts"][0]["outputs"] == global_outputs
+    assert "variables" not in resolution
     assert stat.S_IMODE(var_file.stat().st_mode) == 0o600
 
 

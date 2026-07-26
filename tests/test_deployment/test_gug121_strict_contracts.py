@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import jsonschema
@@ -22,6 +23,16 @@ PUBLISH_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "publish-contract.py"
 RESOLVE_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "resolve-contracts.py"
 LAYER_WRAPPER = REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh"
 DEPLOY_WRAPPER = REPO_ROOT / "scripts" / "deployment" / "scanalyze-deploy.sh"
+DEPLOYMENT_SCRIPT_DIR = REPO_ROOT / "scripts" / "deployment"
+if str(DEPLOYMENT_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(DEPLOYMENT_SCRIPT_DIR))
+
+from contract_projection import (  # noqa: E402
+    ContractProjectionError,
+    bind_variables,
+    project_contracts,
+)
+from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
 
 CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
@@ -280,12 +291,12 @@ def test_real_root_contract_resolver_consumer_flow_is_content_bound(tmp_path: Pa
     result = _resolve_global(tmp_path, contract)
     assert result.returncode == 0, result.stderr
     resolution = _load_json(tmp_path / "network.resolution.json")
+    assert resolution["schema_version"] == "2"
     assert resolution["consumer_layer"] == "network"
     assert resolution["customer_id"] == CUSTOMER_ID
-    assert resolution["required_contracts"][0]["contract_id"] == "global/v1"
-    assert resolution["variables"]["upstream_contract_digest"] == (
-        resolution["variables"]["expected_upstream_digest"]
-    )
+    assert resolution["required_contracts"][0]["output_schema_version"] == "global/v1"
+    assert resolution["required_contracts"][0]["outputs"]
+    assert "variables" not in resolution
     assert resolution["resolution_digest"].startswith("sha256:")
     assert os.stat(tmp_path / "network.resolution.json").st_mode & 0o077 == 0
 
@@ -414,3 +425,194 @@ def test_replaced_v1_contract_schemas_remain_for_rollback_compatibility() -> Non
             else f"contract-{layer}.v1.schema.json"
         )
         assert (REPO_ROOT / "schemas" / filename).is_file()
+
+
+def _contract_evidence(
+    *,
+    contract_id: str,
+    layer: str,
+    outputs: dict,
+    scope: str = "regional",
+) -> dict:
+    contract_region = "global" if scope == "global" else "us-east-1"
+    state_key = (
+        f"{DEPLOYMENT_ID}/{layer}/terraform.tfstate"
+        if scope == "global"
+        else f"{DEPLOYMENT_ID}/us-east-1/{layer}/terraform.tfstate"
+    )
+    return {
+        "schema_version": "2",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "aws_account_id": ACCOUNT_ID,
+        "region": contract_region,
+        "scope": scope,
+        "layer": layer,
+        "producer": f"roots/{layer}",
+        "release_version": RELEASE_VERSION,
+        "release_digest": RELEASE_DIGEST,
+        "output_schema_version": contract_id,
+        "outputs": outputs,
+        "contract_digest": compute_digest(canonicalize(outputs)),
+        "produced_at": PRODUCED_AT,
+        "terraform_workspace": "default",
+        "state_key": state_key,
+        "module_source_digest": MODULE_DIGEST,
+    }
+
+
+def _resolved_at() -> datetime:
+    return datetime.fromisoformat(
+        RESOLVED_AT.replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+
+
+def test_projection_preserves_all_json_types_without_coercion() -> None:
+    variables: dict = {}
+    values = {
+        "string": "value",
+        "boolean": False,
+        "number": 7,
+        "list": ["a", 2],
+        "map": {"enabled": True},
+        "null": None,
+    }
+    binding = {
+        "output_variables": {
+            source: f"projected_{source}" for source in values
+        }
+    }
+
+    bind_variables(variables, {}, values, binding)
+
+    assert variables == {
+        f"projected_{source}": value for source, value in values.items()
+    }
+
+
+def test_projection_reconstructs_all_catalog_binding_kinds() -> None:
+    outputs = {
+        "ecs_execution_role_arn": (
+            f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeExecution"
+        ),
+        "ecs_task_role_arns": {
+            "scanalyze-ingest-api": (
+                f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeIngest"
+            )
+        },
+    }
+    evidence = _contract_evidence(
+        contract_id="global/v1",
+        layer="global",
+        outputs=outputs,
+        scope="global",
+    )
+    catalog = _load_json(CATALOG_PATH)
+    catalog["contracts"]["global/v1"]["consumer_bindings"]["network"].update(
+        {
+            "contract_variable": "global_contract",
+            "output_variables": {
+                "ecs_execution_role_arn": "execution_role_arn",
+                "ecs_task_role_arns": "task_role_arns",
+            },
+        }
+    )
+
+    _, variables = project_contracts(
+        [evidence],
+        _load_json(ENVELOPE_SCHEMA_PATH),
+        catalog=catalog,
+        dag=yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8")),
+        layer="network",
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+        account_id=ACCOUNT_ID,
+        region="us-east-1",
+        release_digest=RELEASE_DIGEST,
+        release_version=RELEASE_VERSION,
+        resolved_at=_resolved_at(),
+        max_contract_age_seconds=3600,
+        required_contracts={"global/v1"},
+    )
+
+    assert variables["upstream_contract_digest"] == evidence["contract_digest"]
+    assert variables["execution_role_arn"] == outputs["ecs_execution_role_arn"]
+    assert variables["task_role_arns"] == outputs["ecs_task_role_arns"]
+    assert variables["global_contract"]["contract_id"] == "global/v1"
+    assert variables["global_contract"]["ecs_task_role_arns"] == outputs[
+        "ecs_task_role_arns"
+    ]
+
+
+def test_projection_accepts_valid_multi_upstream_contracts() -> None:
+    platform_outputs = {
+        "ecs_cluster_arn": (
+            f"arn:aws:ecs:us-east-1:{ACCOUNT_ID}:cluster/synthetic"
+        ),
+        "ecs_cluster_name": "synthetic",
+        "alb_arn": (
+            f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT_ID}:"
+            "loadbalancer/app/synthetic/0123456789abcdef"
+        ),
+        "alb_dns_name": "synthetic.invalid",
+        "alb_listener_arn": (
+            f"arn:aws:elasticloadbalancing:us-east-1:{ACCOUNT_ID}:"
+            "listener/app/synthetic/0123456789abcdef/0123456789abcdef"
+        ),
+        "alb_security_group_id": "sg-0123456789abcdef0",
+    }
+    data_outputs = json.loads(
+        (
+            REPO_ROOT / "fixtures/valid/contract-data-foundation-v2.json"
+        )
+        .read_text(encoding="utf-8")
+        .replace("123456789012", ACCOUNT_ID)
+        .replace("dep_01ARZ3NDEKTSV4RRFFQ69G5FAV", DEPLOYMENT_ID)
+    )
+    evidence = [
+        _contract_evidence(
+            contract_id="platform/v2",
+            layer="platform",
+            outputs=platform_outputs,
+        ),
+        _contract_evidence(
+            contract_id="data-foundation/v2",
+            layer="data-foundation",
+            outputs=data_outputs,
+        ),
+    ]
+
+    _, variables = project_contracts(
+        evidence,
+        _load_json(ENVELOPE_SCHEMA_PATH),
+        catalog=_load_json(CATALOG_PATH),
+        dag=yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8")),
+        layer="cicd",
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+        account_id=ACCOUNT_ID,
+        region="us-east-1",
+        release_digest=RELEASE_DIGEST,
+        release_version=RELEASE_VERSION,
+        resolved_at=_resolved_at(),
+        max_contract_age_seconds=3600,
+        required_contracts={"platform/v2", "data-foundation/v2"},
+    )
+
+    assert variables["ecs_cluster_name"] == "synthetic"
+    assert variables["upstream_contract_id"] == "data-foundation/v2"
+    assert variables["upstream_schema_version"] == "2"
+
+
+def test_projection_rejects_duplicate_destination_across_bindings() -> None:
+    variables = {"shared_destination": "first"}
+    with pytest.raises(
+        ContractProjectionError,
+        match="ambiguous destination variable",
+    ):
+        bind_variables(
+            variables,
+            {},
+            {"second": "value"},
+            {"output_variables": {"second": "shared_destination"}},
+        )
