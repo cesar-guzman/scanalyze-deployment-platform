@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from 'react-oidc-context';
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 
 export const Login: React.FC = () => {
   const auth = useAuth();

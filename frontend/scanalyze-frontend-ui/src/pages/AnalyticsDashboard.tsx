@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { analyticsApi, type DashboardResponse, type DashboardFilters } from '../api/analyticsApi';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { csvCell } from '../security/browserBoundaries.js';
 
 export const AnalyticsDashboard: React.FC = () => {
@@ -51,6 +51,8 @@ export const AnalyticsDashboard: React.FC = () => {
 
   useEffect(() => {
     if (auth.isAuthenticated) {
+      // Authentication changes intentionally start the external analytics synchronization.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void fetchAnalytics();
     }
   }, [auth.isAuthenticated, fetchAnalytics]);

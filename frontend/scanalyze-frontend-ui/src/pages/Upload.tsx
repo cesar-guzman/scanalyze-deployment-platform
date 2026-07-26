@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import axios from 'axios';
 import { documentApi } from '../api/documentApi';
 import { uploadFileToPresignedUrl } from '../api/uploadApi';

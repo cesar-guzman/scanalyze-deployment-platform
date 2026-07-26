@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from 'react-oidc-context';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { getConfig } from '../config';
 import { resolveEnterpriseUxAuthorizationFromSession } from '../security/enterpriseUxAuthorization.js';
 
@@ -8,7 +8,7 @@ export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   const auth = useAuth();
   const location = useLocation();
   const isDashboard = location.pathname === '/dashboard';
-  let showUserAdministration = false;
+  let showUserAdministration: boolean;
   try {
     const config = getConfig();
     const capabilities = resolveEnterpriseUxAuthorizationFromSession(auth.user, config);
