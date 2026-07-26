@@ -10,7 +10,7 @@ export default defineConfig({
         manualChunks: {
           'api-vendor': ['axios'],
           'auth-vendor': ['oidc-client-ts', 'react-oidc-context'],
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'react-vendor': ['react', 'react-dom', 'react-router'],
         },
       },
     },

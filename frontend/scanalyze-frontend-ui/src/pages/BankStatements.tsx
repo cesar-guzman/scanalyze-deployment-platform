@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router';
 import axios from 'axios';
 import { documentApi } from '../api/documentApi';
 import { batchApi } from '../api/batchApi';
@@ -122,7 +122,12 @@ export const BankStatements: React.FC = () => {
     if (batchStatus !== 'PROCESSING' || !batch) return;
     const pending = tasks.filter(t => t.status === 'PENDING');
     const running = tasks.filter(t => t.status === 'UPLOADING' || t.status === 'WAITING_SERVER');
-    if (pending.length === 0 && running.length === 0) { setBatchStatus('COMPLETED'); return; }
+    if (pending.length === 0 && running.length === 0) {
+      // This effect is the upload state-machine coordinator.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBatchStatus('COMPLETED');
+      return;
+    }
     const slots = MAX_CONCURRENT - running.length;
     if (slots > 0) pending.slice(0, slots).forEach(t => void processSingleTask(t, batch.batchId));
   }, [tasks, batchStatus, batch, processSingleTask]);
@@ -156,7 +161,11 @@ export const BankStatements: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activeView === 'list') void fetchBankDocs();
+    if (activeView === 'list') {
+      // View changes intentionally start the external document synchronization.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void fetchBankDocs();
+    }
   }, [activeView, fetchBankDocs]);
 
   /* ──── Detail view ──── */

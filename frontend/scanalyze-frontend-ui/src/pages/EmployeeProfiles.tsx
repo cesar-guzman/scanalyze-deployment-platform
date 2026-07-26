@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { createEmployeeProfilesApi, type ProfileListItem } from '../api/employeeProfilesApi';
 import { useAddonsRegistry } from '../hooks/useAddonsRegistry';
 
