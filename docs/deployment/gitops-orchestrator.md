@@ -126,9 +126,13 @@ They do not carry VPC IDs, subnet IDs, role ARNs, endpoints, image mappings, or
 other infrastructure outputs.
 
 `resolve-contracts.py` supports only explicitly acknowledged local test
-fixtures. It writes a digested, owner-readable resolution outside the
-repository. The plan wrapper validates and materializes it without defaults and
-never logs its values. Live SSM resolution remains disabled until GUG-125.
+fixtures. It writes a digested, owner-readable resolution v2 outside the
+repository containing canonical contract evidence, not a second materialized
+variable map. The pre-plan validator reconstructs all catalog bindings from
+that evidence. The wrapper rejects ambient Terraform-specific environment
+configuration before any AWS or Terraform subprocess and invokes Terraform
+through a controlled child environment. It never logs contract values. Live
+SSM resolution remains disabled until GUG-125.
 
 `publish-contract.py` currently means "render and validate a candidate envelope
 to a local file." It does not publish to AWS. SSM publication remains blocked

@@ -7,12 +7,14 @@ import json
 import os
 import stat
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "contract-resolution.v1.schema.json"
+DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "contract-resolution.v2.schema.json"
+DEFAULT_CONTRACT_SCHEMA = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
 DEFAULT_CATALOG = REPO_ROOT / "deployment" / "contract-catalog.v1.json"
 DEFAULT_CATALOG_SCHEMA = REPO_ROOT / "schemas" / "contract-catalog.v1.schema.json"
 DEFAULT_DAG = REPO_ROOT / "deployment" / "layers.yaml"
@@ -20,6 +22,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
+from contract_projection import (  # noqa: E402
+    ContractProjectionError,
+    expected_terraform_contracts,
+    load_json,
+    project_contracts,
+)
 
 
 class ValidationError(Exception):
@@ -32,13 +40,6 @@ def _is_within(path: Path, parent: Path) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _load_json(path: Path, description: str) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValidationError(f"unable to read valid JSON from {description}") from exc
 
 
 def _load_yaml(path: Path, description: str) -> Any:
@@ -82,7 +83,14 @@ def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
         created = True
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             descriptor = None
-            json.dump(document, handle, sort_keys=True, indent=2, ensure_ascii=True)
+            json.dump(
+                document,
+                handle,
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
+            )
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -96,47 +104,16 @@ def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
             os.close(descriptor)
 
 
-def _canonical_requirements(
-    catalog: dict[str, Any], dag: Any, layer: str
-) -> tuple[dict[str, str], set[str]]:
-    if not isinstance(dag, dict) or not isinstance(dag.get("layers"), list):
-        raise ValidationError("canonical DAG document is invalid")
-    stage = next(
-        (item for item in dag["layers"] if isinstance(item, dict) and item.get("layer") == layer),
-        None,
-    )
-    if stage is None or not isinstance(stage.get("requires_contracts"), list):
-        raise ValidationError("consumer layer contract declaration is invalid")
-    records = catalog.get("contracts")
-    if not isinstance(records, dict):
-        raise ValidationError("contract catalog is invalid")
-
-    requirements: dict[str, str] = {}
-    variable_names: set[str] = set()
-    for contract_id in stage["requires_contracts"]:
-        record = records.get(contract_id)
-        if not isinstance(record, dict):
-            raise ValidationError("canonical DAG references an unknown contract")
-        if record.get("authority") != "terraform-root":
-            continue
-        producer = record.get("producer")
-        binding = record.get("consumer_bindings", {}).get(layer)
-        if not isinstance(producer, str) or not isinstance(binding, dict):
-            raise ValidationError("canonical contract ownership binding is invalid")
-        requirements[contract_id] = f"roots/{producer}"
-        destinations: list[str] = []
-        contract_variable = binding.get("contract_variable")
-        if contract_variable is not None:
-            destinations.append(contract_variable)
-        destinations.extend(binding.get("output_variables", {}).values())
-        for values in binding.get("metadata_variables", {}).values():
-            destinations.extend(values)
-        if any(not isinstance(name, str) for name in destinations):
-            raise ValidationError("canonical consumer variable binding is invalid")
-        if variable_names.intersection(destinations):
-            raise ValidationError("canonical consumer variable binding is ambiguous")
-        variable_names.update(destinations)
-    return requirements, variable_names
+def _parse_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ValidationError(
+            "resolution timestamp is not a valid RFC 3339 value"
+        ) from exc
+    if parsed.utcoffset() is None:
+        raise ValidationError("resolution timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -150,6 +127,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--release-version", required=True)
     parser.add_argument("--release-digest", required=True)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    parser.add_argument(
+        "--contract-schema",
+        type=Path,
+        default=DEFAULT_CONTRACT_SCHEMA,
+    )
     parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--catalog-schema", type=Path, default=DEFAULT_CATALOG_SCHEMA)
     parser.add_argument("--dag", type=Path, default=DEFAULT_DAG)
@@ -160,24 +142,40 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
     try:
-        resolution_path = args.resolution.expanduser().resolve(strict=True)
+        requested_resolution = args.resolution.expanduser()
+        if requested_resolution.is_symlink():
+            raise ValidationError("resolution artifact must not be a symlink")
+        resolution_path = requested_resolution.resolve(strict=True)
+        if not resolution_path.is_file():
+            raise ValidationError("resolution artifact must be a regular file")
         if _is_within(resolution_path, REPO_ROOT.resolve()):
             raise ValidationError("resolution artifact must remain outside the repository")
         if stat.S_IMODE(resolution_path.stat().st_mode) & 0o077:
             raise ValidationError("resolution artifact permissions must be owner-only")
 
-        resolution = _load_json(resolution_path, "resolution artifact")
-        schema = _load_json(args.schema, "resolution schema")
-        catalog = _load_json(args.catalog, "contract catalog")
-        catalog_schema = _load_json(args.catalog_schema, "contract catalog schema")
+        resolution = load_json(resolution_path, "resolution artifact")
+        schema = load_json(args.schema, "resolution schema")
+        contract_schema = load_json(args.contract_schema, "contract schema")
+        catalog = load_json(args.catalog, "contract catalog")
+        catalog_schema = load_json(args.catalog_schema, "contract catalog schema")
         dag = _load_yaml(args.dag, "canonical DAG")
         if not all(
             isinstance(item, dict)
-            for item in (resolution, schema, catalog, catalog_schema)
+            for item in (
+                resolution,
+                schema,
+                contract_schema,
+                catalog,
+                catalog_schema,
+            )
         ):
             raise ValidationError("resolution validator configuration is invalid")
         _validate_schema(resolution, schema)
         _validate_schema(catalog, catalog_schema)
+        if resolution.get("schema_version") != "2":
+            raise ValidationError(
+                "active contract resolution schema downgrade is forbidden"
+            )
 
         supplied_digest = resolution.get("resolution_digest")
         digest_input = dict(resolution)
@@ -198,23 +196,37 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationError("resolution target binding mismatch")
 
         evidence = resolution["required_contracts"]
-        evidence_ids = [item["contract_id"] for item in evidence]
+        evidence_ids = [item["output_schema_version"] for item in evidence]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValidationError("resolution contains duplicate contract evidence")
-        requirements, variable_names = _canonical_requirements(catalog, dag, args.layer)
-        if set(evidence_ids) != set(requirements):
-            raise ValidationError("resolution contract set does not match the canonical DAG target")
-        if any(
-            item["producer"] != requirements[item["contract_id"]]
-            or item["release_version"] != args.release_version
-            for item in evidence
-        ):
-            raise ValidationError("resolution contract ownership binding mismatch")
-        if set(resolution["variables"]) != variable_names:
-            raise ValidationError("resolution variables do not match canonical consumer bindings")
-        _write_exclusive(args.materialize_out, resolution["variables"])
-    except (ValidationError, FileNotFoundError) as exc:
-        message = str(exc) if isinstance(exc, ValidationError) else "resolution artifact does not exist"
+        requirements = expected_terraform_contracts(dag, catalog, args.layer)
+        if set(evidence_ids) != requirements:
+            raise ValidationError(
+                "resolution contract set does not match the canonical DAG target"
+            )
+        _, variables = project_contracts(
+            evidence,
+            contract_schema,
+            catalog=catalog,
+            dag=dag,
+            layer=args.layer,
+            customer_id=args.customer_id,
+            deployment_id=args.deployment_id,
+            account_id=args.account_id,
+            region=args.region,
+            release_digest=args.release_digest,
+            release_version=args.release_version,
+            resolved_at=_parse_timestamp(resolution["resolved_at"]),
+            max_contract_age_seconds=resolution["max_contract_age_seconds"],
+            required_contracts=requirements,
+        )
+        _write_exclusive(args.materialize_out, variables)
+    except (ValidationError, ContractProjectionError, FileNotFoundError) as exc:
+        message = (
+            str(exc)
+            if isinstance(exc, (ValidationError, ContractProjectionError))
+            else "resolution artifact does not exist"
+        )
         print(f"FAIL: {message}", file=sys.stderr)
         return 1
     except (OSError, TypeError, ValueError):
