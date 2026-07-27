@@ -160,3 +160,55 @@ live data migration or production recovery.
 Residual risk remains **High** until reviewed workload IAM/runtime composition
 and an authorized two-deployment isolation proof are completed. Production is
 **NO-GO**.
+
+## GUG-94 Type-Safety Remediation (Second Pass)
+
+Three type-binding defects were identified in `main` after the original GUG-94
+merge. This section documents the remediation and its impact on the threat
+model.
+
+### Defect A — Naive datetime persistence
+
+**Threat:** `DynamoMembershipStore.ensure_membership()` passed the raw
+`created_at` `datetime` object into the DynamoDB item. A naive datetime (no
+`tzinfo`) would be interpreted by `astimezone()` using the host-local timezone,
+producing non-deterministic timestamps across runners or deployments.
+
+**Mitigation:** The adapter now validates timezone awareness using
+`parse_timestamp()` before serialization. Naive datetimes are rejected with
+`AdapterContractError` before `table.put_item()` is called. Non-UTC aware
+datetimes are normalized to UTC. The persisted value is always a canonical
+`Z`-suffixed ISO 8601 string.
+
+### Defect B — Decimal membership_version rejection
+
+**Threat:** `PreTokenProcessor._validate_membership()` used `isinstance(v, int)`
+which rejects `Decimal`, the type returned by `boto3` DynamoDB Resource. All
+human token issuance would be denied with `stale_authorization_contract`.
+Additionally, emitting `str(Decimal("1"))` produces `"1"` in CPython but
+the contract requires this to be robust.
+
+**Mitigation:** `positive_integral_version()` normalizes both `int` and finite
+positive integral `Decimal` to a canonical Python `int`. `bool`, `float`, `str`,
+fraccional/zero/negative `Decimal`, `NaN`, and infinities are rejected. The
+emitted claim uses `str(normalized_int)`.
+
+### Defect C — Missing GSI expression alias
+
+**Threat:** State-filtered `list_memberships()` used `#membership_reference` in
+`KeyConditionExpression` without declaring it in `ExpressionAttributeNames`.
+DynamoDB rejects the query with `ValidationException`, making state-filtered
+membership listing unavailable.
+
+**Mitigation:** `#membership_reference` is now declared in
+`ExpressionAttributeNames` alongside `#state_key`. No scan, filter expression,
+or `ConsistentRead` on the GSI was introduced.
+
+### Evidence scope
+
+- Evidence is **offline/synthetic only**: `boto3` TypeSerializer, mock tables,
+  and `unittest.mock`-based processors.
+- No live Cognito, DynamoDB, or AWS operation was performed.
+- No ADR change: accepted architecture is preserved.
+- No OpenAPI change: endpoint and response contracts are unchanged.
+- Production remains **NO-GO**.

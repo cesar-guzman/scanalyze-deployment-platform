@@ -104,9 +104,51 @@ lists use `ownership-state-v1`; reference lookups use
 `ownership-membership-reference-v1`. Both index keys contain the exact trusted
 owner tuple. Cursors are accepted only after exact owner/state validation.
 
+State-filtered GSI queries require complete `ExpressionAttributeNames` covering
+every alias used in `KeyConditionExpression` — both `#state_key` and
+`#membership_reference`. Omitting an alias causes `ValidationException` and is
+treated as a fail-closed defect (GUG-94, Defect C).
+
 Mutations use conditional state/version updates. Active administrator removal
 uses a DynamoDB transaction containing a condition check for the replacement
 and an update for the target. No protected table scan is permitted.
+
+### Timestamp persistence (GUG-94, Defect A)
+
+`created_at` and `updated_at` are persisted as canonical UTC ISO 8601 strings
+with the `Z` suffix (e.g. `2026-01-15T10:30:00Z`). Python `datetime` objects
+are never stored in DynamoDB items.
+
+The adapter validates timezone awareness before serialization using
+`parse_timestamp()`:
+
+- **Naive `datetime`** (no `tzinfo`): rejected with `AdapterContractError`
+  before `table.put_item()` is called.
+- **Aware UTC `datetime`**: serialized directly with the canonical `Z` suffix.
+- **Aware non-UTC `datetime`**: normalized to UTC before serialization.
+- **Non-datetime values** (`None`, `int`, empty string): rejected.
+
+The host-local timezone has no effect on the persisted value. Two `datetime`
+objects representing the same instant with different timezone offsets produce
+identical canonical strings.
+
+### Membership version normalization (GUG-94, Defect B)
+
+`membership_version` in DynamoDB items may arrive as either Python `int` or
+`Decimal` (the default numeric type from the `boto3` DynamoDB Resource).
+
+`PreTokenProcessor` normalizes both types to a canonical positive integer
+before emitting the access-token claim:
+
+- **`int >= 1`** (excluding `bool`): accepted.
+- **Finite, positive, integral `Decimal`**: accepted and converted to `int`.
+- **`bool`**, **`float`**, **`str`**: rejected (`stale_authorization_contract`).
+- **Zero, negative, fractional `Decimal`**: rejected.
+- **`NaN`**, **`Infinity`**, **`-Infinity`**: rejected.
+
+The emitted claim value is always a string representation of the normalized
+integer (e.g. `"1"`), never the raw `Decimal` string (e.g. `"Decimal('1')"`).
+
 
 ## Provider behavior
 
