@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from .common import (
@@ -32,6 +33,31 @@ class PreTokenDenied(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         self.reason_code = reason_code
         super().__init__("identity issuance denied")
+
+
+def positive_integral_version(value: object) -> int | None:
+    """Normalize a membership version to a positive int or return None.
+
+    Accepts Python int and finite positive integral Decimal (as returned by
+    boto3 DynamoDB resource).  Rejects bool, float, str, zero, negatives,
+    fractional Decimal, NaN and infinities.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 1 else None
+    if isinstance(value, Decimal):
+        try:
+            if not value.is_finite():
+                return None
+            # Reject fractional values — must be exactly integral
+            as_int = int(value)
+            if value != Decimal(as_int):
+                return None
+            return as_int if as_int >= 1 else None
+        except (InvalidOperation, OverflowError, ValueError):
+            return None
+    return None
 
 
 class PreTokenProcessor:
@@ -144,6 +170,12 @@ class PreTokenProcessor:
         result.setdefault("response", {})
         if not isinstance(result["response"], dict):
             self._deny("unsupported_event", now)
+        # Normalize membership_version to a canonical integer for the claim.
+        normalized_version = positive_integral_version(
+            membership["membership_version"]
+        )
+        if normalized_version is None:
+            self._deny("stale_authorization_contract", now, correlation)
         result["response"]["claimsAndScopeOverrideDetails"] = {
             "accessTokenGeneration": {
                 "claimsToAddOrOverride": {
@@ -152,7 +184,7 @@ class PreTokenProcessor:
                     "principal_type": "user",
                     "membership_state": "active",
                     "role_id": str(membership["role_id"]),
-                    "membership_version": str(membership["membership_version"]),
+                    "membership_version": str(normalized_version),
                     "authz_schema_version": str(membership["authz_schema_version"]),
                     "scope_catalog_version": str(membership["scope_catalog_version"]),
                     "role_catalog_version": str(membership["role_catalog_version"]),
@@ -201,12 +233,10 @@ class PreTokenProcessor:
             "role_catalog_version": self.config.get("role_catalog_version"),
             "policy_version": self.config.get("policy_version"),
         }
-        membership_version = membership.get("membership_version")
-        if not (
-            isinstance(membership_version, int)
-            and not isinstance(membership_version, bool)
-            and membership_version >= 1
-        ):
+        membership_version = positive_integral_version(
+            membership.get("membership_version")
+        )
+        if membership_version is None:
             self._deny("stale_authorization_contract", now, correlation)
         if any(membership.get(key) != expected for key, expected in expected_versions.items()):
             self._deny("stale_authorization_contract", now, correlation)

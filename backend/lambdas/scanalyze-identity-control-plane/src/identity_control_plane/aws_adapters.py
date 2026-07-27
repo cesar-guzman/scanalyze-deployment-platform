@@ -13,6 +13,7 @@ from .common import (
     SUBJECT_PATTERN,
     is_non_empty_string,
     opaque_reference,
+    parse_timestamp,
     utc_timestamp,
 )
 from .m2m import ENVIRONMENT_PATTERN, IDEMPOTENCY_PATTERN, WORKLOAD_PATTERN
@@ -481,6 +482,7 @@ class DynamoMembershipStore:
         subject = record.get("subject")
         customer_id = record.get("customer_id")
         deployment_id = record.get("deployment_id")
+        created_at = parse_timestamp(record.get("created_at"))
         if not (
             isinstance(subject, str)
             and SUBJECT_PATTERN.fullmatch(subject)
@@ -494,20 +496,22 @@ class DynamoMembershipStore:
             and record["membership_version"] == 1
             and is_non_empty_string(record.get("provider_user_reference"))
             and record.get("provider_principal_key") == subject
-            and isinstance(record.get("created_at"), datetime)
+            and created_at is not None
         ):
             raise AdapterContractError()
         key = _membership_key(subject, customer_id, deployment_id)
         membership_reference = "mbr_" + hashlib.sha256(
             "\x1f".join((customer_id, deployment_id, subject)).encode("utf-8")
         ).hexdigest()[:32]
+        created_at_str = utc_timestamp(created_at)
         item = {
             **key,
-            **record,
+            **{k: v for k, v in record.items() if k != "created_at"},
+            "created_at": created_at_str,
             "schema_version": "enterprise-membership.v1",
             "membership_reference": membership_reference,
             "principal_type": "user",
-            "updated_at": record["created_at"],
+            "updated_at": created_at_str,
             "ownership_membership_key": (
                 f"{deployment_id}#{customer_id}#MEMBERSHIP#{membership_reference}"
             ),

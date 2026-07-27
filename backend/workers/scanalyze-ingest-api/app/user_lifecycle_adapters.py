@@ -368,7 +368,10 @@ class DynamoLifecycleStore:
                 "KeyConditionExpression": (
                     "#state_key = :state_key AND begins_with(#membership_reference, :reference_prefix)"
                 ),
-                "ExpressionAttributeNames": {"#state_key": "ownership_state_key"},
+                "ExpressionAttributeNames": {
+                    "#state_key": "ownership_state_key",
+                    "#membership_reference": "membership_reference",
+                },
                 "ExpressionAttributeValues": {
                     ":state_key": state_key,
                     ":reference_prefix": "mbr_",
