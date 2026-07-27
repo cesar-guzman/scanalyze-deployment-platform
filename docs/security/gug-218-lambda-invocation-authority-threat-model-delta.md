@@ -61,7 +61,10 @@ different humans remain required for GUG-215/GUG-217.
 | Extra alias or Function URL bypasses duty split | All aliases and URL configs are enumerated | Additional surface blocks |
 | Event source or async configuration invokes function | Event mappings and event-invoke configs are inventoried | Any unexpected route blocks |
 | Admin can manufacture a new path after capture | Mutation authority is a separate graph; report is report-only | Mutator blocks; TOCTOU remains residual |
-| Wildcard or `NotAction` evades evaluator | Conservative statement evaluator rejects broad/unknown semantics | `POLICY_SEMANTICS_UNSUPPORTED` |
+| Wildcard action pattern (e.g. `lambda:*`, `*`, `?`, `[`) grants broad authority | Centralized classifier detects metacharacters **before** fnmatch expansion and emits PROHIBITED edges | `WILDCARD_ACTION` / `FOREIGN_AUTHORITY_PRESENT` |
+| Wildcard action pattern understates mutation authority surface | Wildcard edges carry both INVOCATION and AUTHORITY_MUTATION authority classes per covered service | `mutating_authority_count > 0`, `PROHIBITED` |
+| Mixed exact-plus-wildcard statement only blocks invocation | Atomic classification: any wildcard in the statement blocks all exact actions from the same statement | No exact allowlist-eligible edge emitted |
+| `NotAction` evades evaluator by inverting the action match | NotAction is classified as unsupported semantics; no edges are emitted | `POLICY_SEMANTICS_UNSUPPORTED` |
 | Truncated page is treated as empty | Strict token state machine and page-completeness receipt | `INVENTORY_INCOMPLETE` |
 | Denied AWS read is treated as absence | Adapter records failure and produces no safe snapshot | `INVENTORY_INCOMPLETE` |
 | Caller fabricates or replays a clean offline snapshot | Collector-controlled source mode, origin timestamps, caller digest and canonical snapshot seal | `OFFLINE_UNVERIFIED` / `BLOCKED_UNVERIFIED_SOURCE` |

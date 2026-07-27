@@ -535,59 +535,214 @@ def _action_matches(pattern: str, action: str) -> bool:
     return fnmatch.fnmatchcase(action.lower(), pattern.lower())
 
 
-def _allowed_sensitive_actions(statement: Mapping[str, Any]) -> tuple[str, ...]:
+def _has_wildcard_metacharacters(value: str) -> bool:
+    """Return True when *value* contains IAM wildcard metacharacters.
+
+    IAM evaluates ``*`` as zero-or-more and ``?`` as exactly-one.  The bracket
+    expression ``[`` is a ``fnmatch`` metacharacter that may expand matches
+    beyond the literal intent.  All three are treated as wildcard semantics.
+    """
+
+    return any(character in value for character in "*?[")
+
+
+@dataclass(frozen=True, slots=True)
+class ActionStatementClassification:
+    """Structured result of a single centralized action-statement classifier.
+
+    Consumers MUST use this classification instead of independently inspecting
+    action patterns.  The classifier is the single source of truth for wildcard
+    detection, NotAction rejection, and unknown-authority recognition.
+    """
+
+    exact_sensitive_actions: tuple[str, ...]
+    exact_read_only_actions: tuple[str, ...]
+    wildcard_present: bool
+    not_action_present: bool
+    unknown_authority_present: bool
+    unsupported: bool
+
+
+def _classify_action_statement(
+    statement: Mapping[str, Any],
+) -> ActionStatementClassification:
+    """Classify every action pattern in *statement* before expansion.
+
+    The function is the single authoritative classifier for action semantics.
+    Wildcard metacharacters are detected **before** ``fnmatch`` expansion so
+    that a broad pattern can never be silently normalized to an exact reviewed
+    action.
+    """
+
     if statement.get("Effect") != "Allow":
-        return ()
+        return ActionStatementClassification(
+            exact_sensitive_actions=(),
+            exact_read_only_actions=(),
+            wildcard_present=False,
+            not_action_present=False,
+            unknown_authority_present=False,
+            unsupported=False,
+        )
+
     has_action = "Action" in statement
     has_not_action = "NotAction" in statement
+
     if has_action == has_not_action:
+        # Both present, or both absent — malformed.
         raise AuthorityInventoryError("POLICY_ACTION_SEMANTICS_UNSUPPORTED")
-    patterns = _strict_string_list(
-        statement["Action"] if has_action else statement["NotAction"],
-        "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
-    )
-    if has_action:
-        return tuple(
-            action
-            for action in SENSITIVE_ACTIONS
-            if any(_action_matches(pattern, action) for pattern in patterns)
+
+    if has_not_action:
+        # Allow + NotAction is always unsupported: we cannot complement the
+        # complete AWS action universe with a static local list.
+        return ActionStatementClassification(
+            exact_sensitive_actions=(),
+            exact_read_only_actions=(),
+            wildcard_present=False,
+            not_action_present=True,
+            unknown_authority_present=True,
+            unsupported=True,
         )
-    return tuple(
-        action
-        for action in SENSITIVE_ACTIONS
-        if not any(_action_matches(pattern, action) for pattern in patterns)
-    )
 
-
-def _has_unknown_authority_action(statement: Mapping[str, Any]) -> bool:
-    """Reject future/unreviewed authority verbs instead of dropping them."""
-
-    if statement.get("Effect") != "Allow":
-        return False
-    if "NotAction" in statement:
-        return True
-    if "Action" not in statement:
-        return True
     patterns = _strict_string_list(
         statement["Action"], "POLICY_ACTION_SEMANTICS_UNSUPPORTED"
     )
+
+    wildcard_present = False
+    unknown_authority_present = False
+    exact_sensitive: list[str] = []
+    exact_read_only: list[str] = []
+
     for pattern in patterns:
+        # ── Step 1: detect wildcard metacharacters BEFORE expansion ──
+        if _has_wildcard_metacharacters(pattern):
+            wildcard_present = True
+            continue  # do NOT expand to exact actions
+
+        # ── Step 2: exact pattern — classify ──
+        # Case-insensitive match against reviewed sensitive actions.
+        matched_sensitive = [
+            action
+            for action in SENSITIVE_ACTIONS
+            if action.lower() == pattern.lower()
+        ]
+        if matched_sensitive:
+            # Use the canonical reviewed spelling, not the caller's casing.
+            exact_sensitive.extend(matched_sensitive)
+            continue
+
+        # Exact reviewed read-only actions.
+        if pattern in EXPLICIT_READ_ONLY_ACTIONS:
+            exact_read_only.append(pattern)
+            continue
+
+        # Known read-only verb prefix families (exact, no wildcard).
         parts = pattern.split(":", 1)
-        if len(parts) != 2 or parts[0].lower() not in {
+        if len(parts) == 2 and parts[0].lower() in {
             "iam",
             "lambda",
             "cloudformation",
         }:
+            verb = parts[1]
+            if verb.lower().startswith(("get", "list", "describe")):
+                exact_read_only.append(pattern)
+                continue
+            # Authority-relevant service with unrecognized verb — unknown.
+            unknown_authority_present = True
             continue
-        verb = parts[1]
-        if verb.lower().startswith(("get", "list", "describe")):
+
+        # Service prefix outside the authority scope (e.g. sts, ec2, s3,
+        # dynamodb).  These are irrelevant to the Lambda authority analysis
+        # and are silently skipped, matching the original behavior.
+        continue
+
+    # Deduplicate while preserving canonical order.
+    seen_sensitive: set[str] = set()
+    deduped_sensitive: list[str] = []
+    for action in exact_sensitive:
+        if action not in seen_sensitive:
+            seen_sensitive.add(action)
+            deduped_sensitive.append(action)
+
+    return ActionStatementClassification(
+        exact_sensitive_actions=() if wildcard_present else tuple(deduped_sensitive),
+        exact_read_only_actions=() if wildcard_present else tuple(exact_read_only),
+        wildcard_present=wildcard_present,
+        not_action_present=False,
+        unknown_authority_present=unknown_authority_present,
+        unsupported=False,
+    )
+
+
+def _allowed_sensitive_actions(statement: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return exact sensitive actions — empty when a wildcard is present.
+
+    This function is a backward-compatible wrapper around the centralized
+    classifier.  When a wildcard is present in any action pattern of the
+    statement, **no** exact actions are returned because the entire statement
+    fails closed.
+    """
+
+    classification = _classify_action_statement(statement)
+    if classification.wildcard_present:
+        # A mixed exact+wildcard statement must not partially succeed.
+        return ()
+    return classification.exact_sensitive_actions
+
+
+def _has_unknown_authority_action(statement: Mapping[str, Any]) -> bool:
+    """Reject future/unreviewed or wildcard authority verbs.
+
+    This function is a backward-compatible wrapper around the centralized
+    classifier.  It returns True when the statement contains wildcard patterns,
+    NotAction, or unknown authority actions.
+    """
+
+    classification = _classify_action_statement(statement)
+    return (
+        classification.wildcard_present
+        or classification.not_action_present
+        or classification.unknown_authority_present
+    )
+
+
+_WILDCARD_MUTATION_MAPPING: tuple[tuple[str, str, str], ...] = (
+    ("lambda", "MUTATE_LAMBDA_AUTHORITY", "LAMBDA_AUTHORITY_MUTATION"),
+    ("iam", "MUTATE_IAM_AUTHORITY", "IAM_AUTHORITY_MUTATION"),
+    ("cloudformation", "MUTATE_CLOUDFORMATION_AUTHORITY", "CLOUDFORMATION_AUTHORITY"),
+)
+
+
+def _wildcard_mutation_authority_classes(
+    patterns: Sequence[str],
+) -> tuple[tuple[str, str], ...]:
+    """Return the mutation authority classes implied by wildcard action patterns.
+
+    A wildcard like ``lambda:*`` covers invocation **and** all Lambda mutation
+    actions.  ``*`` covers every authority class.  This function maps each
+    wildcard pattern to the mutation authority (action_class, source_type)
+    pairs it conservatively covers so that the inventory does not understate
+    the effective mutation surface.
+    """
+
+    hits: list[tuple[str, str]] = []
+    for pattern in patterns:
+        if not _has_wildcard_metacharacters(pattern):
             continue
-        if pattern in EXPLICIT_READ_ONLY_ACTIONS:
+        lower = pattern.lower()
+        if lower == "*":
+            # Global wildcard — all mutation classes.
+            return tuple(
+                (action_class, source_type)
+                for _, action_class, source_type in _WILDCARD_MUTATION_MAPPING
+            )
+        parts = lower.split(":", 1)
+        if len(parts) != 2:
             continue
-        if any(_action_matches(pattern, action) for action in SENSITIVE_ACTIONS):
-            continue
-        return True
-    return False
+        service = parts[0]
+        for mapped_service, action_class, source_type in _WILDCARD_MUTATION_MAPPING:
+            if service == mapped_service and (action_class, source_type) not in hits:
+                hits.append((action_class, source_type))
+    return tuple(hits)
 
 
 def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
@@ -947,12 +1102,66 @@ def _identity_edges(
         actor_kind, actor_digest, duty = _principal_kind(actor, "AWS", expected, binding.authority_account_id)
         for statement in _statements(document):
             try:
-                if _has_unknown_authority_action(statement):
-                    unsupported = True
-                actions = _allowed_sensitive_actions(statement)
+                classification = _classify_action_statement(statement)
             except AuthorityInventoryError:
                 unsupported = True
                 continue
+            if classification.not_action_present or classification.unknown_authority_present:
+                unsupported = True
+            if classification.wildcard_present:
+                # Emit a prohibited wildcard edge for invocation authority.
+                # The wildcard is a known forbidden authority class, not an
+                # unsupported semantic.
+                edges.append(
+                    _inventory_edge(
+                        authority_class="INVOCATION",
+                        source_type=source_type,
+                        duty=duty,
+                        target_scope="WILDCARD",
+                        action_class="WILDCARD",
+                        condition_class=_condition_class(
+                            statement.get("Condition"),
+                            "lambda:InvokeFunctionUrl",
+                        ),
+                        principal_kind=actor_kind,
+                        principal_digest=actor_digest,
+                        resource_digest=digest_text("wildcard-action-authority"),
+                        source_document_digest=source_digest,
+                        verdict="PROHIBITED",
+                        reason_code="WILDCARD_ACTION",
+                    )
+                )
+                # Also emit AUTHORITY_MUTATION edges for every mutation class
+                # the wildcard covers (lambda:*, iam:*, cloudformation:*, *)
+                # so that mutating_authority_count is not understated.
+                action_patterns = _strict_string_list(
+                    statement.get("Action", []),
+                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
+                )
+                for mutation_action_class, mutation_source in _wildcard_mutation_authority_classes(
+                    action_patterns
+                ):
+                    edges.append(
+                        _inventory_edge(
+                            authority_class="AUTHORITY_MUTATION",
+                            source_type=mutation_source,
+                            duty="none",
+                            target_scope="WILDCARD",
+                            action_class=mutation_action_class,
+                            condition_class=_condition_class(
+                                statement.get("Condition"),
+                                "lambda:InvokeFunctionUrl",
+                            ),
+                            principal_kind=actor_kind,
+                            principal_digest=actor_digest,
+                            resource_digest=digest_text("wildcard-action-authority"),
+                            source_document_digest=source_digest,
+                            verdict="PROHIBITED",
+                            reason_code="WILDCARD_ACTION",
+                        )
+                    )
+                continue
+            actions = classification.exact_sensitive_actions
             if not actions:
                 continue
             try:
@@ -1120,13 +1329,68 @@ def _resource_policy_edges(
         source_digest = canonical_digest(document)
         for statement in _statements(document):
             try:
-                if _has_unknown_authority_action(statement):
-                    unsupported = True
-                actions = _allowed_sensitive_actions(statement)
+                classification = _classify_action_statement(statement)
                 principals = _principal_values(statement.get("Principal"))
             except AuthorityInventoryError:
                 unsupported = True
                 continue
+            if classification.not_action_present or classification.unknown_authority_present:
+                unsupported = True
+            if classification.wildcard_present:
+                # Emit prohibited wildcard edges; block exact edges from
+                # this statement.
+                action_patterns = _strict_string_list(
+                    statement.get("Action", []),
+                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
+                )
+                mutation_classes = _wildcard_mutation_authority_classes(
+                    action_patterns
+                )
+                for principal_type, principal in principals:
+                    kind, principal_digest, duty = _principal_kind(
+                        principal, principal_type, expected, binding.authority_account_id
+                    )
+                    edges.append(
+                        _inventory_edge(
+                            authority_class="INVOCATION",
+                            source_type="LAMBDA_RESOURCE_POLICY",
+                            duty=duty,
+                            target_scope=_target_scope(binding, resource),
+                            action_class="WILDCARD",
+                            condition_class=_condition_class(
+                                statement.get("Condition"),
+                                "lambda:InvokeFunctionUrl",
+                            ),
+                            principal_kind=kind,
+                            principal_digest=principal_digest,
+                            resource_digest=digest_text(resource),
+                            source_document_digest=source_digest,
+                            verdict="PROHIBITED",
+                            reason_code="WILDCARD_ACTION",
+                        )
+                    )
+                    for mutation_action_class, mutation_source in mutation_classes:
+                        edges.append(
+                            _inventory_edge(
+                                authority_class="AUTHORITY_MUTATION",
+                                source_type=mutation_source,
+                                duty="none",
+                                target_scope="WILDCARD",
+                                action_class=mutation_action_class,
+                                condition_class=_condition_class(
+                                    statement.get("Condition"),
+                                    "lambda:InvokeFunctionUrl",
+                                ),
+                                principal_kind=kind,
+                                principal_digest=principal_digest,
+                                resource_digest=digest_text(resource),
+                                source_document_digest=source_digest,
+                                verdict="PROHIBITED",
+                                reason_code="WILDCARD_ACTION",
+                            )
+                        )
+                continue
+            actions = classification.exact_sensitive_actions
             for action in actions:
                 if action not in INVOCATION_ACTIONS:
                     unsupported = True

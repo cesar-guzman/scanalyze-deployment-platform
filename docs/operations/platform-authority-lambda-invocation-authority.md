@@ -110,6 +110,22 @@ allowlist. Require:
   asynchronous or event-source path;
 - no unsupported policy semantics.
 
+The centralized action-statement classifier evaluates every IAM statement
+before any edge is produced:
+
+- Wildcard metacharacters (`*`, `?`, `[`) are detected **before** `fnmatch`
+  expansion. An `Allow` statement with wildcard action patterns produces
+  `WILDCARD` / `PROHIBITED` / `WILDCARD_ACTION` edges and blocks as
+  `FOREIGN_AUTHORITY_PRESENT`, not `POLICY_SEMANTICS_UNSUPPORTED`.
+- Broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) also emit
+  `AUTHORITY_MUTATION` edges for each covered service so that
+  `mutating_authority_count` is never understated.
+- A mixed exact-plus-wildcard statement fails atomically: no exact
+  allowlist-eligible edge is emitted from it.
+- `NotAction` remains unsupported; it produces `POLICY_SEMANTICS_UNSUPPORTED`.
+- Deny statements with wildcard actions are harmless — no authority edges.
+- Services outside `iam`, `lambda`, `cloudformation` are silently skipped.
+
 Only the sanitized receipt may leave the private boundary. Before sharing or
 using it as a review candidate, validate the reviewed allowlist, inventory and
 receipt together with `validate_gug218_evidence_bundle` at a trusted,

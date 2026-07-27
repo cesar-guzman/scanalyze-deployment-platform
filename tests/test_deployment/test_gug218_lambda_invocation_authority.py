@@ -33,10 +33,13 @@ from tooling.platform_authority_lambda_invocation_authority import (
     RECEIPT_INCOMPLETE,
     RAW_SNAPSHOT_FORMAT,
     REVIEWED_FUNCTION_CONFIGURATION_RESPONSE_FIELDS,
+    ActionStatementClassification,
     AuthorityInventoryError,
     AwsReadOnlyInventoryAdapter,
     TargetBinding,
+    _classify_action_statement,
     _coverage,
+    _has_wildcard_metacharacters,
     _published_configuration_digest,
     _strict_policy_document,
     _strict_paginate,
@@ -948,7 +951,21 @@ def test_control_plane_mutators_are_prohibited(action: str) -> None:
     inventory, receipt = _analyze(snapshot)
 
     assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
-    assert inventory["mutating_authority_count"] >= 1
+    if _has_wildcard_metacharacters(action):
+        # Wildcard actions now produce WILDCARD/PROHIBITED edges instead of
+        # individual mutation edges (GUG-218 wildcard authority fix).
+        assert any(
+            edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+            for edge in inventory["authority_edges"]
+        )
+        # Broad wildcards must also report mutation authority.
+        assert inventory["mutating_authority_count"] >= 1, (
+            f"Wildcard {action} must report mutation authority"
+        )
+    else:
+        assert inventory["mutating_authority_count"] >= 1
     assert receipt["status"] == RECEIPT_UNSAFE
 
 
@@ -1224,8 +1241,11 @@ def test_not_action_is_over_approximated_never_accepted_silently() -> None:
 
     inventory, receipt = _analyze(snapshot)
 
-    assert inventory["prohibited_edge_count"] > 0
-    assert inventory["mutating_authority_count"] > 0
+    # Allow + NotAction is correctly classified as unsupported semantics
+    # (GUG-218 fix).  The statement no longer expands to individual action
+    # edges.  The inventory must remain non-review-safe.
+    assert inventory["unsupported_policy_semantics_detected"] is True
+    assert inventory["status"] == INVENTORY_UNSUPPORTED
     assert receipt["status"] == RECEIPT_AMBIGUOUS
 
 
@@ -2128,3 +2148,674 @@ def test_cli_and_adapter_contain_no_aws_mutation_or_lambda_invocation_call() -> 
     ):
         assert forbidden_call not in adapter_source
         assert forbidden_call not in script_source
+
+
+# ── GUG-218 Wildcard Action Authority Regression Tests ──────────────────────
+
+
+class TestHasWildcardMetacharacters:
+    """Direct unit tests for the centralized wildcard detector."""
+
+    @pytest.mark.parametrize(
+        "value",
+        (
+            "lambda:InvokeFunctionUrl*",
+            "lambda:Invoke*",
+            "*",
+            "lambda:InvokeFunction?",
+            "lambda:Invoke[A-Z]",
+            "iam:*",
+            "lambda:*",
+        ),
+    )
+    def test_detects_wildcard(self, value: str) -> None:
+        assert _has_wildcard_metacharacters(value) is True
+
+    @pytest.mark.parametrize(
+        "value",
+        (
+            "lambda:InvokeFunction",
+            "lambda:InvokeFunctionUrl",
+            "sts:AssumeRole",
+            "iam:PassRole",
+            "lambda:GetFunction",
+        ),
+    )
+    def test_rejects_exact(self, value: str) -> None:
+        assert _has_wildcard_metacharacters(value) is False
+
+
+class TestClassifyActionStatement:
+    """Direct unit tests for the centralized action-statement classifier."""
+
+    def test_deny_statement_is_harmless(self) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Deny", "Action": "lambda:*"}
+        )
+        assert classification.exact_sensitive_actions == ()
+        assert classification.wildcard_present is False
+        assert classification.unsupported is False
+
+    def test_exact_sensitive_action(self) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "lambda:InvokeFunction"}
+        )
+        assert "lambda:InvokeFunction" in classification.exact_sensitive_actions
+        assert classification.wildcard_present is False
+        assert classification.not_action_present is False
+        assert classification.unknown_authority_present is False
+
+    @pytest.mark.parametrize(
+        "action",
+        (
+            "lambda:InvokeFunctionUrl*",
+            "lambda:Invoke*",
+            "*",
+            "lambda:*",
+            "lambda:InvokeFunction?",
+            "lambda:Invoke[A-Z]",
+        ),
+    )
+    def test_wildcard_action_detected(self, action: str) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": action}
+        )
+        assert classification.wildcard_present is True
+        assert classification.exact_sensitive_actions == ()
+
+    def test_not_action_is_unsupported(self) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "NotAction": "lambda:GetFunction"}
+        )
+        assert classification.not_action_present is True
+        assert classification.unknown_authority_present is True
+        assert classification.unsupported is True
+
+    def test_mixed_exact_plus_wildcard_returns_no_exact(self) -> None:
+        """A statement containing both exact and wildcard actions must fail
+        closed atomically: no exact sensitive actions are returned."""
+        classification = _classify_action_statement(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "lambda:GetFunction",
+                    "lambda:InvokeFunctionUrl*",
+                    "lambda:InvokeFunction",
+                ],
+            }
+        )
+        assert classification.wildcard_present is True
+        # Even though lambda:InvokeFunction is exact, the statement is atomic.
+        assert classification.exact_sensitive_actions == ()
+
+    def test_unknown_future_action_detected(self) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "lambda:FutureUndocumentedAction"}
+        )
+        assert classification.unknown_authority_present is True
+        assert classification.wildcard_present is False
+
+    def test_read_only_action_not_sensitive(self) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "lambda:GetFunction"}
+        )
+        assert classification.exact_sensitive_actions == ()
+        assert classification.wildcard_present is False
+        assert classification.unknown_authority_present is False
+
+    def test_malformed_action_raises(self) -> None:
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS_UNSUPPORTED"):
+            _classify_action_statement(
+                {"Effect": "Allow", "Action": "lambda:InvokeFunction", "NotAction": "lambda:GetFunction"}
+            )
+
+
+class TestWildcardIdentityPolicyIntegration:
+    """Integration tests: wildcard in IAM identity policies produces
+    prohibited edges and blocks review-safe status."""
+
+    @pytest.mark.parametrize(
+        "action",
+        (
+            "lambda:InvokeFunctionUrl*",
+            "lambda:Invoke*",
+            "*",
+            "lambda:*",
+        ),
+    )
+    def test_wildcard_identity_action_produces_prohibited_edge(self, action: str) -> None:
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+
+        inventory, receipt = _analyze(snapshot)
+
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+        ]
+        assert len(wildcard_edges) >= 1
+        assert receipt["status"] == RECEIPT_UNSAFE
+
+    def test_wildcard_identity_action_does_not_produce_exact_edges(self) -> None:
+        """A wildcard action pattern must never be normalized to an exact
+        reviewed action edge."""
+        user_arn = f"arn:aws:iam::{ACCOUNT}:user/synthetic-wildcard-probe"
+        snapshot = copy.deepcopy(_snapshot())
+        snapshot["iam"]["users"].append(
+            {
+                "Arn": user_arn,
+                "UserPolicyList": [
+                    {
+                        "PolicyName": "WildcardInvokeProbe",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": {
+                                "Effect": "Allow",
+                                "Action": "lambda:InvokeFunctionUrl*",
+                                "Resource": _binding().function_arn,
+                            },
+                        },
+                    }
+                ],
+                "AttachedManagedPolicies": [],
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, _ = _analyze(snapshot)
+
+        user_digest = digest_text(user_arn)
+        exact_from_wildcard_user = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["action_class"] != "WILDCARD"
+            and edge["authority_class"] != "AUTHORITY_MUTATION"
+        ]
+        assert exact_from_wildcard_user == [], (
+            "Wildcard action must NEVER be normalized to an exact reviewed edge"
+        )
+
+    def test_mixed_exact_plus_wildcard_statement_fails_atomically(self) -> None:
+        """A statement with both exact and wildcard actions must not emit
+        any exact allowlist-eligible edge."""
+        user_arn = f"arn:aws:iam::{ACCOUNT}:user/synthetic-mixed-probe"
+        snapshot = copy.deepcopy(_snapshot())
+        snapshot["iam"]["users"].append(
+            {
+                "Arn": user_arn,
+                "UserPolicyList": [
+                    {
+                        "PolicyName": "MixedInvokeProbe",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": {
+                                "Effect": "Allow",
+                                "Action": [
+                                    "lambda:GetFunction",
+                                    "lambda:InvokeFunctionUrl*",
+                                    "lambda:InvokeFunction",
+                                ],
+                                "Resource": f"{_binding().function_arn}:classify",
+                            },
+                        },
+                    }
+                ],
+                "AttachedManagedPolicies": [],
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, _ = _analyze(snapshot)
+
+        user_digest = digest_text(user_arn)
+        # Must emit wildcard PROHIBITED
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(wildcard_edges) >= 1, "Mixed statement must emit wildcard PROHIBITED"
+        # Must NOT emit exact reviewed edges from the same statement
+        exact_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["action_class"] != "WILDCARD"
+            and edge["authority_class"] != "AUTHORITY_MUTATION"
+        ]
+        assert exact_edges == [], (
+            "Mixed exact+wildcard statement must not emit exact edges"
+        )
+
+
+class TestWildcardResourcePolicyIntegration:
+    """Integration tests: wildcard in Lambda resource policies."""
+
+    def test_wildcard_resource_policy_action_is_prohibited(self) -> None:
+        snapshot = copy.deepcopy(_snapshot())
+        snapshot["lambda"]["resource_policies"].append(
+            {
+                "resource_arn": _binding().alias_arn("classify"),
+                "policy_document": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"AWS": CLASSIFIER_ROLE},
+                            "Action": "lambda:InvokeFunctionUrl*",
+                            "Resource": _binding().alias_arn("classify"),
+                        }
+                    ],
+                },
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, receipt = _analyze(snapshot)
+
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["source_type"] == "LAMBDA_RESOURCE_POLICY"
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+        ]
+        assert len(wildcard_edges) >= 1
+        assert receipt["status"] == RECEIPT_UNSAFE
+
+
+class TestDenyWildcardSafety:
+    """Deny statements with wildcard actions must not produce Allow edges."""
+
+    def test_deny_wildcard_does_not_create_authority(self) -> None:
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Deny",
+                "Action": "lambda:*",
+                "Resource": "*",
+            },
+        )
+
+        inventory, receipt = _analyze(snapshot)
+
+        # Deny should not add any edges beyond the baseline 14.
+        assert inventory["status"] == INVENTORY_REVIEW_SAFE
+        assert receipt["status"] == RECEIPT_REVIEW_REQUIRED
+
+
+class TestWildcardAllowlistRebinding:
+    """Adversarial test: rebinding the allowlist source_document_digest to
+    the same policy document that contains a wildcard must never make that
+    policy review-safe."""
+
+    def test_wildcard_rebinding_remains_prohibited(self) -> None:
+        """Even if the source_document_digest of a wildcard policy matches
+        an allowlist edge, the wildcard action must remain PROHIBITED."""
+        broad_document = {
+            "Version": "2012-10-17",
+            "Statement": {
+                "Effect": "Allow",
+                "Action": "lambda:InvokeFunctionUrl*",
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        }
+        broad_digest = canonical_digest(broad_document)
+
+        snapshot = copy.deepcopy(_snapshot())
+        user_arn = f"arn:aws:iam::{ACCOUNT}:user/synthetic-rebinding-probe"
+        snapshot["iam"]["users"].append(
+            {
+                "Arn": user_arn,
+                "UserPolicyList": [
+                    {
+                        "PolicyName": "RebindingProbe",
+                        "PolicyDocument": broad_document,
+                    }
+                ],
+                "AttachedManagedPolicies": [],
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, _ = _analyze(snapshot)
+
+        # The wildcard must be PROHIBITED regardless of digest.
+        user_digest = digest_text(user_arn)
+        user_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+        ]
+        assert len(user_edges) >= 1, "Must have at least one wildcard edge"
+        assert all(
+            edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+            for edge in user_edges
+        ), f"Expected all user edges to be PROHIBITED/WILDCARD_ACTION, got: {user_edges}"
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+
+
+# ── GUG-218 Wildcard Status Semantics Proof ─────────────────────────────────
+
+
+class TestWildcardStatusSemantics:
+    """Prove that syntactically valid wildcard statements produce:
+        action_class = WILDCARD
+        verdict = PROHIBITED
+        reason_code = WILDCARD_ACTION
+        unsupported_policy_semantics_detected = false
+    and that the final inventory is FOREIGN_AUTHORITY, not UNSUPPORTED."""
+
+    @pytest.mark.parametrize(
+        "action",
+        (
+            "lambda:InvokeFunctionUrl*",
+            "lambda:Invoke*",
+            "lambda:Get*",
+            "lambda:*",
+            "iam:*",
+            "cloudformation:*",
+            "*",
+            "lambda:InvokeFunction?",
+            "lambda:InvokeFunction[U]rl",
+            "LAMBDA:INVOKEFUNCTIONURL*",
+        ),
+    )
+    def test_wildcard_is_prohibited_not_unsupported(self, action: str) -> None:
+        """A well-formed wildcard must be classified as foreign/prohibited
+        authority, NOT as unparseable policy semantics."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+
+        inventory, receipt = _analyze(snapshot)
+
+        # Must produce wildcard PROHIBITED edges.
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+        ]
+        assert len(wildcard_edges) >= 1, (
+            f"No WILDCARD/PROHIBITED edge found for action={action}"
+        )
+
+        # The inventory must NOT be classified as unsupported — it is
+        # foreign/prohibited authority.
+        assert inventory["unsupported_policy_semantics_detected"] is False, (
+            f"Wildcard {action} must not set unsupported_policy_semantics_detected"
+        )
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY, (
+            f"Expected FOREIGN_AUTHORITY for {action}, got {inventory['status']}"
+        )
+        assert receipt["status"] == RECEIPT_UNSAFE
+
+    def test_exact_lowercase_wildcard_same_as_uppercase(self) -> None:
+        """LAMBDA:INVOKEFUNCTIONURL* must behave identically to lowercase."""
+        for action in ("LAMBDA:INVOKEFUNCTIONURL*", "lambda:InvokeFunctionUrl*"):
+            snapshot = _append_identity_statement(
+                _snapshot(),
+                {
+                    "Effect": "Allow",
+                    "Action": action,
+                    "Resource": f"{_binding().function_arn}:classify",
+                },
+            )
+            inventory, receipt = _analyze(snapshot)
+            assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+            assert inventory["unsupported_policy_semantics_detected"] is False
+
+
+class TestUnsupportedSemantics:
+    """Prove that these remain correctly unsupported (not wildcard)."""
+
+    def test_allow_not_action_is_unsupported(self) -> None:
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "NotAction": "lambda:GetFunction",
+                "Resource": "*",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+        assert inventory["unsupported_policy_semantics_detected"] is True
+        assert inventory["status"] == INVENTORY_UNSUPPORTED
+        assert receipt["status"] == RECEIPT_AMBIGUOUS
+
+    def test_action_and_not_action_together_raises(self) -> None:
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS_UNSUPPORTED"):
+            _classify_action_statement(
+                {"Effect": "Allow", "Action": "lambda:InvokeFunction", "NotAction": "lambda:GetFunction"}
+            )
+
+    def test_missing_action_raises(self) -> None:
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS_UNSUPPORTED"):
+            _classify_action_statement({"Effect": "Allow"})
+
+    def test_empty_action_list_raises(self) -> None:
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS_UNSUPPORTED"):
+            _classify_action_statement({"Effect": "Allow", "Action": []})
+
+    def test_malformed_action_value_raises(self) -> None:
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS_UNSUPPORTED"):
+            _classify_action_statement({"Effect": "Allow", "Action": 42})
+
+    def test_genuinely_unknown_authority_is_unsupported(self) -> None:
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:FutureUndocumentedAction",
+                "Resource": "*",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+        assert inventory["unsupported_policy_semantics_detected"] is True
+        assert inventory["status"] == INVENTORY_UNSUPPORTED
+
+
+# ── GUG-218 Mutation Authority Metrics Proof ─────────────────────────────────
+
+
+class TestWildcardMutationAuthority:
+    """Prove that broad wildcard patterns do not understate mutation authority.
+    For lambda:*, iam:*, cloudformation:*, and *, the inventory must report
+    non-zero mutating_authority_count."""
+
+    @pytest.mark.parametrize(
+        "action",
+        (
+            "lambda:*",
+            "iam:*",
+            "cloudformation:*",
+            "*",
+        ),
+    )
+    def test_wildcard_reports_mutation_authority(self, action: str) -> None:
+        """Broad wildcard must produce mutating_authority_count > 0."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": f"{_binding().function_arn}:classify"
+                if action.lower().startswith("lambda:")
+                else "*",
+            },
+        )
+
+        inventory, receipt = _analyze(snapshot)
+
+        assert inventory["prohibited_edge_count"] > 0, (
+            f"No prohibited edges for {action}"
+        )
+        assert inventory["mutating_authority_count"] > 0, (
+            f"mutating_authority_count must be > 0 for {action}, "
+            f"got {inventory['mutating_authority_count']}"
+        )
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+        assert receipt["status"] == RECEIPT_UNSAFE
+
+        # No exact allowlist-eligible edge must exist from this wildcard.
+        exact_expected = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["verdict"] == "EXPECTED_EXACT"
+            and edge["action_class"] not in ("WILDCARD",)
+        ]
+        # The baseline 14 expected edges should still be there, but no
+        # wildcard-derived exact edges.
+        assert inventory["expected_edge_count"] == 14
+
+    def test_lambda_wildcard_mutation_edge_details(self) -> None:
+        """lambda:* must produce LAMBDA_AUTHORITY_MUTATION mutation edge."""
+        user_arn = f"arn:aws:iam::{ACCOUNT}:user/synthetic-lambda-mutation"
+        snapshot = copy.deepcopy(_snapshot())
+        snapshot["iam"]["users"].append(
+            {
+                "Arn": user_arn,
+                "UserPolicyList": [
+                    {
+                        "PolicyName": "LambdaWildcardMutation",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": {
+                                "Effect": "Allow",
+                                "Action": "lambda:*",
+                                "Resource": _binding().function_arn,
+                            },
+                        },
+                    }
+                ],
+                "AttachedManagedPolicies": [],
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, _ = _analyze(snapshot)
+
+        user_digest = digest_text(user_arn)
+        mutation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["authority_class"] == "AUTHORITY_MUTATION"
+            and edge["verdict"] == "PROHIBITED"
+            and edge["reason_code"] == "WILDCARD_ACTION"
+        ]
+        assert len(mutation_edges) >= 1, (
+            "lambda:* must produce at least one AUTHORITY_MUTATION edge"
+        )
+
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+        ]
+        assert len(invocation_edges) >= 1, (
+            "lambda:* must also produce an INVOCATION wildcard edge"
+        )
+
+    def test_global_wildcard_covers_all_mutation_classes(self) -> None:
+        """* must produce mutation edges for lambda, iam, and cloudformation."""
+        user_arn = f"arn:aws:iam::{ACCOUNT}:user/synthetic-global-wildcard"
+        snapshot = copy.deepcopy(_snapshot())
+        snapshot["iam"]["users"].append(
+            {
+                "Arn": user_arn,
+                "UserPolicyList": [
+                    {
+                        "PolicyName": "GlobalWildcard",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": {
+                                "Effect": "Allow",
+                                "Action": "*",
+                                "Resource": "*",
+                            },
+                        },
+                    }
+                ],
+                "AttachedManagedPolicies": [],
+            }
+        )
+        snapshot = _seal_snapshot(snapshot)
+
+        inventory, _ = _analyze(snapshot)
+
+        user_digest = digest_text(user_arn)
+        mutation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == user_digest
+            and edge["authority_class"] == "AUTHORITY_MUTATION"
+        ]
+        mutation_action_classes = {edge["action_class"] for edge in mutation_edges}
+        assert "MUTATE_LAMBDA_AUTHORITY" in mutation_action_classes, (
+            "Global wildcard must cover Lambda mutation"
+        )
+        assert "MUTATE_IAM_AUTHORITY" in mutation_action_classes, (
+            "Global wildcard must cover IAM mutation"
+        )
+        assert "MUTATE_CLOUDFORMATION_AUTHORITY" in mutation_action_classes, (
+            "Global wildcard must cover CloudFormation mutation"
+        )
+
+    def test_narrow_lambda_wildcard_no_iam_mutation(self) -> None:
+        """lambda:InvokeFunctionUrl* must NOT produce IAM or CF mutation edges."""
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "lambda:InvokeFunctionUrl*"}
+        )
+        assert classification.wildcard_present is True
+        # Only lambda mutation, not iam or cloudformation.
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _wildcard_mutation_authority_classes,
+        )
+        mutation_classes = _wildcard_mutation_authority_classes(
+            ["lambda:InvokeFunctionUrl*"]
+        )
+        action_classes = {ac for ac, _ in mutation_classes}
+        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+        assert "MUTATE_IAM_AUTHORITY" not in action_classes
+        assert "MUTATE_CLOUDFORMATION_AUTHORITY" not in action_classes
+
+    def test_review_safe_impossible_with_wildcard(self) -> None:
+        """An inventory with any wildcard edge can never be REVIEW_SAFE."""
+        for action in ("lambda:*", "iam:*", "*"):
+            snapshot = _append_identity_statement(
+                _snapshot(),
+                {
+                    "Effect": "Allow",
+                    "Action": action,
+                    "Resource": "*",
+                },
+            )
+            inventory, receipt = _analyze(snapshot)
+            assert inventory["status"] != INVENTORY_REVIEW_SAFE
+            assert receipt["status"] != RECEIPT_REVIEW_REQUIRED
+

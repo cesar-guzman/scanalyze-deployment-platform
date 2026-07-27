@@ -17,6 +17,7 @@ Production remains **NO-GO**.
 explicitly authorized read-only session
   -> private paginated IAM/Lambda capture
   -> typed inventory snapshot
+  -> centralized action-statement classifier
   -> pure deterministic analyzer
   -> sanitized report-only receipt
   -> independent human review
@@ -85,14 +86,38 @@ accepts only verified HTTPS AWS service endpoints for the bound partition,
 service and Region. Total capture duration and post-capture decision age are
 each bounded to five minutes.
 
+## Centralized action-statement classifier
+
+Every IAM policy statement is processed by a single centralized classifier
+(`_classify_action_statement`) before any edge is produced. The classifier:
+
+1. Detects wildcard metacharacters (`*`, `?`, `[`) in action patterns **before**
+   `fnmatch` expansion. Wildcard actions are classified as `WILDCARD` /
+   `PROHIBITED` / `WILDCARD_ACTION`, not as unsupported semantics.
+2. Classifies mixed exact-plus-wildcard statements atomically: any wildcard in
+   the statement blocks all exact actions from the same statement. No exact
+   allowlist-eligible edge is emitted.
+3. Maps broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) to both
+   `INVOCATION` and `AUTHORITY_MUTATION` edge classes so that
+   `mutating_authority_count` is never understated.
+4. Classifies `NotAction` as unsupported semantics (no edges emitted).
+5. Services outside the authority scope (`sts`, `ec2`, `s3`, `dynamodb`, etc.)
+   are silently skipped as irrelevant to the Lambda authority analysis.
+6. Deny statements with wildcard actions are harmless — they produce no
+   authority edges.
+
+The wildcard source-document digest rebinding check ensures that an adversarial
+snapshot using a broad policy that happens to match an allowlist digest still
+produces `PROHIBITED` edges.
+
 ## Fail-closed statuses
 
 | Status | Meaning | Rollout |
 |---|---|---|
 | `REVIEW_SAFE_REPORT_ONLY` | Complete snapshot exactly matches the reviewed graph | Still blocked pending separate approval and preventive controls |
-| `FOREIGN_AUTHORITY_PRESENT` | Extra invocation, trust or mutation authority exists | Blocked |
+| `FOREIGN_AUTHORITY_PRESENT` | Extra invocation, trust, mutation or wildcard authority exists | Blocked |
 | `INVENTORY_INCOMPLETE` | A page/read/surface is missing or ambiguous | Blocked |
-| `POLICY_SEMANTICS_UNSUPPORTED` | Conservative evaluator cannot prove a statement safe | Blocked |
+| `POLICY_SEMANTICS_UNSUPPORTED` | NotAction, unknown actions, or semantic combinations the evaluator cannot prove safe | Blocked |
 | `DRIFT_DETECTED` | Required edge or immutable binding differs | Blocked |
 | `OFFLINE_UNVERIFIED` | Caller-authored diagnostic snapshot lacks authenticated collector provenance | Blocked; collect authenticated AWS inventory |
 
