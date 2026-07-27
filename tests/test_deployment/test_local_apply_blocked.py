@@ -757,6 +757,57 @@ def test_active_validator_rejects_duplicate_json_keys(
     assert not materialized.exists()
 
 
+@pytest.mark.parametrize("nonfinite_constant", ["NaN", "Infinity", "-Infinity"])
+def test_active_validator_rejects_nonfinite_json_numbers(
+    tmp_path: Path,
+    nonfinite_constant: str,
+) -> None:
+    resolution = _resolution("network")
+    encoded = json.dumps(resolution).replace(
+        '"max_contract_age_seconds": 3600',
+        f'"max_contract_age_seconds": {nonfinite_constant}',
+        1,
+    )
+    resolution_path = tmp_path / "resolution-nonfinite.json"
+    resolution_path.write_text(encoded, encoding="utf-8")
+    resolution_path.chmod(0o600)
+    materialized = tmp_path / "materialized.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts/deployment/validate-contract-resolution.py"),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(materialized),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "non-finite numeric constant" in result.stderr
+    assert nonfinite_constant not in result.stdout + result.stderr
+    assert not materialized.exists()
+
+
 def test_active_validator_rejects_resolution_symlink(
     tmp_path: Path,
 ) -> None:

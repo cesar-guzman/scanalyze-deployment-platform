@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -45,12 +45,19 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return document
 
 
+def _reject_nonfinite_json_constant(_value: str) -> NoReturn:
+    raise ContractProjectionError(
+        "JSON document contains a non-finite numeric constant"
+    )
+
+
 def load_json(path: Path, description: str) -> Any:
     """Load JSON using the one duplicate-rejecting parser for this boundary."""
     try:
         return json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite_json_constant,
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ContractProjectionError(

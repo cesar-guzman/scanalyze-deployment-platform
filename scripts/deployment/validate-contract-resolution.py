@@ -83,7 +83,14 @@ def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
         created = True
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             descriptor = None
-            json.dump(document, handle, sort_keys=True, indent=2, ensure_ascii=True)
+            json.dump(
+                document,
+                handle,
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
+            )
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())

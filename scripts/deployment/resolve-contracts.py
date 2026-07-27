@@ -143,7 +143,14 @@ def _select_output_path(layer: str, requested: Path | None) -> tuple[Path, int]:
 def _write_document(path: Path, descriptor: int, document: dict[str, Any]) -> None:
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(document, handle, sort_keys=True, indent=2, ensure_ascii=True)
+            json.dump(
+                document,
+                handle,
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
+            )
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
