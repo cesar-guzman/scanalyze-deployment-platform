@@ -48,17 +48,33 @@ to the authorized records and never override them.
 
 The wrapper performs these steps before plan:
 
-1. verify the AWS caller account;
-2. validate every schema and canonical digest;
-3. compare the registry record with its independent anchor;
-4. verify exact ownership, target lifecycle, baseline controls, and role tags;
-5. verify the held execution lock, five-to-sixty-minute TTL, and non-future
+1. validate every schema and canonical digest;
+2. compare the registry record with its independent anchor;
+3. verify exact ownership, target lifecycle, baseline controls, and role tags;
+4. verify the held execution lock, five-to-sixty-minute TTL, and non-future
    acquisition time;
-6. derive one state key from `deployment/layers.yaml`;
-7. render a mode-0600 backend configuration and binding;
+5. compare the exact caller assertions and derive one state key from
+   `deployment/layers.yaml`;
+6. render a mode-0600 backend configuration and binding;
+7. verify the actual AWS caller account;
 8. validate/materialize the GUG-121 contract resolution;
 9. run `terraform init -reconfigure` with the derived S3 backend; and
 10. delete temporary backend, binding, and variable files on every exit path.
+
+The top-level `plan-layer` and `deploy-services` planning entrypoints do not
+perform their own AWS lookup before step 1. Invalid registry/backend evidence
+therefore creates zero AWS and zero Terraform subprocesses. Dry-run remains
+zero-AWS and zero-mutation.
+
+## Released-lock transitions
+
+Deployment, account, and region remain immutable for every lock lifecycle. A
+HELD lock also keeps its registry digest immutable and cannot be stolen when
+expired. A RELEASED lock may be reacquired with the current registry digest
+after an authorized registry transition when the request supplies the exact
+prior `lock_version`. The result increments the version once, carries the new
+digest, and recomputes `lock_digest`; stale replays and malformed evidence fail
+closed. Same-digest RELEASED reacquisition remains supported.
 
 ## Negative behavior
 
@@ -66,7 +82,7 @@ The authorizer denies request-supplied backend coordinates, duplicate JSON/YAML
 keys, missing v2 evidence, altered digests, anchor/version mismatch, wrong or
 missing owner, suspended/offboarding/archived targets, foreign baseline roles,
 bucket/KMS mismatch, region mismatch, unsafe state-key templates, key
-collisions, expired/released/foreign locks, and unknown fields.
+collisions, expired/released/foreign execution evidence, and unknown fields.
 
 Errors identify the failed invariant but do not print record contents, backend
 coordinates, ARNs, state keys, tokens, plans, state, or customer data.
@@ -81,7 +97,7 @@ account identifiers remain only in approved encrypted systems.
 ## Current gate
 
 - Implemented: candidate code and contracts.
-- Locally validated: offline synthetic tests only.
+- Locally validated: offline synthetic tests only; no AWS or live Terraform.
 - CI validated: pending PR.
 - Live validated: no.
 - Production: **NO-GO**.

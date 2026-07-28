@@ -13,8 +13,17 @@ The backend uses SSE-KMS, one allowed account, a deployment/region/layer state
 key, and S3-native lockfiles. The full binding is removed after the plan path.
 Registry updates are immutable and compare-and-swap. Concurrent or expired held
 locks deny execution; locks are non-future and bounded to five-to-sixty minutes,
-and expiry does not authorize automatic takeover. New registry contracts accept
-multi-segment AWS partitions without inferring a commercial ARN.
+and expiry does not authorize automatic takeover. A held lock cannot change its
+registry digest. A released lock can follow an authorized registry digest
+transition only with the exact prior lock version and unchanged deployment,
+account, and region. New registry contracts accept multi-segment AWS partitions
+without inferring a commercial ARN.
+
+StateRecovery version inventory has only the exact bucket/prefix-bound
+`ListBucket` and `ListBucketVersions` actions. Local registry, anchor, baseline,
+and lock authorization occurs before AWS caller lookup for both direct layer
+planning and services planning; invalid evidence launches neither AWS nor
+Terraform.
 
 Legacy v1 manifests, ACCOUNT_READY v1, DynamoDB lock configuration, unbound
 buckets, inferred prefixes, and automatic force-unlock are migration-required
@@ -28,6 +37,9 @@ Evidence classification:
 - CI validated: pending the exact PR commit.
 - Live validated: no.
 - Production: NO-GO.
+
+No schema version, dependency, AWS configuration, Terraform state, or live
+environment changed in this remediation.
 
 Do not ingest registry records, backend files, state keys, ARNs, plans, state,
 lock payloads, account inventories, screenshots, logs, or customer data into

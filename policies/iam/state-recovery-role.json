@@ -4,7 +4,10 @@
     {
       "Sid": "ListBoundStateVersions",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions"
+      ],
       "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringLike": {

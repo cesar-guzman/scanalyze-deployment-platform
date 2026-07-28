@@ -11,10 +11,14 @@ not live control effectiveness.
 | legacy or weak account baseline | ACCOUNT_READY v2 requires exact ownership and six state controls | missing/false/mismatched control denied |
 | state-key collision/path traversal | one canonical DAG template per Terraform layer and deployment prefix validation | distinct deployments differ; traversal denied |
 | concurrent execution | conditional deployment lock plus S3-native per-key lockfile | held lock denies second owner |
+| registry transition strands released lock | RELEASED may adopt the current authorized registry digest only with exact prior-version CAS and unchanged deployment/account/region | READY→ACTIVE succeeds once; stale replay and foreign identity fail |
+| held-lock digest substitution | registry digest remains immutable while HELD | changed digest denied for active and expired held locks |
 | stale/future lock takeover | only a non-future five-to-sixty-minute lock is executable; expiry never authorizes automatic acquisition | future, out-of-range, and expired held locks are denied |
 | registry enumeration or uncontrolled mutation | no DynamoDB Scan/Delete; leading-key IAM condition; create-only/CAS model | policy and transition tests |
-| destructive recovery | recovery delete limited to exact `.tflock`; state restore is put-only and tagged | arbitrary/state deletion denied |
-| sensitive evidence leakage | private temporary files, cleanup trap, sanitized errors/evidence boundary | no backend values printed or committed |
+| recovery inventory escapes deployment | exact bucket/prefix/session conditions plus `ListBucketVersions`; no bucket wildcard or version delete | structural allow/deny policy test |
+| destructive recovery | recovery delete limited to exact `.tflock`; state restore is put-only and tagged | arbitrary/state/version deletion denied |
+| STS or Terraform before authorization | child backend authorizer is canonical and precedes caller lookup; `plan-layer` and `deploy-services` perform no early STS | invalid target/anchor/baseline/lock evidence reaches zero fake subprocesses |
+| sensitive evidence leakage | private temporary files, cleanup trap, sanitized errors/evidence boundary | rejected values and backend coordinates absent from entrypoint output |
 
 ## Residual risks and downstream ownership
 
@@ -28,6 +32,8 @@ not live control effectiveness.
 - Account vending must emit authentic ACCOUNT_READY v2. Hashes alone do not
   prove writer authority.
 - No AWS control was inspected or changed in GUG-122.
+- Repository tests use only synthetic identifiers and fake AWS/Terraform
+  executables; no cloud identity or backend was contacted.
 
 Any uncertainty in target ownership, backend binding, encryption, lock owner,
 state version, or recovery authority is fail-closed and keeps production
