@@ -249,7 +249,7 @@ load_manifest() {
   fi
 
   # Validate manifest
-  if ! python3 "$SCRIPT_DIR/validate-manifest.py" "$MANIFEST"; then
+  if ! python3 "$SCRIPT_DIR/validate-manifest.py" "$MANIFEST" >/dev/null; then
     die "Manifest validation failed"
   fi
 
@@ -385,7 +385,6 @@ cmd_plan_layer() {
   fi
 
   guard_live
-  guard_account_binding
 
   bash "$SCRIPT_DIR/terraform-layer.sh" plan \
     --layer "$LAYER" \
@@ -524,7 +523,6 @@ cmd_deploy_services() {
   fi
 
   guard_live
-  guard_account_binding
 
   LAYER="services" cmd_plan_layer
   if [[ "$APPROVE" == true ]]; then

@@ -68,6 +68,12 @@ session must bind the operation and deployment tags, restore only the exact
 state object with the approved KMS key, never delete state, and delete a
 `.tflock` only under separate reviewed stale-lock approval.
 
+Version inventory requires both `s3:ListBucket` and
+`s3:ListBucketVersions` on the exact deployment-bound state bucket, constrained
+to `${deployment_id}/*/terraform.tfstate` and the state-recovery session tags.
+It does not authorize `ListAllMyBuckets`, wildcard bucket/prefix access,
+`DeleteObjectVersion`, state deletion, or unreviewed `.tflock` deletion.
+
 After restoration, disable recovery authority and generate a new reviewed plan.
 The restored version remains untrusted until state, infrastructure, contracts,
 and runtime reconcile. An unexpected plan is a stop condition.
@@ -81,7 +87,9 @@ authorizer or re-enable a legacy fallback to restore availability.
 
 ## Current status
 
-No inventory, migration, lock recovery, state restoration, or live backend
-initialization was executed for GUG-122. Live proof belongs to an explicitly
-authorized non-production phase after GUG-123 and GUG-124. Production remains
-**NO-GO**.
+No registry write, inventory, migration, lock recovery, state restoration,
+lock deletion, Terraform plan/apply, AWS operation, or live backend
+initialization was executed for this GUG-122 repository remediation. All tests
+are synthetic/offline. GUG-125 owns live conditional storage, two-deployment
+isolation, authorized version inventory/recovery, and rerun/no-change proof.
+Production remains **NO-GO**.
