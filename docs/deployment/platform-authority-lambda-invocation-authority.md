@@ -94,17 +94,42 @@ Every IAM policy statement is processed by a single centralized classifier
 1. Detects wildcard metacharacters (`*`, `?`, `[`) in action patterns **before**
    `fnmatch` expansion. Wildcard actions are classified as `WILDCARD` /
    `PROHIBITED` / `WILDCARD_ACTION`, not as unsupported semantics.
-2. Classifies mixed exact-plus-wildcard statements atomically: any wildcard in
-   the statement blocks all exact actions from the same statement. No exact
-   allowlist-eligible edge is emitted.
-3. Maps broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) to both
+2. Determines **service relevance** before activating wildcard authority.
+   `_wildcard_targets_authority_service()` checks whether the pattern's service
+   segment can match `lambda`, `iam` or `cloudformation`.  Wildcards in the
+   service segment (e.g. `*:InvokeFunction`, `lambd?:*`, `[l]ambda:*`, `i*m:*`)
+   are conservatively classified as relevant using `fnmatch` against the
+   authority-relevant service set.  Exact unrelated services (`s3:*`, `ec2:*`,
+   `sts:*`, `dynamodb:*`, `kms:*`, `logs:*`) are silently skipped.
+3. Classifies mixed exact-plus-wildcard statements atomically: any **relevant**
+   wildcard in the statement blocks all exact actions from the same statement.
+   An out-of-scope wildcard combined with an exact Lambda action does NOT
+   suppress the exact action — only relevant wildcards trigger atomic rejection.
+4. Maps broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) to both
    `INVOCATION` and `AUTHORITY_MUTATION` edge classes so that
    `mutating_authority_count` is never understated.
-4. Classifies `NotAction` as unsupported semantics (no edges emitted).
-5. Services outside the authority scope (`sts`, `ec2`, `s3`, `dynamodb`, etc.)
-   are silently skipped as irrelevant to the Lambda authority analysis.
+5. Classifies `NotAction` as unsupported semantics (no edges emitted).
 6. Deny statements with wildcard actions are harmless — they produce no
    authority edges.
+
+### Resource applicability for wildcard edges
+
+Wildcard invocation edges are only emitted when the statement's `Resource` or
+`NotResource` can reach the target function, its aliases, versions, or a
+preauthorized future qualifier.  A wildcard action scoped to an unrelated
+Lambda function (e.g. `lambda:* on arn:aws:lambda:...:function:other`) does NOT
+block the target inventory.
+
+Lambda mutation wildcard edges follow the same target resource applicability
+check.  IAM and CloudFormation mutation wildcard edges remain account-wide by
+architectural decision — because `iam:*` on any resource can create, attach or
+alter authority paths.
+
+`Resource` validation preserves the existing contracts:
+- Policy variables (`${...}`) → unsupported
+- Incomplete ARNs → unsupported
+- Both `Resource` and `NotResource` → unsupported
+- Neither `Resource` nor `NotResource` → unsupported
 
 The wildcard source-document digest rebinding check ensures that an adversarial
 snapshot using a broad policy that happens to match an allowlist digest still

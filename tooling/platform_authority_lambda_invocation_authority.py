@@ -546,6 +546,52 @@ def _has_wildcard_metacharacters(value: str) -> bool:
     return any(character in value for character in "*?[")
 
 
+_AUTHORITY_RELEVANT_SERVICES: frozenset[str] = frozenset({
+    "lambda", "iam", "cloudformation",
+})
+
+
+def _wildcard_targets_authority_service(pattern: str) -> bool:
+    """Return True when a wildcard action pattern may cover an authority-relevant service.
+
+    A pattern is considered authority-relevant when it can match at least one
+    action from ``lambda:``, ``iam:``, or ``cloudformation:``.  This function
+    is conservative: if the service segment itself contains wildcards (e.g.
+    ``*:InvokeFunction``, ``lambd?:*``, ``[l]ambda:*``), it checks whether
+    the pattern can match any authority-relevant service prefix using
+    ``fnmatch``.  Exact unrelated services (``s3:*``, ``ec2:*``) return False.
+
+    Patterns without a colon (bare ``*``, ``?``, etc.) are considered global
+    wildcards and always return True.
+
+    Malformed patterns (empty service, multiple colons in service) are treated
+    as relevant to fail-closed rather than silently skipping.
+    """
+
+    if ":" not in pattern:
+        # Bare wildcard like "*" or "?" — global, covers all services.
+        return True
+
+    parts = pattern.split(":", 1)
+    service_segment = parts[0]
+
+    if not service_segment:
+        # Malformed: ":*" — fail-closed as relevant.
+        return True
+
+    if not _has_wildcard_metacharacters(service_segment):
+        # Exact service prefix — check membership directly.
+        return service_segment.lower() in _AUTHORITY_RELEVANT_SERVICES
+
+    # Service segment contains wildcards (e.g. "lambd?", "[l]ambda", "i*m",
+    # "lambda*", "*").  Check conservatively: can this pattern match any
+    # authority-relevant service?
+    for service in _AUTHORITY_RELEVANT_SERVICES:
+        if fnmatch.fnmatchcase(service, service_segment.lower()):
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class ActionStatementClassification:
     """Structured result of a single centralized action-statement classifier.
@@ -615,7 +661,12 @@ def _classify_action_statement(
     for pattern in patterns:
         # ── Step 1: detect wildcard metacharacters BEFORE expansion ──
         if _has_wildcard_metacharacters(pattern):
-            wildcard_present = True
+            if _wildcard_targets_authority_service(pattern):
+                # Authority-relevant wildcard (lambda:*, iam:*, *, *:Invoke*,
+                # lambd?:*, etc.) — must be classified as PROHIBITED.
+                wildcard_present = True
+            # else: out-of-scope wildcard (s3:*, ec2:*, etc.) — silently
+            # skipped, matching the original out-of-scope exact-action skip.
             continue  # do NOT expand to exact actions
 
         # ── Step 2: exact pattern — classify ──
@@ -1109,31 +1160,62 @@ def _identity_edges(
             if classification.not_action_present or classification.unknown_authority_present:
                 unsupported = True
             if classification.wildcard_present:
-                # Emit a prohibited wildcard edge for invocation authority.
-                # The wildcard is a known forbidden authority class, not an
-                # unsupported semantic.
-                edges.append(
-                    _inventory_edge(
-                        authority_class="INVOCATION",
-                        source_type=source_type,
-                        duty=duty,
-                        target_scope="WILDCARD",
-                        action_class="WILDCARD",
-                        condition_class=_condition_class(
-                            statement.get("Condition"),
-                            "lambda:InvokeFunctionUrl",
-                        ),
-                        principal_kind=actor_kind,
-                        principal_digest=actor_digest,
-                        resource_digest=digest_text("wildcard-action-authority"),
-                        source_document_digest=source_digest,
-                        verdict="PROHIBITED",
-                        reason_code="WILDCARD_ACTION",
+                # ── Validate Resource / NotResource before emitting ──
+                # A wildcard action scoped to an unrelated Lambda function
+                # must not block the target inventory.
+                try:
+                    statement_resources = _statement_resource_values(statement)
+                except AuthorityInventoryError:
+                    unsupported = True
+                    continue
+
+                # Check whether ANY statement resource can reach the target
+                # function, its aliases, its versions, or a qualifier glob.
+                resource_reaches_target = False
+                for stated_resource in statement_resources:
+                    if stated_resource == "*":
+                        resource_reaches_target = True
+                        break
+                    if _is_target_function_pattern(binding, stated_resource):
+                        resource_reaches_target = True
+                        break
+                    for observed in invocation_resources:
+                        try:
+                            if _resource_applies(statement, observed):
+                                resource_reaches_target = True
+                                break
+                        except AuthorityInventoryError:
+                            unsupported = True
+                            break
+                    if resource_reaches_target:
+                        break
+
+                # Emit INVOCATION wildcard edge only when the statement's
+                # Resource can reach the target.
+                if resource_reaches_target:
+                    edges.append(
+                        _inventory_edge(
+                            authority_class="INVOCATION",
+                            source_type=source_type,
+                            duty=duty,
+                            target_scope="WILDCARD",
+                            action_class="WILDCARD",
+                            condition_class=_condition_class(
+                                statement.get("Condition"),
+                                "lambda:InvokeFunctionUrl",
+                            ),
+                            principal_kind=actor_kind,
+                            principal_digest=actor_digest,
+                            resource_digest=digest_text("wildcard-action-authority"),
+                            source_document_digest=source_digest,
+                            verdict="PROHIBITED",
+                            reason_code="WILDCARD_ACTION",
+                        )
                     )
-                )
-                # Also emit AUTHORITY_MUTATION edges for every mutation class
-                # the wildcard covers (lambda:*, iam:*, cloudformation:*, *)
-                # so that mutating_authority_count is not understated.
+
+                # AUTHORITY_MUTATION edges:
+                # - Lambda mutation: only if resource reaches target
+                # - IAM/CloudFormation: account-wide (architectural decision)
                 action_patterns = _strict_string_list(
                     statement.get("Action", []),
                     "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
@@ -1141,6 +1223,11 @@ def _identity_edges(
                 for mutation_action_class, mutation_source in _wildcard_mutation_authority_classes(
                     action_patterns
                 ):
+                    # Lambda mutation follows target applicability;
+                    # IAM and CloudFormation remain account-wide.
+                    is_lambda_mutation = mutation_source == "LAMBDA_AUTHORITY_MUTATION"
+                    if is_lambda_mutation and not resource_reaches_target:
+                        continue
                     edges.append(
                         _inventory_edge(
                             authority_class="AUTHORITY_MUTATION",
@@ -1337,8 +1424,16 @@ def _resource_policy_edges(
             if classification.not_action_present or classification.unknown_authority_present:
                 unsupported = True
             if classification.wildcard_present:
-                # Emit prohibited wildcard edges; block exact edges from
-                # this statement.
+                # Validate resource applicability before emitting wildcard
+                # edges.  A resource-policy statement that does not apply to
+                # the attached Lambda resource must not create an edge.
+                try:
+                    if not _resource_applies(statement, resource):
+                        continue
+                except AuthorityInventoryError:
+                    unsupported = True
+                    continue
+
                 action_patterns = _strict_string_list(
                     statement.get("Action", []),
                     "POLICY_ACTION_SEMANTICS_UNSUPPORTED",

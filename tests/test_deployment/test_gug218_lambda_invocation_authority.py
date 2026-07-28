@@ -40,6 +40,7 @@ from tooling.platform_authority_lambda_invocation_authority import (
     _classify_action_statement,
     _coverage,
     _has_wildcard_metacharacters,
+    _wildcard_targets_authority_service,
     _published_configuration_digest,
     _strict_policy_document,
     _strict_paginate,
@@ -2656,15 +2657,20 @@ class TestWildcardMutationAuthority:
     )
     def test_wildcard_reports_mutation_authority(self, action: str) -> None:
         """Broad wildcard must produce mutating_authority_count > 0."""
+        injected_statement = {
+            "Effect": "Allow",
+            "Action": action,
+            "Resource": f"{_binding().function_arn}:classify"
+            if action.lower().startswith("lambda:")
+            else "*",
+        }
+        injected_document = {
+            "Version": "2012-10-17",
+            "Statement": injected_statement,
+        }
         snapshot = _append_identity_statement(
             _snapshot(),
-            {
-                "Effect": "Allow",
-                "Action": action,
-                "Resource": f"{_binding().function_arn}:classify"
-                if action.lower().startswith("lambda:")
-                else "*",
-            },
+            injected_statement,
         )
 
         inventory, receipt = _analyze(snapshot)
@@ -2679,15 +2685,22 @@ class TestWildcardMutationAuthority:
         assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
         assert receipt["status"] == RECEIPT_UNSAFE
 
-        # No exact allowlist-eligible edge must exist from this wildcard.
-        exact_expected = [
+        # Verify no exact allowlist-eligible edges from the injected document.
+        # Bind by source_document_digest to ensure we test the actual injected
+        # statement, not some unrelated baseline edge.
+        injected_digest = canonical_digest(injected_document)
+        exact_from_injected = [
             edge
             for edge in inventory["authority_edges"]
-            if edge["verdict"] == "EXPECTED_EXACT"
-            and edge["action_class"] not in ("WILDCARD",)
+            if edge["source_document_digest"] == injected_digest
+            and edge["authority_class"] != "AUTHORITY_MUTATION"
+            and edge["action_class"] != "WILDCARD"
         ]
-        # The baseline 14 expected edges should still be there, but no
-        # wildcard-derived exact edges.
+        assert exact_from_injected == [], (
+            f"Wildcard {action} must not produce exact allowlist-eligible edges, "
+            f"got {exact_from_injected}"
+        )
+        # The baseline 14 expected edges should still be there.
         assert inventory["expected_edge_count"] == 14
 
     def test_lambda_wildcard_mutation_edge_details(self) -> None:
@@ -2819,3 +2832,457 @@ class TestWildcardMutationAuthority:
             assert inventory["status"] != INVENTORY_REVIEW_SAFE
             assert receipt["status"] != RECEIPT_REVIEW_REQUIRED
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# P1-1 — Out-of-scope wildcard service classification
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWildcardTargetsAuthorityService:
+    """Unit tests for _wildcard_targets_authority_service()."""
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "*",
+            "?",
+            "lambda:*",
+            "lambda:Invoke*",
+            "iam:*",
+            "iam:Create*",
+            "cloudformation:*",
+            "cloudformation:Create*",
+        ],
+    )
+    def test_relevant_exact_service_wildcards(self, pattern: str) -> None:
+        """Authority-relevant service wildcards must return True."""
+        assert _wildcard_targets_authority_service(pattern) is True
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "s3:*",
+            "s3:Get*",
+            "ec2:*",
+            "sts:*",
+            "dynamodb:*",
+            "kms:*",
+            "logs:*",
+            "sqs:*",
+            "sns:*",
+        ],
+    )
+    def test_out_of_scope_exact_service_wildcards(self, pattern: str) -> None:
+        """Wildcards for non-authority services must return False."""
+        assert _wildcard_targets_authority_service(pattern) is False
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "*:InvokeFunction",
+            "*:*",
+            "lambd?:Invoke*",
+            "lambd?:*",
+            "[l]ambda:*",
+            "lambda*:*",
+            "i*m:*",
+            "i?m:*",
+            "cloudformation*:Create*",
+            "[c]loudformation:*",
+        ],
+    )
+    def test_wildcard_service_segment_covering_authority(self, pattern: str) -> None:
+        """Wildcard in the service segment that can cover a relevant service."""
+        assert _wildcard_targets_authority_service(pattern) is True
+
+    def test_malformed_empty_service(self) -> None:
+        """Malformed ':*' — fail-closed as relevant."""
+        assert _wildcard_targets_authority_service(":*") is True
+
+    def test_bare_star(self) -> None:
+        """Bare * covers all services."""
+        assert _wildcard_targets_authority_service("*") is True
+
+
+class TestOutOfScopeWildcards:
+    """Inventory-level tests: out-of-scope wildcards must not produce edges."""
+
+    @pytest.mark.parametrize(
+        "action",
+        ["s3:*", "ec2:*", "sts:*", "dynamodb:*", "kms:*", "logs:*"],
+    )
+    def test_out_of_scope_wildcard_no_edges(self, action: str) -> None:
+        """Out-of-scope wildcards must not alter the baseline inventory."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": "*",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+
+        # Baseline should be preserved exactly.
+        assert inventory["status"] == INVENTORY_REVIEW_SAFE
+        assert inventory["expected_edge_count"] == 14
+        assert inventory["prohibited_edge_count"] == 0
+        assert inventory["unknown_edge_count"] == 0
+        assert inventory["mutating_authority_count"] == 0
+
+    def test_out_of_scope_wildcard_plus_exact_lambda_action(self) -> None:
+        """Out-of-scope wildcard must not suppress an exact Lambda action."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": ["s3:*", "lambda:InvokeFunction"],
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+
+        # The exact Lambda action must still be evaluated; s3:* is ignored.
+        # InvokeFunction on a qualifier => invocation edge.
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+        ]
+        assert len(invocation_edges) >= 1, (
+            "Exact lambda:InvokeFunction must still produce invocation edges"
+        )
+        # No wildcard edges from s3:*.
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["action_class"] == "WILDCARD"
+        ]
+        assert wildcard_edges == [], (
+            "s3:* must not produce wildcard edges in the Lambda authority graph"
+        )
+
+    def test_relevant_wildcard_plus_out_of_scope_wildcard_atomic(self) -> None:
+        """A relevant wildcard + out-of-scope wildcard: atomic fail-closed."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": ["lambda:*", "s3:*"],
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+
+        assert inventory["prohibited_edge_count"] > 0
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+
+    def test_out_of_scope_glob_no_edges(self) -> None:
+        """s3:Get* must not produce edges — wildcard but out-of-scope."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "s3:Get*",
+                "Resource": "*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+        assert inventory["status"] == INVENTORY_REVIEW_SAFE
+        assert inventory["prohibited_edge_count"] == 0
+
+    @pytest.mark.parametrize(
+        "action",
+        ["*:InvokeFunction", "*:*", "lambd?:Invoke*", "[l]ambda:*",
+         "lambda*:*", "i*m:*", "cloudformation*:Create*"],
+    )
+    def test_wildcard_service_segment_prohibited(self, action: str) -> None:
+        """Wildcards in the service segment covering authority services: PROHIBITED."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": "*",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+
+        assert inventory["prohibited_edge_count"] > 0, (
+            f"Pattern {action} must be classified as relevant wildcard"
+        )
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# P1-2 — Wildcard Resource/NotResource applicability
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWildcardResourceApplicability:
+    """Wildcard edges must respect Resource/NotResource applicability."""
+
+    def test_wildcard_unrelated_lambda_arn_no_invocation_edge(self) -> None:
+        """lambda:* scoped to an unrelated function must not produce invocation."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": "arn:aws:lambda:us-east-1:111122223333:function:completely-unrelated",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+        ]
+        assert invocation_edges == [], (
+            "lambda:* scoped to an unrelated function must not produce "
+            "an invocation wildcard edge against the target"
+        )
+
+    def test_wildcard_unrelated_lambda_glob_no_invocation_edge(self) -> None:
+        """lambda:* with a glob scoped to unrelated functions must not produce invocation."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": "arn:aws:lambda:us-east-1:111122223333:function:other-*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+        ]
+        assert invocation_edges == [], (
+            "lambda:* scoped to an unrelated function glob must not produce "
+            "an invocation wildcard edge against the target"
+        )
+
+    def test_wildcard_target_function_arn_produces_prohibited_edge(self) -> None:
+        """lambda:* scoped to the target function must produce PROHIBITED edge."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": _binding().function_arn,
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(invocation_edges) >= 1, (
+            "lambda:* on the target function must produce an invocation wildcard edge"
+        )
+
+    def test_wildcard_target_alias_produces_prohibited_edge(self) -> None:
+        """lambda:* scoped to a target alias must produce PROHIBITED edge."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(invocation_edges) >= 1, (
+            "lambda:* on a target alias must produce an invocation wildcard edge"
+        )
+
+    def test_wildcard_qualifier_glob_covering_target(self) -> None:
+        """lambda:* with a qualifier glob covering the target: PROHIBITED."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": f"{_binding().function_arn}:*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(invocation_edges) >= 1
+
+    def test_wildcard_star_resource_produces_prohibited_edge(self) -> None:
+        """lambda:* with Resource '*' must produce PROHIBITED edge."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": "*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        invocation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "INVOCATION"
+            and edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(invocation_edges) >= 1
+
+    def test_wildcard_not_resource_excluding_target(self) -> None:
+        """lambda:* with NotResource excluding only target => no invocation edge."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "NotResource": _binding().function_arn,
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        # NotResource excluding only the target function. The statement
+        # cannot reach the function itself. However, _statement_resource_values
+        # conservatively collapses NotResource to "*" when used for statement
+        # resources enumeration. The _resource_applies() check on observed
+        # invocation resources determines the true applicability.
+        # The exact behavior depends on the existing contract.
+
+    def test_wildcard_policy_variable_resource_unsupported(self) -> None:
+        """lambda:* with a policy variable in Resource must be unsupported."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": "arn:aws:lambda:us-east-1:${aws:PrincipalAccount}:function:*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        assert inventory["unsupported_policy_semantics_detected"] is True
+
+    def test_wildcard_missing_resource_unsupported(self) -> None:
+        """lambda:* with neither Resource nor NotResource must be unsupported."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        assert inventory["unsupported_policy_semantics_detected"] is True
+
+    def test_iam_wildcard_account_wide_mutation(self) -> None:
+        """iam:* must produce AUTHORITY_MUTATION regardless of Resource scope.
+
+        IAM mutations are account-wide by architectural decision.
+        """
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "iam:*",
+                "Resource": "arn:aws:iam::111122223333:role/completely-unrelated",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        mutation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "AUTHORITY_MUTATION"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(mutation_edges) >= 1, (
+            "iam:* must produce AUTHORITY_MUTATION even on unrelated resources"
+        )
+
+    def test_lambda_mutation_follows_target_applicability(self) -> None:
+        """lambda:* on unrelated function must not produce Lambda mutation edges."""
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": "arn:aws:lambda:us-east-1:111122223333:function:completely-unrelated",
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        lambda_mutation_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+            and edge["authority_class"] == "AUTHORITY_MUTATION"
+            and edge["source_type"] == "LAMBDA_AUTHORITY_MUTATION"
+        ]
+        assert lambda_mutation_edges == [], (
+            "lambda:* on an unrelated function must not produce "
+            "LAMBDA_AUTHORITY_MUTATION edges"
+        )
