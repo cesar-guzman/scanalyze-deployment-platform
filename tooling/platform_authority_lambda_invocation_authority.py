@@ -604,9 +604,25 @@ class ActionStatementClassification:
     exact_sensitive_actions: tuple[str, ...]
     exact_read_only_actions: tuple[str, ...]
     wildcard_present: bool
+    wildcard_patterns: tuple[str, ...]
     not_action_present: bool
     unknown_authority_present: bool
     unsupported: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WildcardAuthorityCoverage:
+    """Which authority classes a set of wildcard action patterns covers.
+
+    This is the single centralized result used by both the GUG-218 analyzer
+    and the GUG-221 consumer to determine wildcard authority coverage without
+    independently interpreting action catalogs.
+    """
+
+    invocation: bool
+    lambda_mutation: bool
+    iam_mutation: bool
+    cloudformation_mutation: bool
 
 
 def _classify_action_statement(
@@ -625,6 +641,7 @@ def _classify_action_statement(
             exact_sensitive_actions=(),
             exact_read_only_actions=(),
             wildcard_present=False,
+            wildcard_patterns=(),
             not_action_present=False,
             unknown_authority_present=False,
             unsupported=False,
@@ -644,6 +661,7 @@ def _classify_action_statement(
             exact_sensitive_actions=(),
             exact_read_only_actions=(),
             wildcard_present=False,
+            wildcard_patterns=(),
             not_action_present=True,
             unknown_authority_present=True,
             unsupported=True,
@@ -655,16 +673,27 @@ def _classify_action_statement(
 
     wildcard_present = False
     unknown_authority_present = False
+    wildcard_pats: list[str] = []
     exact_sensitive: list[str] = []
     exact_read_only: list[str] = []
 
     for pattern in patterns:
+        # ── Step 0: validate action syntax ──
+        # Accept only "*" (global wildcard) or "<service>:<action>".
+        if pattern != "*":
+            parts = pattern.split(":", 1)
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                raise AuthorityInventoryError(
+                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED"
+                )
+
         # ── Step 1: detect wildcard metacharacters BEFORE expansion ──
         if _has_wildcard_metacharacters(pattern):
             if _wildcard_targets_authority_service(pattern):
                 # Authority-relevant wildcard (lambda:*, iam:*, *, *:Invoke*,
                 # lambd?:*, etc.) — must be classified as PROHIBITED.
                 wildcard_present = True
+                wildcard_pats.append(pattern)
             # else: out-of-scope wildcard (s3:*, ec2:*, etc.) — silently
             # skipped, matching the original out-of-scope exact-action skip.
             continue  # do NOT expand to exact actions
@@ -718,6 +747,7 @@ def _classify_action_statement(
         exact_sensitive_actions=() if wildcard_present else tuple(deduped_sensitive),
         exact_read_only_actions=() if wildcard_present else tuple(exact_read_only),
         wildcard_present=wildcard_present,
+        wildcard_patterns=tuple(wildcard_pats),
         not_action_present=False,
         unknown_authority_present=unknown_authority_present,
         unsupported=False,
@@ -773,27 +803,75 @@ def _wildcard_mutation_authority_classes(
     wildcard pattern to the mutation authority (action_class, source_type)
     pairs it conservatively covers so that the inventory does not understate
     the effective mutation surface.
+
+    Uses ``_action_matches()`` against the canonical mutation action catalogs
+    instead of exact service-prefix comparison. This ensures that ``i*m:*``
+    correctly produces IAM mutation edges, and ``lambda:Get*`` does not
+    produce a false Lambda mutation edge.
     """
+
+    _MUTATION_CATALOGS: dict[str, tuple[str, ...]] = {
+        "lambda": LAMBDA_MUTATION_ACTIONS,
+        "iam": IAM_MUTATION_ACTIONS,
+        "cloudformation": CLOUDFORMATION_MUTATION_ACTIONS,
+    }
 
     hits: list[tuple[str, str]] = []
     for pattern in patterns:
         if not _has_wildcard_metacharacters(pattern):
             continue
-        lower = pattern.lower()
-        if lower == "*":
-            # Global wildcard — all mutation classes.
-            return tuple(
-                (action_class, source_type)
-                for _, action_class, source_type in _WILDCARD_MUTATION_MAPPING
-            )
-        parts = lower.split(":", 1)
-        if len(parts) != 2:
-            continue
-        service = parts[0]
         for mapped_service, action_class, source_type in _WILDCARD_MUTATION_MAPPING:
-            if service == mapped_service and (action_class, source_type) not in hits:
+            if (action_class, source_type) in hits:
+                continue
+            catalog = _MUTATION_CATALOGS[mapped_service]
+            if any(_action_matches(pattern, action) for action in catalog):
                 hits.append((action_class, source_type))
     return tuple(hits)
+
+
+def _classify_wildcard_authority_coverage(
+    patterns: Sequence[str],
+) -> WildcardAuthorityCoverage:
+    """Determine which authority classes a set of wildcard patterns covers.
+
+    This is the centralized helper that both the GUG-218 analyzer and the
+    GUG-221 consumer MUST use instead of independently interpreting action
+    catalogs.  Uses ``_action_matches()`` against the canonical reviewed
+    action lists.
+    """
+
+    invocation = False
+    lambda_mutation = False
+    iam_mutation = False
+    cloudformation_mutation = False
+
+    for pattern in patterns:
+        if not _has_wildcard_metacharacters(pattern):
+            continue
+        if not invocation and any(
+            _action_matches(pattern, action) for action in INVOCATION_ACTIONS
+        ):
+            invocation = True
+        if not lambda_mutation and any(
+            _action_matches(pattern, action) for action in LAMBDA_MUTATION_ACTIONS
+        ):
+            lambda_mutation = True
+        if not iam_mutation and any(
+            _action_matches(pattern, action) for action in IAM_MUTATION_ACTIONS
+        ):
+            iam_mutation = True
+        if not cloudformation_mutation and any(
+            _action_matches(pattern, action)
+            for action in CLOUDFORMATION_MUTATION_ACTIONS
+        ):
+            cloudformation_mutation = True
+
+    return WildcardAuthorityCoverage(
+        invocation=invocation,
+        lambda_mutation=lambda_mutation,
+        iam_mutation=iam_mutation,
+        cloudformation_mutation=cloudformation_mutation,
+    )
 
 
 def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
@@ -807,6 +885,67 @@ def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
     )
     matched = any(fnmatch.fnmatchcase(resource, pattern) for pattern in patterns)
     return matched if has_resource else not matched
+
+
+def _target_applicable(
+    statement: Mapping[str, Any],
+    binding: "TargetBinding",
+    invocation_resources: Sequence[str],
+) -> bool:
+    """Determine whether a statement's Resource/NotResource can reach the target.
+
+    This centralized helper validates applicability against:
+    - The unqualified target function ARN.
+    - The qualifier space (``<function-arn>:*``).
+    - Every observed invocation resource (aliases, versions).
+
+    For ``Resource``: applicable if any resource pattern matches any candidate.
+    For ``NotResource``: applicable if any candidate is NOT excluded.
+    Raises ``AuthorityInventoryError`` when both or neither are present.
+    """
+
+    has_resource = "Resource" in statement
+    has_not_resource = "NotResource" in statement
+    if has_resource == has_not_resource:
+        raise AuthorityInventoryError("POLICY_RESOURCE_SEMANTICS_UNSUPPORTED")
+
+    patterns = _strict_string_list(
+        statement["Resource"] if has_resource else statement["NotResource"],
+        "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED",
+    )
+
+    # IAM policy variables are evaluated at request time.  Treating them as
+    # literal fnmatch input can hide future or principal-controlled authority.
+    if any("${" in resource for resource in patterns):
+        raise AuthorityInventoryError("POLICY_RESOURCE_VARIABLE_UNSUPPORTED")
+
+    # Build the full set of target candidates: unqualified ARN, qualifier
+    # glob, and every observed invocation resource.
+    candidates = [binding.function_arn, binding.function_arn + ":*"]
+    candidates.extend(invocation_resources)
+
+    if has_resource:
+        # Resource: applicable if ANY pattern can match ANY candidate.
+        for candidate in candidates:
+            if candidate == "*":
+                return True
+            for pattern in patterns:
+                if pattern == "*" or fnmatch.fnmatchcase(candidate, pattern):
+                    return True
+            # Also check if a resource pattern is itself a target function pattern.
+            for pattern in patterns:
+                if _is_target_function_pattern(binding, pattern):
+                    return True
+        return False
+    else:
+        # NotResource: applicable if ANY candidate is NOT in the excluded set.
+        for candidate in candidates:
+            excluded = any(
+                fnmatch.fnmatchcase(candidate, pattern) for pattern in patterns
+            )
+            if not excluded:
+                return True
+        return False
 
 
 def _statements(document: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
@@ -1135,7 +1274,13 @@ def _statement_resource_values(statement: Mapping[str, Any]) -> tuple[str, ...]:
             or not arn_parts[5].removeprefix("function:")
         ):
             raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
-    return resources if "Resource" in statement else ("*",)
+    if "Resource" in statement:
+        return resources
+    # NotResource: the statement covers everything EXCEPT the listed resources.
+    # Conservatively return ("*",) to signal account-wide scope.  Callers that
+    # need true complement semantics (e.g. target applicability) must use
+    # _resource_applies() or _target_applicable() directly.
+    return ("*",)
 
 
 def _identity_edges(
@@ -1164,34 +1309,23 @@ def _identity_edges(
                 # A wildcard action scoped to an unrelated Lambda function
                 # must not block the target inventory.
                 try:
-                    statement_resources = _statement_resource_values(statement)
+                    resource_reaches_target = _target_applicable(
+                        statement, binding, invocation_resources,
+                    )
                 except AuthorityInventoryError:
                     unsupported = True
                     continue
 
-                # Check whether ANY statement resource can reach the target
-                # function, its aliases, its versions, or a qualifier glob.
-                resource_reaches_target = False
-                for stated_resource in statement_resources:
-                    if stated_resource == "*":
-                        resource_reaches_target = True
-                        break
-                    if _is_target_function_pattern(binding, stated_resource):
-                        resource_reaches_target = True
-                        break
-                    for observed in invocation_resources:
-                        try:
-                            if _resource_applies(statement, observed):
-                                resource_reaches_target = True
-                                break
-                        except AuthorityInventoryError:
-                            unsupported = True
-                            break
-                    if resource_reaches_target:
-                        break
+                # Determine authority coverage of the wildcard patterns.
+                coverage = _classify_wildcard_authority_coverage(
+                    classification.wildcard_patterns,
+                )
 
-                # Emit INVOCATION wildcard edge only when the statement's
-                # Resource can reach the target.
+                # Emit INVOCATION wildcard edge when the statement's
+                # Resource can reach the target.  ANY authority-relevant
+                # wildcard is PROHIBITED — the edge signals the existence
+                # of wildcard authority, regardless of which specific
+                # action classes the pattern covers.
                 if resource_reaches_target:
                     edges.append(
                         _inventory_edge(
@@ -1216,12 +1350,8 @@ def _identity_edges(
                 # AUTHORITY_MUTATION edges:
                 # - Lambda mutation: only if resource reaches target
                 # - IAM/CloudFormation: account-wide (architectural decision)
-                action_patterns = _strict_string_list(
-                    statement.get("Action", []),
-                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
-                )
                 for mutation_action_class, mutation_source in _wildcard_mutation_authority_classes(
-                    action_patterns
+                    classification.wildcard_patterns
                 ):
                     # Lambda mutation follows target applicability;
                     # IAM and CloudFormation remain account-wide.

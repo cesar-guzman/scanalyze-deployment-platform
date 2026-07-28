@@ -2800,12 +2800,17 @@ class TestWildcardMutationAuthority:
         )
 
     def test_narrow_lambda_wildcard_no_iam_mutation(self) -> None:
-        """lambda:InvokeFunctionUrl* must NOT produce IAM or CF mutation edges."""
+        """lambda:InvokeFunctionUrl* must NOT produce IAM, CF, or Lambda mutation edges.
+
+        The pattern only covers ``lambda:InvokeFunctionUrl`` (invocation).
+        It does NOT match any Lambda mutation action (AddPermission, etc.),
+        so no mutation authority classes should be produced.
+        """
         classification = _classify_action_statement(
             {"Effect": "Allow", "Action": "lambda:InvokeFunctionUrl*"}
         )
         assert classification.wildcard_present is True
-        # Only lambda mutation, not iam or cloudformation.
+        # Must NOT produce any mutation classes — only invocation is covered.
         from tooling.platform_authority_lambda_invocation_authority import (
             _wildcard_mutation_authority_classes,
         )
@@ -2813,7 +2818,7 @@ class TestWildcardMutationAuthority:
             ["lambda:InvokeFunctionUrl*"]
         )
         action_classes = {ac for ac, _ in mutation_classes}
-        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+        assert "MUTATE_LAMBDA_AUTHORITY" not in action_classes
         assert "MUTATE_IAM_AUTHORITY" not in action_classes
         assert "MUTATE_CLOUDFORMATION_AUTHORITY" not in action_classes
 
@@ -3186,7 +3191,13 @@ class TestWildcardResourceApplicability:
         assert len(invocation_edges) >= 1
 
     def test_wildcard_not_resource_excluding_target(self) -> None:
-        """lambda:* with NotResource excluding only target => no invocation edge."""
+        """lambda:* with NotResource excluding only unqualified target.
+
+        NotResource excluding the unqualified function ARN still allows
+        qualified invocations (aliases, versions, :*).  The _target_applicable
+        helper checks the qualifier space, so wildcard edges must still be
+        emitted.
+        """
         snapshot = _append_identity_statement(
             _snapshot(),
             {
@@ -3197,12 +3208,50 @@ class TestWildcardResourceApplicability:
         )
         inventory, _ = _analyze(snapshot)
 
-        # NotResource excluding only the target function. The statement
-        # cannot reach the function itself. However, _statement_resource_values
-        # conservatively collapses NotResource to "*" when used for statement
-        # resources enumeration. The _resource_applies() check on observed
-        # invocation resources determines the true applicability.
-        # The exact behavior depends on the existing contract.
+        # The qualifier space (function_arn:*) is NOT excluded by NotResource,
+        # so wildcard PROHIBITED edges must still be present.
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["action_class"] == "WILDCARD"
+            and edge["verdict"] == "PROHIBITED"
+        ]
+        assert len(wildcard_edges) >= 1, (
+            "NotResource excluding only unqualified ARN must still produce "
+            "wildcard edges because the qualifier space is reachable"
+        )
+
+    def test_wildcard_not_resource_excluding_target_and_qualifiers(self) -> None:
+        """lambda:* with NotResource excluding target AND qualifier space.
+
+        When NotResource excludes both the unqualified ARN and the qualifier
+        glob, the statement cannot reach the target at all.  No wildcard
+        edges should be emitted.
+        """
+        arn = _binding().function_arn
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "NotResource": [arn, arn + ":*"],
+            },
+        )
+        inventory, _ = _analyze(snapshot)
+
+        probe_digest = digest_text(
+            f"arn:aws:iam::{ACCOUNT}:user/synthetic-authority-probe"
+        )
+        # No edges from the probe principal — target is fully excluded.
+        probe_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["principal_digest"] == probe_digest
+        ]
+        assert probe_edges == [], (
+            "NotResource excluding target AND qualifier space must produce "
+            "zero wildcard edges from the probe principal"
+        )
 
     def test_wildcard_policy_variable_resource_unsupported(self) -> None:
         """lambda:* with a policy variable in Resource must be unsupported."""
@@ -3286,3 +3335,186 @@ class TestWildcardResourceApplicability:
             "lambda:* on an unrelated function must not produce "
             "LAMBDA_AUTHORITY_MUTATION edges"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Action syntax validation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestActionSyntaxValidation:
+    """Ensure malformed action patterns are rejected as unsupported."""
+
+    @pytest.mark.parametrize(
+        "action",
+        (
+            "lambda",        # missing colon
+            ":*",            # empty service
+            "lambda:",       # empty action
+            "  :  ",         # whitespace-only parts
+            "",              # empty string
+        ),
+    )
+    def test_malformed_action_raises_unsupported(self, action: str) -> None:
+        """Actions without <service>:<action> format must be unsupported."""
+        with pytest.raises(AuthorityInventoryError, match="POLICY_ACTION_SEMANTICS"):
+            _classify_action_statement(
+                {"Effect": "Allow", "Action": action, "Resource": "*"}
+            )
+
+    def test_global_wildcard_is_valid(self) -> None:
+        """The literal '*' is a valid global wildcard."""
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "*", "Resource": "*"}
+        )
+        assert classification.wildcard_present is True
+        assert classification.wildcard_patterns == ("*",)
+
+    def test_valid_exact_action_accepted(self) -> None:
+        """Well-formed exact actions must be accepted."""
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": "*"}
+        )
+        assert classification.wildcard_present is False
+        assert "lambda:InvokeFunction" in classification.exact_sensitive_actions
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Wildcard authority coverage (_classify_wildcard_authority_coverage)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestWildcardAuthorityCoverage:
+    """Ensure _classify_wildcard_authority_coverage uses _action_matches."""
+
+    def test_global_wildcard_covers_all(self) -> None:
+        """'*' covers invocation, lambda, IAM, and CloudFormation mutation."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["*"])
+        assert coverage.invocation is True
+        assert coverage.lambda_mutation is True
+        assert coverage.iam_mutation is True
+        assert coverage.cloudformation_mutation is True
+
+    def test_lambda_star_covers_invocation_and_mutation(self) -> None:
+        """'lambda:*' covers invocation and Lambda mutation, not IAM/CF."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["lambda:*"])
+        assert coverage.invocation is True
+        assert coverage.lambda_mutation is True
+        assert coverage.iam_mutation is False
+        assert coverage.cloudformation_mutation is False
+
+    def test_iam_star_covers_only_iam_mutation(self) -> None:
+        """'iam:*' covers IAM mutation, not invocation or Lambda mutation."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["iam:*"])
+        assert coverage.invocation is False
+        assert coverage.lambda_mutation is False
+        assert coverage.iam_mutation is True
+        assert coverage.cloudformation_mutation is False
+
+    def test_cloudformation_star_covers_only_cf_mutation(self) -> None:
+        """'cloudformation:*' covers CF mutation only."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["cloudformation:*"])
+        assert coverage.invocation is False
+        assert coverage.lambda_mutation is False
+        assert coverage.iam_mutation is False
+        assert coverage.cloudformation_mutation is True
+
+    def test_lambda_get_star_no_mutation_no_invocation(self) -> None:
+        """'lambda:Get*' does not match any mutation or invocation action."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["lambda:Get*"])
+        assert coverage.invocation is False
+        assert coverage.lambda_mutation is False
+        assert coverage.iam_mutation is False
+        assert coverage.cloudformation_mutation is False
+
+    def test_lambda_invoke_star_covers_invocation_only(self) -> None:
+        """'lambda:Invoke*' covers invocation but not mutation."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["lambda:Invoke*"])
+        assert coverage.invocation is True
+        assert coverage.lambda_mutation is False
+
+    def test_exact_action_is_not_wildcard(self) -> None:
+        """Exact actions (no metacharacters) must not be counted."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(
+            ["lambda:InvokeFunction"]
+        )
+        assert coverage.invocation is False
+        assert coverage.lambda_mutation is False
+
+    def test_s3_star_covers_nothing(self) -> None:
+        """'s3:*' is out-of-scope and covers no authority class."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _classify_wildcard_authority_coverage,
+        )
+        coverage = _classify_wildcard_authority_coverage(["s3:*"])
+        assert coverage.invocation is False
+        assert coverage.lambda_mutation is False
+        assert coverage.iam_mutation is False
+        assert coverage.cloudformation_mutation is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Action-matches mutation coverage
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestMutationCoverageActionMatches:
+    """Ensure _wildcard_mutation_authority_classes uses _action_matches."""
+
+    def test_lambda_star_produces_lambda_mutation(self) -> None:
+        """'lambda:*' matches Lambda mutation actions."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _wildcard_mutation_authority_classes,
+        )
+        classes = _wildcard_mutation_authority_classes(["lambda:*"])
+        action_classes = {ac for ac, _ in classes}
+        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+
+    def test_lambda_add_star_produces_lambda_mutation(self) -> None:
+        """'lambda:Add*' matches lambda:AddPermission."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _wildcard_mutation_authority_classes,
+        )
+        classes = _wildcard_mutation_authority_classes(["lambda:Add*"])
+        action_classes = {ac for ac, _ in classes}
+        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+
+    def test_lambda_get_star_no_mutation(self) -> None:
+        """'lambda:Get*' does not match any mutation action."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _wildcard_mutation_authority_classes,
+        )
+        classes = _wildcard_mutation_authority_classes(["lambda:Get*"])
+        assert classes == ()
+
+    def test_global_wildcard_all_mutation(self) -> None:
+        """'*' matches all three mutation classes."""
+        from tooling.platform_authority_lambda_invocation_authority import (
+            _wildcard_mutation_authority_classes,
+        )
+        classes = _wildcard_mutation_authority_classes(["*"])
+        action_classes = {ac for ac, _ in classes}
+        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+        assert "MUTATE_IAM_AUTHORITY" in action_classes
+        assert "MUTATE_CLOUDFORMATION_AUTHORITY" in action_classes
