@@ -603,6 +603,111 @@ def test_future_qualifier_wildcard_is_visible_and_prohibited(resource: str) -> N
 
 
 @pytest.mark.parametrize(
+    (
+        "resource",
+        "inject_foreign",
+        "expected_scope",
+        "expected_verdict",
+        "expected_reason",
+    ),
+    (
+        (
+            f"{_binding().function_arn}:future-*",
+            True,
+            "WILDCARD",
+            "PROHIBITED",
+            "QUALIFIER_WILDCARD_PREAUTHORIZATION",
+        ),
+        (
+            _binding().alias_arn("classify"),
+            False,
+            "EXACT_CLASSIFY_ALIAS",
+            "EXPECTED_EXACT",
+            "EXPECTED_ALLOWLIST_EDGE",
+        ),
+        (
+            f"{_binding().function_arn}:*",
+            True,
+            "WILDCARD",
+            "PROHIBITED",
+            "QUALIFIER_WILDCARD_PREAUTHORIZATION",
+        ),
+        (
+            _binding().function_arn,
+            True,
+            "UNQUALIFIED_FUNCTION",
+            "PROHIBITED",
+            "AUTHORITY_EDGE_NOT_ALLOWLISTED",
+        ),
+        (
+            f"{_binding().function_arn}:$LATEST",
+            True,
+            "LATEST_VERSION",
+            "PROHIBITED",
+            "AUTHORITY_EDGE_NOT_ALLOWLISTED",
+        ),
+        (
+            f"{_binding().function_arn}:other-alias",
+            True,
+            "ALTERNATE_ALIAS",
+            "PROHIBITED",
+            "AUTHORITY_EDGE_NOT_ALLOWLISTED",
+        ),
+    ),
+    ids=(
+        "future-qualifier-wildcard",
+        "reviewed-alias",
+        "all-qualifiers",
+        "unqualified-function",
+        "latest",
+        "other-exact-alias",
+    ),
+)
+def test_target_resource_receipt_never_reclassifies_nonexact_authority(
+    resource: str,
+    inject_foreign: bool,
+    expected_scope: str,
+    expected_verdict: str,
+    expected_reason: str,
+) -> None:
+    snapshot = _snapshot()
+    if inject_foreign:
+        snapshot = _append_identity_statement(
+            snapshot,
+            {
+                "Effect": "Allow",
+                "Action": "lambda:InvokeFunction",
+                "Resource": resource,
+            },
+        )
+
+    inventory, receipt = _analyze(snapshot)
+    matching_edges = [
+        edge
+        for edge in inventory["authority_edges"]
+        if edge["authority_class"] == "INVOCATION"
+        and edge["source_type"] == (
+            "IAM_USER_INLINE_POLICY"
+            if inject_foreign
+            else "IAM_ROLE_INLINE_POLICY"
+        )
+        and edge["action_class"] == "INVOKE_FUNCTION"
+        and edge["resource_digest"] == digest_text(resource)
+        and edge["target_scope"] == expected_scope
+        and edge["verdict"] == expected_verdict
+        and edge["reason_code"] == expected_reason
+    ]
+
+    assert matching_edges
+    if expected_verdict == "EXPECTED_EXACT":
+        assert inventory["status"] == INVENTORY_REVIEW_SAFE
+        assert receipt["status"] == RECEIPT_REVIEW_REQUIRED
+    else:
+        assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+        assert receipt["status"] == RECEIPT_UNSAFE
+
+
+@pytest.mark.parametrize(
     "resource",
     (
         (
@@ -2224,6 +2329,66 @@ class TestClassifyActionStatement:
         assert classification.wildcard_present is True
         assert classification.exact_sensitive_actions == ()
 
+    @pytest.mark.parametrize(
+        (
+            "action",
+            "invocation",
+            "lambda_mutation",
+            "iam_mutation",
+            "cloudformation_mutation",
+            "unclassified",
+        ),
+        (
+            ("lambda:Invoke*", True, False, False, False, False),
+            ("lambda:*", True, True, False, False, False),
+            ("iam:*", False, False, True, False, False),
+            ("cloudformation:*", False, False, False, True, False),
+            ("*", True, True, True, True, False),
+            ("lambda:Get*", False, False, False, False, True),
+        ),
+    )
+    def test_wildcard_coverage_uses_canonical_action_catalogs(
+        self,
+        action: str,
+        invocation: bool,
+        lambda_mutation: bool,
+        iam_mutation: bool,
+        cloudformation_mutation: bool,
+        unclassified: bool,
+    ) -> None:
+        classification = _classify_action_statement(
+            {"Effect": "Allow", "Action": action}
+        )
+
+        assert classification.wildcard_coverage.invocation is invocation
+        assert (
+            classification.wildcard_coverage.lambda_mutation
+            is lambda_mutation
+        )
+        assert classification.wildcard_coverage.iam_mutation is iam_mutation
+        assert (
+            classification.wildcard_coverage.cloudformation_mutation
+            is cloudformation_mutation
+        )
+        assert classification.wildcard_coverage.unclassified is unclassified
+        assert classification.unsupported is unclassified
+
+    def test_mixed_exact_mutation_and_invocation_wildcard_preserves_precedence(
+        self,
+    ) -> None:
+        classification = _classify_action_statement(
+            {
+                "Effect": "Allow",
+                "Action": ["lambda:AddPermission", "lambda:Invoke*"],
+            }
+        )
+
+        assert classification.wildcard_present is True
+        assert classification.exact_sensitive_actions == ()
+        assert classification.wildcard_coverage.invocation is True
+        assert classification.wildcard_coverage.lambda_mutation is True
+        assert classification.unsupported is False
+
     def test_not_action_is_unsupported(self) -> None:
         classification = _classify_action_statement(
             {"Effect": "Allow", "NotAction": "lambda:GetFunction"}
@@ -2527,12 +2692,10 @@ class TestWildcardStatusSemantics:
         (
             "lambda:InvokeFunctionUrl*",
             "lambda:Invoke*",
-            "lambda:Get*",
             "lambda:*",
             "iam:*",
             "cloudformation:*",
             "*",
-            "lambda:InvokeFunction?",
             "lambda:InvokeFunction[U]rl",
             "LAMBDA:INVOKEFUNCTIONURL*",
         ),
@@ -2551,12 +2714,11 @@ class TestWildcardStatusSemantics:
 
         inventory, receipt = _analyze(snapshot)
 
-        # Must produce wildcard PROHIBITED edges.
+        # Must produce at least one specifically classified PROHIBITED edge.
         wildcard_edges = [
             edge
             for edge in inventory["authority_edges"]
-            if edge["action_class"] == "WILDCARD"
-            and edge["verdict"] == "PROHIBITED"
+            if edge["verdict"] == "PROHIBITED"
             and edge["reason_code"] == "WILDCARD_ACTION"
         ]
         assert len(wildcard_edges) >= 1, (
@@ -2591,6 +2753,33 @@ class TestWildcardStatusSemantics:
 
 class TestUnsupportedSemantics:
     """Prove that these remain correctly unsupported (not wildcard)."""
+
+    @pytest.mark.parametrize(
+        "action",
+        ("lambda:Get*", "lambda:InvokeFunction?"),
+    )
+    def test_unclassified_lambda_wildcard_is_unsupported(
+        self, action: str
+    ) -> None:
+        snapshot = _append_identity_statement(
+            _snapshot(),
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "Resource": f"{_binding().function_arn}:classify",
+            },
+        )
+        inventory, receipt = _analyze(snapshot)
+
+        wildcard_edges = [
+            edge
+            for edge in inventory["authority_edges"]
+            if edge["action_class"] == "WILDCARD"
+        ]
+        assert wildcard_edges == []
+        assert inventory["unsupported_policy_semantics_detected"] is True
+        assert inventory["status"] == INVENTORY_UNSUPPORTED
+        assert receipt["status"] == RECEIPT_AMBIGUOUS
 
     def test_allow_not_action_is_unsupported(self) -> None:
         snapshot = _append_identity_statement(
@@ -2805,7 +2994,7 @@ class TestWildcardMutationAuthority:
             {"Effect": "Allow", "Action": "lambda:InvokeFunctionUrl*"}
         )
         assert classification.wildcard_present is True
-        # Only lambda mutation, not iam or cloudformation.
+        # The wildcard covers invocation only, not Lambda/IAM/CF mutation.
         from tooling.platform_authority_lambda_invocation_authority import (
             _wildcard_mutation_authority_classes,
         )
@@ -2813,7 +3002,7 @@ class TestWildcardMutationAuthority:
             ["lambda:InvokeFunctionUrl*"]
         )
         action_classes = {ac for ac, _ in mutation_classes}
-        assert "MUTATE_LAMBDA_AUTHORITY" in action_classes
+        assert "MUTATE_LAMBDA_AUTHORITY" not in action_classes
         assert "MUTATE_IAM_AUTHORITY" not in action_classes
         assert "MUTATE_CLOUDFORMATION_AUTHORITY" not in action_classes
 

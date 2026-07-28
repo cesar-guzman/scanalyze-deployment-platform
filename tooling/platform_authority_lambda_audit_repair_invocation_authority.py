@@ -35,10 +35,9 @@ from tooling.platform_authority_lambda_invocation_authority import (
     AuthorityInventoryError,
     AwsReadOnlyInventoryAdapter,
     TargetBinding,
-    _allowed_sensitive_actions,
     _canonical_sts_principal_arn,
+    _classify_action_statement,
     _condition_class,
-    _has_unknown_authority_action,
     _is_target_function_pattern,
     _observed_invocation_resources,
     _parse_time,
@@ -597,6 +596,41 @@ def _target_candidates(
     return tuple(sorted(candidates))
 
 
+def _wildcard_statement_reaches_target(
+    *,
+    statement: Mapping[str, Any],
+    target: TargetBinding,
+    lambda_inventory: Mapping[str, Any],
+    statement_resources: Sequence[str],
+) -> bool:
+    """Preserve current and latent target authority for wildcard actions.
+
+    ``_target_candidates`` covers observed resources and exact stated
+    qualifiers. A ``Resource`` qualifier glob can preauthorize a target that
+    does not exist yet, so it must fail closed before candidate enumeration.
+    ``NotResource`` keeps its effective exclusion semantics and is evaluated
+    only against concrete candidates.
+    """
+
+    if "Resource" in statement and any(
+        _is_target_function_pattern(target, resource)
+        for resource in statement_resources
+    ):
+        return True
+
+    for resource in _target_candidates(
+        target, lambda_inventory, statement_resources
+    ):
+        try:
+            if _resource_applies(statement, resource):
+                return True
+        except AuthorityInventoryError as exc:
+            raise AuthorityInventoryError(
+                "POLICY_SEMANTICS_UNSUPPORTED"
+            ) from exc
+    return False
+
+
 def _policy_authority_edges(
     binding: RepairInvocationAuthorityBinding,
     plan: _ValidatedSnapshot,
@@ -617,16 +651,21 @@ def _policy_authority_edges(
         source_digest = canonical_digest(document)
         for statement in _statements(document):
             try:
-                if _has_unknown_authority_action(statement):
-                    raise AuthorityInventoryError(
-                        "POLICY_SEMANTICS_UNSUPPORTED"
-                    )
-                actions = _allowed_sensitive_actions(statement)
+                classification = _classify_action_statement(statement)
             except AuthorityInventoryError as exc:
                 raise AuthorityInventoryError(
                     "POLICY_SEMANTICS_UNSUPPORTED"
                 ) from exc
-            if not actions:
+            if (
+                classification.not_action_present
+                or classification.unknown_authority_present
+                or classification.unsupported
+            ):
+                raise AuthorityInventoryError("POLICY_SEMANTICS_UNSUPPORTED")
+            if (
+                not classification.wildcard_present
+                and not classification.exact_sensitive_actions
+            ):
                 continue
             try:
                 resources = _statement_resource_values(statement)
@@ -635,6 +674,33 @@ def _policy_authority_edges(
                     "POLICY_SEMANTICS_UNSUPPORTED"
                 ) from exc
 
+            if classification.wildcard_present:
+                target_applicable = any(
+                    _wildcard_statement_reaches_target(
+                        statement=statement,
+                        target=target,
+                        lambda_inventory=lambda_inventory,
+                        statement_resources=resources,
+                    )
+                    for target, lambda_inventory in targets
+                )
+
+                coverage = classification.wildcard_coverage
+                if coverage.iam_mutation or coverage.cloudformation_mutation:
+                    raise AuthorityInventoryError(
+                        "AUTHORITY_MUTATION_PRESENT"
+                    )
+                if coverage.lambda_mutation and target_applicable:
+                    raise AuthorityInventoryError(
+                        "AUTHORITY_MUTATION_PRESENT"
+                    )
+                if coverage.invocation and target_applicable:
+                    raise AuthorityInventoryError(
+                        "FOREIGN_INVOCATION_AUTHORITY"
+                    )
+                continue
+
+            actions = classification.exact_sensitive_actions
             for action in actions:
                 if (
                     action in IAM_MUTATION_ACTIONS

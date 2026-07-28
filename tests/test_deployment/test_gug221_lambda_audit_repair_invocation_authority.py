@@ -421,8 +421,20 @@ def test_foreign_managed_policy_grant_is_not_ignored() -> None:
             "FOREIGN_INVOCATION_AUTHORITY",
         ),
         ("iam:*", "*", "AUTHORITY_MUTATION_PRESENT"),
+        (
+            "iam:*",
+            f"arn:aws:iam::{ACCOUNT}:role/Unrelated",
+            "AUTHORITY_MUTATION_PRESENT",
+        ),
         ("cloudformation:*", "*", "AUTHORITY_MUTATION_PRESENT"),
+        (
+            "cloudformation:*",
+            f"arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/unrelated/id",
+            "AUTHORITY_MUTATION_PRESENT",
+        ),
+        ("lambda:*", "*", "AUTHORITY_MUTATION_PRESENT"),
         ("lambda:AddPermission", "*", "AUTHORITY_MUTATION_PRESENT"),
+        ("lambda:Get*", "*", "POLICY_SEMANTICS_UNSUPPORTED"),
     ],
 )
 def test_wildcard_or_mutating_authority_fails_closed(
@@ -437,6 +449,148 @@ def test_wildcard_or_mutating_authority_fails_closed(
         iam["roles"].append(copy.deepcopy(foreign))
 
     with pytest.raises(AuthorityInventoryError, match=expected_code):
+        _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+@pytest.mark.parametrize(
+    ("resource_kind", "expected_code"),
+    (
+        ("future-qualifier-wildcard", "FOREIGN_INVOCATION_AUTHORITY"),
+        ("reviewed-alias", None),
+        ("all-qualifiers", "FOREIGN_INVOCATION_AUTHORITY"),
+        ("unqualified-function", "FOREIGN_INVOCATION_AUTHORITY"),
+        ("latest", "FOREIGN_INVOCATION_AUTHORITY"),
+        ("other-exact-alias", "FOREIGN_INVOCATION_AUTHORITY"),
+    ),
+)
+def test_target_resource_semantics_match_the_final_gug221_verdict(
+    resource_kind: str, expected_code: str | None
+) -> None:
+    repair = _binding().repair_binding
+    resources = {
+        "future-qualifier-wildcard": f"{repair.function_arn}:future-*",
+        "reviewed-alias": f"{repair.function_arn}:repair-v1",
+        "all-qualifiers": f"{repair.function_arn}:*",
+        "unqualified-function": repair.function_arn,
+        "latest": f"{repair.function_arn}:$LATEST",
+        "other-exact-alias": f"{repair.function_arn}:other-alias",
+    }
+    resource = resources[resource_kind]
+
+    if expected_code is None:
+        verified = _verify()
+        assert verified.status == VERIFIED_STATUS
+        assert verified.expected_edge_count == EXPECTED_AUTHORITY_EDGE_COUNT
+        return
+
+    action = (
+        "lambda:Invoke*"
+        if resource_kind in {
+            "future-qualifier-wildcard",
+            "all-qualifiers",
+        }
+        else "lambda:InvokeFunction"
+    )
+    foreign = _foreign_role(
+        f"arn:aws:iam::{ACCOUNT}:role/ForeignResourceSemantics",
+        _allow_policy(action, resource),
+    )
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(AuthorityInventoryError, match=expected_code):
+        _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+def test_future_qualifier_lambda_wildcard_preserves_mutation_precedence() -> None:
+    future_qualifier = (
+        f"{_binding().repair_binding.function_arn}:future-*"
+    )
+    foreign = _foreign_role(
+        f"arn:aws:iam::{ACCOUNT}:role/ForeignFutureMutation",
+        _allow_policy("lambda:*", future_qualifier),
+    )
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(
+        AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"
+    ):
+        _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+@pytest.mark.parametrize(
+    ("action", "resource"),
+    (
+        (
+            "lambda:Invoke*",
+            f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:unrelated",
+        ),
+        (
+            "lambda:*",
+            f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:unrelated",
+        ),
+        ("s3:*", "*"),
+    ),
+)
+def test_wildcard_outside_gug221_target_has_no_domain_finding(
+    action: str, resource: str
+) -> None:
+    foreign = _foreign_role(
+        f"arn:aws:iam::{ACCOUNT}:role/ForeignScoped",
+        _allow_policy(action, resource),
+    )
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    verified = _verify(_mutate_all_iam(_snapshots(), mutate))
+    assert verified.status == VERIFIED_STATUS
+
+
+def test_wildcard_not_resource_excluding_all_targets_has_no_domain_finding() -> None:
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:Invoke*",
+                "NotResource": (
+                    f"arn:aws:lambda:{REGION}:{ACCOUNT}:function:"
+                    "scanalyze-authority-lambda-audit-*"
+                ),
+            }
+        ],
+    }
+    foreign = _foreign_role(
+        f"arn:aws:iam::{ACCOUNT}:role/ForeignNotResource",
+        policy,
+    )
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    verified = _verify(_mutate_all_iam(_snapshots(), mutate))
+    assert verified.status == VERIFIED_STATUS
+
+
+def test_mixed_exact_mutation_and_invocation_wildcard_is_atomic() -> None:
+    foreign = _foreign_role(
+        f"arn:aws:iam::{ACCOUNT}:role/ForeignMixed",
+        _allow_policy(
+            ["lambda:AddPermission", "lambda:Invoke*"],
+            "*",
+        ),
+    )
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(
+        AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"
+    ):
         _verify(_mutate_all_iam(_snapshots(), mutate))
 
 

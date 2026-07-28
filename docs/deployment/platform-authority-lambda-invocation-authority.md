@@ -92,8 +92,11 @@ Every IAM policy statement is processed by a single centralized classifier
 (`_classify_action_statement`) before any edge is produced. The classifier:
 
 1. Detects wildcard metacharacters (`*`, `?`, `[`) in action patterns **before**
-   `fnmatch` expansion. Wildcard actions are classified as `WILDCARD` /
-   `PROHIBITED` / `WILDCARD_ACTION`, not as unsupported semantics.
+   `fnmatch` expansion. Wildcards that cover a reviewed invocation or mutation
+   action are classified as `PROHIBITED` / `WILDCARD_ACTION`; a relevant
+   wildcard that matches no canonical authority catalog, such as
+   `lambda:Get*`, remains unsupported rather than being mislabeled as
+   invocation authority.
 2. Determines **service relevance** before activating wildcard authority.
    `_wildcard_targets_authority_service()` checks whether the pattern's service
    segment can match `lambda`, `iam` or `cloudformation`.  Wildcards in the
@@ -105,9 +108,11 @@ Every IAM policy statement is processed by a single centralized classifier
    wildcard in the statement blocks all exact actions from the same statement.
    An out-of-scope wildcard combined with an exact Lambda action does NOT
    suppress the exact action — only relevant wildcards trigger atomic rejection.
-4. Maps broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) to both
-   `INVOCATION` and `AUTHORITY_MUTATION` edge classes so that
-   `mutating_authority_count` is never understated.
+4. Uses one shared coverage result against the canonical invocation, Lambda
+   mutation, IAM mutation and CloudFormation mutation catalogs. For example,
+   `lambda:Invoke*` covers invocation only, `lambda:*` covers invocation and
+   Lambda mutation, and `iam:*` covers IAM mutation only. A statement that
+   covers both invocation and mutation is classified mutation-first.
 5. Classifies `NotAction` as unsupported semantics (no edges emitted).
 6. Deny statements with wildcard actions are harmless — they produce no
    authority edges.
@@ -124,6 +129,14 @@ Lambda mutation wildcard edges follow the same target resource applicability
 check.  IAM and CloudFormation mutation wildcard edges remain account-wide by
 architectural decision — because `iam:*` on any resource can create, attach or
 alter authority paths.
+
+The GUG-221 direct consumer uses this same classifier and `_resource_applies()`
+result before assigning its domain codes. Target-applicable Lambda mutation
+precedes invocation, target-inapplicable Lambda wildcards produce no GUG-221
+finding, and IAM/CloudFormation mutation remains account-wide. A `Resource`
+qualifier glob such as `<function-arn>:future-*` is treated as latent target
+authority even when no matching alias exists yet; `NotResource` retains its
+exclusion semantics over concrete target candidates.
 
 `Resource` validation preserves the existing contracts:
 - Policy variables (`${...}`) → unsupported

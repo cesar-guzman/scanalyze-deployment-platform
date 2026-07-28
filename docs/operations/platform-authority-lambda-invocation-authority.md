@@ -114,18 +114,20 @@ The centralized action-statement classifier evaluates every IAM statement
 before any edge is produced:
 
 - Wildcard metacharacters (`*`, `?`, `[`) are detected **before** `fnmatch`
-  expansion. An `Allow` statement with wildcard action patterns produces
-  `WILDCARD` / `PROHIBITED` / `WILDCARD_ACTION` edges and blocks as
-  `FOREIGN_AUTHORITY_PRESENT`, not `POLICY_SEMANTICS_UNSUPPORTED`.
+  expansion. A wildcard that covers a canonical invocation or mutation action
+  produces a specifically classified `PROHIBITED` / `WILDCARD_ACTION` edge.
+  A relevant wildcard that covers no reviewed authority action, such as
+  `lambda:Get*`, blocks as `POLICY_SEMANTICS_UNSUPPORTED`.
 - **Service relevance** is checked before activating wildcard authority.
   Wildcards for exact unrelated services (`s3:*`, `ec2:*`, `sts:*`, `kms:*`,
   `logs:*`, `dynamodb:*`) are silently skipped.  Wildcards in the service
   segment (e.g. `*:InvokeFunction`, `lambd?:*`, `[l]ambda:*`) are
   conservatively classified as relevant if they can match `lambda`, `iam` or
   `cloudformation`.
-- Broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) also emit
-  `AUTHORITY_MUTATION` edges for each covered service so that
-  `mutating_authority_count` is never understated.
+- Coverage is determined independently against the canonical invocation,
+  Lambda mutation, IAM mutation and CloudFormation mutation catalogs.
+  `lambda:Invoke*` is invocation-only; `lambda:*` also covers Lambda mutation;
+  IAM and CloudFormation mutation wildcards remain account-wide.
 - A mixed exact-plus-**relevant**-wildcard statement fails atomically: no exact
   allowlist-eligible edge is emitted from it.  An out-of-scope wildcard
   combined with an exact Lambda action does NOT suppress the exact action.
@@ -134,6 +136,12 @@ before any edge is produced:
   target inventory.  Lambda mutation edges follow the same applicability check.
   IAM/CloudFormation mutation edges remain account-wide by architectural
   decision.
+- The GUG-221 verifier consumes the same classification and
+  `Resource`/`NotResource` applicability semantics. It applies mutation-first
+  precedence and does not convert every non-mutation wildcard into invocation.
+  A `Resource` qualifier glob such as `<function-arn>:future-*` fails closed as
+  latent target authority; `NotResource` is evaluated against concrete target
+  candidates so a complete exclusion does not create a false finding.
 - `NotAction` remains unsupported; it produces `POLICY_SEMANTICS_UNSUPPORTED`.
 - Deny statements with wildcard actions are harmless — no authority edges.
 

@@ -593,6 +593,67 @@ def _wildcard_targets_authority_service(pattern: str) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class WildcardAuthorityCoverage:
+    """Reviewed authority classes covered by one atomic action statement.
+
+    When a statement contains a relevant wildcard, exact sibling actions are
+    included in this coverage so domain consumers can preserve mutation-first
+    precedence without partially accepting the statement.
+    """
+
+    invocation: bool = False
+    lambda_mutation: bool = False
+    iam_mutation: bool = False
+    cloudformation_mutation: bool = False
+    unclassified: bool = False
+
+
+def _classify_wildcard_authority_coverage(
+    patterns: Sequence[str],
+) -> WildcardAuthorityCoverage:
+    """Classify action coverage against the canonical reviewed catalogs.
+
+    Relevant wildcard patterns that match none of the reviewed invocation or
+    mutation catalogs are marked unclassified. Exact sibling actions are also
+    considered so a mixed exact-plus-wildcard statement remains atomic while
+    retaining the most specific fail-closed domain classification.
+    """
+
+    catalogs = (
+        INVOCATION_ACTIONS,
+        LAMBDA_MUTATION_ACTIONS,
+        IAM_MUTATION_ACTIONS,
+        CLOUDFORMATION_MUTATION_ACTIONS,
+    )
+
+    def covers(actions: Sequence[str]) -> bool:
+        return any(
+            _action_matches(pattern, action)
+            for pattern in patterns
+            for action in actions
+        )
+
+    relevant_wildcards = tuple(
+        pattern
+        for pattern in patterns
+        if _has_wildcard_metacharacters(pattern)
+        and _wildcard_targets_authority_service(pattern)
+    )
+    unclassified = any(
+        not any(_action_matches(pattern, action) for catalog in catalogs for action in catalog)
+        for pattern in relevant_wildcards
+    )
+
+    return WildcardAuthorityCoverage(
+        invocation=covers(INVOCATION_ACTIONS),
+        lambda_mutation=covers(LAMBDA_MUTATION_ACTIONS),
+        iam_mutation=covers(IAM_MUTATION_ACTIONS),
+        cloudformation_mutation=covers(CLOUDFORMATION_MUTATION_ACTIONS),
+        unclassified=unclassified,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ActionStatementClassification:
     """Structured result of a single centralized action-statement classifier.
 
@@ -607,6 +668,7 @@ class ActionStatementClassification:
     not_action_present: bool
     unknown_authority_present: bool
     unsupported: bool
+    wildcard_coverage: WildcardAuthorityCoverage
 
 
 def _classify_action_statement(
@@ -628,6 +690,7 @@ def _classify_action_statement(
             not_action_present=False,
             unknown_authority_present=False,
             unsupported=False,
+            wildcard_coverage=WildcardAuthorityCoverage(),
         )
 
     has_action = "Action" in statement
@@ -647,6 +710,7 @@ def _classify_action_statement(
             not_action_present=True,
             unknown_authority_present=True,
             unsupported=True,
+            wildcard_coverage=WildcardAuthorityCoverage(),
         )
 
     patterns = _strict_string_list(
@@ -714,13 +778,20 @@ def _classify_action_statement(
             seen_sensitive.add(action)
             deduped_sensitive.append(action)
 
+    wildcard_coverage = (
+        _classify_wildcard_authority_coverage(patterns)
+        if wildcard_present
+        else WildcardAuthorityCoverage()
+    )
+
     return ActionStatementClassification(
         exact_sensitive_actions=() if wildcard_present else tuple(deduped_sensitive),
         exact_read_only_actions=() if wildcard_present else tuple(exact_read_only),
         wildcard_present=wildcard_present,
         not_action_present=False,
         unknown_authority_present=unknown_authority_present,
-        unsupported=False,
+        unsupported=wildcard_present and wildcard_coverage.unclassified,
+        wildcard_coverage=wildcard_coverage,
     )
 
 
@@ -757,10 +828,24 @@ def _has_unknown_authority_action(statement: Mapping[str, Any]) -> bool:
 
 
 _WILDCARD_MUTATION_MAPPING: tuple[tuple[str, str, str], ...] = (
-    ("lambda", "MUTATE_LAMBDA_AUTHORITY", "LAMBDA_AUTHORITY_MUTATION"),
-    ("iam", "MUTATE_IAM_AUTHORITY", "IAM_AUTHORITY_MUTATION"),
-    ("cloudformation", "MUTATE_CLOUDFORMATION_AUTHORITY", "CLOUDFORMATION_AUTHORITY"),
+    ("lambda_mutation", "MUTATE_LAMBDA_AUTHORITY", "LAMBDA_AUTHORITY_MUTATION"),
+    ("iam_mutation", "MUTATE_IAM_AUTHORITY", "IAM_AUTHORITY_MUTATION"),
+    (
+        "cloudformation_mutation",
+        "MUTATE_CLOUDFORMATION_AUTHORITY",
+        "CLOUDFORMATION_AUTHORITY",
+    ),
 )
+
+
+def _wildcard_mutation_classes_from_coverage(
+    coverage: WildcardAuthorityCoverage,
+) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (action_class, source_type)
+        for coverage_field, action_class, source_type in _WILDCARD_MUTATION_MAPPING
+        if getattr(coverage, coverage_field)
+    )
 
 
 def _wildcard_mutation_authority_classes(
@@ -775,25 +860,8 @@ def _wildcard_mutation_authority_classes(
     the effective mutation surface.
     """
 
-    hits: list[tuple[str, str]] = []
-    for pattern in patterns:
-        if not _has_wildcard_metacharacters(pattern):
-            continue
-        lower = pattern.lower()
-        if lower == "*":
-            # Global wildcard — all mutation classes.
-            return tuple(
-                (action_class, source_type)
-                for _, action_class, source_type in _WILDCARD_MUTATION_MAPPING
-            )
-        parts = lower.split(":", 1)
-        if len(parts) != 2:
-            continue
-        service = parts[0]
-        for mapped_service, action_class, source_type in _WILDCARD_MUTATION_MAPPING:
-            if service == mapped_service and (action_class, source_type) not in hits:
-                hits.append((action_class, source_type))
-    return tuple(hits)
+    coverage = _classify_wildcard_authority_coverage(patterns)
+    return _wildcard_mutation_classes_from_coverage(coverage)
 
 
 def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
@@ -1157,7 +1225,11 @@ def _identity_edges(
             except AuthorityInventoryError:
                 unsupported = True
                 continue
-            if classification.not_action_present or classification.unknown_authority_present:
+            if (
+                classification.not_action_present
+                or classification.unknown_authority_present
+                or classification.unsupported
+            ):
                 unsupported = True
             if classification.wildcard_present:
                 # ── Validate Resource / NotResource before emitting ──
@@ -1192,7 +1264,10 @@ def _identity_edges(
 
                 # Emit INVOCATION wildcard edge only when the statement's
                 # Resource can reach the target.
-                if resource_reaches_target:
+                if (
+                    classification.wildcard_coverage.invocation
+                    and resource_reaches_target
+                ):
                     edges.append(
                         _inventory_edge(
                             authority_class="INVOCATION",
@@ -1216,12 +1291,11 @@ def _identity_edges(
                 # AUTHORITY_MUTATION edges:
                 # - Lambda mutation: only if resource reaches target
                 # - IAM/CloudFormation: account-wide (architectural decision)
-                action_patterns = _strict_string_list(
-                    statement.get("Action", []),
-                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
-                )
-                for mutation_action_class, mutation_source in _wildcard_mutation_authority_classes(
-                    action_patterns
+                for (
+                    mutation_action_class,
+                    mutation_source,
+                ) in _wildcard_mutation_classes_from_coverage(
+                    classification.wildcard_coverage
                 ):
                     # Lambda mutation follows target applicability;
                     # IAM and CloudFormation remain account-wide.
@@ -1421,7 +1495,11 @@ def _resource_policy_edges(
             except AuthorityInventoryError:
                 unsupported = True
                 continue
-            if classification.not_action_present or classification.unknown_authority_present:
+            if (
+                classification.not_action_present
+                or classification.unknown_authority_present
+                or classification.unsupported
+            ):
                 unsupported = True
             if classification.wildcard_present:
                 # Validate resource applicability before emitting wildcard
@@ -1434,36 +1512,33 @@ def _resource_policy_edges(
                     unsupported = True
                     continue
 
-                action_patterns = _strict_string_list(
-                    statement.get("Action", []),
-                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED",
-                )
-                mutation_classes = _wildcard_mutation_authority_classes(
-                    action_patterns
+                mutation_classes = _wildcard_mutation_classes_from_coverage(
+                    classification.wildcard_coverage
                 )
                 for principal_type, principal in principals:
                     kind, principal_digest, duty = _principal_kind(
                         principal, principal_type, expected, binding.authority_account_id
                     )
-                    edges.append(
-                        _inventory_edge(
-                            authority_class="INVOCATION",
-                            source_type="LAMBDA_RESOURCE_POLICY",
-                            duty=duty,
-                            target_scope=_target_scope(binding, resource),
-                            action_class="WILDCARD",
-                            condition_class=_condition_class(
-                                statement.get("Condition"),
-                                "lambda:InvokeFunctionUrl",
-                            ),
-                            principal_kind=kind,
-                            principal_digest=principal_digest,
-                            resource_digest=digest_text(resource),
-                            source_document_digest=source_digest,
-                            verdict="PROHIBITED",
-                            reason_code="WILDCARD_ACTION",
+                    if classification.wildcard_coverage.invocation:
+                        edges.append(
+                            _inventory_edge(
+                                authority_class="INVOCATION",
+                                source_type="LAMBDA_RESOURCE_POLICY",
+                                duty=duty,
+                                target_scope=_target_scope(binding, resource),
+                                action_class="WILDCARD",
+                                condition_class=_condition_class(
+                                    statement.get("Condition"),
+                                    "lambda:InvokeFunctionUrl",
+                                ),
+                                principal_kind=kind,
+                                principal_digest=principal_digest,
+                                resource_digest=digest_text(resource),
+                                source_document_digest=source_digest,
+                                verdict="PROHIBITED",
+                                reason_code="WILDCARD_ACTION",
+                            )
                         )
-                    )
                     for mutation_action_class, mutation_source in mutation_classes:
                         edges.append(
                             _inventory_edge(
