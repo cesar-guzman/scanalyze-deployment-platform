@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import shlex
+import subprocess
+import sys
+import textwrap
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,6 +35,7 @@ CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
 OTHER_DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M2"
 ACCOUNT_ID = "111222333444"
+OTHER_ACCOUNT_ID = "555666777888"
 REGION = "us-east-1"
 ENVIRONMENT = "sandbox"
 NOW = datetime(2026, 7, 14, 18, 0, tzinfo=UTC)
@@ -197,6 +203,167 @@ def _authorized(layer: str = "network") -> tuple[dict, dict, dict, dict, dict]:
         schema_dir=SCHEMAS,
     )
     return binding, target, anchor, account_ready, lock
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.write_text(textwrap.dedent(source).lstrip(), encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _write_top_level_evidence(
+    tmp_path: Path,
+    mutation: str,
+    *,
+    command_name: str = "plan-layer",
+) -> tuple[dict[str, Path], list[str]]:
+    account_ready = _account_ready()
+    target = _target(account_ready)
+    anchor = _anchor(target)
+    lock = _lock(target)
+
+    if mutation == "tampered-target-digest":
+        target["record_digest"] = "sha256:" + ("f" * 64)
+    elif mutation == "tampered-account-ready":
+        account_ready["controls"]["state_versioning_enabled"] = False
+        account_ready["contract_digest"] = _digest(
+            account_ready,
+            "contract_digest",
+        )
+    elif mutation == "wrong-anchor":
+        anchor["record_digest"] = "sha256:" + ("e" * 64)
+    elif mutation == "released-lock":
+        lock["status"] = "RELEASED"
+        lock["lock_digest"] = _digest(lock, "lock_digest")
+    elif mutation == "foreign-lock":
+        lock["deployment_id"] = OTHER_DEPLOYMENT_ID
+        lock["lock_digest"] = _digest(lock, "lock_digest")
+    elif mutation != "missing-target":
+        raise AssertionError(f"unsupported mutation: {mutation}")
+
+    paths = {
+        "manifest": tmp_path / "manifest.yaml",
+        "target": tmp_path / "target.json",
+        "anchor": tmp_path / "anchor.json",
+        "account_ready": tmp_path / "account-ready.json",
+        "lock": tmp_path / "lock.json",
+        "resolution": tmp_path / "resolution.json",
+    }
+    paths["manifest"].write_text(json.dumps(_manifest()), encoding="utf-8")
+    for name, document in (
+        ("target", target),
+        ("anchor", anchor),
+        ("account_ready", account_ready),
+        ("lock", lock),
+    ):
+        if mutation == "missing-target" and name == "target":
+            continue
+        paths[name].write_text(json.dumps(document), encoding="utf-8")
+        paths[name].chmod(0o600)
+    paths["resolution"].write_text("{}", encoding="utf-8")
+    paths["resolution"].chmod(0o600)
+
+    command = [
+        "bash",
+        str(REPO_ROOT / "scripts/deployment/scanalyze-deploy.sh"),
+        command_name,
+        "--manifest",
+        str(paths["manifest"]),
+        "--customer-id",
+        CUSTOMER_ID,
+        "--deployment-id",
+        DEPLOYMENT_ID,
+        "--account-id",
+        ACCOUNT_ID,
+        "--region",
+        REGION,
+        "--environment",
+        ENVIRONMENT,
+        "--layer",
+        "network",
+        "--release-version",
+        "2026.07.27",
+        "--release-digest",
+        "sha256:" + ("a" * 64),
+        "--resolved-input",
+        str(paths["resolution"]),
+        "--target-record",
+        str(paths["target"]),
+        "--target-anchor",
+        str(paths["anchor"]),
+        "--account-ready",
+        str(paths["account_ready"]),
+        "--execution-lock",
+        str(paths["lock"]),
+        "--execution-id",
+        lock["execution_id"],
+        "--plan-dir",
+        str(tmp_path / "plans"),
+        "--no-dry-run",
+    ]
+    return paths, command
+
+
+def _run_top_level_invalid_plan(
+    tmp_path: Path,
+    mutation: str,
+    *,
+    assertion_override: tuple[str, str] | None = None,
+    command_name: str = "plan-layer",
+) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (tmp_path / "plans").mkdir()
+    aws_marker = tmp_path / "aws-called"
+    terraform_marker = tmp_path / "terraform-called"
+    _, command = _write_top_level_evidence(
+        tmp_path,
+        mutation,
+        command_name=command_name,
+    )
+    if assertion_override is not None:
+        option, value = assertion_override
+        command[command.index(option) + 1] = value
+
+    _write_executable(
+        fake_bin / "aws",
+        f"""
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf 'called\n' > {shlex.quote(str(aws_marker))}
+        printf '%s\n' {shlex.quote(ACCOUNT_ID)}
+        """,
+    )
+    _write_executable(
+        fake_bin / "terraform",
+        f"""
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf 'called\n' > {shlex.quote(str(terraform_marker))}
+        exit 64
+        """,
+    )
+    env = os.environ.copy()
+    for name in (
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_PROFILE",
+        "AWS_WEB_IDENTITY_TOKEN_FILE",
+        "AWS_ROLE_ARN",
+    ):
+        env.pop(name, None)
+    env["AWS_EC2_METADATA_DISABLED"] = "true"
+    env["SCANALYZE_ALLOW_LIVE"] = "1"
+    env["PATH"] = f"{fake_bin}:{Path(sys.executable).parent}:{env['PATH']}"
+    result = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, aws_marker, terraform_marker
 
 
 def test_authorization_derives_backend_only_from_trusted_bindings() -> None:
@@ -626,7 +793,7 @@ def test_same_deployment_cannot_acquire_concurrent_or_stale_lock() -> None:
         acquire_lock(existing=existing, request=request, now=NOW)
 
     stale = copy.deepcopy(existing)
-    stale["expires_at"] = "2026-07-14T17:59:59Z"
+    stale["expires_at"] = "2026-07-14T18:00:00Z"
     stale["lock_digest"] = _digest(stale, "lock_digest")
     with pytest.raises(AuthorizationError, match="reviewed stale-lock recovery"):
         acquire_lock(existing=stale, request=request, now=NOW)
@@ -654,6 +821,228 @@ def test_released_lock_can_be_reacquired_with_exact_version() -> None:
     assert acquired["status"] == "HELD"
     assert acquired["lock_version"] == 4
     assert acquired["lock_digest"] == _digest(acquired, "lock_digest")
+
+
+@pytest.mark.parametrize("current_status", ["READY", "SUSPENDED"])
+def test_released_lock_follows_authorized_registry_digest_transition(
+    current_status: str,
+) -> None:
+    current = _target(_account_ready())
+    current["status"] = current_status
+    current["record_digest"] = _digest(current, "record_digest")
+    proposed = copy.deepcopy(current)
+    proposed["status"] = "ACTIVE"
+    proposed["registry_version"] += 1
+    proposed["record_digest"] = _digest(proposed, "record_digest")
+    prepare_registry_update(
+        current=current,
+        proposed=proposed,
+        expected_version=current["registry_version"],
+        expected_digest=current["record_digest"],
+    )
+    existing = _lock(current)
+    existing["status"] = "RELEASED"
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": proposed["record_digest"],
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+
+    acquired = acquire_lock(existing=existing, request=request, now=NOW)
+
+    assert acquired["status"] == "HELD"
+    assert acquired["lock_version"] == existing["lock_version"] + 1
+    assert acquired["registry_record_digest"] == proposed["record_digest"]
+    assert acquired["execution_id"] == request["execution_id"]
+    assert acquired["owner"] == request["owner"]
+    assert acquired["deployment_id"] == existing["deployment_id"]
+    assert acquired["account_id"] == existing["account_id"]
+    assert acquired["region"] == existing["region"]
+    assert acquired["lock_digest"] == _digest(acquired, "lock_digest")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("deployment_id", OTHER_DEPLOYMENT_ID),
+        ("account_id", OTHER_ACCOUNT_ID),
+        ("region", "us-west-2"),
+    ],
+)
+def test_released_lock_transition_cannot_reassign_identity(
+    field: str,
+    value: str,
+) -> None:
+    current = _target(_account_ready())
+    existing = _lock(current)
+    existing["status"] = "RELEASED"
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": "sha256:" + ("f" * 64),
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+    request[field] = value
+
+    with pytest.raises(AuthorizationError, match="cannot be reassigned"):
+        acquire_lock(existing=existing, request=request, now=NOW)
+
+
+def test_held_lock_cannot_substitute_registry_digest() -> None:
+    target = _target(_account_ready())
+    existing = _lock(target)
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": "sha256:" + ("f" * 64),
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+
+    with pytest.raises(AuthorizationError, match="registry_record_digest"):
+        acquire_lock(existing=existing, request=request, now=NOW)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"expected_lock_version": 2}, "version conflict"),
+        ({"registry_record_digest": "not-a-digest"}, "digest"),
+    ],
+)
+def test_released_lock_transition_rejects_stale_or_malformed_request(
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    target = _target(_account_ready())
+    existing = _lock(target)
+    existing["status"] = "RELEASED"
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": "sha256:" + ("f" * 64),
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+    request.update(mutation)
+
+    with pytest.raises(AuthorizationError, match=message):
+        acquire_lock(existing=existing, request=request, now=NOW)
+
+
+@pytest.mark.parametrize(
+    ("acquired_at", "expires_at", "message"),
+    [
+        ("2026-07-14T18:01:00Z", "2026-07-14T18:31:00Z", "future"),
+        ("2026-07-14T17:00:00", "2026-07-14T17:30:00Z", "timezone-aware"),
+    ],
+)
+def test_released_lock_rejects_ambiguous_existing_timestamps(
+    acquired_at: str,
+    expires_at: str,
+    message: str,
+) -> None:
+    target = _target(_account_ready())
+    existing = _lock(target)
+    existing.update(
+        status="RELEASED",
+        acquired_at=acquired_at,
+        expires_at=expires_at,
+    )
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": target["record_digest"],
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+
+    with pytest.raises(AuthorizationError, match=message):
+        acquire_lock(existing=existing, request=request, now=NOW)
+
+
+def test_released_lock_replay_with_stale_version_is_denied() -> None:
+    target = _target(_account_ready())
+    existing = _lock(target)
+    existing["status"] = "RELEASED"
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": target["record_digest"],
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+    acquired = acquire_lock(existing=existing, request=request, now=NOW)
+
+    with pytest.raises(AuthorizationError, match="version conflict"):
+        acquire_lock(existing=acquired, request=request, now=NOW)
+
+
+def test_lock_acquisition_rejects_unknown_state_and_ambiguous_input() -> None:
+    target = _target(_account_ready())
+    existing = _lock(target)
+    existing["status"] = "UNKNOWN"
+    existing["lock_digest"] = _digest(existing, "lock_digest")
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": target["record_digest"],
+        "expected_lock_version": existing["lock_version"],
+        "ttl_seconds": 1800,
+    }
+
+    with pytest.raises(AuthorizationError, match="unknown state"):
+        acquire_lock(existing=existing, request=request, now=NOW)
+
+    request["unexpected"] = "ambiguous"
+    with pytest.raises(AuthorizationError, match="fields are malformed"):
+        acquire_lock(existing=None, request=request, now=NOW)
+
+
+def test_lock_acquisition_requires_timezone_aware_current_time() -> None:
+    target = _target(_account_ready())
+    request = {
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "execution_id": "exec_01J5A1B2C3D4E5F6G7H8J9K0M2",
+        "owner": "github:synthetic/repository:run:124",
+        "registry_record_digest": target["record_digest"],
+        "expected_lock_version": 0,
+        "ttl_seconds": 1800,
+    }
+
+    with pytest.raises(AuthorizationError, match="current time must be timezone-aware"):
+        acquire_lock(existing=None, request=request, now=datetime(2026, 7, 14, 18, 0))
 
 
 def test_state_key_is_collision_free_across_deployments() -> None:
@@ -801,6 +1190,47 @@ def test_state_recovery_cannot_delete_state_or_arbitrary_prefixes() -> None:
     ] == "true"
 
 
+def test_state_recovery_version_inventory_is_exactly_bound() -> None:
+    policy = json.loads((REPO_ROOT / "policies/iam/state-recovery-role.json").read_text())
+    statements = policy["Statement"]
+    listings = [
+        statement
+        for statement in statements
+        if statement.get("Sid") == "ListBoundStateVersions"
+    ]
+
+    assert len(listings) == 1
+    listing = listings[0]
+    actions = listing["Action"]
+    assert set(actions if isinstance(actions, list) else [actions]) == {
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+    }
+    assert listing["Resource"] == "arn:aws:s3:::scanalyze-${account_id}-tf-state"
+    assert listing["Condition"] == {
+        "StringLike": {
+            "s3:prefix": ["${deployment_id}/*/terraform.tfstate"],
+        },
+        "StringEquals": {
+            "aws:PrincipalTag/deployment_id": "${deployment_id}",
+            "aws:PrincipalTag/operation": "state-recovery",
+        },
+    }
+    allowed_actions = {
+        action
+        for statement in statements
+        if statement["Effect"] == "Allow"
+        for action in (
+            statement["Action"]
+            if isinstance(statement["Action"], list)
+            else [statement["Action"]]
+        )
+    }
+    assert "s3:ListAllMyBuckets" not in allowed_actions
+    assert "s3:DeleteObjectVersion" not in allowed_actions
+    assert all("*" not in resource for resource in [listing["Resource"]])
+
+
 def test_state_recovery_trust_requires_independent_review_and_exact_tags() -> None:
     trust = json.loads((REPO_ROOT / "policies/trust/state-recovery-trust.json").read_text())
     by_action = {statement["Action"]: statement for statement in trust["Statement"]}
@@ -835,6 +1265,118 @@ def test_backend_authorization_precedes_aws_identity_lookup() -> None:
     assert wrapper.index("tooling/authorize_deployment_backend.py") < wrapper.index(
         "aws sts get-caller-identity"
     )
+
+
+def test_top_level_plan_delegates_account_verification_to_authorized_child() -> None:
+    wrapper = (REPO_ROOT / "scripts/deployment/scanalyze-deploy.sh").read_text()
+    plan_layer = wrapper[
+        wrapper.index("cmd_plan_layer() {") : wrapper.index("cmd_apply_layer() {")
+    ]
+    deploy_services = wrapper[
+        wrapper.index("cmd_deploy_services() {") : wrapper.index("cmd_validate_live() {")
+    ]
+
+    assert "guard_account_binding" not in plan_layer
+    assert "guard_account_binding" not in deploy_services
+    assert 'bash "$SCRIPT_DIR/terraform-layer.sh" plan' in plan_layer
+    assert 'LAYER="services" cmd_plan_layer' in deploy_services
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-target",
+        "tampered-target-digest",
+        "tampered-account-ready",
+        "wrong-anchor",
+        "released-lock",
+        "foreign-lock",
+    ],
+)
+def test_top_level_invalid_backend_evidence_calls_no_aws_or_terraform(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    result, aws_marker, terraform_marker = _run_top_level_invalid_plan(
+        tmp_path,
+        mutation,
+    )
+
+    assert result.returncode != 0
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    output = result.stdout + result.stderr
+    for sensitive in (
+        ACCOUNT_ID,
+        DEPLOYMENT_ID,
+        f"scanalyze-{ACCOUNT_ID}-tf-state",
+        "arn:aws:kms:",
+        "sha256:",
+        "exec_",
+    ):
+        assert sensitive not in output
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--deployment-id", OTHER_DEPLOYMENT_ID),
+        ("--account-id", OTHER_ACCOUNT_ID),
+        ("--region", "us-west-2"),
+    ],
+)
+def test_top_level_wrong_request_assertion_calls_no_aws_or_terraform(
+    tmp_path: Path,
+    option: str,
+    value: str,
+) -> None:
+    result, aws_marker, terraform_marker = _run_top_level_invalid_plan(
+        tmp_path,
+        "tampered-target-digest",
+        assertion_override=(option, value),
+    )
+
+    assert result.returncode != 0
+    assert "conflicts with the validated manifest" in result.stderr
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert value not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-target",
+        "tampered-target-digest",
+        "tampered-account-ready",
+        "wrong-anchor",
+        "released-lock",
+        "foreign-lock",
+    ],
+)
+def test_deploy_services_invalid_backend_evidence_calls_no_aws_or_terraform(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    result, aws_marker, terraform_marker = _run_top_level_invalid_plan(
+        tmp_path,
+        mutation,
+        command_name="deploy-services",
+    )
+
+    assert result.returncode != 0
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    output = result.stdout + result.stderr
+    for sensitive in (
+        ACCOUNT_ID,
+        DEPLOYMENT_ID,
+        f"scanalyze-{ACCOUNT_ID}-tf-state",
+        "arn:aws:kms:",
+        "sha256:",
+        "exec_",
+    ):
+        assert sensitive not in output
 
 
 def test_registry_create_is_create_only() -> None:
