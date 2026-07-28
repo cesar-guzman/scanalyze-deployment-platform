@@ -130,10 +130,13 @@ before any edge is produced:
   allowlist-eligible edge is emitted from it.  An out-of-scope wildcard
   combined with an exact Lambda action does NOT suppress the exact action.
 - **Resource applicability** is validated before emitting wildcard invocation
-  edges.  A wildcard scoped to an unrelated Lambda function does not block the
-  target inventory.  Lambda mutation edges follow the same applicability check.
+  edges. A wildcard scoped to an unrelated Lambda function does not block the
+  target inventory. Lambda mutation edges follow the same applicability check.
   IAM/CloudFormation mutation edges remain account-wide by architectural
-  decision.
+  decision. `Resource` and `NotResource` preserve strict complementary semantics,
+  evaluating the base function ARN, qualifier space, observed qualifiers, and
+  preauthorized future qualifiers explicitly listed in a `Resource` block. Complete,
+  valid ARNs without policy variables or extra whitespace are required.
 - `NotAction` remains unsupported; it produces `POLICY_SEMANTICS_UNSUPPORTED`.
 - Deny statements with wildcard actions are harmless — no authority edges.
 

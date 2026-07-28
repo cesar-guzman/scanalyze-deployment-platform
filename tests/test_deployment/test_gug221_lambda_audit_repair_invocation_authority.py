@@ -825,3 +825,72 @@ def test_mixed_exact_and_wildcard_fails_closed() -> None:
     # iam:* triggers AUTHORITY_MUTATION_PRESENT (account-wide)
     with pytest.raises(AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"):
         _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+@pytest.mark.parametrize("target_function", (PLAN_FUNCTION_NAME, REPAIR_FUNCTION_NAME, RECONCILE_FUNCTION_NAME))
+@pytest.mark.parametrize("qualifier", ("future-alias", "99", "$LATEST", "deleted-alias"))
+def test_latent_qualifier_invocation_is_prohibited_through_consumer(target_function: str, qualifier: str) -> None:
+    """Exact latent qualifiers trigger FOREIGN_INVOCATION_AUTHORITY through the consumer."""
+    target_arn = _function_arn(target_function)
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:InvokeFunction",
+                "Resource": f"{target_arn}:{qualifier}",
+            }
+        ],
+    }
+    foreign = _foreign_role(f"arn:aws:iam::{ACCOUNT}:role/LatentInvoker", policy)
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(AuthorityInventoryError, match="FOREIGN_INVOCATION_AUTHORITY"):
+        _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+@pytest.mark.parametrize("target_function", (PLAN_FUNCTION_NAME, REPAIR_FUNCTION_NAME, RECONCILE_FUNCTION_NAME))
+@pytest.mark.parametrize("qualifier", ("future-alias", "99", "$LATEST", "deleted-alias"))
+def test_latent_qualifier_mutation_is_prohibited_through_consumer(target_function: str, qualifier: str) -> None:
+    """Latent qualifiers for lambda:* trigger AUTHORITY_MUTATION_PRESENT."""
+    target_arn = _function_arn(target_function)
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "Resource": f"{target_arn}:{qualifier}",
+            }
+        ],
+    }
+    foreign = _foreign_role(f"arn:aws:iam::{ACCOUNT}:role/LatentMutator", policy)
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"):
+        _verify(_mutate_all_iam(_snapshots(), mutate))
+
+
+def test_incomplete_arn_fails_through_consumer() -> None:
+    """Incomplete ARNs fail structurally with POLICY_SEMANTICS_UNSUPPORTED."""
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:InvokeFunction",
+                "Resource": f"arn:aws:lambda:{REGION}:{ACCOUNT}:function",
+            }
+        ],
+    }
+    foreign = _foreign_role(f"arn:aws:iam::{ACCOUNT}:role/IncompleteARN", policy)
+
+    def mutate(iam: dict[str, Any]) -> None:
+        iam["roles"].append(copy.deepcopy(foreign))
+
+    with pytest.raises(AuthorityInventoryError, match="POLICY_SEMANTICS_UNSUPPORTED"):
+        _verify(_mutate_all_iam(_snapshots(), mutate))

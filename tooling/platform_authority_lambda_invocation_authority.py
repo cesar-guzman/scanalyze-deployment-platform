@@ -561,8 +561,10 @@ def _wildcard_targets_authority_service(pattern: str) -> bool:
     the pattern can match any authority-relevant service prefix using
     ``fnmatch``.  Exact unrelated services (``s3:*``, ``ec2:*``) return False.
 
-    Patterns without a colon (bare ``*``, ``?``, etc.) are considered global
-    wildcards and always return True.
+    The only valid global wildcard without a colon is the literal ``"*"``.
+    Action syntax validation in ``_classify_action_statement()`` rejects bare
+    ``?``, ``[``, embedded whitespace and multiple colons before this function
+    is reached.
 
     Malformed patterns (empty service, multiple colons in service) are treated
     as relevant to fail-closed rather than silently skipping.
@@ -679,10 +681,19 @@ def _classify_action_statement(
 
     for pattern in patterns:
         # ── Step 0: validate action syntax ──
-        # Accept only "*" (global wildcard) or "<service>:<action>".
+        # Accept only "*" (global wildcard) or "<service>:<action>" with
+        # exactly one colon and no whitespace anywhere.
         if pattern != "*":
-            parts = pattern.split(":", 1)
-            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+            if pattern != pattern.strip() or any(c.isspace() for c in pattern):
+                raise AuthorityInventoryError(
+                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED"
+                )
+            if pattern.count(":") != 1:
+                raise AuthorityInventoryError(
+                    "POLICY_ACTION_SEMANTICS_UNSUPPORTED"
+                )
+            service, action = pattern.split(":")
+            if not service or not action:
                 raise AuthorityInventoryError(
                     "POLICY_ACTION_SEMANTICS_UNSUPPORTED"
                 )
@@ -887,6 +898,76 @@ def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
     return matched if has_resource else not matched
 
 
+def _validated_resource_patterns(
+    statement: Mapping[str, Any],
+) -> tuple[bool, tuple[str, ...]]:
+    """Return (is_not_resource, structurally validated resource patterns).
+
+    This is the single source of truth for Resource/NotResource structural
+    validation.  It must be consumed by both ``_statement_resource_values()``
+    and ``_target_applicable()``.  The validation order is:
+
+    1. Exactly one of ``Resource`` or ``NotResource`` must be present.
+    2. One or more non-empty strings.
+    3. No value may contain whitespace (leading, trailing or embedded).
+    4. No IAM policy variable ``${...}``.
+    5. The literal ``"*"`` is valid.
+    6. All other values must be complete ARNs:
+       - exactly six components via ``split(":", 5)``;
+       - first component exactly ``"arn"``;
+       - non-empty partition, service and resource.
+    7. For Lambda ARNs:
+       - non-empty region;
+       - non-empty account;
+       - resource begins with ``"function:"``;
+       - function identity after ``"function:"`` is non-empty.
+
+    Raises ``AuthorityInventoryError`` on any validation failure.
+    """
+
+    has_resource = "Resource" in statement
+    has_not_resource = "NotResource" in statement
+    if has_resource == has_not_resource:
+        raise AuthorityInventoryError("POLICY_RESOURCE_SEMANTICS_UNSUPPORTED")
+
+    is_not_resource = has_not_resource
+    patterns = _strict_string_list(
+        statement["Resource"] if has_resource else statement["NotResource"],
+        "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED",
+    )
+
+    for resource in patterns:
+        # Reject whitespace anywhere in the value.
+        if resource != resource.strip() or any(c.isspace() for c in resource):
+            raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
+
+    # IAM policy variables are evaluated at request time.
+    if any("${" in resource for resource in patterns):
+        raise AuthorityInventoryError("POLICY_RESOURCE_VARIABLE_UNSUPPORTED")
+
+    for resource in patterns:
+        if resource == "*":
+            continue
+        arn_parts = resource.split(":", 5)
+        if (
+            len(arn_parts) != 6
+            or arn_parts[0] != "arn"
+            or not arn_parts[1]
+            or not arn_parts[2]
+            or not arn_parts[5]
+        ):
+            raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
+        if arn_parts[2] == "lambda" and (
+            not arn_parts[3]
+            or not arn_parts[4]
+            or not arn_parts[5].startswith("function:")
+            or not arn_parts[5].removeprefix("function:")
+        ):
+            raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
+
+    return (is_not_resource, patterns)
+
+
 def _target_applicable(
     statement: Mapping[str, Any],
     binding: "TargetBinding",
@@ -898,47 +979,58 @@ def _target_applicable(
     - The unqualified target function ARN.
     - The qualifier space (``<function-arn>:*``).
     - Every observed invocation resource (aliases, versions).
+    - Exact latent qualifier ARNs (``<function-arn>:<qualifier>``) that may
+      preauthorize a future or deleted alias/version even when the qualifier
+      is not present in the current Lambda snapshot.
 
     For ``Resource``: applicable if any resource pattern matches any candidate.
     For ``NotResource``: applicable if any candidate is NOT excluded.
-    Raises ``AuthorityInventoryError`` when both or neither are present.
+    Raises ``AuthorityInventoryError`` when both or neither are present,
+    or when any resource pattern is structurally invalid.
     """
 
-    has_resource = "Resource" in statement
-    has_not_resource = "NotResource" in statement
-    if has_resource == has_not_resource:
-        raise AuthorityInventoryError("POLICY_RESOURCE_SEMANTICS_UNSUPPORTED")
-
-    patterns = _strict_string_list(
-        statement["Resource"] if has_resource else statement["NotResource"],
-        "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED",
-    )
-
-    # IAM policy variables are evaluated at request time.  Treating them as
-    # literal fnmatch input can hide future or principal-controlled authority.
-    if any("${" in resource for resource in patterns):
-        raise AuthorityInventoryError("POLICY_RESOURCE_VARIABLE_UNSUPPORTED")
+    is_not_resource, patterns = _validated_resource_patterns(statement)
 
     # Build the full set of target candidates: unqualified ARN, qualifier
     # glob, and every observed invocation resource.
-    candidates = [binding.function_arn, binding.function_arn + ":*"]
-    candidates.extend(invocation_resources)
+    candidates = list(invocation_resources)
+    if binding.function_arn not in candidates:
+        candidates.append(binding.function_arn)
+    qualifier_glob = binding.function_arn + ":*"
+    if qualifier_glob not in candidates:
+        candidates.append(qualifier_glob)
 
-    if has_resource:
-        # Resource: applicable if ANY pattern can match ANY candidate.
+    if not is_not_resource:
+        # ── Resource path ──
+        # Add latent qualifier candidates: exact ARNs from the Resource list
+        # that begin with <function-arn>: but are not yet observed.  This
+        # ensures that a policy can preauthorize a future alias, deleted
+        # alias, numeric version or $LATEST before it exists in the snapshot.
+        for pattern in patterns:
+            if (
+                not any(meta in pattern for meta in "*?[")
+                and pattern.startswith(binding.function_arn + ":")
+                and pattern not in candidates
+            ):
+                candidates.append(pattern)
+
+        # Applicable if ANY pattern matches ANY candidate.
         for candidate in candidates:
             if candidate == "*":
                 return True
             for pattern in patterns:
                 if pattern == "*" or fnmatch.fnmatchcase(candidate, pattern):
                     return True
-            # Also check if a resource pattern is itself a target function pattern.
-            for pattern in patterns:
-                if _is_target_function_pattern(binding, pattern):
-                    return True
+        # Also check if any resource pattern is a target function glob.
+        for pattern in patterns:
+            if _is_target_function_pattern(binding, pattern):
+                return True
         return False
     else:
-        # NotResource: applicable if ANY candidate is NOT in the excluded set.
+        # ── NotResource path ──
+        # Applicable if ANY candidate is NOT in the excluded set.
+        # No latent qualifier injection here: NotResource patterns are
+        # exclusions, not grants.
         for candidate in candidates:
             excluded = any(
                 fnmatch.fnmatchcase(candidate, pattern) for pattern in patterns
@@ -1236,45 +1328,13 @@ def _observed_invocation_resources(
 
 
 def _statement_resource_values(statement: Mapping[str, Any]) -> tuple[str, ...]:
-    """Return concrete allow resources, conservatively collapsing NotResource."""
+    """Return concrete allow resources, conservatively collapsing NotResource.
 
-    if "Resource" in statement and "NotResource" not in statement:
-        resources = _strict_string_list(
-            statement["Resource"], "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED"
-        )
-    elif "NotResource" in statement and "Resource" not in statement:
-        resources = _strict_string_list(
-            statement["NotResource"], "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED"
-        )
-    else:
-        raise AuthorityInventoryError("POLICY_RESOURCE_SEMANTICS_UNSUPPORTED")
-    if any("${" in resource for resource in resources):
-        # IAM policy variables are evaluated at request time.  Treating them
-        # as literal fnmatch input can hide future or principal-controlled
-        # Lambda/IAM authority.
-        raise AuthorityInventoryError("POLICY_RESOURCE_VARIABLE_UNSUPPORTED")
-    for resource in resources:
-        if resource == "*":
-            continue
-        arn_parts = resource.split(":", 5)
-        if (
-            len(arn_parts) != 6
-            or arn_parts[0] != "arn"
-            or not arn_parts[1]
-            or not arn_parts[2]
-            or not arn_parts[5]
-        ):
-            # IAM expands incomplete ARNs with wildcard fields.  Literal
-            # matching would therefore under-approximate effective authority.
-            raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
-        if arn_parts[2] == "lambda" and (
-            not arn_parts[3]
-            or not arn_parts[4]
-            or not arn_parts[5].startswith("function:")
-            or not arn_parts[5].removeprefix("function:")
-        ):
-            raise AuthorityInventoryError("POLICY_RESOURCE_ARN_INCOMPLETE")
-    if "Resource" in statement:
+    Delegates structural validation to ``_validated_resource_patterns()``.
+    """
+
+    is_not_resource, resources = _validated_resource_patterns(statement)
+    if not is_not_resource:
         return resources
     # NotResource: the statement covers everything EXCEPT the listed resources.
     # Conservatively return ("*",) to signal account-wide scope.  Callers that

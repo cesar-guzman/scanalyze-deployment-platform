@@ -125,11 +125,27 @@ check.  IAM and CloudFormation mutation wildcard edges remain account-wide by
 architectural decision — because `iam:*` on any resource can create, attach or
 alter authority paths.
 
-`Resource` validation preserves the existing contracts:
+`Resource` and `NotResource` validation preserves strict complementary semantics:
 - Policy variables (`${...}`) → unsupported
-- Incomplete ARNs → unsupported
+- Incomplete ARNs (missing region, account, function name) or any internal/peripheral whitespace → unsupported
 - Both `Resource` and `NotResource` → unsupported
 - Neither `Resource` nor `NotResource` → unsupported
+
+Target applicability for an exact resource or a wildcard edge evaluates the
+following candidates:
+1. The base function ARN (unqualified).
+2. The qualifier space (`<function-arn>:*`).
+3. Every observed alias and version in the current snapshot.
+4. (For `Resource` only) Any exact ARN beginning with `<function-arn>:` explicitly
+   listed in the policy, even if not currently observed. This ensures exact future
+   qualifier preauthorization (e.g. `$LATEST`, numeric versions, or future aliases)
+   is correctly recognized as authority over the target.
+
+`NotResource` is evaluated as a true complement: applicability is granted if ANY
+candidate is NOT in the excluded set. Note that excluding only the base function
+ARN does not exclude aliases or versions; excluding both the base function and the
+qualifier space (`<ARN>:*`) is required to eliminate all target surface. Latent
+qualifier ARNs are never injected as candidates in the `NotResource` path.
 
 The wildcard source-document digest rebinding check ensures that an adversarial
 snapshot using a broad policy that happens to match an allowlist digest still
