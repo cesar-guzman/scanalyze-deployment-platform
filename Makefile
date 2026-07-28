@@ -16,6 +16,7 @@ TESTS_DIR    := tests
 help:
 	@echo "Scanalyze validation targets:"
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
+	@echo "  make contributor-check    Validate contributor workflow + Claude Code baseline"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
@@ -146,7 +147,7 @@ required-artifacts-check:
 
 # ── Preflight Core (validates existing artifacts only) ────────────────
 # Use this for incremental work. Does NOT claim M0 completeness.
-preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check
+preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check contributor-check
 	@echo ""
 	@echo "=== PREFLIGHT-CORE COMPLETE ==="
 	@echo "Existing artifacts validated. This does NOT mean M0 is complete."
@@ -754,7 +755,7 @@ docs-check:
 			echo "  OK: $$f"; \
 		fi; \
 	done; \
-	for d in docs/operations docs/deployment; do \
+	for d in docs/operations docs/deployment docs/contributing; do \
 		if [ ! -d "$$d" ]; then \
 			echo "  MISSING: $$d/"; \
 			ERRORS=$$((ERRORS + 1)); \
@@ -764,6 +765,13 @@ docs-check:
 	done; \
 	if [ "$$ERRORS" -gt 0 ]; then echo "Docs check: $$ERRORS missing" && exit 1; fi
 	@echo "Docs check complete."
+
+# ── Contributor Workflow / Claude Baseline Contract ──────────────────
+contributor-check:
+	@echo "Checking contributor workflow and Claude Code baseline contract..."
+	@$(PYTHON) $(TOOLING_DIR)/check_contributor_contract.py
+	@$(PYTHON) -m pytest $(TESTS_DIR)/test_contributor_contract/ -q
+	@echo "Contributor contract check complete."
 
 # Full release dry-run (offline, no AWS)
 release-dry-run: repro-check

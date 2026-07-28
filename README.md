@@ -89,6 +89,26 @@ CodeCommit mirror while source retention is reviewed. It is excluded from the
 build path; access must be restricted separately by IAM. A reviewed Terraform
 plan must remove it to reach the no-source-in-customer target state.
 
+## Contributing
+
+Start here before making any change. The contributor workflow, AI-assisted
+development standard, and Claude Code setup are canonical and marked
+**CURRENT**:
+
+- [Contributor Guide](docs/contributing/contributor-guide.md) — end-to-end:
+  access, clone, branch/worktree, implement, docs, commits, PR, review, merge,
+  rollback, Linear updates (1 issue = 1 branch = 1 worktree = 1 PR).
+- [AI-Assisted Development Standard](docs/contributing/ai-assisted-development.md)
+  — pinned model routing (Opus 4.8 plan / Sonnet 5 execute), plan-first,
+  blocked destructive/remote/AWS commands.
+- [Claude Code Setup & Daily Workflow](docs/contributing/claude-code-setup.md)
+- [Onboarding Rehearsal Checklist](docs/contributing/onboarding-rehearsal-checklist.md)
+
+The repository Claude Code baseline lives in
+[`.claude/settings.json`](.claude/settings.json): plan mode by default with
+denials for secrets, destructive Git, remote publish, and Terraform/AWS
+mutation. Validate the workflow contract with `make contributor-check`.
+
 ## Validation
 
 ```bash
