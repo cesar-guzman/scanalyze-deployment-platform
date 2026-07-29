@@ -17,6 +17,7 @@ Production remains **NO-GO**.
 explicitly authorized read-only session
   -> private paginated IAM/Lambda capture
   -> typed inventory snapshot
+  -> centralized action-statement classifier
   -> pure deterministic analyzer
   -> sanitized report-only receipt
   -> independent human review
@@ -85,14 +86,85 @@ accepts only verified HTTPS AWS service endpoints for the bound partition,
 service and Region. Total capture duration and post-capture decision age are
 each bounded to five minutes.
 
+## Centralized action-statement classifier
+
+Every IAM policy statement is processed by a single centralized classifier
+(`_classify_action_statement`) before any edge is produced. The classifier:
+
+1. Detects wildcard metacharacters (`*`, `?`, `[`) in action patterns **before**
+   `fnmatch` expansion. Wildcard actions are classified as `WILDCARD` /
+   `PROHIBITED` / `WILDCARD_ACTION`, not as unsupported semantics.
+2. Determines **service relevance** before activating wildcard authority.
+   `_wildcard_targets_authority_service()` checks whether the pattern's service
+   segment can match `lambda`, `iam` or `cloudformation`.  Wildcards in the
+   service segment (e.g. `*:InvokeFunction`, `lambd?:*`, `[l]ambda:*`, `i*m:*`)
+   are conservatively classified as relevant using `fnmatch` against the
+   authority-relevant service set.  Exact unrelated services (`s3:*`, `ec2:*`,
+   `sts:*`, `dynamodb:*`, `kms:*`, `logs:*`) are silently skipped.
+3. Classifies mixed exact-plus-wildcard statements atomically: any **relevant**
+   wildcard in the statement blocks all exact actions from the same statement.
+   An out-of-scope wildcard combined with an exact Lambda action does NOT
+   suppress the exact action — only relevant wildcards trigger atomic rejection.
+4. Maps broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) to both
+   `INVOCATION` and `AUTHORITY_MUTATION` edge classes so that
+   `mutating_authority_count` is never understated.
+5. Classifies `NotAction` as unsupported semantics (no edges emitted).
+6. Deny statements with wildcard actions are harmless — they produce no
+   authority edges.
+
+### Resource applicability for wildcard edges
+
+Wildcard invocation edges are only emitted when the statement's `Resource` or
+`NotResource` can reach the target function, its aliases, versions, or a
+preauthorized future qualifier.  A wildcard action scoped to an unrelated
+Lambda function (e.g. `lambda:* on arn:aws:lambda:...:function:other`) does NOT
+block the target inventory.
+
+Lambda mutation wildcard edges follow the same target resource applicability
+check.  IAM and CloudFormation mutation wildcard edges remain account-wide by
+architectural decision — because `iam:*` on any resource can create, attach or
+alter authority paths.
+
+`Resource` and `NotResource` validation preserves strict complementary semantics:
+- Policy variables (`${...}`) → unsupported
+- Incomplete ARNs (missing region, account, function name) or any internal/peripheral whitespace → unsupported
+- Both `Resource` and `NotResource` → unsupported
+- Neither `Resource` nor `NotResource` → unsupported
+
+Target applicability for an exact resource or a wildcard edge evaluates the
+following concrete candidates:
+1. The base function ARN (unqualified).
+2. Every observed alias and version in the current snapshot.
+
+(For `Resource` only) Any exact ARN beginning with `<function-arn>:` explicitly
+listed in the policy, even if not currently observed, is also injected as a candidate. 
+This ensures exact future qualifier preauthorization (e.g. `$LATEST`, numeric 
+versions, or future aliases) is correctly recognized as authority over the target.
+
+`Resource` uses existential reasoning: it is applicable if ANY pattern matches ANY candidate, or if the pattern itself is a target function glob (e.g. `<arn>:?`).
+
+`NotResource` uses universal reasoning: applicability is granted if ANY concrete 
+candidate is NOT excluded. If all concrete candidates are excluded, the analyzer 
+independently verifies whether the entire future qualifier namespace is provably 
+excluded. 
+- `<function-arn>:*` represents the symbolic qualifier namespace, not a concrete ARN. 
+- `NotResource` requires universal proof of exclusion (only `*` or `<function-arn>:*` prove full coverage).
+- Narrow globs (`<arn>:?`) and current enumeration do not prove future qualifier exclusion.
+- Ambiguous glob containment remains fail-closed (evaluates as applicable).
+Latent qualifier ARNs are never injected as concrete candidates in the `NotResource` path.
+
+The wildcard source-document digest rebinding check ensures that an adversarial
+snapshot using a broad policy that happens to match an allowlist digest still
+produces `PROHIBITED` edges.
+
 ## Fail-closed statuses
 
 | Status | Meaning | Rollout |
 |---|---|---|
 | `REVIEW_SAFE_REPORT_ONLY` | Complete snapshot exactly matches the reviewed graph | Still blocked pending separate approval and preventive controls |
-| `FOREIGN_AUTHORITY_PRESENT` | Extra invocation, trust or mutation authority exists | Blocked |
+| `FOREIGN_AUTHORITY_PRESENT` | Extra invocation, trust, mutation or wildcard authority exists | Blocked |
 | `INVENTORY_INCOMPLETE` | A page/read/surface is missing or ambiguous | Blocked |
-| `POLICY_SEMANTICS_UNSUPPORTED` | Conservative evaluator cannot prove a statement safe | Blocked |
+| `POLICY_SEMANTICS_UNSUPPORTED` | NotAction, unknown actions, or semantic combinations the evaluator cannot prove safe | Blocked |
 | `DRIFT_DETECTED` | Required edge or immutable binding differs | Blocked |
 | `OFFLINE_UNVERIFIED` | Caller-authored diagnostic snapshot lacks authenticated collector provenance | Blocked; collect authenticated AWS inventory |
 

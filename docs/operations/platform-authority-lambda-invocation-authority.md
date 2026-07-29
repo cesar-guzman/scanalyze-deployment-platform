@@ -110,6 +110,39 @@ allowlist. Require:
   asynchronous or event-source path;
 - no unsupported policy semantics.
 
+The centralized action-statement classifier evaluates every IAM statement
+before any edge is produced:
+
+- Wildcard metacharacters (`*`, `?`, `[`) are detected **before** `fnmatch`
+  expansion. An `Allow` statement with wildcard action patterns produces
+  `WILDCARD` / `PROHIBITED` / `WILDCARD_ACTION` edges and blocks as
+  `FOREIGN_AUTHORITY_PRESENT`, not `POLICY_SEMANTICS_UNSUPPORTED`.
+- **Service relevance** is checked before activating wildcard authority.
+  Wildcards for exact unrelated services (`s3:*`, `ec2:*`, `sts:*`, `kms:*`,
+  `logs:*`, `dynamodb:*`) are silently skipped.  Wildcards in the service
+  segment (e.g. `*:InvokeFunction`, `lambd?:*`, `[l]ambda:*`) are
+  conservatively classified as relevant if they can match `lambda`, `iam` or
+  `cloudformation`.
+- Broad wildcards (`lambda:*`, `iam:*`, `cloudformation:*`, `*`) also emit
+  `AUTHORITY_MUTATION` edges for each covered service so that
+  `mutating_authority_count` is never understated.
+- A mixed exact-plus-**relevant**-wildcard statement fails atomically: no exact
+  allowlist-eligible edge is emitted from it.  An out-of-scope wildcard
+  combined with an exact Lambda action does NOT suppress the exact action.
+- **Resource applicability** is validated before emitting wildcard invocation
+  edges. A wildcard scoped to an unrelated Lambda function does not block the
+  target inventory. Lambda mutation edges follow the same applicability check.
+  IAM/CloudFormation mutation edges remain account-wide by architectural
+  decision. `Resource` and `NotResource` preserve strict complementary semantics:
+  `Resource` uses existential reasoning evaluating the base function ARN, observed 
+  qualifiers, and preauthorized future qualifiers explicitly listed. `NotResource` 
+  uses universal reasoning, independently requiring universal proof of exclusion 
+  of the symbolic future qualifier namespace (`<function-arn>:*`); narrow globs and 
+  current enumeration do not prove future exclusion. Complete, valid ARNs without 
+  policy variables or extra whitespace are required.
+- `NotAction` remains unsupported; it produces `POLICY_SEMANTICS_UNSUPPORTED`.
+- Deny statements with wildcard actions are harmless — no authority edges.
+
 Only the sanitized receipt may leave the private boundary. Before sharing or
 using it as a review candidate, validate the reviewed allowlist, inventory and
 receipt together with `validate_gug218_evidence_bundle` at a trusted,
