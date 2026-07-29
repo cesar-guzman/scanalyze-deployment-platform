@@ -1,8 +1,10 @@
 """GUG-94 portable, fail-closed enterprise user lifecycle tests."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from threading import Barrier, Lock
 from typing import Any
 
 import pytest
@@ -26,6 +28,7 @@ from app.enterprise_authorization import (
 from app.errors import AppError
 from app.user_lifecycle import (
     ApprovalEvidence,
+    CheckpointOutcome,
     EnterpriseLifecycleRuntime,
     IdempotencyConflict,
     InvitationResendRequest,
@@ -34,6 +37,7 @@ from app.user_lifecycle import (
     LifecycleOperation,
     LifecycleOperationRecord,
     LifecycleOperationStage,
+    LifecycleOutcome,
     MembershipPage,
     MembershipRecord,
     MembershipState,
@@ -137,10 +141,12 @@ class FakeOperationStore:
         self.operations: dict[tuple[str, str, str], LifecycleOperationRecord] = {}
         self.memberships: dict[str, MembershipRecord] = {}
         self.list_calls: list[dict[str, Any]] = []
+        self.reserve_calls = 0
         self.fail_audit_checkpoint = False
         self.fail_provider_applied_checkpoint = False
 
     def reserve_operation(self, command: LifecycleCommand) -> LifecycleOperationRecord:
+        self.reserve_calls += 1
         key = (command.customer_id, command.deployment_id, command.idempotency_key)
         existing = self.operations.get(key)
         if existing is not None:
@@ -158,7 +164,7 @@ class FakeOperationStore:
         expected_stage: LifecycleOperationStage,
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
-    ) -> LifecycleOperationRecord:
+    ) -> CheckpointOutcome:
         if self.fail_audit_checkpoint and next_stage is LifecycleOperationStage.AUDIT_COMMITTED:
             raise RuntimeError("synthetic checkpoint failure")
         if (
@@ -168,7 +174,7 @@ class FakeOperationStore:
             raise RuntimeError("synthetic provider checkpoint failure")
         current = self.operations[(record.customer_id, record.deployment_id, record.idempotency_key)]
         if current.stage is not expected_stage:
-            return current
+            return CheckpointOutcome(record=current, applied_here=False)
         updated = replace(
             current,
             stage=next_stage,
@@ -176,7 +182,7 @@ class FakeOperationStore:
             updated_at=NOW,
         )
         self.operations[(record.customer_id, record.deployment_id, record.idempotency_key)] = updated
-        return updated
+        return CheckpointOutcome(record=updated, applied_here=True)
 
     def list_memberships(
         self,
@@ -295,10 +301,85 @@ class FakeOperationStore:
         self.memberships[current.membership_reference] = updated
         return updated
 
+
+class RacingOperationStore(FakeOperationStore):
+    """Deterministically exposes a CAS winner and a reloaded CAS loser."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._provider_reservation_barrier = Barrier(2)
+        self._provider_reservation_result_barrier = Barrier(2)
+        self._operation_lock = Lock()
+
+    def reserve_operation(self, command: LifecycleCommand) -> LifecycleOperationRecord:
+        with self._operation_lock:
+            return super().reserve_operation(command)
+
+    def checkpoint_operation(
+        self,
+        record: LifecycleOperationRecord,
+        *,
+        expected_stage: LifecycleOperationStage,
+        next_stage: LifecycleOperationStage,
+        evidence: dict[str, str] | None = None,
+    ) -> CheckpointOutcome:
+        is_provider_reservation = (
+            next_stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED
+        )
+        if is_provider_reservation:
+            self._provider_reservation_barrier.wait(timeout=5)
+        with self._operation_lock:
+            result = super().checkpoint_operation(
+                record,
+                expected_stage=expected_stage,
+                next_stage=next_stage,
+                evidence=evidence,
+            )
+        if is_provider_reservation:
+            self._provider_reservation_result_barrier.wait(timeout=5)
+        return result
+
+
+class ForgedCheckpointStore(FakeOperationStore):
+    def __init__(self, mode: str) -> None:
+        super().__init__()
+        self.mode = mode
+
+    def checkpoint_operation(
+        self,
+        record: LifecycleOperationRecord,
+        *,
+        expected_stage: LifecycleOperationStage,
+        next_stage: LifecycleOperationStage,
+        evidence: dict[str, str] | None = None,
+    ) -> CheckpointOutcome:
+        outcome = super().checkpoint_operation(
+            record,
+            expected_stage=expected_stage,
+            next_stage=next_stage,
+            evidence=evidence,
+        )
+        if next_stage is not LifecycleOperationStage.PROVIDER_EFFECT_RESERVED:
+            return outcome
+        if self.mode == "binding":
+            return CheckpointOutcome(
+                record=replace(outcome.record, actor_subject="forged-actor"),
+                applied_here=True,
+            )
+        if self.mode == "flag":
+            return CheckpointOutcome(
+                record=outcome.record,
+                applied_here="request-controlled",  # type: ignore[arg-type]
+            )
+        raise AssertionError("unsupported forged checkpoint mode")
+
+
 class FakeProvider:
     def __init__(self) -> None:
         self.invites = 0
         self.resends = 0
+        self.resend_requests: list[dict[str, Any]] = []
+        self.resend_error: Exception | None = None
         self.activations = 0
         self.enabled: list[tuple[str, bool]] = []
         self.session_revocations = 0
@@ -315,6 +396,9 @@ class FakeProvider:
 
     def resend_invitation(self, **request: Any) -> ProviderUserReceipt:
         self.resends += 1
+        self.resend_requests.append(request)
+        if self.resend_error is not None:
+            raise self.resend_error
         return ProviderUserReceipt(
             subject=request["subject"],
             provider_user_reference=request["provider_user_reference"],
@@ -421,6 +505,17 @@ def _invite_request(**overrides: Any) -> UserInvitationRequest:
     return UserInvitationRequest(**values)
 
 
+def _resend_request(**overrides: Any) -> InvitationResendRequest:
+    values: dict[str, Any] = {
+        "expected_membership_version": 3,
+        "expires_in_seconds": 3600,
+        "approval_reference": "apr_" + "2" * 32,
+        "reason_code": "invitation_resend",
+    }
+    values.update(overrides)
+    return InvitationResendRequest(**values)
+
+
 def _assert_denied(call: Any, *, status: int = 403) -> AppError:
     with pytest.raises(AppError) as captured:
         call()
@@ -501,6 +596,22 @@ def test_invitation_resend_is_owner_bound_idempotent_and_versioned() -> None:
 
     assert result.status == "completed"
     assert provider.resends == 1
+    assert set(provider.resend_requests[0]) == {
+        "subject",
+        "provider_user_reference",
+        "provider_principal_key",
+        "customer_id",
+        "deployment_id",
+        "idempotency_key",
+    }
+    assert not {
+        "principal_locator",
+        "approval_reference",
+        "request_digest",
+        "membership_reference",
+        "role_id",
+        "applied_here",
+    }.intersection(provider.resend_requests[0])
     refreshed = store.memberships[invited.membership_reference]
     assert refreshed.membership_version == 4
     assert refreshed.invitation_expires_at == NOW + timedelta(seconds=3600)
@@ -514,6 +625,139 @@ def test_invitation_resend_is_owner_bound_idempotent_and_versioned() -> None:
     )
     assert retry.operation_reference == result.operation_reference
     assert provider.resends == 1
+
+
+def test_concurrent_invitation_resend_has_exactly_one_provider_caller() -> None:
+    store = RacingOperationStore()
+    service, _, provider, *_ = _service(store=store)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    request = InvitationResendRequest(
+        expected_membership_version=3,
+        expires_in_seconds=3600,
+        approval_reference="apr_" + "4" * 32,
+        reason_code="invitation_resend",
+    )
+
+    def resend() -> LifecycleOutcome | AppError:
+        try:
+            return service.resend_invitation(
+                _auth(),
+                invited.membership_reference,
+                request,
+                idempotency_key="idem_" + "a" * 32,
+            )
+        except AppError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(lambda _: resend(), range(2)))
+
+    assert provider.resends == 1
+    assert sum(isinstance(result, LifecycleOutcome) for result in results) == 1
+    assert sum(
+        isinstance(result, AppError) and result.status_code == 503
+        for result in results
+    ) == 1
+
+
+def test_retry_loaded_at_provider_effect_reserved_never_calls_provider() -> None:
+    service, store, provider, *_ = _service()
+    request = _resend_request()
+    key = "idem_" + "b" * 32
+    command = service._command(  # noqa: SLF001 - exact stored binding fixture
+        LifecycleOperation.RESEND_INVITATION,
+        _auth(),
+        key,
+        {
+            "membership_reference": "mbr_" + "1" * 32,
+            "expected_membership_version": request.expected_membership_version,
+            "expires_in_seconds": request.expires_in_seconds,
+            "approval_reference": request.approval_reference,
+            "reason_code": request.reason_code,
+        },
+    )
+    record = replace(
+        LifecycleOperationRecord.new(command, now=NOW),
+        stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={"effect_order": "provider_before_membership"},
+    )
+    store.operations[(CUSTOMER_ID, DEPLOYMENT_ID, key)] = record
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            "mbr_" + "1" * 32,
+            request,
+            idempotency_key=key,
+        ),
+        status=503,
+    )
+
+    assert provider.resends == 0
+
+
+def test_provider_exception_quarantines_later_retry_without_resend_or_disclosure() -> None:
+    provider = FakeProvider()
+    provider.resend_error = RuntimeError(
+        "raw-provider-response synthetic.user@example.invalid"
+    )
+    service, store, _, _, audit = _service(provider=provider)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    request = _resend_request(approval_reference="apr_" + "5" * 32)
+    key = "idem_" + "c" * 32
+
+    first_error = _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            invited.membership_reference,
+            request,
+            idempotency_key=key,
+        ),
+        status=503,
+    )
+    provider.resend_error = None
+    retry_error = _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            invited.membership_reference,
+            request,
+            idempotency_key=key,
+        ),
+        status=503,
+    )
+
+    assert provider.resends == 1
+    assert (
+        store.operations[(CUSTOMER_ID, DEPLOYMENT_ID, key)].stage
+        is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED
+    )
+    assert store.memberships[invited.membership_reference].membership_version == 3
+    assert audit.events == []
+    public_errors = f"{first_error!r} {first_error} {retry_error!r} {retry_error}"
+    assert "synthetic.user@example.invalid" not in public_errors
+    assert "raw-provider-response" not in public_errors
+
+
+@pytest.mark.parametrize("mode", ["binding", "flag"])
+def test_forged_checkpoint_winner_outcome_fails_before_provider(mode: str) -> None:
+    store = ForgedCheckpointStore(mode)
+    service, _, provider, *_ = _service(store=store)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            invited.membership_reference,
+            _resend_request(approval_reference="apr_" + "6" * 32),
+            idempotency_key="idem_" + mode.ljust(32, "d"),
+        ),
+        status=503,
+    )
+
+    assert provider.resends == 0
 
 
 def test_ambiguous_invitation_resend_is_quarantined_without_duplicate_effect() -> None:
@@ -541,6 +785,152 @@ def test_ambiguous_invitation_resend_is_quarantined_without_duplicate_effect() -
 
     assert provider.resends == 1
     assert store.memberships[invited.membership_reference].membership_version == 3
+
+
+def test_independent_resend_idempotency_keys_remain_independent() -> None:
+    service, store, provider, *_ = _service()
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+
+    first = service.resend_invitation(
+        _auth(),
+        invited.membership_reference,
+        _resend_request(approval_reference="apr_" + "7" * 32),
+        idempotency_key="idem_" + "e" * 32,
+    )
+    second = service.resend_invitation(
+        _auth(),
+        invited.membership_reference,
+        _resend_request(
+            expected_membership_version=4,
+            expires_in_seconds=7200,
+            approval_reference="apr_" + "8" * 32,
+        ),
+        idempotency_key="idem_" + "f" * 32,
+    )
+
+    assert first.operation_reference != second.operation_reference
+    assert provider.resends == 2
+    assert store.memberships[invited.membership_reference].membership_version == 5
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actor_subject", "different-admin"),
+        ("request_digest", "sha256:" + "f" * 64),
+        ("idempotency_key", "idem_" + "9" * 32),
+    ],
+)
+def test_resend_operation_binding_mismatch_fails_before_provider(
+    field: str,
+    value: str,
+) -> None:
+    service, store, provider, *_ = _service()
+    request = _resend_request()
+    key = "idem_" + "1" * 32
+    command = service._command(  # noqa: SLF001 - exact stored binding fixture
+        LifecycleOperation.RESEND_INVITATION,
+        _auth(),
+        key,
+        {
+            "membership_reference": "mbr_" + "1" * 32,
+            "expected_membership_version": request.expected_membership_version,
+            "expires_in_seconds": request.expires_in_seconds,
+            "approval_reference": request.approval_reference,
+            "reason_code": request.reason_code,
+        },
+    )
+    record = replace(
+        LifecycleOperationRecord.new(command, now=NOW),
+        **{field: value},
+    )
+    store.operations[(CUSTOMER_ID, DEPLOYMENT_ID, key)] = record
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            "mbr_" + "1" * 32,
+            request,
+            idempotency_key=key,
+        ),
+        status=409,
+    )
+
+    assert provider.resends == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("customer_id", FOREIGN_CUSTOMER_ID),
+        ("deployment_id", FOREIGN_DEPLOYMENT_ID),
+    ],
+)
+def test_wrong_auth_owner_binding_fails_before_store_and_provider(
+    field: str,
+    value: str,
+) -> None:
+    service, store, provider, *_ = _service()
+    auth = replace(_auth(), **{field: value})
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            auth,
+            "mbr_" + "1" * 32,
+            _resend_request(),
+            idempotency_key="idem_" + "2" * 32,
+        )
+    )
+
+    assert store.reserve_calls == 0
+    assert provider.resends == 0
+
+
+def test_unknown_operation_stage_fails_closed_before_provider() -> None:
+    service, store, provider, *_ = _service()
+    request = _resend_request()
+    key = "idem_" + "3" * 32
+    command = service._command(  # noqa: SLF001 - malformed store fixture
+        LifecycleOperation.RESEND_INVITATION,
+        _auth(),
+        key,
+        {
+            "membership_reference": "mbr_" + "1" * 32,
+            "expected_membership_version": request.expected_membership_version,
+            "expires_in_seconds": request.expires_in_seconds,
+            "approval_reference": request.approval_reference,
+            "reason_code": request.reason_code,
+        },
+    )
+    malformed = replace(
+        LifecycleOperationRecord.new(command, now=NOW),
+        stage="unknown",  # type: ignore[arg-type]
+        evidence={"effect_order": "provider_before_membership"},
+    )
+    store.operations[(CUSTOMER_ID, DEPLOYMENT_ID, key)] = malformed
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            "mbr_" + "1" * 32,
+            request,
+            idempotency_key=key,
+        ),
+        status=503,
+    )
+
+    assert provider.resends == 0
+
+
+def test_request_cannot_claim_checkpoint_ownership() -> None:
+    with pytest.raises(ValueError):
+        InvitationResendRequest.model_validate(
+            {
+                **_resend_request().model_dump(),
+                "applied_here": True,
+            }
+        )
 
 
 def test_conflicting_idempotency_key_denies_without_second_provider_effect() -> None:

@@ -85,14 +85,29 @@ The service loads the exact owned invited membership, rejects self-targeting or
 version/state conflict, validates independent approval against the canonical
 request digest, and checkpoints the effect order. The provider adapter re-reads
 and reconciles subject, immutable customer/deployment attributes, provider key,
-and provider reference before sending `RESEND`. DynamoDB then conditionally
-refreshes expiry and increments membership version while binding the same
-owner, membership reference, provider references, invited state, and previous
-version. Retry recovery cannot duplicate the provider effect after its durable
-checkpoint. Because Cognito provides neither an idempotency token nor a
-delivery receipt for `RESEND`, a crash after the pre-effect reservation but
-before the applied checkpoint is quarantined for manual review; it is never
-retried automatically.
+and provider reference before sending `RESEND`.
+
+The pre-effect transition returns an explicit persistence-owned
+`CheckpointOutcome(record, applied_here)`. The DynamoDB adapter sets
+`applied_here=true` only for the caller whose conditional update atomically
+moved `approval_validated` to `provider_effect_reserved`; a caller that loses
+the CAS may reload the exact transitioned record but receives
+`applied_here=false`. Only the explicit winner may invoke the provider. Stage
+equality is not ownership, and caller-supplied data cannot set or persist the
+winner result.
+
+DynamoDB then conditionally refreshes expiry and increments membership version
+while binding the same owner, membership reference, provider references,
+invited state, and previous version. Because Cognito provides neither an
+idempotency token nor a delivery receipt for `RESEND`, a loser, replay, crash
+after reservation, provider timeout, or crash before the applied checkpoint is
+quarantined for reconciliation and never resends automatically.
+
+The rejected alternative was a persisted contender-specific claim token. It
+could also prove ownership, but would expand stored evidence and schema
+contracts without improving the already atomic conditional-write decision.
+The typed checkpoint outcome is the smaller contract and preserves the
+accepted lifecycle state machine.
 
 No invitation secret, email, subject, provider response, raw request, or token
 enters audit or operation evidence.
@@ -139,3 +154,7 @@ reversed by source rollback; its versioned audit evidence must be retained.
 - **Blocked:** CI, review/merge/main verification, authorized two-deployment
   proof, provider/live browser validation, and production authorization.
 - **Production:** **NO-GO**.
+
+The repository-only CAS-winner tests use fake stores/providers. No live
+Cognito validation was performed. Locally expired-session classification and
+membership `nextCursor` handling remain open GUG-95 P2 work.

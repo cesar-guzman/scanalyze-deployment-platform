@@ -29,7 +29,7 @@ explicit profile/region, least privilege, and an incident/change record.
 |---|---|---|
 | `reserved` | no approved effect | Verify approval dependency, then exact retry |
 | `approval_validated` | exact request-bound approval; no effect order assumed | Verify immutable `effect_order`, then exact retry |
-| `provider_effect_reserved` | one resend attempt may be in flight and Cognito has no delivery receipt/idempotency token | Do not retry automatically; quarantine and reconcile sanitized provider/operation evidence under separate approval |
+| `provider_effect_reserved` | the CAS winner may have attempted one resend; stage equality alone does not identify that winner, and Cognito has no delivery receipt/idempotency token | Do not retry automatically; CAS losers and later replays quarantine before provider access and reconcile sanitized provider/operation evidence under separate approval |
 | `provider_applied` | provider-first effect proven for activation/reactivation | Exact retry; conditionally apply active membership |
 | `membership_applied` | membership-first restriction/change proven | Exact retry; reconcile provider effect and/or revoke sessions as required |
 | `sessions_revoked` | provider sessions invalidated | Exact retry; emit durable audit |
@@ -95,6 +95,14 @@ references through an approved procedure, and issue a new operation and
 approval only after the previous attempt is resolved. Never reset or advance
 the stored stage manually.
 
+The conditional checkpoint returns `applied_here=true` only to the process
+whose atomic write established the reservation. A process that loses the CAS
+may reload the same stage with identical deterministic evidence, but receives
+`applied_here=false` and must stop. Never infer ownership from
+`provider_effect_reserved`, reconstruct a winner from request data, or retry
+because the original caller crashed before provider access. A provider timeout
+or exception remains ambiguously observable and follows the same quarantine.
+
 ### Membership changed, session revocation failed
 
 Do not revert the membership version. Keep the membership fail-closed and
@@ -126,3 +134,6 @@ Disable human runtime and lifecycle route exposure in the service release.
 Retain all membership, provider, operation, approval, audit, and bootstrap
 evidence. Do not delete provider users or membership records automatically.
 Reconcile partial effects using this runbook before any subsequent rollout.
+
+This repository change performed no AWS access or live Cognito validation.
+Production remains **NO-GO**.

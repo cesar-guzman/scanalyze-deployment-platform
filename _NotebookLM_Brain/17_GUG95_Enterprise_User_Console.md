@@ -25,7 +25,10 @@ GUG-95 agrega el contrato faltante de reenvío de invitación sin crear un scope
 rol nuevo. Reutiliza el PEP de creación de invitación, requiere aprobación
 independiente, reconciliación exacta del provider y un checkpoint durable antes
 de incrementar condicionalmente la versión y renovar la expiración de la
-membresía. Un retry no repite el efecto después del checkpoint.
+membresía. El store devuelve un resultado explícito `applied_here`: sólo el
+caller cuyo write condicional ganó puede llamar `RESEND`. Ver la etapa
+`provider_effect_reserved` no prueba ownership; losers, replays y resultados
+ambiguos quedan en cuarentena sin reenvío automático.
 
 ## Browser y edge
 
@@ -45,6 +48,10 @@ conflict, session expired, rate limited y degraded; no muestra el body de error.
 - **Live validated:** no.
 - **AWS/Cognito/deployment:** no ejecutado.
 - **Production:** **NO-GO**.
+
+La corrección single-winner se validó únicamente con stores/providers fake.
+La clasificación local de sesión expirada y la paginación `nextCursor`
+continúan abiertas como P2 de GUG-95.
 
 Después de CI/review/merge/main todavía falta una prueba autorizada de
 aislamiento entre dos deployments y los restantes gates de GUG-117.

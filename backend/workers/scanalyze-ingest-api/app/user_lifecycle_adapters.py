@@ -20,6 +20,7 @@ from boto3.dynamodb.types import TypeSerializer
 from .enterprise_authorization import HumanRole
 from .user_lifecycle import (
     ApprovalEvidence,
+    CheckpointOutcome,
     EnterpriseLifecycleRuntime,
     IdempotencyConflict,
     LIFECYCLE_APPROVAL_SCHEMA_VERSION,
@@ -299,7 +300,7 @@ class DynamoLifecycleStore:
         expected_stage: LifecycleOperationStage,
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
-    ) -> LifecycleOperationRecord:
+    ) -> CheckpointOutcome:
         merged = {**record.evidence, **(evidence or {})}
         merged = _validated_operation_evidence(merged, stage=next_stage)
         now = datetime.now(timezone.utc)
@@ -326,7 +327,15 @@ class DynamoLifecycleStore:
                     ":updated_at": _timestamp(now),
                 },
             )
-            return replace(record, stage=next_stage, evidence=merged, updated_at=now)
+            return CheckpointOutcome(
+                record=replace(
+                    record,
+                    stage=next_stage,
+                    evidence=merged,
+                    updated_at=now,
+                ),
+                applied_here=True,
+            )
         except Exception as error:
             if _error_code(error) != _CONDITIONAL_FAILURE:
                 raise
@@ -341,7 +350,7 @@ class DynamoLifecycleStore:
             )
         )
         if current.stage is next_stage and all(current.evidence.get(k) == v for k, v in merged.items()):
-            return current
+            return CheckpointOutcome(record=current, applied_here=False)
         raise IdempotencyConflict()
 
     def list_memberships(

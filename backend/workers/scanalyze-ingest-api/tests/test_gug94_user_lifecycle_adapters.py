@@ -9,6 +9,7 @@ import pytest
 
 from app.enterprise_authorization import HumanRole
 from app.user_lifecycle import (
+    CheckpointOutcome,
     LifecycleCommand,
     LifecycleOperation,
     LifecycleOperationRecord,
@@ -289,6 +290,89 @@ def test_operation_idempotency_key_cannot_be_reused_for_different_command() -> N
 
     with pytest.raises(IdempotencyConflict):
         DynamoLifecycleStore(table).reserve_operation(command)
+
+
+def _approval_validated_resend_record() -> LifecycleOperationRecord:
+    command = LifecycleCommand(
+        operation=LifecycleOperation.RESEND_INVITATION,
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+        actor_subject="synthetic-admin",
+        idempotency_key="idem_" + "7" * 32,
+        request_digest="sha256:" + "7" * 64,
+    )
+    return replace(
+        LifecycleOperationRecord.new(command, now=NOW),
+        stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        evidence={"effect_order": "provider_before_membership"},
+    )
+
+
+def test_operation_checkpoint_reports_conditional_writer_as_cas_winner() -> None:
+    table = FakeTable()
+    outcome = DynamoLifecycleStore(table).checkpoint_operation(
+        _approval_validated_resend_record(),
+        expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={"provider_effect_reference": "ref_" + "7" * 24},
+    )
+
+    assert isinstance(outcome, CheckpointOutcome)
+    assert outcome.applied_here is True
+    assert outcome.record.stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED
+
+
+def test_operation_checkpoint_reports_conditional_failure_reload_as_cas_loser() -> None:
+    table = FakeTable()
+    table.update_error = ConditionalFailure()
+    record = _approval_validated_resend_record()
+    current = replace(
+        record,
+        stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={
+            **record.evidence,
+            "provider_effect_reference": "ref_" + "7" * 24,
+        },
+    )
+    table.get_responses.append(
+        {"Item": DynamoLifecycleStore._operation_item(current)}
+    )
+
+    outcome = DynamoLifecycleStore(table).checkpoint_operation(
+        record,
+        expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={"provider_effect_reference": "ref_" + "7" * 24},
+    )
+
+    assert isinstance(outcome, CheckpointOutcome)
+    assert outcome.applied_here is False
+    assert outcome.record == current
+
+
+def test_operation_checkpoint_rejects_loser_reload_with_mismatched_evidence() -> None:
+    table = FakeTable()
+    table.update_error = ConditionalFailure()
+    record = _approval_validated_resend_record()
+    current = replace(
+        record,
+        stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={
+            **record.evidence,
+            "provider_effect_reference": "ref_" + "8" * 24,
+        },
+    )
+    table.get_responses.append(
+        {"Item": DynamoLifecycleStore._operation_item(current)}
+    )
+
+    with pytest.raises(IdempotencyConflict):
+        DynamoLifecycleStore(table).checkpoint_operation(
+            record,
+            expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+            next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+            evidence={"provider_effect_reference": "ref_" + "7" * 24},
+        )
 
 
 def test_operation_adapter_rejects_unknown_evidence_field() -> None:

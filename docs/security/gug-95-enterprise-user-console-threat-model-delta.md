@@ -27,7 +27,9 @@ and API/edge response to browser CORS visibility.
 | Request identity spoofing | Typed client never emits customer, deployment, tenant, subject, provider key, or legacy header authority |
 | Enumeration through list or error detail | Owner-bound storage query and cursor; generic 403/404; closed response parser |
 | Stale write or unsafe retry | Expected membership version, random idempotency key, conflict state, explicit refresh |
-| Duplicate invitation notification | Durable provider-applied checkpoint before conditional membership refresh |
+| Duplicate invitation notification | One atomic conditional reservation plus a persistence-owned `applied_here` outcome; only the CAS winner invokes `RESEND`, while losers/replays quarantine before provider access |
+| CAS loser impersonates the winner | Stage equality and deterministic evidence are explicitly insufficient; winner outcome is not persisted or request-controlled and exact checkpoint bindings are revalidated |
+| Ambiguous provider timeout or crash | `provider_effect_reserved` remains quarantined; reconciliation is required and automatic resend is prohibited |
 | Resend to foreign provider user | Exact membership owner plus provider subject/reference/key and immutable owner reconciliation before effect |
 | Last-admin removal | Existing conditional replacement-admin transaction remains mandatory |
 | PII in list, audit, telemetry, or logs | Opaque references only; invitation locator is transient request input; allowlisted bounded in-memory telemetry |
@@ -44,3 +46,7 @@ CloudFront/API Gateway, a provider notification, live CORS behavior, accessible
 operation with assistive technology, or isolation between two real authorized
 non-production deployments. Human runtime, feature activation, deployment,
 migration, and production remain blocked.
+
+The CAS-winner design was tested with fake concurrent stores/providers only;
+no live Cognito call was performed. Locally expired-session classification and
+membership `nextCursor` handling remain open P2 findings under GUG-95.

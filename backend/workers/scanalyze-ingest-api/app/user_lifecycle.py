@@ -50,6 +50,7 @@ _DEPLOYMENT_PATTERN = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
 _SUBJECT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$")
 _REFERENCE_PATTERN = re.compile(r"^ref_[0-9a-f]{24,64}$")
 _MEMBERSHIP_REFERENCE_PATTERN = re.compile(r"^mbr_[0-9a-f]{32,64}$")
+_OPERATION_REFERENCE_PATTERN = re.compile(r"^op_[0-9a-f]{32}$")
 _APPROVAL_REFERENCE_PATTERN = re.compile(r"^apr_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
 _IDEMPOTENCY_PATTERN = re.compile(r"^idem_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
 _REASON_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
@@ -194,6 +195,14 @@ class LifecycleOperationRecord:
 
 
 @dataclass(frozen=True)
+class CheckpointOutcome:
+    """Persistence-owned result of one conditional checkpoint attempt."""
+
+    record: LifecycleOperationRecord
+    applied_here: bool
+
+
+@dataclass(frozen=True)
 class ApprovalEvidence:
     schema_version: str
     approval_reference: str
@@ -288,7 +297,7 @@ class LifecycleOperationStore(Protocol):
         expected_stage: LifecycleOperationStage,
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
-    ) -> LifecycleOperationRecord: ...
+    ) -> CheckpointOutcome: ...
 
 
 class MembershipStore(Protocol):
@@ -759,7 +768,7 @@ class UserLifecycleService:
 
         provider_effect_reserved_here = False
         if record.stage is LifecycleOperationStage.APPROVAL_VALIDATED:
-            record = self._checkpoint(
+            reservation = self._checkpoint_outcome(
                 record,
                 expected=LifecycleOperationStage.APPROVAL_VALIDATED,
                 next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
@@ -769,7 +778,8 @@ class UserLifecycleService:
                     )
                 },
             )
-            provider_effect_reserved_here = True
+            record = reservation.record
+            provider_effect_reserved_here = reservation.applied_here
 
         if record.stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED:
             # Cognito RESEND has no idempotency token or delivery receipt. A
@@ -1349,14 +1359,40 @@ class UserLifecycleService:
         if not (
             isinstance(record, LifecycleOperationRecord)
             and record.schema_version == LIFECYCLE_OPERATION_SCHEMA_VERSION
-            and record.operation is command.operation
+            and isinstance(record.operation_reference, str)
+            and _OPERATION_REFERENCE_PATTERN.fullmatch(record.operation_reference)
+        ):
+            _unavailable()
+        if not (
+            record.operation is command.operation
+            and isinstance(record.customer_id, str)
             and record.customer_id == command.customer_id
+            and isinstance(record.deployment_id, str)
             and record.deployment_id == command.deployment_id
+            and isinstance(record.actor_subject, str)
             and record.actor_subject == command.actor_subject
+            and isinstance(record.idempotency_key, str)
             and record.idempotency_key == command.idempotency_key
+            and isinstance(record.request_digest, str)
+            and _DIGEST_PATTERN.fullmatch(record.request_digest)
             and hmac.compare_digest(record.request_digest, command.request_digest)
         ):
             _conflict()
+        if not (
+            isinstance(record.stage, LifecycleOperationStage)
+            and isinstance(record.evidence, Mapping)
+            and all(
+                isinstance(key, str)
+                and isinstance(value, str)
+                and key
+                and value
+                for key, value in record.evidence.items()
+            )
+            and _aware(record.created_at)
+            and _aware(record.updated_at)
+            and record.updated_at >= record.created_at
+        ):
+            _unavailable()
         return record
 
     def _checkpoint(
@@ -1367,8 +1403,23 @@ class UserLifecycleService:
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
     ) -> LifecycleOperationRecord:
+        return self._checkpoint_outcome(
+            record,
+            expected=expected,
+            next_stage=next_stage,
+            evidence=evidence,
+        ).record
+
+    def _checkpoint_outcome(
+        self,
+        record: LifecycleOperationRecord,
+        *,
+        expected: LifecycleOperationStage,
+        next_stage: LifecycleOperationStage,
+        evidence: dict[str, str] | None = None,
+    ) -> CheckpointOutcome:
         try:
-            updated = self.runtime.operation_store.checkpoint_operation(
+            outcome = self.runtime.operation_store.checkpoint_operation(
                 record,
                 expected_stage=expected,
                 next_stage=next_stage,
@@ -1376,9 +1427,46 @@ class UserLifecycleService:
             )
         except Exception:
             _unavailable()
-        if not isinstance(updated, LifecycleOperationRecord):
+        if not (
+            isinstance(outcome, CheckpointOutcome)
+            and isinstance(outcome.applied_here, bool)
+        ):
             _unavailable()
-        return updated
+        updated = outcome.record
+        expected_evidence = {**record.evidence, **(evidence or {})}
+        if not (
+            isinstance(updated, LifecycleOperationRecord)
+            and updated.schema_version == LIFECYCLE_OPERATION_SCHEMA_VERSION
+            and isinstance(updated.operation_reference, str)
+            and updated.operation_reference == record.operation_reference
+            and updated.operation is record.operation
+            and isinstance(updated.customer_id, str)
+            and updated.customer_id == record.customer_id
+            and isinstance(updated.deployment_id, str)
+            and updated.deployment_id == record.deployment_id
+            and isinstance(updated.actor_subject, str)
+            and updated.actor_subject == record.actor_subject
+            and isinstance(updated.idempotency_key, str)
+            and updated.idempotency_key == record.idempotency_key
+            and isinstance(updated.request_digest, str)
+            and _DIGEST_PATTERN.fullmatch(updated.request_digest)
+            and hmac.compare_digest(updated.request_digest, record.request_digest)
+            and updated.stage is next_stage
+            and isinstance(updated.evidence, Mapping)
+            and all(
+                isinstance(key, str)
+                and isinstance(value, str)
+                and key
+                and value
+                for key, value in updated.evidence.items()
+            )
+            and dict(updated.evidence) == expected_evidence
+            and updated.created_at == record.created_at
+            and _aware(updated.updated_at)
+            and updated.updated_at >= record.updated_at
+        ):
+            _unavailable()
+        return outcome
 
     def _load_owned(
         self,
