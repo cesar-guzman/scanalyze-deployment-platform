@@ -1472,36 +1472,61 @@ def _identity_edges(
             for action in actions:
                 if action in INVOCATION_ACTIONS:
                     candidate_invocation_resources = set(invocation_resources)
-                    for stated_resource in statement_resources:
-                        if _is_target_function_pattern(binding, stated_resource):
-                            # A not-yet-created alias/version can already be
-                            # authorized by a qualifier glob.  It must be
-                            # represented even when no current Lambda surface
-                            # happens to match the pattern.
-                            edges.append(
-                                _inventory_edge(
-                                    authority_class="INVOCATION",
-                                    source_type=source_type,
-                                    duty=duty,
-                                    target_scope="WILDCARD",
-                                    action_class=_action_class(action),
-                                    condition_class=_condition_class(condition, action),
-                                    principal_kind=actor_kind,
-                                    principal_digest=actor_digest,
-                                    resource_digest=digest_text(stated_resource),
-                                    source_document_digest=source_digest,
-                                    verdict="PROHIBITED",
-                                    reason_code="QUALIFIER_WILDCARD_PREAUTHORIZATION",
+                    is_not_resource = "NotResource" in statement
+                    if not is_not_resource:
+                        for stated_resource in statement_resources:
+                            if _is_target_function_pattern(binding, stated_resource):
+                                # A not-yet-created alias/version can already be
+                                # authorized by a qualifier glob.  It must be
+                                # represented even when no current Lambda surface
+                                # happens to match the pattern.
+                                edges.append(
+                                    _inventory_edge(
+                                        authority_class="INVOCATION",
+                                        source_type=source_type,
+                                        duty=duty,
+                                        target_scope="WILDCARD",
+                                        action_class=_action_class(action),
+                                        condition_class=_condition_class(condition, action),
+                                        principal_kind=actor_kind,
+                                        principal_digest=actor_digest,
+                                        resource_digest=digest_text(stated_resource),
+                                        source_document_digest=source_digest,
+                                        verdict="PROHIBITED",
+                                        reason_code="QUALIFIER_WILDCARD_PREAUTHORIZATION",
+                                    )
                                 )
-                            )
-                        if (
-                            not any(character in stated_resource for character in "*?[")
-                            and stated_resource.startswith(binding.function_arn + ":")
-                        ):
-                            # Detect pre-authorized, deleted, alternate, numeric,
-                            # or $LATEST qualifiers even when Lambda does not
-                            # currently return them in its surface inventory.
-                            candidate_invocation_resources.add(stated_resource)
+                            if (
+                                not any(character in stated_resource for character in "*?[")
+                                and stated_resource.startswith(binding.function_arn + ":")
+                            ):
+                                # Detect pre-authorized, deleted, alternate, numeric,
+                                # or $LATEST qualifiers even when Lambda does not
+                                # currently return them in its surface inventory.
+                                candidate_invocation_resources.add(stated_resource)
+                    else:
+                        # For NotResource, if it applies to the target but does not
+                        # universally exclude the qualifier namespace, it implicitly
+                        # grants a wildcard preauthorization.
+                        if _target_applicable(statement, binding, tuple(invocation_resources)):
+                            _, raw_patterns = _validated_resource_patterns(statement)
+                            if not _not_resource_excludes_all_target_qualifiers(binding, raw_patterns):
+                                edges.append(
+                                    _inventory_edge(
+                                        authority_class="INVOCATION",
+                                        source_type=source_type,
+                                        duty=duty,
+                                        target_scope="WILDCARD",
+                                        action_class=_action_class(action),
+                                        condition_class=_condition_class(condition, action),
+                                        principal_kind=actor_kind,
+                                        principal_digest=actor_digest,
+                                        resource_digest=digest_text("*"),
+                                        source_document_digest=source_digest,
+                                        verdict="PROHIBITED",
+                                        reason_code="QUALIFIER_WILDCARD_PREAUTHORIZATION",
+                                    )
+                                )
                     for resource in sorted(candidate_invocation_resources):
                         try:
                             applies = _resource_applies(statement, resource)

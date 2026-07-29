@@ -953,8 +953,12 @@ def test_gug221_narrow_wildcard_not_resource_is_prohibited(target: str) -> None:
                 "Effect": "Allow",
                 "Action": "lambda:Invoke*",
                 "NotResource": [
-                    base_arn,
-                    base_arn + ":*",
+                    _function_arn(PLAN_FUNCTION_NAME),
+                    _function_arn(PLAN_FUNCTION_NAME) + ":*",
+                    _function_arn(REPAIR_FUNCTION_NAME),
+                    _function_arn(REPAIR_FUNCTION_NAME) + ":*",
+                    _function_arn(RECONCILE_FUNCTION_NAME),
+                    _function_arn(RECONCILE_FUNCTION_NAME) + ":*",
                 ],
             }
         ],
@@ -971,8 +975,12 @@ def test_gug221_narrow_wildcard_not_resource_is_prohibited(target: str) -> None:
                 "Effect": "Allow",
                 "Action": "lambda:*",
                 "NotResource": [
-                    base_arn,
-                    base_arn + ":*",
+                    _function_arn(PLAN_FUNCTION_NAME),
+                    _function_arn(PLAN_FUNCTION_NAME) + ":*",
+                    _function_arn(REPAIR_FUNCTION_NAME),
+                    _function_arn(REPAIR_FUNCTION_NAME) + ":*",
+                    _function_arn(RECONCILE_FUNCTION_NAME),
+                    _function_arn(RECONCILE_FUNCTION_NAME) + ":*",
                 ],
             }
         ],
