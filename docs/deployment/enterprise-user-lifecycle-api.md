@@ -167,18 +167,22 @@ sessions. A missing or conflicting order marker fails unavailable. Raw provider
 responses and secret delivery values are never returned or logged.
 
 Invitation resend reconciles the exact owned provider user before requesting
-`RESEND`. The preceding atomic checkpoint returns a typed outcome whose
-`applied_here` value is true only for the conditional-write winner. A caller
-that loses the CAS can observe the same `provider_effect_reserved` record, but
-stage equality does not make it the winner and it must stop before provider
-access. A request cannot supply or persist `applied_here`.
+`RESEND`. First, the operation store conditionally creates one durable effect
+reservation keyed by owner, operation, membership reference, and expected
+membership version. Distinct `Idempotency-Key` values for the same logical
+effect address this same reservation and only its writer may continue. The
+following operation checkpoint returns a typed outcome whose `applied_here`
+value is true only for that operation-row conditional-write winner. A caller
+that loses either CAS must stop before provider access. A request cannot supply
+or persist `applied_here`.
 
 After the one permitted provider call, the provider-applied checkpoint
 precedes an owner-, provider-, state-, and version-bound membership expiry
 refresh. Because Cognito `RESEND` has no idempotency token or durable delivery
-receipt, a loser, replay, crash, timeout, or other ambiguous outcome remains
-quarantined until separately approved reconciliation; it is never resent
-automatically.
+receipt, a loser, replay, crash after either reservation, timeout, or other
+ambiguous outcome remains quarantined until separately approved
+reconciliation; it is never resent automatically. A new successful resend
+requires a new expected membership version and therefore a new effect identity.
 
 ## Activation checklist
 

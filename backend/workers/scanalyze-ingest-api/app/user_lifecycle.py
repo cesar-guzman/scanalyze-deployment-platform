@@ -40,6 +40,7 @@ from .errors import AppError
 MEMBERSHIP_SCHEMA_VERSION = "enterprise-membership.v1"
 LIFECYCLE_APPROVAL_SCHEMA_VERSION = "lifecycle-approval-evidence.v1"
 LIFECYCLE_OPERATION_SCHEMA_VERSION = "lifecycle-operation.v1"
+PROVIDER_EFFECT_RESERVATION_SCHEMA_VERSION = "provider-effect-reservation.v1"
 LIFECYCLE_AUDIT_EVENT_SCHEMA_VERSION = "lifecycle-audit-event.v1"
 LIFECYCLE_AUDIT_RECEIPT_SCHEMA_VERSION = "lifecycle-audit-receipt.v1"
 MAX_INVITATION_TTL_SECONDS = 86_400
@@ -203,6 +204,55 @@ class CheckpointOutcome:
 
 
 @dataclass(frozen=True)
+class ProviderEffectReservation:
+    """Durable single-winner claim for one protected provider effect."""
+
+    schema_version: str
+    operation: LifecycleOperation
+    customer_id: str
+    deployment_id: str
+    target_reference: str
+    expected_membership_version: int
+    approval_reference: str
+    request_digest: str
+    actor_subject: str
+    winner_operation_reference: str
+    created_at: datetime
+
+    @classmethod
+    def new(
+        cls,
+        record: LifecycleOperationRecord,
+        *,
+        target_reference: str,
+        expected_membership_version: int,
+        approval_reference: str,
+        now: datetime,
+    ) -> "ProviderEffectReservation":
+        return cls(
+            schema_version=PROVIDER_EFFECT_RESERVATION_SCHEMA_VERSION,
+            operation=record.operation,
+            customer_id=record.customer_id,
+            deployment_id=record.deployment_id,
+            target_reference=target_reference,
+            expected_membership_version=expected_membership_version,
+            approval_reference=approval_reference,
+            request_digest=record.request_digest,
+            actor_subject=record.actor_subject,
+            winner_operation_reference=record.operation_reference,
+            created_at=now,
+        )
+
+
+@dataclass(frozen=True)
+class ProviderEffectReservationOutcome:
+    """Persistence-owned result of a target/version effect reservation."""
+
+    reservation: ProviderEffectReservation
+    applied_here: bool
+
+
+@dataclass(frozen=True)
 class ApprovalEvidence:
     schema_version: str
     approval_reference: str
@@ -289,6 +339,11 @@ class IdempotencyConflict(RuntimeError):
 
 class LifecycleOperationStore(Protocol):
     def reserve_operation(self, command: LifecycleCommand) -> LifecycleOperationRecord: ...
+
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome: ...
 
     def checkpoint_operation(
         self,
@@ -768,6 +823,24 @@ class UserLifecycleService:
 
         provider_effect_reserved_here = False
         if record.stage is LifecycleOperationStage.APPROVAL_VALIDATED:
+            if not (
+                record.evidence.get("membership_reference") == membership_reference
+                and record.evidence.get("before_membership_version")
+                == str(request.expected_membership_version)
+                and record.evidence.get("approval_reference")
+                == request.approval_reference
+            ):
+                _unavailable()
+            effect_reservation = ProviderEffectReservation.new(
+                record,
+                target_reference=membership_reference,
+                expected_membership_version=request.expected_membership_version,
+                approval_reference=request.approval_reference,
+                now=self._now(),
+            )
+            effect_outcome = self._reserve_provider_effect(effect_reservation)
+            if not effect_outcome.applied_here:
+                _unavailable()
             reservation = self._checkpoint_outcome(
                 record,
                 expected=LifecycleOperationStage.APPROVAL_VALIDATED,
@@ -1465,6 +1538,46 @@ class UserLifecycleService:
             and _aware(updated.updated_at)
             and updated.updated_at >= record.updated_at
         ):
+            _unavailable()
+        return outcome
+
+    def _reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        try:
+            outcome = self.runtime.operation_store.reserve_provider_effect(reservation)
+        except Exception:
+            _unavailable()
+        if not (
+            isinstance(outcome, ProviderEffectReservationOutcome)
+            and isinstance(outcome.applied_here, bool)
+            and isinstance(outcome.reservation, ProviderEffectReservation)
+        ):
+            _unavailable()
+        stored = outcome.reservation
+        if not (
+            stored.schema_version == PROVIDER_EFFECT_RESERVATION_SCHEMA_VERSION
+            and stored.operation is reservation.operation
+            and stored.customer_id == reservation.customer_id
+            and stored.deployment_id == reservation.deployment_id
+            and stored.target_reference == reservation.target_reference
+            and stored.expected_membership_version
+            == reservation.expected_membership_version
+            and isinstance(stored.approval_reference, str)
+            and _APPROVAL_REFERENCE_PATTERN.fullmatch(stored.approval_reference)
+            and isinstance(stored.request_digest, str)
+            and _DIGEST_PATTERN.fullmatch(stored.request_digest)
+            and isinstance(stored.actor_subject, str)
+            and _SUBJECT_PATTERN.fullmatch(stored.actor_subject)
+            and isinstance(stored.winner_operation_reference, str)
+            and _OPERATION_REFERENCE_PATTERN.fullmatch(
+                stored.winner_operation_reference
+            )
+            and _aware(stored.created_at)
+        ):
+            _unavailable()
+        if outcome.applied_here and stored != reservation:
             _unavailable()
         return outcome
 

@@ -88,20 +88,24 @@ and must be quarantined.
 
 Do not resend automatically. Cognito does not accept an idempotency token for
 `MessageAction=RESEND` and does not return a durable delivery receipt. The
-pre-effect `provider_effect_reserved` checkpoint therefore makes an ambiguous
-retry fail closed instead of sending a duplicate notification. Classify the
-operation `manual_review_required`, reconcile only opaque operation/provider
-references through an approved procedure, and issue a new operation and
-approval only after the previous attempt is resolved. Never reset or advance
-the stored stage manually.
+target/version effect reservation and the following
+`provider_effect_reserved` checkpoint therefore make an ambiguous retry fail
+closed instead of sending a duplicate notification. This also applies when
+the durable effect reservation exists but a crash left the operation at
+`approval_validated`. Classify the operation `manual_review_required`,
+reconcile only opaque operation/provider references through an approved
+procedure, and issue a new operation and approval only after the previous
+attempt is resolved. Never delete the effect reservation or reset/advance the
+stored stage manually.
 
-The conditional checkpoint returns `applied_here=true` only to the process
-whose atomic write established the reservation. A process that loses the CAS
-may reload the same stage with identical deterministic evidence, but receives
-`applied_here=false` and must stop. Never infer ownership from
-`provider_effect_reserved`, reconstruct a winner from request data, or retry
-because the original caller crashed before provider access. A provider timeout
-or exception remains ambiguously observable and follows the same quarantine.
+All idempotency keys for one membership version contend on one durable effect
+reservation. Only that conditional writer may attempt the subsequent operation
+checkpoint, which separately returns `applied_here=true` only to its atomic
+writer. A process that loses either CAS must stop. Never infer ownership from
+`provider_effect_reserved`, reconstruct a winner from request data, delete a
+reservation to restore liveness, or retry because the original caller crashed
+before provider access. A provider timeout or exception remains ambiguously
+observable and follows the same quarantine.
 
 ### Membership changed, session revocation failed
 

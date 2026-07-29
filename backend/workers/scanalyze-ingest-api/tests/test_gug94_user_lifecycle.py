@@ -41,6 +41,8 @@ from app.user_lifecycle import (
     MembershipPage,
     MembershipRecord,
     MembershipState,
+    ProviderEffectReservation,
+    ProviderEffectReservationOutcome,
     ProviderUserReceipt,
     RoleChangeRequest,
     TransitionRequest,
@@ -139,6 +141,10 @@ def _membership(
 class FakeOperationStore:
     def __init__(self) -> None:
         self.operations: dict[tuple[str, str, str], LifecycleOperationRecord] = {}
+        self.provider_effects: dict[
+            tuple[str, str, LifecycleOperation, str, int],
+            ProviderEffectReservation,
+        ] = {}
         self.memberships: dict[str, MembershipRecord] = {}
         self.list_calls: list[dict[str, Any]] = []
         self.reserve_calls = 0
@@ -156,6 +162,29 @@ class FakeOperationStore:
         record = LifecycleOperationRecord.new(command, now=NOW)
         self.operations[key] = record
         return record
+
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        key = (
+            reservation.customer_id,
+            reservation.deployment_id,
+            reservation.operation,
+            reservation.target_reference,
+            reservation.expected_membership_version,
+        )
+        existing = self.provider_effects.get(key)
+        if existing is not None:
+            return ProviderEffectReservationOutcome(
+                reservation=existing,
+                applied_here=False,
+            )
+        self.provider_effects[key] = reservation
+        return ProviderEffectReservationOutcome(
+            reservation=reservation,
+            applied_here=True,
+        )
 
     def checkpoint_operation(
         self,
@@ -303,7 +332,7 @@ class FakeOperationStore:
 
 
 class RacingOperationStore(FakeOperationStore):
-    """Deterministically exposes a CAS winner and a reloaded CAS loser."""
+    """Deterministically exposes one target/version effect-reservation winner."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -315,6 +344,16 @@ class RacingOperationStore(FakeOperationStore):
         with self._operation_lock:
             return super().reserve_operation(command)
 
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        self._provider_reservation_barrier.wait(timeout=5)
+        with self._operation_lock:
+            result = super().reserve_provider_effect(reservation)
+        self._provider_reservation_result_barrier.wait(timeout=5)
+        return result
+
     def checkpoint_operation(
         self,
         record: LifecycleOperationRecord,
@@ -323,21 +362,13 @@ class RacingOperationStore(FakeOperationStore):
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
     ) -> CheckpointOutcome:
-        is_provider_reservation = (
-            next_stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED
-        )
-        if is_provider_reservation:
-            self._provider_reservation_barrier.wait(timeout=5)
         with self._operation_lock:
-            result = super().checkpoint_operation(
+            return super().checkpoint_operation(
                 record,
                 expected_stage=expected_stage,
                 next_stage=next_stage,
                 evidence=evidence,
             )
-        if is_provider_reservation:
-            self._provider_reservation_result_barrier.wait(timeout=5)
-        return result
 
 
 class ForgedCheckpointStore(FakeOperationStore):
@@ -372,6 +403,48 @@ class ForgedCheckpointStore(FakeOperationStore):
                 applied_here="request-controlled",  # type: ignore[arg-type]
             )
         raise AssertionError("unsupported forged checkpoint mode")
+
+
+class AmbiguousProviderEffectStore(FakeOperationStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self._first_effect_reservation = True
+
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        outcome = super().reserve_provider_effect(reservation)
+        if self._first_effect_reservation:
+            self._first_effect_reservation = False
+            raise RuntimeError("synthetic ambiguous provider-effect reservation")
+        return outcome
+
+
+class ForgedProviderEffectStore(FakeOperationStore):
+    def __init__(self, mode: str) -> None:
+        super().__init__()
+        self.mode = mode
+
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        outcome = super().reserve_provider_effect(reservation)
+        if self.mode == "binding":
+            return ProviderEffectReservationOutcome(
+                reservation=replace(
+                    outcome.reservation,
+                    actor_subject="forged-actor",
+                ),
+                applied_here=True,
+            )
+        if self.mode == "flag":
+            return ProviderEffectReservationOutcome(
+                reservation=outcome.reservation,
+                applied_here="request-controlled",  # type: ignore[arg-type]
+            )
+        raise AssertionError("unsupported forged provider-effect mode")
 
 
 class FakeProvider:
@@ -661,6 +734,86 @@ def test_concurrent_invitation_resend_has_exactly_one_provider_caller() -> None:
     ) == 1
 
 
+def test_concurrent_invitation_resend_with_distinct_keys_has_one_provider_caller() -> None:
+    store = RacingOperationStore()
+    service, _, provider, *_ = _service(store=store)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    request = InvitationResendRequest(
+        expected_membership_version=3,
+        expires_in_seconds=3600,
+        approval_reference="apr_" + "d" * 32,
+        reason_code="invitation_resend",
+    )
+    keys = ("idem_" + "a" * 32, "idem_" + "b" * 32)
+
+    def resend(key: str) -> LifecycleOutcome | AppError:
+        try:
+            return service.resend_invitation(
+                _auth(),
+                invited.membership_reference,
+                request,
+                idempotency_key=key,
+            )
+        except AppError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(resend, keys))
+
+    assert provider.resends == 1
+    assert sum(isinstance(result, LifecycleOutcome) for result in results) == 1
+    assert sum(
+        isinstance(result, AppError) and result.status_code == 503
+        for result in results
+    ) == 1
+    assert len(store.provider_effects) == 1
+
+
+def test_ambiguous_provider_effect_reservation_quarantines_without_resend() -> None:
+    store = AmbiguousProviderEffectStore()
+    service, _, provider, *_ = _service(store=store)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+    request = _resend_request(approval_reference="apr_" + "e" * 32)
+
+    for _ in range(2):
+        _assert_denied(
+            lambda: service.resend_invitation(
+                _auth(),
+                invited.membership_reference,
+                request,
+                idempotency_key="idem_" + "e" * 32,
+            ),
+            status=503,
+        )
+
+    assert provider.resends == 0
+    assert len(store.provider_effects) == 1
+
+
+@pytest.mark.parametrize("mode", ["binding", "flag"])
+def test_forged_provider_effect_winner_outcome_fails_before_resend(
+    mode: str,
+) -> None:
+    store = ForgedProviderEffectStore(mode)
+    service, _, provider, *_ = _service(store=store)
+    invited = _membership(state=MembershipState.INVITED, version=3)
+    store.memberships[invited.membership_reference] = invited
+
+    _assert_denied(
+        lambda: service.resend_invitation(
+            _auth(),
+            invited.membership_reference,
+            _resend_request(approval_reference="apr_" + "f" * 32),
+            idempotency_key="idem_" + "f" * 32,
+        ),
+        status=503,
+    )
+
+    assert provider.resends == 0
+
+
 def test_retry_loaded_at_provider_effect_reserved_never_calls_provider() -> None:
     service, store, provider, *_ = _service()
     request = _resend_request()
@@ -817,6 +970,8 @@ def test_independent_resend_idempotency_keys_remain_independent() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("customer_id", FOREIGN_CUSTOMER_ID),
+        ("deployment_id", FOREIGN_DEPLOYMENT_ID),
         ("actor_subject", "different-admin"),
         ("request_digest", "sha256:" + "f" * 64),
         ("idempotency_key", "idem_" + "9" * 32),
