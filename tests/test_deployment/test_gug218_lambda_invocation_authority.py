@@ -3690,3 +3690,89 @@ def test_gug218_not_resource_enumerated_current_only() -> None:
         edge["target_scope"] == "WILDCARD" and edge["verdict"] == "PROHIBITED"
         for edge in inventory["authority_edges"]
     )
+
+def test_gug218_not_resource_isolated_qualifier_namespace_invoke() -> None:
+    from tooling.platform_authority_lambda_invocation_authority import _observed_invocation_resources, canonical_digest
+    
+    snapshot = _snapshot()
+    not_resource_list = list(_observed_invocation_resources(_binding(), snapshot["lambda"]))
+    not_resource_list.append(_binding().function_arn + ":?")
+    
+    injected_statement = {
+        "Effect": "Allow",
+        "Action": "lambda:Invoke*",
+        "NotResource": not_resource_list,
+    }
+    injected_document = {
+        "Version": "2012-10-17",
+        "Statement": injected_statement,
+    }
+    injected_digest = canonical_digest(injected_document)
+    
+    snapshot = _append_identity_statement(snapshot, injected_statement)
+    inventory, receipt = _analyze(snapshot)
+    
+    assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+    assert any(
+        edge["target_scope"] == "WILDCARD" and edge["verdict"] == "PROHIBITED"
+        and edge["source_document_digest"] == injected_digest
+        for edge in inventory["authority_edges"]
+    )
+    assert receipt["status"] == RECEIPT_UNSAFE
+
+def test_gug218_not_resource_isolated_qualifier_namespace_mutate() -> None:
+    from tooling.platform_authority_lambda_invocation_authority import _observed_invocation_resources, canonical_digest
+    
+    snapshot = _snapshot()
+    not_resource_list = list(_observed_invocation_resources(_binding(), snapshot["lambda"]))
+    not_resource_list.append(_binding().function_arn + ":?")
+    
+    injected_statement = {
+        "Effect": "Allow",
+        "Action": "lambda:*",
+        "NotResource": not_resource_list,
+    }
+    injected_document = {
+        "Version": "2012-10-17",
+        "Statement": injected_statement,
+    }
+    injected_digest = canonical_digest(injected_document)
+    
+    snapshot = _append_identity_statement(snapshot, injected_statement)
+    inventory, receipt = _analyze(snapshot)
+    
+    assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+    assert inventory["mutating_authority_count"] > 0
+    assert any(
+        edge["action_class"] == "MUTATE_LAMBDA_AUTHORITY" and edge["verdict"] == "PROHIBITED"
+        and edge["source_document_digest"] == injected_digest
+        for edge in inventory["authority_edges"]
+    )
+    assert receipt["status"] == RECEIPT_UNSAFE
+
+def test_gug218_not_resource_isolated_qualifier_namespace_full_exclusion_control() -> None:
+    from tooling.platform_authority_lambda_invocation_authority import _observed_invocation_resources, canonical_digest
+    
+    snapshot = _snapshot()
+    not_resource_list = list(_observed_invocation_resources(_binding(), snapshot["lambda"]))
+    not_resource_list.append(_binding().function_arn + ":*")
+    
+    injected_statement = {
+        "Effect": "Allow",
+        "Action": "lambda:Invoke*",
+        "NotResource": not_resource_list,
+    }
+    injected_document = {
+        "Version": "2012-10-17",
+        "Statement": injected_statement,
+    }
+    injected_digest = canonical_digest(injected_document)
+    
+    snapshot = _append_identity_statement(snapshot, injected_statement)
+    inventory, receipt = _analyze(snapshot)
+    
+    assert inventory["status"] == INVENTORY_REVIEW_SAFE
+    assert not any(
+        edge["source_document_digest"] == injected_digest
+        for edge in inventory["authority_edges"]
+    )
