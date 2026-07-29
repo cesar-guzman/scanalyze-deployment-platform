@@ -35,10 +35,11 @@ from tooling.platform_authority_lambda_invocation_authority import (
     AuthorityInventoryError,
     AwsReadOnlyInventoryAdapter,
     TargetBinding,
-    _allowed_sensitive_actions,
+    WildcardAuthorityCoverage,
     _canonical_sts_principal_arn,
+    _classify_action_statement,
+    _classify_wildcard_authority_coverage,
     _condition_class,
-    _has_unknown_authority_action,
     _is_target_function_pattern,
     _observed_invocation_resources,
     _parse_time,
@@ -50,6 +51,7 @@ from tooling.platform_authority_lambda_invocation_authority import (
     _statements,
     _strict_policy_document,
     _strict_string_list,
+    _target_applicable,
     canonical_digest,
     digest_text,
 )
@@ -616,16 +618,72 @@ def _policy_authority_edges(
     ):
         source_digest = canonical_digest(document)
         for statement in _statements(document):
+            # ── Centralized classification (GUG-218 single source) ──
             try:
-                if _has_unknown_authority_action(statement):
-                    raise AuthorityInventoryError(
-                        "POLICY_SEMANTICS_UNSUPPORTED"
-                    )
-                actions = _allowed_sensitive_actions(statement)
+                classification = _classify_action_statement(statement)
             except AuthorityInventoryError as exc:
                 raise AuthorityInventoryError(
                     "POLICY_SEMANTICS_UNSUPPORTED"
                 ) from exc
+
+            if classification.not_action_present or classification.unknown_authority_present:
+                raise AuthorityInventoryError(
+                    "POLICY_SEMANTICS_UNSUPPORTED"
+                )
+
+            if classification.wildcard_present:
+                # ── Wildcard: determine authority coverage centrally ──
+                coverage = _classify_wildcard_authority_coverage(
+                    classification.wildcard_patterns,
+                )
+
+                # Error precedence:
+                # 1. IAM/CloudFormation mutation → AUTHORITY_MUTATION_PRESENT
+                #    (account-wide, no resource check needed)
+                if coverage.iam_mutation or coverage.cloudformation_mutation:
+                    raise AuthorityInventoryError(
+                        "AUTHORITY_MUTATION_PRESENT"
+                    )
+
+                # 2. Lambda mutation or invocation → check target applicability
+                if coverage.lambda_mutation or coverage.invocation:
+                    # Check if ANY of the three targets is reachable.
+                    for target, lambda_inventory in targets:
+                        inv_resources = tuple(
+                            _observed_invocation_resources(
+                                target, lambda_inventory,
+                            )
+                        )
+                        try:
+                            applicable = _target_applicable(
+                                statement, target, inv_resources,
+                            )
+                        except AuthorityInventoryError as exc:
+                            raise AuthorityInventoryError(
+                                "POLICY_SEMANTICS_UNSUPPORTED"
+                            ) from exc
+                        if not applicable:
+                            continue
+                        if coverage.lambda_mutation:
+                            raise AuthorityInventoryError(
+                                "AUTHORITY_MUTATION_PRESENT"
+                            )
+                        if coverage.invocation:
+                            raise AuthorityInventoryError(
+                                "FOREIGN_INVOCATION_AUTHORITY"
+                            )
+
+                # Wildcard that doesn't cover any reviewed class or
+                # doesn't reach any target — raise unsupported to be safe.
+                if coverage.lambda_mutation or coverage.invocation:
+                    # Reached here only when no target was applicable.
+                    continue
+                raise AuthorityInventoryError(
+                    "POLICY_SEMANTICS_UNSUPPORTED"
+                )
+
+            # ── Exact actions (unchanged behavior) ──
+            actions = classification.exact_sensitive_actions
             if not actions:
                 continue
             try:
