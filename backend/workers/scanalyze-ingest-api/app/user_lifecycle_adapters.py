@@ -20,12 +20,14 @@ from boto3.dynamodb.types import TypeSerializer
 from .enterprise_authorization import HumanRole
 from .user_lifecycle import (
     ApprovalEvidence,
+    CheckpointOutcome,
     EnterpriseLifecycleRuntime,
     IdempotencyConflict,
     LIFECYCLE_APPROVAL_SCHEMA_VERSION,
     LIFECYCLE_AUDIT_EVENT_SCHEMA_VERSION,
     LIFECYCLE_AUDIT_RECEIPT_SCHEMA_VERSION,
     LIFECYCLE_OPERATION_SCHEMA_VERSION,
+    PROVIDER_EFFECT_RESERVATION_SCHEMA_VERSION,
     LifecycleAuditEvent,
     LifecycleAuditPage,
     LifecycleAuditReceipt,
@@ -36,6 +38,8 @@ from .user_lifecycle import (
     MembershipPage,
     MembershipRecord,
     MembershipState,
+    ProviderEffectReservation,
+    ProviderEffectReservationOutcome,
     ProviderUserReceipt,
 )
 
@@ -50,6 +54,8 @@ _REFERENCE_PATTERN = re.compile(r"^ref_[0-9a-f]{24,64}$")
 _MEMBERSHIP_REFERENCE_PATTERN = re.compile(r"^mbr_[0-9a-f]{32,64}$")
 _APPROVAL_REFERENCE_PATTERN = re.compile(r"^apr_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
 _IDEMPOTENCY_PATTERN = re.compile(r"^idem_[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
+_OPERATION_REFERENCE_PATTERN = re.compile(r"^op_[0-9a-f]{32}$")
+_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _OPERATION_EVIDENCE_FIELDS = frozenset(
     {
         "approval_reference",
@@ -106,6 +112,17 @@ def _membership_pk(customer_id: str, deployment_id: str) -> str:
 
 def _operation_pk(customer_id: str, deployment_id: str) -> str:
     return f"LIFECYCLE#{_owner_prefix(customer_id, deployment_id)}"
+
+
+def _provider_effect_reservation_sk(
+    operation: LifecycleOperation,
+    target_reference: str,
+    expected_membership_version: int,
+) -> str:
+    material = "\x1f".join(
+        (operation.value, target_reference, str(expected_membership_version))
+    )
+    return "PROVIDER_EFFECT#" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def _approval_pk(customer_id: str, deployment_id: str) -> str:
@@ -292,6 +309,38 @@ class DynamoLifecycleStore:
             raise IdempotencyConflict()
         return existing
 
+    def reserve_provider_effect(
+        self,
+        reservation: ProviderEffectReservation,
+    ) -> ProviderEffectReservationOutcome:
+        item = self._provider_effect_reservation_item(reservation)
+        try:
+            self.table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
+            )
+            return ProviderEffectReservationOutcome(
+                reservation=reservation,
+                applied_here=True,
+            )
+        except Exception as error:
+            if _error_code(error) != _CONDITIONAL_FAILURE:
+                raise
+        existing = self._load_provider_effect_reservation(reservation)
+        if not (
+            existing.operation is reservation.operation
+            and existing.customer_id == reservation.customer_id
+            and existing.deployment_id == reservation.deployment_id
+            and existing.target_reference == reservation.target_reference
+            and existing.expected_membership_version
+            == reservation.expected_membership_version
+        ):
+            raise IdempotencyConflict()
+        return ProviderEffectReservationOutcome(
+            reservation=existing,
+            applied_here=False,
+        )
+
     def checkpoint_operation(
         self,
         record: LifecycleOperationRecord,
@@ -299,7 +348,7 @@ class DynamoLifecycleStore:
         expected_stage: LifecycleOperationStage,
         next_stage: LifecycleOperationStage,
         evidence: dict[str, str] | None = None,
-    ) -> LifecycleOperationRecord:
+    ) -> CheckpointOutcome:
         merged = {**record.evidence, **(evidence or {})}
         merged = _validated_operation_evidence(merged, stage=next_stage)
         now = datetime.now(timezone.utc)
@@ -326,7 +375,15 @@ class DynamoLifecycleStore:
                     ":updated_at": _timestamp(now),
                 },
             )
-            return replace(record, stage=next_stage, evidence=merged, updated_at=now)
+            return CheckpointOutcome(
+                record=replace(
+                    record,
+                    stage=next_stage,
+                    evidence=merged,
+                    updated_at=now,
+                ),
+                applied_here=True,
+            )
         except Exception as error:
             if _error_code(error) != _CONDITIONAL_FAILURE:
                 raise
@@ -341,7 +398,7 @@ class DynamoLifecycleStore:
             )
         )
         if current.stage is next_stage and all(current.evidence.get(k) == v for k, v in merged.items()):
-            return current
+            return CheckpointOutcome(record=current, applied_here=False)
         raise IdempotencyConflict()
 
     def list_memberships(
@@ -778,6 +835,26 @@ class DynamoLifecycleStore:
             raise LifecycleAdapterContractError()
         return self._operation_from_item(item)
 
+    def _load_provider_effect_reservation(
+        self,
+        expected: ProviderEffectReservation,
+    ) -> ProviderEffectReservation:
+        response = self.table.get_item(
+            Key={
+                "pk": _operation_pk(expected.customer_id, expected.deployment_id),
+                "sk": _provider_effect_reservation_sk(
+                    expected.operation,
+                    expected.target_reference,
+                    expected.expected_membership_version,
+                ),
+            },
+            ConsistentRead=True,
+        )
+        item = response.get("Item") if isinstance(response, Mapping) else None
+        if not isinstance(item, Mapping):
+            raise LifecycleAdapterContractError()
+        return self._provider_effect_reservation_from_item(item)
+
     @staticmethod
     def _operation_item(record: LifecycleOperationRecord) -> dict[str, Any]:
         evidence = _validated_operation_evidence(
@@ -824,6 +901,86 @@ class DynamoLifecycleStore:
             )
         except Exception as error:
             raise LifecycleAdapterContractError() from error
+
+    @staticmethod
+    def _provider_effect_reservation_item(
+        reservation: ProviderEffectReservation,
+    ) -> dict[str, Any]:
+        return {
+            "pk": _operation_pk(
+                reservation.customer_id,
+                reservation.deployment_id,
+            ),
+            "sk": _provider_effect_reservation_sk(
+                reservation.operation,
+                reservation.target_reference,
+                reservation.expected_membership_version,
+            ),
+            "schema_version": reservation.schema_version,
+            "operation": reservation.operation.value,
+            "customer_id": reservation.customer_id,
+            "deployment_id": reservation.deployment_id,
+            "target_reference": reservation.target_reference,
+            "expected_membership_version": reservation.expected_membership_version,
+            "approval_reference": reservation.approval_reference,
+            "request_digest": reservation.request_digest,
+            "actor_subject": reservation.actor_subject,
+            "winner_operation_reference": reservation.winner_operation_reference,
+            "created_at": _timestamp(reservation.created_at),
+        }
+
+    @staticmethod
+    def _provider_effect_reservation_from_item(
+        item: Mapping[str, Any],
+    ) -> ProviderEffectReservation:
+        try:
+            reservation = ProviderEffectReservation(
+                schema_version=str(item["schema_version"]),
+                operation=LifecycleOperation(str(item["operation"])),
+                customer_id=str(item["customer_id"]),
+                deployment_id=str(item["deployment_id"]),
+                target_reference=str(item["target_reference"]),
+                expected_membership_version=_integer(
+                    item["expected_membership_version"]
+                ),
+                approval_reference=str(item["approval_reference"]),
+                request_digest=str(item["request_digest"]),
+                actor_subject=str(item["actor_subject"]),
+                winner_operation_reference=str(
+                    item["winner_operation_reference"]
+                ),
+                created_at=_parse_timestamp(item["created_at"]),
+            )
+        except Exception as error:
+            raise LifecycleAdapterContractError() from error
+        if not (
+            reservation.schema_version
+            == PROVIDER_EFFECT_RESERVATION_SCHEMA_VERSION
+            and _MEMBERSHIP_REFERENCE_PATTERN.fullmatch(
+                reservation.target_reference
+            )
+            and _APPROVAL_REFERENCE_PATTERN.fullmatch(
+                reservation.approval_reference
+            )
+            and _DIGEST_PATTERN.fullmatch(reservation.request_digest)
+            and _SUBJECT_PATTERN.fullmatch(reservation.actor_subject)
+            and _OPERATION_REFERENCE_PATTERN.fullmatch(
+                reservation.winner_operation_reference
+            )
+            and item.get("pk")
+            == _operation_pk(
+                reservation.customer_id,
+                reservation.deployment_id,
+            )
+            and item.get("sk")
+            == _provider_effect_reservation_sk(
+                reservation.operation,
+                reservation.target_reference,
+                reservation.expected_membership_version,
+            )
+        ):
+            raise LifecycleAdapterContractError()
+        return reservation
 
     @staticmethod
     def _membership_item(record: MembershipRecord) -> dict[str, Any]:

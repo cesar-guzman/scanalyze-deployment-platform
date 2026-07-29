@@ -167,9 +167,22 @@ sessions. A missing or conflicting order marker fails unavailable. Raw provider
 responses and secret delivery values are never returned or logged.
 
 Invitation resend reconciles the exact owned provider user before requesting
-`RESEND`. Its provider-applied checkpoint precedes an owner-, provider-, state-,
-and version-bound membership expiry refresh, preventing a recovered retry from
-duplicating the notification effect.
+`RESEND`. First, the operation store conditionally creates one durable effect
+reservation keyed by owner, operation, membership reference, and expected
+membership version. Distinct `Idempotency-Key` values for the same logical
+effect address this same reservation and only its writer may continue. The
+following operation checkpoint returns a typed outcome whose `applied_here`
+value is true only for that operation-row conditional-write winner. A caller
+that loses either CAS must stop before provider access. A request cannot supply
+or persist `applied_here`.
+
+After the one permitted provider call, the provider-applied checkpoint
+precedes an owner-, provider-, state-, and version-bound membership expiry
+refresh. Because Cognito `RESEND` has no idempotency token or durable delivery
+receipt, a loser, replay, crash after either reservation, timeout, or other
+ambiguous outcome remains quarantined until separately approved
+reconciliation; it is never resent automatically. A new successful resend
+requires a new expected membership version and therefore a new effect identity.
 
 ## Activation checklist
 
@@ -187,3 +200,8 @@ This checklist is documentary; it does not authorize execution:
 
 Until every required gate is met, human runtime remains disabled and
 Production remains **NO-GO**.
+
+The CAS-winner contract is validated only with local synthetic fake
+store/provider tests. No live Cognito call was made. Locally expired-session UX
+classification and frontend `nextCursor` pagination remain separate GUG-95 P2
+work.
