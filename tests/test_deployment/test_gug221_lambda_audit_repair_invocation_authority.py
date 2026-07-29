@@ -894,3 +894,89 @@ def test_incomplete_arn_fails_through_consumer() -> None:
 
     with pytest.raises(AuthorityInventoryError, match="POLICY_SEMANTICS_UNSUPPORTED"):
         _verify(_mutate_all_iam(_snapshots(), mutate))
+
+@pytest.mark.parametrize("target", ["plan", "repair", "reconcile"])
+def test_gug221_narrow_wildcard_not_resource_is_prohibited(target: str) -> None:
+    binding_fn = {
+        "plan": PLAN_FUNCTION_NAME,
+        "repair": REPAIR_FUNCTION_NAME,
+        "reconcile": RECONCILE_FUNCTION_NAME,
+    }[target]
+    base_arn = _function_arn(binding_fn)
+    current_alias = base_arn + ":" + target + "-v1"
+
+    # 1) lambda:Invoke* + narrow exclusions -> FOREIGN_INVOCATION_AUTHORITY
+    policy1 = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:Invoke*",
+                "NotResource": [
+                    base_arn,
+                    current_alias,
+                    base_arn + ":?",
+                ],
+            }
+        ],
+    }
+    def mutate1(iam: dict[str, Any]) -> None:
+        iam["roles"].append(_foreign_role(f"arn:aws:iam::{ACCOUNT}:role/F1", policy1))
+    with pytest.raises(AuthorityInventoryError, match="FOREIGN_INVOCATION_AUTHORITY"):
+        _verify(_mutate_all_iam(_snapshots(), mutate1))
+
+    # 2) lambda:* + narrow exclusions -> AUTHORITY_MUTATION_PRESENT
+    policy2 = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "NotResource": [
+                    base_arn,
+                    current_alias,
+                    base_arn + ":?",
+                ],
+            }
+        ],
+    }
+    def mutate2(iam: dict[str, Any]) -> None:
+        iam["roles"].append(_foreign_role(f"arn:aws:iam::{ACCOUNT}:role/F2", policy2))
+    with pytest.raises(AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"):
+        _verify(_mutate_all_iam(_snapshots(), mutate2))
+
+    # 3) lambda:Invoke* + full exclusion -> no target finding (safe)
+    policy3 = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:Invoke*",
+                "NotResource": [
+                    base_arn,
+                    base_arn + ":*",
+                ],
+            }
+        ],
+    }
+    def mutate3(iam: dict[str, Any]) -> None:
+        iam["roles"].append(_foreign_role(f"arn:aws:iam::{ACCOUNT}:role/F3", policy3))
+    _verify(_mutate_all_iam(_snapshots(), mutate3))
+
+    # 4) lambda:* + full exclusion -> no target Lambda-mutation finding (safe)
+    policy4 = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "lambda:*",
+                "NotResource": [
+                    base_arn,
+                    base_arn + ":*",
+                ],
+            }
+        ],
+    }
+    def mutate4(iam: dict[str, Any]) -> None:
+        iam["roles"].append(_foreign_role(f"arn:aws:iam::{ACCOUNT}:role/F4", policy4))
+    _verify(_mutate_all_iam(_snapshots(), mutate4))

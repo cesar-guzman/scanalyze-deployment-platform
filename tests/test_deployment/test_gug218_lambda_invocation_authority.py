@@ -3600,3 +3600,93 @@ class TestGUG218CorrectivePass:
         # Ensure that NotResource correctly uses complement semantics.
         # It's applicable if ANY candidate (target, target:*, invocation_resources) is NOT in the excluded set.
         assert _target_applicable(statement, binding, []) is True
+
+def test_gug218_not_resource_narrow_wildcard_preserves_authority() -> None:
+    snapshot = _append_identity_statement(
+        _snapshot(),
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": [
+                _binding().function_arn,
+                _binding().alias_arn("classify"),
+                _binding().alias_arn("retire"),
+                _binding().alias_arn("reconcile"),
+                _binding().function_arn + ":?",
+            ],
+        },
+    )
+    inventory, receipt = _analyze(snapshot)
+    assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+    assert any(
+        edge["target_scope"] == "WILDCARD" and edge["verdict"] == "PROHIBITED"
+        for edge in inventory["authority_edges"]
+    )
+
+
+def test_gug218_not_resource_full_exclusion() -> None:
+    snapshot = _append_identity_statement(
+        _snapshot(),
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": [
+                _binding().function_arn,
+                _binding().function_arn + ":*",
+            ],
+        },
+    )
+    inventory, receipt = _analyze(snapshot)
+    assert inventory["status"] == INVENTORY_REVIEW_SAFE
+
+
+def test_gug218_not_resource_qualifier_only_exclusion() -> None:
+    snapshot = _append_identity_statement(
+        _snapshot(),
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": _binding().function_arn + ":*",
+        },
+    )
+    inventory, receipt = _analyze(snapshot)
+    assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+    assert any(
+        edge["target_scope"] == "UNQUALIFIED_FUNCTION"
+        for edge in inventory["authority_edges"]
+    )
+
+
+def test_gug218_not_resource_global_exclusion() -> None:
+    snapshot = _append_identity_statement(
+        _snapshot(),
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": "*",
+        },
+    )
+    inventory, receipt = _analyze(snapshot)
+    assert inventory["status"] == INVENTORY_REVIEW_SAFE
+
+
+def test_gug218_not_resource_enumerated_current_only() -> None:
+    snapshot = _append_identity_statement(
+        _snapshot(),
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": [
+                _binding().function_arn,
+                _binding().alias_arn("classify"),
+                _binding().alias_arn("retire"),
+                _binding().alias_arn("reconcile"),
+            ],
+        },
+    )
+    inventory, receipt = _analyze(snapshot)
+    assert inventory["status"] == INVENTORY_FOREIGN_AUTHORITY
+    assert any(
+        edge["target_scope"] == "WILDCARD" and edge["verdict"] == "PROHIBITED"
+        for edge in inventory["authority_edges"]
+    )

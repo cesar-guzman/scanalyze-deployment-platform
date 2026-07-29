@@ -968,6 +968,23 @@ def _validated_resource_patterns(
     return (is_not_resource, patterns)
 
 
+def _not_resource_excludes_all_target_qualifiers(
+    binding: "TargetBinding",
+    patterns: tuple[str, ...],
+) -> bool:
+    """Return True if patterns universally exclude the future qualifier namespace.
+
+    This is a conservative check. It only recognizes canonical universal
+    exclusion forms ('*' or '<function-arn>:*'). It intentionally fails
+    closed on ambiguous globs or finite enumeration, preserving authority
+    when universal exclusion cannot be proven.
+    """
+    for pattern in patterns:
+        if pattern == "*" or pattern == binding.function_arn + ":*":
+            return True
+    return False
+
+
 def _target_applicable(
     statement: Mapping[str, Any],
     binding: "TargetBinding",
@@ -977,28 +994,27 @@ def _target_applicable(
 
     This centralized helper validates applicability against:
     - The unqualified target function ARN.
-    - The qualifier space (``<function-arn>:*``).
     - Every observed invocation resource (aliases, versions).
     - Exact latent qualifier ARNs (``<function-arn>:<qualifier>``) that may
       preauthorize a future or deleted alias/version even when the qualifier
       is not present in the current Lambda snapshot.
+    - The future qualifier namespace (via conservative universal proof).
 
-    For ``Resource``: applicable if any resource pattern matches any candidate.
-    For ``NotResource``: applicable if any candidate is NOT excluded.
+    For ``Resource``: applicable if any resource pattern matches any candidate
+    or if it's a target function glob (e.g. `<arn>:?`).
+    For ``NotResource``: applicable if any concrete candidate is NOT excluded,
+    or if full exclusion of the future qualifier namespace cannot be proven.
     Raises ``AuthorityInventoryError`` when both or neither are present,
     or when any resource pattern is structurally invalid.
     """
 
     is_not_resource, patterns = _validated_resource_patterns(statement)
 
-    # Build the full set of target candidates: unqualified ARN, qualifier
-    # glob, and every observed invocation resource.
+    # Build the full set of concrete target candidates: unqualified ARN, and
+    # every observed invocation resource.
     candidates = list(invocation_resources)
     if binding.function_arn not in candidates:
         candidates.append(binding.function_arn)
-    qualifier_glob = binding.function_arn + ":*"
-    if qualifier_glob not in candidates:
-        candidates.append(qualifier_glob)
 
     if not is_not_resource:
         # ── Resource path ──
@@ -1028,7 +1044,7 @@ def _target_applicable(
         return False
     else:
         # ── NotResource path ──
-        # Applicable if ANY candidate is NOT in the excluded set.
+        # Applicable if ANY concrete candidate is NOT in the excluded set.
         # No latent qualifier injection here: NotResource patterns are
         # exclusions, not grants.
         for candidate in candidates:
@@ -1037,6 +1053,12 @@ def _target_applicable(
             )
             if not excluded:
                 return True
+                
+        # If all concrete candidates are excluded, check if the ENTIRE future
+        # qualifier namespace is provably excluded.
+        if not _not_resource_excludes_all_target_qualifiers(binding, patterns):
+            return True
+            
         return False
 
 

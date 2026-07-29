@@ -132,20 +132,26 @@ alter authority paths.
 - Neither `Resource` nor `NotResource` → unsupported
 
 Target applicability for an exact resource or a wildcard edge evaluates the
-following candidates:
+following concrete candidates:
 1. The base function ARN (unqualified).
-2. The qualifier space (`<function-arn>:*`).
-3. Every observed alias and version in the current snapshot.
-4. (For `Resource` only) Any exact ARN beginning with `<function-arn>:` explicitly
-   listed in the policy, even if not currently observed. This ensures exact future
-   qualifier preauthorization (e.g. `$LATEST`, numeric versions, or future aliases)
-   is correctly recognized as authority over the target.
+2. Every observed alias and version in the current snapshot.
 
-`NotResource` is evaluated as a true complement: applicability is granted if ANY
-candidate is NOT in the excluded set. Note that excluding only the base function
-ARN does not exclude aliases or versions; excluding both the base function and the
-qualifier space (`<ARN>:*`) is required to eliminate all target surface. Latent
-qualifier ARNs are never injected as candidates in the `NotResource` path.
+(For `Resource` only) Any exact ARN beginning with `<function-arn>:` explicitly
+listed in the policy, even if not currently observed, is also injected as a candidate. 
+This ensures exact future qualifier preauthorization (e.g. `$LATEST`, numeric 
+versions, or future aliases) is correctly recognized as authority over the target.
+
+`Resource` uses existential reasoning: it is applicable if ANY pattern matches ANY candidate, or if the pattern itself is a target function glob (e.g. `<arn>:?`).
+
+`NotResource` uses universal reasoning: applicability is granted if ANY concrete 
+candidate is NOT excluded. If all concrete candidates are excluded, the analyzer 
+independently verifies whether the entire future qualifier namespace is provably 
+excluded. 
+- `<function-arn>:*` represents the symbolic qualifier namespace, not a concrete ARN. 
+- `NotResource` requires universal proof of exclusion (only `*` or `<function-arn>:*` prove full coverage).
+- Narrow globs (`<arn>:?`) and current enumeration do not prove future qualifier exclusion.
+- Ambiguous glob containment remains fail-closed (evaluates as applicable).
+Latent qualifier ARNs are never injected as concrete candidates in the `NotResource` path.
 
 The wildcard source-document digest rebinding check ensures that an adversarial
 snapshot using a broad policy that happens to match an allowlist digest still

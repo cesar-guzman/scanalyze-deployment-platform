@@ -133,10 +133,13 @@ before any edge is produced:
   edges. A wildcard scoped to an unrelated Lambda function does not block the
   target inventory. Lambda mutation edges follow the same applicability check.
   IAM/CloudFormation mutation edges remain account-wide by architectural
-  decision. `Resource` and `NotResource` preserve strict complementary semantics,
-  evaluating the base function ARN, qualifier space, observed qualifiers, and
-  preauthorized future qualifiers explicitly listed in a `Resource` block. Complete,
-  valid ARNs without policy variables or extra whitespace are required.
+  decision. `Resource` and `NotResource` preserve strict complementary semantics:
+  `Resource` uses existential reasoning evaluating the base function ARN, observed 
+  qualifiers, and preauthorized future qualifiers explicitly listed. `NotResource` 
+  uses universal reasoning, independently requiring universal proof of exclusion 
+  of the symbolic future qualifier namespace (`<function-arn>:*`); narrow globs and 
+  current enumeration do not prove future exclusion. Complete, valid ARNs without 
+  policy variables or extra whitespace are required.
 - `NotAction` remains unsupported; it produces `POLICY_SEMANTICS_UNSUPPORTED`.
 - Deny statements with wildcard actions are harmless — no authority edges.
 
