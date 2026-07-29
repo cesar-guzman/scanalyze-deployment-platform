@@ -886,16 +886,9 @@ def _classify_wildcard_authority_coverage(
 
 
 def _resource_applies(statement: Mapping[str, Any], resource: str) -> bool:
-    has_resource = "Resource" in statement
-    has_not_resource = "NotResource" in statement
-    if has_resource == has_not_resource:
-        raise AuthorityInventoryError("POLICY_RESOURCE_SEMANTICS_UNSUPPORTED")
-    patterns = _strict_string_list(
-        statement["Resource"] if has_resource else statement["NotResource"],
-        "POLICY_RESOURCE_SEMANTICS_UNSUPPORTED",
-    )
+    is_not_resource, patterns = _validated_resource_patterns(statement)
     matched = any(fnmatch.fnmatchcase(resource, pattern) for pattern in patterns)
-    return matched if has_resource else not matched
+    return not matched if is_not_resource else matched
 
 
 def _validated_resource_patterns(
