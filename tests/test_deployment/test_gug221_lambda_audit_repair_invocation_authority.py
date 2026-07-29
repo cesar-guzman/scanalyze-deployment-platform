@@ -958,3 +958,47 @@ def test_gug221_not_resource_isolated_qualifier_namespace(target: str) -> None:
         
     with pytest.raises(AuthorityInventoryError, match="AUTHORITY_MUTATION_PRESENT"):
         _verify(_mutate_all_iam(_snapshots(), mutate2))
+
+@pytest.mark.parametrize(
+    "action",
+    ("lambda:Invoke*", "lambda:*"),
+)
+def test_gug221_not_resource_full_system_exclusion_has_no_finding(
+    action: str,
+) -> None:
+    binding = _binding()
+
+    not_resources = []
+    for target in (
+        binding.plan_binding,
+        binding.repair_binding,
+        binding.reconcile_binding,
+    ):
+        not_resources.extend(
+            [
+                target.function_arn,
+                target.function_arn + ":*",
+            ]
+        )
+
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": action,
+                "NotResource": not_resources,
+            }
+        ],
+    }
+
+    def mutate(iam: dict) -> None:
+        iam["roles"].append(
+            _foreign_role(
+                f"arn:aws:iam::{ACCOUNT}:role/FullExclusionControl",
+                policy,
+            )
+        )
+
+    # No FOREIGN_INVOCATION_AUTHORITY or AUTHORITY_MUTATION_PRESENT.
+    _verify(_mutate_all_iam(_snapshots(), mutate))
