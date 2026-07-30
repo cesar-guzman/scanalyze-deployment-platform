@@ -294,6 +294,18 @@ freshness and all static bindings, and requires `kms:Verify` before OIDC, STS,
 ledger or CloudFormation access. The dynamic receipt digest is recorded in
 proof/ledger/effect evidence but is not an immutable topology/binding input.
 
+The synchronous Lambda transport envelope is not an authorization result.
+The invoker bounded-reads `Payload` once, proves EOF, rejects reused,
+truncated or oversized streams, and parses both response layers with
+duplicate-key and non-finite-number rejection. Success requires application
+`statusCode = 200`, `isBase64Encoded = false`, the exact JSON response
+envelope, and exact `identity_proof`, `broker_effect` and `closure_pending`
+receipts. Their canonical receipt digests, execution ID, topology digest,
+provider-evidence digest, policy digests and cross-references must all bind to
+the invocation. Application `202` and `500` are
+`PHASE_B_INVOKE_UNCERTAIN`/reconcile-only; a well-formed `403` is
+`PHASE_B_BROKER_DENIED`. No response ambiguity is retried.
+
 ### Exact immutable environment projection
 
 The published broker version receives one canonical projection from

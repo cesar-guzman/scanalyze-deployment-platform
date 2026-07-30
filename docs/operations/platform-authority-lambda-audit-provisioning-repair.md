@@ -396,6 +396,16 @@ cryptographically random PKCE verifier/state, accept one callback, and keep the
 authorization code, verifier, tokens, opaque identity context and STS
 credentials out of arguments, shell history, files, receipts and logs.
 
+Do not treat outer Lambda `StatusCode = 200` as acceptance. The helper returns
+success only after a bounded one-pass read proves a complete application
+payload and validates exact `statusCode = 200`, plain JSON, all three canonical
+receipts, and their execution/topology/provider/policy bindings. A broker
+application `202` or `500`, unreadable/partial payload, malformed receipt or
+binding mismatch is `PHASE_B_INVOKE_UNCERTAIN`; stop and reconcile read-only.
+A well-formed application `403` is `PHASE_B_BROKER_DENIED`; review the
+sanitized stable code. Never retry either result, and never persist or print
+the raw response payload.
+
 The broker must pass the opaque context to exactly one STS `ProvidedContext`
 for the deny-all proof role, bind that proof to the exact receipt, consume the
 one-shot CAS gate and only then let its separate service role call the exact

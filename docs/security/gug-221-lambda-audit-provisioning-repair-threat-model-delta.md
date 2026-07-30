@@ -434,6 +434,16 @@ KMS signature before OIDC, STS, ledger or CloudFormation access.
 `ClientContext` proves only `RequestResponse`. The fresh receipt digest is
 recorded downstream but cannot influence the static binding digest.
 
+The response is also an untrusted carrier. Lambda can return outer
+`StatusCode = 200` while the handler returns application `202`, `403` or `500`.
+The invoker therefore accepts no transport-only success: it bounded-reads and
+proves EOF, rejects ambiguous/reused streams and non-canonical JSON, requires
+application `200`, and validates the canonical proof/effect/closure receipt
+chain against the expected execution and topology. `202`, `500`, truncation,
+malformed receipts and binding drift are reconcile-only with zero retry; a
+well-formed `403` is a fail-closed broker denial. Diagnostics expose only
+stable local codes, never OAuth material, payloads or raw provider errors.
+
 The ledger resource policy also denies every principal from removing or
 replacing that policy, deleting or structurally updating the table, creating
 backups/exports, restoring from PITR, changing PITR/TTL/auto scaling/streaming
