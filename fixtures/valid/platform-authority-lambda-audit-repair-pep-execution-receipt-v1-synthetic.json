@@ -1,0 +1,831 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_pep_execution_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "B_PEP_EXECUTION_TRACE",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "deployment_contract_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "pep_change_set_receipt_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "phase_b_precondition_parameter_handoff_sha256": "dededededededededededededededededededededededededededededededede",
+  "phase_b_precondition_change_set_receipt_sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+  "broker_effect_receipt_sha256": "abababababababababababababababababababababababababababababababab",
+  "broker_ledger_provider_readback": {
+    "table_name_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "execution_id_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "binding_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "proof_receipt_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "ledger_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "closure_pending_receipt_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "execution_request_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "broker_topology_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "broker_topology_provider_evidence_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "status": "DISPATCH_ACCEPTED",
+    "attempts": 1,
+    "execution_gate_consumed": true,
+    "execution_ambiguous": false,
+    "retry_permitted": false,
+    "native_on_behalf_of": false,
+    "closure_status": "PROVIDER_REVOCATION_PENDING"
+  },
+  "broker_ledger_provider_readback_sha256": "acd4ae005f6c9f49a9636c135b024f53408874401700c439de5363b268c342b3",
+  "change_set_arn": "arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/33333333-4444-4555-8666-777777777777",
+  "change_set_uuid": "33333333-4444-4555-8666-777777777777",
+  "stack_arn": "arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/88888888-9999-4aaa-8bbb-cccccccccccc",
+  "client_request_token": "gug221-b-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "execute_request_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "effect_principal_arn_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "execute_event": {
+    "event_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "event_time": "2026-07-23T13:00:00Z",
+    "event_digest": "6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "stack_event_count": 48,
+  "stack_events": [
+    {
+      "logical_resource_id": "InvocationAuthorityInspectorRole",
+      "resource_type": "AWS::IAM::Role",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "InvocationAuthorityInspectorRole-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "InvocationAuthorityInspectorRole-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanAlias-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanAlias-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanEventInvokeConfig-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanEventInvokeConfig-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanExecutionRole-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanExecutionRole-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanFunction-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanFunction-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanFunctionVersion-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanFunctionVersion-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "PlanLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "PlanLogGroup-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "PlanLogGroup-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileAlias-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileAlias-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileEventInvokeConfig-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileEventInvokeConfig-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileExecutionRole-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileExecutionRole-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileFunction-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileFunction-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileFunctionVersion-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileFunctionVersion-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "ReconcileLogGroup-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "ReconcileLogGroup-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairAlias-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairAlias-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairCodeSigningConfig",
+      "resource_type": "AWS::Lambda::CodeSigningConfig",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairCodeSigningConfig-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairCodeSigningConfig-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairEventInvokeConfig-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairEventInvokeConfig-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairExecutionRole-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairExecutionRole-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairFunction-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairFunction-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairFunctionVersion-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairFunctionVersion-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairLedger",
+      "resource_type": "AWS::DynamoDB::Table",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairLedger-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairLedger-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairLedgerKey",
+      "resource_type": "AWS::KMS::Key",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairLedgerKey-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairLedgerKey-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairLedgerKeyAlias",
+      "resource_type": "AWS::KMS::Alias",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairLedgerKeyAlias-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairLedgerKeyAlias-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "RepairLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "RepairLogGroup-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "RepairLogGroup-complete",
+        "event_time": "2026-07-23T13:04:00Z",
+        "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "logical_resource_id": "scanalyze-platform-authority-lambda-audit-repair-pep",
+      "resource_type": "AWS::CloudFormation::Stack",
+      "client_request_token_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "in_progress_events": [
+        {
+          "event_id": "scanalyze-platform-authority-lambda-audit-repair-pep-in-progress",
+          "event_time": "2026-07-23T13:00:00Z",
+          "physical_resource_id_sha256": null
+        }
+      ],
+      "complete_event": {
+        "event_id": "stack-complete",
+        "event_time": "2026-07-23T13:05:00Z",
+        "physical_resource_id_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  ],
+  "stack_events_sha256": "f45ef9dab454d104481d76dab3c3d989383091f03a78a9101156403a30d933c3",
+  "terminal_resources": [
+    {
+      "event_id": "InvocationAuthorityInspectorRole-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "InvocationAuthorityInspectorRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanAlias-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanEventInvokeConfig-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanExecutionRole-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanFunction-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanFunctionVersion-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "PlanLogGroup-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "PlanLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileAlias-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileEventInvokeConfig-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileExecutionRole-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileFunction-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileFunctionVersion-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "ReconcileLogGroup-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "ReconcileLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairAlias-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairCodeSigningConfig-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairCodeSigningConfig",
+      "resource_type": "AWS::Lambda::CodeSigningConfig",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairEventInvokeConfig-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairExecutionRole-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairFunction-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairFunctionVersion-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairLedger-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairLedger",
+      "resource_type": "AWS::DynamoDB::Table",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairLedgerKey-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairLedgerKey",
+      "resource_type": "AWS::KMS::Key",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairLedgerKeyAlias-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairLedgerKeyAlias",
+      "resource_type": "AWS::KMS::Alias",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "RepairLogGroup-complete",
+      "event_time": "2026-07-23T13:04:00Z",
+      "logical_resource_id": "RepairLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "event_id": "stack-complete",
+      "event_time": "2026-07-23T13:05:00Z",
+      "logical_resource_id": "scanalyze-platform-authority-lambda-audit-repair-pep",
+      "resource_type": "AWS::CloudFormation::Stack",
+      "resource_status": "CREATE_COMPLETE",
+      "physical_resource_id_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "stack_parameters_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+  "stack_tags": {
+    "environment": "non-production",
+    "managed_by": "cloudformation",
+    "production": "false",
+    "service": "scanalyze-platform-authority",
+    "source_commit": "1111111111111111111111111111111111111111",
+    "work_package": "GUG-221"
+  },
+  "stack_outputs": [
+    {
+      "output_key": "InvocationAuthorityInspectorRoleArn",
+      "output_value_sha256": "22a1ea1e84f38b8a35d7d5a5b6c6d655f63a2443d1e4a4bf9aab905e03f6d73d"
+    },
+    {
+      "output_key": "PlanExecutionRoleArn",
+      "output_value_sha256": "c33ecb0cefdffdeb25d01e58d67c6314f6fdf3313d322038f2f9eec23a999cf8"
+    },
+    {
+      "output_key": "PlanFunctionAliasArn",
+      "output_value_sha256": "1fd0b163c4d75df68c03d0583bda368a4b69ed8cb0835c63f76d362babb2cc6f"
+    },
+    {
+      "output_key": "ProductionAuthorized",
+      "output_value_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "output_key": "ReconcileExecutionRoleArn",
+      "output_value_sha256": "ec25669ec235d8d6a89636b3d5730a09f9a400d0762f58f69d96642eb66935fd"
+    },
+    {
+      "output_key": "ReconcileFunctionAliasArn",
+      "output_value_sha256": "711233309e02dc34b8f4ed2d0c9129fc4f331edd16ce5ffcf970ea1d04a88e9b"
+    },
+    {
+      "output_key": "RepairExecutionRoleArn",
+      "output_value_sha256": "a0d47a813f4c151ec261c86d643c749831ad0db9676678161c6876bdd4498f6c"
+    },
+    {
+      "output_key": "RepairFunctionAliasArn",
+      "output_value_sha256": "4c9ff74e8c20a902da611ba8f6454142a4c1640d60deb38ee02b35679642d321"
+    },
+    {
+      "output_key": "RepairLedgerKeyArn",
+      "output_value_sha256": "e6ee5aaf49d2ccc957cd7fab3a8f6fe29c9fe922302b1b0bd58371a4be1bbbae"
+    },
+    {
+      "output_key": "RepairLedgerName",
+      "output_value_sha256": "f6c84eaf5f0b3753b3c9aa9d1c5e3023ed864460b5abbf97622b71a1dbfe3d06"
+    }
+  ],
+  "stack_outputs_sha256": "675a5653afa03d4e51b16c70b03b9710ce23ecac8838e128fb6b921c70938e76",
+  "stack_resources": [
+    {
+      "logical_resource_id": "InvocationAuthorityInspectorRole",
+      "resource_type": "AWS::IAM::Role",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "PlanLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "ReconcileLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairAlias",
+      "resource_type": "AWS::Lambda::Alias",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairCodeSigningConfig",
+      "resource_type": "AWS::Lambda::CodeSigningConfig",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairEventInvokeConfig",
+      "resource_type": "AWS::Lambda::EventInvokeConfig",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairExecutionRole",
+      "resource_type": "AWS::IAM::Role",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairFunction",
+      "resource_type": "AWS::Lambda::Function",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairFunctionVersion",
+      "resource_type": "AWS::Lambda::Version",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairLedger",
+      "resource_type": "AWS::DynamoDB::Table",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairLedgerKey",
+      "resource_type": "AWS::KMS::Key",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairLedgerKeyAlias",
+      "resource_type": "AWS::KMS::Alias",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "logical_resource_id": "RepairLogGroup",
+      "resource_type": "AWS::Logs::LogGroup",
+      "physical_resource_id_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "stack_resources_sha256": "ffa92cfe9c3ac7ef2ccba772a068536233eac7d9ac03ec11a7ce2e7e2b6e13d9",
+  "cloudformation_projection_sha256": "a78ee640ddcd1b8d9b87155a29ab254040348da6da81528b73c9d71b0a681fc9",
+  "executed_at": "2026-07-23T13:00:00Z",
+  "stack_completed_at": "2026-07-23T13:05:00Z",
+  "verifier": {
+    "profile": "042360977644_ReadOnlyAccess",
+    "account_id": "042360977644",
+    "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_1c38063fd41ea692/synthetic@example.invalid"
+  },
+  "evaluated_at": "2026-07-23T13:10:00Z",
+  "evidence_status": "CLOUDFORMATION_EXECUTION_TRACE_VERIFIED",
+  "authority_status": "PROVIDER_DERIVED_CLOUDFORMATION_TRACE_NOT_EFFECTIVE_STATE",
+  "production_status": "NO-GO"
+}

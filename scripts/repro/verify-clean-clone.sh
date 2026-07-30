@@ -49,16 +49,17 @@ Exit codes:
 EOF
 }
 
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+usage_error() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 log() { printf '[clone-check] %s\n' "$*"; }
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --ref)    [[ -n "${2:-}" ]] || die "--ref requires a value"; REF="$2"; shift 2 ;;
-    --remote) [[ -n "${2:-}" ]] || die "--remote requires a value"; REMOTE="$2"; shift 2 ;;
+    --ref)    [[ -n "${2:-}" ]] || usage_error "--ref requires a value"; REF="$2"; shift 2 ;;
+    --remote) [[ -n "${2:-}" ]] || usage_error "--remote requires a value"; REMOTE="$2"; shift 2 ;;
     --keep)   KEEP_CLONE=true; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "unknown argument: $1" ;;
+    *) usage_error "unknown argument: $1" ;;
   esac
 done
 
@@ -68,10 +69,11 @@ if [[ -z "$REMOTE" ]]; then
     || die "unable to resolve origin remote; pass --remote explicitly"
 fi
 
-# Resolve ref to a commit SHA if it is HEAD
+# Resolve HEAD before cloning so an unpushed local commit can never be silently
+# replaced with the remote's default HEAD.
 RESOLVED_REF="$REF"
 if [[ "$REF" == "HEAD" ]]; then
-  RESOLVED_REF="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" \
+  RESOLVED_REF="$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
     || die "unable to resolve HEAD"
 fi
 
@@ -83,14 +85,27 @@ fi
 
 log "Cloning ${REMOTE} into ${CLONE_DIR}"
 git clone --quiet "$REMOTE" "$CLONE_DIR/repo" 2>/dev/null \
-  || git clone --quiet "$REPO_ROOT" "$CLONE_DIR/repo"
+  || die "unable to clone remote: $REMOTE"
 
 cd "$CLONE_DIR/repo"
 
-log "Checking out ref: ${RESOLVED_REF}"
-git checkout --quiet "$RESOLVED_REF" 2>/dev/null \
-  || git checkout --quiet "$REF" 2>/dev/null \
-  || die "unable to check out ref: $REF"
+if [[ "$REF" == "HEAD" ]]; then
+  EXPECTED_SHA="$(git rev-parse --verify "${RESOLVED_REF}^{commit}" 2>/dev/null)" \
+    || die "requested commit is not available from the cloned remote: $RESOLVED_REF"
+else
+  EXPECTED_SHA="$(git rev-parse --verify "${REF}^{commit}" 2>/dev/null)" \
+    || EXPECTED_SHA="$(git rev-parse --verify "refs/remotes/origin/${REF}^{commit}" 2>/dev/null)" \
+    || die "requested commit is not available from the cloned remote: $REF"
+fi
+
+log "Checking out exact commit: ${EXPECTED_SHA}"
+git checkout --quiet --detach "$EXPECTED_SHA" 2>/dev/null \
+  || die "unable to check out exact commit: $EXPECTED_SHA"
+
+ACTUAL_SHA="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" \
+  || die "unable to verify checked-out commit"
+[[ "$ACTUAL_SHA" == "$EXPECTED_SHA" ]] \
+  || die "checked-out commit does not match requested commit"
 
 ERRORS=0
 
@@ -181,7 +196,7 @@ else
   log "PASSED: Clean clone verification complete"
   log "  Remote:  ${REMOTE}"
   log "  Ref:     ${REF}"
-  log "  Commit:  $(git rev-parse --short HEAD)"
+  log "  Commit:  ${ACTUAL_SHA}"
   if [[ "$KEEP_CLONE" == true ]]; then
     log "Clone preserved at: ${CLONE_DIR}/repo"
   fi

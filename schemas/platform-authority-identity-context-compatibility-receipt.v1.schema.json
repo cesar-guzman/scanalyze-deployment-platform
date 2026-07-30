@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-identity-context-compatibility-receipt.v1.schema.json",
+  "title": "Platform Authority Identity-Context Compatibility Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "managed_policy_arn",
+    "managed_policy_version",
+    "managed_policy_digest",
+    "required_action",
+    "status",
+    "token_issued",
+    "sts_session_issued",
+    "broker_invocation_performed",
+    "current_human_operator_count",
+    "independent_approver_available",
+    "live_retirement_authorized",
+    "observed_at",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_identity_context_compatibility" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "managed_policy_arn": {
+      "const": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext"
+    },
+    "managed_policy_version": { "const": "v12" },
+    "managed_policy_digest": { "$ref": "#/$defs/digest" },
+    "required_action": { "const": "lambda:InvokeFunction" },
+    "status": { "const": "BLOCKED_AWS_IDENTITY_CONTEXT_ACTION_UNSUPPORTED" },
+    "token_issued": { "const": false },
+    "sts_session_issued": { "const": false },
+    "broker_invocation_performed": { "const": false },
+    "current_human_operator_count": { "const": 1 },
+    "independent_approver_available": { "const": false },
+    "live_retirement_authorized": { "const": false },
+    "observed_at": { "$ref": "#/$defs/timestamp" },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

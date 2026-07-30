@@ -5,18 +5,32 @@ import json
 import os
 import re
 import uuid
-import structlog
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import structlog
 from botocore.exceptions import ClientError
 
+from ..auth import AuthContext
+from ..authorization import (
+    ObjectAction,
+    ObjectOwnership,
+    authorize_batch,
+    authorize_document,
+)
 from ..aws_clients import s3_client, sqs_client
-from ..config import get_settings
+from ..config import CANONICAL_FIRST_STAGE, get_settings
+from ..document_contracts import (
+    canonical_document_content_type,
+    public_document_content_type,
+)
 from ..errors import AppError
 from ..logging import bind_context, get_logger
 from ..repositories.documents import DocumentsRepository
+from ..repositories.batches import BatchesRepository
+from ..api.v1.models import IngestEnvelopeV2
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -25,6 +39,144 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
 filename_re = re.compile(r"[^A-Za-z0-9.-]+")
+object_id_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+_SAFE_STAGE_NAMES = frozenset(
+    {
+        "bank-extract",
+        "bank_extract",
+        "classify",
+        "gov-extract",
+        "gov_extract",
+        "ingest",
+        "notify",
+        "ocr",
+        "persist",
+        "personal-extract",
+        "personal_extract",
+        "validate",
+    }
+)
+_SAFE_STAGE_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+    r"(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+)
+_SAFE_STAGE_STATES = frozenset(
+    {
+        "CANCELLED",
+        "COMPLETED",
+        "CREATED",
+        "DONE",
+        "ENQUEUED",
+        "ENQUEUE_FAILED",
+        "ENQUEUE_PENDING",
+        "ERROR",
+        "FAILED",
+        "HANDOFF_ENQUEUED",
+        "IN_PROGRESS",
+        "PASS",
+        "PENDING",
+        "PENDING_HANDOFF",
+        "PROCESSING",
+        "REJECTED",
+        "RETRYING",
+        "SKIPPED",
+        "SUBMITTED",
+        "SUCCESS",
+        "WARN",
+        "WRITING",
+    }
+)
+_SAFE_STAGE_STATE_FIELDS = frozenset(
+    {"status", "state", "finalStatus", "validationStatus"}
+)
+_SAFE_STAGE_TIMESTAMP_FIELDS = frozenset(
+    {
+        "completedAt",
+        "classifiedAt",
+        "createdAt",
+        "endedAt",
+        "enqueuedAt",
+        "failedAt",
+        "lastAttemptAt",
+        "nextAttemptAt",
+        "startedAt",
+        "submittedAt",
+        "updatedAt",
+        "validatedAt",
+    }
+)
+_SAFE_STAGE_COUNTER_FIELDS = frozenset(
+    {
+        "attempt",
+        "attemptCount",
+        "attempts",
+        "durationMs",
+        "failedCount",
+        "pageCount",
+        "pagesProcessed",
+        "processedCount",
+        "retryCount",
+        "successCount",
+        "totalCount",
+    }
+)
+
+
+def _safe_stage_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not _SAFE_STAGE_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _sanitize_stage_metadata(stages: Any) -> Dict[str, Dict[str, Any]]:
+    """Project stored stages onto safe scalar status/timing/counter fields."""
+    if not isinstance(stages, Mapping):
+        return {}
+
+    sanitized: Dict[str, Dict[str, Any]] = {}
+    for stage_name, raw_stage in stages.items():
+        if not isinstance(stage_name, str) or stage_name not in _SAFE_STAGE_NAMES:
+            continue
+
+        safe_stage: Dict[str, Any] = {}
+        if isinstance(raw_stage, Mapping):
+            for field in _SAFE_STAGE_STATE_FIELDS:
+                value = raw_stage.get(field)
+                if isinstance(value, str) and value in _SAFE_STAGE_STATES:
+                    safe_stage[field] = value
+
+            for field in _SAFE_STAGE_TIMESTAMP_FIELDS:
+                value = raw_stage.get(field)
+                if _safe_stage_timestamp(value):
+                    safe_stage[field] = value
+
+            for field in _SAFE_STAGE_COUNTER_FIELDS:
+                value = raw_stage.get(field)
+                if (
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and 0 <= value <= 2**63 - 1
+                ):
+                    safe_stage[field] = value
+
+        sanitized[stage_name] = safe_stage
+    return sanitized
+
+# Active worker-v1 artifact contracts. These are exact producer contracts, not
+# request-controlled prefixes and not an ownership fallback. GUG-89 owns their
+# replacement with the canonical owner-bound prefix across the async pipeline.
+worker_v1_ocr_routes = frozenset({"platform", "bank", "personal", "gov"})
+worker_v1_structured_routes = frozenset({"bank", "personal", "gov"})
+
+
+class _MissingSqsAcknowledgement(RuntimeError):
+    """SQS accepted the API call without returning the required MessageId."""
+
 
 def sanitize_filename(name: str) -> str:
     # Evita path traversal y caracteres raros
@@ -62,6 +214,7 @@ class DocumentsService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.repo = DocumentsRepository()
+        self.batches_repo = BatchesRepository()
         self.s3 = s3_client()
         self.sqs = sqs_client()
         self.logger = get_logger()
@@ -72,7 +225,7 @@ class DocumentsService:
 
     def create_document(
         self,
-        tenant: str,
+        auth: AuthContext,
         subject: Optional[str],
         email: Optional[str],
         name: Optional[str],
@@ -81,6 +234,23 @@ class DocumentsService:
         content_length: Optional[int] = None,
         batch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        ownership = ObjectOwnership.from_auth(auth)
+        canonical_content_type = canonical_document_content_type(content_type)
+        if canonical_content_type is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="Unsupported document content type",
+                status_code=400,
+                details={},
+            )
+        content_type = canonical_content_type
+        authorize_document(
+            auth,
+            ownership.record_fields(),
+            ObjectAction.WRITE,
+        )
+        tenant = ownership.customer_id
+
         # Requiere buckets/table
         table = self.settings.documents_table_name
         raw_bucket = self.settings.get_bucket("raw")
@@ -90,12 +260,14 @@ class DocumentsService:
 
         doc_id = uuid.uuid4().hex
         bind_context(documentId=doc_id, tenant=tenant)
-        if subject:
-            bind_context(uploaderUserId=subject)
 
         safe_name = sanitize_filename(filename or "upload.bin")
 
-        prefix = self.settings.s3_prefix_for(tenant=tenant, document_id=doc_id)
+        if batch_id:
+            batch = self.batches_repo.get_batch(batch_id)
+            authorize_batch(auth, batch, ObjectAction.WRITE)
+
+        prefix = ownership.document_prefix(doc_id)
         raw_key = f"{prefix}{safe_name}"
 
         now = _utc_now()
@@ -125,6 +297,7 @@ class DocumentsService:
             # Guardamos documentId siempre (útil para lectura humana)
             "documentId": doc_id,
             "tenantId": tenant,
+            **ownership.record_fields(),
             "createdAt": _iso(now),
             "updatedAt": _iso(now),
             "status": "CREATED",
@@ -151,9 +324,17 @@ class DocumentsService:
             item["createdByEmail"] = email
         if name:
             item["createdByDisplayName"] = name
+
+        # This value is deployment contract data. The request model exposes no
+        # processing-domain field and customer identity is never used as a route.
+        trusted_processing_domain = getattr(self.settings, "processing_domain", None)
+        item["documentRoute"] = trusted_processing_domain or "platform"
+        if trusted_processing_domain is not None:
+            item["processing_domain"] = trusted_processing_domain
             
         if batch_id:
             item["batchId"] = batch_id
+            item["ownership_batch_key"] = ownership.batch_partition(batch_id)
             item["source"] = "web-bulk-upload"
         else:
             item["source"] = "web-single-upload"
@@ -175,7 +356,7 @@ class DocumentsService:
             sk_template = os.getenv("DOCUMENTS_TABLE_SK_TEMPLATE", "METADATA")
             item[sk_name] = sk_template.format(document_id=doc_id)
 
-        self.repo.create_document(item)
+        self.repo.create_document(item, ownership=ownership)
 
         return {
             "documentId": doc_id,
@@ -187,78 +368,139 @@ class DocumentsService:
             },
         }
 
-    def submit_document(self, tenant: str, document_id: str, stage: Optional[str] = None) -> Dict[str, Any]:
-        bind_context(documentId=document_id, tenant=tenant)
+    def submit_document(
+        self,
+        auth: AuthContext,
+        document_id: str,
+        stage: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        configured_stage = getattr(self.settings, "first_stage", None)
+        if configured_stage != CANONICAL_FIRST_STAGE:
+            raise AppError(
+                code="CONFIG_ERROR",
+                message="Canonical ingress stage is not configured",
+                status_code=500,
+                details={},
+            )
+        if stage is not None and (
+            not isinstance(stage, str)
+            or stage.lower().strip() != configured_stage
+        ):
+            raise AppError(
+                code="INVALID_STAGE",
+                message="Requested stage is not available",
+                status_code=400,
+                details={},
+            )
+
+        # The request may confirm the canonical value, but never establishes it.
+        stage_name = configured_stage
+        ownership = ObjectOwnership.from_auth(auth)
+        tenant = ownership.customer_id
+        bind_context(documentId=document_id, tenant=tenant, stage=stage_name)
         doc = self.repo.get_document(document_id)
-        if not doc:
-            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
+        authorize_document(auth, doc, ObjectAction.WRITE)
+        input_info = doc.get("input") or {}
+        raw_bucket, raw_key = self._validate_artifact_locator(
+            ownership,
+            document_id,
+            input_info.get("bucket"),
+            input_info.get("key"),
+        )
 
-        # Tenant guard (document-scoped)
-        doc_tenant = doc.get("tenantId")
-        if doc_tenant and doc_tenant != tenant:
-            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
-
-        stage_name = (stage or self.settings.first_stage).lower().strip()
-        bind_context(stage=stage_name)
+        trusted_processing_domain = getattr(self.settings, "processing_domain", None)
+        stored_processing_domain = doc.get("processing_domain")
+        if stored_processing_domain != trusted_processing_domain:
+            raise AppError(
+                code="INVALID_PROCESSING_DOMAIN",
+                message="Document processing domain is invalid",
+                status_code=409,
+                details={},
+            )
 
         queue_url = self.settings.get_queue_url(stage_name)
         self._require(bool(queue_url), "CONFIG_ERROR", f"SQS queue URL for stage '{stage_name}' is not configured", 500)
 
         enqueue_id = uuid.uuid4().hex
 
-        # Idempotencia por stage usando Dynamo condition
-        can_enqueue = self.repo.set_stage_enqueue_pending(document_id=document_id, stage=stage_name, enqueue_id=enqueue_id)
-        if not can_enqueue:
-            # Ya estaba encolado o en progreso
-            return {
-                "documentId": document_id,
-                "stage": stage_name,
-                "enqueued": False,
-                "message": "Already submitted for this stage",
-            }
-
-        # Construye mensaje SQS (sin PII)
-        input_info = doc.get("input") or {}
+        # Build and validate the complete envelope before claiming the pending
+        # state so local contract errors can never strand the document.
         ctx = structlog.contextvars.get_contextvars()
         
-        body = {
-            "schemaVersion": f"scanalyze.{stage_name}.v1",
-            "documentId": document_id,
-            "tenantId": tenant,
-            "stage": stage_name,
-            "enqueueId": enqueue_id,
-            "_metadata": {
+        stored_content_type = canonical_document_content_type(
+            input_info.get("contentType")
+        )
+        if stored_content_type is None:
+            raise AppError(
+                code="INVALID_DOCUMENT_METADATA",
+                message="Document metadata is invalid",
+                status_code=409,
+                details={},
+            )
+
+        envelope = IngestEnvelopeV2(
+            documentId=document_id,
+            customer_id=ownership.customer_id,
+            deployment_id=ownership.deployment_id,
+            processing_domain=trusted_processing_domain,
+            enqueue_id=enqueue_id,
+            raw={"bucket": raw_bucket, "key": raw_key},
+            contentType=stored_content_type,
+            _metadata={
                 "correlationId": ctx.get("correlationId", doc.get("correlationId", uuid.uuid4().hex)),
-                "traceId": ctx.get("traceId", doc.get("traceId", "")),
-                "uploaderUserId": doc.get("uploaderUserId", ""),
-                "route": tenant,
-                "customerStack": os.environ.get("SCANALYZE_TENANT", tenant),
+                "traceId": ctx.get("traceId") or doc.get("traceId") or None,
             },
-            "raw": {
-                "bucket": input_info.get("bucket"),
-                "key": input_info.get("key"),
-            },
-            "contentType": input_info.get("contentType"),
-            "input": {
-                "bucket": input_info.get("bucket"),
-                "key": input_info.get("key"),
-                "contentType": input_info.get("contentType"),
-            },
-        }
+        )
+        body = envelope.model_dump(
+            mode="json",
+            by_alias=True,
+            exclude_none=True,
+        )
 
         try:
+            # Idempotency by canonical stage using the owner-bound Dynamo condition.
+            can_enqueue = self.repo.set_stage_enqueue_pending(
+                document_id=document_id,
+                stage=stage_name,
+                enqueue_id=enqueue_id,
+                ownership=ownership,
+            )
+            if not can_enqueue:
+                return {
+                    "documentId": document_id,
+                    "stage": stage_name,
+                    "enqueued": False,
+                    "message": "Already submitted for this stage",
+                }
+
             resp = self.sqs.send_message(
                 QueueUrl=queue_url,
                 MessageBody=json.dumps(body),
                 MessageAttributes={
-                    "tenantId": {"DataType": "String", "StringValue": tenant},
+                    "customer_id": {"DataType": "String", "StringValue": tenant},
+                    "deployment_id": {
+                        "DataType": "String",
+                        "StringValue": ownership.deployment_id,
+                    },
                     "documentId": {"DataType": "String", "StringValue": document_id},
-                    "stage": {"DataType": "String", "StringValue": stage_name},
-                    "enqueueId": {"DataType": "String", "StringValue": enqueue_id},
+                    "pipeline_stage": {"DataType": "String", "StringValue": stage_name},
+                    "enqueue_id": {"DataType": "String", "StringValue": enqueue_id},
                 },
             )
-            message_id = resp.get("MessageId", "")
-            self.repo.set_stage_enqueued(document_id=document_id, stage=stage_name, queue_url=queue_url, message_id=message_id)
+            message_id = resp.get("MessageId") if isinstance(resp, dict) else None
+            if not isinstance(message_id, str) or not message_id.strip():
+                raise _MissingSqsAcknowledgement(
+                    "SQS did not acknowledge the message"
+                )
+            message_id = message_id.strip()
+            self.repo.set_stage_enqueued(
+                document_id=document_id,
+                stage=stage_name,
+                enqueue_id=enqueue_id,
+                queue_url=queue_url,
+                message_id=message_id,
+                ownership=ownership,
+            )
 
             return {
                 "documentId": document_id,
@@ -267,25 +509,56 @@ class DocumentsService:
                 "sqsMessageId": message_id,
             }
 
-        except ClientError as e:
-            err_code = e.response.get("Error", {}).get("Code", "SQS_ERROR")
-            self.repo.set_stage_enqueue_failed(document_id=document_id, stage=stage_name, error_code=err_code, error_message="Failed to enqueue message")
-            self.logger.error("sqs_send_failed", sqsErrorCode=err_code, errorType=type(e).__name__)
-            raise AppError(code="SQS_ENQUEUE_FAILED", message="Failed to enqueue document", status_code=502, details={"stage": stage_name})
+        except Exception as exc:
+            err_code = "SQS_ERROR"
+            if isinstance(exc, ClientError):
+                err_code = exc.response.get("Error", {}).get("Code", err_code)
+            elif isinstance(exc, _MissingSqsAcknowledgement):
+                err_code = "SQS_ACK_MISSING"
 
-    def get_document_status(self, tenant: str, document_id: str) -> Dict[str, Any]:
+            try:
+                self.repo.set_stage_enqueue_failed(
+                    document_id=document_id,
+                    stage=stage_name,
+                    enqueue_id=enqueue_id,
+                    error_code=err_code,
+                    error_message="Failed to enqueue message",
+                    ownership=ownership,
+                )
+            except Exception as recovery_error:
+                self.logger.error(
+                    "sqs_enqueue_recovery_failed",
+                    errorType=type(recovery_error).__name__,
+                )
+                raise AppError(
+                    code="SQS_ENQUEUE_RECOVERY_FAILED",
+                    message="Failed to recover document enqueue state",
+                    status_code=502,
+                    details={"stage": stage_name},
+                ) from exc
+
+            self.logger.error(
+                "sqs_send_failed",
+                sqsErrorCode=err_code,
+                errorType=type(exc).__name__,
+            )
+            raise AppError(
+                code="SQS_ENQUEUE_FAILED",
+                message="Failed to enqueue document",
+                status_code=502,
+                details={"stage": stage_name},
+            ) from exc
+
+    def get_document_status(self, auth: AuthContext, document_id: str) -> Dict[str, Any]:
+        tenant = auth.customer_id
         bind_context(documentId=document_id, tenant=tenant)
         doc = self.repo.get_document(document_id)
-        if not doc:
-            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
-
-        doc_tenant = doc.get("tenantId")
-        if doc_tenant and doc_tenant != tenant:
-            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+        authorize_document(auth, doc, ObjectAction.READ)
+        doc_tenant = doc.get("customer_id")
 
         # Metadata mínima, evitando exponer buckets/keys salvo en artifacts endpoints
         input_info = doc.get("input") or {}
-        stages = doc.get("stages") or {}
+        stages = _sanitize_stage_metadata(doc.get("stages"))
 
         return {
             "documentId": doc.get("documentId", document_id),
@@ -294,11 +567,11 @@ class DocumentsService:
             "status": doc.get("status"),
             "createdAt": doc.get("createdAt"),
             "updatedAt": doc.get("updatedAt"),
-            "uploaderUserId": doc.get("uploaderUserId"),
-            "correlationId": doc.get("correlationId"),
             "input": {
                 "filename": input_info.get("filename"),
-                "contentType": input_info.get("contentType"),
+                "contentType": public_document_content_type(
+                    input_info.get("contentType")
+                ),
             },
             "stages": stages,
         }
@@ -362,15 +635,109 @@ class DocumentsService:
 
         return artifact_info["bucket"], artifact_info["key"], artifact_id
 
-    def list_artifacts(self, tenant: str, document_id: str) -> Dict[str, Any]:
+    def _validate_artifact_locator(
+        self,
+        ownership: ObjectOwnership,
+        document_id: str,
+        bucket: Any,
+        key: Any,
+    ) -> Tuple[str, str]:
+        allowed_buckets = {
+            configured
+            for alias in ("raw", "ocr", "structured", "errors")
+            if (configured := self.settings.get_bucket(alias))
+        }
+        expected_prefix = ownership.document_prefix(document_id)
+        canonical_locator = (
+            isinstance(key, str)
+            and key.startswith(expected_prefix)
+            and ".." not in key.split("/")
+        )
+        worker_v1_locator = self._is_exact_worker_v1_artifact_locator(
+            document_id=document_id,
+            bucket=bucket,
+            key=key,
+        )
+        if (
+            not isinstance(bucket, str)
+            or bucket not in allowed_buckets
+            or not (canonical_locator or worker_v1_locator)
+        ):
+            self.logger.warning(
+                "artifact_authorization_failed",
+                reason="untrusted_stored_locator",
+            )
+            raise AppError(
+                code="NOT_FOUND",
+                message="Artifact not found",
+                status_code=404,
+                details={},
+            )
+        return bucket, key
+
+    def _is_exact_worker_v1_artifact_locator(
+        self,
+        *,
+        document_id: str,
+        bucket: Any,
+        key: Any,
+    ) -> bool:
+        """Match only artifact keys emitted by the current reviewed workers.
+
+        The object has already passed exact customer/deployment authorization.
+        This compatibility contract additionally binds the locator to one
+        configured deployment bucket, the exact stored document id, a fixed
+        route, and a fixed artifact filename. Arbitrary legacy prefixes remain
+        denied.
+        """
+        if (
+            not isinstance(bucket, str)
+            or not isinstance(key, str)
+            or not object_id_re.fullmatch(document_id)
+        ):
+            return False
+
+        ocr_bucket = self.settings.get_bucket("ocr")
+        if bucket == ocr_bucket and key in {
+            f"{route}/{document_id}/ocr.json" for route in worker_v1_ocr_routes
+        }:
+            return True
+
+        structured_bucket = self.settings.get_bucket("structured")
+        return bucket == structured_bucket and key in {
+            f"{route}/{document_id}/result.json"
+            for route in worker_v1_structured_routes
+        }
+
+    def get_trusted_artifact_locator(
+        self,
+        auth: AuthContext,
+        doc: Dict[str, Any],
+        artifact_id: str,
+    ) -> Tuple[str, str, str]:
+        ownership = authorize_document(auth, doc, ObjectAction.EXPORT)
+        document_id = doc.get("documentId")
+        if not isinstance(document_id, str) or not document_id:
+            raise AppError(
+                code="NOT_FOUND",
+                message="Document not found",
+                status_code=404,
+                details={},
+            )
+        bucket, key, resolved_alias = self._get_artifact_locator(doc, artifact_id)
+        trusted_bucket, trusted_key = self._validate_artifact_locator(
+            ownership,
+            document_id,
+            bucket,
+            key,
+        )
+        return trusted_bucket, trusted_key, resolved_alias
+
+    def list_artifacts(self, auth: AuthContext, document_id: str) -> Dict[str, Any]:
+        tenant = auth.customer_id
         bind_context(documentId=document_id, tenant=tenant)
         doc = self.repo.get_document(document_id)
-        if not doc:
-            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
-
-        doc_tenant = doc.get("tenantId")
-        if doc_tenant and doc_tenant != tenant:
-            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+        ownership = authorize_document(auth, doc, ObjectAction.READ)
 
         artifacts_dict = doc.get("artifacts", {})
         artifacts = []
@@ -379,7 +746,18 @@ class DocumentsService:
             bucket = info.get("bucket")
             key = info.get("key")
             if not bucket or not key:
-                continue
+                raise AppError(
+                    code="NOT_FOUND",
+                    message="Artifact not found",
+                    status_code=404,
+                    details={},
+                )
+            bucket, key = self._validate_artifact_locator(
+                ownership,
+                document_id,
+                bucket,
+                key,
+            )
 
             # The artifact_id is just the alias itself
             artifacts.append({
@@ -388,7 +766,7 @@ class DocumentsService:
                 "uri": f"s3://{bucket}/{key}"
             })
 
-        prefix = self._doc_prefix(doc)
+        prefix = ownership.document_prefix(document_id)
         return {
             "documentId": document_id,
             "prefix": prefix,
@@ -418,34 +796,38 @@ class DocumentsService:
             "expiresAt": _iso(expires_at),
         }
 
-    def presign_artifact_download(self, tenant: str, document_id: str, artifact_id: str) -> Dict[str, Any]:
+    def presign_artifact_download(
+        self,
+        auth: AuthContext,
+        document_id: str,
+        artifact_id: str,
+    ) -> Dict[str, Any]:
+        tenant = auth.customer_id
         bind_context(documentId=document_id, tenant=tenant)
 
         doc = self.repo.get_document(document_id)
-        if not doc:
-            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
-
-        doc_tenant = doc.get("tenantId")
-        if doc_tenant and doc_tenant != tenant:
-            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
-
-        bucket, key, resolved_alias = self._get_artifact_locator(doc, artifact_id)
+        authorize_document(auth, doc, ObjectAction.EXPORT)
+        bucket, key, resolved_alias = self.get_trusted_artifact_locator(
+            auth,
+            doc,
+            artifact_id,
+        )
         
         return self._generate_presigned_download(document_id, resolved_alias, bucket, key)
 
-    def get_result(self, tenant: str, document_id: str) -> Dict[str, Any]:
+    def get_result(self, auth: AuthContext, document_id: str) -> Dict[str, Any]:
+        tenant = auth.customer_id
         bind_context(documentId=document_id, tenant=tenant)
         doc = self.repo.get_document(document_id)
-        if not doc:
-            raise AppError(code="NOT_FOUND", message="Document not found", status_code=404, details={})
-
-        doc_tenant = doc.get("tenantId")
-        if doc_tenant and doc_tenant != tenant:
-            raise AppError(code="FORBIDDEN", message="Document does not belong to tenant", status_code=403, details={})
+        authorize_document(auth, doc, ObjectAction.EXPORT)
 
         status = doc.get("status")
         if status != "COMPLETED":
             raise AppError(code="RESULT_NOT_READY", message=f"Result not ready, status is {status}", status_code=409, details={})
 
-        bucket, key, resolved_alias = self._resolve_final_artifact(doc)
+        bucket, key, resolved_alias = self.get_trusted_artifact_locator(
+            auth,
+            doc,
+            "final",
+        )
         return self._generate_presigned_download(document_id, resolved_alias, bucket, key)

@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check json-syntax-check policy-check contract-check test security-check microservices-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -16,10 +16,17 @@ TESTS_DIR    := tests
 help:
 	@echo "Scanalyze validation targets:"
 	@echo "  make microservices-check  Validate 7-service layout, Dockerfiles, and portability"
-	@echo "  make contributor-check    Validate contributor workflow + Claude Code baseline"
+	@echo "  make frontend-check       Reinstall, audit, test, lint, and build the portable SPA"
+	@echo "  make github-governance-check Validate stable required-check policy offline"
+	@echo "  make github-deployment-identity-check Validate GUG-123 OIDC and terminal IAM controls"
+	@echo "  make contributor-docs-check Validate human + AI-assisted contributor contract"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
+	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
+	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-221 platform-authority controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
+	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
 	@echo "  make preflight-core       Run safe incremental validation"
 	@echo "  make preflight-m1         Run M0+M1 gates"
 	@echo "  make preflight-m2         Run M0+M1+M2 gates"
@@ -66,7 +73,8 @@ toolchain-check:
 		echo ""; \
 		echo "BLOCKED_TOOLING: M0 evidence CANNOT be verified with mismatched tools."; \
 		echo "Install pinned versions or update .tool-versions/.terraform-version."; \
-		echo "Proceeding with WARNING — M0 gates requiring tool verification are BLOCKED."; \
+		echo "Toolchain verification fails closed."; \
+		exit 1; \
 	fi
 
 # ── Format ───────────────────────────────────────────────────────────
@@ -108,6 +116,19 @@ schema-check:
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR)
 	@echo "Schema check complete (Draft 2020-12 validated)."
 
+# ── Enterprise Authorization Contract ────────────────────────────────
+enterprise-authorization-check:
+	@echo "Validating portable enterprise authorization policy v1..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_enterprise_authorization.py $(POLICIES_DIR)/authorization/enterprise-authorization.v1.json
+	@$(PYTHON) $(TOOLING_DIR)/policy_digest.py \
+		$(POLICIES_DIR)/authorization/enterprise-authorization.v1.json \
+		--digest-file $(POLICIES_DIR)/authorization/enterprise-authorization.v1.sha256 \
+		--check
+	@$(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_gug92_enterprise_authorization.py \
+		$(TESTS_DIR)/test_gug93_policy_digest.py
+	@echo "Enterprise authorization check complete."
+
 # ── Policy Check ─────────────────────────────────────────────────────
 policy-check:
 	@echo "Validating IAM/S3/KMS policy fixtures..."
@@ -140,6 +161,35 @@ microservices-check:
 	@$(PYTHON) $(TOOLING_DIR)/check_microservices.py
 	@echo "Microservices check complete."
 
+# ── Frontend Check ──────────────────────────────────────────────────
+frontend-check:
+	@echo "Checking portable frontend source from a clean dependency install..."
+	@cd frontend/scanalyze-frontend-ui && npm ci
+	@cd frontend/scanalyze-frontend-ui && npm run check
+	@cd frontend/scanalyze-frontend-ui && npm run audit
+	@echo "Frontend check complete. E2E requires the reviewed Playwright browser install."
+
+# ── GitHub Governance Check ──────────────────────────────────────────
+github-governance-check:
+	@echo "Checking repository-global GitHub required-check governance..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_github_policy.py
+	@echo "GitHub governance check complete."
+
+# ── GitHub Deployment Identity Check ─────────────────────────────────
+github-deployment-identity-check:
+	@echo "Checking fail-closed GitHub OIDC and terminal IAM controls..."
+	@$(PYTHON) $(TOOLING_DIR)/validate_github_deployment_identity.py --repository-controls-only
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter github
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_governance/test_gug123_terminal_identity.py
+	@echo "GitHub deployment identity check complete. Status: LOCALLY_VALIDATED_OFFLINE_ONLY"
+
+# ── GitOps Orchestrator Check ─────────────────────────────────────────
+gitops-orchestrator-check:
+	@echo "=== GitOps Orchestrator Check (offline, no AWS) ==="
+	@$(PYTHON) scripts/deployment/validate-layer-dag.py deployment/layers.yaml
+	@$(PYTHON) -m pytest $(TESTS_DIR)/test_deployment/ $(TESTS_DIR)/test_gitops_schemas.py -v --tb=short
+	@echo "GitOps orchestrator check complete. Status: LOCALLY_VALIDATED_DRY_RUN_ONLY"
+
 # ── Required Artifacts Inventory ─────────────────────────────────────
 required-artifacts-check:
 	@echo "Checking required M0 artifacts..."
@@ -147,7 +197,7 @@ required-artifacts-check:
 
 # ── Preflight Core (validates existing artifacts only) ────────────────
 # Use this for incremental work. Does NOT claim M0 completeness.
-preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check contributor-check
+preflight-core: agent-context lint json-syntax-check policy-check contract-check security-check microservices-check github-governance-check github-deployment-identity-check
 	@echo ""
 	@echo "=== PREFLIGHT-CORE COMPLETE ==="
 	@echo "Existing artifacts validated. This does NOT mean M0 is complete."
@@ -155,7 +205,7 @@ preflight-core: agent-context lint json-syntax-check policy-check contract-check
 
 # ── Preflight M0 (full milestone gate — fails if anything missing) ────
 # This is the real M0 gate. Must pass before M0 can be declared complete.
-preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check microservices-check
+preflight-m0: agent-context required-artifacts-check lint json-syntax-check schema-check policy-check contract-check security-check microservices-check github-deployment-identity-check
 	@echo ""
 	@echo "=== PREFLIGHT-M0 COMPLETE ==="
 	@echo "All M0 required artifacts present and validated."
@@ -290,7 +340,7 @@ toolchain-status:
 
 # ── Module Check (M1) ───────────────────────────────────────────────
 MODULE_REQUIRED_FILES := README.md versions.tf variables.tf outputs.tf locals.tf contract.tf
-MODULE_DIRS := global network container-platform data-foundation services edge-identity edge addons replicated-data cicd
+MODULE_DIRS := global network container-platform data-foundation identity-control-plane platform-authority services edge-identity edge addons replicated-data cicd
 
 module-check:
 	@echo "=== Module Skeleton Check ==="
@@ -314,7 +364,7 @@ module-check:
 
 # ── Root Check (M1) ─────────────────────────────────────────────────
 ROOT_REQUIRED_FILES := README.md versions.tf variables.tf main.tf outputs.tf contract_validation.tf backend.example.hcl
-ROOT_DIRS := account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
+ROOT_DIRS := account-ready-gate global network platform data-foundation cicd identity-control-plane platform-authority services edge-identity edge addons
 
 root-check:
 	@echo "=== Root Skeleton Check ==="
@@ -349,8 +399,93 @@ taskdef-check:
 # ── Supply Chain Check (M1) ──────────────────────────────────────────
 supply-chain-check:
 	@echo "=== Supply Chain Policy Gate Check ==="
+	@$(PYTHON) -c "import cryptography, jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: cryptography and jsonschema are required."; exit 1; }
 	@$(PYTHON) -m pytest $(TESTS_DIR)/test_supply_chain/ -v --tb=short
+	@$(PYTHON) $(TOOLING_DIR)/release_policy_gate.py \
+		--manifest $(FIXTURES_DIR)/valid/release-v2-complete.synthetic.json \
+		--attestation $(FIXTURES_DIR)/valid/release-attestation-v2-complete.synthetic.json \
+		--policy $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.json \
+		--expected-policy-digest "$$(cat $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.sha256)" >/dev/null
 	@echo "Supply chain check complete."
+
+# ── Non-Production Live Engine Check (GUG-125, offline) ─────────────
+nonprod-live-engine-check:
+	@echo "=== GUG-125 Non-Production Live Engine Check ==="
+	@$(PYTHON) -c "import jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: jsonschema is required."; exit 1; }
+	@$(PYTHON) -m pytest \
+		$(TESTS_DIR)/test_deployment/test_gug125_nonprod_live_engine.py \
+		$(TESTS_DIR)/test_deployment/test_gug125_live_store.py \
+		$(TESTS_DIR)/test_deployment/test_gug125_platform_authority_factory.py \
+		-v --tb=short
+	@$(TERRAFORM) -chdir=modules/platform-authority init -backend=false -input=false -no-color -lockfile=readonly >/dev/null
+	@$(TERRAFORM) -chdir=modules/platform-authority test -no-color
+	@env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+		-u AWS_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_ROLE_ARN \
+		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
+	@echo "GUG-125 live-engine offline check complete."
+
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-221, offline) ──
+platform-authority-bootstrap-check:
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221 Platform-Authority Bootstrap Check ==="
+	@$(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
+		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
+		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py \
+		$(TESTS_DIR)/test_deployment/test_gug211_founder_bootstrap_pep.py \
+		$(TESTS_DIR)/test_deployment/test_gug214_authority_recovery_preflight.py \
+		$(TESTS_DIR)/test_deployment/test_gug215_retained_change_set_retirement.py \
+		$(TESTS_DIR)/test_deployment/test_gug216_identity_context_compatibility.py \
+		$(TESTS_DIR)/test_deployment/test_gug216_identity_enhanced_session.py \
+		$(TESTS_DIR)/test_deployment/test_gug217_identity_context_compatible_pep.py \
+		$(TESTS_DIR)/test_deployment/test_gug217_identity_context_pep_contracts.py \
+		$(TESTS_DIR)/test_deployment/test_gug218_lambda_invocation_contracts.py \
+		$(TESTS_DIR)/test_deployment/test_gug218_lambda_invocation_authority.py \
+		$(TESTS_DIR)/test_deployment/test_gug219_lambda_authority_contracts.py \
+		$(TESTS_DIR)/test_deployment/test_gug219_lambda_authority_materializer.py \
+		$(TESTS_DIR)/test_deployment/test_gug219_lambda_authority_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug220_lambda_audit_permission_set.py \
+		$(TESTS_DIR)/test_deployment/test_gug220_lambda_audit_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker_runtime.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_change_set.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_effective_state.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_iam_verifier.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_invoker.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_package.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_signed_artifact.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_local_control_plane.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_broker_hardening.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_identity_materialization_receipt.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_precondition_handoff.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_execution_contracts.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_execution_readback.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_phase_b_signed_payload_invoker.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_post_merge_regressions.py \
+		$(TESTS_DIR)/test_deployment/test_gug221_server_side_pep_infrastructure.py
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py \
+		--schemas-dir $(SCHEMAS_DIR) \
+		--fixtures-dir $(FIXTURES_DIR) \
+		--filter platform-authority
+	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
+	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py compatibility-check
+	@$(PYTHON) scripts/deployment/platform-authority-identity-context-pep.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-identity-context-pep.py compatibility-check
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-invocation-authority.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-invocation-materializer.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-audit-permission-set.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-audit-repair-change-set.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-audit-repair-package.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-audit-repair-signed-artifact.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-lambda-audit-provisioning-repair.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -425,7 +560,7 @@ preflight-m2: preflight-m1 module-ownership-check edge-split-check services-owne
 # M2 Level B — Provider Validation
 # ============================================================
 
-ROOT_DIRS = account-ready-gate global network platform data-foundation services edge-identity edge addons cicd
+ROOT_DIRS = account-ready-gate global network platform data-foundation cicd identity-control-plane platform-authority services edge-identity edge addons
 
 aws-credentials-guard:
 	@echo "=== AWS Credentials Guard ==="
@@ -461,7 +596,7 @@ provider-validate: aws-credentials-guard
 		echo "Provider validate: $$ERRORS failures"; \
 		exit 1; \
 	fi; \
-	echo "Provider validate: ALL PASS (9/9)"
+	echo "Provider validate: ALL PASS ($(words $(ROOT_DIRS))/$(words $(ROOT_DIRS)))"
 
 provider-check: provider-init provider-validate
 	@echo ""
@@ -714,23 +849,26 @@ bootstrap-local: toolchain-check
 	@echo "=== Bootstrap Local ==="
 	@if [ ! -d ".venv" ]; then \
 		echo "Creating virtual environment..."; \
-		python3 -m venv .venv; \
+		$(PYTHON) -m venv .venv; \
 	fi
 	@echo "Installing dependencies..."
-	@.venv/bin/pip install -q -e '.[test]' 2>/dev/null || \
-		echo "WARN: pip install failed — dependencies may be missing"
+	@.venv/bin/python -m pip install -q -e '.[test]' || \
+		{ echo "BLOCKED_TOOLING: dependency installation failed."; exit 1; }
 	@echo "Verifying toolchain..."
-	@$(MAKE) --no-print-directory toolchain-check
+	@$(MAKE) --no-print-directory PYTHON=.venv/bin/python toolchain-check
 	@echo "Validating JSON schemas..."
 	@$(MAKE) --no-print-directory json-syntax-check
 	@echo "Bootstrap complete."
 
-# Reproducibility check (offline, no AWS)
+# Reproducibility check (bootstrap may use package network; no AWS)
 repro-check: bootstrap-local
 	@echo "=== Reproducibility Check ==="
 	@$(MAKE) --no-print-directory microservices-check
+	@$(MAKE) --no-print-directory github-governance-check
+	@$(MAKE) --no-print-directory github-deployment-identity-check
 	@$(MAKE) --no-print-directory security-check
 	@$(MAKE) --no-print-directory json-syntax-check
+	@$(MAKE) --no-print-directory gitops-orchestrator-check
 	@$(MAKE) --no-print-directory terraform-fmt-check
 	@$(MAKE) --no-print-directory test
 	@echo "Checking for forbidden artifacts..."
@@ -743,11 +881,90 @@ repro-check: bootstrap-local
 	@echo "=== REPRO-CHECK COMPLETE ==="
 	@echo "Status: REPRO_CHECK_PASSED"
 
+# Human contribution contract (offline, no AWS)
+contributor-docs-check:
+	@echo "=== Human Contributor Contract ==="
+	@$(PYTHON) tooling/validate_contributor_contract.py
+
+# Phase 0 documentation control (offline, no AWS)
+phase0-docs-check:
+	@echo "=== Phase 0 Documentation Control ==="
+	@$(PYTHON) tooling/validate_phase0_docs.py
+
 # Documentation check
-docs-check:
+docs-check: contributor-docs-check phase0-docs-check
 	@echo "=== Documentation Check ==="
 	@ERRORS=0; \
-	for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md; do \
+		for f in README.md REPRODUCIBILITY.md playbooks/enterprise-client-deployment.md \
+			ADR/ADR-017-github-actions-release-orchestrator.md \
+			ADR/ADR-018-stable-ci-governance.md \
+			ADR/ADR-019-production-readiness-foundation.md \
+			ADR/ADR-031-github-oidc-terminal-identity.md \
+			ADR/ADR-032-build-once-and-supply-chain-fail-closed.md \
+			ADR/ADR-033-nonproduction-live-engine-and-saved-plans.md \
+			ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md \
+			ADR/ADR-039-durable-founder-bootstrap-pep.md \
+			ADR/ADR-041-retained-change-set-retirement.md \
+			ADR/ADR-042-identity-enhanced-operator-session-compatibility.md \
+			ADR/ADR-043-identity-context-compatible-retirement-pep.md \
+			ADR/ADR-044-account-wide-lambda-invocation-authority.md \
+			ADR/ADR-045-reviewed-lambda-authority-allowlist-and-collector.md \
+			ADR/ADR-046-lambda-audit-permission-set-provisioning.md \
+			ADR/ADR-047-lambda-audit-provisioning-repair.md \
+			docs/deployment/build-once-supply-chain.md \
+			docs/deployment/nonproduction-live-engine.md \
+			docs/deployment/platform-authority-bootstrap.md \
+			docs/deployment/platform-authority-account-bootstrap.md \
+			docs/deployment/durable-founder-bootstrap-pep.md \
+			docs/deployment/platform-authority-change-set-retirement.md \
+			docs/deployment/platform-authority-identity-context-pep.md \
+			docs/deployment/platform-authority-lambda-invocation-authority.md \
+			docs/deployment/platform-authority-lambda-invocation-materialization.md \
+			docs/deployment/platform-authority-lambda-audit-permission-set.md \
+			docs/deployment/platform-authority-lambda-audit-provisioning-repair.md \
+			docs/deployment/platform-authority-identity-enhanced-session.md \
+			docs/deployment/supply-chain.md \
+			docs/deployment/gitops-orchestrator.md \
+			docs/deployment/github-oidc-terminal-identity.md \
+			docs/operations/github-governance.md \
+			docs/operations/github-oidc-terminal-identity-rollout.md \
+			docs/operations/build-once-promotion-and-rollback.md \
+			docs/operations/nonproduction-live-engine-reconciliation.md \
+			docs/operations/platform-authority-bootstrap-recovery.md \
+			docs/operations/durable-founder-bootstrap-pep.md \
+			docs/operations/platform-authority-identity-context-pep.md \
+			docs/operations/platform-authority-lambda-invocation-authority.md \
+			docs/operations/platform-authority-lambda-invocation-materialization.md \
+			docs/operations/platform-authority-lambda-audit-permission-set.md \
+			docs/operations/platform-authority-lambda-audit-provisioning-repair.md \
+			docs/operations/platform-authority-retained-change-set-retirement.md \
+			docs/operations/platform-authority-identity-enhanced-session.md \
+			docs/security/gug-125-threat-model-delta.md \
+			docs/security/gug-206-threat-model-delta.md \
+			docs/security/gug-211-durable-founder-bootstrap-pep-threat-model-delta.md \
+			docs/security/gug-216-identity-enhanced-session-threat-model-delta.md \
+			docs/security/gug-217-identity-context-pep-threat-model-delta.md \
+			docs/security/gug-218-lambda-invocation-authority-threat-model-delta.md \
+			docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md \
+			docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md \
+			docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md \
+			docs/security/gug-124-threat-model-delta.md \
+			docs/security/gug-123-threat-model-delta.md \
+			docs/production-readiness/README.md \
+			playbooks/phase-0-foundation.md \
+			_NotebookLM_Brain/10_Production_Readiness_Foundation.md \
+			_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md \
+			_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md \
+			_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md \
+			_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md \
+			_NotebookLM_Brain/28_GUG211_Durable_Founder_Bootstrap_PEP.md \
+			_NotebookLM_Brain/31_GUG216_Identity_Enhanced_Operator_Session.md \
+			_NotebookLM_Brain/32_GUG217_Identity_Context_Compatible_Retirement_PEP.md \
+			_NotebookLM_Brain/33_GUG218_Lambda_Invocation_Authority.md \
+			_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md \
+			_NotebookLM_Brain/35_GUG220_Lambda_Audit_Permission_Set.md \
+			_NotebookLM_Brain/36_GUG221_Lambda_Audit_Provisioning_Repair.md \
+			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \
 			ERRORS=$$((ERRORS + 1)); \
@@ -755,7 +972,7 @@ docs-check:
 			echo "  OK: $$f"; \
 		fi; \
 	done; \
-	for d in docs/operations docs/deployment docs/contributing; do \
+	for d in docs/operations docs/deployment docs/engineering; do \
 		if [ ! -d "$$d" ]; then \
 			echo "  MISSING: $$d/"; \
 			ERRORS=$$((ERRORS + 1)); \
@@ -766,22 +983,17 @@ docs-check:
 	if [ "$$ERRORS" -gt 0 ]; then echo "Docs check: $$ERRORS missing" && exit 1; fi
 	@echo "Docs check complete."
 
-# ── Contributor Workflow / Claude Baseline Contract ──────────────────
-contributor-check:
-	@echo "Checking contributor workflow and Claude Code baseline contract..."
-	@$(PYTHON) $(TOOLING_DIR)/check_contributor_contract.py
-	@$(PYTHON) -m pytest $(TESTS_DIR)/test_contributor_contract/ -q
-	@echo "Contributor contract check complete."
-
-# Full release dry-run (offline, no AWS)
+# Full release dry-run (bootstrap may use package network; no AWS)
 release-dry-run: repro-check
 	@echo "=== Release Dry-Run ==="
 	@echo "Validating deployment manifest schema..."
 	@$(PYTHON) scripts/deployment/validate-manifest.py examples/deployments/synthetic-nonprod.yaml
 	@echo "Generating release graph (dry-run)..."
-	@$(PYTHON) scripts/supply-chain/release-graph.py --dry-run 2>&1 | tail -5
+	@$(PYTHON) scripts/supply-chain/release-graph.py --dry-run
 	@echo "Running orchestrator doctor..."
 	@bash scripts/deployment/scanalyze-deploy.sh doctor
+	@echo "Exercising the complete orchestrator DAG (dry-run)..."
+	@bash scripts/repro/run-release-dry-run.sh
 	@$(MAKE) --no-print-directory docs-check
 	@echo ""
 	@echo "=== RELEASE-DRY-RUN COMPLETE ==="
@@ -790,11 +1002,13 @@ release-dry-run: repro-check
 	@echo "Not ready for: live deployment, production"
 
 # Non-production readiness check
-nonprod-readiness-check: release-dry-run
+nonprod-readiness-check: release-dry-run nonprod-live-engine-check
 	@echo "=== Non-Production Readiness Check ==="
 	@echo "repro-check:        PASSED"
 	@echo "manifest-validation: PASSED"
 	@echo "release-dry-run:    PASSED"
+	@echo "gitops-orchestrator: LOCALLY_VALIDATED_DRY_RUN_ONLY"
+	@echo "exact-plan-engine:  LOCALLY_VALIDATED_OFFLINE_ONLY"
 	@echo "live-validation:    BLOCKED (requires AWS credentials + PM approval)"
 	@echo "production-ready:   NO-GO (requires live validation)"
 	@echo ""

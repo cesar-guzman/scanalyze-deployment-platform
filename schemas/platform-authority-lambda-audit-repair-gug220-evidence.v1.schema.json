@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-gug220-evidence.v1.schema.json",
+  "title": "GUG-221 provider-derived GUG-220 partial-state receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "gug220_intent_digest",
+    "gug220_ledger_digest", "gug220_receipt_digest", "management_account_id",
+    "authority_account_id", "region", "identity_center_instance_arn",
+    "identity_store_id", "collector_saml_provider_arn",
+    "identity_center_kms_mode", "identity_center_kms_key_arn", "principal_id",
+    "collector_permission_set_arn", "collector_permission_set_exists",
+    "collector_inline_policy_present", "collector_account_assignments",
+    "collector_provisioned_account_ids", "collector_role_present",
+    "instance_metadata_sha256", "principal_metadata_sha256",
+    "saml_provider_metadata_sha256", "collector_permission_set_metadata_sha256",
+    "collector_permission_set_tags_sha256", "provider_state_sha256", "verifiers",
+    "evaluated_at", "evidence_status", "authority_status", "production_status",
+    "evidence_digest"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_gug220_evidence.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "gug220_intent_digest": { "$ref": "#/$defs/prefixed_digest" },
+    "gug220_ledger_digest": { "$ref": "#/$defs/prefixed_digest" },
+    "gug220_receipt_digest": { "$ref": "#/$defs/prefixed_digest" },
+    "management_account_id": { "const": "839393571433" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "identity_center_instance_arn": { "type": "string", "pattern": "^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$" },
+    "identity_store_id": { "type": "string", "pattern": "^d-[0-9a-f]{10}$" },
+    "collector_saml_provider_arn": { "type": "string", "pattern": "^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$" },
+    "identity_center_kms_mode": { "enum": ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"] },
+    "identity_center_kms_key_arn": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^arn:aws:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$" }
+      ]
+    },
+    "principal_id": { "type": "string", "pattern": "^(?:[0-9a-f]{10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "collector_permission_set_arn": { "type": "string", "pattern": "^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$" },
+    "collector_permission_set_exists": { "const": true },
+    "collector_inline_policy_present": { "const": false },
+    "collector_account_assignments": { "const": [] },
+    "collector_provisioned_account_ids": { "const": [] },
+    "collector_role_present": { "const": false },
+    "instance_metadata_sha256": { "$ref": "#/$defs/digest" },
+    "principal_metadata_sha256": { "$ref": "#/$defs/digest" },
+    "saml_provider_metadata_sha256": { "$ref": "#/$defs/digest" },
+    "collector_permission_set_metadata_sha256": { "$ref": "#/$defs/digest" },
+    "collector_permission_set_tags_sha256": { "$ref": "#/$defs/digest" },
+    "provider_state_sha256": { "$ref": "#/$defs/digest" },
+    "verifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["management", "authority"],
+      "properties": {
+        "management": { "$ref": "#/$defs/management_verifier" },
+        "authority": { "$ref": "#/$defs/authority_verifier" }
+      }
+    },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": { "const": "GUG220_PARTIAL_STATE_READ_ONLY_RECONCILED" },
+    "authority_status": { "const": "PROVIDER_DERIVED_NOT_EXECUTION_AUTHORITY" },
+    "production_status": { "const": "NO-GO" },
+    "evidence_digest": { "$ref": "#/$defs/prefixed_digest" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "identity_center_kms_mode": { "const": "AWS_OWNED_KMS_KEY" } }, "required": ["identity_center_kms_mode"] },
+      "then": { "properties": { "identity_center_kms_key_arn": { "type": "null" } } },
+      "else": { "properties": { "identity_center_kms_key_arn": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "prefixed_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "management_verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "839393571433_ReadOnlyAccess" },
+        "account_id": { "const": "839393571433" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    },
+    "authority_verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "042360977644_ReadOnlyAccess" },
+        "account_id": { "const": "042360977644" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    }
+  }
+}

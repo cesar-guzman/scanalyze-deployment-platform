@@ -18,6 +18,29 @@ resource "aws_dynamodb_table" "documents" {
     type = "S"
   }
 
+  # Sparse ownership indexes: legacy records without these attributes are not indexed.
+  attribute {
+    name = "ownership_key"
+    type = "S"
+  }
+
+  attribute {
+    name = "ownership_batch_key"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "OwnershipIndex"
+    hash_key        = "ownership_key"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "BatchOwnershipIndex"
+    hash_key        = "ownership_batch_key"
+    projection_type = "ALL"
+  }
+
   server_side_encryption {
     enabled     = true
     kms_key_arn = aws_kms_key.data.arn

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-catalog.v1.schema.json",
+  "title": "Scanalyze contract producer and consumer catalog v1",
+  "type": "object",
+  "required": ["schema_version", "contracts"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "contracts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*/v[1-9][0-9]*$" },
+      "additionalProperties": { "$ref": "#/$defs/contract" }
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "string",
+      "enum": [
+        "account-ready-gate",
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "artifact-publication",
+        "identity-control-plane",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons",
+        "synthetic-validation"
+      ]
+    },
+    "transport": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "path_template"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "ssm" },
+            "path_template": {
+              "type": "string",
+              "pattern": "^/scanalyze/deployments/\\{deployment_id\\}/contracts/.+/releases/\\{release_digest\\}/digests/\\{contract_digest\\}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["deployment-record", "release-artifact"] }
+          }
+        }
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "required": [
+        "authority",
+        "producer",
+        "output_schema",
+        "scope",
+        "transport",
+        "consumers",
+        "consumer_bindings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "type": "string",
+          "enum": ["terraform-root", "account-baseline", "release", "identity-registry"]
+        },
+        "producer": {
+          "oneOf": [{ "$ref": "#/$defs/stage" }, { "type": "null" }]
+        },
+        "output_schema": {
+          "type": "string",
+          "pattern": "^schemas/[a-z0-9.-]+\\.schema\\.json$"
+        },
+        "scope": { "type": "string", "enum": ["global", "regional", "external"] },
+        "transport": { "$ref": "#/$defs/transport" },
+        "consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stage" }
+        },
+        "consumer_bindings": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/stage" },
+          "additionalProperties": { "$ref": "#/$defs/consumer_binding" }
+        }
+      }
+    },
+    "consumer_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract_variable": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "output_variables": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "metadata_variables": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "contract_digest",
+              "output_schema_version",
+              "output_schema_major"
+            ]
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

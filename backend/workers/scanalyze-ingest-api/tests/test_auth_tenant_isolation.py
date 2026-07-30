@@ -2,7 +2,7 @@
 
 Tests cover:
   - JWT without signature verification is rejected
-  - X-Tenant-Id header is ignored in protected routes
+  - X-Tenant-Id header is rejected in protected routes
   - Fallback "default" tenant is prohibited
   - Cross-tenant access is blocked
   - M2M client_credentials without tenant claim fails closed
@@ -26,6 +26,17 @@ from fastapi.testclient import TestClient
 
 # ── Test Helpers ──────────────────────────────────────────
 
+_CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+_DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_AUTHZ_SCHEMA_VERSION = "enterprise-authorization.v1"
+_SCOPE_CATALOG_VERSION = "scanalyze.api.v1"
+_ROLE_CATALOG_VERSION = "enterprise-roles.v1"
+_POLICY_VERSION = "1.0.0"
+_POLICY_DIGEST = (
+    "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+)
+
+
 def _make_settings(**overrides: Any) -> MagicMock:
     """Create a mock Settings object with safe defaults for testing."""
     defaults = {
@@ -38,9 +49,13 @@ def _make_settings(**overrides: Any) -> MagicMock:
         "tenant_claim_name": "custom:customerId",
         "m2m_tenant_resolution": "disabled",
         "m2m_client_tenant_map": None,
+        "m2m_client_identity_bindings_v1": None,
+        "m2m_action_scope_sets_v1": None,
+        "deployment_claim_name": "custom:deployment_id",
         "local_mock_tenant_id": None,
         "local_mock_subject": "local-dev-user",
         "scanalyze_deployment_customer_id": None,
+        "scanalyze_deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     }
     defaults.update(overrides)
     mock = MagicMock()
@@ -61,11 +76,170 @@ def _fake_jwt_claims(**overrides: Any) -> Dict[str, Any]:
         "exp": now + 3600,
         "iat": now,
         "custom:customerId": "tenant-alpha",
+        "cognito:username": "user-abc-123",
         "email": "user@example.com",
         "name": "Test User",
     }
     base.update(overrides)
     return base
+
+
+def _make_human_settings(**overrides: Any) -> MagicMock:
+    """Create the exact reviewed runtime contract for a human principal."""
+    human_defaults = {
+        "human_enterprise_authorization_enabled": True,
+        "scanalyze_deployment_customer_id": _CUSTOMER_ID,
+        "scanalyze_deployment_id": _DEPLOYMENT_ID,
+        "enterprise_authorization_schema_version": _AUTHZ_SCHEMA_VERSION,
+        "enterprise_scope_catalog_version": _SCOPE_CATALOG_VERSION,
+        "enterprise_role_catalog_version": _ROLE_CATALOG_VERSION,
+        "enterprise_policy_version": _POLICY_VERSION,
+        "enterprise_policy_digest": _POLICY_DIGEST,
+        "enterprise_membership_snapshot_max_age_seconds": 300,
+        "enterprise_assurance_claim_name": "custom:authentication_assurance",
+    }
+    human_defaults.update(overrides)
+    return _make_settings(**human_defaults)
+
+
+def _fake_human_jwt_claims(**overrides: Any) -> Dict[str, Any]:
+    """Signed-claim shape emitted by the reviewed GUG-153 pre-token adapter."""
+    now = int(time.time())
+    human_claims = {
+        "principal_type": "user",
+        "custom:customerId": _CUSTOMER_ID,
+        "custom:deployment_id": _DEPLOYMENT_ID,
+        "membership_state": "active",
+        "role_id": "customer_admin",
+        "membership_version": "membership-v1",
+        "authz_schema_version": _AUTHZ_SCHEMA_VERSION,
+        "scope_catalog_version": _SCOPE_CATALOG_VERSION,
+        "role_catalog_version": _ROLE_CATALOG_VERSION,
+        "policy_version": _POLICY_VERSION,
+        "policy_digest": _POLICY_DIGEST,
+        "iat": now,
+        "auth_time": now,
+        "custom:authentication_assurance": "phishing_resistant_mfa",
+    }
+    human_claims.update(overrides)
+    return _fake_jwt_claims(**human_claims)
+
+
+def _human_auth_context(*, subject: str = "user-1"):
+    """Build a complete immutable human context for route dependency overrides."""
+    from app.auth import AuthContext
+    from app.enterprise_authorization import (
+        AUDIT_REFERENCE_SCHEMA_VERSION,
+        ASSURANCE_SOURCE,
+        ASSURANCE_VERSION,
+        AUTHORIZATION_CONTEXT_SCHEMA_VERSION,
+        Assurance,
+        AuthorizationPath,
+        HumanAuthorizationSnapshot,
+        HumanRole,
+        MEMBERSHIP_SOURCE,
+    )
+
+    now = int(time.time())
+    snapshot = HumanAuthorizationSnapshot(
+        schema_version=AUTHORIZATION_CONTEXT_SCHEMA_VERSION,
+        authorization_path=AuthorizationPath.MEMBERSHIP,
+        authorization_source=MEMBERSHIP_SOURCE,
+        subject=subject,
+        customer_id=_CUSTOMER_ID,
+        deployment_id=_DEPLOYMENT_ID,
+        membership_state="active",
+        role_id=HumanRole.CUSTOMER_ADMIN,
+        membership_version="membership-v1",
+        temporary_grant_id=None,
+        temporary_grant_type=None,
+        temporary_grant_state=None,
+        temporary_grant_version=None,
+        allowed_operation_ids=frozenset(),
+        allowed_data_classes=frozenset(),
+        expires_at_epoch=None,
+        authz_schema_version=_AUTHZ_SCHEMA_VERSION,
+        scope_catalog_version=_SCOPE_CATALOG_VERSION,
+        role_catalog_version=_ROLE_CATALOG_VERSION,
+        policy_version=_POLICY_VERSION,
+        policy_digest=_POLICY_DIGEST,
+        issued_at_epoch=now,
+        assurance=Assurance.PHISHING_RESISTANT_MFA,
+        authenticated_at_epoch=now,
+        assurance_source=ASSURANCE_SOURCE,
+        assurance_version=ASSURANCE_VERSION,
+        authentication_event_reference="ref_0123456789abcdef01234567",
+    )
+    return AuthContext(
+        customer_id=_CUSTOMER_ID,
+        deployment_id=_DEPLOYMENT_ID,
+        principal_type="user",
+        subject=subject,
+        client_id="test-spa-client",
+        scopes={
+            "scanalyze.api.v1/read",
+            "scanalyze.api.v1/write",
+            "scanalyze.api.v1/admin",
+        },
+        auth_source="cognito_jwt",
+        human_authorization=snapshot,
+    )
+
+
+def _human_authorization_runtime():
+    """Trusted synthetic current-state and durable-audit adapters for route tests."""
+    from app.enterprise_authorization import (
+        AUDIT_REFERENCE_SCHEMA_VERSION,
+        AUDIT_RECEIPT_SCHEMA_VERSION,
+        AUDIT_SINK_SOURCE,
+        AUDIT_SINK_VERSION,
+        AUTHORITATIVE_MEMBERSHIP_SOURCE,
+        AUTHORITATIVE_STATE_SCHEMA_VERSION,
+        AuthoritativeMembershipEvidence,
+        AuthorizationAuditReferences,
+        AuthorizationPath,
+        DurableAuditReceipt,
+        EnterpriseAuthorizationRuntime,
+    )
+
+    def resolve(snapshot, _operation, now_epoch):
+        return AuthoritativeMembershipEvidence(
+            schema_version=AUTHORITATIVE_STATE_SCHEMA_VERSION,
+            authorization_path=AuthorizationPath.MEMBERSHIP,
+            authority_source=AUTHORITATIVE_MEMBERSHIP_SOURCE,
+            checked_at_epoch=now_epoch,
+            subject=str(snapshot.subject),
+            customer_id=str(snapshot.customer_id),
+            deployment_id=str(snapshot.deployment_id),
+            membership_state=str(snapshot.membership_state),
+            role_id=snapshot.role_id or "missing",
+            membership_version=str(snapshot.membership_version),
+        )
+
+    def audit(event):
+        return DurableAuditReceipt(
+            schema_version=AUDIT_RECEIPT_SCHEMA_VERSION,
+            sink_source=AUDIT_SINK_SOURCE,
+            sink_version=AUDIT_SINK_VERSION,
+            decision_id=event["decision_id"],
+            receipt_reference="ref_abcdef0123456789abcdef01",
+            acknowledged_at_epoch=int(time.time()),
+        )
+
+    def audit_references(_auth, _operation, correlation_reference):
+        return AuthorizationAuditReferences(
+            schema_version=AUDIT_REFERENCE_SCHEMA_VERSION,
+            principal_reference="ref_111111111111111111111111",
+            customer_reference="ref_222222222222222222222222",
+            deployment_reference="ref_333333333333333333333333",
+            correlation_reference=correlation_reference,
+        )
+
+    return EnterpriseAuthorizationRuntime(
+        authoritative_state_resolver=resolve,
+        audit_sink=audit,
+        audit_reference_resolver=audit_references,
+    )
 
 
 # ── Unit Tests: Tenant ID Validation ─────────────────────
@@ -263,23 +437,28 @@ class TestTenantResolution:
     @patch("app.auth._verify_cognito_jwt")
     def test_tenant_from_verified_claims(self, mock_verify):
         from app.auth import _resolve_cognito_auth
-        mock_verify.return_value = _fake_jwt_claims()
-        settings = _make_settings()
+        mock_verify.return_value = _fake_human_jwt_claims()
+        settings = _make_human_settings()
 
         ctx = _resolve_cognito_auth("token", settings, legacy_tenant_header=None, request_path="/api/v1/documents")
-        assert ctx.tenant_id == "tenant-alpha"
-        assert ctx.tenant == "tenant-alpha"  # backwards-compatible property
+        assert ctx.tenant_id == _CUSTOMER_ID
+        assert ctx.tenant == _CUSTOMER_ID  # backwards-compatible property
+        assert ctx.deployment_id == _DEPLOYMENT_ID
+        assert ctx.principal_type == "user"
+        assert ctx.human_authorization is not None
         assert ctx.auth_source == "cognito_jwt"
 
     @patch("app.auth._verify_cognito_jwt")
-    def test_x_tenant_id_ignored_when_jwt_has_tenant(self, mock_verify):
-        """P0-001 core: X-Tenant-Id: tenant-b + JWT tenant=tenant-a → uses tenant-a"""
+    def test_x_tenant_id_rejected_when_jwt_has_tenant(self, mock_verify):
+        """Identity-bearing legacy headers are rejected rather than ignored."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
         mock_verify.return_value = _fake_jwt_claims(**{"custom:customerId": "tenant-a"})
         settings = _make_settings()
 
-        ctx = _resolve_cognito_auth("token", settings, legacy_tenant_header="tenant-b", request_path="/test")
-        assert ctx.tenant_id == "tenant-a"
+        with pytest.raises(AppError) as captured:
+            _resolve_cognito_auth("token", settings, legacy_tenant_header="tenant-b", request_path="/test")
+        assert captured.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
     def test_missing_tenant_claim_fails_403(self, mock_verify):
@@ -287,12 +466,10 @@ class TestTenantResolution:
         from app.auth import _resolve_cognito_auth
         from app.errors import AppError
 
-        claims = _fake_jwt_claims()
+        claims = _fake_human_jwt_claims()
         del claims["custom:customerId"]
-        # Simulate user token (has cognito:username)
-        claims["cognito:username"] = "testuser"
         mock_verify.return_value = claims
-        settings = _make_settings()
+        settings = _make_human_settings()
 
         with pytest.raises(AppError) as exc:
             _resolve_cognito_auth("token", settings, None, "/test")
@@ -304,8 +481,10 @@ class TestTenantResolution:
         from app.auth import _resolve_cognito_auth
         from app.errors import AppError
 
-        mock_verify.return_value = _fake_jwt_claims(**{"custom:customerId": "default"})
-        settings = _make_settings()
+        mock_verify.return_value = _fake_human_jwt_claims(
+            **{"custom:customerId": "default"}
+        )
+        settings = _make_human_settings()
 
         with pytest.raises(AppError) as exc:
             _resolve_cognito_auth("token", settings, None, "/test")
@@ -324,6 +503,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="m2m-client-id")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -341,6 +521,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="unknown-m2m-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -355,12 +536,14 @@ class TestM2MTenantResolution:
         assert exc.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
-    def test_m2m_mapped_client_id_resolves_tenant(self, mock_verify):
-        """M2M token, client_id in map → resolves to mapped tenant"""
+    def test_legacy_m2m_customer_only_map_is_rejected(self, mock_verify):
+        """Legacy client_id_map cannot authorize a machine principal."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
 
         claims = _fake_jwt_claims(token_use="access", client_id="mapped-m2m-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -370,9 +553,9 @@ class TestM2MTenantResolution:
             m2m_client_tenant_map={"mapped-m2m-client": "tenant-from-map"},
         )
 
-        ctx = _resolve_cognito_auth("token", settings, None, "/test")
-        assert ctx.tenant_id == "tenant-from-map"
-        assert ctx.auth_source == "m2m_client_map"
+        with pytest.raises(AppError) as captured:
+            _resolve_cognito_auth("token", settings, None, "/test")
+        assert captured.value.status_code == 403
 
     @patch("app.auth._verify_cognito_jwt")
     def test_m2m_mapped_to_default_tenant_rejected(self, mock_verify):
@@ -382,6 +565,7 @@ class TestM2MTenantResolution:
 
         claims = _fake_jwt_claims(token_use="access", client_id="bad-map-client")
         del claims["custom:customerId"]
+        del claims["cognito:username"]
         del claims["email"]
         del claims["name"]
         mock_verify.return_value = claims
@@ -462,16 +646,17 @@ class TestHttpEndpoints:
         from app.main import create_app
         from app.auth import get_auth_context, AuthContext
         self.app = create_app()
+        self.app.state.enterprise_authorization_runtime = _human_authorization_runtime()
         self.client = TestClient(self.app, raise_server_exceptions=False)
         yield
         # Reset overrides after each test
         self.app.dependency_overrides.clear()
         get_settings.cache_clear()
 
-    def _override_auth(self, tenant_id: str = "tenant-a", subject: str = "user-1"):
-        from app.auth import get_auth_context, AuthContext
+    def _override_auth(self, subject: str = "user-1"):
+        from app.auth import get_auth_context
         def _mock():
-            return AuthContext(tenant_id=tenant_id, subject=subject, auth_source="cognito_jwt")
+            return _human_auth_context(subject=subject)
         self.app.dependency_overrides[get_auth_context] = _mock
 
     def test_health_check_no_auth_required(self):
@@ -497,7 +682,7 @@ class TestHttpEndpoints:
 
     def test_protected_endpoint_with_valid_auth(self):
         """With auth override simulating valid tenant, endpoint works."""
-        self._override_auth(tenant_id="tenant-test")
+        self._override_auth()
         with patch("app.api.v1.documents.DocumentsService") as MockSvc:
             MockSvc.return_value.create_document.return_value = {
                 "documentId": "doc-123",
@@ -512,7 +697,7 @@ class TestHttpEndpoints:
 
     def test_cross_tenant_document_access_blocked(self):
         """Tenant-A cannot access documents owned by tenant-B (403 from service layer)."""
-        self._override_auth(tenant_id="tenant-a")
+        self._override_auth()
         with patch("app.api.v1.documents.DocumentsService") as MockSvc:
             from app.errors import AppError
             MockSvc.return_value.get_document_status.side_effect = AppError(
@@ -538,6 +723,7 @@ class TestXTenantIdIgnored:
         get_settings.cache_clear()
         from app.main import create_app
         app = create_app()
+        app.state.enterprise_authorization_runtime = _human_authorization_runtime()
         client = TestClient(app, raise_server_exceptions=False)
 
         resp = client.post(
@@ -557,28 +743,22 @@ class TestXTenantIdIgnored:
         monkeypatch.setenv("AUTH_MODE", "cognito_jwt")
         from app.config import get_settings
         get_settings.cache_clear()
-        from app.auth import get_auth_context, AuthContext
+        from app.auth import get_auth_context
         from app.main import create_app
-        from fastapi import Request
 
-        mock_verify.return_value = _fake_jwt_claims(**{"custom:customerId": "tenant-a"})
-        mock_settings.return_value = _make_settings()
+        mock_verify.return_value = _fake_human_jwt_claims()
+        mock_settings.return_value = _make_human_settings()
 
         app = create_app()
+        app.state.enterprise_authorization_runtime = _human_authorization_runtime()
         client = TestClient(app, raise_server_exceptions=False)
 
-        # We override auth to test the exact function behavior
-        def _test_auth(request: Request):
-            from app.auth import get_auth_context as _orig
-            from fastapi import Header
-            return _orig.__wrapped__(request, "Bearer fake.token.here", "tenant-b") if hasattr(_orig, '__wrapped__') else AuthContext(tenant_id="tenant-a", subject="user-1", auth_source="cognito_jwt")
-
-        app.dependency_overrides[get_auth_context] = lambda: AuthContext(tenant_id="tenant-a", subject="user-1", auth_source="cognito_jwt")
+        app.dependency_overrides[get_auth_context] = _human_auth_context
 
         with patch("app.api.v1.documents.DocumentsService") as MockSvc:
             MockSvc.return_value.get_document_status.return_value = {
                 "documentId": "doc-123",
-                "tenantId": "tenant-a",
+                "tenantId": _CUSTOMER_ID,
                 "status": "COMPLETED",
             }
             resp = client.get(
@@ -586,10 +766,11 @@ class TestXTenantIdIgnored:
                 headers={"X-Tenant-Id": "tenant-b"},
             )
             assert resp.status_code == 200
-            # The service was called with tenant-a, not tenant-b
-            MockSvc.return_value.get_document_status.assert_called_once_with(
-                tenant="tenant-a", document_id="doc-123456"
-            )
+            # The complete trusted context is passed; the legacy header is never authority.
+            call = MockSvc.return_value.get_document_status.call_args
+            assert call.kwargs["auth"].customer_id == _CUSTOMER_ID
+            assert call.kwargs["auth"].customer_id != "tenant-b"
+            assert call.kwargs["document_id"] == "doc-123456"
         get_settings.cache_clear()
 
 

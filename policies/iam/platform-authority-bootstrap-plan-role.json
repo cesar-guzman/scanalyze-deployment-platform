@@ -1,0 +1,98 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadExactBootstrapPlan",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ValidateTemplate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ListOnlyExactBootstrapChangeSets",
+      "Effect": "Allow",
+      "Action": "cloudformation:ListChangeSets",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*"
+    },
+    {
+      "Sid": "ReadOnlyExactBootstrapOriginalTemplate",
+      "Effect": "Allow",
+      "Action": "cloudformation:GetTemplate",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*"
+    },
+    {
+      "Sid": "CreateOnlyExactBootstrapChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:CreateChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "TagOnlyExactBootstrapChangeSetAtCreate",
+      "Effect": "Allow",
+      "Action": "cloudformation:TagResource",
+      "Resource": [
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+        "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:changeSet/${change_set_name}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:CreateAction": "CreateChangeSet",
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-206"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPublicAccessBlock",
+      "Effect": "Allow",
+      "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDirectRetirementEffects",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DeleteChangeSet",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:PutItem",
+        "dynamodb:Scan",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

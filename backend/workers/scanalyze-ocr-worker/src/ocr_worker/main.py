@@ -70,15 +70,14 @@ def poll_queue(queue_url: str, processor_func, queue_name: str):
                         )
                         logger.info(f"Successfully processed and deleted message {message_id}")
                 except ValueError as ve:
-                    # Poison message schema erróneo
+                    # Schema/deadline failures must remain unacknowledged so the
+                    # native redrive policy can retain them in the DLQ.
                     log_event(
                         "poison_message",
                         messageId=message_id,
+                        receiveCount=receive_count,
                         **safe_error_details(ve),
                     )
-                    # Borrar o mandar explícitamente a DLQ (dependiendo de la configuración SQS nativa)
-                    # En ECS con retry robusto lo mejor es borrar el poison message si es strict validation
-                    sqs_client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
                 except Exception as e:
                     # Transient error (boto throttling, S3 eventual consistency)
                     # Dejamos que el VisibilityTimeout expire y SQS haga retry

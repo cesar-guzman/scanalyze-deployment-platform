@@ -4,8 +4,8 @@ import json
 from pydantic import ValidationError as PydanticValidationError
 
 from ..config import config
-from ..contracts import NotifyMessage
-from ..dynamo import update_notify_stage
+from ..contracts import MessageMetadata, NotifyMessage
+from ..dynamo import require_authorized_document, update_notify_stage
 from ..logger import bind_context, log_event, logger, safe_error_details
 from ..routing import route_is_allowed
 
@@ -18,18 +18,23 @@ def process_notify_message(body: str, receipt_handle: str, queue_url: str, tenan
         if not isinstance(msg_data, dict):
             raise ValueError("Message body must be a JSON object")
 
-        meta_env = msg_data.get("_metadata", {})
-        if not isinstance(meta_env, dict):
-            raise ValueError("Message metadata must be a JSON object")
+        meta_env = MessageMetadata.model_validate(
+            msg_data.pop("_metadata", {})
+        ).model_dump(exclude_none=True)
 
         msg = NotifyMessage(**msg_data)
+        config.require_owner(msg.customer_id, msg.deployment_id)
     except (json.JSONDecodeError, PydanticValidationError, TypeError, ValueError) as error:
         log_event("poison_message", stage="notify", **safe_error_details(error))
         return False
 
     doc_id = msg.documentId
     route = msg.meta.tenant
-    if msg.meta.env != config.env or not route_is_allowed(tenant, route):
+    if (
+        msg.meta.env != config.env
+        or route != msg.processing_domain
+        or not route_is_allowed(tenant, route)
+    ):
         log_event("message_route_mismatch", stage="notify", document_id=doc_id)
         return False
 
@@ -37,8 +42,6 @@ def process_notify_message(body: str, receipt_handle: str, queue_url: str, tenan
         documentId=doc_id,
         correlationId=meta_env.get("correlationId"),
         traceId=meta_env.get("traceId"),
-        uploaderUserId=meta_env.get("uploaderUserId"),
-        customerStack=meta_env.get("customerStack"),
         route=route,
         tenant=route,
         stage="notify",
@@ -52,8 +55,23 @@ def process_notify_message(body: str, receipt_handle: str, queue_url: str, tenan
         tenant=route,
     )
 
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     table_name = config.get(tenant, "data-foundation/documents_table_name")
+    try:
+        require_authorized_document(
+            table_name,
+            route,
+            doc_id,
+            msg.customer_id,
+            msg.deployment_id,
+        )
+    except Exception as error:
+        logger.warning(
+            "Rejected document authorization before notification",
+            extra={"errorType": type(error).__name__},
+        )
+        return False
+
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     payload = {
         "notifiedAt": now,
         "completedAt": msg.result.completedAt,
@@ -67,7 +85,14 @@ def process_notify_message(body: str, receipt_handle: str, queue_url: str, tenan
     }
 
     try:
-        update_notify_stage(table_name, route, doc_id, payload)
+        update_notify_stage(
+            table_name,
+            route,
+            doc_id,
+            msg.customer_id,
+            msg.deployment_id,
+            payload,
+        )
     except Exception as error:
         logger.warning(
             "Transient or rejected DynamoDB notify transition",

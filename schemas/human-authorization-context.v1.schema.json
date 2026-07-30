@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/human-authorization-context.v1.schema.json",
+  "title": "Scanalyze Human Authorization Context v1",
+  "description": "Provider-neutral, fail-closed authorization snapshot for exactly one human authority path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authorization_path",
+    "authorization_source",
+    "subject",
+    "customer_id",
+    "deployment_id",
+    "authz_schema_version",
+    "scope_catalog_version",
+    "role_catalog_version",
+    "policy_version",
+    "policy_digest",
+    "issued_at_epoch",
+    "authenticated_at_epoch"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "human-authorization-context.v1"
+    },
+    "authorization_path": {
+      "type": "string",
+      "enum": [
+        "membership",
+        "temporary_grant"
+      ]
+    },
+    "authorization_source": {
+      "type": "string",
+      "enum": [
+        "pre_token_membership_v1",
+        "authoritative_temporary_grant_store_v1"
+      ]
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "customer_id": {
+      "$ref": "#/$defs/customer_id"
+    },
+    "deployment_id": {
+      "$ref": "#/$defs/deployment_id"
+    },
+    "membership_state": {
+      "const": "active"
+    },
+    "role_id": {
+      "$ref": "#/$defs/human_role"
+    },
+    "membership_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "temporary_grant_id": {
+      "type": "string",
+      "pattern": "^grant-[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    },
+    "temporary_grant_type": {
+      "type": "string",
+      "enum": [
+        "support",
+        "break_glass"
+      ]
+    },
+    "temporary_grant_state": {
+      "const": "active"
+    },
+    "temporary_grant_version": {
+      "$ref": "#/$defs/version_reference"
+    },
+    "case_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "incident_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "purpose_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "approval_references": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/opaque_reference"
+      }
+    },
+    "grant_issued_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "allowed_operation_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/operation_id"
+      }
+    },
+    "allowed_data_classes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/data_class"
+      }
+    },
+    "expires_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "authz_schema_version": {
+      "const": "enterprise-authorization.v1"
+    },
+    "scope_catalog_version": {
+      "const": "scanalyze.api.v1"
+    },
+    "role_catalog_version": {
+      "const": "enterprise-roles.v1"
+    },
+    "policy_version": {
+      "const": "1.0.0"
+    },
+    "policy_digest": {
+      "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+    },
+    "issued_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "authenticated_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    },
+    "assurance": {
+      "const": "phishing_resistant_mfa"
+    },
+    "assurance_source": {
+      "const": "authoritative_authentication_event_v1"
+    },
+    "assurance_version": {
+      "const": "phishing-resistant-mfa.v1"
+    },
+    "authentication_event_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    }
+  },
+  "dependentRequired": {
+    "assurance": [
+      "assurance_source",
+      "assurance_version",
+      "authentication_event_reference"
+    ],
+    "assurance_source": [
+      "assurance",
+      "assurance_version",
+      "authentication_event_reference"
+    ],
+    "assurance_version": [
+      "assurance",
+      "assurance_source",
+      "authentication_event_reference"
+    ],
+    "authentication_event_reference": [
+      "assurance",
+      "assurance_source",
+      "assurance_version"
+    ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["temporary_grant_type"],
+        "properties": {
+          "temporary_grant_type": { "const": "support" }
+        }
+      },
+      "then": {
+        "required": ["case_reference", "purpose_reference", "approval_references"],
+        "not": { "required": ["incident_reference"] }
+      }
+    },
+    {
+      "if": {
+        "required": ["temporary_grant_type"],
+        "properties": {
+          "temporary_grant_type": { "const": "break_glass" }
+        }
+      },
+      "then": {
+        "required": ["incident_reference", "purpose_reference", "approval_references"],
+        "not": { "required": ["case_reference"] },
+        "properties": {
+          "approval_references": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    }
+  ],
+  "oneOf": [
+    {
+      "title": "Authoritative membership path",
+      "required": [
+        "membership_state",
+        "role_id",
+        "membership_version"
+      ],
+      "properties": {
+        "authorization_path": {
+          "const": "membership"
+        },
+        "authorization_source": {
+          "const": "pre_token_membership_v1"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["temporary_grant_id"] },
+          { "required": ["temporary_grant_type"] },
+          { "required": ["temporary_grant_state"] },
+          { "required": ["temporary_grant_version"] },
+          { "required": ["case_reference"] },
+          { "required": ["incident_reference"] },
+          { "required": ["purpose_reference"] },
+          { "required": ["approval_references"] },
+          { "required": ["grant_issued_at_epoch"] },
+          { "required": ["allowed_operation_ids"] },
+          { "required": ["allowed_data_classes"] },
+          { "required": ["expires_at_epoch"] }
+        ]
+      }
+    },
+    {
+      "title": "Authoritative temporary grant path",
+      "required": [
+        "temporary_grant_id",
+        "temporary_grant_type",
+        "temporary_grant_state",
+        "temporary_grant_version",
+        "purpose_reference",
+        "approval_references",
+        "grant_issued_at_epoch",
+        "allowed_operation_ids",
+        "allowed_data_classes",
+        "expires_at_epoch",
+        "assurance",
+        "assurance_source",
+        "assurance_version",
+        "authentication_event_reference"
+      ],
+      "properties": {
+        "authorization_path": {
+          "const": "temporary_grant"
+        },
+        "authorization_source": {
+          "const": "authoritative_temporary_grant_store_v1"
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["membership_state"] },
+          { "required": ["role_id"] },
+          { "required": ["membership_version"] }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "human_role": {
+      "type": "string",
+      "enum": [
+        "customer_admin",
+        "document_operator",
+        "document_reviewer",
+        "auditor"
+      ]
+    },
+    "version_reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "opaque_reference": {
+      "type": "string",
+      "pattern": "^ref_[0-9a-f]{24,64}$"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "data_class": {
+      "type": "string",
+      "enum": [
+        "metadata",
+        "masked",
+        "content",
+        "pii",
+        "aggregated"
+      ]
+    },
+    "epoch_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9999999999
+    }
+  }
+}

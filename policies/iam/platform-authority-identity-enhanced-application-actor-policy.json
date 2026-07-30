@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowExactRetirementSourceRolesToCreateToken",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "${classifier_permission_set_role_arn}",
+          "${approver_permission_set_role_arn}"
+        ]
+      },
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "*"
+    }
+  ]
+}

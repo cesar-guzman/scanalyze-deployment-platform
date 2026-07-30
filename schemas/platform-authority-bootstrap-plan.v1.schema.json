@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-plan.v1.schema.json",
+  "title": "Platform Authority Bootstrap Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "authority_account_id",
+    "region",
+    "stack_name",
+    "state_bucket_name",
+    "state_key",
+    "destination_account_ids",
+    "native_lockfile_enabled",
+    "template_sha256",
+    "caller_principal_digest",
+    "change_set_id",
+    "change_set_type",
+    "planned_resource_changes",
+    "account_public_access_block_before",
+    "account_public_access_block_after",
+    "initiator_id",
+    "created_at",
+    "expires_at",
+    "record_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_bootstrap_plan" },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "stack_name": { "const": "scanalyze-platform-authority-state-backend" },
+    "state_bucket_name": {
+      "type": "string",
+      "pattern": "^scanalyze-platform-authority-[0-9]{12}-[a-z]{2}(?:-[a-z]+)+-[0-9]+-state$",
+      "maxLength": 63
+    },
+    "state_key": { "const": "platform-authority/terraform.tfstate" },
+    "destination_account_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/account_id" }
+    },
+    "native_lockfile_enabled": { "const": true },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "caller_principal_digest": { "$ref": "#/$defs/digest" },
+    "change_set_id": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:[a-z0-9-]+:[0-9]{12}:changeSet/[A-Za-z][-A-Za-z0-9]*/[0-9a-f-]{36}$"
+    },
+    "change_set_type": { "enum": ["CREATE", "UPDATE"] },
+    "planned_resource_changes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "logical_resource_id", "resource_type", "replacement"],
+        "properties": {
+          "action": { "enum": ["Add", "Modify"] },
+          "logical_resource_id": { "type": "string", "pattern": "^[A-Za-z0-9]{1,255}$" },
+          "resource_type": {
+            "enum": [
+              "AWS::KMS::Key",
+              "AWS::KMS::Alias",
+              "AWS::S3::Bucket",
+              "AWS::S3::BucketPolicy"
+            ]
+          },
+          "replacement": { "const": "False" }
+        }
+      }
+    },
+    "account_public_access_block_before": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/public_access_block" }
+      ]
+    },
+    "account_public_access_block_after": { "$ref": "#/$defs/public_access_block" },
+    "initiator_id": { "$ref": "#/$defs/operator_id" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "record_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "operator_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
+    "public_access_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "BlockPublicAcls",
+        "BlockPublicPolicy",
+        "IgnorePublicAcls",
+        "RestrictPublicBuckets"
+      ],
+      "properties": {
+        "BlockPublicAcls": { "type": "boolean" },
+        "BlockPublicPolicy": { "type": "boolean" },
+        "IgnorePublicAcls": { "type": "boolean" },
+        "RestrictPublicBuckets": { "type": "boolean" }
+      }
+    }
+  }
+}

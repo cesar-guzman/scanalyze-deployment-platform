@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "record_type": "scanalyze.platform_authority.lambda_audit_repair_broker_topology.v1",
+  "environment": "non-production",
+  "region": "us-east-1",
+  "authority_account_id": "042360977644",
+  "management_account_id": "839393571433",
+  "human_permission_set": {
+    "name": "ScanalyzeLambdaAuditRepair",
+    "principal_type": "USER",
+    "assignment_account_id": "042360977644",
+    "allowed_actions": ["lambda:InvokeFunction"],
+    "denied_action_families": ["sso:*", "identitystore:*", "iam:*", "sts:AssumeRole", "dynamodb:*"]
+  },
+  "functions": {
+    "repair": {
+      "name": "scanalyze-authority-lambda-audit-repair",
+      "aliases": ["repair-v1"],
+      "execution_role": "ScanalyzeLambdaAuditRepairExecution",
+      "reserved_concurrency": 1,
+      "public_url": false
+    },
+    "read": {
+      "name": "scanalyze-authority-lambda-audit-reconcile",
+      "aliases": ["plan-v1", "reconcile-v1"],
+      "execution_role": "ScanalyzeLambdaAuditRepairReconcile",
+      "reserved_concurrency": 1,
+      "public_url": false
+    }
+  },
+  "management_service_roles": {
+    "mutation": "ScanalyzeLambdaAuditRepairMutationServiceRole",
+    "readback": "ScanalyzeLambdaAuditRepairReadbackServiceRole"
+  },
+  "ledger": {
+    "table_name": "scanalyze-platform-authority-gug221-repair-ledger",
+    "provider_immutable": true,
+    "claim_condition": "attribute_not_exists(repair_id)",
+    "writer": "ScanalyzeLambdaAuditRepairExecution"
+  },
+  "event": {},
+  "transport_guard": {
+    "client_context_custom": {
+      "scanalyze_transport": "REQUEST_RESPONSE",
+      "scanalyze_work_package": "GUG-221"
+    },
+    "maximum_retry_attempts": 0,
+    "maximum_event_age_seconds": 60,
+    "asynchronous_effects_authorized": false
+  },
+  "authorized_mutations": [
+    "sso:PutInlinePolicyToPermissionSet",
+    "sso:CreateAccountAssignment",
+    "sso:ProvisionPermissionSet"
+  ],
+  "human_raw_api_authorized": false,
+  "independent_approval_present": false,
+  "deployment_authorized": false,
+  "production_authorized": false
+}

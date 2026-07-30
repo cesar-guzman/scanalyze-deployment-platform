@@ -35,6 +35,8 @@ LAYER_PAIRS=(
   "network|platform|regional"
   "platform|data-foundation|regional"
   "data-foundation|services|regional"
+  "global|identity-control-plane|regional"
+  "identity-control-plane|services|regional"
   "services|edge-identity|regional"
   "edge-identity|edge|global"
   "edge|addons|regional"

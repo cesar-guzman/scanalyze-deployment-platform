@@ -1,12 +1,67 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import sys
 from typing import Any, Dict, Optional
 
 import structlog
-from structlog.contextvars import bind_contextvars, clear_contextvars
+from structlog.contextvars import bind_contextvars, clear_contextvars, get_contextvars
+
+
+_OPAQUE_REFERENCE_PATTERN = re.compile(r"^ref_[0-9a-f]{24,64}$")
+_SAFE_STAGE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_OPAQUE_CONTEXT_FIELDS = frozenset(
+    {
+        "batchId",
+        "correlationId",
+        "customerStack",
+        "documentId",
+        "requestId",
+        "tenant",
+        "traceId",
+        "uploaderUserId",
+    }
+)
+_SENSITIVE_LOG_IDENTIFIER_KEYS = frozenset(
+    {
+        "batchId",
+        "customerId",
+        "customer_id",
+        "deploymentId",
+        "deployment_id",
+        "documentId",
+        "jobId",
+        "profileId",
+        "tenant",
+        "tenantId",
+        "uploaderUserId",
+        "userId",
+    }
+)
+
+
+def opaque_log_reference(value: Any) -> str:
+    """Reduce an identifier to a deterministic, bounded log-only reference."""
+    if isinstance(value, str) and _OPAQUE_REFERENCE_PATTERN.fullmatch(value):
+        return value
+    digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:32]
+    return f"ref_{digest}"
+
+
+def current_log_reference(field: str, fallback: Any) -> str:
+    """Return the current opaque request reference or a safe fallback binding."""
+    current = get_contextvars().get(field)
+    return opaque_log_reference(current if current is not None else fallback)
+
+
+def sanitize_log_identifiers(logger, method_name, event_dict):
+    """Pseudonymize known object/identity keys even when callers bypass context."""
+    for key in _SENSITIVE_LOG_IDENTIFIER_KEYS:
+        if key in event_dict and event_dict[key] is not None:
+            event_dict[key] = opaque_log_reference(event_dict[key])
+    return event_dict
 
 
 def safe_error_details(exc: BaseException) -> Dict[str, Any]:
@@ -65,6 +120,7 @@ def configure_logging(log_level: str, service_name: str, env: str) -> None:
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            sanitize_log_identifiers,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.StackInfoRenderer(),
@@ -92,6 +148,8 @@ def bind_context(**kwargs: Any) -> None:
         "documentId": "documentId",
         "docId": "documentId",
         "document_id": "documentId",
+        "batchId": "batchId",
+        "batch_id": "batchId",
         "stage": "stage",
         "tenant": "tenant",
         "tenantId": "tenant",
@@ -104,10 +162,19 @@ def bind_context(**kwargs: Any) -> None:
     }
     normalized: Dict[str, Any] = {}
     for k, v in kwargs.items():
-        nk = mapping.get(k, k)
+        nk = mapping.get(k)
         if v is None:
             continue
-        normalized[nk] = v
+        if nk is None:
+            continue
+        if nk in _OPAQUE_CONTEXT_FIELDS:
+            normalized[nk] = opaque_log_reference(v)
+        elif nk == "stage":
+            if isinstance(v, str) and _SAFE_STAGE_PATTERN.fullmatch(v):
+                normalized[nk] = v
+        elif nk == "route":
+            if isinstance(v, str) and len(v) <= 256:
+                normalized[nk] = v
     if normalized:
         bind_contextvars(**normalized)
 

@@ -2,6 +2,27 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "AllowPlanEncrypt",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan",
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan"
+        ]
+      },
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.${region}.amazonaws.com",
+          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+        }
+      }
+    },
+    {
       "Sid": "AllowApplyEncrypt",
       "Effect": "Allow",
       "Action": [
@@ -10,7 +31,36 @@
       ],
       "Resource": "*",
       "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
+        "AWS": [
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
+        ]
+      },
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.${region}.amazonaws.com",
+          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+        }
+      }
+    },
+    {
+      "Sid": "AllowApplyDecrypt",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt"
+      ],
+      "Resource": "*",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
+          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
+        ]
+      },
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "s3.${region}.amazonaws.com",
+          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+        }
       }
     },
     {

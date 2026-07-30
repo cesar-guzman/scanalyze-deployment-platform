@@ -1,0 +1,408 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyBeforeFounderApplyWindow",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ExecuteChangeSet",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${apply_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAfterFounderApplyWindow",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ExecuteChangeSet",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${apply_expires_at}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyNonFounderApplySubject",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ExecuteChangeSet",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "identitystore:UserId": "${founder_operator_user_id}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsideFounderAuthorityRegion",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources",
+        "cloudformation:ExecuteChangeSet",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "kms:CreateKey",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyUnsafeFounderApplyCloudFormation",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDirectAccountPublicAccessBlockMutation",
+      "Effect": "Deny",
+      "Action": "s3:PutAccountPublicAccessBlock",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyFounderAliasRetargeting",
+      "Effect": "Deny",
+      "Action": [
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOfflineOnlyFounderApplyMutations",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:ExecuteChangeSet",
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "kms:CreateKey",
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFounderChangeSet",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListStackResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ExecuteOnlyExactFounderChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:ExecuteChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPublicAccessBlockOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactStateBucketForVerification",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketOwnershipControls"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}"
+    },
+    {
+      "Sid": "CreateExactStateBucketViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::${state_bucket_name}",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": "kms:CreateKey",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "cloudformation",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/data_class": "control-metadata",
+          "aws:RequestTag/account_id": "${authority_account_id}",
+          "aws:RequestTag/region": "${region}",
+          "kms:KeySpec": "SYMMETRIC_DEFAULT",
+          "kms:KeyUsage": "ENCRYPT_DECRYPT"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "data_class",
+            "account_id",
+            "region"
+          ]
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadTaggedStateKeyForVerification",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "ManageTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": [
+        "kms:EnableKeyRotation",
+        "kms:PutKeyPolicy",
+        "kms:TagResource"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateExactStateKeyAliasViaCloudFormation",
+      "Effect": "Allow",
+      "Action": "kms:CreateAlias",
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:alias/scanalyze-platform-authority-state"
+    },
+    {
+      "Sid": "BindCreateAliasOnlyToTaggedStateKeyViaCloudFormation",
+      "Effect": "Allow",
+      "Action": "kms:CreateAlias",
+      "Resource": "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/service": "scanalyze-platform-authority",
+          "aws:ResourceTag/data_class": "control-metadata",
+          "aws:ResourceTag/account_id": "${authority_account_id}",
+          "aws:ResourceTag/region": "${region}"
+        },
+        "ForAnyValue:StringEquals": {
+          "aws:CalledVia": [
+            "cloudformation.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

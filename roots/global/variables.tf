@@ -21,6 +21,17 @@ variable "region" {
   description = "AWS region for this deployment"
 }
 
+variable "aws_partition" {
+  type        = string
+  description = "AWS partition from the authoritative account record."
+  default     = "aws"
+
+  validation {
+    condition     = contains(["aws", "aws-us-gov", "aws-cn"], var.aws_partition)
+    error_message = "aws_partition must be aws, aws-us-gov, or aws-cn."
+  }
+}
+
 variable "release_version" {
   type        = string
   description = "Release version being deployed"

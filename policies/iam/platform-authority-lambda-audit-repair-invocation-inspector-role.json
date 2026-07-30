@@ -1,0 +1,159 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRoleChaining",
+      "Effect": "Deny",
+      "Action": "sts:AssumeRole",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyUnreviewedActions",
+      "Effect": "Deny",
+      "NotAction": [
+        "ec2:DescribeRegions",
+        "iam:GetAccountAuthorizationDetails",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "lambda:GetPolicy",
+        "lambda:ListAliases",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctions",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DiscoverEnabledRegions",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeRegions",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadCompleteIamAuthorizationGraph",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetAccountAuthorizationDetails",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ListAccountLambdaSurface",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListAliases",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": "arn:${aws_partition}:lambda:*:${authority_account_id}:function:*"
+    },
+    {
+      "Sid": "DiscoverCompleteLambdaSurface",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactGug221LambdaPolicies",
+      "Effect": "Allow",
+      "Action": "lambda:GetPolicy",
+      "Resource": [
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile:*"
+      ]
+    },
+    {
+      "Sid": "DenyGetPolicyOutsideExactGug221Functions",
+      "Effect": "Deny",
+      "Action": "lambda:GetPolicy",
+      "NotResource": [
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-plan:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-repair:*",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-authority-lambda-audit-reconcile:*"
+      ]
+    },
+    {
+      "Sid": "DenyFunctionReadsOutsideAuthorityAccount",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:ListAliases",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListVersionsByFunction"
+      ],
+      "NotResource": "arn:${aws_partition}:lambda:*:${authority_account_id}:function:*"
+    },
+    {
+      "Sid": "DenyLambdaInvocationAndMutation",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:AddPermission",
+        "lambda:CreateAlias",
+        "lambda:CreateEventSourceMapping",
+        "lambda:CreateFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:DeleteAlias",
+        "lambda:DeleteEventSourceMapping",
+        "lambda:DeleteFunction",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:DeleteFunctionEventInvokeConfig",
+        "lambda:DeleteFunctionUrlConfig",
+        "lambda:Invoke*",
+        "lambda:PublishVersion",
+        "lambda:PutFunctionConcurrency",
+        "lambda:PutFunctionEventInvokeConfig",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:UpdateAlias",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:UpdateFunctionEventInvokeConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyIamMutation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:Add*",
+        "iam:Attach*",
+        "iam:Create*",
+        "iam:Delete*",
+        "iam:Detach*",
+        "iam:PassRole",
+        "iam:Put*",
+        "iam:Remove*",
+        "iam:Set*",
+        "iam:Tag*",
+        "iam:Untag*",
+        "iam:Update*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

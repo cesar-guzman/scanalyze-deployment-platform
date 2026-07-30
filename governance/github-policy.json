@@ -1,0 +1,58 @@
+{
+  "$schema": "../schemas/github-policy.schema.json",
+  "schema_version": "1",
+  "scope": "repository",
+  "default_branch": "main",
+  "required_status_checks": {
+    "strict": true,
+    "expected_app_slug": "github-actions",
+    "checks": [
+      {
+        "context": "Lint, security, and schema checks",
+        "workflow": ".github/workflows/pr-validation.yml",
+        "job": "lint-and-security"
+      },
+      {
+        "context": "Python tests",
+        "workflow": ".github/workflows/pr-validation.yml",
+        "job": "python-tests"
+      },
+      {
+        "context": "Validate deployment manifest schema",
+        "workflow": ".github/workflows/pr-validation.yml",
+        "job": "manifest-validation"
+      },
+      {
+        "context": "Terraform validate (no AWS)",
+        "workflow": ".github/workflows/pr-validation.yml",
+        "job": "terraform-validate"
+      },
+      {
+        "context": "Verify clean clone reproducibility",
+        "workflow": ".github/workflows/repro-check.yml",
+        "job": "clean-clone-check"
+      },
+      {
+        "context": "Microservices validation gate",
+        "workflow": ".github/workflows/microservices-build.yml",
+        "job": "validation_gate"
+      }
+    ]
+  },
+  "migration": {
+    "added_contexts": [
+      "Microservices validation gate"
+    ],
+    "retired_contexts": [
+      "Select services",
+      "Validate build tooling",
+      "Validate ingest-api",
+      "Validate ocr-worker",
+      "Validate postprocess-worker",
+      "Validate classifier-worker",
+      "Validate bank-worker",
+      "Validate personal-worker",
+      "Validate gov-worker"
+    ]
+  }
+}

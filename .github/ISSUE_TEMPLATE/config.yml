@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Scanalyze delivery work in Linear
+    url: https://linear.app/guguce/project/scanalyze-product-and-platform-delivery-f22d0fb5321e/overview
+    about: Create and approve the durable work item in Linear before mirroring it in GitHub.
+  - name: Security reporting instructions
+    url: https://github.com/cesar-guzman/scanalyze-deployment-platform/security/policy
+    about: Follow the private reporting path. Never publish exploit details, secrets, or customer data.

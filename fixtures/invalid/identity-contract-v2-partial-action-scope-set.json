@@ -1,0 +1,43 @@
+{
+  "schema_version": "2",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "cognito": {
+    "user_pool_id": "us-east-1_SYNTHETIC01",
+    "client_ids": ["syntheticspaclient000000000001"],
+    "allowed_token_uses": ["access"],
+    "m2m_client_ids": ["syntheticm2mclient00000000001"]
+  },
+  "authorization": {
+    "mode": "cognito_jwt",
+    "deployment_claim": "custom:deployment_id",
+    "enforce_deployment_binding": true,
+    "customer_id_source": "client_identity_bindings_v1"
+  },
+  "claim_mapping": {
+    "deployment_id": "custom:deployment_id",
+    "customer_id": "custom:customerId"
+  },
+  "action_scope_sets": {
+    "read": [
+      "https://api.synthetic.example.invalid/read-primary",
+      "https://api.synthetic.example.invalid/read-secondary"
+    ],
+    "write": ["https://api.synthetic.example.invalid/write"],
+    "admin": ["https://api.synthetic.example.invalid/admin"]
+  },
+  "m2m_bindings": [
+    {
+      "client_id": "syntheticm2mclient00000000001",
+      "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "required_scopes": ["https://api.synthetic.example.invalid/read-primary"]
+    }
+  ],
+  "allowed_domains": ["bank"],
+  "restrictions": {
+    "cross_account_access": false,
+    "cross_deployment_access": false,
+    "password_in_docs": false
+  }
+}

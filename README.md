@@ -27,7 +27,10 @@ supported.
 
 ```text
 backend/workers/        Canonical source for all seven microservices
+frontend/               Canonical source for the portable Scanalyze SPA
 .github/workflows/      Path-aware validation and protected image publishing
+governance/             Declarative, client-independent repository policy
+deployment/             Canonical GitOps stage graph and orchestration metadata
 scripts/microservices/  Reusable build/push and change-detection entrypoints
 ADR/                    Architecture decisions
 schemas/                Canonical JSON schemas and contracts
@@ -89,32 +92,15 @@ CodeCommit mirror while source retention is reviewed. It is excluded from the
 build path; access must be restricted separately by IAM. A reviewed Terraform
 plan must remove it to reach the no-source-in-customer target state.
 
-## Contributing
-
-Start here before making any change. The contributor workflow, AI-assisted
-development standard, and Claude Code setup are canonical and marked
-**CURRENT**:
-
-- [Contributor Guide](docs/contributing/contributor-guide.md) — end-to-end:
-  access, clone, branch/worktree, implement, docs, commits, PR, review, merge,
-  rollback, Linear updates (1 issue = 1 branch = 1 worktree = 1 PR).
-- [AI-Assisted Development Standard](docs/contributing/ai-assisted-development.md)
-  — pinned model routing (Opus 4.8 plan / Sonnet 5 execute), plan-first,
-  blocked destructive/remote/AWS commands.
-- [Claude Code Setup & Daily Workflow](docs/contributing/claude-code-setup.md)
-- [Onboarding Rehearsal Checklist](docs/contributing/onboarding-rehearsal-checklist.md)
-
-The repository Claude Code baseline lives in
-[`.claude/settings.json`](.claude/settings.json): plan mode by default with
-denials for secrets, destructive Git, remote publish, and Terraform/AWS
-mutation. Validate the workflow contract with `make contributor-check`.
-
 ## Validation
 
 ```bash
 make microservices-check
+make frontend-check
+make github-governance-check
 make security-check
 make git-safety
+make gitops-orchestrator-check
 make preflight-core
 make preflight-m1
 make preflight-m2
@@ -124,6 +110,32 @@ Run the narrowest relevant gate first, then the broader gates before review.
 No validation target authorizes AWS mutation.
 Passing local gates does not replace a real image build and reviewed Terraform
 plan in non-production before any production release.
+
+## Contributing
+
+Human contributors start with [`CONTRIBUTING.md`](CONTRIBUTING.md). It defines
+the end-to-end Linear-to-branch-to-PR workflow, risk classification, review,
+testing, documentation, evidence, rollback, cloud boundaries, and Definition of
+Done. Security vulnerabilities must be reported privately according to
+[`SECURITY.md`](SECURITY.md).
+
+New team members should also follow the step-by-step
+[`GitHub contributor walkthrough`](docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md)
+to request and verify access, understand the GitHub interface, create an
+isolated worktree, open a Draft PR, interpret checks, and perform a review.
+
+AI-assisted development is governed by the
+[`AI-Assisted Development Standard`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md)
+and the [`Claude Code Setup & Daily Workflow`](docs/engineering/CLAUDE_CODE_SETUP.md).
+The repository Claude Code baseline in [`.claude/settings.json`](.claude/settings.json)
+defaults to plan mode, pins model routing (Opus 4.8 planning, Sonnet 5 execution),
+and denies secrets, destructive Git, remote publish, and Terraform/AWS mutation.
+
+The repository validates this contract offline:
+
+```bash
+make contributor-docs-check
+```
 
 ## Safety principles
 
@@ -137,17 +149,26 @@ plan in non-production before any production release.
 8. No manual AWS configuration as source of truth
 9. No production apply, push, SSM write, or ECS mutation without explicit approval
 10. No unverified multi-region or supply-chain claims
+11. Required CI contexts are static and client-independent; dynamic matrix jobs are evidence, not branch-protection APIs
+12. Every deployment uses its own protected GitHub Environment and binding variables
 
 ## Migration record
 
 The monorepo source decision, source revision, exclusions, Terraform compatibility
 plan, and residual risks are documented in
 [`docs/migration/monorepo-microservices-migration.md`](docs/migration/monorepo-microservices-migration.md).
+The frontend source snapshot, exclusions, provenance class, and rollback are
+recorded separately in
+[`docs/migration/frontend-source-consolidation.md`](docs/migration/frontend-source-consolidation.md).
 
 ## Deployment documentation
 
+- Production Readiness Phase 0: [`docs/production-readiness/README.md`](docs/production-readiness/README.md)
 - Canonical operator source: [`playbooks/enterprise-client-deployment.md`](playbooks/enterprise-client-deployment.md)
-- Enterprise Word deliverable: [`docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx`](docs/deployment/Scanalyze_Enterprise_Deployment_Guide.docx)
+- GitOps orchestrator architecture: [`docs/deployment/gitops-orchestrator.md`](docs/deployment/gitops-orchestrator.md)
+- GitHub CI governance and multi-client Environment runbook: [`docs/operations/github-governance.md`](docs/operations/github-governance.md)
+- Enterprise Word deliverable: generated locally from the canonical playbook;
+  the binary is not versioned in this repository.
 - Curated NotebookLM corpus: [`_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`](_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md)
 
 The current guide is intentionally marked **DRAFT / NON-EXECUTABLE / NO-GO**.
@@ -155,3 +176,7 @@ Local gates validate repository behavior, but production deployment remains
 blocked until the account-bound Terraform execution path, runtime contracts,
 complete OCI supply chain, identity contract, declarative frontend configuration
 and live non-production evidence are implemented and approved.
+
+The Phase 0 foundation is planning and governance evidence only. It does not
+change production NO-GO, enable the live Terraform path, or make a dry-run AWS
+evidence.

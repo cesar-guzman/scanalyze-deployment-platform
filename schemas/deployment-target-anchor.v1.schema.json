@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-target-anchor.v1.schema.json",
+  "title": "Trusted Deployment Registry Anchor v1",
+  "description": "Minimal independently retrieved registry anchor. It must come from the approved control plane, never from the deployment request.",
+  "type": "object",
+  "required": ["schema_version", "deployment_id", "registry_version", "record_digest"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "registry_version": { "type": "integer", "minimum": 1 },
+    "record_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

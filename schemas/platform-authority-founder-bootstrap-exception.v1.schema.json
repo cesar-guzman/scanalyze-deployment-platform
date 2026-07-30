@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-bootstrap-exception.v1.schema.json",
+  "title": "Bounded Single-Operator Founder Bootstrap Exception v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "exception_id",
+    "approval_mode",
+    "exception_reason",
+    "independent_approval_present",
+    "approver_id",
+    "risk_acceptance_id",
+    "risk_acceptance_digest",
+    "authority_account_id",
+    "region",
+    "environment",
+    "production",
+    "operator_id",
+    "operator_subject_digest",
+    "founder_plan_principal_digest",
+    "founder_apply_principal_digest",
+    "plan_record_digest",
+    "template_sha256",
+    "change_set_id",
+    "planned_resource_changes",
+    "review_stack_status",
+    "review_stack_resource_count",
+    "change_set_status",
+    "change_set_execution_status",
+    "standard_plan_access_revoked_at",
+    "standard_plan_session_quarantine_until",
+    "founder_plan_not_before",
+    "founder_plan_expires_at",
+    "founder_apply_not_before",
+    "founder_apply_expires_at",
+    "automatic_deny_retain_until",
+    "single_execution",
+    "live_execution_status",
+    "created_at",
+    "exception_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_bootstrap_exception" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "approval_mode": { "const": "SINGLE_OPERATOR_FOUNDER_EXCEPTION" },
+    "exception_reason": { "const": "NO_SECOND_QUALIFIED_OPERATOR" },
+    "independent_approval_present": { "const": false },
+    "approver_id": { "type": "null" },
+    "risk_acceptance_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
+    "risk_acceptance_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "operator_id": { "$ref": "#/$defs/operator_id" },
+    "operator_subject_digest": { "$ref": "#/$defs/digest" },
+    "founder_plan_principal_digest": { "$ref": "#/$defs/digest" },
+    "founder_apply_principal_digest": { "$ref": "#/$defs/digest" },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "change_set_id": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/scanalyze-founder-bootstrap-[a-z][a-z0-9-]{7,63}/[0-9a-f-]{36}$"
+    },
+    "planned_resource_changes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/resource_change" }
+    },
+    "review_stack_status": { "const": "REVIEW_IN_PROGRESS" },
+    "review_stack_resource_count": { "const": 0 },
+    "change_set_status": { "const": "CREATE_COMPLETE" },
+    "change_set_execution_status": { "const": "AVAILABLE" },
+    "standard_plan_access_revoked_at": { "type": "string", "format": "date-time" },
+    "standard_plan_session_quarantine_until": { "type": "string", "format": "date-time" },
+    "founder_plan_not_before": { "type": "string", "format": "date-time" },
+    "founder_plan_expires_at": { "type": "string", "format": "date-time" },
+    "founder_apply_not_before": { "type": "string", "format": "date-time" },
+    "founder_apply_expires_at": { "type": "string", "format": "date-time" },
+    "automatic_deny_retain_until": { "type": "string", "format": "date-time" },
+    "single_execution": { "const": true },
+    "live_execution_status": { "const": "BLOCKED_DURABLE_LEDGER_REQUIRED" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "exception_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "operator_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
+    "resource_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "logical_resource_id", "resource_type", "replacement"],
+      "properties": {
+        "action": { "const": "Add" },
+        "logical_resource_id": {
+          "enum": ["StateKmsKey", "StateKmsAlias", "StateBucket", "StateBucketPolicy"]
+        },
+        "resource_type": {
+          "enum": ["AWS::KMS::Key", "AWS::KMS::Alias", "AWS::S3::Bucket", "AWS::S3::BucketPolicy"]
+        },
+        "replacement": { "const": "False" }
+      }
+    }
+  }
+}

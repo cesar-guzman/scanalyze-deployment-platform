@@ -1,55 +1,38 @@
-# Supply Chain Reference
+# Supply-Chain Reference
 
-## Overview
-
-Scanalyze implements an OCI supply chain that records the full lineage of every image in a release. The supply chain tools are optional for local development but required for release policy compliance.
+ADR-032 is authoritative for release eligibility. The complete operational model is in [build-once-supply-chain.md](build-once-supply-chain.md).
 
 ## Tools
 
-| Tool | Purpose | Required for |
+| Tool | Purpose | Release behavior if unavailable |
 |---|---|---|
-| syft | SBOM generation (SPDX format) | Release policy |
-| trivy | Vulnerability scanning | Release policy |
-| cosign | Image signing (keyless/Sigstore) | Release policy |
+| Syft | SPDX 2.3 JSON SBOM with `spdxVersion` readback | Fail |
+| Trivy | Vulnerability and secret scan evidence | Fail |
+| Cosign | Artifact signature and identity verification | Fail |
+| Release policy gate | Schema, digest, policy, VSA, waiver, and ECDSA verification | Fail |
 
-## Scripts
+Tool name, exact version, and binary digest are part of the signed release and must match the deployment-specific trust policy. Installing a tool is not sufficient evidence.
 
-| Script | Purpose |
-|---|---|
-| `scripts/supply-chain/generate-sbom.sh` | Generate SBOM for a service image |
-| `scripts/supply-chain/scan-image.sh` | Scan image for vulnerabilities |
-| `scripts/supply-chain/sign-image.sh` | Sign image with cosign |
-| `scripts/supply-chain/verify-image.sh` | Verify image signature |
-| `scripts/supply-chain/release-graph.py` | Generate release graph JSON |
+## Commands
 
-## Behavior When Tools Are Missing
-
-All scripts report `SKIPPED` with a reason when the required tool is not installed. This allows local development to proceed without blocking on tool installation.
-
-In CI, tool availability can be enforced by installing them in the workflow.
-
-## Release Graph
-
-The release graph (`release-graph.py`) generates a JSON document with:
-- `schema_version`: For forward compatibility
-- `deployment_id`: Which deployment this release targets
-- `commit`: Git commit SHA
-- `release_tag`: Image tag
-- `services[]`: Per-service lineage (digest, scan status, signature status)
-- `supply_chain_tools`: Availability of cosign, syft, trivy
-
-## Usage
+The shell wrappers accept immutable image digests only:
 
 ```bash
-# Dry-run (no AWS, no tools required)
-python scripts/supply-chain/release-graph.py --dry-run
-
-# Full release graph (requires tools + ECR access)
-python scripts/supply-chain/release-graph.py \
-  --no-dry-run \
-  --deployment-id dep_01SYNTH3T1CABC0XAMP0EHABCD \
-  --commit abc123 \
-  --tag sha-abc123def456 \
-  --ecr-prefix dep-01synth3t1cabc0xamp0ehabcd/scanalyze \
-  --output /path/outside/repo/release-graph.json
+scripts/supply-chain/generate-sbom.sh IMAGE@sha256:DIGEST /safe/evidence/sbom.json
+scripts/supply-chain/scan-image.sh IMAGE@sha256:DIGEST /safe/evidence/scan.json
+scripts/supply-chain/sign-image.sh IMAGE@sha256:DIGEST --bundle /safe/evidence/signature.sigstore.json
+scripts/supply-chain/verify-image.sh IMAGE@sha256:DIGEST \
+  --bundle /safe/evidence/signature.sigstore.json \
+  --certificate-identity EXPECTED_WORKFLOW_IDENTITY \
+  --certificate-oidc-issuer EXPECTED_OIDC_ISSUER
 ```
+
+Do not put evidence containing internal registry coordinates, account identifiers, findings, or timestamps into Git, chat, PR text, or Linear. Preserve it in the authorized evidence store and publish only sanitized digests/statuses.
+
+## Planning inventory
+
+`python scripts/supply-chain/release-graph.py --dry-run` is retained for repository reproducibility checks. It returns `eligible_for_promotion=false` and cannot create a release manifest. `--no-dry-run` always fails. Use the central release policy gate for authority.
+
+## Current boundary
+
+GUG-124 implements and locally validates the portable contract. It does not install tools in a privileged workflow, request GitHub OIDC, call AWS, push artifacts, create Terraform plans, or deploy. Those live steps remain GUG-125. Production is **NO-GO**.

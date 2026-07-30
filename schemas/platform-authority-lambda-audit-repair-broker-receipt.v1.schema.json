@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-broker-receipt.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Repair Broker Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "mode", "status", "repair_id_digest",
+    "source_commit", "function_version", "function_qualifier", "region",
+    "authority_account_suffix", "management_account_suffix", "intent_digest",
+    "ledger_digest", "state_digest", "effects_attempted", "effects_completed",
+    "mutation_attribution", "required_next_action", "generated_at", "production_status"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_broker_receipt.v1" },
+    "mode": { "enum": ["plan", "repair", "reconcile"] },
+    "status": { "enum": ["PLAN_VERIFIED", "REPAIR_VERIFIED", "RECONCILE_VERIFIED", "BLOCKED", "UNCERTAIN_RECONCILE_ONLY"] },
+    "repair_id_digest": { "$ref": "#/$defs/digest" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "function_qualifier": { "enum": ["plan-v1", "repair-v1", "reconcile-v1"] },
+    "region": { "const": "us-east-1" },
+    "authority_account_suffix": { "const": "7644" },
+    "management_account_suffix": { "const": "1433" },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "ledger_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "state_digest": { "$ref": "#/$defs/digest" },
+    "effects_attempted": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "effects_completed": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "mutation_attribution": { "enum": ["PROVEN_BY_DURABLE_LEDGER", "UNPROVEN"] },
+    "required_next_action": { "enum": ["NONE", "INVOKE_REPAIR_ALIAS", "INVOKE_RECONCILE_ALIAS", "REVIEW_BLOCKER"] },
+    "generated_at": { "$ref": "#/$defs/timestamp" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "mode": { "const": "plan" },
+        "status": { "const": "PLAN_VERIFIED" },
+        "function_qualifier": { "const": "plan-v1" },
+        "ledger_digest": { "$ref": "#/$defs/digest" },
+        "effects_attempted": { "const": 0 },
+        "effects_completed": { "const": 0 },
+        "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" },
+        "required_next_action": { "const": "INVOKE_REPAIR_ALIAS" }
+      }
+    },
+    {
+      "properties": {
+        "mode": { "const": "repair" },
+        "status": { "const": "REPAIR_VERIFIED" },
+        "function_qualifier": { "const": "repair-v1" },
+        "ledger_digest": { "$ref": "#/$defs/digest" },
+        "effects_attempted": { "const": 3 },
+        "effects_completed": { "const": 3 },
+        "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" },
+        "required_next_action": { "const": "NONE" }
+      }
+    },
+    {
+      "properties": {
+        "mode": { "const": "reconcile" },
+        "status": { "const": "RECONCILE_VERIFIED" },
+        "function_qualifier": { "const": "reconcile-v1" },
+        "ledger_digest": { "$ref": "#/$defs/digest" },
+        "effects_attempted": { "enum": [2, 3] },
+        "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" },
+        "required_next_action": { "const": "NONE" }
+      },
+      "oneOf": [
+        { "properties": { "effects_attempted": { "const": 2 }, "effects_completed": { "const": 2 } } },
+        { "properties": { "effects_attempted": { "const": 3 }, "effects_completed": { "const": 2 } } },
+        { "properties": { "effects_attempted": { "const": 3 }, "effects_completed": { "const": 3 } } }
+      ]
+    },
+    {
+      "properties": {
+        "mode": { "const": "reconcile" },
+        "status": { "const": "BLOCKED" },
+        "function_qualifier": { "const": "reconcile-v1" },
+        "ledger_digest": { "type": "null" },
+        "effects_attempted": { "const": 0 },
+        "effects_completed": { "const": 0 },
+        "mutation_attribution": { "const": "UNPROVEN" },
+        "required_next_action": { "const": "REVIEW_BLOCKER" }
+      }
+    },
+    {
+      "properties": {
+        "mode": { "const": "repair" },
+        "status": { "const": "BLOCKED" },
+        "function_qualifier": { "const": "repair-v1" },
+        "ledger_digest": { "$ref": "#/$defs/digest" },
+        "required_next_action": { "const": "REVIEW_BLOCKER" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "effects_attempted": { "const": 0 },
+            "effects_completed": { "const": 0 },
+            "mutation_attribution": { "const": "UNPROVEN" }
+          }
+        },
+        {
+          "properties": {
+            "effects_attempted": { "const": 1 },
+            "effects_completed": { "const": 1 },
+            "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" }
+          }
+        },
+        {
+          "properties": {
+            "effects_attempted": { "const": 2 },
+            "effects_completed": { "const": 2 },
+            "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" }
+          }
+        }
+      ]
+    },
+    {
+      "properties": {
+        "mode": { "const": "repair" },
+        "status": { "const": "UNCERTAIN_RECONCILE_ONLY" },
+        "function_qualifier": { "const": "repair-v1" },
+        "ledger_digest": { "type": "null" },
+        "effects_attempted": { "const": 0 },
+        "effects_completed": { "const": 0 },
+        "mutation_attribution": { "const": "UNPROVEN" },
+        "required_next_action": { "const": "INVOKE_RECONCILE_ALIAS" }
+      }
+    },
+    {
+      "properties": {
+        "mode": { "enum": ["repair", "reconcile"] },
+        "status": { "const": "UNCERTAIN_RECONCILE_ONLY" },
+        "ledger_digest": { "$ref": "#/$defs/digest" },
+        "mutation_attribution": { "const": "PROVEN_BY_DURABLE_LEDGER" },
+        "required_next_action": { "const": "INVOKE_RECONCILE_ALIAS" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "repair" } }, "required": ["mode"] },
+          "then": { "properties": { "function_qualifier": { "const": "repair-v1" } } },
+          "else": { "properties": { "function_qualifier": { "const": "reconcile-v1" } } }
+        }
+      ],
+      "oneOf": [
+        { "properties": { "effects_attempted": { "const": 1 }, "effects_completed": { "const": 0 } } },
+        { "properties": { "effects_attempted": { "const": 1 }, "effects_completed": { "const": 1 } } },
+        { "properties": { "effects_attempted": { "const": 2 }, "effects_completed": { "const": 1 } } },
+        { "properties": { "effects_attempted": { "const": 2 }, "effects_completed": { "const": 2 } } },
+        { "properties": { "effects_attempted": { "const": 3 }, "effects_completed": { "const": 2 } } },
+        { "properties": { "effects_attempted": { "const": 3 }, "effects_completed": { "const": 3 } } }
+      ]
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" }
+  }
+}

@@ -1,0 +1,741 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Independent pre-Phase-B proof-only PEP for one exact GUG-221
+  ExecuteChangeSet request. Deployment and invocation remain separately
+  authorized non-production mutations.
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    Default: '042360977644'
+    AllowedValues: ['042360977644']
+  ManagementAccountId:
+    Type: String
+    Default: '839393571433'
+    AllowedValues: ['839393571433']
+  IdentityCenterApplicationArn:
+    Type: String
+    AllowedPattern: '^arn:aws:sso::839393571433:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    AllowedPattern: '^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  IdentityStoreArn:
+    Type: String
+    AllowedPattern: '^arn:aws:identitystore::839393571433:identitystore/d-[a-z0-9]{10,}$'
+  IdentityCenterRedirectUri:
+    Type: String
+    AllowedPattern: '^http://127[.]0[.]0[.]1:[0-9]{4,5}/callback$'
+  OperatorIdentityStoreUserId:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+  InvokerPrincipalArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::042360977644:role/aws-reserved/sso[.]amazonaws[.]com(?:/[a-z0-9-]+)?/AWSReservedSSO_ScanalyzeGug221PhaseBInvoker_[0-9A-Fa-f]{16}$'
+  ExactStackArn:
+    Type: String
+    AllowedPattern: '^arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/[0-9a-fA-F-]{36}$'
+  ExactChangeSetArn:
+    Type: String
+    AllowedPattern: '^arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/[0-9a-fA-F-]{36}$'
+  ExactClientRequestToken:
+    Type: String
+    AllowedPattern: '^gug221-b-[0-9a-f]{48}$'
+  ExactExecutionId:
+    Type: String
+    AllowedPattern: '^gug221-phase-b-[0-9a-f]{64}$'
+  ExecutionNotBefore:
+    Type: String
+    AllowedPattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+  ExecutionNotAfter:
+    Type: String
+    AllowedPattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+  PhaseBIntentDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  ChangeSetReceiptDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  TemplateDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  ParametersDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  ResourceInventoryDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  LedgerControlsDigest:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  OauthStateDigest:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+  BrokerArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  BrokerArtifactKey:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  BrokerArtifactVersion:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  BrokerArtifactCodeSha256:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'
+  BrokerCodeSigningConfigArn:
+    Type: String
+    AllowedPattern: '^arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[a-z0-9]{17}$'
+  RepairArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  RepairArtifactKey:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  ReconcileArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  ReconcileArtifactKey:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  InvokerPolicySha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+  BrokerPolicySha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+  ProofPolicySha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+  ApplicationActorPolicySha256:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{64}$'
+  BrokerTopologySigningKeyArn:
+    Type: String
+    AllowedPattern: '^arn:aws:kms:us-east-1:042360977644:key/[0-9a-fA-F-]{36}$'
+  BrokerTopologySignatureAlgorithm:
+    Type: String
+    Default: ECDSA_SHA_256
+    AllowedValues: [ECDSA_SHA_256]
+  ExpectedBrokerTopologySha256:
+    Type: String
+    AllowedPattern: '^sha256:[0-9a-f]{64}$'
+
+Resources:
+  PhaseBExecutionLedger:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: scanalyze-platform-authority-gug221-phase-b-execution-ledger
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: execution_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: execution_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      ResourcePolicy:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyInsecureLedgerTransport
+              Effect: Deny
+              Principal: '*'
+              Action: dynamodb:*
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+              Condition:
+                Bool:
+                  aws:SecureTransport: 'false'
+            - Sid: DenyLedgerMutationsOutsideExactBroker
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt PhaseBBrokerExecutionRole.Arn
+            - Sid: DenyAnyForeignLedgerKey
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+              Condition:
+                ForAnyValue:StringNotEquals:
+                  dynamodb:LeadingKeys:
+                    - !Ref ExactExecutionId
+            - Sid: DenyUnsupportedLedgerOperations
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:ConditionCheckItem
+                - dynamodb:DeleteItem
+                - dynamodb:PartiQLDelete
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLSelect
+                - dynamodb:PartiQLUpdate
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+            - Sid: DenyTransactionalLedgerItemOperations
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:ConditionCheckItem
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+              Condition:
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation:
+                    - TransactGetItems
+                    - TransactWriteItems
+            - Sid: DenyLedgerControlPlaneMutation
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:CreateBackup
+                - dynamodb:DeleteResourcePolicy
+                - dynamodb:DeleteTable
+                - dynamodb:DisableKinesisStreamingDestination
+                - dynamodb:EnableKinesisStreamingDestination
+                - dynamodb:ExportTableToPointInTime
+                - dynamodb:PutResourcePolicy
+                - dynamodb:RestoreTableToPointInTime
+                - dynamodb:TagResource
+                - dynamodb:UntagResource
+                - dynamodb:UpdateContinuousBackups
+                - dynamodb:UpdateContributorInsights
+                - dynamodb:UpdateKinesisStreamingDestination
+                - dynamodb:UpdateTable
+                - dynamodb:UpdateTableReplicaAutoScaling
+                - dynamodb:UpdateTimeToLive
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+            - Sid: AllowOnlyExactBrokerLedgerItem
+              Effect: Allow
+              Principal:
+                AWS: !GetAtt PhaseBBrokerExecutionRole.Arn
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+              Condition:
+                ForAllValues:StringEquals:
+                  dynamodb:LeadingKeys:
+                    - !Ref ExactExecutionId
+                'Null':
+                  dynamodb:EnclosingOperation: 'true'
+                  dynamodb:LeadingKeys: 'false'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: phase, Value: phase-b-broker-pep}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PhaseBBrokerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug221-phase-b-broker
+      RetentionInDays: 30
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: environment, Value: non-production}
+
+  PhaseBBrokerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug221PhaseBBrokerExecution
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromLambda
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AuthorityAccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+      Policies:
+        - PolicyName: Gug221PhaseBBrokerExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOnlyOwnSanitizedLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug221-phase-b-broker:*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+              - Sid: VerifyOnlyExactBrokerTopologyEvidenceSignature
+                Effect: Allow
+                Action: kms:Verify
+                Resource: !Ref BrokerTopologySigningKeyArn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  StringEquals:
+                    kms:MessageType: DIGEST
+                    kms:SigningAlgorithm: ECDSA_SHA_256
+              - Sid: ExchangeOnlyExactUserAuthorizationCode
+                Effect: Allow
+                Action: sso-oauth:CreateTokenWithIAM
+                Resource: !Ref IdentityCenterApplicationArn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref ExecutionNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref ExecutionNotAfter
+              - Sid: EstablishOnlyExactDenyAllProof
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetContext
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug221PhaseBProof
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref ExecutionNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref ExecutionNotAfter
+              - Sid: UseOnlyExactOneShotLedgerItem
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Ref ExactExecutionId
+                  'Null':
+                    dynamodb:EnclosingOperation: 'true'
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: ReadOnlyExactPhaseBChangeSet
+                Effect: Allow
+                Action: cloudformation:DescribeChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-lambda-audit-repair-pep/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+                    cloudformation:ChangeSetName: gug221-lambda-audit-repair-pep-create
+              - Sid: ExecuteOnlyExactPhaseBChangeSetDuringWindow
+                Effect: Allow
+                Action: cloudformation:ExecuteChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-lambda-audit-repair-pep/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug221-phase-b-broker
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+                    cloudformation:ChangeSetName: gug221-lambda-audit-repair-pep-create
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref ExecutionNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref ExecutionNotAfter
+              - Sid: ReadOnlyExactSignedArtifactsViaCloudFormation
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${RepairArtifactBucket}/${RepairArtifactKey}
+                  - !Sub arn:${AWS::Partition}:s3:::${ReconcileArtifactBucket}/${ReconcileArtifactKey}
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: CreateOnlyExactPepIamResourcesViaCloudFormation
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListRoleTags
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeLambdaAuditRepairReconcile
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairAuthorityInspector
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: CreateOnlyTaggedPepKmsKeyViaCloudFormation
+                Effect: Allow
+                Action:
+                  - kms:CreateAlias
+                  - kms:CreateGrant
+                  - kms:CreateKey
+                  - kms:DescribeKey
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                  - kms:PutKeyPolicy
+                  - kms:TagResource
+                Resource: '*'
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: CreateOnlyExactPepLedgerViaCloudFormation
+                Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:GetResourcePolicy
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:PutResourcePolicy
+                  - dynamodb:TagResource
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:UpdateTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-repair-ledger
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: CreateOnlyExactPepLogsViaCloudFormation
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DescribeLogGroups
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-authority-lambda-audit-*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: CreateOnlyExactPepLambdasViaCloudFormation
+                Effect: Allow
+                Action:
+                  - lambda:CreateAlias
+                  - lambda:CreateCodeSigningConfig
+                  - lambda:CreateFunction
+                  - lambda:DeleteAlias
+                  - lambda:DeleteCodeSigningConfig
+                  - lambda:DeleteFunction
+                  - lambda:GetAlias
+                  - lambda:GetCodeSigningConfig
+                  - lambda:GetFunction
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:GetPolicy
+                  - lambda:ListAliases
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                  - lambda:ListTags
+                  - lambda:ListVersionsByFunction
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:TagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateFunctionCodeSigningConfig
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-authority-lambda-audit-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:code-signing-config:*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+              - Sid: DenyAlternateCloudFormationMutations
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:UpdateTerminationProtection
+                Resource: '*'
+              - Sid: DenyProofCredentialsFromAnyEffect
+                Effect: Deny
+                Action:
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                  - sts:GetFederationToken
+                  - sts:GetSessionToken
+                  - sts:TagSession
+                Resource: '*'
+              - Sid: DenyDestructiveOrUnboundedDownstreamActions
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:Scan
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:PutUserPolicy
+                  - kms:ScheduleKeyDeletion
+                  - s3:GetObject
+                Resource: '*'
+              - Sid: DenyTransactionalLedgerItemOperations
+                Effect: Deny
+                Action:
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-gug221-phase-b-execution-ledger
+                Condition:
+                  ForAnyValue:StringEquals:
+                    dynamodb:EnclosingOperation:
+                      - TransactGetItems
+                      - TransactWriteItems
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: phase, Value: phase-b-broker-pep}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PhaseBProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug221PhaseBProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromExactBroker
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt PhaseBBrokerExecutionRole.Arn
+            Action: sts:AssumeRole
+          - Sid: SetOnlyExactOperatorIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt PhaseBBrokerExecutionRole.Arn
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              ForAnyValue:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref OperatorIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !GetAtt PhaseBBrokerExecutionRole.Arn
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug221PhaseBZeroAuthorityProof
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyEveryProofSessionAction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: phase, Value: phase-b-proof-only}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PhaseBBrokerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - PhaseBBrokerLogGroup
+      - PhaseBExecutionLedger
+    Properties:
+      FunctionName: scanalyze-platform-authority-gug221-phase-b-broker
+      Description: GUG-221 proof-only one-shot Phase B service-principal PEP
+      Runtime: python3.12
+      Handler: tooling.platform_authority_lambda_audit_repair_phase_b_runtime.handler
+      Architectures: [x86_64]
+      MemorySize: 256
+      Timeout: 60
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt PhaseBBrokerExecutionRole.Arn
+      CodeSigningConfigArn: !Ref BrokerCodeSigningConfigArn
+      Code:
+        S3Bucket: !Ref BrokerArtifactBucket
+        S3Key: !Ref BrokerArtifactKey
+        S3ObjectVersion: !Ref BrokerArtifactVersion
+      Environment:
+        Variables:
+          AUTHORITY_ACCOUNT_ID: !Ref AuthorityAccountId
+          MANAGEMENT_ACCOUNT_ID: !Ref ManagementAccountId
+          AUTHORITY_REGION: !Ref AWS::Region
+          IDENTITY_CENTER_APPLICATION_ARN: !Ref IdentityCenterApplicationArn
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          IDENTITY_STORE_ARN: !Ref IdentityStoreArn
+          IDENTITY_CENTER_REDIRECT_URI: !Ref IdentityCenterRedirectUri
+          OPERATOR_IDENTITY_STORE_USER_ID: !Ref OperatorIdentityStoreUserId
+          INVOKER_ROLE_ARN: !Ref InvokerPrincipalArn
+          BROKER_EXECUTION_ROLE_ARN: !GetAtt PhaseBBrokerExecutionRole.Arn
+          PROOF_ROLE_ARN: !GetAtt PhaseBProofRole.Arn
+          EXECUTION_LEDGER_TABLE_ARN: !GetAtt PhaseBExecutionLedger.Arn
+          EXACT_STACK_ARN: !Ref ExactStackArn
+          EXACT_CHANGE_SET_ARN: !Ref ExactChangeSetArn
+          EXACT_CLIENT_REQUEST_TOKEN: !Ref ExactClientRequestToken
+          EXECUTION_NOT_BEFORE: !Ref ExecutionNotBefore
+          CONFIGURED_EXECUTION_ID: !Ref ExactExecutionId
+          EXECUTION_NOT_AFTER: !Ref ExecutionNotAfter
+          PHASE_B_INTENT_DIGEST: !Ref PhaseBIntentDigest
+          CHANGE_SET_RECEIPT_DIGEST: !Ref ChangeSetReceiptDigest
+          TEMPLATE_DIGEST: !Ref TemplateDigest
+          PARAMETERS_DIGEST: !Ref ParametersDigest
+          RESOURCE_INVENTORY_DIGEST: !Ref ResourceInventoryDigest
+          LEDGER_CONTROLS_DIGEST: !Ref LedgerControlsDigest
+          OAUTH_STATE_DIGEST: !Ref OauthStateDigest
+          INVOKER_POLICY_SHA256: !Ref InvokerPolicySha256
+          BROKER_POLICY_SHA256: !Ref BrokerPolicySha256
+          PROOF_POLICY_SHA256: !Ref ProofPolicySha256
+          APPLICATION_ACTOR_POLICY_SHA256: !Ref ApplicationActorPolicySha256
+          BROKER_ARTIFACT_BUCKET: !Ref BrokerArtifactBucket
+          BROKER_ARTIFACT_KEY: !Ref BrokerArtifactKey
+          BROKER_ARTIFACT_VERSION: !Ref BrokerArtifactVersion
+          BROKER_ARTIFACT_CODE_SHA256: !Ref BrokerArtifactCodeSha256
+          BROKER_CODE_SIGNING_CONFIG_ARN: !Ref BrokerCodeSigningConfigArn
+          BROKER_TOPOLOGY_SIGNING_KEY_ARN: !Ref BrokerTopologySigningKeyArn
+          BROKER_TOPOLOGY_SIGNATURE_ALGORITHM: !Ref BrokerTopologySignatureAlgorithm
+          EXPECTED_BROKER_TOPOLOGY_SHA256: !Ref ExpectedBrokerTopologySha256
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-221}
+        - {Key: phase, Value: phase-b-broker-pep}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PhaseBBrokerVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !Ref PhaseBBrokerFunction
+      CodeSha256: !Ref BrokerArtifactCodeSha256
+      Description: GUG-221 reviewed immutable Phase B broker PEP
+
+  PhaseBBrokerExecuteAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      Name: broker-v1
+      Description: Exact synchronous one-shot Phase B broker alias
+      FunctionName: !Ref PhaseBBrokerFunction
+      FunctionVersion: !GetAtt PhaseBBrokerVersion.Version
+
+  PhaseBBrokerEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn:
+      - PhaseBBrokerExecuteAlias
+    Properties:
+      FunctionName: !Ref PhaseBBrokerFunction
+      Qualifier: broker-v1
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+
+  PhaseBBrokerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${PhaseBBrokerFunction}:broker-v1
+      Principal: !Ref InvokerPrincipalArn
+
+Outputs:
+  PhaseBExecutionLedgerName:
+    Value: !Ref PhaseBExecutionLedger
+  PhaseBBrokerFunctionName:
+    Value: !Ref PhaseBBrokerFunction
+  PhaseBBrokerAliasArn:
+    Value: !Ref PhaseBBrokerExecuteAlias
+  InvocationTransport:
+    Value: REQUEST_RESPONSE_CLIENT_CONTEXT_REQUIRED
+  SynchronousClientContextRequired:
+    Value: 'true'
+  AsynchronousEffectBlocked:
+    Description: >-
+      The broker fails closed before SDK construction unless Lambda exposes
+      the exact RequestResponse-only ClientContext contract.
+    Value: 'true'
+  ProviderTopologyAuthenticationStatus:
+    Description: >-
+      Execution remains fail-closed until an external collector verifies a
+      KMS-authenticated immutable provider-readback receipt.
+    Value: KMS_VERIFY_REQUIRED
+  IdentityContextUse:
+    Value: PROOF_ONLY
+  NativeOnBehalfOf:
+    Value: 'false'
+  ExecutionGate:
+    Value: CAS_ATTEMPTS_EQUALS_ONE
+  ProviderRevocationStatus:
+    Description: >-
+      Assignment and invoke-authority removal plus extant-session expiry
+      require separate provider readback.
+    Value: PROVIDER_REVOCATION_PENDING
+  ProductionAuthorized:
+    Description: This template does not authorize deployment or invocation.
+    Value: 'false'

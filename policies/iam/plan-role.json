@@ -29,6 +29,15 @@
       "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*"
     },
     {
+      "Sid": "EncryptEvidenceKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    },
+    {
       "Sid": "ReadContracts",
       "Effect": "Allow",
       "Action": [

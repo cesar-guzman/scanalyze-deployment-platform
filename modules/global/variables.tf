@@ -21,6 +21,17 @@ variable "region" {
   description = "AWS region for this deployment"
 }
 
+variable "aws_partition" {
+  type        = string
+  description = "AWS partition resolved from the authoritative account record."
+  default     = "aws"
+
+  validation {
+    condition     = contains(["aws", "aws-us-gov", "aws-cn"], var.aws_partition)
+    error_message = "aws_partition must be aws, aws-us-gov, or aws-cn."
+  }
+}
+
 variable "release_version" {
   type        = string
   description = "Release version being deployed"
@@ -53,8 +64,6 @@ variable "service_names" {
 
 variable "ecs_task_execution_managed_policies" {
   type        = list(string)
-  description = "Managed policy ARNs to attach to the ECS task execution role"
-  default = [
-    "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
-  ]
+  description = "Explicit managed policy ARNs for the ECS execution role; empty selects the partition-correct AWS managed policy."
+  default     = []
 }

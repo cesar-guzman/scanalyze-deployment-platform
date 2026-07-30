@@ -231,7 +231,8 @@ fi
 [[ "$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')" != "latest" ]] || die "the latest tag is forbidden"
 if [[ "$BASE_IMAGE_SEEN" == true ]]; then
   [[ "$BASE_IMAGE" != *[[:space:]]* ]] || die "base image must not contain whitespace"
-  [[ "$BASE_IMAGE" != *":latest" ]] || die "a latest base image is forbidden"
+  [[ "$BASE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] ||
+    die "base image must be an immutable @sha256 reference"
 fi
 
 if [[ -n "$ACCOUNT_ID" ]]; then
@@ -267,9 +268,6 @@ if [[ "$PUSH_IMAGES" == true ]]; then
   [[ -n "$ECR_PREFIX" ]] || die "--ecr-prefix is required with --push"
   SANITIZED_DEPLOYMENT_ID="$(printf '%s' "$DEPLOYMENT_ID" | tr '[:upper:]_' '[:lower:]-')"
   [[ "$ECR_PREFIX" == "${SANITIZED_DEPLOYMENT_ID}/"* ]] || die "ECR prefix must belong to --deployment-id"
-  if [[ "$RECONCILE_SEEN" == false ]]; then
-    [[ "$BASE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || die "published base images must be digest-pinned"
-  fi
 fi
 
 if [[ "$RECONCILE_SEEN" == false ]]; then

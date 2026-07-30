@@ -52,7 +52,10 @@ def validate_policy(policy: dict, filename: str) -> list[str]:
             if isinstance(actions, str):
                 actions = [actions]
             for action in actions:
-                if action == "*":
+                # A wildcard Allow grants unbounded authority. A wildcard
+                # Deny is the inverse: it is the strict zero-authority session
+                # boundary used by GUG-217 proof roles and must remain valid.
+                if action == "*" and stmt.get("Effect") != "Deny":
                     errors.append(f"{prefix}: Wildcard '*' action found — too broad")
                 elif action in INVALID_IAM_ACTIONS:
                     errors.append(f"{prefix}: Invalid IAM action '{action}' — not a real S3 action")

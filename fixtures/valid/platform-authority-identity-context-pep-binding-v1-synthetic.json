@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_identity_context_pep_binding",
+  "environment": "non-production",
+  "production": false,
+  "authority_account_id": "111122223333",
+  "region": "us-east-1",
+  "identity_center_application_arn": "arn:aws:sso::999900001111:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+  "identity_center_instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+  "identity_store_arn": "arn:aws:identitystore::999900001111:identitystore/d-1234567890",
+  "redirect_uri": "http://127.0.0.1:43119/callback",
+  "broker_execution_role_arn": "arn:aws:iam::111122223333:role/ScanalyzeGug215BrokerExecution",
+  "classifier_user_id": "00000000-0000-4000-8000-000000000011",
+  "approver_user_id": "00000000-0000-4000-8000-000000000022",
+  "classifier_proof_role_arn": "arn:aws:iam::111122223333:role/ScanalyzeGug217ClassifierProof",
+  "approver_proof_role_arn": "arn:aws:iam::111122223333:role/ScanalyzeGug217ApproverProof",
+  "proof_duration_seconds": 900,
+  "max_token_lifetime_seconds": 900,
+  "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+  "live_effect_authorized": false,
+  "binding_digest": "sha256:a95ba3af86a5696833f7c8e135a38f55de5156c671654c8f482f89b5dd307d89"
+}

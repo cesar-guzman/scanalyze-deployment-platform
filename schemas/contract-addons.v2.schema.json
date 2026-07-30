@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-addons.v2.schema.json",
+  "title": "Scanalyze observability addon outputs v2",
+  "type": "object",
+  "required": ["dashboard_name", "alerts_topic_arn", "log_group_names"],
+  "additionalProperties": false,
+  "properties": {
+    "dashboard_name": { "type": "string", "minLength": 1 },
+    "alerts_topic_arn": { "type": "string", "pattern": "^arn:[^:]+:sns:[^:]+:[0-9]{12}:.+$" },
+    "log_group_names": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  }
+}

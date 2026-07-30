@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-founder-pep-ledger.v1.schema.json",
+  "title": "Durable Founder Bootstrap PEP Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "exception_id", "intent_digest",
+    "authority_account_id", "region", "table_name", "version", "state",
+    "plan_attempt_count", "apply_attempt_count", "change_set_id",
+    "plan_record_digest", "exception_digest", "execution_started_at",
+    "outcome", "revocation_digest", "created_at", "updated_at", "ledger_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_founder_pep_ledger" },
+    "exception_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{7,63}$" },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "region": { "const": "us-east-1" },
+    "table_name": { "const": "scanalyze-platform-authority-founder-executions" },
+    "version": { "type": "integer", "minimum": 1 },
+    "state": { "enum": ["PREPARED", "PLAN_ATTEMPTED", "PLAN_REVIEWED", "APPLY_ATTEMPTED", "SUCCEEDED", "FAILED", "UNCERTAIN", "REVOKED"] },
+    "plan_attempt_count": { "enum": [0, 1] },
+    "apply_attempt_count": { "enum": [0, 1] },
+    "change_set_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/scanalyze-founder-bootstrap-[a-z][a-z0-9-]{7,63}/[0-9a-f-]{36}$" }
+      ]
+    },
+    "plan_record_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "exception_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "execution_started_at": { "type": ["string", "null"], "format": "date-time" },
+    "outcome": { "enum": [null, "SUCCEEDED", "FAILED", "UNCERTAIN"] },
+    "revocation_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "ledger_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

@@ -2,56 +2,56 @@ import pytest
 import pydantic
 from personal_worker.contracts import PersonalExtractMessage, ValidateMessage, PersonalDocSchema, VALID_SUBTYPES
 
+CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+
+
+def _extract_message(**overrides):
+    payload = {
+        "schemaVersion": "scanalyze.extract.v2",
+        "documentId": "doc-123",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "ownership_schema_version": 1,
+        "pipeline_stage": "personal-extract",
+        "processing_domain": "personal",
+        "raw": {"bucket": "raw", "key": "raw-key"},
+        "ocr": {"bucket": "ocr", "key": "ocr-key"},
+    }
+    payload.update(overrides)
+    return PersonalExtractMessage(**payload)
+
 def test_personal_extract_message():
-    msg = PersonalExtractMessage(
-        documentId="doc-123",
-        ocr={"bucket": "b", "key": "k"},
-        extra_classifier_field="should act as pass-through and be ignored by Pydantic's extra=ignore model_config"
-    )
+    msg = _extract_message()
     assert msg.documentId == "doc-123"
-    assert getattr(msg, "extra_classifier_field", None) is None
-    assert msg.ocr.bucket == "b"
-    assert msg.ocr.key == "k"
+    assert msg.ocr.bucket == "ocr"
+    assert msg.ocr.key == "ocr-key"
+
+
+def test_personal_extract_message_rejects_unknown_fields():
+    with pytest.raises(pydantic.ValidationError):
+        _extract_message(extra_classifier_field="not-allowed")
     
 def test_personal_extract_message_missing_document_id():
     with pytest.raises(pydantic.ValidationError):
         PersonalExtractMessage(ocr={"bucket": "b", "key": "k"})
 
 
-class TestPersonalExtractMessageHints:
-    """Tests for classifier hints in PersonalExtractMessage."""
-
-    def test_accepts_classifier_hints(self):
-        """Classifier hints should be accepted and preserved."""
-        msg = PersonalExtractMessage(
-            documentId="doc-456",
-            canonicalDocType="personal_doc",
-            subType="curp_mx",
-            routeIntent="personal-extract",
-            reasonCodes=["KW_SEGOB", "PRIORITY_CURP_CERTIFICATE"],
-            classifierSchemaVersion="scanalyze.classifier-output.v1.1",
-            taxonomyVersion="scanalyze-doc-taxonomy-v1",
-        )
-        assert msg.subType == "curp_mx"
-        assert msg.canonicalDocType == "personal_doc"
-        assert msg.reasonCodes == ["KW_SEGOB", "PRIORITY_CURP_CERTIFICATE"]
-        assert msg.classifierSchemaVersion == "scanalyze.classifier-output.v1.1"
-        assert msg.taxonomyVersion == "scanalyze-doc-taxonomy-v1"
-
-    def test_backward_compatible_no_hints(self):
-        """Messages without hints should still work (all optional)."""
-        msg = PersonalExtractMessage(documentId="doc-old")
-        assert msg.subType is None
-        assert msg.canonicalDocType is None
-        assert msg.reasonCodes is None
-
-    def test_identity_signals(self):
-        """Identity signals from classifier should be accepted."""
-        msg = PersonalExtractMessage(
-            documentId="doc-789",
-            identitySignals={"curp": "AUHM770923MDFCRR03", "fullName": "MARTHA ACUNA"},
-        )
-        assert msg.identitySignals["curp"] == "AUHM770923MDFCRR03"
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("canonicalDocType", "personal_doc"),
+        ("subType", "curp_mx"),
+        ("routeIntent", "personal-extract"),
+        ("reasonCodes", ["KW_SEGOB"]),
+        ("identitySignals", {"curp": "SYNTHETIC"}),
+        ("classifierSchemaVersion", "scanalyze.classifier-output.v1.1"),
+        ("taxonomyVersion", "scanalyze-doc-taxonomy-v1"),
+    ],
+)
+def test_personal_extract_message_rejects_legacy_classifier_hints(field, value):
+    with pytest.raises(pydantic.ValidationError):
+        _extract_message(**{field: value})
 
 
 class TestPersonalDocSchemaSubTypes:

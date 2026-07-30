@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.identity-control-plane.v1",
+  "title": "Scanalyze Identity Control Plane Contract v1",
+  "description": "Portable, access-token-only Cognito control-plane outputs bound to one customer, deployment, account, and region.",
+  "type": "object",
+  "required": [
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "aws_partition",
+    "cognito_user_pool_id",
+    "cognito_user_pool_arn",
+    "cognito_issuer_url",
+    "cognito_spa_client_id",
+    "m2m_client_ids",
+    "resource_server_identifier",
+    "allowed_token_uses",
+    "action_scopes",
+    "action_scope_sets",
+    "m2m_bindings",
+    "customer_claim_name",
+    "deployment_claim_name",
+    "policy_version",
+    "policy_digest",
+    "policy_canonicalization",
+    "authz_schema_version",
+    "scope_catalog_version",
+    "role_catalog_version",
+    "human_role_groups",
+    "provider_groups_authoritative",
+    "pre_token_generation_version",
+    "human_runtime_provisioning_enabled",
+    "m2m_runtime_provisioning_enabled",
+    "m2m_client_secret_values_exposed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "aws_partition": {
+      "type": "string",
+      "enum": ["aws", "aws-us-gov", "aws-cn"]
+    },
+    "cognito_user_pool_id": { "$ref": "#/$defs/user_pool_id" },
+    "cognito_user_pool_arn": { "$ref": "#/$defs/user_pool_arn" },
+    "cognito_issuer_url": { "type": "string", "format": "uri" },
+    "cognito_spa_client_id": { "$ref": "#/$defs/client_id" },
+    "m2m_client_ids": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/client_id" }
+    },
+    "resource_server_identifier": {
+      "type": "string",
+      "const": "scanalyze.api.v1"
+    },
+    "allowed_token_uses": {
+      "type": "array",
+      "const": ["access"]
+    },
+    "action_scopes": { "$ref": "#/$defs/action_scopes" },
+    "action_scope_sets": { "$ref": "#/$defs/action_scope_sets" },
+    "m2m_bindings": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/m2m_binding" }
+    },
+    "customer_claim_name": {
+      "type": "string",
+      "const": "custom:customerId"
+    },
+    "deployment_claim_name": {
+      "type": "string",
+      "const": "custom:deployment_id"
+    },
+    "policy_version": { "type": "string", "const": "1.0.0" },
+    "policy_digest": {
+      "type": "string",
+      "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+    },
+    "policy_canonicalization": {
+      "type": "string",
+      "const": "rfc8785_json_canonicalization"
+    },
+    "authz_schema_version": {
+      "type": "string",
+      "const": "enterprise-authorization.v1"
+    },
+    "scope_catalog_version": {
+      "type": "string",
+      "const": "scanalyze.api.v1"
+    },
+    "role_catalog_version": {
+      "type": "string",
+      "const": "enterprise-roles.v1"
+    },
+    "human_role_groups": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "const": "customer_admin" },
+        { "const": "document_operator" },
+        { "const": "document_reviewer" },
+        { "const": "auditor" }
+      ],
+      "items": false
+    },
+    "provider_groups_authoritative": { "type": "boolean", "const": false },
+    "pre_token_generation_version": { "type": "string", "const": "V2_0" },
+    "human_runtime_provisioning_enabled": {
+      "type": "boolean",
+      "const": false
+    },
+    "m2m_runtime_provisioning_enabled": {
+      "type": "boolean",
+      "const": true
+    },
+    "m2m_client_secret_values_exposed": {
+      "type": "boolean",
+      "const": false
+    }
+  },
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+    },
+    "client_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]{1,128}$"
+    },
+    "user_pool_id": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+    },
+    "user_pool_arn": {
+      "type": "string",
+      "pattern": "^arn:(aws|aws-us-gov|aws-cn):cognito-idp:[a-z]{2}(-gov)?-[a-z]+-[0-9]+:[0-9]{12}:userpool/[a-z]{2}(-gov)?-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+    },
+    "action_scopes": {
+      "type": "object",
+      "required": ["read", "write", "admin"],
+      "additionalProperties": false,
+      "properties": {
+        "read": { "type": "string", "const": "scanalyze.api.v1/read" },
+        "write": { "type": "string", "const": "scanalyze.api.v1/write" },
+        "admin": { "type": "string", "const": "scanalyze.api.v1/admin" }
+      }
+    },
+    "action_scope_sets": {
+      "type": "object",
+      "required": ["read", "write", "admin"],
+      "additionalProperties": false,
+      "properties": {
+        "read": { "type": "array", "const": ["scanalyze.api.v1/read"] },
+        "write": { "type": "array", "const": ["scanalyze.api.v1/write"] },
+        "admin": { "type": "array", "const": ["scanalyze.api.v1/admin"] }
+      }
+    },
+    "m2m_binding": {
+      "type": "object",
+      "required": [
+        "client_id",
+        "customer_id",
+        "deployment_id",
+        "required_scopes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "client_id": { "$ref": "#/$defs/client_id" },
+        "customer_id": { "$ref": "#/$defs/customer_id" },
+        "deployment_id": { "$ref": "#/$defs/deployment_id" },
+        "required_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "scanalyze.api.v1/read",
+              "scanalyze.api.v1/write",
+              "scanalyze.api.v1/admin"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

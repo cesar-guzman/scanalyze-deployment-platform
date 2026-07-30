@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-execution-lock.v1.schema.json",
+  "title": "Deployment Execution Lock v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "account_id",
+    "region",
+    "execution_id",
+    "owner",
+    "status",
+    "acquired_at",
+    "expires_at",
+    "registry_record_digest",
+    "lock_version",
+    "lock_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "execution_id": { "type": "string", "pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "owner": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:._/-]{7,255}$" },
+    "status": { "enum": ["HELD", "RELEASED"] },
+    "acquired_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "registry_record_digest": { "$ref": "#/$defs/digest" },
+    "lock_version": { "type": "integer", "minimum": 1 },
+    "lock_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

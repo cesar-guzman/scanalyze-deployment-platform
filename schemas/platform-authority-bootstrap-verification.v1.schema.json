@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-verification.v1.schema.json",
+  "title": "Platform Authority Bootstrap Verification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "plan_record_digest",
+    "authority_account_id",
+    "region",
+    "stack_name",
+    "stack_status",
+    "state_bucket_name",
+    "state_key",
+    "state_kms_key_arn",
+    "controls",
+    "verifier_principal_digest",
+    "verified_at",
+    "verification_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_bootstrap_verification" },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "stack_name": { "const": "scanalyze-platform-authority-state-backend" },
+    "stack_status": { "enum": ["CREATE_COMPLETE", "UPDATE_COMPLETE"] },
+    "state_bucket_name": {
+      "type": "string",
+      "pattern": "^scanalyze-platform-authority-[0-9]{12}-[a-z]{2}(?:-[a-z]+)+-[0-9]+-state$",
+      "maxLength": 63
+    },
+    "state_key": { "const": "platform-authority/terraform.tfstate" },
+    "state_kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$"
+    },
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "account_public_access_blocked",
+        "bucket_public_access_blocked",
+        "bucket_owner_enforced",
+        "bucket_versioning_enabled",
+        "default_encryption",
+        "bucket_key_enabled",
+        "kms_rotation_enabled",
+        "native_lockfile_enabled"
+      ],
+      "properties": {
+        "account_public_access_blocked": { "const": true },
+        "bucket_public_access_blocked": { "const": true },
+        "bucket_owner_enforced": { "const": true },
+        "bucket_versioning_enabled": { "const": true },
+        "default_encryption": { "const": "aws:kms" },
+        "bucket_key_enabled": { "const": true },
+        "kms_rotation_enabled": { "const": true },
+        "native_lockfile_enabled": { "const": true }
+      }
+    },
+    "verifier_principal_digest": { "$ref": "#/$defs/digest" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "verification_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

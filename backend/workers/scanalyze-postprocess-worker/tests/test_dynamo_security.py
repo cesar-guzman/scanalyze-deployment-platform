@@ -5,6 +5,20 @@ from botocore.exceptions import ClientError
 
 from src.postprocess_worker import dynamo
 
+CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+
+def _call(function, table_name, tenant, document_id, payload):
+    return function(
+        table_name,
+        tenant,
+        document_id,
+        CUSTOMER_ID,
+        DEPLOYMENT_ID,
+        payload,
+    )
+
 
 class _FakeTable:
     def __init__(self, *, item=None, update_error=None):
@@ -81,7 +95,7 @@ def test_validate_update_requires_existing_document_and_extracted_transition(mon
     }
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
-        assert dynamo.update_validate_stage("documents", "bank", "doc-123", payload) == payload["validation"]
+        assert _call(dynamo.update_validate_stage, "documents", "bank", "doc-123", payload) == payload["validation"]
 
     request = table.update_calls[0]
     assert "attribute_exists(#pk)" in request["ConditionExpression"]
@@ -103,11 +117,11 @@ def test_persist_update_requires_matching_stored_validation(monkeypatch):
             "completedAt": "2026-01-01T00:00:00Z",
         },
         "updatedAt": "2026-01-01T00:00:00Z",
-        "structured": {"bucket": "structured", "key": "bank/doc-123/result.json"},
+        "structured": {"bucket": "structured", "key": "customers/cust_01ARZ3NDEKTSV4RRFFQ69G5FAW/deployments/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/documents/doc-123/structured/bank/result.json"},
     }
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
-        assert dynamo.update_persist_stage("documents", "bank", "doc-123", payload) == payload["completedAt"]
+        assert _call(dynamo.update_persist_stage, "documents", "bank", "doc-123", payload) == payload["completedAt"]
 
     request = table.update_calls[0]
     condition = request["ConditionExpression"]
@@ -128,7 +142,7 @@ def test_conditional_failure_without_matching_existing_state_is_not_success(monk
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
         with pytest.raises(ClientError):
-            dynamo.update_validate_stage("documents", "bank", "doc-123", payload)
+            _call(dynamo.update_validate_stage, "documents", "bank", "doc-123", payload)
 
     assert table.get_calls
 
@@ -138,7 +152,11 @@ def test_matching_existing_validation_is_the_only_idempotent_success(monkeypatch
     table = _FakeTable(
         update_error=_conditional_failure(),
         item={
-            "validation": {"status": "PASS"},
+            "customer_id": CUSTOMER_ID,
+                "deployment_id": DEPLOYMENT_ID,
+                "ownership_schema_version": 1,
+                "processing_domain": "bank",
+                "validation": {"status": "PASS"},
             "stages": {"validate": {"status": "DONE"}},
         },
     )
@@ -149,7 +167,7 @@ def test_matching_existing_validation_is_the_only_idempotent_success(monkeypatch
     }
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
-        assert dynamo.update_validate_stage("documents", "bank", "doc-123", payload) == table.item["validation"]
+        assert _call(dynamo.update_validate_stage, "documents", "bank", "doc-123", payload) == table.item["validation"]
 
     assert table.get_calls
 
@@ -160,7 +178,11 @@ def test_matching_existing_persist_returns_authoritative_completion_time(monkeyp
     table = _FakeTable(
         update_error=_conditional_failure(),
         item={
-            "status": "COMPLETED",
+            "customer_id": CUSTOMER_ID,
+                "deployment_id": DEPLOYMENT_ID,
+                "ownership_schema_version": 1,
+                "processing_domain": "bank",
+                "status": "COMPLETED",
             "completedAt": stored_completed_at,
             "validation": {"status": "PASS"},
             "stages": {
@@ -178,12 +200,12 @@ def test_matching_existing_persist_returns_authoritative_completion_time(monkeyp
             "completedAt": "2026-01-01T00:02:00Z",
         },
         "updatedAt": "2026-01-01T00:02:00Z",
-        "structured": {"bucket": "structured", "key": "bank/doc-123/result.json"},
+        "structured": {"bucket": "structured", "key": "customers/cust_01ARZ3NDEKTSV4RRFFQ69G5FAW/deployments/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/documents/doc-123/structured/bank/result.json"},
     }
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
         assert (
-            dynamo.update_persist_stage("documents", "bank", "doc-123", payload)
+            _call(dynamo.update_persist_stage, "documents", "bank", "doc-123", payload)
             == stored_completed_at
         )
 
@@ -203,7 +225,7 @@ def test_notify_update_requires_matching_completed_persist_transition(monkeypatc
     }
 
     with patch.object(dynamo.dynamodb_resource, "Table", return_value=table):
-        assert dynamo.update_notify_stage("documents", "bank", "doc-123", payload) is True
+        assert _call(dynamo.update_notify_stage, "documents", "bank", "doc-123", payload) is True
 
     request = table.update_calls[0]
     condition = request["ConditionExpression"]

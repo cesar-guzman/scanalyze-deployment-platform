@@ -1,0 +1,5 @@
+{
+  "fixture": "valid-receipt.json",
+  "mutation": "swap_first_two_resources",
+  "expected_error": "EFFECTIVE_STATE_RECEIPT_INVALID"
+}

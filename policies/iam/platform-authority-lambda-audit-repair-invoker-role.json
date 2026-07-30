@@ -1,0 +1,85 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeOnlyExactPrivatePepAliases",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": [
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1"
+      ]
+    },
+    {
+      "Sid": "DenyEveryOtherLambdaInvocation",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunction",
+      "NotResource": [
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-plan:plan-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-repair:repair-v1",
+        "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-authority-lambda-audit-reconcile:reconcile-v1"
+      ]
+    },
+    {
+      "Sid": "DenyAllLegacyAsyncInvocation",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeAsync",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyAllFunctionUrls",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunctionUrl",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRawControlPlaneAndRelay",
+      "Effect": "Deny",
+      "Action": [
+        "identitystore:*",
+        "iam:*",
+        "sso:*",
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoot",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+        "sts:SetContext",
+        "sts:TagSession"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyLedgerWritesAndLambdaMutation",
+      "Effect": "Deny",
+      "Action": [
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:PartiQLDelete",
+        "dynamodb:PartiQLInsert",
+        "dynamodb:PartiQLUpdate",
+        "dynamodb:PutItem",
+        "dynamodb:TransactWriteItems",
+        "dynamodb:UpdateItem",
+        "lambda:AddPermission",
+        "lambda:CreateEventSourceMapping",
+        "lambda:CreateFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:DeleteEventSourceMapping",
+        "lambda:DeleteFunction",
+        "lambda:DeleteFunctionEventInvokeConfig",
+        "lambda:DeleteFunctionUrlConfig",
+        "lambda:PutFunctionEventInvokeConfig",
+        "lambda:RemovePermission",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:UpdateFunctionEventInvokeConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ module "global" {
   deployment_id           = var.deployment_id
   account_id              = var.account_id
   region                  = var.region
+  aws_partition           = var.aws_partition
   release_version         = var.release_version
   release_manifest_digest = var.release_manifest_digest
 

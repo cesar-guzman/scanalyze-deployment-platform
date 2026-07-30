@@ -1,0 +1,630 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-phase-b-precondition-parameters.v1.schema.json",
+  "title": "GUG-221 pre-Phase-B broker Change Set parameter handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "phase",
+    "source_commit",
+    "stack_name",
+    "change_set_name",
+    "signed_artifact_receipt_sha256",
+    "reviewed_package_manifest_sha256",
+    "phase_b_identity_materialization_receipt_sha256",
+    "pep_parameter_handoff_sha256",
+    "pep_change_set_receipt_sha256",
+    "reviewed_template_path",
+    "reviewed_template_sha256",
+    "reviewed_policy_sha256",
+    "broker_topology_sha256",
+    "stack_tags",
+    "parameters",
+    "parameters_sha256",
+    "authority_status",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": {
+      "const": "scanalyze.platform_authority.lambda_audit_repair_phase_b_precondition_parameters.v1"
+    },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "phase": { "const": "PRE_B_BROKER_CHANGE_SET" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "stack_name": {
+      "const": "scanalyze-platform-authority-gug221-phase-b-broker-pep"
+    },
+    "change_set_name": { "const": "gug221-phase-b-broker-pep-create" },
+    "signed_artifact_receipt_sha256": { "$ref": "#/$defs/raw_digest" },
+    "reviewed_package_manifest_sha256": { "$ref": "#/$defs/raw_digest" },
+    "phase_b_identity_materialization_receipt_sha256": { "$ref": "#/$defs/raw_digest" },
+    "pep_parameter_handoff_sha256": { "$ref": "#/$defs/raw_digest" },
+    "pep_change_set_receipt_sha256": { "$ref": "#/$defs/raw_digest" },
+    "reviewed_template_path": {
+      "const": "bootstrap/cfn-platform-authority-lambda-audit-repair-phase-b-broker-pep.yaml"
+    },
+    "reviewed_template_sha256": { "$ref": "#/$defs/raw_digest" },
+    "reviewed_policy_sha256": { "$ref": "#/$defs/reviewed_policy_sha256" },
+    "broker_topology_sha256": { "$ref": "#/$defs/prefixed_digest" },
+    "stack_tags": { "$ref": "#/$defs/stack_tags" },
+    "parameters": {
+      "type": "array",
+      "minItems": 37,
+      "maxItems": 37,
+      "prefixItems": [
+        { "$ref": "#/$defs/p_authority_account" },
+        { "$ref": "#/$defs/p_management_account" },
+        { "$ref": "#/$defs/p_application_arn" },
+        { "$ref": "#/$defs/p_instance_arn" },
+        { "$ref": "#/$defs/p_identity_store_arn" },
+        { "$ref": "#/$defs/p_redirect_uri" },
+        { "$ref": "#/$defs/p_operator_user_id" },
+        { "$ref": "#/$defs/p_invoker_principal_arn" },
+        { "$ref": "#/$defs/p_exact_stack_arn" },
+        { "$ref": "#/$defs/p_exact_change_set_arn" },
+        { "$ref": "#/$defs/p_client_request_token" },
+        { "$ref": "#/$defs/p_execution_id" },
+        { "$ref": "#/$defs/p_execution_not_before" },
+        { "$ref": "#/$defs/p_execution_not_after" },
+        { "$ref": "#/$defs/p_phase_b_intent_digest" },
+        { "$ref": "#/$defs/p_change_set_receipt_digest" },
+        { "$ref": "#/$defs/p_template_digest" },
+        { "$ref": "#/$defs/p_parameters_digest" },
+        { "$ref": "#/$defs/p_resource_inventory_digest" },
+        { "$ref": "#/$defs/p_ledger_controls_digest" },
+        { "$ref": "#/$defs/p_oauth_state_digest" },
+        { "$ref": "#/$defs/p_broker_artifact_bucket" },
+        { "$ref": "#/$defs/p_broker_artifact_key" },
+        { "$ref": "#/$defs/p_broker_artifact_version" },
+        { "$ref": "#/$defs/p_broker_artifact_code_sha256" },
+        { "$ref": "#/$defs/p_broker_code_signing_config_arn" },
+        { "$ref": "#/$defs/p_repair_artifact_bucket" },
+        { "$ref": "#/$defs/p_repair_artifact_key" },
+        { "$ref": "#/$defs/p_reconcile_artifact_bucket" },
+        { "$ref": "#/$defs/p_reconcile_artifact_key" },
+        { "$ref": "#/$defs/p_invoker_policy_sha256" },
+        { "$ref": "#/$defs/p_broker_policy_sha256" },
+        { "$ref": "#/$defs/p_proof_policy_sha256" },
+        { "$ref": "#/$defs/p_application_actor_policy_sha256" },
+        { "$ref": "#/$defs/p_topology_signing_key_arn" },
+        { "$ref": "#/$defs/p_topology_signature_algorithm" },
+        { "$ref": "#/$defs/p_expected_topology_sha256" }
+      ],
+      "items": false
+    },
+    "parameters_sha256": { "$ref": "#/$defs/raw_digest" },
+    "authority_status": { "const": "NON_AUTHORITATIVE_DERIVATION_ONLY" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "raw_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prefixed_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "lambda_digest": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "bucket": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "artifact_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ParameterKey", "ParameterValue"],
+      "properties": {
+        "ParameterKey": { "type": "string" },
+        "ParameterValue": {
+          "type": "string",
+          "not": { "const": "****" }
+        }
+      }
+    },
+    "stack_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "managed_by",
+        "production",
+        "service",
+        "source_commit",
+        "work_package"
+      ],
+      "properties": {
+        "environment": { "const": "non-production" },
+        "managed_by": { "const": "cloudformation" },
+        "production": { "const": "false" },
+        "service": { "const": "scanalyze-platform-authority" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "work_package": { "const": "GUG-221" }
+      }
+    },
+    "reviewed_policy_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "InvokerPolicySha256",
+        "BrokerPolicySha256",
+        "ProofPolicySha256",
+        "ApplicationActorPolicySha256"
+      ],
+      "properties": {
+        "InvokerPolicySha256": { "$ref": "#/$defs/raw_digest" },
+        "BrokerPolicySha256": { "$ref": "#/$defs/raw_digest" },
+        "ProofPolicySha256": { "$ref": "#/$defs/raw_digest" },
+        "ApplicationActorPolicySha256": { "$ref": "#/$defs/raw_digest" }
+      }
+    },
+    "p_authority_account": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthorityAccountId" },
+            "ParameterValue": { "const": "042360977644" }
+          }
+        }
+      ]
+    },
+    "p_management_account": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ManagementAccountId" },
+            "ParameterValue": { "const": "839393571433" }
+          }
+        }
+      ]
+    },
+    "p_application_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "IdentityCenterApplicationArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:sso::839393571433:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_instance_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "IdentityCenterInstanceArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_identity_store_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "IdentityStoreArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:identitystore::839393571433:identitystore/d-[a-z0-9]{10,}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_redirect_uri": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "IdentityCenterRedirectUri" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^http://127[.]0[.]0[.]1:[0-9]{4,5}/callback$"
+            }
+          }
+        }
+      ]
+    },
+    "p_operator_user_id": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "OperatorIdentityStoreUserId" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_invoker_principal_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "InvokerPrincipalArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:iam::042360977644:role/aws-reserved/sso[.]amazonaws[.]com(?:/[a-z0-9-]+)?/AWSReservedSSO_ScanalyzeGug221PhaseBInvoker_[0-9A-Fa-f]{16}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_exact_stack_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExactStackArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/[0-9a-fA-F-]{36}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_exact_change_set_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExactChangeSetArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/[0-9a-fA-F-]{36}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_client_request_token": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExactClientRequestToken" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^gug221-b-[0-9a-f]{48}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_execution_id": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExactExecutionId" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^gug221-phase-b-[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_execution_not_before": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExecutionNotBefore" },
+            "ParameterValue": { "$ref": "#/$defs/timestamp" }
+          }
+        }
+      ]
+    },
+    "p_execution_not_after": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExecutionNotAfter" },
+            "ParameterValue": { "$ref": "#/$defs/timestamp" }
+          }
+        }
+      ]
+    },
+    "p_phase_b_intent_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "PhaseBIntentDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_change_set_receipt_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ChangeSetReceiptDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_template_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "TemplateDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_parameters_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ParametersDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_resource_inventory_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ResourceInventoryDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_ledger_controls_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "LedgerControlsDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_oauth_state_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "OauthStateDigest" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    },
+    "p_broker_artifact_bucket": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerArtifactBucket" },
+            "ParameterValue": { "$ref": "#/$defs/bucket" }
+          }
+        }
+      ]
+    },
+    "p_broker_artifact_key": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerArtifactKey" },
+            "ParameterValue": { "$ref": "#/$defs/artifact_key" }
+          }
+        }
+      ]
+    },
+    "p_broker_artifact_version": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerArtifactVersion" },
+            "ParameterValue": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        }
+      ]
+    },
+    "p_broker_artifact_code_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerArtifactCodeSha256" },
+            "ParameterValue": { "$ref": "#/$defs/lambda_digest" }
+          }
+        }
+      ]
+    },
+    "p_broker_code_signing_config_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerCodeSigningConfigArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[a-z0-9]{17}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_repair_artifact_bucket": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "RepairArtifactBucket" },
+            "ParameterValue": { "$ref": "#/$defs/bucket" }
+          }
+        }
+      ]
+    },
+    "p_repair_artifact_key": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "RepairArtifactKey" },
+            "ParameterValue": { "$ref": "#/$defs/artifact_key" }
+          }
+        }
+      ]
+    },
+    "p_reconcile_artifact_bucket": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ReconcileArtifactBucket" },
+            "ParameterValue": { "$ref": "#/$defs/bucket" }
+          }
+        }
+      ]
+    },
+    "p_reconcile_artifact_key": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ReconcileArtifactKey" },
+            "ParameterValue": { "$ref": "#/$defs/artifact_key" }
+          }
+        }
+      ]
+    },
+    "p_invoker_policy_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "InvokerPolicySha256" },
+            "ParameterValue": { "$ref": "#/$defs/raw_digest" }
+          }
+        }
+      ]
+    },
+    "p_broker_policy_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerPolicySha256" },
+            "ParameterValue": { "$ref": "#/$defs/raw_digest" }
+          }
+        }
+      ]
+    },
+    "p_proof_policy_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ProofPolicySha256" },
+            "ParameterValue": { "$ref": "#/$defs/raw_digest" }
+          }
+        }
+      ]
+    },
+    "p_application_actor_policy_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ApplicationActorPolicySha256" },
+            "ParameterValue": { "$ref": "#/$defs/raw_digest" }
+          }
+        }
+      ]
+    },
+    "p_topology_signing_key_arn": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerTopologySigningKeyArn" },
+            "ParameterValue": {
+              "type": "string",
+              "pattern": "^arn:aws:kms:us-east-1:042360977644:key/[0-9a-fA-F-]{36}$"
+            }
+          }
+        }
+      ]
+    },
+    "p_topology_signature_algorithm": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "BrokerTopologySignatureAlgorithm" },
+            "ParameterValue": { "const": "ECDSA_SHA_256" }
+          }
+        }
+      ]
+    },
+    "p_expected_topology_sha256": {
+      "allOf": [
+        { "$ref": "#/$defs/parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExpectedBrokerTopologySha256" },
+            "ParameterValue": { "$ref": "#/$defs/prefixed_digest" }
+          }
+        }
+      ]
+    }
+  }
+}

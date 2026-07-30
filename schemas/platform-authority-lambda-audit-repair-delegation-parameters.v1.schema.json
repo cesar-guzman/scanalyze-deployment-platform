@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-delegation-parameters.v1.schema.json",
+  "title": "GUG-221 Phase A delegation parameter handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "source_commit",
+    "stack_name", "change_set_name", "deployment_contract_sha256",
+    "gug220_intent_sha256", "gug220_ledger_sha256",
+    "gug220_receipt_sha256", "gug220_evidence_sha256",
+    "template_sha256", "stack_tags", "parameters", "repair_id",
+    "authority_status", "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_delegation_parameters.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "stack_name": { "const": "scanalyze-platform-authority-lambda-audit-repair-delegation" },
+    "change_set_name": { "const": "gug221-lambda-audit-repair-delegation-create" },
+    "deployment_contract_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_intent_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_ledger_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "gug220_evidence_sha256": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "stack_tags": { "$ref": "#/$defs/stack_tags" },
+    "parameters": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "prefixItems": [
+        { "$ref": "#/$defs/p_management" },
+        { "$ref": "#/$defs/p_authority" },
+        { "$ref": "#/$defs/p_source" },
+        { "$ref": "#/$defs/p_instance" },
+        { "$ref": "#/$defs/p_store_arn" },
+        { "$ref": "#/$defs/p_principal" },
+        { "$ref": "#/$defs/p_principal_arn" },
+        { "$ref": "#/$defs/p_audit_ps" },
+        { "$ref": "#/$defs/p_kms_mode" },
+        { "$ref": "#/$defs/p_kms_key" }
+      ],
+      "items": false
+    },
+    "repair_id": { "type": "string", "pattern": "^gug221-[0-9a-f]{64}$" },
+    "authority_status": { "const": "NON_AUTHORITATIVE_DERIVATION_ONLY" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "permission_set_arn": { "type": "string", "pattern": "^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$" },
+    "principal_id": { "type": "string", "pattern": "^(?:[0-9a-f]{10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ParameterKey", "ParameterValue"],
+      "properties": {
+        "ParameterKey": { "type": "string" },
+        "ParameterValue": { "type": "string", "not": { "const": "****" } }
+      }
+    },
+    "stack_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "managed_by", "production", "service", "source_commit", "work_package"],
+      "properties": {
+        "environment": { "const": "non-production" },
+        "managed_by": { "const": "cloudformation" },
+        "production": { "const": "false" },
+        "service": { "const": "scanalyze-platform-authority" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "work_package": { "const": "GUG-221" }
+      }
+    },
+    "p_management": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "ManagementAccountId" }, "ParameterValue": { "const": "839393571433" } } }] },
+    "p_authority": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "AuthorityAccountId" }, "ParameterValue": { "const": "042360977644" } } }] },
+    "p_source": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "SourceCommit" }, "ParameterValue": { "$ref": "#/$defs/commit" } } }] },
+    "p_instance": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "IdentityCenterInstanceArn" }, "ParameterValue": { "type": "string", "pattern": "^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$" } } }] },
+    "p_store_arn": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "IdentityStoreArn" }, "ParameterValue": { "type": "string", "pattern": "^arn:aws:identitystore::839393571433:identitystore/d-[0-9a-f]{10}$" } } }] },
+    "p_principal": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairPrincipalId" }, "ParameterValue": { "$ref": "#/$defs/principal_id" } } }] },
+    "p_principal_arn": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "RepairPrincipalUserArn" }, "ParameterValue": { "type": "string", "pattern": "^arn:aws:identitystore:::user/(?:[0-9a-f]{10}-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" } } }] },
+    "p_audit_ps": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "AuditPermissionSetArn" }, "ParameterValue": { "$ref": "#/$defs/permission_set_arn" } } }] },
+    "p_kms_mode": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "UseIdentityCenterCustomerManagedKms" }, "ParameterValue": { "enum": ["false", "true"] } } }] },
+    "p_kms_key": { "allOf": [{ "$ref": "#/$defs/parameter" }, { "properties": { "ParameterKey": { "const": "IdentityCenterKmsKeyArn" }, "ParameterValue": { "type": "string", "pattern": "^$|^arn:aws:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$" } } }] }
+  }
+}

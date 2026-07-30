@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-network.v2.schema.json",
+  "title": "Scanalyze network outputs v2",
+  "type": "object",
+  "required": [
+    "vpc_id",
+    "private_subnet_ids",
+    "public_subnet_ids",
+    "vpc_cidr_block",
+    "vpc_endpoint_sg_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "vpc_id": { "type": "string", "pattern": "^vpc-[0-9a-f]+$" },
+    "private_subnet_ids": { "$ref": "#/$defs/subnets" },
+    "public_subnet_ids": { "$ref": "#/$defs/subnets" },
+    "vpc_cidr_block": { "type": "string", "pattern": "^[0-9./]+$" },
+    "vpc_endpoint_sg_id": { "type": "string", "pattern": "^sg-[0-9a-f]+$" }
+  },
+  "$defs": {
+    "subnets": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+[a-z]$" },
+      "additionalProperties": { "type": "string", "pattern": "^subnet-[0-9a-f]+$" }
+    }
+  }
+}

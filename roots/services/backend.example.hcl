@@ -6,15 +6,14 @@
 #   {dep_id}/{region}/services/terraform.tfstate
 #
 # IMPORTANT:
-# - bucket, dynamodb_table, and kms_key_id come from the deployment record
+# - bucket, key, region, and kms_key_id come from an authorized backend binding
 # - Do NOT hardcode bucket names, account IDs, or ARNs
 # - Do NOT use workspaces for customer isolation
 
-backend "s3" {
-  bucket         = "RENDERED_BY_ORCHESTRATOR"
-  key            = "{dep_id}/{region}/services/terraform.tfstate"
-  region         = "RENDERED_BY_ORCHESTRATOR"
-  dynamodb_table = "RENDERED_BY_ORCHESTRATOR"
-  encrypt        = true
-  kms_key_id     = "RENDERED_BY_ORCHESTRATOR"
-}
+bucket              = "RENDERED_BY_ORCHESTRATOR"
+key                 = "{deployment_id}/{region}/services/terraform.tfstate"
+region              = "RENDERED_BY_ORCHESTRATOR"
+encrypt             = true
+kms_key_id          = "RENDERED_BY_ORCHESTRATOR"
+use_lockfile        = true
+allowed_account_ids = ["RENDERED_BY_ORCHESTRATOR"]

@@ -13,6 +13,7 @@ module "services" {
   source = "../../modules/services"
 
   deployment_id           = var.deployment_id
+  customer_id             = var.customer_id
   account_id              = var.account_id
   region                  = var.region
   release_version         = var.release_version
@@ -26,6 +27,9 @@ module "services" {
   alb_listener_arn            = var.alb_listener_arn
   alb_security_group_id       = var.alb_security_group_id
   service_definitions         = var.service_definitions
+
+  identity_control_plane_contract                 = var.identity_control_plane_contract
+  expected_identity_control_plane_contract_digest = var.expected_identity_control_plane_contract_digest
 
   upstream_contract_digest = var.upstream_contract_digest
   expected_upstream_digest = var.expected_upstream_digest

@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.edge-identity.v2",
+  "title": "Scanalyze Edge Identity Contract v2",
+  "description": "Regional API edge outputs bound to the additive identity-control-plane/v1 contract.",
+  "type": "object",
+  "required": [
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "aws_partition",
+    "identity_control_plane_contract_id",
+    "identity_control_plane_contract_digest",
+    "cognito_user_pool_id",
+    "cognito_issuer_url",
+    "cognito_spa_client_id",
+    "m2m_client_ids",
+    "allowed_token_uses",
+    "action_scopes",
+    "policy_version",
+    "policy_digest",
+    "policy_canonicalization",
+    "api_gateway_id",
+    "api_gateway_endpoint",
+    "api_gateway_stage",
+    "api_gateway_authorizer_id",
+    "authorizer_type",
+    "authorizer_audiences",
+    "route_authorization_scopes",
+    "id_tokens_accepted",
+    "request_identity_headers_authoritative",
+    "x_tenant_id_fallback_enabled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "aws_partition": {
+      "type": "string",
+      "enum": ["aws", "aws-us-gov", "aws-cn"]
+    },
+    "identity_control_plane_contract_id": {
+      "type": "string",
+      "const": "identity-control-plane/v1"
+    },
+    "identity_control_plane_contract_digest": { "$ref": "#/$defs/sha256" },
+    "cognito_user_pool_id": { "$ref": "#/$defs/user_pool_id" },
+    "cognito_issuer_url": { "type": "string", "format": "uri" },
+    "cognito_spa_client_id": { "$ref": "#/$defs/client_id" },
+    "m2m_client_ids": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/client_id" }
+    },
+    "allowed_token_uses": {
+      "type": "array",
+      "const": ["access"]
+    },
+    "action_scopes": { "$ref": "#/$defs/action_scopes" },
+    "policy_version": { "type": "string", "const": "1.0.0" },
+    "policy_digest": {
+      "type": "string",
+      "const": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8"
+    },
+    "policy_canonicalization": {
+      "type": "string",
+      "const": "rfc8785_json_canonicalization"
+    },
+    "api_gateway_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]{10}$"
+    },
+    "api_gateway_endpoint": { "type": "string", "format": "uri" },
+    "api_gateway_stage": { "type": "string", "const": "$default" },
+    "api_gateway_authorizer_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]{1,64}$"
+    },
+    "authorizer_type": { "type": "string", "const": "native_jwt" },
+    "authorizer_audiences": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/client_id" }
+    },
+    "route_authorization_scopes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(GET|POST|PUT|PATCH|DELETE|HEAD) /(?:[A-Za-z0-9._~-]+|\\{[A-Za-z][A-Za-z0-9_]*\\})(?:/(?:[A-Za-z0-9._~-]+|\\{[A-Za-z][A-Za-z0-9_]*\\}))*$": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "scanalyze.api.v1/read",
+              "scanalyze.api.v1/write",
+              "scanalyze.api.v1/admin"
+            ]
+          }
+        }
+      }
+    },
+    "id_tokens_accepted": { "type": "boolean", "const": false },
+    "request_identity_headers_authoritative": {
+      "type": "boolean",
+      "const": false
+    },
+    "x_tenant_id_fallback_enabled": { "type": "boolean", "const": false }
+  },
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+    },
+    "client_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]{1,128}$"
+    },
+    "user_pool_id": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "action_scopes": {
+      "type": "object",
+      "required": ["read", "write", "admin"],
+      "additionalProperties": false,
+      "properties": {
+        "read": { "type": "string", "const": "scanalyze.api.v1/read" },
+        "write": { "type": "string", "const": "scanalyze.api.v1/write" },
+        "admin": { "type": "string", "const": "scanalyze.api.v1/admin" }
+      }
+    }
+  }
+}

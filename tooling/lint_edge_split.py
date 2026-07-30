@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""Edge split linter — enforces edge-identity / edge resource boundaries.
+"""Identity/edge split linter for the three portable ownership boundaries.
 
-edge-identity (regional): Cognito, API Gateway, JWT authorizer
+identity-control-plane (regional): Cognito, membership/audit, identity Lambdas
+edge-identity (regional): API Gateway and JWT authorizer
 edge (global): CloudFront, WAF CLOUDFRONT, ACM us-east-1, Route53
 
 This linter ensures:
-- edge-identity does NOT contain CloudFront, WAF CLOUDFRONT, global ACM, or Route53
-- edge does NOT own Cognito or API Gateway authorizer resources
+- identity-control-plane does not own API Gateway or global edge resources
+- edge-identity does not own Cognito or global edge resources
+- edge does not own Cognito or API Gateway resources
 """
 import re
 import sys
 from pathlib import Path
 
 EDGE_IDENTITY_MODULE = Path("modules/edge-identity")
+IDENTITY_CONTROL_PLANE_MODULE = Path("modules/identity-control-plane")
 EDGE_MODULE = Path("modules/edge")
+
+IDENTITY_CONTROL_PLANE_FORBIDDEN = [
+    (r'resource\s+"aws_apigatewayv2_', "API Gateway resource (belongs in edge-identity)"),
+    (r'resource\s+"aws_cloudfront_', "CloudFront resource (belongs in edge)"),
+    (r'resource\s+"aws_wafv2_', "WAF resource (belongs in edge)"),
+    (r'resource\s+"aws_route53_', "Route53 resource (belongs in edge)"),
+    (r'resource\s+"aws_ecs_', "ECS resource (belongs in services/platform)"),
+]
 
 # Patterns forbidden in edge-identity
 EDGE_IDENTITY_FORBIDDEN = [
+    (r'resource\s+"aws_cognito_', "Cognito resource (belongs in identity-control-plane)"),
     (r'resource\s+"aws_cloudfront_', "CloudFront resource (belongs in edge)"),
     (r'resource\s+"aws_wafv2_web_acl".*scope.*=.*"CLOUDFRONT"', "WAF CLOUDFRONT scope (belongs in edge)"),
     (r'aws_wafv2_web_acl.*CLOUDFRONT', "WAF CLOUDFRONT reference (belongs in edge)"),
@@ -27,10 +39,7 @@ EDGE_IDENTITY_FORBIDDEN = [
 
 # Patterns forbidden in edge
 EDGE_FORBIDDEN = [
-    (r'resource\s+"aws_cognito_user_pool"', "Cognito user pool (belongs in edge-identity)"),
-    (r'resource\s+"aws_cognito_user_pool_client"', "Cognito client (belongs in edge-identity)"),
-    (r'resource\s+"aws_cognito_user_pool_domain"', "Cognito domain (belongs in edge-identity)"),
-    (r'resource\s+"aws_cognito_resource_server"', "Cognito resource server (belongs in edge-identity)"),
+    (r'resource\s+"aws_cognito_', "Cognito resource (belongs in identity-control-plane)"),
     (r'resource\s+"aws_apigatewayv2_authorizer"', "API GW authorizer (belongs in edge-identity)"),
     (r'resource\s+"aws_apigatewayv2_api"', "API GW HTTP API (belongs in edge-identity)"),
 ]
@@ -60,6 +69,17 @@ def lint_module(module_path: Path, forbidden: list[tuple[str, str]], module_name
 def main():
     errors = []
 
+    identity_errors = lint_module(
+        IDENTITY_CONTROL_PLANE_MODULE,
+        IDENTITY_CONTROL_PLANE_FORBIDDEN,
+        "identity-control-plane",
+    )
+    if identity_errors:
+        errors.append(
+            "FAIL: modules/identity-control-plane/ crosses its regional identity boundary:"
+        )
+        errors.extend(identity_errors)
+
     ei_errors = lint_module(EDGE_IDENTITY_MODULE, EDGE_IDENTITY_FORBIDDEN, "edge-identity")
     if ei_errors:
         errors.append("FAIL: modules/edge-identity/ contains resources that belong in modules/edge/:")
@@ -75,7 +95,10 @@ def main():
             print(e)
         sys.exit(1)
     else:
-        print("  edge-identity / edge split check PASS — no boundary violations")
+        print(
+            "  identity-control-plane / edge-identity / edge split check PASS — "
+            "no boundary violations"
+        )
 
 
 if __name__ == "__main__":

@@ -1,15 +1,14 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.14.6, < 1.15.0"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 5.80"
     }
   }
 
-  # Remote state backend — activated after bootstrap.
-  # Configure via: terraform init -backend-config=backend.tfvars
+  # Configuration is rendered from the authorized registry binding.
   backend "s3" {}
 }
 

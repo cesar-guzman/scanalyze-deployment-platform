@@ -1,0 +1,172 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadExactIdentityCenterObjects",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeInstance",
+        "sso:DescribePermissionSet",
+        "sso:GetInlinePolicyForPermissionSet",
+        "sso:GetPermissionsBoundaryForPermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+        "sso:ListManagedPoliciesInPermissionSet",
+        "sso:ListTagsForResource"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${collector_permission_set_arn}",
+        "${repair_invoker_permission_set_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "ListAssignmentsAcrossObservedAccounts",
+      "Effect": "Allow",
+      "Action": "sso:ListAccountAssignments",
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${collector_permission_set_arn}",
+        "${repair_invoker_permission_set_arn}",
+        "arn:aws:sso:::account/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "ListExactPendingIdentityCenterOperations",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribePermissionSetProvisioningStatus",
+        "sso:ListAccountAssignmentCreationStatus",
+        "sso:ListAccountAssignmentDeletionStatus",
+        "sso:ListPermissionSetProvisioningStatus"
+      ],
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "PerformOnlyThreeExactRepairMutations",
+      "Effect": "Allow",
+      "Action": [
+        "sso:CreateAccountAssignment",
+        "sso:ProvisionPermissionSet",
+        "sso:PutInlinePolicyToPermissionSet"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${collector_permission_set_arn}",
+        "arn:aws:sso:::account/042360977644"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactRepairPrincipal",
+      "Effect": "Allow",
+      "Action": "identitystore:DescribeUser",
+      "Resource": ["${identity_store_arn}", "${repair_principal_user_arn}"],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "identitystore:PrimaryRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactPepServiceRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": [
+        "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairMutationServiceRole",
+        "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeLambdaAuditRepairReadbackServiceRole"
+      ]
+    },
+    {
+      "Sid": "DecryptOnlyThroughExactIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${identity_center_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "sso.us-east-1.amazonaws.com",
+          "kms:EncryptionContext:aws:sso:instance-arn": "${identity_center_instance_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "DecryptOnlyThroughExactIdentityStore",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${identity_center_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "identitystore.us-east-1.amazonaws.com",
+          "kms:EncryptionContext:aws:identitystore:identitystore-arn": "${identity_store_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryOtherIdentityCenterMutation",
+      "Effect": "Deny",
+      "Action": [
+        "sso:AttachCustomerManagedPolicyReferenceToPermissionSet",
+        "sso:AttachManagedPolicyToPermissionSet",
+        "sso:CreatePermissionSet",
+        "sso:DeleteAccountAssignment",
+        "sso:DeleteInlinePolicyFromPermissionSet",
+        "sso:DeletePermissionSet",
+        "sso:DeletePermissionsBoundaryFromPermissionSet",
+        "sso:DetachCustomerManagedPolicyReferenceFromPermissionSet",
+        "sso:DetachManagedPolicyFromPermissionSet",
+        "sso:PutPermissionsBoundaryToPermissionSet",
+        "sso:TagResource",
+        "sso:UntagResource",
+        "sso:UpdatePermissionSet"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRelayAndUnrelatedServices",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:*",
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoot",
+        "sts:GetFederationToken",
+        "sts:GetSessionToken",
+        "sts:SetContext",
+        "sts:TagSession"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

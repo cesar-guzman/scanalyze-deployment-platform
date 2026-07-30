@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "environment": "sandbox",
+  "release_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "requested_by": "github:synthetic-operator",
+  "requested_at": "2026-01-01T00:00:00Z",
+  "change_ticket": "CHG-0001",
+  "full_deployment": true,
+  "approval": {
+    "status": "pending",
+    "requested_reviewers": [
+      "team:platform-engineering"
+    ]
+  },
+  "non_sensitive_selectors": {
+    "region": "us-east-1",
+    "tier": "internal-demo",
+    "processing_domains": [
+      "bank",
+      "personal",
+      "gov"
+    ]
+  }
+}

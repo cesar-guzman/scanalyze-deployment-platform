@@ -112,3 +112,17 @@ def test_account_id_not_12_digits_fails(schema, valid_manifest):
     valid_manifest["aws_account_id"] = "12345"
     errors = _validate(schema, valid_manifest)
     assert len(errors) > 0
+
+
+def test_identity_configuration_rejects_id_tokens(schema, valid_manifest):
+    valid_manifest["identity"] = {
+        "cognito_user_pool_id": "us-east-1_SYNTHETIC01",
+        "cognito_client_ids": ["synthetic-client"],
+        "allowed_token_uses": ["access", "id"],
+        "deployment_claim": "custom:deployment_id",
+    }
+
+    errors = _validate(schema, valid_manifest)
+
+    assert errors
+    assert any("allowed_token_uses" in error.json_path for error in errors)

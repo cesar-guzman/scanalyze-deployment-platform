@@ -1,0 +1,33 @@
+{
+  "schema_version": "2",
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "account_id": "123456789012",
+  "region": "us-east-1",
+  "environment": "sandbox",
+  "api_endpoint": "https://abc123def4.execute-api.us-east-1.amazonaws.com",
+  "cognito": {
+    "user_pool_id": "us-east-1_SYNTHETIC01",
+    "spa_client_id": "syntheticspaclient000000000001",
+    "issuer_url": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_SYNTHETIC01",
+    "region": "us-west-2",
+    "allowed_oauth_flows": ["code"],
+    "pkce_required": true,
+    "client_secret_embedded": false
+  },
+  "authorization": {
+    "allowed_token_uses": ["access"],
+    "action_scopes": {
+      "read": "scanalyze.api.v1/read",
+      "write": "scanalyze.api.v1/write",
+      "admin": "scanalyze.api.v1/admin"
+    },
+    "policy_version": "1.0.0",
+    "policy_digest": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8",
+    "policy_canonicalization": "rfc8785_json_canonicalization",
+    "customer_claim_name": "custom:customerId",
+    "deployment_claim_name": "custom:deployment_id",
+    "id_tokens_accepted": false
+  },
+  "identity_values_authoritative": false
+}

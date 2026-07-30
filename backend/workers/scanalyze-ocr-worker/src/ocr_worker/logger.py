@@ -55,6 +55,10 @@ def bind_context(**kwargs):
             ctx[nk] = v
     _log_context.set(ctx)
 
+
+def clear_context():
+    _log_context.set({})
+
 class JSONFormatter(logging.Formatter):
     def __init__(self, tenant: str, stage: str):
         super().__init__()

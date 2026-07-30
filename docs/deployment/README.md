@@ -17,8 +17,102 @@ evidence.
 
 ## Artifacts
 
-- `Scanalyze_Enterprise_Deployment_Guide.docx`: stable enterprise handoff file.
+- `../production-readiness/README.md`: Phase 0 architecture, threat model,
+  ownership, evidence, gates, work packages, and recovery boundaries.
+- `Scanalyze_Enterprise_Deployment_Guide.docx`: generated locally from the
+  canonical playbook when a Word handoff is required; the binary is not
+  versioned in this repository.
 - `../../playbooks/enterprise-client-deployment.md`: canonical runbook.
+- `gitops-orchestrator.md`: accepted dry-run GitOps orchestration architecture,
+  contracts, stage graph, and live-enablement boundary.
+- `strict-contract-resolution.md`: GUG-121 content-addressed contract catalog,
+  producer/consumer bindings, pre-plan failure behavior, migration, and rollback.
+- `registry-account-baseline-backend-locking.md`: GUG-122 registry anchor,
+  ACCOUNT_READY v2, derived native-lockfile backend, distributed execution lock,
+  migration boundary, and recovery controls.
+- `github-oidc-terminal-identity.md`: GUG-123 exact GitHub Environment/OIDC
+  identity, independent protection anchor, terminal IAM roles, and live boundary.
+- `platform-authority-account-bootstrap.md`: GUG-206 dedicated authority-account
+  state bootstrap, exact Change Set approval, minimum Identity Center permission
+  set, verification, and live activation boundary.
+- `durable-founder-bootstrap-pep.md`: GUG-211 durable compare-and-swap PEP,
+  exact management seed, one-shot founder Plan/Apply boundary, uncertainty and
+  revocation requirements.
+- `../operations/durable-founder-bootstrap-pep.md`: reviewed one-shot seed,
+  private evidence, execution, reconciliation and revocation runbook.
+- `../operations/platform-authority-bootstrap-recovery.md`: uncertain-result,
+  rollback-failure, retained-resource, GUG-214 exact-shell/Change Set preflight,
+  and decommission recovery boundary.
+- `platform-authority-change-set-retirement.md`: GUG-215 version-pinned Lambda
+  PEP, two identity-enhanced immutable Identity Store users, invoke-only human
+  roles, resource-policy-protected CAS ledger, exact one-shot delete,
+  uncertainty reconciliation and live-execution boundary.
+- `../operations/platform-authority-retained-change-set-retirement.md`: exact
+  broker deployment readback, independent invocation, no-retry, revocation and
+  recovery-readiness runbook.
+- `platform-authority-identity-enhanced-session.md`: GUG-216 one-shot
+  `CreateTokenWithIAM`/STS `ProvidedContexts` contract, managed-policy
+  compatibility guard, immutable operator binding, secret-containment and
+  current Lambda live-block boundary.
+- `../operations/platform-authority-identity-enhanced-session.md`: offline
+  compatibility procedure, future live gates, two-person roster, stop
+  conditions, uncertainty and evidence handling.
+- `platform-authority-identity-context-pep.md`: GUG-217 split ordinary
+  Function URL / identity-enhanced proof PEP, exact aliases, secret containment,
+  ledger-before-effect ordering, honest broker attribution and live boundary.
+- `../operations/platform-authority-identity-context-pep.md`: GUG-217
+  two-person preflight, exact readback, one-shot proof, reconciliation,
+  revocation, stop conditions and sanitized evidence procedure.
+- `platform-authority-lambda-invocation-authority.md`: GUG-218 complete IAM and
+  Lambda authority graph, collector-sealed provenance, strict pagination,
+  report-only receipt and rollout boundary.
+- `../operations/platform-authority-lambda-invocation-authority.md`: GUG-218
+  authenticated read-only capture, unverified-offline boundary, independent
+  review, stop conditions and private-evidence handling.
+- `platform-authority-lambda-invocation-materialization.md`: GUG-219
+  deterministic candidate-to-allowlist materialization, dedicated Identity
+  Center collector contract, short-lived release anchor and fresh-capture gate.
+- `../operations/platform-authority-lambda-invocation-materialization.md`:
+  GUG-219 private-evidence handling, two-capture procedure, stop conditions and
+  separately authorized live-enablement boundary.
+- `platform-authority-lambda-audit-permission-set.md`: GUG-220 exact Identity
+  Center collector contract, single-user bootstrap assignment, one-target
+  provisioning, 15-minute live-instance/store-bound intents, forced
+  reprovision after policy change, intent-bound one-shot execution ledger,
+  ambiguity handling and effective IAM readback.
+- `../operations/platform-authority-lambda-audit-permission-set.md`: GUG-220
+  planning, obsolete-intent handling, descriptor-safe private custody, bounded
+  mutation with receipt reservation, replay prevention, reconciliation,
+  verified receipt and report-only GUG-219 handoff procedure. Its typed
+  inventory includes intent, execution-ledger and receipt schemas.
+- `platform-authority-lambda-audit-provisioning-repair.md`: GUG-221 exact
+  partial-state recovery contract, invoke-only human boundary, private
+  server-side PEP, separate Plan/repair/reconcile functions, exact account-wide
+  invocation-authority inspector, durable Plan-before-repair CAS, three ordered
+  mutations and complete SSO/IAM readback.
+- `../operations/platform-authority-lambda-audit-provisioning-repair.md`:
+  GUG-221 two-stack bootstrap boundary, provider-read-only Plan preflight plus
+  create-only durable gate, no-retry repair, read-only reconciliation,
+  containment and report-only handoff procedure.
+- `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
+  Environment rollout, negative proof, evidence, and rollback procedure.
+- `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.
+- `enterprise-authorization.md`: portable enterprise RBAC+ABAC catalog, exact
+  customer/deployment authorization, lifecycle, privileged-access, migration,
+  and downstream enforcement boundaries.
+- `human-authorization-enforcement.md`: GUG-153 typed PDP/PEP, exact 30-route
+  operation inventory, bounded membership snapshots, step-up, audit, M2M
+  compatibility, and rollout/rollback boundary.
+- `identity-control-plane.md`: portable GUG-93 Cognito/control-plane boundary,
+  access-token claims, non-authoritative groups, runtime bootstrap/M2M custody,
+  contract handoff, legacy adoption, and retain-first retirement.
+- `m2m-identity-v2-migration.md`: sanitized, repeatable migration inventory and
+  per-deployment sequence; live identity inventories stay outside Git.
+- `../operations/identity-bootstrap-retirement.md`: one-use bootstrap failure,
+  retirement, legacy classification, state-adoption, blue/green migration, and
+  decommission procedure; live execution remains blocked.
+- `../operations/github-governance.md`: stable CI contract, required-check drift
+  reconciliation, deployment-scoped GitHub Environments, and rollback.
 - `../../_NotebookLM_Brain/00_INDEX_AND_SOURCE_MAP.md`: curated knowledge-base
   entry point and source hierarchy.
 
@@ -76,3 +170,115 @@ execution engine or evidence store. Never ingest credentials, tokens, plans,
 state, customer documents, raw logs, screenshots or unredacted audit bundles.
 Any claim lacking repository or approved live evidence must be labeled
 `Target`, `Blocked` or `Unknown`, never inferred as implemented.
+
+For GUG-116, ingest only
+`../../_NotebookLM_Brain/10_Production_Readiness_Foundation.md`; do not ingest
+the repository, `reports/`, operational artifacts, or the full documentation
+tree as a convenience bundle.
+
+For GUG-92, ingest only
+`../../_NotebookLM_Brain/12_GUG92_Enterprise_Authorization.md`. Provider
+exports, membership inventories, user/group lists, tokens, grant records,
+screenshots, logs, and live evidence remain outside NotebookLM.
+
+For GUG-93, ingest only
+`../../_NotebookLM_Brain/13_GUG93_Identity_Control_Plane.md`. Do not ingest
+provider exports, user/group/client inventories, credentials, tokens,
+bootstrap/approval records, Terraform plans/state, logs, screenshots, or live
+identity evidence.
+
+For GUG-153, ingest only
+`../../_NotebookLM_Brain/14_GUG153_Human_Authorization_Enforcement.md`. Do not
+ingest access tokens, raw claims, membership/grant inventories, audit streams,
+object locators, customer data, screenshots, logs, or live evidence.
+
+For GUG-94, ingest only
+`../../_NotebookLM_Brain/15_GUG94_Enterprise_User_Lifecycle.md`. Do not ingest
+user locators, provider payloads, membership/approval/operation/audit records,
+temporary credentials, tokens, Terraform plans/state, screenshots, logs, or
+live evidence.
+
+For GUG-122, ingest only
+`../../_NotebookLM_Brain/19_GUG122_Registry_Backend_Locking.md`. Do not ingest
+deployment registry records, ACCOUNT_READY payloads, backend files, state keys,
+lock records, ARNs, plans, state, AWS inventories, screenshots, logs, or live
+evidence.
+
+For GUG-123, ingest only
+`../../_NotebookLM_Brain/20_GUG123_GitHub_OIDC_Terminal_Identity.md`. Do not
+ingest repository/Environment IDs, reviewers, variables, OIDC tokens/claims,
+role ARNs, IAM/API exports, registry/baseline records, plans, state, CloudTrail,
+screenshots, logs, or live evidence.
+
+For GUG-124, ingest only
+`../../_NotebookLM_Brain/21_GUG124_Build_Once_Supply_Chain.md`. Do not ingest
+private signing material, live artifact inventories, registry exports, trust
+roots, waivers, scan reports, credentials, plans, state, logs, or live evidence.
+
+For GUG-125, ingest only
+`../../_NotebookLM_Brain/22_GUG125_Nonproduction_Live_Engine.md`. Do not ingest
+registry or ACCOUNT_READY records, platform-authority/Environment evidence,
+reviewer identities, role/account identifiers, saved plans, plan JSON, state,
+backend files, contracts, ledgers, AWS responses, credentials, logs, screenshots,
+or live evidence.
+
+For GUG-206, ingest only
+`../../_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md`.
+Do not ingest account/principal identifiers, permission-set assignments, Change
+Sets, plans, approvals, verification receipts, backend files, state, bucket/KMS
+identifiers, AWS responses, stack events, logs, screenshots, or live evidence.
+
+For GUG-211, ingest only
+`../../_NotebookLM_Brain/28_GUG211_Durable_Founder_Bootstrap_PEP.md`.
+Do not ingest management/authority account exports, organization topology,
+Identity Center subjects or assignments, temporary policies, intents, ledgers,
+Change Sets, plans, backend outputs, AWS responses, logs, screenshots, or live
+evidence.
+
+For GUG-214, ingest only
+`../../_NotebookLM_Brain/29_GUG214_Authority_Recovery_Preflight.md`.
+Do not ingest account/principal identifiers, permission-set assignments,
+stack IDs, Change Set names/ARNs, resource inventories, raw policies, AWS
+responses, audit exports, logs, screenshots or live evidence.
+
+For GUG-215, ingest only
+`../../_NotebookLM_Brain/30_GUG215_Retained_Change_Set_Retirement.md`.
+Do not ingest account/principal identifiers, Identity Store UserIds,
+permission-set assignments, identity-enhanced context, invoker or execution
+role ARNs, broker artifact/signing locators, live policies, ledger
+items/digests, stack IDs, Change Set names/ARNs/UUIDs, templates, resource
+inventories, AWS responses, audit exports, logs, screenshots or live evidence.
+
+For GUG-216, ingest only
+`../../_NotebookLM_Brain/31_GUG216_Identity_Enhanced_Operator_Session.md`.
+Do not ingest account/principal identifiers, Identity Store UserIds, emails,
+application/grant/assignment inventories, permission-set or invoker role ARNs,
+authorization codes, PKCE material, access/refresh/ID tokens, identity-context
+assertions, temporary AWS credentials, CloudTrail, AWS responses, logs,
+screenshots or live evidence.
+
+For GUG-217, ingest only
+`../../_NotebookLM_Brain/32_GUG217_Identity_Context_Compatible_Retirement_PEP.md`.
+Do not ingest Function URLs, request bodies, authorization codes, PKCE values,
+tokens, identity-context assertions, temporary credentials, emails, UserIds,
+application/role/account identifiers, ledger items, Change Set locators,
+CloudTrail, AWS responses, logs, screenshots or live evidence.
+
+For GUG-218, ingest only
+`../../_NotebookLM_Brain/33_GUG218_Lambda_Invocation_Authority.md`.
+Do not ingest account IDs, ARNs, users, groups, roles, policy documents,
+permissions boundaries, Function URLs, versions, aliases, event-source
+mappings, profile names, AWS responses, raw inventory, logs, screenshots or
+live evidence.
+
+For GUG-219, ingest only
+`../../_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md`.
+For GUG-220, ingest only
+`../../_NotebookLM_Brain/35_GUG220_Lambda_Audit_Permission_Set.md`.
+For GUG-221, ingest only
+`../../_NotebookLM_Brain/36_GUG221_Lambda_Audit_Provisioning_Repair.md`.
+Do not ingest candidate or fresh snapshots, collector role ARNs, session names,
+account identifiers, rendered policies, release bundles, AWS responses, profile
+names, live `InstanceArn`/`IdentityStoreId` values, private intents, repair
+ledgers/receipts, executor bindings or policies, logs, screenshots or live
+evidence.

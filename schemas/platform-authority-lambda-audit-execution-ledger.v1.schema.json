@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-execution-ledger.v1.schema.json",
+  "title": "Platform Authority Lambda Audit Execution Ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "intent_digest",
+    "status",
+    "mutation_attempt_limit",
+    "mutation_retry_authorized",
+    "created_at",
+    "ledger_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "platform_authority_lambda_audit_execution_ledger" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "status": { "const": "MUTATION_WINDOW_CONSUMED" },
+    "mutation_attempt_limit": { "const": 1 },
+    "mutation_retry_authorized": { "const": false },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "ledger_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

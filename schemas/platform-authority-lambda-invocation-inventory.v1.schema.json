@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-invocation-inventory.v1.schema.json",
+  "title": "Platform Authority Lambda Invocation Inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "inventory_scope",
+    "authority_account_id_digest",
+    "target_region",
+    "scan_id_digest",
+    "allowlist_digest",
+    "source_template_sha256",
+    "evidence_source_mode",
+    "source_snapshot_digest",
+    "collector_principal_digest",
+    "source_snapshot_started_at",
+    "source_snapshot_completed_at",
+    "status",
+    "coverage",
+    "enabled_region_count",
+    "scanned_region_count",
+    "authority_edges",
+    "expected_edge_count",
+    "prohibited_edge_count",
+    "unknown_edge_count",
+    "observed_edge_count",
+    "mutating_authority_count",
+    "unsupported_policy_semantics_detected",
+    "structural_drift_detected",
+    "scan_started_at",
+    "scan_completed_at",
+    "expires_at",
+    "aws_mutation_performed",
+    "lambda_invocation_performed",
+    "live_effect_authorized",
+    "inventory_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_lambda_invocation_inventory"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "inventory_scope": {
+      "const": "ALL_ENABLED_REGIONS_AND_GLOBAL_IAM"
+    },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "target_region": { "$ref": "#/$defs/region" },
+    "scan_id_digest": { "$ref": "#/$defs/digest" },
+    "allowlist_digest": { "$ref": "#/$defs/digest" },
+    "source_template_sha256": { "$ref": "#/$defs/digest" },
+    "evidence_source_mode": {
+      "enum": ["AWS_READ_ONLY", "OFFLINE_UNVERIFIED"]
+    },
+    "source_snapshot_digest": { "$ref": "#/$defs/digest" },
+    "collector_principal_digest": { "$ref": "#/$defs/digest" },
+    "source_snapshot_started_at": { "$ref": "#/$defs/timestamp" },
+    "source_snapshot_completed_at": { "$ref": "#/$defs/timestamp" },
+    "status": {
+      "enum": [
+        "REVIEW_SAFE_REPORT_ONLY",
+        "FOREIGN_AUTHORITY_PRESENT",
+        "INVENTORY_INCOMPLETE",
+        "POLICY_SEMANTICS_UNSUPPORTED",
+        "DRIFT_DETECTED",
+        "OFFLINE_UNVERIFIED"
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region_discovery",
+        "lambda_functions",
+        "lambda_aliases",
+        "lambda_versions",
+        "lambda_function_urls",
+        "lambda_resource_policies",
+        "lambda_event_source_mappings",
+        "iam_account_authorization"
+      ],
+      "properties": {
+        "region_discovery": { "$ref": "#/$defs/coverage" },
+        "lambda_functions": { "$ref": "#/$defs/coverage" },
+        "lambda_aliases": { "$ref": "#/$defs/coverage" },
+        "lambda_versions": { "$ref": "#/$defs/coverage" },
+        "lambda_function_urls": { "$ref": "#/$defs/coverage" },
+        "lambda_resource_policies": { "$ref": "#/$defs/coverage" },
+        "lambda_event_source_mappings": { "$ref": "#/$defs/coverage" },
+        "iam_account_authorization": { "$ref": "#/$defs/coverage" }
+      }
+    },
+    "enabled_region_count": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "scanned_region_count": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "authority_edges": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/observed_edge" }
+    },
+    "expected_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "prohibited_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "unknown_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "observed_edge_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "mutating_authority_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+    "unsupported_policy_semantics_detected": { "type": "boolean" },
+    "structural_drift_detected": { "type": "boolean" },
+    "scan_started_at": { "$ref": "#/$defs/timestamp" },
+    "scan_completed_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "aws_mutation_performed": { "const": false },
+    "lambda_invocation_performed": { "const": false },
+    "live_effect_authorized": { "const": false },
+    "inventory_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "REVIEW_SAFE_REPORT_ONLY" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "evidence_source_mode": { "const": "AWS_READ_ONLY" },
+          "unsupported_policy_semantics_detected": { "const": false },
+          "structural_drift_detected": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_source_mode": { "const": "OFFLINE_UNVERIFIED" }
+        },
+        "required": ["evidence_source_mode"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "OFFLINE_UNVERIFIED" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "OFFLINE_UNVERIFIED" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "evidence_source_mode": { "const": "OFFLINE_UNVERIFIED" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "DRIFT_DETECTED" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "structural_drift_detected": { "const": true }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "page_count", "item_count", "evidence_digest"],
+      "properties": {
+        "status": {
+          "enum": ["COMPLETE", "ACCESS_DENIED", "INCOMPLETE", "AMBIGUOUS"]
+        },
+        "page_count": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "item_count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "evidence_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "observed_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_class",
+        "source_type",
+        "duty",
+        "target_scope",
+        "action_class",
+        "condition_class",
+        "principal_kind",
+        "principal_digest",
+        "resource_digest",
+        "source_document_digest",
+        "verdict",
+        "reason_code"
+      ],
+      "properties": {
+        "authority_class": {
+          "enum": ["INVOCATION", "TRUST", "AUTHORITY_MUTATION"]
+        },
+        "source_type": {
+          "enum": [
+            "LAMBDA_RESOURCE_POLICY",
+            "IAM_ROLE_INLINE_POLICY",
+            "IAM_USER_INLINE_POLICY",
+            "IAM_GROUP_INLINE_POLICY",
+            "IAM_CUSTOMER_MANAGED_POLICY",
+            "IAM_AWS_MANAGED_POLICY",
+            "IAM_ROLE_TRUST_POLICY",
+            "FUNCTION_URL_CONFIGURATION",
+            "EVENT_SOURCE_MAPPING",
+            "CLOUDFORMATION_AUTHORITY",
+            "IAM_AUTHORITY_MUTATION",
+            "LAMBDA_AUTHORITY_MUTATION"
+          ]
+        },
+        "duty": { "enum": ["classifier", "independent_approver", "none"] },
+        "target_scope": {
+          "enum": [
+            "EXACT_CLASSIFY_ALIAS",
+            "EXACT_RETIRE_ALIAS",
+            "EXACT_RECONCILE_ALIAS",
+            "CLASSIFIER_INVOKER_ROLE",
+            "APPROVER_INVOKER_ROLE",
+            "UNQUALIFIED_FUNCTION",
+            "LATEST_VERSION",
+            "NUMERIC_VERSION",
+            "ALTERNATE_ALIAS",
+            "WILDCARD",
+            "OTHER_FUNCTION",
+            "UNKNOWN"
+          ]
+        },
+        "action_class": {
+          "enum": [
+            "INVOKE_FUNCTION_URL",
+            "INVOKE_FUNCTION",
+            "INVOKE_ASYNC",
+            "ASSUME_ROLE",
+            "MUTATE_LAMBDA_AUTHORITY",
+            "MUTATE_IAM_AUTHORITY",
+            "MUTATE_CLOUDFORMATION_AUTHORITY",
+            "EVENT_SOURCE_INVOKE",
+            "WILDCARD",
+            "UNKNOWN"
+          ]
+        },
+        "condition_class": {
+          "enum": [
+            "FUNCTION_URL_AUTH_TYPE_AWS_IAM",
+            "INVOKED_VIA_FUNCTION_URL_TRUE",
+            "EXACT_PERMISSION_SET_TRUST",
+            "MISSING",
+            "WILDCARD",
+            "ALTERNATE",
+            "UNSUPPORTED"
+          ]
+        },
+        "principal_kind": {
+          "enum": [
+            "EXACT_CLASSIFIER_ROLE",
+            "EXACT_APPROVER_ROLE",
+            "EXACT_CLASSIFIER_PERMISSION_SET",
+            "EXACT_APPROVER_PERMISSION_SET",
+            "LOCAL_ROLE",
+            "LOCAL_USER",
+            "LOCAL_GROUP",
+            "SAME_ACCOUNT_ROOT",
+            "CROSS_ACCOUNT",
+            "SERVICE",
+            "FEDERATED",
+            "PUBLIC",
+            "WILDCARD",
+            "UNKNOWN"
+          ]
+        },
+        "principal_digest": { "$ref": "#/$defs/digest" },
+        "resource_digest": { "$ref": "#/$defs/digest" },
+        "source_document_digest": { "$ref": "#/$defs/digest" },
+        "verdict": { "enum": ["EXPECTED_EXACT", "PROHIBITED", "UNKNOWN"] },
+        "reason_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,79}$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/release.v2.schema.json",
+  "title": "Scanalyze Build-Once Release Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "release_version",
+    "release_manifest_digest",
+    "policy_digest",
+    "created_at",
+    "source",
+    "builder",
+    "artifacts",
+    "waivers",
+    "last_known_good",
+    "promotion"
+  ],
+  "properties": {
+    "schema_version": { "const": "release.v2" },
+    "release_id": { "type": "string", "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "release_version": { "type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]+)?$" },
+    "release_manifest_digest": { "$ref": "#/$defs/sha256" },
+    "policy_digest": { "$ref": "#/$defs/sha256" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "ref"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "ref": { "type": "string", "pattern": "^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$" }
+      }
+    },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "build_type", "workflow_ref", "runner_image", "toolchain"],
+      "properties": {
+        "id": { "type": "string", "format": "uri", "maxLength": 512 },
+        "build_type": { "type": "string", "format": "uri", "maxLength": 512 },
+        "workflow_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/[A-Za-z0-9_.-]+@[a-f0-9]{40}$"
+        },
+        "runner_image": { "$ref": "#/$defs/digest_uri" },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["syft", "trivy", "cosign"],
+          "properties": {
+            "syft": { "$ref": "#/$defs/tool" },
+            "trivy": { "$ref": "#/$defs/tool" },
+            "cosign": { "$ref": "#/$defs/tool" }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanalyze-ingest-api",
+        "scanalyze-ocr-worker",
+        "scanalyze-postprocess-worker",
+        "scanalyze-classifier-worker",
+        "scanalyze-bank-worker",
+        "scanalyze-personal-worker",
+        "scanalyze-gov-worker",
+        "identity-pre-token-lambda",
+        "identity-control-processor-lambda",
+        "scanalyze-frontend-ui"
+      ],
+      "properties": {
+        "scanalyze-ingest-api": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-ocr-worker": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-postprocess-worker": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-classifier-worker": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-bank-worker": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-personal-worker": { "$ref": "#/$defs/container_artifact" },
+        "scanalyze-gov-worker": { "$ref": "#/$defs/container_artifact" },
+        "identity-pre-token-lambda": { "$ref": "#/$defs/archive_artifact" },
+        "identity-control-processor-lambda": { "$ref": "#/$defs/archive_artifact" },
+        "scanalyze-frontend-ui": { "$ref": "#/$defs/archive_artifact" }
+      }
+    },
+    "waivers": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/waiver" }
+    },
+    "last_known_good": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_id", "release_manifest_digest", "approved_change_id"],
+      "properties": {
+        "release_id": { "type": "string", "pattern": "^rel_[0-9A-HJKMNP-TV-Z]{26}$" },
+        "release_manifest_digest": { "$ref": "#/$defs/sha256" },
+        "approved_change_id": { "type": "string", "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$" }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "rebuild"],
+      "properties": {
+        "mode": { "const": "copy-by-digest" },
+        "rebuild": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digest_uri": {
+      "type": "string",
+      "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$",
+      "maxLength": 1024
+    },
+    "content_uri": {
+      "type": "string",
+      "pattern": "^(?:https://[^/\\s?#]+|s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9])/(?:[A-Za-z0-9._~-]+/)*sha256/[a-f0-9]{64}/[A-Za-z0-9._~/-]+$",
+      "maxLength": 1024
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "binary_digest"],
+      "properties": {
+        "name": { "type": "string", "enum": ["syft", "trivy", "cosign"] },
+        "version": { "type": "string", "pattern": "^v?[0-9]+[.][0-9]+[.][0-9]+$" },
+        "binary_digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sbom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "format", "digest", "subject_digest", "generator"],
+      "properties": {
+        "status": { "const": "verified" },
+        "format": { "const": "spdx-2.3-json" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "subject_digest": { "$ref": "#/$defs/sha256" },
+        "generator": { "$ref": "#/$defs/tool" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "status"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._:-]{2,127}$" },
+        "severity": { "type": "string", "enum": ["critical", "high"] },
+        "status": { "type": "string", "enum": ["active", "waived"] }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "report_digest",
+        "subject_digest",
+        "scanner",
+        "database_digest",
+        "completed_at",
+        "critical_findings",
+        "high_findings",
+        "findings"
+      ],
+      "properties": {
+        "status": { "const": "passed" },
+        "report_digest": { "$ref": "#/$defs/sha256" },
+        "subject_digest": { "$ref": "#/$defs/sha256" },
+        "scanner": { "$ref": "#/$defs/tool" },
+        "database_digest": { "$ref": "#/$defs/sha256" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "critical_findings": { "type": "integer", "minimum": 0 },
+        "high_findings": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/finding" } }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "digest",
+        "predicate_type",
+        "subject_digest",
+        "builder_id",
+        "build_type",
+        "source_repository",
+        "source_commit"
+      ],
+      "properties": {
+        "status": { "const": "verified" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "predicate_type": { "const": "https://slsa.dev/provenance/v1" },
+        "subject_digest": { "$ref": "#/$defs/sha256" },
+        "builder_id": { "type": "string", "format": "uri" },
+        "build_type": { "type": "string", "format": "uri" },
+        "source_repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "source_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "bundle_digest", "subject_digest", "issuer", "identity", "key_id"],
+      "properties": {
+        "status": { "const": "verified" },
+        "bundle_digest": { "$ref": "#/$defs/sha256" },
+        "subject_digest": { "$ref": "#/$defs/sha256" },
+        "issuer": { "type": "string", "format": "uri", "maxLength": 512 },
+        "identity": { "type": "string", "format": "uri", "maxLength": 1024 },
+        "key_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,256}$" }
+      }
+    },
+    "common_artifact": {
+      "type": "object",
+      "required": ["kind", "uri", "digest", "media_type", "sbom", "scan", "provenance", "signature"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["container", "archive"] },
+        "uri": { "type": "string" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "media_type": { "type": "string", "pattern": "^application/[A-Za-z0-9.+-]+$" },
+        "sbom": { "$ref": "#/$defs/sbom" },
+        "scan": { "$ref": "#/$defs/scan" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    },
+    "container_artifact": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/common_artifact" },
+        {
+          "properties": {
+            "kind": { "const": "container" },
+            "uri": { "$ref": "#/$defs/digest_uri" },
+            "base_image_uri": { "$ref": "#/$defs/digest_uri" },
+            "base_image_digest": { "$ref": "#/$defs/sha256" }
+          },
+          "required": ["base_image_uri", "base_image_digest"]
+        }
+      ]
+    },
+    "archive_artifact": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/common_artifact" },
+        {
+          "properties": {
+            "kind": { "const": "archive" },
+            "uri": { "$ref": "#/$defs/content_uri" }
+          }
+        }
+      ]
+    },
+    "waiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "waiver_id",
+        "artifact_id",
+        "finding_id",
+        "severity",
+        "approved_by_role",
+        "approved_at",
+        "expires_at",
+        "reason"
+      ],
+      "properties": {
+        "waiver_id": { "type": "string", "pattern": "^wav_[A-Za-z0-9._-]{3,128}$" },
+        "artifact_id": { "type": "string", "minLength": 3, "maxLength": 128 },
+        "finding_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._:-]{2,127}$" },
+        "severity": { "type": "string", "enum": ["critical", "high"] },
+        "approved_by_role": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "reason": { "type": "string", "minLength": 12, "maxLength": 512 }
+      }
+    }
+  }
+}

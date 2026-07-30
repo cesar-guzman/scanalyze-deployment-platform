@@ -23,7 +23,8 @@
 
 # --- Common variables (all roots) ---
 
-deployment_id          = "dep_00SYNTHETIC000000000000000"
+deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 account_id             = "000000000000"
 region                 = "us-east-1"
 release_version        = "v0.0.0-m3-synthetic"

@@ -1,0 +1,46 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_phase_b_identity_materialization_receipt.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "phase": "PRE_B_IDENTITY_MATERIALIZATION",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "authority_account_id": "042360977644",
+  "management_account_id": "839393571433",
+  "region": "us-east-1",
+  "identity_center_application_arn": "arn:aws:sso::839393571433:application/ssoins-1234567890abcdef/apl-abcdef1234567890",
+  "identity_center_instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+  "identity_store_arn": "arn:aws:identitystore::839393571433:identitystore/d-0123456789",
+  "identity_center_redirect_uri": "http://127.0.0.1:49152/callback",
+  "operator_identity_store_user_id": "0123456789-12345678-1234-1234-1234-1234567890ab",
+  "invoker_principal_arn": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeGug221PhaseBInvoker_0123456789abcdef",
+  "broker_code_signing_config_arn": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-0123456789abcdef0",
+  "broker_topology_signing_key_arn": "arn:aws:kms:us-east-1:042360977644:key/11111111-2222-4333-8444-555555555555",
+  "oauth_state_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "provider_state_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "checks": {
+    "application_verified": true,
+    "single_operator_assignment_verified": true,
+    "invoker_role_verified": true,
+    "code_signing_config_verified": true,
+    "topology_signing_key_verified": true,
+    "pending_operations_absent": true,
+    "alternate_assignments_absent": true
+  },
+  "verifiers": {
+    "management": {
+      "profile": "839393571433_ReadOnlyAccess",
+      "account_id": "839393571433",
+      "caller_arn": "arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_0123456789abcdef/synthetic@example.invalid"
+    },
+    "authority": {
+      "profile": "042360977644_ReadOnlyAccess",
+      "account_id": "042360977644",
+      "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_0123456789abcdef/synthetic@example.invalid"
+    }
+  },
+  "evaluated_at": "2026-07-23T12:00:00Z",
+  "evidence_status": "PHASE_B_IDENTITY_MATERIALIZATION_PROVIDER_VERIFIED",
+  "authority_status": "PROVIDER_DERIVED_NOT_EXECUTION_AUTHORITY",
+  "production_status": "NO-GO",
+  "receipt_sha256": "ea038a0842f3465afc75fbdcc4d872749fdb7fd056f2ba04fe51387ef36079fd"
+}

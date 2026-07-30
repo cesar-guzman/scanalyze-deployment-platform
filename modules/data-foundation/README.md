@@ -2,7 +2,7 @@
 
 > **Layer**: 3  
 > **Scope**: regional  
-> **Produces contract**: `data-foundation/v1`  
+> **Produces contract**: `data-foundation/v2`
 > **Consumes**: platform/v1
 
 ## Purpose

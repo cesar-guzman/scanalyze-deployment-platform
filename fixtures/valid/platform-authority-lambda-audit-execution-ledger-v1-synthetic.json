@@ -1,0 +1,12 @@
+{
+  "created_at": "2026-07-21T12:01:00Z",
+  "environment": "non-production",
+  "intent_digest": "sha256:f4a63a3a5e2b2bebf158540704cc4d3b828f099a31d05b3d47f435f822d8cae7",
+  "ledger_digest": "sha256:7a173054921f18ff6cc42f60572adc45b503909bb044b59a6733e8a123a4f8bf",
+  "mutation_attempt_limit": 1,
+  "mutation_retry_authorized": false,
+  "production": false,
+  "record_type": "platform_authority_lambda_audit_execution_ledger",
+  "schema_version": "1",
+  "status": "MUTATION_WINDOW_CONSUMED"
+}

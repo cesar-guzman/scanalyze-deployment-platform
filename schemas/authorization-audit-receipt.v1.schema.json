@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/authorization-audit-receipt.v1.schema.json",
+  "title": "Scanalyze Authorization Audit Receipt v1",
+  "description": "Provider-neutral acknowledgement that one sanitized authorization decision was durably accepted by the reviewed append-only audit sink.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "sink_source",
+    "sink_version",
+    "receipt_reference",
+    "acknowledged_at_epoch"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "authorization-audit-receipt.v1"
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^decision-[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    },
+    "sink_source": {
+      "const": "durable_authorization_audit_sink_v1"
+    },
+    "sink_version": {
+      "const": "1.0.0"
+    },
+    "receipt_reference": {
+      "$ref": "#/$defs/opaque_reference"
+    },
+    "acknowledged_at_epoch": {
+      "$ref": "#/$defs/epoch_seconds"
+    }
+  },
+  "$defs": {
+    "opaque_reference": {
+      "type": "string",
+      "pattern": "^ref_[0-9a-f]{24,64}$"
+    },
+    "epoch_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9999999999
+    }
+  }
+}

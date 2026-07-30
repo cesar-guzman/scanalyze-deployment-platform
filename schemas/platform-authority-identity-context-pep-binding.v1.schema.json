@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-identity-context-pep-binding.v1.schema.json",
+  "title": "Platform Authority Identity-Context PEP Binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "authority_account_id",
+    "region",
+    "identity_center_application_arn",
+    "identity_center_instance_arn",
+    "identity_store_arn",
+    "redirect_uri",
+    "broker_execution_role_arn",
+    "classifier_user_id",
+    "approver_user_id",
+    "classifier_proof_role_arn",
+    "approver_proof_role_arn",
+    "proof_duration_seconds",
+    "max_token_lifetime_seconds",
+    "identity_separation",
+    "live_effect_authorized",
+    "binding_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_identity_context_pep_binding"
+    },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "identity_center_application_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:sso::[0-9]{12}:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$"
+    },
+    "identity_center_instance_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$"
+    },
+    "identity_store_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:identitystore::[0-9]{12}:identitystore/d-[a-z0-9]{10,}$"
+    },
+    "redirect_uri": {
+      "type": "string",
+      "pattern": "^http://127\\.0\\.0\\.1:(?:10(?:2[4-9]|[3-9][0-9])|1[1-9][0-9]{2}|[2-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/callback$",
+      "maxLength": 43
+    },
+    "broker_execution_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/ScanalyzeGug215BrokerExecution$"
+    },
+    "classifier_user_id": { "$ref": "#/$defs/user_id" },
+    "approver_user_id": { "$ref": "#/$defs/user_id" },
+    "classifier_proof_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/ScanalyzeGug217ClassifierProof$"
+    },
+    "approver_proof_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/ScanalyzeGug217ApproverProof$"
+    },
+    "proof_duration_seconds": { "const": 900 },
+    "max_token_lifetime_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 900
+    },
+    "identity_separation": {
+      "const": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+    },
+    "live_effect_authorized": { "const": false },
+    "binding_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "user_id": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

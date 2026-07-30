@@ -123,12 +123,12 @@ jobs:
           publish_services='[]'
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            services="$(scripts/microservices/changed-services.sh --all)"
             if [[ "$DISPATCH_SERVICE" == "all" ]]; then
-              services="$(scripts/microservices/changed-services.sh --all)"
+              publish_services="$services"
             else
-              services="$(scripts/microservices/changed-services.sh --service "$DISPATCH_SERVICE")"
+              publish_services="$(scripts/microservices/changed-services.sh --service "$DISPATCH_SERVICE")"
             fi
-            publish_services="$services"
           elif [[ "$EVENT_NAME" == "pull_request" ]]; then
             services="$(scripts/microservices/changed-services.sh --diff "$PR_BASE_SHA" "$PR_HEAD_SHA")"
           else
@@ -156,7 +156,7 @@ jobs:
           fi
 
   validate:
-    name: Validate ${{ matrix.service }}
+    name: Service matrix evidence / ${{ matrix.service }}
     needs: changes
     if: needs.changes.outputs.has_changes == 'true'
     runs-on: ubuntu-24.04
@@ -200,7 +200,10 @@ jobs:
           export SCANALYZE_TENANT="$service_tenant"
           export SCANALYZE_TENANTS="$service_tenant"
           python -m compileall -q "$service_dir"
-          python -m pip install -r "$service_dir/requirements.txt" 'pytest==9.1.1'
+          python -m pip install \
+            -r "$service_dir/requirements.txt" \
+            'jsonschema==4.26.0' \
+            'pytest==9.1.1'
           PYTHONPATH="$service_dir/src:$service_dir" python -m pytest "$service_dir/tests" -q
 
       - name: Build without publishing
@@ -245,136 +248,88 @@ jobs:
           python -m pip install '.[test]'
           python -m pytest tests/test_microservices -q
 
-  publish:
-    name: Publish ${{ matrix.service }}
+  validation_gate:
+    name: Microservices validation gate
     needs:
       - changes
       - tooling
       - validate
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Enforce aggregate validation result
+        env:
+          SELECTION_RESULT: ${{ needs.changes.result }}
+          SERVICES_JSON: ${{ needs.changes.outputs.services }}
+          HAS_CHANGES: ${{ needs.changes.outputs.has_changes }}
+          TOOLING_RESULT: ${{ needs.tooling.result }}
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -euo pipefail
+
+          summary_file="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          {
+            printf '### Microservices validation gate\n\n'
+            printf -- '- Service selection: `%s`\n' "$SELECTION_RESULT"
+            printf -- '- Selected services: `%s`\n' "$SERVICES_JSON"
+            printf -- '- Has service changes: `%s`\n' "$HAS_CHANGES"
+            printf -- '- Build tooling: `%s`\n' "$TOOLING_RESULT"
+            printf -- '- Service matrix: `%s`\n' "$VALIDATION_RESULT"
+          } >> "$summary_file"
+
+          fail() {
+            printf '::error::%s\n' "$1"
+            exit 1
+          }
+
+          [[ "$SELECTION_RESULT" == "success" ]] ||
+            fail "service selection did not succeed: $SELECTION_RESULT"
+          [[ "$TOOLING_RESULT" == "success" ]] ||
+            fail "build tooling validation did not succeed: $TOOLING_RESULT"
+
+          case "$HAS_CHANGES" in
+            true)
+              [[ -n "$SERVICES_JSON" && "$SERVICES_JSON" != "[]" ]] ||
+                fail "has_changes=true requires a non-empty service matrix"
+              [[ "$VALIDATION_RESULT" == "success" ]] ||
+                fail "selected service validation did not succeed: $VALIDATION_RESULT"
+              ;;
+            false)
+              [[ "$SERVICES_JSON" == "[]" ]] ||
+                fail "has_changes=false requires an empty service matrix"
+              [[ "$VALIDATION_RESULT" == "skipped" ]] ||
+                fail "an empty service matrix must be skipped, got: $VALIDATION_RESULT"
+              ;;
+            *)
+              fail "service selection produced an invalid has_changes value"
+              ;;
+          esac
+
+  publish:
+    name: Publication NO-GO / ${{ matrix.service }}
+    needs:
+      - changes
+      - validation_gate
     if: >-
+      needs.changes.result == 'success' &&
+      needs.validation_gate.result == 'success' &&
       needs.changes.outputs.has_changes == 'true' &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.push_images && github.ref == 'refs/heads/main') ||
         (github.event_name == 'push' && needs.changes.outputs.publishable == 'true' && vars.MAIN_PUBLISH_ENABLED == 'true')
       )
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}
-    concurrency:
-      group: microservices-publish-${{ github.event_name == 'workflow_dispatch' && inputs.customer_id || vars.MAIN_PUBLISH_ENVIRONMENT }}-${{ matrix.service }}
-      cancel-in-progress: false
+    timeout-minutes: 5
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
         service: ${{ fromJSON(needs.changes.outputs.publish_services) }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Verify protected deployment inputs
-        id: deployment
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_ACCOUNT_ID: ${{ inputs.aws_account_id }}
-          INPUT_REGION: ${{ inputs.aws_region }}
-          INPUT_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
-          INPUT_ECR_PREFIX: ${{ inputs.ecr_prefix }}
-          INPUT_TAG: ${{ inputs.tag }}
-          EXPECTED_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          EXPECTED_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          EXPECTED_REGION: ${{ vars.AWS_REGION }}
-          EXPECTED_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
-          EXPECTED_ECR_PREFIX: ${{ vars.ECR_PREFIX }}
-          EXPECTED_BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
+      - name: Deny legacy publishing until the authorized release engine exists
         run: |
           set -euo pipefail
-
-          for value in \
-            "$EXPECTED_ROLE_ARN" \
-            "$EXPECTED_ACCOUNT_ID" \
-            "$EXPECTED_REGION" \
-            "$EXPECTED_DEPLOYMENT_ID" \
-            "$EXPECTED_ECR_PREFIX" \
-            "$EXPECTED_BASE_IMAGE"; do
-            if [[ -z "$value" ]]; then
-              echo "::error::Selected environment is missing a required deployment variable"
-              exit 1
-            fi
-          done
-
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            [[ "$INPUT_ACCOUNT_ID" == "$EXPECTED_ACCOUNT_ID" ]] || {
-              echo "::error::aws_account_id does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_REGION" == "$EXPECTED_REGION" ]] || {
-              echo "::error::aws_region does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_DEPLOYMENT_ID" == "$EXPECTED_DEPLOYMENT_ID" ]] || {
-              echo "::error::deployment_id does not match the selected environment"
-              exit 1
-            }
-            [[ "$INPUT_ECR_PREFIX" == "$EXPECTED_ECR_PREFIX" ]] || {
-              echo "::error::ecr_prefix does not match the selected environment"
-              exit 1
-            }
-          fi
-
-          tag="$INPUT_TAG"
-          if [[ -z "$tag" ]]; then
-            tag="sha-${GITHUB_SHA:0:12}"
-          fi
-          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ || "${tag,,}" == "latest" ]]; then
-            echo "::error::tag is not a valid immutable OCI/ECR tag"
-            exit 1
-          fi
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Configure temporary AWS credentials with OIDC
-        uses: aws-actions/configure-aws-credentials@acca2b1b2070338fb9fd1ca27ecee81d687e58e5 # v6.1.2
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-session-name: scanalyze-${{ github.run_id }}-${{ strategy.job-index }}
-          mask-aws-account-id: true
-          unset-current-credentials: true
-
-      - name: Build, push, and optionally record digest
-        env:
-          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION_VALUE: ${{ vars.AWS_REGION }}
-          BASE_IMAGE: ${{ vars.BASE_IMAGE_URI }}
-          DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
-          ECR_PREFIX: ${{ vars.ECR_PREFIX }}
-          SERVICE: ${{ matrix.service }}
-          TAG: ${{ steps.deployment.outputs.tag }}
-          DISPATCH_WRITE_SSM: ${{ inputs.write_ssm }}
-          MAIN_WRITE_SSM: ${{ vars.MAIN_WRITE_SSM }}
-        run: |
-          set -euo pipefail
-
-          ssm_mode="--no-write-ssm"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            [[ "$DISPATCH_WRITE_SSM" == "true" ]] && ssm_mode="--write-ssm"
-          elif [[ "$MAIN_WRITE_SSM" == "true" ]]; then
-            ssm_mode="--write-ssm"
-          fi
-
-          scripts/microservices/build-push.sh \
-            --service "$SERVICE" \
-            --account-id "$ACCOUNT_ID" \
-            --region "$AWS_REGION_VALUE" \
-            --deployment-id "$DEPLOYMENT_ID" \
-            --ecr-prefix "$ECR_PREFIX" \
-            --tag "$TAG" \
-            --base-image "$BASE_IMAGE" \
-            --push \
-            "$ssm_mode"
+          echo "::error::Cloud publication is disabled until GUG-124 and GUG-125 connect the GUG-123 authorization chain."
+          exit 1

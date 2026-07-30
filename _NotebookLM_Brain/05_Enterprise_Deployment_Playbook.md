@@ -34,15 +34,16 @@ rollback.
 4. **Configurar contratos.** Las diferencias por cliente se expresan mediante
    variables locales protegidas, contratos y parámetros SSM. No se crean forks
    ni constantes de cliente en el código.
-5. **Aplicar infraestructura por capas.** Cada plan se genera, conserva fuera de
-   Git, revisa y aplica exactamente una vez en el orden definido por el
-   playbook. Los outputs entre capas se consumen por contratos explícitos.
-6. **Construir y publicar imágenes.** GitHub Actions usa OIDC y un rol acotado,
-   o el operador usa el script canónico con una sesión aprobada. La imagen base
-   y las imágenes de servicio se fijan por digest; ECR usa tags inmutables.
-7. **Desplegar servicios mediante Terraform.** SSM registra metadatos de
+5. **Aplicar infraestructura base por capas.** Cada plan se genera, conserva
+   fuera de Git, revisa y aplica exactamente una vez hasta `cicd`, que provisiona
+   ECR y metadata. Los outputs entre capas se consumen por contratos explícitos.
+6. **Construir, verificar y publicar imágenes.** GitHub Actions usa OIDC y un rol
+   acotado. La imagen base y las imágenes de servicio se fijan por digest; ECR
+   usa tags inmutables. Esta fase ocurre después de `cicd` y antes de `services`.
+7. **Desplegar services, identity y edge mediante Terraform.** SSM registra metadatos de
    imagen, pero no despliega ECS. La capa `services` recibe los digests
-   aprobados y sigue siendo dueña de task definitions y servicios.
+   aprobados y sigue siendo dueña de task definitions y servicios; después se
+   ejecutan `edge-identity`, `edge` y `addons`.
 8. **Validar sin exponer datos.** Primero se prueba estabilidad de
    infraestructura; después, cuando los contratos de frontend e identidad
    estén cerrados, se ejecuta un flujo sintético no productivo de extremo a

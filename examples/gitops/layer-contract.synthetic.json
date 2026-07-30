@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "aws_account_id": "111122223333",
+  "region": "us-east-1",
+  "scope": "regional",
+  "layer": "network",
+  "producer": "roots/network",
+  "release_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "output_schema_version": "network/v1",
+  "outputs": {
+    "data_subnet_ids": [
+      "subnet-00000005",
+      "subnet-00000006"
+    ],
+    "private_subnet_ids": [
+      "subnet-00000001",
+      "subnet-00000002"
+    ],
+    "public_subnet_ids": [
+      "subnet-00000003",
+      "subnet-00000004"
+    ],
+    "vpc_endpoint_sg_id": "sg-00000000",
+    "vpc_id": "vpc-00000000"
+  },
+  "contract_digest": "sha256:8216f464e5a9c7d4751a588ae226cbf1e4b6187f366e7f12087bd1cf536ec590",
+  "produced_at": "2026-01-01T00:00:00Z",
+  "terraform_workspace": "default",
+  "state_key": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/us-east-1/network/terraform.tfstate",
+  "module_source_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+}

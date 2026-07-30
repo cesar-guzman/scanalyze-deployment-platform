@@ -78,6 +78,17 @@ def _nested(item: Dict[str, Any], *path: str) -> Any:
     return value
 
 
+def _owned(
+    item: Dict[str, Any], customer_id: str, deployment_id: str, tenant: str
+) -> bool:
+    return (
+        item.get("customer_id") == customer_id
+        and item.get("deployment_id") == deployment_id
+        and item.get("ownership_schema_version") == 1
+        and item.get("processing_domain") == tenant
+    )
+
+
 def _resolve_conditional_failure(
     error: ClientError,
     table,
@@ -100,7 +111,45 @@ def _expected_extracted_status(tenant: str) -> str:
     return f"{tenant.upper()}_EXTRACTED"
 
 
-def update_validate_stage(table_name: str, tenant: str, document_id: str, payload: dict):
+def require_authorized_document(
+    table_name: str,
+    tenant: str,
+    document_id: str,
+    customer_id: str,
+    deployment_id: str,
+    *,
+    structured_bucket: str | None = None,
+    structured_key: str | None = None,
+) -> Dict[str, Any]:
+    """Load and authorize minimum stored metadata before protected side effects."""
+
+    table = dynamodb_resource.Table(table_name)
+    key = get_key_dict(table_name, tenant, document_id)
+    response = table.get_item(Key=key, ConsistentRead=True)
+    item = response.get("Item")
+    if not isinstance(item, dict) or not _owned(
+        item, customer_id, deployment_id, tenant
+    ):
+        raise ValueError("Document is unavailable")
+
+    if structured_bucket is not None or structured_key is not None:
+        stored = (item.get("artifacts") or {}).get("structured") or {}
+        if (
+            stored.get("bucket") != structured_bucket
+            or stored.get("key") != structured_key
+        ):
+            raise ValueError("Document is unavailable")
+    return item
+
+
+def update_validate_stage(
+    table_name: str,
+    tenant: str,
+    document_id: str,
+    customer_id: str,
+    deployment_id: str,
+    payload: dict,
+):
     table = dynamodb_resource.Table(table_name)
     key = get_key_dict(table_name, tenant, document_id)
     validation_status = payload["validation"]["status"]
@@ -114,12 +163,20 @@ def update_validate_stage(table_name: str, tenant: str, document_id: str, payloa
         ),
         "ConditionExpression": (
             "attribute_exists(#pk) AND "
+            "#customer_id = :customer_id AND "
+            "#deployment_id = :deployment_id AND "
+            "#ownership_version = :ownership_version AND "
+            "#processing_domain = :processing_domain AND "
             "#status = :expected_status AND "
             "attribute_not_exists(#stages.#validate.#validated_at)"
         ),
         "ExpressionAttributeNames": {
             "#pk": next(iter(key)),
             "#status": "status",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_version": "ownership_schema_version",
+            "#processing_domain": "processing_domain",
             "#validation": "validation",
             "#stages": "stages",
             "#validate": "validate",
@@ -131,6 +188,10 @@ def update_validate_stage(table_name: str, tenant: str, document_id: str, payloa
             ":validate_stage": payload["stages_validate"],
             ":updated_at": payload["updatedAt"],
             ":expected_status": _expected_extracted_status(tenant),
+            ":customer_id": customer_id,
+            ":deployment_id": deployment_id,
+            ":ownership_version": 1,
+            ":processing_domain": tenant,
         },
     }
 
@@ -144,6 +205,8 @@ def update_validate_stage(table_name: str, tenant: str, document_id: str, payloa
             key,
             lambda item: item.get("validation")
             if (
+                _owned(item, customer_id, deployment_id, tenant)
+                and
                 isinstance(item.get("validation"), dict)
                 and _nested(item, "stages", "validate", "status") == "DONE"
                 and _nested(item, "validation", "status") == validation_status
@@ -152,7 +215,14 @@ def update_validate_stage(table_name: str, tenant: str, document_id: str, payloa
         )
 
 
-def update_persist_stage(table_name: str, tenant: str, document_id: str, payload: dict):
+def update_persist_stage(
+    table_name: str,
+    tenant: str,
+    document_id: str,
+    customer_id: str,
+    deployment_id: str,
+    payload: dict,
+):
     table = dynamodb_resource.Table(table_name)
     key = get_key_dict(table_name, tenant, document_id)
     final_status = payload["status"]
@@ -177,6 +247,10 @@ def update_persist_stage(table_name: str, tenant: str, document_id: str, payload
         ),
         "ConditionExpression": (
             "attribute_exists(#pk) AND "
+            "#customer_id = :customer_id AND "
+            "#deployment_id = :deployment_id AND "
+            "#ownership_version = :ownership_version AND "
+            "#processing_domain = :processing_domain AND "
             "#status = :expected_status AND "
             "#stages.#validate.#stage_status = :done AND "
             "#validation.#validation_status = :validation_status AND "
@@ -185,6 +259,10 @@ def update_persist_stage(table_name: str, tenant: str, document_id: str, payload
         "ExpressionAttributeNames": {
             "#pk": next(iter(key)),
             "#status": "status",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_version": "ownership_schema_version",
+            "#processing_domain": "processing_domain",
             "#completed_at": "completedAt",
             "#stages": "stages",
             "#validate": "validate",
@@ -202,6 +280,10 @@ def update_persist_stage(table_name: str, tenant: str, document_id: str, payload
             ":expected_status": _expected_extracted_status(tenant),
             ":done": "DONE",
             ":validation_status": validation_status,
+            ":customer_id": customer_id,
+            ":deployment_id": deployment_id,
+            ":ownership_version": 1,
+            ":processing_domain": tenant,
         },
     }
 
@@ -220,6 +302,8 @@ def update_persist_stage(table_name: str, tenant: str, document_id: str, payload
             key,
             lambda item: item.get("completedAt")
             if (
+                _owned(item, customer_id, deployment_id, tenant)
+                and
                 item.get("status") == final_status
                 and bool(item.get("completedAt"))
                 and _nested(item, "validation", "status") == validation_status
@@ -230,7 +314,14 @@ def update_persist_stage(table_name: str, tenant: str, document_id: str, payload
         )
 
 
-def update_notify_stage(table_name: str, tenant: str, document_id: str, payload: dict):
+def update_notify_stage(
+    table_name: str,
+    tenant: str,
+    document_id: str,
+    customer_id: str,
+    deployment_id: str,
+    payload: dict,
+):
     table = dynamodb_resource.Table(table_name)
     key = get_key_dict(table_name, tenant, document_id)
     final_status = payload["finalStatus"]
@@ -249,6 +340,10 @@ def update_notify_stage(table_name: str, tenant: str, document_id: str, payload:
         ),
         "ConditionExpression": (
             "attribute_exists(#pk) AND "
+            "#customer_id = :customer_id AND "
+            "#deployment_id = :deployment_id AND "
+            "#ownership_version = :ownership_version AND "
+            "#processing_domain = :processing_domain AND "
             "#status = :final_status AND "
             "#completed_at = :completed_at AND "
             "#stages.#persist.#stage_status = :done AND "
@@ -259,6 +354,10 @@ def update_notify_stage(table_name: str, tenant: str, document_id: str, payload:
         "ExpressionAttributeNames": {
             "#pk": next(iter(key)),
             "#status": "status",
+            "#customer_id": "customer_id",
+            "#deployment_id": "deployment_id",
+            "#ownership_version": "ownership_schema_version",
+            "#processing_domain": "processing_domain",
             "#completed_at": "completedAt",
             "#notified_at": "notifiedAt",
             "#stages": "stages",
@@ -278,6 +377,10 @@ def update_notify_stage(table_name: str, tenant: str, document_id: str, payload:
             ":completed_at": payload["completedAt"],
             ":done": "DONE",
             ":validation_status": validation_status,
+            ":customer_id": customer_id,
+            ":deployment_id": deployment_id,
+            ":ownership_version": 1,
+            ":processing_domain": tenant,
         },
     }
 
@@ -291,6 +394,8 @@ def update_notify_stage(table_name: str, tenant: str, document_id: str, payload:
             key,
             lambda item: True
             if (
+                _owned(item, customer_id, deployment_id, tenant)
+                and
                 item.get("status") == final_status
                 and item.get("completedAt") == payload["completedAt"]
                 and _nested(item, "validation", "status") == validation_status

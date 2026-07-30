@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-delegation-execution-receipt.v1.schema.json",
+  "title": "GUG-221 Phase A delegation execution trace receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "phase",
+    "source_commit", "deployment_contract_sha256",
+    "delegation_change_set_receipt_sha256", "change_set_arn",
+    "change_set_uuid", "stack_arn", "client_request_token",
+    "client_request_token_sha256", "execute_request_sha256",
+    "executor_arn_sha256", "execute_event", "stack_event_count",
+    "stack_events_sha256", "terminal_resources", "executed_at",
+    "stack_completed_at", "verifier", "evaluated_at", "evidence_status",
+    "authority_status", "production_status"
+  ],
+  "properties": {
+    "artifact_type": { "const": "scanalyze.platform_authority.lambda_audit_repair_delegation_execution_receipt.v1" },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-221" },
+    "phase": { "const": "A_DELEGATION_EXECUTION_TRACE" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "deployment_contract_sha256": { "$ref": "#/$defs/digest" },
+    "delegation_change_set_receipt_sha256": { "$ref": "#/$defs/digest" },
+    "change_set_arn": { "$ref": "#/$defs/change_set_arn" },
+    "change_set_uuid": { "$ref": "#/$defs/uuid" },
+    "stack_arn": { "$ref": "#/$defs/stack_arn" },
+    "client_request_token": { "type": "string", "pattern": "^gug221-a-[0-9a-f]{48}$" },
+    "client_request_token_sha256": { "$ref": "#/$defs/digest" },
+    "execute_request_sha256": { "$ref": "#/$defs/digest" },
+    "executor_arn_sha256": { "$ref": "#/$defs/digest" },
+    "execute_event": { "$ref": "#/$defs/provider_event" },
+    "stack_event_count": { "type": "integer", "minimum": 5 },
+    "stack_events_sha256": { "$ref": "#/$defs/digest" },
+    "terminal_resources": {
+      "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/terminal_resource" }
+    },
+    "executed_at": { "$ref": "#/$defs/timestamp" },
+    "stack_completed_at": { "$ref": "#/$defs/timestamp" },
+    "verifier": { "$ref": "#/$defs/management_verifier" },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": { "const": "DELEGATION_EXECUTION_READ_ONLY_VERIFIED" },
+    "authority_status": { "const": "PROVIDER_DERIVED_EXECUTION_TRACE_NOT_EXECUTION_AUTHORITY" },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uuid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "change_set_arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:839393571433:changeSet/gug221-lambda-audit-repair-delegation-create/[0-9a-fA-F-]{36}$" },
+    "stack_arn": { "type": "string", "pattern": "^arn:aws:cloudformation:us-east-1:839393571433:stack/scanalyze-platform-authority-lambda-audit-repair-delegation/[0-9a-fA-F-]{36}$" },
+    "provider_event": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_id", "event_time", "event_digest"],
+      "properties": {
+        "event_id": { "$ref": "#/$defs/uuid" },
+        "event_time": { "$ref": "#/$defs/timestamp" },
+        "event_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "terminal_resource": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "event_id", "event_time", "logical_resource_id", "resource_type",
+        "resource_status", "physical_resource_id_sha256"
+      ],
+      "properties": {
+        "event_id": { "type": "string", "minLength": 1 },
+        "event_time": { "$ref": "#/$defs/timestamp" },
+        "logical_resource_id": {
+          "enum": [
+            "MutationServiceRole", "ReadbackServiceRole",
+            "RepairInvokerAssignment", "RepairInvokerPermissionSet",
+            "scanalyze-platform-authority-lambda-audit-repair-delegation"
+          ]
+        },
+        "resource_type": {
+          "enum": [
+            "AWS::CloudFormation::Stack", "AWS::IAM::Role",
+            "AWS::SSO::Assignment", "AWS::SSO::PermissionSet"
+          ]
+        },
+        "resource_status": { "const": "CREATE_COMPLETE" },
+        "physical_resource_id_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "management_verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "const": "839393571433_ReadOnlyAccess" },
+        "account_id": { "const": "839393571433" },
+        "caller_arn": { "type": "string", "pattern": "^arn:aws:sts::839393571433:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$" }
+      }
+    }
+  }
+}

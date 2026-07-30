@@ -1,5 +1,4 @@
-# Root outputs — contract payload published to SSM by orchestrator.
 output "contract_payload" {
-  description = "Contract payload from edge-identity module"
+  description = "Publisher-compatible edge-identity/v2 contract for sanitized publication."
   value       = module.edge_identity.contract_payload
 }

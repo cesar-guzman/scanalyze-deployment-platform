@@ -134,7 +134,7 @@ platform (layer 2) — ECS cluster, ALB, security groups
 data-foundation (layer 3) — DynamoDB, S3 doc buckets, SQS, KMS app keys
     │
     ├── Consumes: global, network contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/data-foundation/v1
+    ├── Produces contract: /scanalyze/deployments/{id}/contracts/data-foundation/v2
     │
     ▼
 services (layer 4) — ECS services, task definitions (Terraform sole owner)
@@ -444,7 +444,9 @@ run "rejects_tampered_digest" {
 
 ```
 For each layer in dependency order:
-  global → network → platform → data-foundation → services → edge-identity → addons
+  global → network → platform → data-foundation → cicd
+    → artifact-publication → services → edge-identity → edge → addons
+    → synthetic-validation
 
   PRE-DEPLOY (orchestrator logic):
     1. Read deployment record from registry

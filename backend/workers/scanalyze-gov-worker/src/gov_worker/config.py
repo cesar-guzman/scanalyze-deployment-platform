@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 import boto3
@@ -21,6 +22,12 @@ class ConfigCache:
         self.ttl = ttl_seconds
         
         self.env = require_nonempty_env("SCANALYZE_ENV")
+        self.customer_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_CUSTOMER_ID")
+        self.deployment_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_ID")
+        if not re.fullmatch(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$", self.customer_id):
+            raise RuntimeError("SCANALYZE_DEPLOYMENT_CUSTOMER_ID is invalid")
+        if not re.fullmatch(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$", self.deployment_id):
+            raise RuntimeError("SCANALYZE_DEPLOYMENT_ID is invalid")
         self.tenant = os.environ.get("SCANALYZE_TENANT")
         
         if not self.tenant or self.tenant != "gov":
@@ -78,5 +85,9 @@ class ConfigCache:
             raise KeyError(f"Configuration key '{key}' not found in SSM at {self.root}")
             
         return self._cache[key]
+
+    def require_owner(self, customer_id: str, deployment_id: str) -> None:
+        if customer_id != self.customer_id or deployment_id != self.deployment_id:
+            raise ValueError("Message ownership does not match the runtime deployment")
 
 config = ConfigCache(ttl_seconds=300)

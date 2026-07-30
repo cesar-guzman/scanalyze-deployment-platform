@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/identity-contract.v2.schema.json",
+  "title": "Scanalyze Identity Contract v2",
+  "description": "Fail-closed identity contract binding M2M clients to one customer and one deployment.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "deployment_id",
+    "customer_id",
+    "cognito",
+    "authorization",
+    "claim_mapping",
+    "action_scope_sets",
+    "m2m_bindings",
+    "allowed_domains",
+    "restrictions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2"
+    },
+    "deployment_id": {
+      "$ref": "#/$defs/deployment_id"
+    },
+    "customer_id": {
+      "$ref": "#/$defs/customer_id"
+    },
+    "cognito": {
+      "type": "object",
+      "required": [
+        "user_pool_id",
+        "client_ids",
+        "allowed_token_uses",
+        "m2m_client_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "user_pool_id": {
+          "type": "string",
+          "pattern": "^[a-z]{2}-[a-z]+-[0-9]+_[A-Za-z0-9]+$"
+        },
+        "client_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/client_id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "allowed_token_uses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "access",
+              "id"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "contains": {
+            "const": "access"
+          },
+          "minContains": 1
+        },
+        "m2m_client_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/client_id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "required": [
+        "mode",
+        "deployment_claim",
+        "enforce_deployment_binding",
+        "customer_id_source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "cognito_jwt"
+        },
+        "deployment_claim": {
+          "type": "string",
+          "const": "custom:deployment_id"
+        },
+        "enforce_deployment_binding": {
+          "type": "boolean",
+          "const": true
+        },
+        "customer_id_source": {
+          "type": "string",
+          "const": "client_identity_bindings_v1"
+        }
+      }
+    },
+    "claim_mapping": {
+      "type": "object",
+      "required": [
+        "deployment_id",
+        "customer_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deployment_id": {
+          "type": "string",
+          "const": "custom:deployment_id"
+        },
+        "customer_id": {
+          "type": "string",
+          "const": "custom:customerId"
+        },
+        "roles": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "action_scope_sets": {
+      "type": "object",
+      "required": [
+        "read",
+        "write",
+        "admin"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/action_scope_set"
+        },
+        "write": {
+          "$ref": "#/$defs/action_scope_set"
+        },
+        "admin": {
+          "$ref": "#/$defs/action_scope_set"
+        }
+      }
+    },
+    "m2m_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "client_id",
+          "customer_id",
+          "deployment_id",
+          "required_scopes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "$ref": "#/$defs/client_id"
+          },
+          "customer_id": {
+            "$ref": "#/$defs/customer_id"
+          },
+          "deployment_id": {
+            "$ref": "#/$defs/deployment_id"
+          },
+          "required_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/scope"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "allowed_domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bank",
+          "personal",
+          "gov"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "restrictions": {
+      "type": "object",
+      "required": [
+        "cross_account_access",
+        "cross_deployment_access",
+        "password_in_docs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cross_account_access": {
+          "type": "boolean",
+          "const": false
+        },
+        "cross_deployment_access": {
+          "type": "boolean",
+          "const": false
+        },
+        "password_in_docs": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    }
+  },
+  "$defs": {
+    "action_scope_set": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scope"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "client_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]{1,128}$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "scope": {
+      "type": "string",
+      "pattern": "^\\S{1,256}$"
+    }
+  }
+}

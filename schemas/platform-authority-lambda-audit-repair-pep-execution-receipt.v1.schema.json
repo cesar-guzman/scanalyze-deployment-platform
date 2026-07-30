@@ -1,0 +1,972 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-lambda-audit-repair-pep-execution-receipt.v1.schema.json",
+  "title": "GUG-221 Phase B CloudFormation execution trace receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "phase",
+    "source_commit",
+    "deployment_contract_sha256",
+    "pep_change_set_receipt_sha256",
+    "phase_b_precondition_parameter_handoff_sha256",
+    "phase_b_precondition_change_set_receipt_sha256",
+    "broker_effect_receipt_sha256",
+    "broker_ledger_provider_readback",
+    "broker_ledger_provider_readback_sha256",
+    "change_set_arn",
+    "change_set_uuid",
+    "stack_arn",
+    "client_request_token",
+    "client_request_token_sha256",
+    "execute_request_sha256",
+    "effect_principal_arn_sha256",
+    "execute_event",
+    "stack_event_count",
+    "stack_events",
+    "stack_events_sha256",
+    "terminal_resources",
+    "stack_parameters_sha256",
+    "stack_tags",
+    "stack_outputs",
+    "stack_outputs_sha256",
+    "stack_resources",
+    "stack_resources_sha256",
+    "cloudformation_projection_sha256",
+    "executed_at",
+    "stack_completed_at",
+    "verifier",
+    "evaluated_at",
+    "evidence_status",
+    "authority_status",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": {
+      "const": "scanalyze.platform_authority.lambda_audit_repair_pep_execution_receipt.v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "work_package": {
+      "const": "GUG-221"
+    },
+    "phase": {
+      "const": "B_PEP_EXECUTION_TRACE"
+    },
+    "source_commit": {
+      "$ref": "#/$defs/commit"
+    },
+    "deployment_contract_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "pep_change_set_receipt_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "phase_b_precondition_parameter_handoff_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "phase_b_precondition_change_set_receipt_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "broker_effect_receipt_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "broker_ledger_provider_readback": {
+      "$ref": "#/$defs/broker_ledger_provider_readback"
+    },
+    "broker_ledger_provider_readback_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "change_set_arn": {
+      "$ref": "#/$defs/change_set_arn"
+    },
+    "change_set_uuid": {
+      "$ref": "#/$defs/uuid"
+    },
+    "stack_arn": {
+      "$ref": "#/$defs/stack_arn"
+    },
+    "client_request_token": {
+      "type": "string",
+      "pattern": "^gug221-b-[0-9a-f]{48}$"
+    },
+    "client_request_token_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "execute_request_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "effect_principal_arn_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "execute_event": {
+      "$ref": "#/$defs/provider_event"
+    },
+    "stack_event_count": {
+      "type": "integer",
+      "minimum": 48,
+      "maximum": 240
+    },
+    "stack_events": {
+      "type": "array",
+      "minItems": 24,
+      "maxItems": 24,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/stack_event_transition"
+      }
+    },
+    "stack_events_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "terminal_resources": {
+      "type": "array",
+      "minItems": 24,
+      "maxItems": 24,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/r_invocation_authority_inspector_role"
+        },
+        {
+          "$ref": "#/$defs/r_plan_alias"
+        },
+        {
+          "$ref": "#/$defs/r_plan_event_invoke_config"
+        },
+        {
+          "$ref": "#/$defs/r_plan_execution_role"
+        },
+        {
+          "$ref": "#/$defs/r_plan_function"
+        },
+        {
+          "$ref": "#/$defs/r_plan_function_version"
+        },
+        {
+          "$ref": "#/$defs/r_plan_log_group"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_alias"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_event_invoke_config"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_execution_role"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_function"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_function_version"
+        },
+        {
+          "$ref": "#/$defs/r_reconcile_log_group"
+        },
+        {
+          "$ref": "#/$defs/r_repair_alias"
+        },
+        {
+          "$ref": "#/$defs/r_repair_code_signing_config"
+        },
+        {
+          "$ref": "#/$defs/r_repair_event_invoke_config"
+        },
+        {
+          "$ref": "#/$defs/r_repair_execution_role"
+        },
+        {
+          "$ref": "#/$defs/r_repair_function"
+        },
+        {
+          "$ref": "#/$defs/r_repair_function_version"
+        },
+        {
+          "$ref": "#/$defs/r_repair_ledger"
+        },
+        {
+          "$ref": "#/$defs/r_repair_ledger_key"
+        },
+        {
+          "$ref": "#/$defs/r_repair_ledger_key_alias"
+        },
+        {
+          "$ref": "#/$defs/r_repair_log_group"
+        },
+        {
+          "$ref": "#/$defs/r_stack"
+        }
+      ],
+      "items": false
+    },
+    "stack_parameters_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "stack_tags": {
+      "$ref": "#/$defs/stack_tags"
+    },
+    "stack_outputs": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/output_snapshot"
+      }
+    },
+    "stack_outputs_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "stack_resources": {
+      "type": "array",
+      "minItems": 23,
+      "maxItems": 23,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/resource_snapshot"
+      }
+    },
+    "stack_resources_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "cloudformation_projection_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "executed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "stack_completed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "verifier": {
+      "$ref": "#/$defs/authority_verifier"
+    },
+    "evaluated_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "evidence_status": {
+      "const": "CLOUDFORMATION_EXECUTION_TRACE_VERIFIED"
+    },
+    "authority_status": {
+      "const": "PROVIDER_DERIVED_CLOUDFORMATION_TRACE_NOT_EFFECTIVE_STATE"
+    },
+    "production_status": {
+      "const": "NO-GO"
+    }
+  },
+  "$defs": {
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prefixed_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "broker_ledger_provider_readback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "table_name_sha256",
+        "execution_id_sha256",
+        "binding_digest",
+        "proof_receipt_digest",
+        "ledger_digest",
+        "closure_pending_receipt_digest",
+        "execution_request_digest",
+        "broker_topology_sha256",
+        "broker_topology_provider_evidence_digest",
+        "status",
+        "attempts",
+        "execution_gate_consumed",
+        "execution_ambiguous",
+        "retry_permitted",
+        "native_on_behalf_of",
+        "closure_status"
+      ],
+      "properties": {
+        "table_name_sha256": {"$ref": "#/$defs/digest"},
+        "execution_id_sha256": {"$ref": "#/$defs/digest"},
+        "binding_digest": {"$ref": "#/$defs/prefixed_digest"},
+        "proof_receipt_digest": {"$ref": "#/$defs/prefixed_digest"},
+        "ledger_digest": {"$ref": "#/$defs/prefixed_digest"},
+        "closure_pending_receipt_digest": {
+          "$ref": "#/$defs/prefixed_digest"
+        },
+        "execution_request_digest": {
+          "$ref": "#/$defs/prefixed_digest"
+        },
+        "broker_topology_sha256": {"$ref": "#/$defs/prefixed_digest"},
+        "broker_topology_provider_evidence_digest": {
+          "$ref": "#/$defs/prefixed_digest"
+        },
+        "status": {"const": "DISPATCH_ACCEPTED"},
+        "attempts": {"const": 1},
+        "execution_gate_consumed": {"const": true},
+        "execution_ambiguous": {"const": false},
+        "retry_permitted": {"const": false},
+        "native_on_behalf_of": {"const": false},
+        "closure_status": {"const": "PROVIDER_REVOCATION_PENDING"}
+      }
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "change_set_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:changeSet/gug221-lambda-audit-repair-pep-create/[0-9a-fA-F-]{36}$"
+    },
+    "stack_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-lambda-audit-repair-pep/[0-9a-fA-F-]{36}$"
+    },
+    "provider_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "event_time",
+        "event_digest"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "event_time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "event_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "sanitized_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "event_time",
+        "physical_resource_id_sha256"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "physical_resource_id_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "complete_event": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/sanitized_event"
+        },
+        {
+          "properties": {
+            "physical_resource_id_sha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      ]
+    },
+    "stack_event_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_resource_id",
+        "resource_type",
+        "client_request_token_sha256",
+        "in_progress_events",
+        "complete_event"
+      ],
+      "properties": {
+        "logical_resource_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource_type": {
+          "type": "string",
+          "pattern": "^AWS::"
+        },
+        "client_request_token_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "in_progress_events": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 217,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sanitized_event"
+          }
+        },
+        "complete_event": {
+          "$ref": "#/$defs/complete_event"
+        }
+      }
+    },
+    "output_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_key",
+        "output_value_sha256"
+      ],
+      "properties": {
+        "output_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_value_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "resource_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_resource_id",
+        "resource_type",
+        "physical_resource_id_sha256"
+      ],
+      "properties": {
+        "logical_resource_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource_type": {
+          "type": "string",
+          "pattern": "^AWS::"
+        },
+        "physical_resource_id_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "terminal_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "event_time",
+        "logical_resource_id",
+        "resource_type",
+        "resource_status",
+        "physical_resource_id_sha256"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "logical_resource_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource_type": {
+          "type": "string",
+          "pattern": "^AWS::"
+        },
+        "resource_status": {
+          "const": "CREATE_COMPLETE"
+        },
+        "physical_resource_id_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "r_invocation_authority_inspector_role": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "InvocationAuthorityInspectorRole"
+            },
+            "resource_type": {
+              "const": "AWS::IAM::Role"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_alias": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanAlias"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Alias"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_event_invoke_config": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanEventInvokeConfig"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::EventInvokeConfig"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_execution_role": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanExecutionRole"
+            },
+            "resource_type": {
+              "const": "AWS::IAM::Role"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_function": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanFunction"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Function"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_function_version": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanFunctionVersion"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Version"
+            }
+          }
+        }
+      ]
+    },
+    "r_plan_log_group": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "PlanLogGroup"
+            },
+            "resource_type": {
+              "const": "AWS::Logs::LogGroup"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_alias": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileAlias"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Alias"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_event_invoke_config": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileEventInvokeConfig"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::EventInvokeConfig"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_execution_role": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileExecutionRole"
+            },
+            "resource_type": {
+              "const": "AWS::IAM::Role"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_function": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileFunction"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Function"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_function_version": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileFunctionVersion"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Version"
+            }
+          }
+        }
+      ]
+    },
+    "r_reconcile_log_group": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "ReconcileLogGroup"
+            },
+            "resource_type": {
+              "const": "AWS::Logs::LogGroup"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_alias": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairAlias"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Alias"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_code_signing_config": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairCodeSigningConfig"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::CodeSigningConfig"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_event_invoke_config": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairEventInvokeConfig"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::EventInvokeConfig"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_execution_role": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairExecutionRole"
+            },
+            "resource_type": {
+              "const": "AWS::IAM::Role"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_function": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairFunction"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Function"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_function_version": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairFunctionVersion"
+            },
+            "resource_type": {
+              "const": "AWS::Lambda::Version"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_ledger": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairLedger"
+            },
+            "resource_type": {
+              "const": "AWS::DynamoDB::Table"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_ledger_key": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairLedgerKey"
+            },
+            "resource_type": {
+              "const": "AWS::KMS::Key"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_ledger_key_alias": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairLedgerKeyAlias"
+            },
+            "resource_type": {
+              "const": "AWS::KMS::Alias"
+            }
+          }
+        }
+      ]
+    },
+    "r_repair_log_group": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "RepairLogGroup"
+            },
+            "resource_type": {
+              "const": "AWS::Logs::LogGroup"
+            }
+          }
+        }
+      ]
+    },
+    "r_stack": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/terminal_resource"
+        },
+        {
+          "properties": {
+            "logical_resource_id": {
+              "const": "scanalyze-platform-authority-lambda-audit-repair-pep"
+            },
+            "resource_type": {
+              "const": "AWS::CloudFormation::Stack"
+            }
+          }
+        }
+      ]
+    },
+    "stack_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "managed_by",
+        "production",
+        "service",
+        "source_commit",
+        "work_package"
+      ],
+      "properties": {
+        "environment": {
+          "const": "non-production"
+        },
+        "managed_by": {
+          "const": "cloudformation"
+        },
+        "production": {
+          "const": "false"
+        },
+        "service": {
+          "const": "scanalyze-platform-authority"
+        },
+        "source_commit": {
+          "$ref": "#/$defs/commit"
+        },
+        "work_package": {
+          "const": "GUG-221"
+        }
+      }
+    },
+    "authority_verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "account_id",
+        "caller_arn"
+      ],
+      "properties": {
+        "profile": {
+          "const": "042360977644_ReadOnlyAccess"
+        },
+        "account_id": {
+          "const": "042360977644"
+        },
+        "caller_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"
+        }
+      }
+    }
+  }
+}

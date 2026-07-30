@@ -12,3 +12,4 @@ import os
 os.environ.setdefault("APP_ENV", "local")
 os.environ.setdefault("AUTH_MODE", "local_mock")
 os.environ.setdefault("LOCAL_MOCK_TENANT_ID", "test-tenant")
+os.environ.setdefault("SCANALYZE_DEPLOYMENT_ID", "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV")

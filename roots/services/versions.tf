@@ -1,8 +1,8 @@
 terraform {
   required_version = ">= 1.14.6, < 1.15.0"
 
-  # Backend is rendered by orchestrator from deployment record.
-  # See backend.example.hcl for the expected format.
+  # Configuration is rendered from the authorized registry binding.
+  backend "s3" {}
 
   required_providers {
     aws = {

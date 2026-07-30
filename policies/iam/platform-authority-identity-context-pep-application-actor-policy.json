@@ -1,0 +1,14 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowExactBrokerToCreateToken",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "${broker_execution_role_arn}"
+      },
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "*"
+    }
+  ]
+}

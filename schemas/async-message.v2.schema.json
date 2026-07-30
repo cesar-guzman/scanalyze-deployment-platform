@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/async-message.v2.schema.json",
+  "title": "Scanalyze ownership-bound asynchronous message v2",
+  "description": "Closed, fail-closed contracts for the GUG-89 document-processing queue topology.",
+  "oneOf": [
+    { "$ref": "#/$defs/ingest" },
+    { "$ref": "#/$defs/ocr_poll" },
+    { "$ref": "#/$defs/classify" },
+    { "$ref": "#/$defs/extract" },
+    { "$ref": "#/$defs/validate" },
+    { "$ref": "#/$defs/persist" },
+    { "$ref": "#/$defs/notify" }
+  ],
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    },
+    "non_empty": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain": {
+      "enum": ["bank", "personal", "gov"]
+    },
+    "ownership": {
+      "type": "object",
+      "required": [
+        "customer_id",
+        "deployment_id",
+        "ownership_schema_version"
+      ],
+      "properties": {
+        "customer_id": { "$ref": "#/$defs/customer_id" },
+        "deployment_id": { "$ref": "#/$defs/deployment_id" },
+        "ownership_schema_version": { "const": 1 }
+      }
+    },
+    "s3_location": {
+      "type": "object",
+      "required": ["bucket", "key"],
+      "additionalProperties": false,
+      "properties": {
+        "bucket": { "$ref": "#/$defs/non_empty" },
+        "key": { "$ref": "#/$defs/non_empty" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "correlationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "textract": {
+      "type": "object",
+      "required": ["jobId", "api"],
+      "additionalProperties": false,
+      "properties": {
+        "jobId": { "$ref": "#/$defs/non_empty" },
+        "api": { "const": "StartDocumentTextDetection" }
+      }
+    },
+    "ingest": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "enqueue_id",
+            "documentId",
+            "raw",
+            "_metadata"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.ingest.v2" },
+            "pipeline_stage": { "const": "ingest" },
+            "processing_domain": {
+              "oneOf": [
+                { "$ref": "#/$defs/domain" },
+                { "type": "null" }
+              ]
+            },
+            "enqueue_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "raw": { "$ref": "#/$defs/s3_location" },
+            "contentType": { "$ref": "#/$defs/non_empty" },
+            "uploadedAt": { "$ref": "#/$defs/non_empty" },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ocr_poll": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "documentId",
+            "textractJobId",
+            "sourceBucket",
+            "sourceKey",
+            "documentRoute",
+            "artifactBucket",
+            "artifactKey",
+            "submittedAt"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.ocr-poll.v2" },
+            "pipeline_stage": { "const": "ocr" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "textractJobId": { "$ref": "#/$defs/non_empty" },
+            "sourceBucket": { "$ref": "#/$defs/non_empty" },
+            "sourceKey": { "$ref": "#/$defs/non_empty" },
+            "sourceEtag": { "$ref": "#/$defs/non_empty" },
+            "documentRoute": {
+              "enum": ["platform", "bank", "personal", "gov", "default"]
+            },
+            "requestedNextStage": { "$ref": "#/$defs/non_empty" },
+            "artifactBucket": { "$ref": "#/$defs/non_empty" },
+            "artifactKey": { "$ref": "#/$defs/non_empty" },
+            "correlationId": { "$ref": "#/$defs/non_empty" },
+            "submittedAt": { "$ref": "#/$defs/non_empty" },
+            "timeoutAt": { "$ref": "#/$defs/non_empty" },
+            "attempt": { "type": "integer", "minimum": 0 },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "classify": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "documentId",
+            "ocr",
+            "raw",
+            "meta"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.classify.v2" },
+            "pipeline_stage": { "const": "classify" },
+            "processing_domain": { "type": "null" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "ocr": { "$ref": "#/$defs/s3_location" },
+            "raw": { "$ref": "#/$defs/s3_location" },
+            "textract": { "$ref": "#/$defs/textract" },
+            "meta": {
+              "type": "object",
+              "required": ["env", "tenant"],
+              "additionalProperties": false,
+              "properties": {
+                "pages": { "type": "integer", "minimum": 0 },
+                "env": { "$ref": "#/$defs/non_empty" },
+                "tenant": {
+                  "enum": ["platform", "bank", "personal", "gov", "default"]
+                }
+              }
+            },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "extract": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "processing_domain",
+            "documentId",
+            "ocr",
+            "raw"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.extract.v2" },
+            "pipeline_stage": {
+              "enum": ["bank-extract", "personal-extract", "gov-extract"]
+            },
+            "processing_domain": { "$ref": "#/$defs/domain" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "ocr": { "$ref": "#/$defs/s3_location" },
+            "raw": { "$ref": "#/$defs/s3_location" },
+            "correlationId": { "$ref": "#/$defs/non_empty" },
+            "attempt": { "type": "integer", "minimum": 0 },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "processing_domain": { "const": "bank" } } },
+              "then": { "properties": { "pipeline_stage": { "const": "bank-extract" } } }
+            },
+            {
+              "if": { "properties": { "processing_domain": { "const": "personal" } } },
+              "then": { "properties": { "pipeline_stage": { "const": "personal-extract" } } }
+            },
+            {
+              "if": { "properties": { "processing_domain": { "const": "gov" } } },
+              "then": { "properties": { "pipeline_stage": { "const": "gov-extract" } } }
+            }
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "validate": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "processing_domain",
+            "documentId",
+            "structured",
+            "meta"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.validate.v2" },
+            "pipeline_stage": { "const": "validate" },
+            "processing_domain": { "$ref": "#/$defs/domain" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "structured": { "$ref": "#/$defs/s3_location" },
+            "meta": { "$ref": "#/$defs/stage_meta" },
+            "correlationId": { "$ref": "#/$defs/non_empty" },
+            "attempt": { "type": "integer", "minimum": 0 },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "stage_meta": {
+      "type": "object",
+      "required": ["env", "tenant", "schema_version", "prompt_version"],
+      "additionalProperties": false,
+      "properties": {
+        "env": { "$ref": "#/$defs/non_empty" },
+        "tenant": { "$ref": "#/$defs/domain" },
+        "schema_version": { "$ref": "#/$defs/non_empty" },
+        "prompt_version": { "$ref": "#/$defs/non_empty" }
+      }
+    },
+    "validation_result": {
+      "type": "object",
+      "required": ["status", "errors", "validatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["PASS", "FAIL"] },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "message", "severity"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "$ref": "#/$defs/non_empty" },
+              "message": { "$ref": "#/$defs/non_empty" },
+              "path": { "$ref": "#/$defs/non_empty" },
+              "severity": { "enum": ["ERROR", "WARNING"] }
+            }
+          }
+        },
+        "validatedAt": { "$ref": "#/$defs/non_empty" }
+      }
+    },
+    "persist": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "processing_domain",
+            "documentId",
+            "structured",
+            "validation",
+            "meta"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.persist.v2" },
+            "pipeline_stage": { "const": "persist" },
+            "processing_domain": { "$ref": "#/$defs/domain" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "structured": { "$ref": "#/$defs/s3_location" },
+            "validation": { "$ref": "#/$defs/validation_result" },
+            "meta": { "$ref": "#/$defs/stage_meta" },
+            "correlationId": { "$ref": "#/$defs/non_empty" },
+            "attempt": { "type": "integer", "minimum": 0 },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "notify": {
+      "allOf": [
+        { "$ref": "#/$defs/ownership" },
+        {
+          "type": "object",
+          "required": [
+            "schemaVersion",
+            "pipeline_stage",
+            "processing_domain",
+            "documentId",
+            "result",
+            "meta"
+          ],
+          "properties": {
+            "schemaVersion": { "const": "scanalyze.notify.v2" },
+            "pipeline_stage": { "const": "notify" },
+            "processing_domain": { "$ref": "#/$defs/domain" },
+            "documentId": { "$ref": "#/$defs/document_id" },
+            "result": {
+              "type": "object",
+              "required": ["finalStatus", "completedAt", "validationStatus"],
+              "additionalProperties": false,
+              "properties": {
+                "finalStatus": { "enum": ["COMPLETED", "FAILED"] },
+                "completedAt": { "$ref": "#/$defs/non_empty" },
+                "validationStatus": { "enum": ["PASS", "FAIL"] }
+              }
+            },
+            "meta": {
+              "type": "object",
+              "required": ["env", "tenant"],
+              "additionalProperties": false,
+              "properties": {
+                "env": { "$ref": "#/$defs/non_empty" },
+                "tenant": { "$ref": "#/$defs/domain" }
+              }
+            },
+            "correlationId": { "$ref": "#/$defs/non_empty" },
+            "attempt": { "type": "integer", "minimum": 0 },
+            "_metadata": { "$ref": "#/$defs/metadata" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

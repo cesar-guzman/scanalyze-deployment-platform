@@ -1,0 +1,33 @@
+{
+  "artifact_type": "scanalyze.platform_authority.lambda_audit_repair_delegation_parameters.v1",
+  "schema_version": 1,
+  "work_package": "GUG-221",
+  "source_commit": "1111111111111111111111111111111111111111",
+  "stack_name": "scanalyze-platform-authority-lambda-audit-repair-delegation",
+  "change_set_name": "gug221-lambda-audit-repair-delegation-create",
+  "deployment_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "gug220_intent_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "gug220_ledger_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "gug220_receipt_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "gug220_evidence_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "template_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "stack_tags": {
+    "environment": "non-production", "managed_by": "cloudformation", "production": "false",
+    "service": "scanalyze-platform-authority", "source_commit": "1111111111111111111111111111111111111111", "work_package": "GUG-221"
+  },
+  "parameters": [
+    {"ParameterKey": "ManagementAccountId", "ParameterValue": "839393571433"},
+    {"ParameterKey": "AuthorityAccountId", "ParameterValue": "042360977644"},
+    {"ParameterKey": "SourceCommit", "ParameterValue": "1111111111111111111111111111111111111111"},
+    {"ParameterKey": "IdentityCenterInstanceArn", "ParameterValue": "arn:aws:sso:::instance/ssoins-1234567890abcdef"},
+    {"ParameterKey": "IdentityStoreArn", "ParameterValue": "arn:aws:identitystore::839393571433:identitystore/d-0123456789"},
+    {"ParameterKey": "RepairPrincipalId", "ParameterValue": "0123456789-12345678-1234-1234-1234-1234567890ab"},
+    {"ParameterKey": "RepairPrincipalUserArn", "ParameterValue": "arn:aws:identitystore:::user/0123456789-12345678-1234-1234-1234-1234567890ab"},
+    {"ParameterKey": "AuditPermissionSetArn", "ParameterValue": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-abcdef1234567890"},
+    {"ParameterKey": "UseIdentityCenterCustomerManagedKms", "ParameterValue": "false"},
+    {"ParameterKey": "IdentityCenterKmsKeyArn", "ParameterValue": ""}
+  ],
+  "repair_id": "gug221-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "authority_status": "NON_AUTHORITATIVE_DERIVATION_ONLY",
+  "production_status": "NO-GO"
+}

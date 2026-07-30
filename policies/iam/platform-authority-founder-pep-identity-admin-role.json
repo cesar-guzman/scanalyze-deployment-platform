@@ -1,0 +1,118 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DiscoverSingleIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "sso:ListInstances",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadPermissionSetInventory",
+      "Effect": "Allow",
+      "Action": "sso:ListPermissionSets",
+      "Resource": "${identity_center_instance_arn}"
+    },
+    {
+      "Sid": "CreateOnlyTaggedFounderPermissionSets",
+      "Effect": "Allow",
+      "Action": "sso:CreatePermissionSet",
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/ps-*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "scanalyze-founder-pep",
+          "aws:RequestTag/work_package": "GUG-211"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["managed_by", "work_package", "exception_id", "mode"]
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactIdentityCenterInventory",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribePermissionSet",
+        "sso:GetInlinePolicyForPermissionSet",
+        "sso:GetPermissionsBoundaryForPermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListAccountAssignments",
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+        "sso:ListManagedPoliciesInPermissionSet",
+        "sso:ListTagsForResource"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/ps-*",
+        "arn:aws:sso:::account/042360977644"
+      ]
+    },
+    {
+      "Sid": "ManageOnlyTaggedFounderPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DeleteInlinePolicyFromPermissionSet",
+        "sso:DeletePermissionSet",
+        "sso:PutInlinePolicyToPermissionSet"
+      ],
+      "Resource": "arn:aws:sso:::permissionSet/${identity_center_instance_id}/ps-*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/managed_by": "scanalyze-founder-pep",
+          "aws:ResourceTag/work_package": "GUG-211"
+        }
+      }
+    },
+    {
+      "Sid": "UseOnlyTheExactIdentityCenterInstanceAndAuthorityAccount",
+      "Effect": "Allow",
+      "Action": [
+        "sso:CreateAccountAssignment",
+        "sso:DeleteAccountAssignment",
+        "sso:ProvisionPermissionSet"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::account/042360977644"
+      ]
+    },
+    {
+      "Sid": "AssignProvisionAndRevokeOnlyTaggedFounderPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:CreateAccountAssignment",
+        "sso:DeleteAccountAssignment",
+        "sso:ProvisionPermissionSet"
+      ],
+      "Resource": "arn:aws:sso:::permissionSet/${identity_center_instance_id}/ps-*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/managed_by": "scanalyze-founder-pep",
+          "aws:ResourceTag/work_package": "GUG-211"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyIdentityCenterOperationStatuses",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribePermissionSetProvisioningStatus"
+      ],
+      "Resource": "${identity_center_instance_arn}"
+    },
+    {
+      "Sid": "DenyIdentityCenterOutsideHomeRegion",
+      "Effect": "Deny",
+      "Action": "sso:*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": { "aws:RequestedRegion": "us-east-1" }
+      }
+    }
+  ]
+}

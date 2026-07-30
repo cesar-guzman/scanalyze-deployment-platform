@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze founder-bootstrap durable PEP seed. Creates one retained,
+  deletion-protected DynamoDB compare-and-swap ledger in the dedicated
+  platform-authority account. It creates no IAM, S3, KMS, workload, customer,
+  or production resources.
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    AllowedValues:
+      - '042360977644'
+    Description: Exact dedicated platform-authority account.
+
+Rules:
+  AuthorityAccountMustMatch:
+    Assertions:
+      - Assert: !Equals
+          - !Ref AuthorityAccountId
+          - !Ref AWS::AccountId
+        AssertDescription: AuthorityAccountId must equal the target AWS account.
+      - Assert: !Equals
+          - !Ref AWS::Region
+          - us-east-1
+        AssertDescription: The founder PEP has one reviewed home Region.
+
+Resources:
+  FounderExecutionLedger:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: scanalyze-platform-authority-founder-executions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: exception_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: exception_id
+          KeyType: HASH
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      TableClass: STANDARD
+      Tags:
+        - Key: managed_by
+          Value: cloudformation-stacksets
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: data_class
+          Value: control-metadata
+        - Key: work_package
+          Value: GUG-211
+        - Key: account_id
+          Value: !Ref AuthorityAccountId
+        - Key: region
+          Value: !Ref AWS::Region
+
+Outputs:
+  AuthorityAccountId:
+    Value: !Ref AWS::AccountId
+  AuthorityRegion:
+    Value: !Ref AWS::Region
+  FounderExecutionLedgerName:
+    Value: !Ref FounderExecutionLedger
+  FounderExecutionLedgerArn:
+    Value: !GetAtt FounderExecutionLedger.Arn
+  LiveMutationAuthorized:
+    Description: Seed completion alone never authorizes founder Plan or Apply.
+    Value: 'false'

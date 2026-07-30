@@ -25,14 +25,16 @@ resumida:
 3. network.
 4. platform.
 5. data-foundation.
-6. edge-identity.
-7. edge.
-8. cicd, para ECR y metadata de imágenes.
-9. construir y publicar las siete imágenes.
-10. services, consumiendo digests revisados.
+6. cicd, para ECR y metadata de imágenes.
+7. publicar y verificar las siete imágenes y el release manifest.
+8. services, consumiendo digests revisados.
+9. edge-identity.
+10. edge.
 11. addons, después de estabilidad.
+12. validación sintética y handoff.
 
-No aplicar services antes de que existan referencias de imagen inmutables.
+La fuente machine-readable del orden es `deployment/layers.yaml`. No aplicar
+services antes de que existan referencias de imagen inmutables.
 Frontend e identity tienen blockers adicionales documentados en el playbook;
 su posición en el DAG no autoriza onboarding.
 

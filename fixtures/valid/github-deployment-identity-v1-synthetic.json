@@ -1,0 +1,260 @@
+{
+  "account_id": "123456789012",
+  "contract_digest": "sha256:d33e075efe32beb2f66f64f49906fbba0aac2a1a13703479930ccf09c258d66a",
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "diagnostic_access": {
+    "human_only": true,
+    "max_session_duration_seconds": 900,
+    "operation": "diagnostic",
+    "principal": "arn:aws:iam::210987654321:role/ScanalyzeBreakGlass",
+    "requires_incident_id": true,
+    "requires_mfa": true,
+    "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Diagnostic"
+  },
+  "environment": "dev",
+  "environment_protection": {
+    "custom_branch_policies": true,
+    "initiator_login": "release-initiator",
+    "name": "scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-dev",
+    "prevent_admin_bypass": true,
+    "prevent_self_review": true,
+    "protected_branches": ["main"],
+    "protected_tags": [],
+    "required_reviewers": [
+      {
+        "id": "9002",
+        "login": "independent-reviewer",
+        "type": "User"
+      }
+    ],
+    "reserved_variables_absent_at_organization": true,
+    "reserved_variables_absent_at_repository": true,
+    "secret_names": [],
+    "variables": {
+      "AWS_ACCOUNT_ID": "123456789012",
+      "AWS_REGION": "us-east-1",
+      "CUSTOMER_ID": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "LOGICAL_ENVIRONMENT": "dev",
+      "OIDC_ORCHESTRATOR_ROLE_ARN": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    }
+  },
+  "oidc": {
+    "audience": "sts.amazonaws.com",
+    "include_claim_keys": [
+      "repository_owner_id",
+      "repository_id",
+      "context",
+      "workflow_ref",
+      "event_name"
+    ],
+    "issuer": "https://token.actions.githubusercontent.com",
+    "max_session_duration_seconds": 900,
+    "orchestrator_role_arn": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "required_role_tags": {
+      "account_id": "123456789012",
+      "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "environment": "dev",
+      "region": "us-east-1",
+      "service": "scanalyze-orchestrator"
+    },
+    "subject": "repository_owner_id:1000001:repository_id:2000002:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-dev:workflow_ref:synthetic-owner/scanalyze-deployment-platform/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch",
+    "use_default_subject": false
+  },
+  "record_type": "github_deployment_identity",
+  "region": "us-east-1",
+  "repository": {
+    "name": "scanalyze-deployment-platform",
+    "owner": "synthetic-owner",
+    "owner_id": "1000001",
+    "repository_id": "2000002",
+    "visibility": "private"
+  },
+  "schema_version": "1",
+  "state_recovery_access": {
+    "human_only": true,
+    "max_session_duration_seconds": 900,
+    "operation": "state-recovery",
+    "principal": "arn:aws:iam::210987654321:role/ScanalyzeBreakGlass",
+    "requires_incident_id": true,
+    "requires_mfa": true,
+    "requires_recovery_approval": true,
+    "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-StateRecovery"
+  },
+  "terminal_roles": {
+    "apply": {
+      "allowed_layers": [
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons"
+      ],
+      "max_session_duration_seconds": 900,
+      "operation": "apply",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Apply",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "identity_apply": {
+      "allowed_layers": ["identity-control-plane"],
+      "max_session_duration_seconds": 900,
+      "operation": "apply",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Identity-Apply",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "identity_plan": {
+      "allowed_layers": ["identity-control-plane"],
+      "max_session_duration_seconds": 900,
+      "operation": "plan",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Identity-Plan",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "plan": {
+      "allowed_layers": [
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons"
+      ],
+      "max_session_duration_seconds": 900,
+      "operation": "plan",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Plan",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "promotion": {
+      "allowed_layers": ["artifact-publication"],
+      "max_session_duration_seconds": 900,
+      "operation": "promote",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Promotion",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "validation": {
+      "allowed_layers": ["synthetic-validation"],
+      "max_session_duration_seconds": 900,
+      "operation": "validate",
+      "required_resource_tags": {
+        "account_id": "123456789012",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "dev",
+        "region": "us-east-1"
+      },
+      "required_session_tags": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "operation",
+        "layer",
+        "change_id"
+      ],
+      "role_arn": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Validation",
+      "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    }
+  },
+  "workflow": {
+    "event_name": "workflow_dispatch",
+    "execution_mode": "live",
+    "github_environment": "scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-dev",
+    "path": ".github/workflows/nonprod-release.yml",
+    "ref": "refs/heads/main",
+    "workflow_ref": "synthetic-owner/scanalyze-deployment-platform/.github/workflows/nonprod-release.yml@refs/heads/main"
+  }
+}

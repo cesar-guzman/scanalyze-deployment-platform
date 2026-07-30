@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_identity_context_pep_compatibility",
+  "environment": "non-production",
+  "production": false,
+  "managed_policy_arn": "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext",
+  "managed_policy_version": "v12",
+  "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+  "required_action": "sts:SetContext",
+  "status": "COMPATIBLE_PROOF_ONLY_TRANSPORT",
+  "token_issued": false,
+  "sts_session_issued": false,
+  "broker_invocation_performed": false,
+  "live_effect_authorized": true,
+  "observed_at": "2030-01-01T00:00:00Z",
+  "receipt_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}

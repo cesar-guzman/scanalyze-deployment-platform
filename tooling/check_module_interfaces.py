@@ -20,6 +20,8 @@ M2_MODULES = [
     "network",
     "container-platform",
     "data-foundation",
+    "identity-control-plane",
+    "platform-authority",
     "services",
     "edge-identity",
     "edge",

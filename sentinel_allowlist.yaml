@@ -33,6 +33,34 @@ allowlist:
     reason: "Pinned release metadata fixture, not Terraform state"
     owner: testing
 
+  - path: tooling/platform_authority_change_set_retirement_broker.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Static reviewed four-resource evidence key in the broker, not raw Terraform plan output"
+    owner: platform-security
+
+  - path: tests/test_deployment/test_gug215_retained_change_set_retirement.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic digest fixture for the reviewed four-resource contract, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: fixtures/valid/release-deployment-projection-v1-synthetic.json
+    line_pattern: '"release_id"\s*:\s*"rel_[0-9A-HJKMNP-TV-Z]{26}"'
+    pattern_id: RFC
+    match_sha256: 60f9c6c3d72e8e3c6502aacd8b5e2daa3347a609a821943b0e988d30afa68d99
+    reason: "Synthetic ULID release identifier; exact detector fingerprint prevents accepting a new value"
+    owner: release-security-testing
+
+  - path: fixtures/valid/release-v2-complete.synthetic.json
+    line_pattern: '"(?:release_id|approved_change_id)"\s*:\s*"(?:rel|chg)_[0-9A-HJKMNP-TV-Z]{26}"'
+    pattern_id: RFC
+    match_sha256: 60f9c6c3d72e8e3c6502aacd8b5e2daa3347a609a821943b0e988d30afa68d99
+    reason: "Synthetic ULID release and approval identifiers; exact detector fingerprint prevents accepting a new value"
+    owner: release-security-testing
+
   - path: backend/workers/scanalyze-bank-worker/tests/test_normalize.py
     line_pattern: '\b[0-9]{18}\b'
     pattern_id: CLABE

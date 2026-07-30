@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/contract-services.v2.schema.json",
+  "title": "Scanalyze services outputs v2",
+  "type": "object",
+  "required": ["service_arns", "task_definition_arns", "target_group_arns"],
+  "additionalProperties": false,
+  "properties": {
+    "service_arns": { "$ref": "#/$defs/arn_map" },
+    "task_definition_arns": { "$ref": "#/$defs/arn_map" },
+    "target_group_arns": { "$ref": "#/$defs/arn_map" }
+  },
+  "$defs": {
+    "arn_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "pattern": "^arn:[^:]+:.+$" }
+    }
+  }
+}

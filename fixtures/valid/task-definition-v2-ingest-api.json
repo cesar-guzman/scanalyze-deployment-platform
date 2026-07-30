@@ -1,0 +1,39 @@
+{
+  "schema_version": "2",
+  "service_name": "ingest-api",
+  "image": "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "cpu": 256,
+  "memory": 512,
+  "essential": true,
+  "port_mappings": [
+    {
+      "containerPort": 8080,
+      "protocol": "tcp"
+    }
+  ],
+  "environment": [
+    {
+      "name": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+      "value": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    {
+      "name": "SCANALYZE_DEPLOYMENT_ID",
+      "value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    {
+      "name": "AWS_REGION",
+      "value": "us-east-1"
+    }
+  ],
+  "secrets": [],
+  "customer_identity": {
+    "canonical_field": "SCANALYZE_DEPLOYMENT_CUSTOMER_ID",
+    "canonical_value": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "canonical_value_source": "deployment_record"
+  },
+  "deployment_identity": {
+    "canonical_field": "SCANALYZE_DEPLOYMENT_ID",
+    "canonical_value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "canonical_value_source": "deployment_record"
+  }
+}

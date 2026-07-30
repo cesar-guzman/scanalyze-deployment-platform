@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/github-deployment-identity.v1.schema.json",
+  "title": "GitHub Deployment Identity and Terminal Role Contract v1",
+  "description": "Portable, deployment-bound GitHub Environment, OIDC subject, orchestrator, and terminal-role authorization contract.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "repository",
+    "workflow",
+    "oidc",
+    "environment_protection",
+    "terminal_roles",
+    "diagnostic_access",
+    "state_recovery_access",
+    "contract_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "github_deployment_identity" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "environment": { "enum": ["sandbox", "dev", "staging", "production"] },
+    "repository": { "$ref": "#/$defs/repository" },
+    "workflow": { "$ref": "#/$defs/workflow" },
+    "oidc": { "$ref": "#/$defs/oidc" },
+    "environment_protection": { "$ref": "#/$defs/environment_protection" },
+    "terminal_roles": {
+      "type": "object",
+      "required": [
+        "plan",
+        "apply",
+        "identity_plan",
+        "identity_apply",
+        "promotion",
+        "validation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "$ref": "#/$defs/terminal_role" },
+        "apply": { "$ref": "#/$defs/terminal_role" },
+        "identity_plan": { "$ref": "#/$defs/terminal_role" },
+        "identity_apply": { "$ref": "#/$defs/terminal_role" },
+        "promotion": { "$ref": "#/$defs/terminal_role" },
+        "validation": { "$ref": "#/$defs/terminal_role" }
+      }
+    },
+    "diagnostic_access": { "$ref": "#/$defs/diagnostic_access" },
+    "state_recovery_access": { "$ref": "#/$defs/state_recovery_access" },
+    "contract_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "iam_role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$"
+    },
+    "repository": {
+      "type": "object",
+      "required": ["owner", "name", "owner_id", "repository_id", "visibility"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$" },
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$" },
+        "owner_id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "repository_id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "visibility": { "enum": ["private", "internal"] }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": [
+        "path",
+        "ref",
+        "workflow_ref",
+        "event_name",
+        "execution_mode",
+        "github_environment"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$" },
+        "ref": { "const": "refs/heads/main" },
+        "workflow_ref": { "type": "string", "minLength": 20, "maxLength": 300 },
+        "event_name": { "enum": ["workflow_dispatch", "push"] },
+        "execution_mode": { "const": "live" },
+        "github_environment": {
+          "type": "string",
+          "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(sandbox|dev|staging|production)$"
+        }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "required": [
+        "issuer",
+        "audience",
+        "use_default_subject",
+        "include_claim_keys",
+        "subject",
+        "orchestrator_role_arn",
+        "max_session_duration_seconds",
+        "required_role_tags"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "const": "https://token.actions.githubusercontent.com" },
+        "audience": { "const": "sts.amazonaws.com" },
+        "use_default_subject": { "const": false },
+        "include_claim_keys": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "repository_owner_id",
+              "repository_id",
+              "context",
+              "workflow_ref",
+              "event_name"
+            ]
+          }
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 500,
+          "pattern": "^[A-Za-z0-9_./@%-]+(?::[A-Za-z0-9_./@%-]+)+$"
+        },
+        "orchestrator_role_arn": { "$ref": "#/$defs/iam_role_arn" },
+        "max_session_duration_seconds": { "const": 900 },
+        "required_role_tags": {
+          "type": "object",
+          "required": ["service", "customer_id", "deployment_id", "account_id", "region", "environment"],
+          "additionalProperties": false,
+          "properties": {
+            "service": { "const": "scanalyze-orchestrator" },
+            "customer_id": { "$ref": "#/$defs/customer_id" },
+            "deployment_id": { "$ref": "#/$defs/deployment_id" },
+            "account_id": { "$ref": "#/$defs/account_id" },
+            "region": { "$ref": "#/$defs/region" },
+            "environment": { "enum": ["sandbox", "dev", "staging", "production"] }
+          }
+        }
+      }
+    },
+    "reviewer": {
+      "type": "object",
+      "required": ["type", "id", "login"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "User" },
+        "id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "login": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$" }
+      }
+    },
+    "environment_protection": {
+      "type": "object",
+      "required": [
+        "name",
+        "custom_branch_policies",
+        "protected_branches",
+        "protected_tags",
+        "required_reviewers",
+        "prevent_self_review",
+        "prevent_admin_bypass",
+        "initiator_login",
+        "reserved_variables_absent_at_repository",
+        "reserved_variables_absent_at_organization",
+        "variables",
+        "secret_names"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(sandbox|dev|staging|production)$"
+        },
+        "custom_branch_policies": { "const": true },
+        "protected_branches": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "const": "main" }
+        },
+        "protected_tags": { "type": "array", "maxItems": 0 },
+        "required_reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reviewer" }
+        },
+        "prevent_self_review": { "const": true },
+        "prevent_admin_bypass": { "const": true },
+        "initiator_login": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$" },
+        "reserved_variables_absent_at_repository": { "const": true },
+        "reserved_variables_absent_at_organization": { "const": true },
+        "variables": {
+          "type": "object",
+          "required": [
+            "CUSTOMER_ID",
+            "DEPLOYMENT_ID",
+            "AWS_ACCOUNT_ID",
+            "AWS_REGION",
+            "LOGICAL_ENVIRONMENT",
+            "OIDC_ORCHESTRATOR_ROLE_ARN"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "CUSTOMER_ID": { "$ref": "#/$defs/customer_id" },
+            "DEPLOYMENT_ID": { "$ref": "#/$defs/deployment_id" },
+            "AWS_ACCOUNT_ID": { "$ref": "#/$defs/account_id" },
+            "AWS_REGION": { "$ref": "#/$defs/region" },
+            "LOGICAL_ENVIRONMENT": { "enum": ["sandbox", "dev", "staging", "production"] },
+            "OIDC_ORCHESTRATOR_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" }
+          }
+        },
+        "secret_names": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "terminal_role": {
+      "type": "object",
+      "required": [
+        "role_arn",
+        "operation",
+        "allowed_layers",
+        "max_session_duration_seconds",
+        "required_session_tags",
+        "source_identity_pattern",
+        "required_resource_tags"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role_arn": { "$ref": "#/$defs/iam_role_arn" },
+        "operation": { "enum": ["plan", "apply", "promote", "validate"] },
+        "allowed_layers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
+        },
+        "max_session_duration_seconds": { "const": 900 },
+        "required_session_tags": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "customer_id",
+              "deployment_id",
+              "account_id",
+              "region",
+              "environment",
+              "operation",
+              "layer",
+              "change_id"
+            ]
+          }
+        },
+        "source_identity_pattern": { "const": "^exec_[0-9A-HJKMNP-TV-Z]{26}$" },
+        "required_resource_tags": {
+          "type": "object",
+          "required": ["customer_id", "deployment_id", "account_id", "region", "environment"],
+          "additionalProperties": false,
+          "properties": {
+            "customer_id": { "$ref": "#/$defs/customer_id" },
+            "deployment_id": { "$ref": "#/$defs/deployment_id" },
+            "account_id": { "$ref": "#/$defs/account_id" },
+            "region": { "$ref": "#/$defs/region" },
+            "environment": { "enum": ["sandbox", "dev", "staging", "production"] }
+          }
+        }
+      }
+    },
+    "diagnostic_access": {
+      "type": "object",
+      "required": [
+        "role_arn",
+        "principal",
+        "operation",
+        "human_only",
+        "requires_mfa",
+        "requires_incident_id",
+        "max_session_duration_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role_arn": { "$ref": "#/$defs/iam_role_arn" },
+        "principal": { "$ref": "#/$defs/iam_role_arn" },
+        "operation": { "const": "diagnostic" },
+        "human_only": { "const": true },
+        "requires_mfa": { "const": true },
+        "requires_incident_id": { "const": true },
+        "max_session_duration_seconds": { "const": 900 }
+      }
+    },
+    "state_recovery_access": {
+      "type": "object",
+      "required": [
+        "role_arn",
+        "principal",
+        "operation",
+        "human_only",
+        "requires_mfa",
+        "requires_incident_id",
+        "requires_recovery_approval",
+        "max_session_duration_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role_arn": { "$ref": "#/$defs/iam_role_arn" },
+        "principal": { "$ref": "#/$defs/iam_role_arn" },
+        "operation": { "const": "state-recovery" },
+        "human_only": { "const": true },
+        "requires_mfa": { "const": true },
+        "requires_incident_id": { "const": true },
+        "requires_recovery_approval": { "const": true },
+        "max_session_duration_seconds": { "const": 900 }
+      }
+    }
+  }
+}

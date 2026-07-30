@@ -19,8 +19,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from ....auth import AuthContext, get_auth_context
+from ....auth import AuthContext
+from ....authorization import require_operation
+from ....enterprise_authorization import OperationId
 from ....logging import bind_context, get_logger
 from ....services.employee_profiles import EmployeeProfileService
 from ....services.employee_profiles_export import export_profile_json, export_profiles_csv
@@ -28,9 +31,48 @@ from ....services.employee_profiles_export import export_profile_json, export_pr
 router = APIRouter()
 logger = get_logger()
 
+_READ_CONFIGURATION_ACCESS = require_operation(
+    OperationId.DEPLOYMENT_CONFIGURATION_READ
+)
+_EXECUTE_EXPORT_ACCESS = require_operation(OperationId.EXPORTS_EXECUTE)
+_GENERATE_PROFILES_ACCESS = require_operation(
+    OperationId.EMPLOYEE_PROFILES_GENERATE
+)
+_READ_PROFILE_JOB_ACCESS = require_operation(
+    OperationId.EMPLOYEE_PROFILES_READ_JOB
+)
+_LIST_MASKED_PROFILES_ACCESS = require_operation(
+    OperationId.EMPLOYEE_PROFILES_LIST_MASKED
+)
+_READ_FULL_PROFILE_ACCESS = require_operation(
+    OperationId.EMPLOYEE_PROFILES_READ_FULL
+)
+
 
 def _svc() -> EmployeeProfileService:
     return EmployeeProfileService()
+
+
+class GenerateProfilesOptions(BaseModel):
+    """Strict generation controls; request payloads never reach service logs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    force: StrictBool = False
+    includeIncomplete: StrictBool = False
+
+
+class GenerateProfilesRequest(BaseModel):
+    """Closed request contract for deterministic profile generation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    batchId: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$",
+    )
+    options: GenerateProfilesOptions = Field(default_factory=GenerateProfilesOptions)
 
 
 # ─────────────────────────────────────────────────
@@ -38,14 +80,14 @@ def _svc() -> EmployeeProfileService:
 # ─────────────────────────────────────────────────
 @router.get("/status")
 def get_feature_status(
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_READ_CONFIGURATION_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """P0.4: Check if employee profiles feature is enabled for this tenant.
 
     Requires JWT. Does not expose tenant list.
     """
-    return svc.get_status(auth.tenant)
+    return svc.get_status(auth)
 
 
 # ─────────────────────────────────────────────────
@@ -55,13 +97,13 @@ def get_feature_status(
 def export_csv_batch(
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_EXECUTE_EXPORT_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P0.8: Export all profiles for a batch as downloadable CSV.
 
-    By default exports full (unmasked) PII for authenticated users.
-    Use ?masked=true to get masked output.
+    Full output requires the reviewed read+admin policy and fresh step-up
+    evidence. Use ?masked=true to reduce the exported data set.
     """
     bind_context(tenant=auth.tenant)
 
@@ -71,14 +113,7 @@ def export_csv_batch(
             content={"code": "VALIDATION_ERROR", "message": "batchId query param is required", "details": {}},
         )
 
-    # Load full profiles from batch manifest
-    bucket = svc._structured_bucket()
-    profiles_key = svc._batch_profiles_key(auth.tenant, batchId)
-    data = svc._read_s3_json(bucket, profiles_key)
-    profiles = data if isinstance(data, list) else []
-
-    # Tenant guard
-    profiles = [p for p in profiles if p.get("tenantId") == auth.tenant]
+    profiles = svc.get_batch_profiles(auth=auth, batch_id=batchId)
 
     csv_str = export_profiles_csv(profiles, mask_pii=masked)
     safe_batch = batchId[:24].replace("/", "_")
@@ -96,8 +131,8 @@ def export_csv_batch(
 # ─────────────────────────────────────────────────
 @router.post("/generate", status_code=202)
 def generate_profiles(
-    body: dict,
-    auth: AuthContext = Depends(get_auth_context),
+    body: GenerateProfilesRequest,
+    auth: AuthContext = Depends(_GENERATE_PROFILES_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Generate employee profiles for a batch.
@@ -110,16 +145,10 @@ def generate_profiles(
     """
     bind_context(tenant=auth.tenant)
 
-    batch_id = body.get("batchId")
-    if not batch_id or not isinstance(batch_id, str) or len(batch_id) < 8:
-        return JSONResponse(
-            status_code=400,
-            content={"code": "VALIDATION_ERROR", "message": "Valid batchId is required", "details": {}},
-        )
-
-    options = body.get("options") or {}
+    batch_id = body.batchId
+    options = body.options.model_dump(exclude_defaults=True)
     result = svc.generate_profiles(
-        tenant=auth.tenant,
+        auth=auth,
         batch_id=batch_id,
         requested_by=auth.subject,
         options=options,
@@ -137,12 +166,12 @@ def generate_profiles(
 def get_job_status(
     job_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_READ_PROFILE_JOB_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Get generation job status."""
     bind_context(tenant=auth.tenant)
-    return svc.get_job(tenant=auth.tenant, job_id=job_id, batch_id=batchId)
+    return svc.get_job(auth=auth, job_id=job_id, batch_id=batchId)
 
 
 # ─────────────────────────────────────────────────
@@ -152,18 +181,22 @@ def get_job_status(
 def list_profiles(
     batchId: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None, description="Search by name only"),
+    q: Optional[str] = Query(
+        default=None,
+        description="Deprecated; identifying-name search is not supported",
+    ),
     limit: int = Query(default=50, ge=1, le=200),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_LIST_MASKED_PROFILES_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
-    """List employee profiles, filtered by batch/status/name.
+    """List masked employee profiles, optionally filtered by batch or status.
 
-    P0.5: q searches by name ONLY. Do not use for CURP/RFC lookups.
+    The legacy ``q`` parameter is retained for API compatibility but every
+    supplied value is rejected before storage access.
     """
     bind_context(tenant=auth.tenant)
     return svc.list_profiles(
-        tenant=auth.tenant,
+        auth=auth,
         batch_id=batchId,
         status_filter=status,
         q=q,
@@ -179,24 +212,21 @@ def export_json(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_EXECUTE_EXPORT_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P0.8: Export a single profile as downloadable JSON.
 
-    Full PII by default for authenticated users. Use ?masked=true for masked.
+    Full PII requires the reviewed read+admin policy and fresh step-up
+    evidence. Use ?masked=true to reduce the exported data set.
     """
     bind_context(tenant=auth.tenant)
     profile = svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )
-    if masked:
-        # Replace raw identifiers with masked versions
-        profile = {**profile, "identifiers": profile.get("maskedIdentifiers", {})}
-
-    json_str = export_profile_json(profile)
+    json_str = export_profile_json(profile, mask_pii=masked)
     safe_id = profile_id[:24].replace("/", "_")
     return Response(
         content=json_str,
@@ -215,13 +245,13 @@ def export_csv_individual(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
     masked: bool = Query(default=False),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_EXECUTE_EXPORT_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> Response:
     """P1.4: Export a single profile as downloadable CSV."""
     bind_context(tenant=auth.tenant)
     profile = svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )
@@ -243,13 +273,13 @@ def export_csv_individual(
 def get_profile(
     profile_id: str = Path(..., min_length=8, max_length=128),
     batchId: Optional[str] = Query(default=None),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = Depends(_READ_FULL_PROFILE_ACCESS),
     svc: EmployeeProfileService = Depends(_svc),
 ) -> dict:
     """Get full profile detail. P0.2: No batchId required (direct S3 lookup)."""
     bind_context(tenant=auth.tenant)
     return svc.get_profile(
-        tenant=auth.tenant,
+        auth=auth,
         profile_id=profile_id,
         batch_id=batchId,
     )

@@ -19,6 +19,7 @@ readonly VERSION="1.0.0"
 
 # ── Defaults (safe) ──────────────────────────────────────────────────
 MANIFEST=""
+CUSTOMER_ID=""
 DEPLOYMENT_ID=""
 ACCOUNT_ID=""
 REGION=""
@@ -30,6 +31,14 @@ APPROVE=false
 PLAN_DIR=""
 EVIDENCE_DIR=""
 LAYER=""
+RELEASE_VERSION=""
+RELEASE_DIGEST=""
+RESOLVED_INPUT=""
+TARGET_RECORD=""
+TARGET_ANCHOR=""
+ACCOUNT_READY_CONTRACT=""
+EXECUTION_LOCK=""
+EXECUTION_ID=""
 
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -61,9 +70,9 @@ Subcommands:
   repro-check          Run reproducibility checks
   account-preflight    Read-only AWS account verification
   plan-layer           Terraform plan for a single layer
-  apply-layer          Terraform apply from a saved plan
+  apply-layer          BLOCKED locally; future GitHub orchestrator only
   plan-all             Plan all layers in dependency order
-  apply-all            Apply all layers from saved plans
+  apply-all            BLOCKED locally; future GitHub orchestrator only
   publish-images       Build and push OCI images to ECR
   deploy-services      Plan/apply services layer with image digests
   validate-live        Validate deployed resources
@@ -74,12 +83,21 @@ Subcommands:
 
 Options:
   --manifest <path>           Path to deployment manifest YAML
+  --customer-id <id>          Canonical customer ID (cust_<ULID>)
   --deployment-id <id>        Deployment ID (dep_<ULID>)
   --account-id <id>           Expected AWS account ID (12 digits)
   --region <region>           Expected AWS region
   --environment <env>         Target environment
   --ref <git_ref>             Git ref for the deployment
   --layer <name>              Terraform layer name
+  --release-version <value>   Immutable release version
+  --release-digest <sha256>   Immutable release manifest digest
+  --resolved-input <path>     Verified layer resolution outside the repository
+  --target-record <path>      Approved deployment target retrieved from the registry
+  --target-anchor <path>      Independently retrieved registry digest/version anchor
+  --account-ready <path>      ACCOUNT_READY v2 contract for the exact target
+  --execution-lock <path>     Held deployment execution lock for this run
+  --execution-id <id>         Exact exec_<ULID> bound to the held lock
   --non-interactive           Suppress interactive prompts
   --dry-run                   Dry-run mode (default)
   --no-dry-run                Disable dry-run mode
@@ -103,12 +121,21 @@ shift || true
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --manifest)       [[ -n "${2:-}" ]] || die "--manifest requires a value"; MANIFEST="$2"; shift 2 ;;
+    --customer-id)    [[ -n "${2:-}" ]] || die "--customer-id requires a value"; CUSTOMER_ID="$2"; shift 2 ;;
     --deployment-id)  [[ -n "${2:-}" ]] || die "--deployment-id requires a value"; DEPLOYMENT_ID="$2"; shift 2 ;;
     --account-id)     [[ -n "${2:-}" ]] || die "--account-id requires a value"; ACCOUNT_ID="$2"; shift 2 ;;
     --region)         [[ -n "${2:-}" ]] || die "--region requires a value"; REGION="$2"; shift 2 ;;
     --environment)    [[ -n "${2:-}" ]] || die "--environment requires a value"; ENVIRONMENT="$2"; shift 2 ;;
     --ref)            [[ -n "${2:-}" ]] || die "--ref requires a value"; GIT_REF="$2"; shift 2 ;;
     --layer)          [[ -n "${2:-}" ]] || die "--layer requires a value"; LAYER="$2"; shift 2 ;;
+    --release-version) [[ -n "${2:-}" ]] || die "--release-version requires a value"; RELEASE_VERSION="$2"; shift 2 ;;
+    --release-digest) [[ -n "${2:-}" ]] || die "--release-digest requires a value"; RELEASE_DIGEST="$2"; shift 2 ;;
+    --resolved-input) [[ -n "${2:-}" ]] || die "--resolved-input requires a value"; RESOLVED_INPUT="$2"; shift 2 ;;
+    --target-record)  [[ -n "${2:-}" ]] || die "--target-record requires a value"; TARGET_RECORD="$2"; shift 2 ;;
+    --target-anchor)  [[ -n "${2:-}" ]] || die "--target-anchor requires a value"; TARGET_ANCHOR="$2"; shift 2 ;;
+    --account-ready)  [[ -n "${2:-}" ]] || die "--account-ready requires a value"; ACCOUNT_READY_CONTRACT="$2"; shift 2 ;;
+    --execution-lock) [[ -n "${2:-}" ]] || die "--execution-lock requires a value"; EXECUTION_LOCK="$2"; shift 2 ;;
+    --execution-id)   [[ -n "${2:-}" ]] || die "--execution-id requires a value"; EXECUTION_ID="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     --dry-run)        DRY_RUN=true; shift ;;
     --no-dry-run)     DRY_RUN=false; shift ;;
@@ -182,15 +209,35 @@ guard_account_binding() {
     || die "Unable to verify AWS caller identity"
 
   if [[ "$caller_account" != "$ACCOUNT_ID" ]]; then
-    die "AWS caller account ($caller_account) does not match expected account ($ACCOUNT_ID)"
+    die "AWS caller account does not match the authorized deployment target"
   fi
 
   local caller_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
   if [[ -n "$caller_region" && "$caller_region" != "$REGION" ]]; then
-    warn "AWS_REGION ($caller_region) differs from --region ($REGION)"
+    warn "AWS region environment differs from the authorized deployment target"
   fi
 
-  pass "Account binding verified: $ACCOUNT_ID in $REGION"
+  pass "Account and region binding verified"
+}
+
+manifest_field() {
+  local field="$1"
+  python3 - "$MANIFEST" "$field" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+manifest_path = Path(sys.argv[1])
+field = sys.argv[2]
+document = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+if not isinstance(document, dict):
+    raise SystemExit("manifest must be a mapping")
+value = document.get(field)
+if not isinstance(value, str) or not value:
+    raise SystemExit(f"manifest field {field!r} must be a non-empty string")
+print(value)
+PY
 }
 
 load_manifest() {
@@ -202,25 +249,40 @@ load_manifest() {
   fi
 
   # Validate manifest
-  if ! python3 "$SCRIPT_DIR/validate-manifest.py" "$MANIFEST"; then
+  if ! python3 "$SCRIPT_DIR/validate-manifest.py" "$MANIFEST" >/dev/null; then
     die "Manifest validation failed"
   fi
 
-  # Extract key fields if not overridden by CLI
-  if command -v python3 &>/dev/null; then
-    if [[ -z "$DEPLOYMENT_ID" ]]; then
-      DEPLOYMENT_ID="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['deployment_id'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$ACCOUNT_ID" ]]; then
-      ACCOUNT_ID="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['aws_account_id'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$REGION" ]]; then
-      REGION="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['aws_region'])" 2>/dev/null)" || true
-    fi
-    if [[ -z "$ENVIRONMENT" ]]; then
-      ENVIRONMENT="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['environment'])" 2>/dev/null)" || true
-    fi
-  fi
+  # The validated manifest is authoritative. CLI values may assert, never override.
+  local manifest_customer_id manifest_deployment_id manifest_account_id
+  local manifest_region manifest_environment
+  manifest_customer_id="$(manifest_field customer_id)" \
+    || die "Unable to read customer_id from manifest"
+  manifest_deployment_id="$(manifest_field deployment_id)" \
+    || die "Unable to read deployment_id from manifest"
+  manifest_account_id="$(manifest_field aws_account_id)" \
+    || die "Unable to read aws_account_id from manifest"
+  manifest_region="$(manifest_field aws_region)" \
+    || die "Unable to read aws_region from manifest"
+  manifest_environment="$(manifest_field environment)" \
+    || die "Unable to read environment from manifest"
+
+  [[ -z "$CUSTOMER_ID" || "$CUSTOMER_ID" == "$manifest_customer_id" ]] \
+    || die "--customer-id conflicts with the validated manifest"
+  [[ -z "$DEPLOYMENT_ID" || "$DEPLOYMENT_ID" == "$manifest_deployment_id" ]] \
+    || die "--deployment-id conflicts with the validated manifest"
+  [[ -z "$ACCOUNT_ID" || "$ACCOUNT_ID" == "$manifest_account_id" ]] \
+    || die "--account-id conflicts with the validated manifest"
+  [[ -z "$REGION" || "$REGION" == "$manifest_region" ]] \
+    || die "--region conflicts with the validated manifest"
+  [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$manifest_environment" ]] \
+    || die "--environment conflicts with the validated manifest"
+
+  CUSTOMER_ID="$manifest_customer_id"
+  DEPLOYMENT_ID="$manifest_deployment_id"
+  ACCOUNT_ID="$manifest_account_id"
+  REGION="$manifest_region"
+  ENVIRONMENT="$manifest_environment"
 }
 
 # ── Subcommands ───────────────────────────────────────────────────────
@@ -323,51 +385,46 @@ cmd_plan_layer() {
   fi
 
   guard_live
-  guard_account_binding
 
   bash "$SCRIPT_DIR/terraform-layer.sh" plan \
     --layer "$LAYER" \
     --plan-dir "$PLAN_DIR" \
+    --customer-id "$CUSTOMER_ID" \
     --account-id "$ACCOUNT_ID" \
     --region "$REGION" \
-    --deployment-id "$DEPLOYMENT_ID"
+    --deployment-id "$DEPLOYMENT_ID" \
+    --release-version "$RELEASE_VERSION" \
+    --release-digest "$RELEASE_DIGEST" \
+    --resolved-input "$RESOLVED_INPUT" \
+    --manifest "$MANIFEST" \
+    --target-record "$TARGET_RECORD" \
+    --target-anchor "$TARGET_ANCHOR" \
+    --account-ready "$ACCOUNT_READY_CONTRACT" \
+    --execution-lock "$EXECUTION_LOCK" \
+    --execution-id "$EXECUTION_ID"
 }
 
 cmd_apply_layer() {
-  load_manifest
-  guard_plan_dir
+  die "Local apply-layer is disabled by ADR-017. The future live path is the protected GitHub Actions orchestrator; this PR is dry-run only."
+}
 
-  if [[ -z "$LAYER" ]]; then
-    die "--layer is required for apply-layer"
-  fi
+canonical_plan_layers() {
+  local dag_file="${REPO_ROOT}/deployment/layers.yaml"
+  python3 "$SCRIPT_DIR/validate-layer-dag.py" "$dag_file" >/dev/null \
+    || die "Canonical deployment DAG validation failed"
 
-  local plan_file="${PLAN_DIR}/${LAYER}.tfplan"
-  if [[ ! -f "$plan_file" ]]; then
-    die "Saved plan not found: ${plan_file}. Run plan-layer first."
-  fi
+  python3 - "$dag_file" <<'PY'
+import sys
 
-  info "Applying layer: ${LAYER}"
+import yaml
 
-  if [[ "$DRY_RUN" == true ]]; then
-    info "[DRY-RUN] Would run: terraform -chdir=roots/${LAYER} apply ${plan_file}"
-    pass "Apply layer dry-run complete"
-    return
-  fi
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = yaml.safe_load(handle)
 
-  guard_live
-  guard_prod
-  guard_account_binding
-
-  if [[ "$APPROVE" != true ]]; then
-    die "Apply requires --approve"
-  fi
-
-  bash "$SCRIPT_DIR/terraform-layer.sh" apply \
-    --layer "$LAYER" \
-    --plan-dir "$PLAN_DIR" \
-    --account-id "$ACCOUNT_ID" \
-    --region "$REGION" \
-    --deployment-id "$DEPLOYMENT_ID"
+for stage in document["layers"]:
+    if stage["kind"] in {"gate", "terraform"}:
+        print(stage["layer"])
+PY
 }
 
 cmd_plan_all() {
@@ -375,7 +432,15 @@ cmd_plan_all() {
   guard_plan_dir
 
   info "Planning all layers in dependency order..."
-  local layers=(account-ready-gate global network platform data-foundation edge-identity edge cicd services addons)
+  local layer_output
+  layer_output="$(canonical_plan_layers)" \
+    || die "Unable to resolve the canonical deployment DAG"
+  local layers=()
+  local layer
+  while IFS= read -r layer; do
+    [[ -n "$layer" ]] && layers+=("$layer")
+  done <<< "$layer_output"
+  [[ "${#layers[@]}" -gt 0 ]] || die "Canonical deployment DAG contains no plan stages"
 
   for layer in "${layers[@]}"; do
     if [[ ! -d "${REPO_ROOT}/roots/${layer}" ]]; then
@@ -389,26 +454,7 @@ cmd_plan_all() {
 }
 
 cmd_apply_all() {
-  load_manifest
-  guard_plan_dir
-
-  if [[ "$APPROVE" != true ]]; then
-    die "apply-all requires --approve"
-  fi
-
-  info "Applying all layers from saved plans..."
-  local layers=(account-ready-gate global network platform data-foundation edge-identity edge cicd services addons)
-
-  for layer in "${layers[@]}"; do
-    local plan_file="${PLAN_DIR}/${layer}.tfplan"
-    if [[ ! -f "$plan_file" ]]; then
-      warn "No saved plan for ${layer}, skipping"
-      continue
-    fi
-    LAYER="$layer" cmd_apply_layer
-  done
-
-  pass "All layers applied"
+  die "Local apply-all is disabled by ADR-017. Mock-backed plans are never authorized for apply."
 }
 
 cmd_publish_images() {
@@ -434,9 +480,20 @@ cmd_publish_images() {
 
   # Extract ECR config from manifest
   local ecr_prefix base_image
-  ecr_prefix="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['ecr']['prefix'])" 2>/dev/null)" \
-    || die "Unable to read ecr.prefix from manifest"
-  base_image="$(python3 -c "import yaml; print(yaml.safe_load(open('$MANIFEST'))['base_image_uri'])" 2>/dev/null)" \
+  ecr_prefix="$(python3 - "$MANIFEST" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+document = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = document.get("ecr", {}).get("prefix") if isinstance(document, dict) else None
+if not isinstance(value, str) or not value:
+    raise SystemExit("ecr.prefix must be a non-empty string")
+print(value)
+PY
+)" || die "Unable to read ecr.prefix from manifest"
+  base_image="$(manifest_field base_image_uri)" \
     || die "Unable to read base_image_uri from manifest"
 
   bash "${REPO_ROOT}/scripts/microservices/build-push.sh" \
@@ -466,7 +523,6 @@ cmd_deploy_services() {
   fi
 
   guard_live
-  guard_account_binding
 
   LAYER="services" cmd_plan_layer
   if [[ "$APPROVE" == true ]]; then

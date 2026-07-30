@@ -1,5 +1,5 @@
 # Contract consumer validation for edge root.
-# Consumes: edge-identity/v1
+# Consumes: edge-identity/v2
 # Scope: global
 # State key: {dep_id}/edge/terraform.tfstate
 #
@@ -41,6 +41,14 @@ resource "terraform_data" "contract_gate" {
     }
 
     # ── Schema version ──
+    precondition {
+      condition     = var.upstream_contract_id == "edge-identity/v2"
+      error_message = "edge requires the exact edge-identity/v2 contract"
+    }
+    precondition {
+      condition     = var.upstream_schema_version == "2"
+      error_message = "edge requires edge-identity schema version 2"
+    }
     precondition {
       condition     = contains(var.accepted_schema_versions, var.upstream_schema_version)
       error_message = "upstream contract schema version is not accepted by this consumer"

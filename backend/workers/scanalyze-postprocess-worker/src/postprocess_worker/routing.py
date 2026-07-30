@@ -8,6 +8,13 @@ def route_is_allowed(config_tenant: str, message_route: str) -> bool:
     return config_tenant == "platform" or config_tenant == message_route
 
 
-def structured_key_for(message_route: str, document_id: str) -> str:
-    return f"{message_route}/{document_id}/result.json"
-
+def structured_key_for(
+    customer_id: str,
+    deployment_id: str,
+    message_route: str,
+    document_id: str,
+) -> str:
+    return (
+        f"customers/{customer_id}/deployments/{deployment_id}/"
+        f"documents/{document_id}/structured/{message_route}/result.json"
+    )

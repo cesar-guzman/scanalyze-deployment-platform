@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/github-environment-anchor.v1.schema.json",
+  "title": "Independent GitHub Environment Evidence Anchor v1",
+  "description": "Short-lived digest evidence retrieved independently from the GitHub API for one deployment-bound Environment and repository OIDC subject customization.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "source",
+    "repository_owner_id",
+    "repository_id",
+    "environment_name",
+    "configuration_digest",
+    "captured_at",
+    "expires_at",
+    "evidence_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "github_environment_anchor" },
+    "source": { "const": "github-api" },
+    "repository_owner_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "repository_id": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "environment_name": {
+      "type": "string",
+      "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(sandbox|dev|staging|production)$"
+    },
+    "configuration_digest": { "$ref": "#/$defs/digest" },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "evidence_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

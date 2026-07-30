@@ -9,7 +9,7 @@ Tests cover:
   - SCANALYZE_DEPLOYMENT_CUSTOMER_ID optional in local/test/ci
   - Verified JWT customer mismatch → 403
   - Verified JWT customer match → success
-  - X-Tenant-Id does not affect customer identity
+  - X-Tenant-Id is rejected and cannot affect customer identity
   - ENFORCE_AUTH_HEADER=false fails startup in non-local
   - ENFORCE_AUTH_HEADER warns in local
   - ENFORCE_AUTH_HEADER=false does not disable auth
@@ -25,6 +25,20 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from app.enterprise_authorization import (
+    AUTHZ_SCHEMA_VERSION,
+    MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS,
+    POLICY_DIGEST,
+    POLICY_VERSION,
+    ROLE_CATALOG_VERSION,
+    SCOPE_CATALOG_VERSION,
+)
+
+
+CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+ASSURANCE_CLAIM = "custom:authentication_assurance"
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -47,7 +61,17 @@ def clean_env_vars(monkeypatch):
         "COGNITO_USER_POOL_ID", "COGNITO_REGION",
         "COGNITO_ALLOWED_CLIENT_IDS", "TENANT_CLAIM_NAME",
         "LOCAL_MOCK_TENANT_ID", "LOCAL_MOCK_SUBJECT",
-        "M2M_TENANT_RESOLUTION",
+        "M2M_TENANT_RESOLUTION", "M2M_CLIENT_TENANT_MAP",
+        "M2M_CLIENT_IDENTITY_BINDINGS_V1", "M2M_ACTION_SCOPE_SETS_V1",
+        "SCANALYZE_DEPLOYMENT_ID", "DEPLOYMENT_CLAIM_NAME",
+        "HUMAN_ENTERPRISE_AUTHORIZATION_ENABLED",
+        "ENTERPRISE_AUTHORIZATION_SCHEMA_VERSION",
+        "ENTERPRISE_SCOPE_CATALOG_VERSION",
+        "ENTERPRISE_ROLE_CATALOG_VERSION",
+        "ENTERPRISE_POLICY_VERSION",
+        "ENTERPRISE_POLICY_DIGEST",
+        "ENTERPRISE_MEMBERSHIP_SNAPSHOT_MAX_AGE_SECONDS",
+        "ENTERPRISE_ASSURANCE_CLAIM_NAME",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -64,11 +88,25 @@ def _make_settings(**overrides: Any) -> MagicMock:
         "tenant_claim_name": "custom:customerId",
         "m2m_tenant_resolution": "disabled",
         "m2m_client_tenant_map": None,
+        "m2m_client_identity_bindings_v1": None,
+        "m2m_action_scope_sets_v1": None,
+        "deployment_claim_name": "custom:deployment_id",
         "local_mock_tenant_id": None,
         "local_mock_subject": "local-dev-user",
         "scanalyze_deployment_customer_id": None,
+        "scanalyze_deployment_id": DEPLOYMENT_ID,
         "enforce_auth_header": None,
         "tenant_header_name": None,
+        "human_enterprise_authorization_enabled": False,
+        "enterprise_authorization_schema_version": AUTHZ_SCHEMA_VERSION,
+        "enterprise_scope_catalog_version": SCOPE_CATALOG_VERSION,
+        "enterprise_role_catalog_version": ROLE_CATALOG_VERSION,
+        "enterprise_policy_version": POLICY_VERSION,
+        "enterprise_policy_digest": POLICY_DIGEST,
+        "enterprise_membership_snapshot_max_age_seconds": (
+            MAX_MEMBERSHIP_SNAPSHOT_AGE_SECONDS
+        ),
+        "enterprise_assurance_claim_name": ASSURANCE_CLAIM,
     }
     defaults.update(overrides)
     mock = MagicMock()
@@ -88,7 +126,19 @@ def _fake_jwt_claims(**overrides: Any) -> Dict[str, Any]:
         "scope": "scanalyze-ingest/ingest.read scanalyze-ingest/ingest.write",
         "exp": now + 3600,
         "iat": now,
-        "custom:customerId": "customer-example",
+        "custom:customerId": CUSTOMER_ID,
+        "custom:deployment_id": DEPLOYMENT_ID,
+        "principal_type": "user",
+        "membership_state": "active",
+        "role_id": "document_operator",
+        "membership_version": "synthetic-membership-v1",
+        "authz_schema_version": AUTHZ_SCHEMA_VERSION,
+        "scope_catalog_version": SCOPE_CATALOG_VERSION,
+        "role_catalog_version": ROLE_CATALOG_VERSION,
+        "policy_version": POLICY_VERSION,
+        "policy_digest": POLICY_DIGEST,
+        "auth_time": now - 30,
+        "cognito:username": "user-abc-123",
         "email": "user@example.com",
         "name": "Test User",
     }
@@ -272,8 +322,9 @@ class TestDeploymentCustomerBinding:
 
         settings = _make_settings(
             env="test",
-            scanalyze_deployment_customer_id="customer-example",
+            scanalyze_deployment_customer_id=CUSTOMER_ID,
             cognito_allowed_client_ids="",
+            human_enterprise_authorization_enabled=True,
         )
         claims = _fake_jwt_claims(**{"custom:customerId": "evil-corp"})
 
@@ -293,10 +344,11 @@ class TestDeploymentCustomerBinding:
 
         settings = _make_settings(
             env="test",
-            scanalyze_deployment_customer_id="customer-example",
+            scanalyze_deployment_customer_id=CUSTOMER_ID,
             cognito_allowed_client_ids="",
+            human_enterprise_authorization_enabled=True,
         )
-        claims = _fake_jwt_claims(**{"custom:customerId": "customer-example"})
+        claims = _fake_jwt_claims()
 
         with patch("app.auth._verify_cognito_jwt", return_value=claims):
             ctx = _resolve_cognito_auth(
@@ -305,30 +357,36 @@ class TestDeploymentCustomerBinding:
                 legacy_tenant_header=None,
                 request_path="/api/v1/test",
             )
-            assert ctx.customer_id == "customer-example"
+            assert ctx.customer_id == CUSTOMER_ID
+            assert ctx.deployment_id == DEPLOYMENT_ID
             assert ctx.auth_source == "cognito_jwt"
+            assert ctx.human_authorization is not None
+            assert ctx.human_authorization.membership_version == "synthetic-membership-v1"
 
 
-class TestXTenantIdIgnored:
-    def test_x_tenant_id_does_not_affect_customer_identity(self):
-        """X-Tenant-Id: evil-corp + JWT custom:customerId=customer-example → uses customer-example."""
+class TestXTenantIdRejected:
+    def test_x_tenant_id_is_rejected(self):
+        """X-Tenant-Id is forbidden even when the verified JWT is otherwise valid."""
         from app.auth import _resolve_cognito_auth
+        from app.errors import AppError
 
         settings = _make_settings(
             env="test",
-            scanalyze_deployment_customer_id="customer-example",
+            scanalyze_deployment_customer_id=CUSTOMER_ID,
             cognito_allowed_client_ids="",
+            human_enterprise_authorization_enabled=True,
         )
-        claims = _fake_jwt_claims(**{"custom:customerId": "customer-example"})
+        claims = _fake_jwt_claims()
 
         with patch("app.auth._verify_cognito_jwt", return_value=claims):
-            ctx = _resolve_cognito_auth(
-                token="fake-token",
-                settings=settings,
-                legacy_tenant_header="evil-corp",  # X-Tenant-Id spoof
-                request_path="/api/v1/test",
-            )
-            assert ctx.customer_id == "customer-example"  # JWT wins, not header
+            with pytest.raises(AppError) as captured:
+                _resolve_cognito_auth(
+                    token="fake-token",
+                    settings=settings,
+                    legacy_tenant_header="evil-corp",
+                    request_path="/api/v1/test",
+                )
+        assert captured.value.status_code == 403
 
 
 # ══════════════════════════════════════════════════════════

@@ -259,6 +259,9 @@ All status transitions use **conditional writes** (DynamoDB `ConditionExpression
 
 ## Schema 3: Release Manifest (`scanalyze.release.v1`)
 
+> Historical schema only. ADR-032 requires `release.v2` plus a signed VSA for
+> all promotion and rollback decisions; v1 records are migration-required.
+
 ```json
 {
   "schema_version": "scanalyze.release.v1",

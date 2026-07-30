@@ -1,0 +1,33 @@
+{
+  "promotion_mode": "copy-by-digest",
+  "rebuild": false,
+  "release_attestation_digest": "sha256:43fe58d056d66b4a2818e1a1a0aaa397c0d334b6f215a23e78cd934070ca3f54",
+  "release_id": "rel_01J2ABCDEF0123456789ABCDEF",
+  "release_manifest_digest": "sha256:10fcefdd28c76e9561a806b5d4e3c1c8323e8c41f801b41e43c2b0eed4637241",
+  "release_version": "2.4.0",
+  "runtime_artifacts": {
+    "identity-control-processor-lambda": {
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000009",
+      "uri": "https://artifacts.invalid/releases/sha256/0000000000000000000000000000000000000000000000000000000000000009/identity-control-processor-lambda.zip"
+    },
+    "identity-pre-token-lambda": {
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+      "uri": "https://artifacts.invalid/releases/sha256/0000000000000000000000000000000000000000000000000000000000000008/identity-pre-token-lambda.zip"
+    },
+    "scanalyze-frontend-ui": {
+      "digest": "sha256:000000000000000000000000000000000000000000000000000000000000000a",
+      "uri": "https://artifacts.invalid/releases/sha256/000000000000000000000000000000000000000000000000000000000000000a/scanalyze-frontend-ui.tar.gz"
+    }
+  },
+  "schema_version": "release-deployment-projection.v1",
+  "service_images": {
+    "bank-worker": "registry.invalid/scanalyze/bank-worker@sha256:0000000000000000000000000000000000000000000000000000000000000005",
+    "classifier-worker": "registry.invalid/scanalyze/classifier-worker@sha256:0000000000000000000000000000000000000000000000000000000000000004",
+    "gov-worker": "registry.invalid/scanalyze/gov-worker@sha256:0000000000000000000000000000000000000000000000000000000000000007",
+    "ingest-api": "registry.invalid/scanalyze/ingest-api@sha256:0000000000000000000000000000000000000000000000000000000000000001",
+    "ocr-worker": "registry.invalid/scanalyze/ocr-worker@sha256:0000000000000000000000000000000000000000000000000000000000000002",
+    "personal-worker": "registry.invalid/scanalyze/personal-worker@sha256:0000000000000000000000000000000000000000000000000000000000000006",
+    "postprocess-worker": "registry.invalid/scanalyze/postprocess-worker@sha256:0000000000000000000000000000000000000000000000000000000000000003"
+  },
+  "target": "staging"
+}

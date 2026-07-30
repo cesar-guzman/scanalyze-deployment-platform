@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/layer-contract.v2.schema.json",
+  "title": "Scanalyze Terraform Layer Contract Envelope v2",
+  "description": "Customer-, deployment-, account-, region-, release-, producer-, and state-bound Terraform layer handoff.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "aws_account_id",
+    "region",
+    "scope",
+    "layer",
+    "producer",
+    "release_version",
+    "release_digest",
+    "output_schema_version",
+    "outputs",
+    "contract_digest",
+    "produced_at",
+    "terraform_workspace",
+    "state_key",
+    "module_source_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "2" },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "aws_account_id": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": {
+      "oneOf": [
+        { "type": "string", "const": "global" },
+        { "type": "string", "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$" }
+      ]
+    },
+    "scope": { "type": "string", "enum": ["global", "regional"] },
+    "layer": {
+      "type": "string",
+      "enum": [
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "identity-control-plane",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons"
+      ]
+    },
+    "producer": {
+      "type": "string",
+      "pattern": "^roots/(global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons)$"
+    },
+    "release_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+    },
+    "release_digest": { "$ref": "#/$defs/sha256" },
+    "output_schema_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*/v[1-9][0-9]*$"
+    },
+    "outputs": { "type": "object", "minProperties": 1 },
+    "contract_digest": { "$ref": "#/$defs/sha256" },
+    "produced_at": { "type": "string", "format": "date-time" },
+    "terraform_workspace": { "type": "string", "const": "default" },
+    "state_key": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "module_source_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "scope": { "const": "global" } },
+        "required": ["scope"]
+      },
+      "then": {
+        "properties": {
+          "region": { "const": "global" },
+          "layer": { "enum": ["global", "edge"] },
+          "state_key": {
+            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/(global|edge)/terraform\\.tfstate$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "scope": { "const": "regional" } },
+        "required": ["scope"]
+      },
+      "then": {
+        "properties": {
+          "region": { "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$" },
+          "layer": {
+            "enum": [
+              "network",
+              "platform",
+              "data-foundation",
+              "cicd",
+              "identity-control-plane",
+              "services",
+              "edge-identity",
+              "addons"
+            ]
+          },
+          "state_key": {
+            "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}/[a-z]{2}(-gov)?-[a-z]+-[0-9]+/(network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|addons)/terraform\\.tfstate$"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

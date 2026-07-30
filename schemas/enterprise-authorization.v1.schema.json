@@ -1,0 +1,1363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/enterprise-authorization.v1.schema.json",
+  "title": "Scanalyze Enterprise Authorization Policy v1",
+  "description": "Portable, fail-closed RBAC and ABAC policy contract for human and M2M principals.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "policy_version",
+    "effect",
+    "policy_integrity",
+    "portability",
+    "identity",
+    "catalog_versions",
+    "authentication_lifecycle",
+    "actions",
+    "resources",
+    "temporary_grant_operation_catalog",
+    "human_roles",
+    "role_assignments",
+    "service_principals",
+    "abac",
+    "sensitive_operations",
+    "human_lifecycle",
+    "invitation_activation",
+    "bootstrap",
+    "temporary_grants",
+    "support_access",
+    "break_glass",
+    "audit",
+    "migration"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "enterprise-authorization.v1"
+    },
+    "policy_id": {
+      "const": "scanalyze-enterprise-authorization"
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$"
+    },
+    "effect": {
+      "const": "deny_unless_explicitly_allowed"
+    },
+    "policy_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest_algorithm",
+        "canonicalization",
+        "digest_format",
+        "digest_value_pattern",
+        "digest_source",
+        "constant_time_comparison_required",
+        "request_digest_is_non_authoritative"
+      ],
+      "properties": {
+        "digest_algorithm": {
+          "const": "sha256"
+        },
+        "canonicalization": {
+          "const": "rfc8785_json_canonicalization"
+        },
+        "digest_format": {
+          "const": "sha256_lowercase_hex"
+        },
+        "digest_value_pattern": {
+          "const": "^sha256:[0-9a-f]{64}$"
+        },
+        "digest_source": {
+          "const": "reviewed_published_policy_artifact"
+        },
+        "constant_time_comparison_required": {
+          "const": true
+        },
+        "request_digest_is_non_authoritative": {
+          "const": true
+        }
+      }
+    },
+    "portability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_adapter_required",
+        "embedded_authority",
+        "environment_neutral",
+        "account_region_neutral",
+        "trusted_authority_sources",
+        "forbidden_authority_sources"
+      ],
+      "properties": {
+        "provider_adapter_required": {
+          "const": true
+        },
+        "embedded_authority": {
+          "const": "forbidden"
+        },
+        "environment_neutral": {
+          "const": true
+        },
+        "account_region_neutral": {
+          "const": true
+        },
+        "trusted_authority_sources": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "forbidden_authority_sources": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "access_token_only",
+        "id_tokens_forbidden",
+        "principal_types",
+        "required_context_fields",
+        "user_authorization_paths",
+        "exactly_one_user_authorization_path",
+        "membership_user_required_context_fields",
+        "required_authorizing_membership_state",
+        "temporary_grant_user_required_context_fields",
+        "required_authorizing_temporary_grant_state",
+        "m2m_required_context_fields",
+        "required_version_fields",
+        "membership_user_required_version_fields",
+        "temporary_grant_user_required_version_fields",
+        "m2m_required_version_fields",
+        "unknown_version_behavior",
+        "stale_grant_behavior",
+        "conflicting_claims_behavior",
+        "membership_binding_attributes"
+      ],
+      "properties": {
+        "access_token_only": {
+          "const": true
+        },
+        "id_tokens_forbidden": {
+          "const": true
+        },
+        "principal_types": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "user"
+            },
+            {
+              "const": "m2m"
+            }
+          ],
+          "items": false
+        },
+        "required_context_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "user_authorization_paths": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "membership" },
+            { "const": "temporary_grant" }
+          ],
+          "items": false
+        },
+        "exactly_one_user_authorization_path": {
+          "const": true
+        },
+        "membership_user_required_context_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "required_authorizing_membership_state": {
+          "const": "active"
+        },
+        "temporary_grant_user_required_context_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "required_authorizing_temporary_grant_state": {
+          "const": "active"
+        },
+        "m2m_required_context_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "required_version_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "membership_user_required_version_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "temporary_grant_user_required_version_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "m2m_required_version_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "unknown_version_behavior": {
+          "const": "deny"
+        },
+        "stale_grant_behavior": {
+          "const": "deny"
+        },
+        "conflicting_claims_behavior": {
+          "const": "deny"
+        },
+        "membership_binding_attributes": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        }
+      }
+    },
+    "catalog_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authz_schema_version",
+        "scope_catalog_version",
+        "role_catalog_version"
+      ],
+      "properties": {
+        "authz_schema_version": {
+          "const": "enterprise-authorization.v1"
+        },
+        "scope_catalog_version": {
+          "const": "scanalyze.api.v1"
+        },
+        "role_catalog_version": {
+          "const": "enterprise-roles.v1"
+        }
+      }
+    },
+    "authentication_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_managed_credentials",
+        "application_password_storage",
+        "static_default_passwords_forbidden",
+        "minimum_password_length_if_enabled",
+        "compromised_password_detection_required",
+        "privileged_phishing_resistant_mfa_required",
+        "password_reset_generic_response_required",
+        "password_reset_changes_authorization",
+        "password_reset_revokes_sessions",
+        "password_reset_fresh_membership_reconciliation",
+        "password_reset_audit_required",
+        "recovery_secrets_logging_forbidden",
+        "federation_mode",
+        "scim_mode"
+      ],
+      "properties": {
+        "provider_managed_credentials": { "const": true },
+        "application_password_storage": { "const": false },
+        "static_default_passwords_forbidden": { "const": true },
+        "minimum_password_length_if_enabled": { "const": 14 },
+        "compromised_password_detection_required": { "const": true },
+        "privileged_phishing_resistant_mfa_required": { "const": true },
+        "password_reset_generic_response_required": { "const": true },
+        "password_reset_changes_authorization": { "const": false },
+        "password_reset_revokes_sessions": { "const": true },
+        "password_reset_fresh_membership_reconciliation": { "const": true },
+        "password_reset_audit_required": { "const": true },
+        "recovery_secrets_logging_forbidden": { "const": true },
+        "federation_mode": { "const": "future_reviewed_adapter_only" },
+        "scim_mode": { "const": "future_reviewed_adapter_only" }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "scope",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "read",
+              "write",
+              "admin"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "pattern": "^scanalyze\\.api\\.v1/(?:read|write|admin)$"
+          },
+          "description": {
+            "$ref": "#/$defs/nonempty_string"
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "allowed_actions",
+          "ownership_required",
+          "ownership_attributes"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "documents",
+              "batches",
+              "employee_profiles",
+              "results",
+              "reviews",
+              "exports",
+              "deployment_configuration",
+              "metrics",
+              "authorization_administration",
+              "audit_log"
+            ]
+          },
+          "allowed_actions": {
+            "$ref": "#/$defs/action_set"
+          },
+          "ownership_required": {
+            "const": true
+          },
+          "ownership_attributes": {
+            "$ref": "#/$defs/ownership_attributes"
+          }
+        }
+      }
+    },
+    "temporary_grant_operation_catalog": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "resource", "required_actions", "data_classes"],
+        "properties": {
+          "id": {
+            "enum": [
+              "documents.read_metadata",
+              "batches.read_metadata",
+              "results.read_masked",
+              "reviews.read_metadata",
+              "deployment_configuration.read",
+              "metrics.read",
+              "audit_log.read"
+            ]
+          },
+          "resource": {
+            "enum": [
+              "documents",
+              "batches",
+              "results",
+              "reviews",
+              "deployment_configuration",
+              "metrics",
+              "audit_log"
+            ]
+          },
+          "required_actions": {
+            "type": "array",
+            "prefixItems": [{ "const": "read" }],
+            "items": false
+          },
+          "data_classes": {
+            "type": "array",
+            "items": {
+              "enum": ["metadata", "masked", "aggregated"]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "human_roles": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "principal_type",
+          "description",
+          "permissions"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "customer_admin",
+              "document_operator",
+              "document_reviewer",
+              "auditor"
+            ]
+          },
+          "principal_type": {
+            "const": "user"
+          },
+          "description": {
+            "$ref": "#/$defs/nonempty_string"
+          },
+          "permissions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/permission"
+            }
+          }
+        }
+      }
+    },
+    "role_assignments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_roles_per_membership",
+        "role_aggregation",
+        "unknown_role_behavior",
+        "conflicting_role_behavior",
+        "role_source",
+        "self_assignment"
+      ],
+      "properties": {
+        "max_roles_per_membership": {
+          "const": 1
+        },
+        "role_aggregation": {
+          "const": "forbidden"
+        },
+        "unknown_role_behavior": {
+          "const": "deny"
+        },
+        "conflicting_role_behavior": {
+          "const": "deny"
+        },
+        "role_source": {
+          "const": "authoritative_membership_store"
+        },
+        "self_assignment": {
+          "const": false
+        }
+      }
+    },
+    "service_principals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credential_flow",
+        "one_binding_per_workload_boundary",
+        "binding_attributes",
+        "human_roles_forbidden",
+        "human_impersonation_forbidden",
+        "lifecycle_administration_forbidden",
+        "break_glass_forbidden",
+        "default_actions",
+        "explicit_action_grant_required"
+      ],
+      "properties": {
+        "credential_flow": {
+          "const": "oauth2_client_credentials"
+        },
+        "one_binding_per_workload_boundary": {
+          "const": true
+        },
+        "binding_attributes": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "workload_id"
+            },
+            {
+              "const": "customer_id"
+            },
+            {
+              "const": "deployment_id"
+            },
+            {
+              "const": "environment"
+            }
+          ],
+          "items": false
+        },
+        "human_roles_forbidden": {
+          "const": true
+        },
+        "human_impersonation_forbidden": {
+          "const": true
+        },
+        "lifecycle_administration_forbidden": {
+          "const": true
+        },
+        "break_glass_forbidden": {
+          "const": true
+        },
+        "default_actions": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "explicit_action_grant_required": {
+          "const": true
+        }
+      }
+    },
+    "abac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_match_attributes",
+        "object_authorization_required",
+        "role_never_overrides_ownership",
+        "request_identity_is_non_authoritative",
+        "deny_reasons"
+      ],
+      "properties": {
+        "exact_match_attributes": {
+          "$ref": "#/$defs/ownership_attributes"
+        },
+        "object_authorization_required": {
+          "const": true
+        },
+        "role_never_overrides_ownership": {
+          "const": true
+        },
+        "request_identity_is_non_authoritative": {
+          "const": true
+        },
+        "deny_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "missing",
+              "malformed",
+              "unknown",
+              "stale",
+              "conflicting",
+              "foreign",
+              "legacy_only"
+            ]
+          },
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      }
+    },
+    "sensitive_operations": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "required_actions",
+          "user_step_up_required",
+          "user_required_assurance",
+          "user_max_auth_age_seconds",
+          "m2m_required_assurance",
+          "m2m_fresh_grant_check",
+          "user_fresh_membership_check",
+          "audit_required"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "results.read_full",
+              "exports.execute",
+              "artifacts.download"
+            ]
+          },
+          "required_actions": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "const": "read"
+              },
+              {
+                "const": "admin"
+              }
+            ],
+            "items": false
+          },
+          "user_step_up_required": {
+            "const": true
+          },
+          "user_required_assurance": {
+            "const": "phishing_resistant_mfa"
+          },
+          "user_max_auth_age_seconds": {
+            "const": 300
+          },
+          "m2m_required_assurance": {
+            "const": "validated_client_credentials_binding"
+          },
+          "m2m_fresh_grant_check": {
+            "const": true
+          },
+          "user_fresh_membership_check": {
+            "const": true
+          },
+          "audit_required": {
+            "const": true
+          }
+        }
+      }
+    },
+    "human_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "states",
+        "terminal_states",
+        "transitions",
+        "role_change_increments_membership_version",
+        "suspension_increments_membership_version",
+        "revocation_increments_membership_version",
+        "sensitive_change_revokes_sessions",
+        "conditional_update_required",
+        "privileged_change_step_up_required",
+        "privileged_change_assurance",
+        "privileged_change_max_auth_age_seconds",
+        "fresh_membership_check",
+        "reactivate_revoked_membership",
+        "self_promotion_allowed",
+        "last_admin_removal_requires_approved_replacement"
+      ],
+      "properties": {
+        "states": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "invited"
+            },
+            {
+              "const": "active"
+            },
+            {
+              "const": "suspended"
+            },
+            {
+              "const": "expired"
+            },
+            {
+              "const": "revoked"
+            }
+          ],
+          "items": false
+        },
+        "terminal_states": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "expired"
+            },
+            {
+              "const": "revoked"
+            }
+          ],
+          "items": false
+        },
+        "transitions": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/lifecycle_transition"
+          }
+        },
+        "role_change_increments_membership_version": {
+          "const": true
+        },
+        "suspension_increments_membership_version": {
+          "const": true
+        },
+        "revocation_increments_membership_version": {
+          "const": true
+        },
+        "sensitive_change_revokes_sessions": {
+          "const": true
+        },
+        "conditional_update_required": {
+          "const": true
+        },
+        "privileged_change_step_up_required": {
+          "const": true
+        },
+        "privileged_change_assurance": {
+          "const": "phishing_resistant_mfa"
+        },
+        "privileged_change_max_auth_age_seconds": {
+          "const": 300
+        },
+        "fresh_membership_check": {
+          "const": true
+        },
+        "reactivate_revoked_membership": {
+          "const": false
+        },
+        "self_promotion_allowed": {
+          "const": false
+        },
+        "last_admin_removal_requires_approved_replacement": {
+          "const": true
+        }
+      }
+    },
+    "invitation_activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "self_signup",
+        "binding_attributes",
+        "single_use",
+        "expiry_required",
+        "max_ttl_seconds",
+        "conditional_consume_required",
+        "replay_behavior",
+        "conflicting_subject_behavior",
+        "required_assurance",
+        "max_auth_age_seconds",
+        "provider_membership_reconciliation_required",
+        "audit_required",
+        "secret_logging_forbidden"
+      ],
+      "properties": {
+        "self_signup": {
+          "const": false
+        },
+        "binding_attributes": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "subject"
+            },
+            {
+              "const": "customer_id"
+            },
+            {
+              "const": "deployment_id"
+            }
+          ],
+          "items": false
+        },
+        "single_use": {
+          "const": true
+        },
+        "expiry_required": {
+          "const": true
+        },
+        "max_ttl_seconds": {
+          "const": 86400
+        },
+        "conditional_consume_required": {
+          "const": true
+        },
+        "replay_behavior": {
+          "const": "deny"
+        },
+        "conflicting_subject_behavior": {
+          "const": "deny"
+        },
+        "required_assurance": {
+          "const": "phishing_resistant_mfa"
+        },
+        "max_auth_age_seconds": {
+          "const": 300
+        },
+        "provider_membership_reconciliation_required": {
+          "const": true
+        },
+        "audit_required": {
+          "const": true
+        },
+        "secret_logging_forbidden": {
+          "const": true
+        }
+      }
+    },
+    "bootstrap": {
+      "$ref": "#/$defs/elevated_access_control"
+    },
+    "temporary_grants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_source",
+        "principal_type",
+        "grant_types",
+        "canonical_auth_context_required",
+        "exactly_one_authorization_path",
+        "role_assignment_or_inheritance",
+        "subject_customer_deployment_binding_required",
+        "active_state_and_version_required",
+        "operation_allowlist_required",
+        "operation_catalog_source",
+        "operation_catalog_binds_resource_actions_and_data_class",
+        "data_class_allowlist_required",
+        "unmapped_operation_behavior",
+        "unmapped_or_missing_data_class_behavior",
+        "explicit_deny_precedence",
+        "sensitive_operations_behavior",
+        "unknown_or_conflicting_grant_behavior"
+      ],
+      "properties": {
+        "authority_source": {
+          "const": "authoritative_temporary_grant_store"
+        },
+        "principal_type": {
+          "const": "user"
+        },
+        "grant_types": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "support" },
+            { "const": "break_glass" }
+          ],
+          "items": false
+        },
+        "canonical_auth_context_required": { "const": true },
+        "exactly_one_authorization_path": { "const": true },
+        "role_assignment_or_inheritance": { "const": "forbidden" },
+        "subject_customer_deployment_binding_required": { "const": true },
+        "active_state_and_version_required": { "const": true },
+        "operation_allowlist_required": { "const": true },
+        "operation_catalog_source": {
+          "const": "temporary_grant_operation_catalog"
+        },
+        "operation_catalog_binds_resource_actions_and_data_class": {
+          "const": true
+        },
+        "data_class_allowlist_required": { "const": true },
+        "unmapped_operation_behavior": { "const": "deny" },
+        "unmapped_or_missing_data_class_behavior": { "const": "deny" },
+        "explicit_deny_precedence": { "const": true },
+        "sensitive_operations_behavior": { "const": "deny" },
+        "unknown_or_conflicting_grant_behavior": { "const": "deny" }
+      }
+    },
+    "support_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standing_access",
+        "service_principal_allowed",
+        "subject_binding_required",
+        "ticket_required",
+        "customer_approval_required",
+        "time_bound",
+        "expiry_required",
+        "max_ttl_seconds",
+        "max_auth_age_seconds",
+        "required_assurance",
+        "fresh_grant_state_and_version_check",
+        "operation_allowlist_required",
+        "lifecycle_administration_forbidden",
+        "ownership_change_forbidden",
+        "privileged_grant_minting_forbidden",
+        "scope_attributes",
+        "pii_access_default",
+        "export_access_default",
+        "sensitive_operations_behavior",
+        "auto_revoke",
+        "revoke_on_expiry",
+        "revoke_on_case_closure",
+        "audited"
+      ],
+      "properties": {
+        "standing_access": {
+          "const": false
+        },
+        "service_principal_allowed": {
+          "const": false
+        },
+        "subject_binding_required": {
+          "const": true
+        },
+        "ticket_required": {
+          "const": true
+        },
+        "customer_approval_required": {
+          "const": true
+        },
+        "time_bound": {
+          "const": true
+        },
+        "expiry_required": {
+          "const": true
+        },
+        "max_ttl_seconds": {
+          "const": 3600
+        },
+        "max_auth_age_seconds": {
+          "const": 300
+        },
+        "required_assurance": {
+          "const": "phishing_resistant_mfa"
+        },
+        "fresh_grant_state_and_version_check": {
+          "const": true
+        },
+        "operation_allowlist_required": {
+          "const": true
+        },
+        "lifecycle_administration_forbidden": {
+          "const": true
+        },
+        "ownership_change_forbidden": {
+          "const": true
+        },
+        "privileged_grant_minting_forbidden": {
+          "const": true
+        },
+        "scope_attributes": {
+          "$ref": "#/$defs/ownership_attributes"
+        },
+        "pii_access_default": {
+          "const": "deny"
+        },
+        "export_access_default": {
+          "const": "deny"
+        },
+        "sensitive_operations_behavior": {
+          "const": "deny"
+        },
+        "auto_revoke": {
+          "const": true
+        },
+        "revoke_on_expiry": {
+          "const": true
+        },
+        "revoke_on_case_closure": {
+          "const": true
+        },
+        "audited": {
+          "const": true
+        }
+      }
+    },
+    "break_glass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standing_role",
+        "service_principal_allowed",
+        "subject_binding_required",
+        "incident_required",
+        "dual_approval",
+        "independent_approvers",
+        "self_approval",
+        "phishing_resistant_mfa",
+        "time_bound",
+        "expiry_required",
+        "max_ttl_seconds",
+        "max_auth_age_seconds",
+        "operation_allowlist_required",
+        "lifecycle_administration_forbidden",
+        "ownership_change_forbidden",
+        "privileged_grant_minting_forbidden",
+        "scope_attributes",
+        "default_forbidden_operations",
+        "sensitive_operations_behavior",
+        "fresh_grant_state_and_version_check",
+        "auto_revoke",
+        "activation_alert_required",
+        "use_alert_required",
+        "post_event_review",
+        "audited"
+      ],
+      "properties": {
+        "standing_role": {
+          "const": false
+        },
+        "service_principal_allowed": {
+          "const": false
+        },
+        "subject_binding_required": {
+          "const": true
+        },
+        "incident_required": {
+          "const": true
+        },
+        "dual_approval": {
+          "const": true
+        },
+        "independent_approvers": {
+          "const": true
+        },
+        "self_approval": {
+          "const": false
+        },
+        "phishing_resistant_mfa": {
+          "const": true
+        },
+        "time_bound": {
+          "const": true
+        },
+        "expiry_required": {
+          "const": true
+        },
+        "max_ttl_seconds": {
+          "const": 900
+        },
+        "max_auth_age_seconds": {
+          "const": 300
+        },
+        "operation_allowlist_required": {
+          "const": true
+        },
+        "lifecycle_administration_forbidden": {
+          "const": true
+        },
+        "ownership_change_forbidden": {
+          "const": true
+        },
+        "privileged_grant_minting_forbidden": {
+          "const": true
+        },
+        "scope_attributes": {
+          "$ref": "#/$defs/ownership_attributes"
+        },
+        "default_forbidden_operations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "results.read_full",
+              "exports.execute",
+              "artifacts.download"
+            ]
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true
+        },
+        "sensitive_operations_behavior": {
+          "const": "deny"
+        },
+        "fresh_grant_state_and_version_check": {
+          "const": true
+        },
+        "auto_revoke": {
+          "const": true
+        },
+        "activation_alert_required": {
+          "const": true
+        },
+        "use_alert_required": {
+          "const": true
+        },
+        "post_event_review": {
+          "const": true
+        },
+        "audited": {
+          "const": true
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_events",
+        "required_fields",
+        "membership_user_required_fields",
+        "temporary_grant_user_required_fields",
+        "m2m_required_fields",
+        "lifecycle_change_required_fields",
+        "support_required_fields",
+        "break_glass_required_fields",
+        "forbidden_fields",
+        "append_only",
+        "integrity_protection_required",
+        "deployment_partitioning_required",
+        "deny_reason_codes_sanitized",
+        "raw_identity_values_forbidden"
+      ],
+      "properties": {
+        "required_events": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "membership_user_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "temporary_grant_user_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "m2m_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "lifecycle_change_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "support_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "break_glass_required_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "forbidden_fields": {
+          "$ref": "#/$defs/nonempty_unique_strings"
+        },
+        "append_only": {
+          "const": true
+        },
+        "integrity_protection_required": {
+          "const": true
+        },
+        "deployment_partitioning_required": {
+          "const": true
+        },
+        "deny_reason_codes_sanitized": {
+          "const": true
+        },
+        "raw_identity_values_forbidden": {
+          "const": true
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "accepted_versions",
+        "unknown_version_behavior",
+        "missing_contract_behavior",
+        "legacy_inference",
+        "parallel_acceptance_requires_allowlist",
+        "rollback"
+      ],
+      "properties": {
+        "mode": {
+          "const": "additive_versioned"
+        },
+        "accepted_versions": {
+          "type": "array",
+          "items": {
+            "const": "enterprise-authorization.v1"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "unknown_version_behavior": {
+          "const": "deny"
+        },
+        "missing_contract_behavior": {
+          "const": "deny"
+        },
+        "legacy_inference": {
+          "const": "forbidden"
+        },
+        "parallel_acceptance_requires_allowlist": {
+          "const": true
+        },
+        "rollback": {
+          "const": "withdraw_v1_allowlist_and_restore_prior_denial_boundary"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonempty_string": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
+    },
+    "nonempty_unique_strings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/identifier"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "action_set": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "read",
+          "write",
+          "admin"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "data_class_set": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "metadata",
+          "masked",
+          "aggregated",
+          "content",
+          "pii"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "ownership_attributes": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "const": "customer_id"
+        },
+        {
+          "const": "deployment_id"
+        }
+      ],
+      "items": false
+    },
+    "permission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource",
+        "actions",
+        "data_classes"
+      ],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/identifier"
+        },
+        "actions": {
+          "$ref": "#/$defs/action_set"
+        },
+        "data_classes": {
+          "$ref": "#/$defs/data_class_set"
+        }
+      }
+    },
+    "lifecycle_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "approval_required",
+        "audit_required"
+      ],
+      "properties": {
+        "from": {
+          "enum": [
+            "invited",
+            "active",
+            "suspended"
+          ]
+        },
+        "to": {
+          "enum": [
+            "active",
+            "suspended",
+            "expired",
+            "revoked"
+          ]
+        },
+        "approval_required": {
+          "type": "boolean"
+        },
+        "audit_required": {
+          "const": true
+        }
+      }
+    },
+    "elevated_access_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "self_signup",
+        "subject_binding_required",
+        "binding_attributes",
+        "single_use",
+        "conditional_consume_required",
+        "replay_behavior",
+        "time_bound",
+        "expiry_required",
+        "max_ttl_seconds",
+        "max_auth_age_seconds",
+        "dual_approval",
+        "independent_approvers",
+        "self_approval",
+        "phishing_resistant_mfa",
+        "consumed_on_success",
+        "audited"
+      ],
+      "properties": {
+        "self_signup": {
+          "const": false
+        },
+        "subject_binding_required": {
+          "const": true
+        },
+        "binding_attributes": {
+          "$ref": "#/$defs/ownership_attributes"
+        },
+        "single_use": {
+          "const": true
+        },
+        "conditional_consume_required": {
+          "const": true
+        },
+        "replay_behavior": {
+          "const": "deny"
+        },
+        "time_bound": {
+          "const": true
+        },
+        "expiry_required": {
+          "const": true
+        },
+        "max_ttl_seconds": {
+          "const": 900
+        },
+        "max_auth_age_seconds": {
+          "const": 300
+        },
+        "dual_approval": {
+          "const": true
+        },
+        "independent_approvers": {
+          "const": true
+        },
+        "self_approval": {
+          "const": false
+        },
+        "phishing_resistant_mfa": {
+          "const": true
+        },
+        "consumed_on_success": {
+          "const": true
+        },
+        "audited": {
+          "const": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "record_type": "platform_authority_founder_bootstrap_revocation",
+  "exception_id": "fbe-gug209-20300101",
+  "exception_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "authority_account_id": "042360977644",
+  "region": "us-east-1",
+  "automatic_deny_retain_until": "2030-01-02T00:30:00Z",
+  "checked_at": "2030-01-01T12:31:00Z",
+  "plan_assignment_absent": true,
+  "plan_membership_absent": true,
+  "apply_assignment_absent": true,
+  "apply_membership_absent": true,
+  "time_bound_deny_retained": true,
+  "status": "REVOKED",
+  "revocation_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+}

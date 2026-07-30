@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.contract.data-foundation.v2",
+  "title": "Data Foundation Layer Contract Outputs v2",
+  "description": "Closed resource and canonical stage-queue contract for GUG-89.",
+  "type": "object",
+  "required": [
+    "documents_table_name",
+    "documents_table_arn",
+    "jobs_table_name",
+    "documents_bucket_name",
+    "documents_bucket_arn",
+    "data_kms_key_arn",
+    "sqs_queue_urls",
+    "sqs_queue_arns",
+    "sqs_dlq_urls",
+    "sqs_dlq_arns",
+    "queue_topology"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "documents_table_name": { "$ref": "#/$defs/resource_name" },
+    "documents_table_arn": { "$ref": "#/$defs/dynamodb_arn" },
+    "jobs_table_name": { "$ref": "#/$defs/resource_name" },
+    "documents_bucket_name": { "$ref": "#/$defs/resource_name" },
+    "documents_bucket_arn": { "$ref": "#/$defs/s3_arn" },
+    "data_kms_key_arn": { "$ref": "#/$defs/kms_arn" },
+    "sqs_queue_urls": { "$ref": "#/$defs/stage_url_map" },
+    "sqs_queue_arns": { "$ref": "#/$defs/stage_arn_map" },
+    "sqs_dlq_urls": { "$ref": "#/$defs/stage_url_map" },
+    "sqs_dlq_arns": { "$ref": "#/$defs/stage_arn_map" },
+    "queue_topology": { "$ref": "#/$defs/topology" }
+  },
+  "$defs": {
+    "resource_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "dynamodb_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(-[a-z]+)?:dynamodb:[a-z0-9-]+:[0-9]{12}:table/.+$"
+    },
+    "s3_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(-[a-z]+)?:s3:::[A-Za-z0-9._-]+$"
+    },
+    "kms_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(-[a-z]+)?:kms:[a-z0-9-]+:[0-9]{12}:key/.+$"
+    },
+    "sqs_arn": {
+      "type": "string",
+      "pattern": "^arn:aws(-[a-z]+)?:sqs:[a-z0-9-]+:[0-9]{12}:.+$"
+    },
+    "sqs_url": {
+      "type": "string",
+      "pattern": "^https://sqs\\.[a-z0-9-]+\\.amazonaws\\.com/[0-9]{12}/[A-Za-z0-9_-]+$"
+    },
+    "stage_url_map": {
+      "type": "object",
+      "required": ["ingest", "ocr", "classify", "bank-extract", "personal-extract", "gov-extract", "validate", "persist", "notify"],
+      "additionalProperties": false,
+      "properties": {
+        "ingest": { "$ref": "#/$defs/sqs_url" },
+        "ocr": { "$ref": "#/$defs/sqs_url" },
+        "classify": { "$ref": "#/$defs/sqs_url" },
+        "bank-extract": { "$ref": "#/$defs/sqs_url" },
+        "personal-extract": { "$ref": "#/$defs/sqs_url" },
+        "gov-extract": { "$ref": "#/$defs/sqs_url" },
+        "validate": { "$ref": "#/$defs/sqs_url" },
+        "persist": { "$ref": "#/$defs/sqs_url" },
+        "notify": { "$ref": "#/$defs/sqs_url" }
+      }
+    },
+    "stage_arn_map": {
+      "type": "object",
+      "required": ["ingest", "ocr", "classify", "bank-extract", "personal-extract", "gov-extract", "validate", "persist", "notify"],
+      "additionalProperties": false,
+      "properties": {
+        "ingest": { "$ref": "#/$defs/sqs_arn" },
+        "ocr": { "$ref": "#/$defs/sqs_arn" },
+        "classify": { "$ref": "#/$defs/sqs_arn" },
+        "bank-extract": { "$ref": "#/$defs/sqs_arn" },
+        "personal-extract": { "$ref": "#/$defs/sqs_arn" },
+        "gov-extract": { "$ref": "#/$defs/sqs_arn" },
+        "validate": { "$ref": "#/$defs/sqs_arn" },
+        "persist": { "$ref": "#/$defs/sqs_arn" },
+        "notify": { "$ref": "#/$defs/sqs_arn" }
+      }
+    },
+    "queue_binding": {
+      "type": "object",
+      "required": ["producers", "consumer", "consumer_mode", "queue_type", "visibility_timeout_seconds", "max_receive_count"],
+      "additionalProperties": false,
+      "properties": {
+        "producers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" }
+        },
+        "consumer": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" },
+        "consumer_mode": {
+          "type": "string",
+          "enum": ["INGEST", "OCR_POLL", "CLASSIFY", "BANK_EXTRACT", "PERSONAL_EXTRACT", "GOV_EXTRACT", "VALIDATE", "PERSIST", "NOTIFY"]
+        },
+        "queue_type": { "const": "standard" },
+        "visibility_timeout_seconds": { "const": 300 },
+        "max_receive_count": { "const": 3 }
+      }
+    },
+    "topology": {
+      "type": "object",
+      "required": ["ingest", "ocr", "classify", "bank-extract", "personal-extract", "gov-extract", "validate", "persist", "notify"],
+      "additionalProperties": false,
+      "properties": {
+        "ingest": { "$ref": "#/$defs/queue_binding" },
+        "ocr": { "$ref": "#/$defs/queue_binding" },
+        "classify": { "$ref": "#/$defs/queue_binding" },
+        "bank-extract": { "$ref": "#/$defs/queue_binding" },
+        "personal-extract": { "$ref": "#/$defs/queue_binding" },
+        "gov-extract": { "$ref": "#/$defs/queue_binding" },
+        "validate": { "$ref": "#/$defs/queue_binding" },
+        "persist": { "$ref": "#/$defs/queue_binding" },
+        "notify": { "$ref": "#/$defs/queue_binding" }
+      }
+    }
+  }
+}
