@@ -29,7 +29,7 @@ explicit profile/region, least privilege, and an incident/change record.
 |---|---|---|
 | `reserved` | no approved effect | Verify approval dependency, then exact retry |
 | `approval_validated` | exact request-bound approval; no effect order assumed | Verify immutable `effect_order`, then exact retry |
-| `provider_effect_reserved` | one resend attempt may be in flight and Cognito has no delivery receipt/idempotency token | Do not retry automatically; quarantine and reconcile sanitized provider/operation evidence under separate approval |
+| `provider_effect_reserved` | the CAS winner may have attempted one resend; stage equality alone does not identify that winner, and Cognito has no delivery receipt/idempotency token | Do not retry automatically; CAS losers and later replays quarantine before provider access and reconcile sanitized provider/operation evidence under separate approval |
 | `provider_applied` | provider-first effect proven for activation/reactivation | Exact retry; conditionally apply active membership |
 | `membership_applied` | membership-first restriction/change proven | Exact retry; reconcile provider effect and/or revoke sessions as required |
 | `sessions_revoked` | provider sessions invalidated | Exact retry; emit durable audit |
@@ -88,12 +88,24 @@ and must be quarantined.
 
 Do not resend automatically. Cognito does not accept an idempotency token for
 `MessageAction=RESEND` and does not return a durable delivery receipt. The
-pre-effect `provider_effect_reserved` checkpoint therefore makes an ambiguous
-retry fail closed instead of sending a duplicate notification. Classify the
-operation `manual_review_required`, reconcile only opaque operation/provider
-references through an approved procedure, and issue a new operation and
-approval only after the previous attempt is resolved. Never reset or advance
-the stored stage manually.
+target/version effect reservation and the following
+`provider_effect_reserved` checkpoint therefore make an ambiguous retry fail
+closed instead of sending a duplicate notification. This also applies when
+the durable effect reservation exists but a crash left the operation at
+`approval_validated`. Classify the operation `manual_review_required`,
+reconcile only opaque operation/provider references through an approved
+procedure, and issue a new operation and approval only after the previous
+attempt is resolved. Never delete the effect reservation or reset/advance the
+stored stage manually.
+
+All idempotency keys for one membership version contend on one durable effect
+reservation. Only that conditional writer may attempt the subsequent operation
+checkpoint, which separately returns `applied_here=true` only to its atomic
+writer. A process that loses either CAS must stop. Never infer ownership from
+`provider_effect_reserved`, reconstruct a winner from request data, delete a
+reservation to restore liveness, or retry because the original caller crashed
+before provider access. A provider timeout or exception remains ambiguously
+observable and follows the same quarantine.
 
 ### Membership changed, session revocation failed
 
@@ -126,3 +138,6 @@ Disable human runtime and lifecycle route exposure in the service release.
 Retain all membership, provider, operation, approval, audit, and bootstrap
 evidence. Do not delete provider users or membership records automatically.
 Reconcile partial effects using this runbook before any subsequent rollout.
+
+This repository change performed no AWS access or live Cognito validation.
+Production remains **NO-GO**.

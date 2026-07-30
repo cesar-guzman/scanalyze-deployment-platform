@@ -27,7 +27,9 @@ and API/edge response to browser CORS visibility.
 | Request identity spoofing | Typed client never emits customer, deployment, tenant, subject, provider key, or legacy header authority |
 | Enumeration through list or error detail | Owner-bound storage query and cursor; generic 403/404; closed response parser |
 | Stale write or unsafe retry | Expected membership version, random idempotency key, conflict state, explicit refresh |
-| Duplicate invitation notification | Durable provider-applied checkpoint before conditional membership refresh |
+| Duplicate invitation notification | One durable owner/operation/membership/version reservation shared by every idempotency key, followed by a persistence-owned operation-checkpoint outcome; only the winner of both CAS boundaries invokes `RESEND` |
+| CAS loser impersonates the winner | Target/version reservation ownership and operation-stage ownership are distinct; stage equality and deterministic evidence are insufficient, `applied_here` is not persisted/request-controlled, and exact bindings are revalidated |
+| Ambiguous provider timeout or crash | `provider_effect_reserved` remains quarantined; reconciliation is required and automatic resend is prohibited |
 | Resend to foreign provider user | Exact membership owner plus provider subject/reference/key and immutable owner reconciliation before effect |
 | Last-admin removal | Existing conditional replacement-admin transaction remains mandatory |
 | PII in list, audit, telemetry, or logs | Opaque references only; invitation locator is transient request input; allowlisted bounded in-memory telemetry |
@@ -44,3 +46,8 @@ CloudFront/API Gateway, a provider notification, live CORS behavior, accessible
 operation with assistive technology, or isolation between two real authorized
 non-production deployments. Human runtime, feature activation, deployment,
 migration, and production remain blocked.
+
+The two-boundary CAS-winner design was tested with fake concurrent
+stores/providers using both equal and distinct idempotency keys; no live
+Cognito call was performed. Locally expired-session classification and
+membership `nextCursor` handling remain open P2 findings under GUG-95.

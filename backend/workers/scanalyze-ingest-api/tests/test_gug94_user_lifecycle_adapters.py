@@ -9,12 +9,15 @@ import pytest
 
 from app.enterprise_authorization import HumanRole
 from app.user_lifecycle import (
+    CheckpointOutcome,
     LifecycleCommand,
     LifecycleOperation,
     LifecycleOperationRecord,
     LifecycleOperationStage,
     MembershipRecord,
     MembershipState,
+    ProviderEffectReservation,
+    ProviderEffectReservationOutcome,
 )
 from app.user_lifecycle_adapters import (
     MEMBERSHIP_REFERENCE_INDEX,
@@ -35,6 +38,7 @@ from app.user_lifecycle_adapters import (
 CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 FOREIGN_CUSTOMER_ID = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+FOREIGN_DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 NOW = datetime(2026, 7, 13, 3, 0, tzinfo=timezone.utc)
 
 
@@ -291,6 +295,173 @@ def test_operation_idempotency_key_cannot_be_reused_for_different_command() -> N
         DynamoLifecycleStore(table).reserve_operation(command)
 
 
+def _approval_validated_resend_record() -> LifecycleOperationRecord:
+    command = LifecycleCommand(
+        operation=LifecycleOperation.RESEND_INVITATION,
+        customer_id=CUSTOMER_ID,
+        deployment_id=DEPLOYMENT_ID,
+        actor_subject="synthetic-admin",
+        idempotency_key="idem_" + "7" * 32,
+        request_digest="sha256:" + "7" * 64,
+    )
+    return replace(
+        LifecycleOperationRecord.new(command, now=NOW),
+        stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        evidence={"effect_order": "provider_before_membership"},
+    )
+
+
+def _provider_effect_reservation(
+    record: LifecycleOperationRecord | None = None,
+) -> ProviderEffectReservation:
+    return ProviderEffectReservation.new(
+        record or _approval_validated_resend_record(),
+        target_reference="mbr_" + "1" * 32,
+        expected_membership_version=3,
+        approval_reference="apr_" + "7" * 32,
+        now=NOW,
+    )
+
+
+def test_provider_effect_reservation_reports_atomic_writer_as_target_version_winner() -> None:
+    table = FakeTable()
+    reservation = _provider_effect_reservation()
+
+    outcome = DynamoLifecycleStore(table).reserve_provider_effect(reservation)
+
+    assert isinstance(outcome, ProviderEffectReservationOutcome)
+    assert outcome.applied_here is True
+    assert outcome.reservation == reservation
+    operation, request = table.calls[-1]
+    assert operation == "put_item"
+    assert (
+        request["ConditionExpression"]
+        == "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+    )
+    assert request["Item"]["winner_operation_reference"] == (
+        reservation.winner_operation_reference
+    )
+    assert request["Item"]["sk"].startswith("PROVIDER_EFFECT#")
+
+
+def test_distinct_idempotency_keys_contend_on_same_provider_effect_reservation() -> None:
+    winner_record = _approval_validated_resend_record()
+    contender_command = LifecycleCommand(
+        operation=winner_record.operation,
+        customer_id=winner_record.customer_id,
+        deployment_id=winner_record.deployment_id,
+        actor_subject=winner_record.actor_subject,
+        idempotency_key="idem_" + "8" * 32,
+        request_digest=winner_record.request_digest,
+    )
+    contender_record = replace(
+        LifecycleOperationRecord.new(contender_command, now=NOW),
+        stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        evidence={"effect_order": "provider_before_membership"},
+    )
+    winner = _provider_effect_reservation(winner_record)
+    contender = _provider_effect_reservation(contender_record)
+    assert winner.winner_operation_reference != contender.winner_operation_reference
+    assert (
+        DynamoLifecycleStore._provider_effect_reservation_item(winner)["sk"]
+        == DynamoLifecycleStore._provider_effect_reservation_item(contender)["sk"]
+    )
+
+    table = FakeTable()
+    table.put_error = ConditionalFailure()
+    table.get_responses.append(
+        {"Item": DynamoLifecycleStore._provider_effect_reservation_item(winner)}
+    )
+
+    outcome = DynamoLifecycleStore(table).reserve_provider_effect(contender)
+
+    assert outcome.applied_here is False
+    assert outcome.reservation == winner
+    assert table.calls[-1][0] == "get_item"
+    assert table.calls[-1][1]["ConsistentRead"] is True
+
+
+def test_provider_effect_reservation_rejects_poisoned_reload_binding() -> None:
+    table = FakeTable()
+    table.put_error = ConditionalFailure()
+    reservation = _provider_effect_reservation()
+    poisoned = {
+        **DynamoLifecycleStore._provider_effect_reservation_item(reservation),
+        "expected_membership_version": 4,
+    }
+    table.get_responses.append({"Item": poisoned})
+
+    with pytest.raises(LifecycleAdapterContractError):
+        DynamoLifecycleStore(table).reserve_provider_effect(reservation)
+
+
+def test_operation_checkpoint_reports_conditional_writer_as_cas_winner() -> None:
+    table = FakeTable()
+    outcome = DynamoLifecycleStore(table).checkpoint_operation(
+        _approval_validated_resend_record(),
+        expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={"provider_effect_reference": "ref_" + "7" * 24},
+    )
+
+    assert isinstance(outcome, CheckpointOutcome)
+    assert outcome.applied_here is True
+    assert outcome.record.stage is LifecycleOperationStage.PROVIDER_EFFECT_RESERVED
+
+
+def test_operation_checkpoint_reports_conditional_failure_reload_as_cas_loser() -> None:
+    table = FakeTable()
+    table.update_error = ConditionalFailure()
+    record = _approval_validated_resend_record()
+    current = replace(
+        record,
+        stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={
+            **record.evidence,
+            "provider_effect_reference": "ref_" + "7" * 24,
+        },
+    )
+    table.get_responses.append(
+        {"Item": DynamoLifecycleStore._operation_item(current)}
+    )
+
+    outcome = DynamoLifecycleStore(table).checkpoint_operation(
+        record,
+        expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+        next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={"provider_effect_reference": "ref_" + "7" * 24},
+    )
+
+    assert isinstance(outcome, CheckpointOutcome)
+    assert outcome.applied_here is False
+    assert outcome.record == current
+
+
+def test_operation_checkpoint_rejects_loser_reload_with_mismatched_evidence() -> None:
+    table = FakeTable()
+    table.update_error = ConditionalFailure()
+    record = _approval_validated_resend_record()
+    current = replace(
+        record,
+        stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+        evidence={
+            **record.evidence,
+            "provider_effect_reference": "ref_" + "8" * 24,
+        },
+    )
+    table.get_responses.append(
+        {"Item": DynamoLifecycleStore._operation_item(current)}
+    )
+
+    with pytest.raises(IdempotencyConflict):
+        DynamoLifecycleStore(table).checkpoint_operation(
+            record,
+            expected_stage=LifecycleOperationStage.APPROVAL_VALIDATED,
+            next_stage=LifecycleOperationStage.PROVIDER_EFFECT_RESERVED,
+            evidence={"provider_effect_reference": "ref_" + "7" * 24},
+        )
+
+
 def test_operation_adapter_rejects_unknown_evidence_field() -> None:
     command = LifecycleCommand(
         operation=LifecycleOperation.SUSPEND,
@@ -502,7 +673,17 @@ def test_cognito_invitation_resend_reconciles_owner_before_resend() -> None:
     assert resent.subject == receipt.subject
 
 
-def test_cognito_invitation_resend_rejects_foreign_binding_before_effect() -> None:
+@pytest.mark.parametrize(
+    ("attribute_name", "foreign_value"),
+    [
+        ("custom:customerId", FOREIGN_CUSTOMER_ID),
+        ("custom:deployment_id", FOREIGN_DEPLOYMENT_ID),
+    ],
+)
+def test_cognito_invitation_resend_rejects_foreign_binding_before_effect(
+    attribute_name: str,
+    foreign_value: str,
+) -> None:
     client = FakeCognito()
     adapter = CognitoIdentityLifecycleProvider(client, user_pool_id="us-east-1_SYNTHETIC")
     receipt = adapter.invite_user(
@@ -511,10 +692,15 @@ def test_cognito_invitation_resend_rejects_foreign_binding_before_effect() -> No
         customer_id=CUSTOMER_ID,
         deployment_id=DEPLOYMENT_ID,
     )
+    attributes = {
+        "sub": receipt.subject,
+        "custom:customerId": CUSTOMER_ID,
+        "custom:deployment_id": DEPLOYMENT_ID,
+    }
+    attributes[attribute_name] = foreign_value
     client.users[receipt.provider_principal_key]["Attributes"] = [
-        {"Name": "sub", "Value": receipt.subject},
-        {"Name": "custom:customerId", "Value": FOREIGN_CUSTOMER_ID},
-        {"Name": "custom:deployment_id", "Value": DEPLOYMENT_ID},
+        {"Name": name, "Value": value}
+        for name, value in attributes.items()
     ]
 
     with pytest.raises(LifecycleAdapterContractError):

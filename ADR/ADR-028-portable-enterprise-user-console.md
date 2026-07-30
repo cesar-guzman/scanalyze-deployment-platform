@@ -85,14 +85,35 @@ The service loads the exact owned invited membership, rejects self-targeting or
 version/state conflict, validates independent approval against the canonical
 request digest, and checkpoints the effect order. The provider adapter re-reads
 and reconciles subject, immutable customer/deployment attributes, provider key,
-and provider reference before sending `RESEND`. DynamoDB then conditionally
-refreshes expiry and increments membership version while binding the same
-owner, membership reference, provider references, invited state, and previous
-version. Retry recovery cannot duplicate the provider effect after its durable
-checkpoint. Because Cognito provides neither an idempotency token nor a
-delivery receipt for `RESEND`, a crash after the pre-effect reservation but
-before the applied checkpoint is quarantined for manual review; it is never
-retried automatically.
+and provider reference before sending `RESEND`.
+
+Before the operation-stage transition, the store conditionally creates one
+durable provider-effect reservation keyed by owner, operation, membership
+reference, and expected membership version. All idempotency keys for the same
+logical resend therefore contend on the same item; only its atomic writer may
+continue. A later membership version has a distinct effect identity.
+
+The following pre-effect transition returns an explicit persistence-owned
+`CheckpointOutcome(record, applied_here)`. The DynamoDB adapter sets
+`applied_here=true` only for the same caller whose conditional update
+atomically moved its operation from `approval_validated` to
+`provider_effect_reserved`. A caller that loses either CAS receives
+`applied_here=false` and stops. Only the explicit winner of both reservations
+may invoke the provider. Stage equality is not ownership, and caller-supplied
+data cannot set or persist either winner result.
+
+DynamoDB then conditionally refreshes expiry and increments membership version
+while binding the same owner, membership reference, provider references,
+invited state, and previous version. Because Cognito provides neither an
+idempotency token nor a delivery receipt for `RESEND`, a loser, replay, crash
+after reservation, provider timeout, or crash before the applied checkpoint is
+quarantined for reconciliation and never resends automatically.
+
+An idempotency-key-scoped checkpoint alone was rejected because distinct keys
+address independent operation rows and can each win before the irreversible
+provider call. The target/version reservation is the narrow durable boundary
+that serializes the real effect while preserving operation-level replay and
+audit records.
 
 No invitation secret, email, subject, provider response, raw request, or token
 enters audit or operation evidence.
@@ -139,3 +160,7 @@ reversed by source rollback; its versioned audit evidence must be retained.
 - **Blocked:** CI, review/merge/main verification, authorized two-deployment
   proof, provider/live browser validation, and production authorization.
 - **Production:** **NO-GO**.
+
+The repository-only CAS-winner tests use fake stores/providers. No live
+Cognito validation was performed. Locally expired-session classification and
+membership `nextCursor` handling remain open GUG-95 P2 work.
