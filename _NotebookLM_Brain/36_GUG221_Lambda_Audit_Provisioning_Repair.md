@@ -339,6 +339,19 @@ Lambda authority inventory. The package also binds, but does not vendor, the
 Lambda-managed AWS SDK, so a fresh `PLAN_VERIFIED` plus an administrative
 change freeze is required immediately before repair.
 
+The outer synchronous Lambda envelope is not application authorization. The
+invoker accepts only one complete payload read against a trustworthy declared
+length, bounded to 64 KiB with a 48 KiB nested body. It rejects duplicate or
+non-finite JSON, invalid UTF-8, trailing data, expanded wrapper/header/body
+shapes, a mutable or missing executed version, and any receipt digest or
+cross-record binding drift. Only application `200` with exact proof, broker
+effect and closure-pending receipts is success. Application `202`, `500`,
+unknown or malformed responses are reconcile-only; a well-formed `403` is a
+sanitized denial. No ambiguous response is retried. This is repository and CI
+evidence only: no AWS or Lambda operation occurred, GUG-117/GUG-218/GUG-215/
+GUG-206 retain their separate live boundaries, and production remains
+**NO-GO**.
+
 ## Evidence state
 
 | Evidence | State |
