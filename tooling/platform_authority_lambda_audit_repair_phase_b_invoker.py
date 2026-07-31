@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime
+import io
 import json
 import re
 from typing import Any, Mapping, NoReturn, Protocol, Sequence
@@ -42,6 +43,7 @@ _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NONZERO_DIGEST = re.compile(r"^sha256:(?!0{64})[0-9a-f]{64}$")
 _RAW_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _EXECUTION_ID = re.compile(r"^gug221-phase-b-[0-9a-f]{64}$")
+_EXECUTED_VERSION = re.compile(r"^[1-9][0-9]*$")
 _DENIAL_REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _STACK_ARN = re.compile(
     rf"^arn:aws:cloudformation:{REGION}:{AUTHORITY_ACCOUNT_ID}:stack/"
@@ -252,6 +254,15 @@ def _strict_json_object(
 
 def _declared_stream_length(value: object) -> int | None:
     observed: list[int] = []
+    if isinstance(value, io.BytesIO):
+        try:
+            buffer = value.getbuffer()
+            try:
+                observed.append(buffer.nbytes)
+            finally:
+                buffer.release()
+        except (BufferError, ValueError):
+            _invalid_response()
     for name in ("content_length", "_content_length"):
         candidate = getattr(value, name, None)
         if candidate is None:
@@ -265,7 +276,7 @@ def _declared_stream_length(value: object) -> int | None:
 
 
 def _read_response_payload(value: object) -> bytearray:
-    """Read one response once, prove EOF, and retain only a mutable buffer."""
+    """Read one bounded response exactly once into a mutable buffer."""
 
     if type(value) in {bytes, bytearray}:
         if not 1 <= len(value) <= MAX_RESPONSE_PAYLOAD_BYTES:
@@ -279,10 +290,14 @@ def _read_response_payload(value: object) -> bytearray:
 
     result = bytearray()
     first = bytearray()
-    tail = bytearray()
     try:
         read = getattr(value, "read", None)
         if not callable(read):
+            _invalid_response()
+        amount_read = getattr(value, "_amount_read", None)
+        if amount_read is not None and (
+            type(amount_read) is not int or amount_read != 0
+        ):
             _invalid_response()
         tell = getattr(value, "tell", None)
         if callable(tell):
@@ -291,31 +306,18 @@ def _read_response_payload(value: object) -> bytearray:
                 _invalid_response()
         declared_length = _declared_stream_length(value)
         if (
-            declared_length is not None
-            and declared_length > MAX_RESPONSE_PAYLOAD_BYTES
+            declared_length is None
+            or not 1 <= declared_length <= MAX_RESPONSE_PAYLOAD_BYTES
         ):
             _invalid_response()
 
-        raw_first = read(MAX_RESPONSE_PAYLOAD_BYTES + 1)
+        raw_first = read(declared_length + 1)
         if type(raw_first) not in {bytes, bytearray}:
             _invalid_response()
         first.extend(raw_first)
         if type(raw_first) is bytearray:
             _wipe(raw_first)
-        if not 1 <= len(first) <= MAX_RESPONSE_PAYLOAD_BYTES:
-            _invalid_response()
-
-        raw_tail = read(1)
-        if type(raw_tail) not in {bytes, bytearray}:
-            _invalid_response()
-        tail.extend(raw_tail)
-        if type(raw_tail) is bytearray:
-            _wipe(raw_tail)
-        if tail:
-            # A bounded read that returns short and then produces more bytes is
-            # ambiguous; do not silently join or reinterpret partial chunks.
-            _invalid_response()
-        if declared_length is not None and declared_length != len(first):
+        if len(first) != declared_length:
             _invalid_response()
         if callable(tell):
             position = tell()
@@ -329,7 +331,6 @@ def _read_response_payload(value: object) -> bytearray:
         _invalid_response()
     finally:
         _wipe(first)
-        _wipe(tail)
         close = getattr(value, "close", None)
         if callable(close):
             try:
@@ -795,18 +796,23 @@ def invoke_phase_b_broker(
         code_verifier = ""
         oauth_state = ""
 
-    if not isinstance(response, Mapping):
-        raise PhaseBInvokerError("PHASE_B_INVOKE_UNCERTAIN")
-    transport_status = response.get("StatusCode")
-    if (
-        type(transport_status) is not int
-        or transport_status != 200
-        or response.get("FunctionError") is not None
-    ):
-        raise PhaseBInvokerError("PHASE_B_INVOKE_UNCERTAIN")
     try:
+        if not isinstance(response, Mapping):
+            raise _ApplicationResponseInvalid
+        outer = dict(response)
+        transport_status = outer.get("StatusCode")
+        executed_version = outer.get("ExecutedVersion")
+        if (
+            type(transport_status) is not int
+            or transport_status != 200
+            or "FunctionError" in outer
+            or not isinstance(executed_version, str)
+            or _EXECUTED_VERSION.fullmatch(executed_version) is None
+            or "Payload" not in outer
+        ):
+            raise _ApplicationResponseInvalid
         return _validated_application_response(
-            response.get("Payload"),
+            outer["Payload"],
             broker_topology_evidence=broker_topology_evidence,
             execution_id=execution_id,
             broker_topology_sha256=broker_topology_sha256,

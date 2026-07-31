@@ -437,12 +437,16 @@ recorded downstream but cannot influence the static binding digest.
 The response is also an untrusted carrier. Lambda can return outer
 `StatusCode = 200` while the handler returns application `202`, `403` or `500`.
 The invoker therefore accepts no transport-only success: it bounded-reads and
-proves EOF, rejects ambiguous/reused streams and non-canonical JSON, requires
-application `200`, and validates the canonical proof/effect/closure receipt
-chain against the expected execution and topology. `202`, `500`, truncation,
-malformed receipts and binding drift are reconcile-only with zero retry; a
-well-formed `403` is a fail-closed broker denial. Diagnostics expose only
-stable local codes, never OAuth material, payloads or raw provider errors.
+proves completeness in one read against a trustworthy declared length, rejects
+ambiguous/reused streams and non-canonical JSON, requires a numeric immutable
+version plus application `200`, and validates the canonical
+proof/effect/closure receipt chain against the expected execution and
+topology. The outer payload is capped at 64 KiB and the nested body at 48 KiB;
+missing length, truncation, partial content or excess bytes are ambiguous.
+`202`, `500`, unknown status, malformed receipts and binding drift are
+reconcile-only with zero retry; a well-formed `403` is a fail-closed broker
+denial. Diagnostics expose only stable local codes, never OAuth material,
+payloads or raw provider errors.
 
 The ledger resource policy also denies every principal from removing or
 replacing that policy, deleting or structurally updating the table, creating

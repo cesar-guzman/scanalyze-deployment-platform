@@ -295,9 +295,13 @@ ledger or CloudFormation access. The dynamic receipt digest is recorded in
 proof/ledger/effect evidence but is not an immutable topology/binding input.
 
 The synchronous Lambda transport envelope is not an authorization result.
-The invoker bounded-reads `Payload` once, proves EOF, rejects reused,
-truncated or oversized streams, and parses both response layers with
-duplicate-key and non-finite-number rejection. Success requires application
+The invoker reads `Payload` exactly once with a trustworthy declared length,
+using a 64 KiB outer limit and 48 KiB body limit. The reviewed synthetic
+three-receipt response is about 7.2 KiB (6.7 KiB body), so these limits retain
+ample contract headroom without accepting unbounded data. Missing length,
+reuse, truncation, oversize or partial-read ambiguity fails closed. Both JSON
+layers reject duplicate keys, non-finite numbers, invalid UTF-8 and trailing
+data. Success requires exact numeric `ExecutedVersion`, application
 `statusCode = 200`, `isBase64Encoded = false`, the exact JSON response
 envelope, and exact `identity_proof`, `broker_effect` and `closure_pending`
 receipts. Their canonical receipt digests, execution ID, topology digest,
@@ -305,6 +309,10 @@ provider-evidence digest, policy digests and cross-references must all bind to
 the invocation. Application `202` and `500` are
 `PHASE_B_INVOKE_UNCERTAIN`/reconcile-only; a well-formed `403` is
 `PHASE_B_BROKER_DENIED`. No response ambiguity is retried.
+
+This response contract is repository-only offline evidence. It performs no
+AWS or Lambda operation, does not close the separate GUG-117, GUG-218,
+GUG-215 or GUG-206 live boundaries, and leaves production **NO-GO**.
 
 ### Exact immutable environment projection
 
