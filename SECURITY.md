@@ -12,11 +12,24 @@ in a report without including customer data or credentials.
 Do not open a public GitHub issue, pull request, discussion, or Linear comment
 with exploit details, secrets, customer data, or production evidence.
 
-As of the 2026-07-23 readback, public private-vulnerability reporting is not
-enabled for this repository. Repository administrators and security managers
-should create a draft GitHub Security Advisory. Other reporters must contact the
-repository owner through the established corporate security channel and provide
-only enough non-sensitive information to establish a private case.
+The canonical private reporting channel is **GitHub private vulnerability
+reporting** for this repository: open the repository **Security** tab and choose
+**"Report a vulnerability"**
+(`https://github.com/cesar-guzman/scanalyze-deployment-platform/security/advisories/new`).
+This creates a private advisory visible only to the reporter and repository
+security managers. Repository administrators and security managers may also
+create a draft GitHub Security Advisory directly.
+
+This channel is only operable once GitHub private vulnerability reporting is
+enabled on the repository. Enabling it is a required governance action tracked
+in [GUG-262](https://linear.app/guguce/issue/GUG-262/establish-and-validate-claude-code-contributor-baseline)
+and reflected in
+[`docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md`](docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md).
+Until this repository control is confirmed enabled, this document MUST NOT be
+cited as an operable private route, and a repository administrator MUST enable it
+before external reporting is relied upon. Changing this setting is a reviewed
+repository-administration action; it is never performed automatically or by an
+AI assistant.
 
 Do not open a public placeholder issue asking for a security contact when the
 report itself may disclose the affected component, exploit path, or customer
