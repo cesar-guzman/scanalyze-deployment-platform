@@ -124,6 +124,13 @@ New team members should also follow the step-by-step
 to request and verify access, understand the GitHub interface, create an
 isolated worktree, open a Draft PR, interpret checks, and perform a review.
 
+AI-assisted development is governed by the
+[`AI-Assisted Development Standard`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md)
+and the [`Claude Code Setup & Daily Workflow`](docs/engineering/CLAUDE_CODE_SETUP.md).
+The repository Claude Code baseline in [`.claude/settings.json`](.claude/settings.json)
+defaults to plan mode, pins model routing (Opus 4.8 planning, Sonnet 5 execution),
+and denies secrets, destructive Git, remote publish, and Terraform/AWS mutation.
+
 The repository validates this contract offline:
 
 ```bash

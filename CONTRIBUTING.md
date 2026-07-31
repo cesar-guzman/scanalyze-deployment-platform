@@ -251,6 +251,23 @@ Contributors MUST NOT:
 - create a new dependency without explaining ownership, license, security,
   maintenance, and rollback impact.
 
+### AI-assisted development (Claude Code)
+
+AI assistance is permitted under the
+[`AI-Assisted Development Standard`](docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md)
+and set up per the
+[`Claude Code Setup & Daily Workflow`](docs/engineering/CLAUDE_CODE_SETUP.md).
+AI does not replace human accountability, independent review, tests, or
+production authorization; the human author owns the change and opens the PR.
+
+The repository Claude Code baseline ([`.claude/settings.json`](.claude/settings.json))
+MUST default to plan mode, pin model routing (Opus 4.8 planning, Sonnet 5
+execution) with no silent fallback, and deny secrets, destructive Git, remote
+publish, and Terraform/AWS mutation. New contributors complete the
+[`Claude Code Onboarding Rehearsal Checklist`](docs/engineering/CLAUDE_CODE_ONBOARDING_REHEARSAL.md)
+and attach the redacted evidence to their Linear issue. `make contributor-docs-check`
+validates this baseline offline.
+
 ## 8. Security and sensitive data
 
 Never commit, paste into a pull request, attach to an issue, or print in CI:

@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - exercised only without PyYAML
+    yaml = None
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,9 +25,36 @@ REQUIRED_FILES = (
     Path("docs/engineering/DOCUMENTATION_STANDARD.md"),
     Path("docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md"),
     Path("docs/engineering/GITHUB_CONTRIBUTOR_WALKTHROUGH.md"),
+    Path("docs/engineering/AI_ASSISTED_DEVELOPMENT_STANDARD.md"),
+    Path("docs/engineering/CLAUDE_CODE_SETUP.md"),
+    Path("docs/engineering/CLAUDE_CODE_ONBOARDING_REHEARSAL.md"),
     Path(".github/PULL_REQUEST_TEMPLATE.md"),
     Path(".github/ISSUE_TEMPLATE/engineering-change.yml"),
     Path(".github/ISSUE_TEMPLATE/config.yml"),
+    Path(".claude/settings.json"),
+)
+
+# Claude Code repository baseline contract (GUG-262). No silent fallback.
+CLAUDE_SETTINGS = Path(".claude/settings.json")
+CLAUDE_EXPECTED_MODEL = "opusplan"
+CLAUDE_EXPECTED_ENV = {
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
+}
+CLAUDE_FORBIDDEN_ENV = ("ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL")
+CLAUDE_REQUIRED_DENY = (
+    "Read(./**/*.tfstate)",
+    "Read(./**/*.tfvars)",
+    "Read(./**/credentials)",
+    "Bash(git push:*)",
+    "Bash(git push --force:*)",
+    "Bash(git reset --hard:*)",
+    "Bash(git clean:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh repo:*)",
+    "Bash(terraform apply:*)",
+    "Bash(terraform destroy:*)",
+    "Bash(aws:*)",
 )
 
 MARKDOWN_FILES = tuple(
@@ -127,6 +160,7 @@ CODEOWNER_ENTRIES = (
     "SECURITY.md",
     ".github/PULL_REQUEST_TEMPLATE.md",
     ".github/ISSUE_TEMPLATE/",
+    ".claude/",
     "docs/engineering/",
     "tooling/validate_contributor_contract.py",
     "tests/test_contributor_contract.py",
@@ -164,28 +198,139 @@ def missing_required_terms(repo_root: Path = REPO_ROOT) -> list[str]:
     return errors
 
 
+def _field_is_required(item: dict) -> bool:
+    """Return True only if the parsed issue-form field genuinely enforces input.
+
+    For ``input``/``dropdown``/``textarea`` fields the field is required only
+    when ``validations.required`` is the boolean ``True``. For ``checkboxes``
+    fields, GitHub ignores ``validations.required``; requirement is expressed
+    per option via ``required: true``, so every option must be required.
+    """
+    field_type = item.get("type")
+    if field_type == "checkboxes":
+        options = item.get("attributes", {}).get("options", [])
+        return bool(options) and all(
+            option.get("required") is True for option in options
+        )
+    validations = item.get("validations")
+    if not isinstance(validations, dict):
+        return False
+    return validations.get("required") is True
+
+
 def issue_form_errors(repo_root: Path = REPO_ROOT) -> list[str]:
     issue_form = repo_root / ".github/ISSUE_TEMPLATE/engineering-change.yml"
     config = repo_root / ".github/ISSUE_TEMPLATE/config.yml"
     if not issue_form.is_file() or not config.is_file():
         return []
 
-    issue_text = issue_form.read_text(encoding="utf-8")
-    found_ids = set(ISSUE_ID_RE.findall(issue_text))
-    errors = [
-        f"engineering issue form missing id: {field_id}"
-        for field_id in sorted(ISSUE_FORM_IDS - found_ids)
-    ]
-    if issue_text.count("required: true") < len(ISSUE_FORM_IDS):
-        errors.append("engineering issue form must require every contract field")
+    if yaml is None:
+        return [
+            "PyYAML is required to validate GitHub issue forms fail-closed "
+            "(pip install pyyaml)"
+        ]
+
+    errors: list[str] = []
+
+    # Parse the issue form and validate each required contract field explicitly,
+    # instead of counting aggregate `required: true` occurrences (which per-option
+    # checkbox requirements could otherwise mask). [GUG-262 P2]
+    try:
+        form = yaml.safe_load(issue_form.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        return [f"engineering issue form is not valid YAML: {exc}"]
+
+    body = form.get("body", []) if isinstance(form, dict) else []
+    fields_by_id = {
+        item.get("id"): item
+        for item in body
+        if isinstance(item, dict) and item.get("id")
+    }
+    for field_id in sorted(ISSUE_FORM_IDS):
+        item = fields_by_id.get(field_id)
+        if item is None:
+            errors.append(f"engineering issue form missing id: {field_id}")
+        elif not _field_is_required(item):
+            errors.append(
+                f"engineering issue form field must be required: {field_id}"
+            )
+
+    # Parse the top-level YAML value rather than substring-matching, so a stale
+    # commented line cannot mask an active `blank_issues_enabled: true`. [GUG-262 P2]
+    try:
+        config_data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        return errors + [f"issue config is not valid YAML: {exc}"]
+
+    if config_data.get("blank_issues_enabled") is not False:
+        errors.append("blank GitHub issues must remain disabled")
 
     config_text = config.read_text(encoding="utf-8").lower()
-    if "blank_issues_enabled: false" not in config_text:
-        errors.append("blank GitHub issues must remain disabled")
     if "/security/policy" not in config_text:
         errors.append("issue config must link to security reporting instructions")
     if "linear.app/" not in config_text:
         errors.append("issue config must route durable delivery work to Linear")
+    return errors
+
+
+def claude_baseline_errors(repo_root: Path = REPO_ROOT) -> list[str]:
+    """Validate the Claude Code repository baseline contract offline. [GUG-262]"""
+    settings_path = repo_root / CLAUDE_SETTINGS
+    if not settings_path.is_file():
+        return [f"missing Claude Code baseline: {CLAUDE_SETTINGS}"]
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"{CLAUDE_SETTINGS}: invalid JSON ({exc})"]
+
+    errors: list[str] = []
+    permissions = settings.get("permissions", {})
+
+    if permissions.get("defaultMode") != "plan":
+        errors.append(
+            f"{CLAUDE_SETTINGS}: permissions.defaultMode must be 'plan' "
+            f"(found {permissions.get('defaultMode')!r})"
+        )
+
+    if settings.get("model") != CLAUDE_EXPECTED_MODEL:
+        errors.append(
+            f"{CLAUDE_SETTINGS}: model must be {CLAUDE_EXPECTED_MODEL!r} "
+            f"(found {settings.get('model')!r})"
+        )
+
+    env = settings.get("env", {})
+    for key, expected in CLAUDE_EXPECTED_ENV.items():
+        if env.get(key) != expected:
+            errors.append(
+                f"{CLAUDE_SETTINGS}: env.{key} must be pinned to {expected!r} "
+                f"(found {env.get(key)!r}) — no silent fallback"
+            )
+    for key in CLAUDE_FORBIDDEN_ENV:
+        if key in env:
+            errors.append(
+                f"{CLAUDE_SETTINGS}: deprecated env.{key} must be removed"
+            )
+
+    deny = permissions.get("deny", [])
+    for rule in CLAUDE_REQUIRED_DENY:
+        if rule not in deny:
+            errors.append(f"{CLAUDE_SETTINGS}: missing required deny rule: {rule}")
+
+    allow = permissions.get("allow", [])
+    if "Bash(make:*)" in allow:
+        errors.append(
+            f"{CLAUDE_SETTINGS}: global 'Bash(make:*)' allow is forbidden; "
+            "grant exact make targets instead"
+        )
+
+    sandbox = settings.get("sandbox")
+    sandbox_enabled = sandbox is True or (
+        isinstance(sandbox, dict) and sandbox.get("enabled") is True
+    )
+    if not sandbox_enabled:
+        errors.append(f"{CLAUDE_SETTINGS}: sandbox must be enabled")
+
     return errors
 
 
@@ -291,6 +436,7 @@ def validate(repo_root: Path = REPO_ROOT) -> list[str]:
     errors.extend(missing_required_files(repo_root))
     errors.extend(missing_required_terms(repo_root))
     errors.extend(issue_form_errors(repo_root))
+    errors.extend(claude_baseline_errors(repo_root))
     errors.extend(codeowner_errors(repo_root))
     errors.extend(repository_entrypoint_errors(repo_root))
     errors.extend(walkthrough_command_errors(repo_root))

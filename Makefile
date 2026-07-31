@@ -19,6 +19,7 @@ help:
 	@echo "  make frontend-check       Reinstall, audit, test, lint, and build the portable SPA"
 	@echo "  make github-governance-check Validate stable required-check policy offline"
 	@echo "  make github-deployment-identity-check Validate GUG-123 OIDC and terminal IAM controls"
+	@echo "  make contributor-docs-check Validate human + AI-assisted contributor contract"
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
@@ -971,7 +972,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			echo "  OK: $$f"; \
 		fi; \
 	done; \
-	for d in docs/operations docs/deployment; do \
+	for d in docs/operations docs/deployment docs/engineering; do \
 		if [ ! -d "$$d" ]; then \
 			echo "  MISSING: $$d/"; \
 			ERRORS=$$((ERRORS + 1)); \
