@@ -45,6 +45,7 @@ path is not live validated and still requires two independent humans.
 | Live metadata is used to reconstruct the missing bootstrap Plan | GUG-215 never consumes or emits a bootstrap Plan; immutable broker configuration records reviewed template/inventory evidence separately | Historical cancel remains denied |
 | Customer/request data redirects authority | No payload fields allowed; exact account, Region, stack, Change Set and digests come from immutable function configuration and AWS metadata | Reject before target inspection |
 | Pagination hides a foreign Change Set | Broker consumes every `ListChangeSets` page and rejects invalid/repeated tokens or non-exact inventory | Deny as ambiguous |
+| Omitted `Replacement` on a valid `Add` is confused with drift, or permissive coercion hides replacement authority | A pure response-boundary helper accepts only exact `Action: Add` with either an absent member or exact string `False`; absence becomes canonical `False`, while present null/falsy/case/whitespace/`True`/`Conditional` values and all non-`Add` actions deny | The exact four-resource tuple and inventory digest remain unchanged; every denial occurs before ledger mutation or `DeleteChangeSet` |
 | Same-name Change Set is substituted | Broker binds stack/name in IAM, compares the post-claim retirement key plus every ARN/UUID/content digest to the `ATTEMPTED` ledger and uses the final full Change Set ID for describe, template read and delete | Replacement cannot redirect the one delete by reusing only the name |
 | Stack gained resources, was recreated or inherited authority | Fresh checks require the classified full Stack ID digest, zero resources, `REVIEW_IN_PROGRESS`, no RoleARN, notifications, parent or root metadata | Deny |
 | Retire is replayed after attempt | `CLASSIFIED -> APPROVED -> ATTEMPTED` CAS occurs before delete; attempt count is fixed at one | Later retire returns reconciliation required without delete |
@@ -160,6 +161,8 @@ Retiring unexecuted metadata neither creates resources nor repairs PAB.
 - Locally validated: named gates for that exact commit only.
 - CI validated: pending required checks for the exact PR commit.
 - Live inventory: sanitized read-only observation only.
+- Add/Replacement compatibility evidence: sanitized offline synthetic tests
+  only; no live provider response or protected effect was exercised.
 - Live PEP deployment: **Not performed**.
 - Live alias invocation: **Not performed**.
 - Live retirement: **Blocked** pending two independently reviewed users,

@@ -131,6 +131,19 @@ The broker proves:
 - exact original template, parameters, tags and four resource additions;
 - exact broker runtime and ledger controls.
 
+CloudFormation may omit the optional `Replacement` member for an `Add` change.
+The broker treats only exact `Action: "Add"` plus an absent member as canonical
+`Replacement: "False"`; exact string `"False"` is the other accepted form.
+Present null/falsy values, case or whitespace variants, `True`, `Conditional`,
+unknown strings, missing action, and non-`Add` actions deny. Both accepted forms
+produce the same exact four-resource inventory digest. This is a narrow
+provider-response normalization, not broader target or deletion authority.
+
+The regression evidence is synthetic and offline. It neither invokes Lambda
+nor observes or mutates CloudFormation, does not perform a Terraform live plan
+or apply, and does not authorize customer, staging, or production work.
+Production remains **NO-GO**.
+
 The broker execution role can delete only the configured Change Set name on
 the canonical stack. It cannot execute the Change Set, delete/update the stack,
 create another Change Set, mutate IAM or access a customer deployment.

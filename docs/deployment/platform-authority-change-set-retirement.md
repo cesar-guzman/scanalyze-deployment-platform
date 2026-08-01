@@ -200,6 +200,31 @@ from fresh AWS calls:
 - exactly four reviewed resource additions and no other change;
 - exact broker runtime and ledger controls.
 
+### Canonical `CREATE` / `Add` response evidence
+
+The [CloudFormation `ResourceChange` API](https://docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/API_ResourceChange.html)
+defines `Replacement` as optional and describes it for `Modify`. For this one
+reviewed `CREATE` inventory, the broker accepts only these provider-equivalent
+forms:
+
+- exact `Action: "Add"` with no `Replacement` member;
+- exact `Action: "Add"` with exact string `Replacement: "False"`.
+
+An omitted member is canonicalized to `"False"` before the order-independent
+comparison. A present null, boolean, number, case/whitespace variant, other
+string, missing action, or non-`Add` action is not omission and fails with the
+existing sanitized `CHANGE_SET_RESOURCES_CHANGED` code. The canonical inventory
+still requires exactly the four reviewed logical IDs and resource types, with
+no duplicate, missing, extra, replacement, or conditional-replacement entry.
+Both accepted forms yield the same `resource_inventory_sha256`.
+
+Classification remains read-only against the CloudFormation target; its sole
+write is the broker-owned create-only `CLASSIFIED` ledger item. It cannot call
+`DeleteChangeSet`. The normalization is covered by sanitized offline synthetic
+responses only. It supplies no live AWS, Lambda, CloudFormation mutation,
+Terraform, customer, staging, or production evidence; production remains
+**NO-GO**.
+
 The broker execution role permits `DeleteChangeSet` only on the canonical stack
 with exact `cloudformation:ChangeSetName`. It has no permission to execute the
 Change Set, delete/update the stack, create another Change Set, mutate IAM or

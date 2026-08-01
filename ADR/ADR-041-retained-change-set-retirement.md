@@ -199,6 +199,22 @@ The broker fails closed unless fresh AWS reads prove:
   resource inventory match the reviewed baseline;
 - the ledger controls and resource policy remain exact.
 
+For this exact `CREATE` contract, provider response normalization accepts two
+equivalent representations of each reviewed resource change: `Action: Add`
+with `Replacement` omitted, or `Action: Add` with the exact string
+`Replacement: "False"`. The
+[CloudFormation `ResourceChange` API](https://docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/API_ResourceChange.html)
+marks `Replacement` optional and describes it for `Modify`. The broker therefore
+canonicalizes only the omitted `Add` member to `"False"`. A present JSON null,
+boolean, number, case or whitespace variant, `True`, `Conditional`, unknown
+string, missing action, or any non-`Add` action fails closed as
+`CHANGE_SET_RESOURCES_CHANGED`.
+
+Both accepted provider forms produce the same four-resource tuple and
+`resource_inventory_sha256`. This response-boundary normalization does not
+change target, template, tag, parameter, capability, identity, ledger, IAM,
+CAS, or deletion authority.
+
 Immediately before deletion, `retire` re-reads the target after the durable
 `ATTEMPTED` claim and compares the retirement key plus every target digest to
 the claimed ledger record. Only the broker execution role has stack-plus-name
