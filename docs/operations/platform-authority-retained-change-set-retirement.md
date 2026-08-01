@@ -137,6 +137,20 @@ The broker fails closed unless it proves:
   additions;
 - exact runtime, identity and ledger controls.
 
+For each of those four additions, accept only exact `Action: "Add"` with either
+an omitted `Replacement` member or exact string `Replacement: "False"`.
+CloudFormation documents `Replacement` as an optional `ResourceChange` member
+for `Modify`; the broker converts only omitted `Add` to canonical `"False"`.
+Explicit null, boolean `false`, numeric zero, case or whitespace variants,
+`True`, `Conditional`, unknown strings, missing action, and every non-`Add`
+action must deny as `CHANGE_SET_RESOURCES_CHANGED` before a ledger write or
+delete. The accepted forms must retain the same exact inventory digest.
+
+The repository tests for this rule use sanitized synthetic provider responses.
+They are not live inventory or retirement authorization. No command in this
+runbook is authorized by repository or CI evidence alone, and production
+remains **NO-GO**.
+
 In a future separately reviewed compatible implementation, only the Lambda
 could create
 `retirement_id = gug215#sha256:<64-hex-change-set-id-digest>` in state

@@ -152,6 +152,28 @@ class BrokerError(ValueError):
         super().__init__(code)
 
 
+def _canonical_resource_change(
+    resource: Mapping[str, Any],
+) -> tuple[str, str, str, str]:
+    """Normalize one exact GUG-215 CREATE/Add resource change."""
+
+    logical_id = resource.get("LogicalResourceId")
+    resource_type = resource.get("ResourceType")
+    action = resource.get("Action")
+    if (
+        not isinstance(logical_id, str)
+        or not isinstance(resource_type, str)
+        or not isinstance(action, str)
+        or action != "Add"
+    ):
+        raise BrokerError("CHANGE_SET_RESOURCES_CHANGED")
+
+    replacement = resource["Replacement"] if "Replacement" in resource else "False"
+    if not isinstance(replacement, str) or replacement != "False":
+        raise BrokerError("CHANGE_SET_RESOURCES_CHANGED")
+    return logical_id, resource_type, action, replacement
+
+
 def canonical_digest(value: Mapping[str, Any]) -> str:
     payload = json.dumps(
         value,
@@ -1140,15 +1162,7 @@ class RetirementBroker:
             resource = change.get("ResourceChange")
             if not isinstance(resource, Mapping):
                 raise BrokerError("CHANGE_SET_RESOURCES_CHANGED")
-            values = (
-                resource.get("LogicalResourceId"),
-                resource.get("ResourceType"),
-                resource.get("Action"),
-                resource.get("Replacement"),
-            )
-            if not all(isinstance(value, str) for value in values):
-                raise BrokerError("CHANGE_SET_RESOURCES_CHANGED")
-            normalized.append(values)  # type: ignore[arg-type]
+            normalized.append(_canonical_resource_change(resource))
         if tuple(sorted(normalized)) != EXPECTED_RESOURCE_CHANGES:
             raise BrokerError("CHANGE_SET_RESOURCES_CHANGED")
         tags = response.get("Tags")

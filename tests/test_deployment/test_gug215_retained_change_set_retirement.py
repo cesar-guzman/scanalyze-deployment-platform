@@ -653,6 +653,8 @@ class FakeCloudFormation:
         self.replace_change_set_on_list_call: int | None = None
         self.capabilities: list[str] = []
         self.resource_changes = list(EXPECTED_RESOURCE_CHANGES)
+        self.omitted_replacement_logical_ids: set[str] = set()
+        self.describe_overrides: dict[str, Any] = {}
         self.template_body = TEMPLATE_BODY
 
     def describe_stacks(self, **kwargs: Any) -> dict[str, Any]:
@@ -714,18 +716,21 @@ class FakeCloudFormation:
         }
         changes = []
         for logical_id, resource_type, action, replacement in self.resource_changes:
+            resource_change = {
+                "LogicalResourceId": logical_id,
+                "ResourceType": resource_type,
+                "Action": action,
+                "Replacement": replacement,
+            }
+            if logical_id in self.omitted_replacement_logical_ids:
+                resource_change.pop("Replacement")
             changes.append(
                 {
                     "Type": "Resource",
-                    "ResourceChange": {
-                        "LogicalResourceId": logical_id,
-                        "ResourceType": resource_type,
-                        "Action": action,
-                        "Replacement": replacement,
-                    },
+                    "ResourceChange": resource_change,
                 }
             )
-        return {
+        response: dict[str, Any] = {
             "ChangeSetName": CHANGE_SET_NAME,
             "ChangeSetId": self.change_set_id,
             "StackName": STACK_NAME,
@@ -743,6 +748,8 @@ class FakeCloudFormation:
             ],
             "Changes": changes,
         }
+        response.update(self.describe_overrides)
+        return response
 
     def get_template(self, **kwargs: Any) -> dict[str, Any]:
         self.log.append("cfn:get-template")
@@ -844,6 +851,32 @@ def _handle(
         event={} if event is None else event,
         identity_proof_sha256=proof_by_alias[alias],
     )
+
+
+def _provider_resource_changes() -> list[dict[str, Any]]:
+    return [
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "LogicalResourceId": logical_id,
+                "ResourceType": resource_type,
+                "Action": action,
+                "Replacement": replacement,
+            },
+        }
+        for logical_id, resource_type, action, replacement in EXPECTED_RESOURCE_CHANGES
+    ]
+
+
+def _assert_classification_rejected(
+    clients: FakeClients,
+    code: str = "CHANGE_SET_RESOURCES_CHANGED",
+) -> None:
+    broker, _ = _broker(clients)
+    with pytest.raises(BrokerError, match=rf"^{code}$"):
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    assert clients.dynamodb.write_count == 0
+    assert clients.cloudformation.delete_calls == 0
 
 
 def test_config_requires_two_distinct_immutable_identity_store_users() -> None:
@@ -1056,6 +1089,226 @@ def test_classification_is_service_owned_create_only_and_sanitized() -> None:
     assert CHANGE_SET_NAME not in serialized
     assert CLASSIFIER_USER_ID not in serialized
     assert APPROVER_USER_ID not in serialized
+
+
+def test_classification_accepts_add_changes_with_omitted_replacement() -> None:
+    clients = FakeClients(_config())
+    clients.cloudformation.omitted_replacement_logical_ids = {
+        logical_id for logical_id, _, _, _ in EXPECTED_RESOURCE_CHANGES
+    }
+    broker, _ = _broker(clients)
+
+    response = _handle(broker, alias=ALIAS_CLASSIFY, event={})
+
+    assert response["status"] == "CLASSIFIED"
+    assert clients.dynamodb.write_count == 1
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["resource_inventory_sha256"] == EVIDENCE_SHA256
+    assert clients.cloudformation.delete_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("omitted_logical_ids", "reverse_order"),
+    (
+        ({EXPECTED_RESOURCE_CHANGES[0][0]}, False),
+        (set(), True),
+    ),
+    ids=("one-omitted-three-explicit", "all-explicit-reordered"),
+)
+def test_provider_equivalent_add_replacement_forms_share_canonical_digest(
+    omitted_logical_ids: set[str], reverse_order: bool
+) -> None:
+    clients = FakeClients(_config())
+    clients.cloudformation.omitted_replacement_logical_ids = omitted_logical_ids
+    if reverse_order:
+        clients.cloudformation.resource_changes.reverse()
+    broker, _ = _broker(clients)
+
+    response = _handle(broker, alias=ALIAS_CLASSIFY, event={})
+
+    assert response["status"] == "CLASSIFIED"
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["resource_inventory_sha256"] == EVIDENCE_SHA256
+    assert clients.dynamodb.write_count == 1
+    assert clients.cloudformation.delete_calls == 0
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        None,
+        False,
+        0,
+        "false",
+        " False",
+        "False ",
+        "True",
+        "Conditional",
+        "unknown",
+    ),
+    ids=(
+        "null",
+        "boolean-false",
+        "numeric-zero",
+        "lowercase",
+        "leading-whitespace",
+        "trailing-whitespace",
+        "true",
+        "conditional",
+        "unknown-string",
+    ),
+)
+def test_classification_rejects_present_noncanonical_add_replacement(
+    replacement: object,
+) -> None:
+    clients = FakeClients(_config())
+    first = EXPECTED_RESOURCE_CHANGES[0]
+    clients.cloudformation.resource_changes[0] = (
+        first[0],
+        first[1],
+        first[2],
+        replacement,
+    )
+    _assert_classification_rejected(clients)
+
+
+@pytest.mark.parametrize(
+    ("action", "omit_action", "omit_replacement"),
+    (
+        ("Modify", False, True),
+        ("Remove", False, True),
+        ("Import", False, False),
+        ("Dynamic", False, False),
+        ("SyncWithActual", False, False),
+        ("Add", True, False),
+        (False, False, False),
+    ),
+    ids=(
+        "modify-with-missing-replacement",
+        "remove-with-missing-replacement",
+        "import",
+        "dynamic",
+        "sync-with-actual",
+        "missing-action",
+        "non-string-action",
+    ),
+)
+def test_classification_rejects_non_add_or_malformed_action(
+    action: object, omit_action: bool, omit_replacement: bool
+) -> None:
+    clients = FakeClients(_config())
+    changes = _provider_resource_changes()
+    resource = changes[0]["ResourceChange"]
+    resource["Action"] = action
+    if omit_action:
+        resource.pop("Action")
+    if omit_replacement:
+        resource.pop("Replacement")
+    clients.cloudformation.describe_overrides["Changes"] = changes
+    _assert_classification_rejected(clients)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing-logical-id",
+        "non-string-logical-id",
+        "missing-resource-type",
+        "non-string-resource-type",
+        "duplicate-logical-resource",
+        "missing-expected-resource",
+        "extra-resource",
+        "wrong-resource-type",
+        "wrong-logical-id",
+        "resource-entry-not-mapping",
+        "changes-not-list",
+        "missing-resource-change",
+        "malformed-resource-change",
+        "non-resource-entry-type",
+    ),
+)
+def test_classification_rejects_nonexact_resource_inventory(mutation: str) -> None:
+    clients = FakeClients(_config())
+    changes: Any = _provider_resource_changes()
+    if mutation == "missing-logical-id":
+        changes[0]["ResourceChange"].pop("LogicalResourceId")
+    elif mutation == "non-string-logical-id":
+        changes[0]["ResourceChange"]["LogicalResourceId"] = 0
+    elif mutation == "missing-resource-type":
+        changes[0]["ResourceChange"].pop("ResourceType")
+    elif mutation == "non-string-resource-type":
+        changes[0]["ResourceChange"]["ResourceType"] = False
+    elif mutation == "duplicate-logical-resource":
+        changes[1] = copy.deepcopy(changes[0])
+    elif mutation == "missing-expected-resource":
+        changes.pop()
+    elif mutation == "extra-resource":
+        changes.append(
+            {
+                "Type": "Resource",
+                "ResourceChange": {
+                    "LogicalResourceId": "UnexpectedResource",
+                    "ResourceType": "AWS::S3::Bucket",
+                    "Action": "Add",
+                    "Replacement": "False",
+                },
+            }
+        )
+    elif mutation == "wrong-resource-type":
+        changes[0]["ResourceChange"]["ResourceType"] = "AWS::SQS::Queue"
+    elif mutation == "wrong-logical-id":
+        changes[0]["ResourceChange"]["LogicalResourceId"] = "StateBucketOther"
+    elif mutation == "resource-entry-not-mapping":
+        changes[0] = "Resource"
+    elif mutation == "changes-not-list":
+        changes = {"unexpected": "mapping"}
+    elif mutation == "missing-resource-change":
+        changes[0].pop("ResourceChange")
+    elif mutation == "malformed-resource-change":
+        changes[0]["ResourceChange"] = []
+    else:
+        changes[0]["Type"] = "Parameter"
+    clients.cloudformation.describe_overrides["Changes"] = changes
+    _assert_classification_rejected(clients)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "code"),
+    (
+        ("template", "REVIEWED_BASELINE_CHANGED"),
+        ("tags", "CHANGE_SET_METADATA_CHANGED"),
+        ("parameters", "CHANGE_SET_METADATA_CHANGED"),
+        ("capabilities", "CHANGE_SET_IDENTITY_CHANGED"),
+        ("stack", "CHANGE_SET_IDENTITY_CHANGED"),
+        ("change-set", "CHANGE_SET_IDENTITY_CHANGED"),
+    ),
+)
+def test_normalized_inventory_does_not_bypass_evidence_or_target_bindings(
+    mutation: str, code: str
+) -> None:
+    clients = FakeClients(_config())
+    clients.cloudformation.omitted_replacement_logical_ids = {
+        logical_id for logical_id, _, _, _ in EXPECTED_RESOURCE_CHANGES
+    }
+    if mutation == "template":
+        clients.cloudformation.template_body = "synthetic-unreviewed-template"
+    elif mutation == "tags":
+        clients.cloudformation.describe_overrides["Tags"] = [
+            {"Key": "managed_by", "Value": "other"}
+        ]
+    elif mutation == "parameters":
+        clients.cloudformation.describe_overrides["Parameters"] = [
+            {"ParameterKey": "StateKey", "ParameterValue": "other"}
+        ]
+    elif mutation == "capabilities":
+        clients.cloudformation.describe_overrides["Capabilities"] = ["CAPABILITY_IAM"]
+    elif mutation == "stack":
+        clients.cloudformation.describe_overrides["StackId"] = REPLACEMENT_STACK_ID
+    else:
+        clients.cloudformation.describe_overrides["ChangeSetId"] = (
+            REPLACEMENT_CHANGE_SET_ID
+        )
+    _assert_classification_rejected(clients, code)
 
 
 def test_create_and_transition_response_loss_are_reconciled_by_exact_readback() -> None:
