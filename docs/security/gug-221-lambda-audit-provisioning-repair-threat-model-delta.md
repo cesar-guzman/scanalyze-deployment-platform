@@ -434,12 +434,24 @@ KMS signature before OIDC, STS, ledger or CloudFormation access.
 `ClientContext` proves only `RequestResponse`. The fresh receipt digest is
 recorded downstream but cannot influence the static binding digest.
 
+The active v2 topology evidence closes the alias-target gap explicitly. Its
+signed `broker_alias_function_version` is the canonical positive numeric target
+read from `GetAlias`; v1 cannot enter the active path. Only after KMS verifies
+that exact field does the handler compare it with `context.function_version`,
+still before creation of OIDC, STS, DynamoDB or CloudFormation clients. This
+blocks a mismatch when the executing version contains the reviewed handler.
+It cannot make old or foreign code enforce a guard it does not contain. Such a
+repoint may start an effect before the outer response exposes the different
+version; the invoker must classify that case as terminal uncertainty. Alias
+mutation prevention, account-wide authority controls and a live change freeze
+remain external GUG-218/GUG-219/GUG-220 gates.
+
 The response is also an untrusted carrier. Lambda can return outer
 `StatusCode = 200` while the handler returns application `202`, `403` or `500`.
 The invoker therefore accepts no transport-only success: it bounded-reads and
 proves completeness in one read against a trustworthy declared length, rejects
-ambiguous/reused streams and non-canonical JSON, requires a numeric immutable
-version plus application `200`, and validates the canonical
+ambiguous/reused streams and non-canonical JSON, requires `ExecutedVersion` to
+equal the exact v2 reviewed target plus application `200`, and validates the canonical
 proof/effect/closure receipt chain against the expected execution and
 topology. The outer payload is capped at 64 KiB and the nested body at 48 KiB;
 missing length, truncation, partial content or excess bytes are ambiguous.
@@ -447,6 +459,14 @@ missing length, truncation, partial content or excess bytes are ambiguous.
 reconcile-only with zero retry; a well-formed `403` is a fail-closed broker
 denial. Diagnostics expose only stable local codes, never OAuth material,
 payloads or raw provider errors.
+
+The outer check is necessarily post-dispatch. A numeric mismatch can mean an
+unreviewed version already ran, so it is terminal uncertainty: the payload is
+not consumed as authority, no second invocation occurs and only read-only
+reconciliation is permitted. The v2 receipt digest propagated through proof,
+ledger, effect and closure receipts provides the transitive version binding;
+duplicating a mutable version field in each receipt would create another source
+of authority rather than close an attack path.
 
 The ledger resource policy also denies every principal from removing or
 replacing that policy, deleting or structurally updating the table, creating

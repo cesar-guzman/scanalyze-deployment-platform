@@ -283,7 +283,10 @@ digest; they contain only immutable topology inputs, expected static
 `broker_topology_sha256`, KMS signing-key ARN and `ECDSA_SHA_256`. After the
 qualified alias exists, read-only collection emits a canonical provider
 receipt bound to the same static topology digest and a separate KMS boundary
-signs it.
+signs it. The active v2 receipt also carries the exact positive numeric
+`broker_alias_function_version` read from the alias. That field participates in
+the canonical digest and signature; v1 remains a historical fixture and is not
+accepted on the execution path.
 
 `tooling/platform_authority_lambda_audit_repair_phase_b_invoker.py` makes one
 `RequestResponse` call carrying the complete signed object as
@@ -291,7 +294,9 @@ signs it.
 `transport + execution_id + broker_topology_sha256`. The broker rejects extra
 event fields before client creation, enforces the 4 KiB evidence limit, checks
 freshness and all static bindings, and requires `kms:Verify` before OIDC, STS,
-ledger or CloudFormation access. The dynamic receipt digest is recorded in
+ledger or CloudFormation access. Immediately after KMS verification, the
+handler requires `context.function_version` to equal the signed v2 alias target
+before creating any effect-capable client. The dynamic receipt digest is recorded in
 proof/ledger/effect evidence but is not an immutable topology/binding input.
 
 The synchronous Lambda transport envelope is not an authorization result.
@@ -301,7 +306,8 @@ three-receipt response is about 7.2 KiB (6.7 KiB body), so these limits retain
 ample contract headroom without accepting unbounded data. Missing length,
 reuse, truncation, oversize or partial-read ambiguity fails closed. Both JSON
 layers reject duplicate keys, non-finite numbers, invalid UTF-8 and trailing
-data. Success requires exact numeric `ExecutedVersion`, application
+data. Success requires `ExecutedVersion` to be the exact canonical numeric
+version signed in the v2 topology evidence, application
 `statusCode = 200`, `isBase64Encoded = false`, the exact JSON response
 envelope, and exact `identity_proof`, `broker_effect` and `closure_pending`
 receipts. Their canonical receipt digests, execution ID, topology digest,
@@ -309,6 +315,18 @@ provider-evidence digest, policy digests and cross-references must all bind to
 the invocation. Application `202` and `500` are
 `PHASE_B_INVOKE_UNCERTAIN`/reconcile-only; a well-formed `403` is
 `PHASE_B_BROKER_DENIED`. No response ambiguity is retried.
+
+An alias repoint between provider collection and invocation is therefore
+detected at both observable ends. The reviewed handler denies when its runtime
+version differs before ledger, OIDC/STS or CloudFormation access. A repoint to
+older or foreign code that lacks this guard remains a control-plane residual:
+that code may have started an effect before the invoker observes the outer
+version mismatch. The result is `PHASE_B_INVOKE_UNCERTAIN`, the payload is not
+trusted, and the caller performs no second invocation. Existing receipt digests
+bind the signed v2 evidence transitively, so proof/effect/closure schemas do not
+duplicate the version field. Preventing the alias mutation itself still
+depends on the separately reviewed GUG-218/GUG-219/GUG-220 authority controls
+and live change freeze.
 
 This response contract is repository-only offline evidence. It performs no
 AWS or Lambda operation, does not close the separate GUG-117, GUG-218,

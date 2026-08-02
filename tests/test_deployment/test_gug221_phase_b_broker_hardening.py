@@ -345,9 +345,10 @@ def _topology_evidence(
     *,
     collected_at: str = "2030-01-01T00:05:00Z",
     policy_digests: dict[str, str] | None = None,
+    broker_alias_function_version: object = "7",
 ) -> dict[str, Any]:
     evidence: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": "2",
         "record_type": (
             "platform_authority_lambda_audit_repair_phase_b_"
             "broker_topology_evidence"
@@ -370,6 +371,7 @@ def _topology_evidence(
         "synchronous_client_context_required": True,
         "asynchronous_effect_blocked": True,
         "pending_operations_absent": True,
+        "broker_alias_function_version": broker_alias_function_version,
         **(POLICY_DIGESTS if policy_digests is None else policy_digests),
         "broker_topology_sha256": calculate_broker_topology_sha256(
             _topology_inputs()
@@ -386,10 +388,9 @@ def _topology_evidence(
 
 def test_external_topology_evidence_requires_provider_readback_and_hash() -> None:
     evidence = _topology_evidence()
-    assert (
-        validate_broker_topology_evidence(evidence, now=NOW)
-        == evidence["receipt_digest"]
-    )
+    validated = validate_broker_topology_evidence(evidence, now=NOW)
+    assert validated.receipt_digest == evidence["receipt_digest"]
+    assert validated.broker_alias_function_version == "7"
     with pytest.raises(PhaseBPepError):
         validate_broker_topology_evidence(
             {**evidence, "provider_readback": False},
@@ -715,12 +716,15 @@ def test_runtime_rejects_expanded_payload_before_kms_or_effect_clients(
 def _lambda_context(
     current: PhaseBIdentityBinding,
     custom: object,
+    *,
+    function_version: object = "7",
 ) -> object:
     return type(
         "Context",
         (),
         {
             "invoked_function_arn": current.broker_alias_arn,
+            "function_version": function_version,
             "client_context": type(
                 "ClientContext",
                 (),
@@ -809,6 +813,125 @@ def test_transport_failure_precedes_topology_and_aws_client_access(
     )
     assert evidence_calls == []
     assert client_calls == []
+
+
+def test_runtime_version_mismatch_fails_after_kms_before_effect_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = datetime.now(tz=UTC).replace(microsecond=0)
+    evidence = _topology_evidence(
+        collected_at=observed.isoformat().replace("+00:00", "Z")
+    )
+    current = binding(None)
+    kms_calls: list[dict[str, Any]] = []
+    effect_client_calls: list[dict[str, Any]] = []
+
+    class Kms:
+        def verify(self, **kwargs: Any) -> dict[str, Any]:
+            kms_calls.append(kwargs)
+            return {
+                "SignatureValid": True,
+                "KeyId": TOPOLOGY_SIGNING_KEY_ARN,
+                "SigningAlgorithm": BROKER_TOPOLOGY_SIGNATURE_ALGORITHM,
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+            }
+
+    monkeypatch.setattr(
+        phase_b_runtime,
+        "binding_from_environment",
+        lambda: current,
+    )
+    monkeypatch.setattr(
+        phase_b_runtime,
+        "create_kms_verifier_client",
+        lambda **_: Kms(),
+    )
+    monkeypatch.setattr(
+        phase_b_runtime.BotoClients,
+        "create",
+        lambda **kwargs: effect_client_calls.append(kwargs),
+    )
+
+    response = phase_b_runtime.handler(
+        {
+            "schema_version": "1",
+            "record_type": (
+                "platform_authority_lambda_audit_repair_phase_b_"
+                "proof_request"
+            ),
+            "authorization_code": "synthetic-code",
+            "code_verifier": PKCE_VERIFIER,
+            "oauth_state": OAUTH_STATE,
+            "broker_topology_evidence": evidence,
+        },
+        _lambda_context(
+            current,
+            {
+                "transport": "REQUEST_RESPONSE",
+                "execution_id": current.execution_id,
+                "broker_topology_sha256": current.broker_topology_sha256,
+            },
+            function_version="8",
+        ),
+    )
+
+    assert json.loads(response["body"])["reason_code"] == (
+        "BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH"
+    )
+    assert len(kms_calls) == 1
+    assert effect_client_calls == []
+
+
+@pytest.mark.parametrize(
+    "function_version",
+    (
+        "",
+        "$LATEST",
+        "0",
+        "01",
+        " 7",
+        "7 ",
+        "+7",
+        "-7",
+        "7.0",
+        7,
+        7.0,
+        True,
+        None,
+        [],
+        {},
+        "9" * 1025,
+    ),
+)
+def test_runtime_rejects_noncanonical_function_version(
+    function_version: object,
+) -> None:
+    with pytest.raises(
+        PhaseBPepError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH$",
+    ):
+        phase_b_runtime._assert_runtime_function_version(
+            type("Context", (), {"function_version": function_version})(),
+            expected_version="7",
+        )
+
+
+def test_runtime_rejects_missing_function_version() -> None:
+    with pytest.raises(
+        PhaseBPepError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH$",
+    ):
+        phase_b_runtime._assert_runtime_function_version(
+            object(),
+            expected_version="7",
+        )
+
+
+def test_runtime_accepts_exact_canonical_function_version() -> None:
+    phase_b_runtime._assert_runtime_function_version(
+        type("Context", (), {"function_version": "7"})(),
+        expected_version="7",
+    )
 
 
 _COLLECTOR_POLICIES = {
@@ -1114,6 +1237,8 @@ class _TopologyIam:
 class _TopologyLambda:
     def __init__(self, current: PhaseBIdentityBinding) -> None:
         self.current = current
+        self.alias_version = "7"
+        self.configuration_version = "7"
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def _call(self, name: str, kwargs: dict[str, Any]) -> None:
@@ -1124,7 +1249,7 @@ class _TopologyLambda:
         return {
             "AliasArn": self.current.broker_alias_arn,
             "Name": FUNCTION_ALIAS,
-            "FunctionVersion": "7",
+            "FunctionVersion": self.alias_version,
             "RoutingConfig": {},
         }
 
@@ -1136,7 +1261,7 @@ class _TopologyLambda:
             "FunctionName": FUNCTION_NAME,
             "FunctionArn": (
                 "arn:aws:lambda:us-east-1:042360977644:function:"
-                f"{FUNCTION_NAME}:7"
+                f"{FUNCTION_NAME}:{self.configuration_version}"
             ),
             "Runtime": "python3.12",
             "Role": self.current.broker_execution_role_arn,
@@ -1145,7 +1270,7 @@ class _TopologyLambda:
                 "phase_b_runtime.handler"
             ),
             "CodeSha256": self.current.broker_artifact_code_sha256,
-            "Version": "7",
+            "Version": self.configuration_version,
             "State": "Active",
             "LastUpdateStatus": "Successful",
             "PackageType": "Zip",
@@ -1376,6 +1501,8 @@ def test_read_only_collector_builds_unsigned_provider_evidence() -> None:
     assert "signature" not in unsigned
     assert unsigned["provider_readback"] is True
     assert unsigned["status"] == "PROVIDER_TOPOLOGY_READBACK_VERIFIED"
+    assert unsigned["schema_version"] == "2"
+    assert unsigned["broker_alias_function_version"] == "7"
     assert unsigned["receipt_digest"] == (
         broker_topology_signature_digest(unsigned)
     )
@@ -1383,10 +1510,9 @@ def test_read_only_collector_builds_unsigned_provider_evidence() -> None:
         unsigned_evidence=unsigned,
         signature=TOPOLOGY_SIGNATURE,
     )
-    assert (
-        validate_broker_topology_evidence(signed, now=NOW)
-        == unsigned["receipt_digest"]
-    )
+    validated = validate_broker_topology_evidence(signed, now=NOW)
+    assert validated.receipt_digest == unsigned["receipt_digest"]
+    assert validated.broker_alias_function_version == "7"
     observed_operations = {
         operation
         for service in services
@@ -1439,6 +1565,55 @@ def test_read_only_collector_builds_unsigned_provider_evidence() -> None:
         )
         for operation in observed_operations
     )
+
+
+@pytest.mark.parametrize(
+    "alias_version",
+    ("", "$LATEST", "0", "01", "-7", 7, None, "9" * 1025),
+)
+def test_collector_rejects_noncanonical_alias_version(
+    alias_version: object,
+) -> None:
+    current = _collector_binding()
+    clients, services = _topology_clients(current)
+    lambda_client = services[2]
+    assert isinstance(lambda_client, _TopologyLambda)
+    lambda_client.alias_version = alias_version  # type: ignore[assignment]
+
+    with pytest.raises(
+        PhaseBPepError,
+        match="^BROKER_TOPOLOGY_LAMBDA_ALIAS_MISMATCH$",
+    ):
+        topology_collector.collect_unsigned_broker_topology_evidence(
+            binding=current,
+            clients=clients,
+            now=NOW,
+        )
+
+
+def test_collector_rejects_alias_configuration_version_mismatch() -> None:
+    current = _collector_binding()
+    clients, services = _topology_clients(current)
+    lambda_client = services[2]
+    assert isinstance(lambda_client, _TopologyLambda)
+    lambda_client.configuration_version = "8"
+
+    with pytest.raises(
+        PhaseBPepError,
+        match="^BROKER_TOPOLOGY_LAMBDA_CONFIGURATION_MISMATCH$",
+    ):
+        topology_collector.collect_unsigned_broker_topology_evidence(
+            binding=current,
+            clients=clients,
+            now=NOW,
+        )
+
+
+def test_signed_topology_digest_changes_with_alias_version() -> None:
+    version_seven = _topology_evidence()
+    version_eight = _topology_evidence(broker_alias_function_version="8")
+
+    assert version_seven["receipt_digest"] != version_eight["receipt_digest"]
 
 
 def test_read_only_collector_rejects_role_policy_expansion() -> None:
@@ -2042,6 +2217,10 @@ def test_template_is_direct_qualified_broker_only() -> None:
     assert function["ReservedConcurrentExecutions"] == 1
     alias = resources["PhaseBBrokerExecuteAlias"]["Properties"]
     assert alias["Name"] == FUNCTION_ALIAS
+    assert alias["FunctionVersion"] == {
+        "GetAtt": "PhaseBBrokerVersion.Version"
+    }
+    assert "RoutingConfig" not in alias
     permission = resources["PhaseBBrokerInvokePermission"]["Properties"]
     assert permission["Action"] == "lambda:InvokeFunction"
     assert "broker-v1" in json.dumps(permission)

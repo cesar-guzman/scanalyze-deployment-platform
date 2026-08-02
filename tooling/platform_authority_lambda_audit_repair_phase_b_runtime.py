@@ -36,6 +36,7 @@ from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (
     PhaseBPepError,
     PhaseBClosurePendingReceipt,
     parse_timestamp,
+    require_published_lambda_version,
     validate_broker_topology_evidence,
 )
 
@@ -134,7 +135,7 @@ def _validated_topology_evidence_from_invocation(
     event: object,
     binding: PhaseBIdentityBinding,
     now: datetime,
-) -> tuple[Mapping[str, Any], str]:
+) -> tuple[Mapping[str, Any], str, str]:
     """Validate the exact bounded payload before creating any AWS client."""
 
     if type(event) is not dict or set(event) != REQUEST_KEYS:
@@ -154,7 +155,7 @@ def _validated_topology_evidence_from_invocation(
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_INVALID") from None
     if len(encoded) > MAX_BROKER_TOPOLOGY_EVIDENCE_JSON_BYTES:
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_INVALID")
-    receipt_digest = validate_broker_topology_evidence(value, now=now)
+    validated_evidence = validate_broker_topology_evidence(value, now=now)
     if value.get("broker_topology_sha256") != binding.broker_topology_sha256:
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH")
     for field_name in (
@@ -172,7 +173,11 @@ def _validated_topology_evidence_from_invocation(
         != binding.broker_topology_signature_algorithm
     ):
         raise PhaseBPepError("BROKER_TOPOLOGY_SIGNATURE_BINDING_MISMATCH")
-    return value, receipt_digest
+    return (
+        value,
+        validated_evidence.receipt_digest,
+        validated_evidence.broker_alias_function_version,
+    )
 
 
 def _authenticate_topology_evidence(
@@ -206,7 +211,7 @@ def _topology_evidence_from_invocation(
 ) -> tuple[Mapping[str, Any], str]:
     """Validate then authenticate one provider-derived invocation field."""
 
-    evidence, receipt_digest = _validated_topology_evidence_from_invocation(
+    evidence, receipt_digest, _ = _validated_topology_evidence_from_invocation(
         event=event,
         binding=binding,
         now=now,
@@ -538,6 +543,27 @@ def _qualifier(context: object) -> str:
     return FUNCTION_ALIAS
 
 
+def _assert_runtime_function_version(
+    context: object,
+    *,
+    expected_version: str,
+) -> None:
+    """Bind the authenticated target to the executing Lambda version."""
+
+    try:
+        observed_version = getattr(context, "function_version")
+    except Exception:
+        raise PhaseBPepError(
+            "BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH"
+        ) from None
+    observed_version = require_published_lambda_version(
+        observed_version,
+        code="BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH",
+    )
+    if observed_version != expected_version:
+        raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH")
+
+
 def _response(status_code: int, value: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "statusCode": status_code,
@@ -567,7 +593,7 @@ def handler(event: object, context: object) -> dict[str, Any]:
             raise PhaseBPepError("BROKER_ROLE_BINDING_INVALID")
         clock = lambda: datetime.now(tz=UTC)
         _validate_synchronous_client_context(context, binding=binding)
-        evidence, evidence_digest = (
+        evidence, evidence_digest, expected_function_version = (
             _validated_topology_evidence_from_invocation(
                 event=event,
                 binding=binding,
@@ -587,6 +613,10 @@ def handler(event: object, context: object) -> dict[str, Any]:
                     binding.broker_topology_signature_algorithm
                 ),
             ),
+        )
+        _assert_runtime_function_version(
+            context,
+            expected_version=expected_function_version,
         )
         # No mutable/provider-effect client, CAS write or protected effect
         # exists above this point. KMS Verify is the only provider call.
