@@ -35,6 +35,8 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
     build_bootstrap_plan,
     build_bootstrap_verification,
     canonical_digest,
+    change_set_identity_from_arn,
+    prevalidate_bootstrap_apply,
     require_exact_empty_review_stack,
     render_backend_config,
     render_bootstrap_iam_policy,
@@ -62,6 +64,9 @@ SSO_ASSUMED_ROLE_ARN = re.compile(
 AWS_PERMISSION_SET_NAME = re.compile(r"^[A-Za-z0-9_+=,.@-]{1,32}$")
 PLAN_PERMISSION_SET = "ScanalyzeAuthorityBootstrapPlan"
 APPLY_PERMISSION_SET = "ScanalyzeAuthorityBootstrapApply"
+NORMAL_CANCEL_RETIRED = (
+    "NORMAL_CANCEL_RETIRED: use the separately reviewed GUG-215 retirement process"
+)
 MAX_CHANGE_SET_PAGES = 100
 REQUIRED_BUCKET_POLICY_SIDS = frozenset(
     {
@@ -110,18 +115,27 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _outside_repo(path: Path) -> Path:
-    destination = path.expanduser().resolve(strict=False)
+    destination = Path(os.path.abspath(path.expanduser()))
+    if destination.exists() or destination.is_symlink():
+        raise BootstrapAuthorizationError("operational output path must not already exist")
     try:
-        destination.relative_to(REPO_ROOT.resolve())
+        resolved_parent = destination.parent.resolve(strict=True)
+    except OSError as exc:
+        raise BootstrapAuthorizationError("operational output parent does not exist") from exc
+    if not resolved_parent.is_dir():
+        raise BootstrapAuthorizationError("operational output parent does not exist")
+    if resolved_parent != destination.parent:
+        raise BootstrapAuthorizationError(
+            "operational output path must not contain symlinks"
+        )
+    resolved_destination = resolved_parent / destination.name
+    try:
+        resolved_destination.relative_to(REPO_ROOT.resolve())
     except ValueError:
         pass
     else:
         raise BootstrapAuthorizationError("operational output must be outside the repository")
-    if destination.exists() or destination.is_symlink():
-        raise BootstrapAuthorizationError("operational output path must not already exist")
-    if not destination.parent.is_dir():
-        raise BootstrapAuthorizationError("operational output parent does not exist")
-    return destination
+    return resolved_destination
 
 
 def _write_private(path: Path, content: str) -> None:
@@ -182,13 +196,19 @@ class AwsCli:
             "--no-cli-pager",
         ]
 
+    @staticmethod
+    def _environment() -> dict[str, str]:
+        environment = os.environ.copy()
+        environment["AWS_MAX_ATTEMPTS"] = "1"
+        return environment
+
     def run(self, *parts: str) -> dict[str, Any]:
         completed = subprocess.run(
             self._command(*parts),
             check=False,
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=self._environment(),
         )
         if completed.returncode != 0:
             operation = " ".join(parts[:2])
@@ -209,7 +229,7 @@ class AwsCli:
             check=False,
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=self._environment(),
         )
         if completed.returncode != 0:
             if any(marker in completed.stderr for marker in missing_markers):
@@ -230,7 +250,7 @@ class AwsCli:
             check=False,
             capture_output=True,
             text=True,
-            env=os.environ.copy(),
+            env=self._environment(),
         )
         if completed.returncode != 0:
             operation = " ".join(parts[:3])
@@ -446,7 +466,10 @@ def _require_exact_change_set_response(
     binding: BootstrapBinding,
     change_set_id: str,
 ) -> None:
-    change_set_name = change_set_id.split("/", 2)[-2]
+    change_set_name = change_set_identity_from_arn(
+        change_set_id,
+        binding=binding,
+    ).name
     if (
         response.get("ChangeSetId") != change_set_id
         or response.get("ChangeSetName") != change_set_name
@@ -619,11 +642,16 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     )
     if described.get("Status") != "CREATE_COMPLETE" or described.get("ExecutionStatus") != "AVAILABLE":
         raise BootstrapAuthorizationError("CloudFormation change set is not executable")
+    template_sha256 = _read_exact_change_set_template(
+        client,
+        binding,
+        change_set_id,
+    )
     plan = build_bootstrap_plan(
         binding=binding,
         caller_account_id=account_id,
         caller_arn=caller_arn,
-        template_sha256=_sha256(TEMPLATE),
+        template_sha256=template_sha256,
         change_set_id=change_set_id,
         change_set_type="CREATE",
         resource_changes=_normalize_changes(described),
@@ -755,6 +783,7 @@ def _describe_exact_change_set(
     change_set_id = plan.get("change_set_id")
     if not isinstance(change_set_id, str):
         raise BootstrapAuthorizationError("bootstrap plan change set ID is missing")
+    change_set_identity_from_arn(change_set_id, binding=binding)
     response = client.run(
         "cloudformation",
         "describe-change-set",
@@ -775,6 +804,37 @@ def _describe_exact_change_set(
     return response
 
 
+def _read_exact_change_set_template(
+    client: AwsCli,
+    binding: BootstrapBinding,
+    change_set_id: str,
+) -> str:
+    """Bind the Plan digest to the original template of the exact Change Set."""
+    identity = change_set_identity_from_arn(change_set_id, binding=binding)
+    response = client.run(
+        "cloudformation",
+        "get-template",
+        "--change-set-name",
+        identity.full_arn,
+        "--stack-name",
+        binding.stack_name,
+        "--template-stage",
+        "Original",
+    )
+    template_body = response.get("TemplateBody")
+    try:
+        local_template = TEMPLATE.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise BootstrapAuthorizationError(
+            "reviewed Change Set template differs from local bootstrap template"
+        ) from exc
+    if not isinstance(template_body, str) or template_body != local_template:
+        raise BootstrapAuthorizationError(
+            "reviewed Change Set template differs from local bootstrap template"
+        )
+    return hashlib.sha256(template_body.encode("utf-8")).hexdigest()
+
+
 def _cmd_apply(args: argparse.Namespace) -> None:
     if not args.allow_bootstrap_apply:
         raise BootstrapAuthorizationError("apply requires --allow-bootstrap-apply")
@@ -783,6 +843,15 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     if verification_path == backend_path:
         raise BootstrapAuthorizationError("operational output paths must be distinct")
     binding = _binding(args)
+    plan = _strict_object(args.plan)
+    approval = _strict_object(args.approval)
+    prevalidate_bootstrap_apply(
+        plan=plan,
+        approval=approval,
+        binding=binding,
+        current_template_sha256=_sha256(TEMPLATE),
+        now=_now(),
+    )
     _require_sso_environment(binding.region)
     client = AwsCli(region=binding.region)
     account_id, caller_arn = _identity(client, binding)
@@ -791,9 +860,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     if review_stack is None:
         raise BootstrapAuthorizationError("bootstrap stack is not in exact review state")
     _require_exact_empty_review_stack(client, binding, review_stack)
-    plan = _strict_object(args.plan)
-    approval = _strict_object(args.approval)
-    authorize_bootstrap_apply(
+    identity = authorize_bootstrap_apply(
         plan=plan,
         approval=approval,
         binding=binding,
@@ -816,11 +883,22 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     if current_stack is None:
         raise BootstrapAuthorizationError("bootstrap review stack disappeared before apply")
     _require_exact_empty_review_stack(client, binding, current_stack)
+    _describe_exact_change_set(client, binding, plan)
+    identity = authorize_bootstrap_apply(
+        plan=plan,
+        approval=approval,
+        binding=binding,
+        caller_account_id=account_id,
+        caller_region=binding.region,
+        caller_arn=caller_arn,
+        current_template_sha256=_sha256(TEMPLATE),
+        now=_now(),
+    )
     client.run(
         "cloudformation",
         "execute-change-set",
         "--change-set-name",
-        str(plan["change_set_id"]),
+        identity.name,
         "--stack-name",
         binding.stack_name,
         "--no-disable-rollback",
@@ -838,45 +916,16 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         plan=plan,
         caller_arn=caller_arn,
     )
-    _write_json(args.verification_out, verification)
-    _write_private(args.backend_config_out, backend)
+    _write_json(verification_path, verification)
+    _write_private(backend_path, backend)
     print("PASS: exact approved platform-authority backend change set executed once")
     print(f"VERIFICATION_DIGEST: {verification['verification_digest']}")
     print("LIVE_STATUS: backend controls verified; platform-authority root not yet applied")
 
 
 def _cmd_cancel(args: argparse.Namespace) -> None:
-    if not args.allow_cancel_unexecuted:
-        raise BootstrapAuthorizationError("cancel requires --allow-cancel-unexecuted")
-    binding = _binding(args)
-    _require_sso_environment(binding.region)
-    client = AwsCli(region=binding.region)
-    _, caller_arn = _identity(client, binding)
-    _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
-    plan = _strict_object(args.plan)
-    _require_plan_matches_binding(plan, binding)
-    _describe_exact_change_set(client, binding, plan)
-    stack = _stack(client, binding.stack_name)
-    if stack is None or stack.get("StackStatus") != "REVIEW_IN_PROGRESS":
-        raise BootstrapAuthorizationError("only an unexecuted review stack may be cancelled")
-    resources = client.run(
-        "cloudformation",
-        "list-stack-resources",
-        "--stack-name",
-        binding.stack_name,
-    ).get("StackResourceSummaries")
-    if resources != []:
-        raise BootstrapAuthorizationError("review stack is not empty; cancel is forbidden")
-    client.run(
-        "cloudformation",
-        "delete-change-set",
-        "--change-set-name",
-        str(plan["change_set_id"]),
-        "--stack-name",
-        binding.stack_name,
-    )
-    print("PASS: exact unexecuted Change Set cancelled")
-    print("AWS_CHANGE: Change Set metadata removed; no stack or resources deleted")
+    del args
+    raise BootstrapAuthorizationError(NORMAL_CANCEL_RETIRED)
 
 
 def _cmd_verify(args: argparse.Namespace) -> None:
@@ -982,7 +1031,8 @@ def _parser() -> argparse.ArgumentParser:
     verify.set_defaults(handler=_cmd_verify)
 
     cancel = subparsers.add_parser(
-        "cancel", help="Remove only an exact unexecuted Change Set; never delete the stack"
+        "cancel",
+        help="Compatibility command that fails locally; use the GUG-215 retirement process",
     )
     _common(cancel)
     cancel.add_argument("--plan", type=Path, required=True)

@@ -18,6 +18,8 @@ from typing import Any, Mapping, Sequence
 ACCOUNT_ID = re.compile(r"^(?!000000000000$)[0-9]{12}$")
 REGION = re.compile(r"^[a-z]{2}(?:-[a-z]+)+-[0-9]+$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
+RECORD_DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
+OPERATOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 KMS_KEY_ARN = re.compile(
     r"^arn:(?P<partition>aws(?:-us-gov|-cn)?):kms:"
     r"(?P<region>[a-z0-9-]+):(?P<account>[0-9]{12}):"
@@ -26,7 +28,9 @@ KMS_KEY_ARN = re.compile(
 CHANGE_SET_ARN = re.compile(
     r"^arn:(?P<partition>aws(?:-us-gov|-cn)?):cloudformation:"
     r"(?P<region>[a-z0-9-]+):(?P<account>[0-9]{12}):"
-    r"changeSet/(?P<name>[A-Za-z][-A-Za-z0-9]*)/(?P<id>[0-9a-f-]{36})$"
+    r"changeSet/(?P<name>[A-Za-z][-A-Za-z0-9]*)/"
+    r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
 )
 CHANGE_SET_NAME = re.compile(r"^scanalyze-platform-authority-bootstrap-[0-9]{14}$")
 POLICY_PLACEHOLDER = re.compile(r"\$\{(?P<name>[a-z_]+)\}")
@@ -49,6 +53,48 @@ ALLOWED_RESOURCE_TYPES = frozenset(
 )
 REQUIRED_RESOURCE_TYPES = frozenset(
     {"AWS::KMS::Key", "AWS::S3::Bucket", "AWS::S3::BucketPolicy"}
+)
+PLAN_RECORD_FIELDS = frozenset(
+    {
+        "schema_version",
+        "record_type",
+        "authority_account_id",
+        "region",
+        "stack_name",
+        "state_bucket_name",
+        "state_key",
+        "destination_account_ids",
+        "native_lockfile_enabled",
+        "template_sha256",
+        "caller_principal_digest",
+        "change_set_id",
+        "change_set_type",
+        "planned_resource_changes",
+        "account_public_access_block_before",
+        "account_public_access_block_after",
+        "initiator_id",
+        "created_at",
+        "expires_at",
+        "record_digest",
+    }
+)
+APPROVAL_RECORD_FIELDS = frozenset(
+    {
+        "schema_version",
+        "record_type",
+        "plan_record_digest",
+        "authority_account_id",
+        "region",
+        "change_set_id",
+        "initiator_id",
+        "approver_id",
+        "initiator_principal_digest",
+        "approver_principal_digest",
+        "decision",
+        "approved_at",
+        "expires_at",
+        "approval_digest",
+    }
 )
 
 
@@ -457,6 +503,62 @@ class BootstrapBinding:
         }
 
 
+def _bound_change_set_arn_match(
+    change_set_id: str,
+    *,
+    binding: BootstrapBinding,
+) -> re.Match[str]:
+    """Parse one complete Change Set ARN after immutable coordinate binding."""
+    if not isinstance(change_set_id, str):
+        raise BootstrapAuthorizationError(
+            "Change Set ARN does not match bootstrap binding"
+        )
+    match = CHANGE_SET_ARN.fullmatch(change_set_id)
+    if (
+        match is None
+        or match.group("partition") != _aws_partition(binding.region)
+        or match.group("region") != binding.region
+        or match.group("account") != binding.authority_account_id
+    ):
+        raise BootstrapAuthorizationError(
+            "Change Set ARN does not match bootstrap binding"
+        )
+    return match
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeSetIdentity:
+    """Canonical normal-bootstrap identity derived from controlled evidence."""
+
+    full_arn: str
+    name: str
+    uuid: str
+    partition: str
+    region: str
+    account_id: str
+
+
+def change_set_identity_from_arn(
+    change_set_id: str,
+    *,
+    binding: BootstrapBinding,
+) -> ChangeSetIdentity:
+    """Return one immutable identity parsed from a complete, fully bound ARN."""
+    match = _bound_change_set_arn_match(change_set_id, binding=binding)
+    if CHANGE_SET_NAME.fullmatch(match.group("name")) is None:
+        raise BootstrapAuthorizationError(
+            "Change Set ARN does not match bootstrap binding"
+        )
+    return ChangeSetIdentity(
+        full_arn=change_set_id,
+        name=match.group("name"),
+        uuid=match.group("id"),
+        partition=match.group("partition"),
+        region=match.group("region"),
+        account_id=match.group("account"),
+    )
+
+
 def render_bootstrap_iam_policy(
     *,
     policy_template: Mapping[str, Any],
@@ -476,21 +578,13 @@ def render_bootstrap_iam_policy(
             raise BootstrapAuthorizationError("Change Set name is invalid")
         bindings["change_set_name"] = change_set_name
     if change_set_id is not None:
-        match = CHANGE_SET_ARN.fullmatch(change_set_id)
-        if (
-            match is None
-            or match.group("partition") != bindings["aws_partition"]
-            or match.group("region") != binding.region
-            or match.group("account") != binding.authority_account_id
-        ):
-            raise BootstrapAuthorizationError("Change Set ARN does not match policy binding")
-        arn_change_set_name = match.group("name")
-        if change_set_name is not None and change_set_name != arn_change_set_name:
+        identity = change_set_identity_from_arn(
+            change_set_id,
+            binding=binding,
+        )
+        if change_set_name is not None and change_set_name != identity.name:
             raise BootstrapAuthorizationError("Change Set name does not match ARN")
-        if CHANGE_SET_NAME.fullmatch(arn_change_set_name) is None:
-            raise BootstrapAuthorizationError("Change Set name is invalid")
-        bindings["change_set_name"] = arn_change_set_name
-        bindings["change_set_id"] = match.group("id")
+        bindings["change_set_name"] = identity.name
     rendered = _render_policy_value(dict(policy_template), bindings)
     if (
         not isinstance(rendered, dict)
@@ -577,13 +671,10 @@ def build_bootstrap_plan(
         raise BootstrapAuthorizationError("bootstrap initiator ID is invalid")
     if not isinstance(caller_arn, str) or f"::{binding.authority_account_id}:" not in caller_arn:
         raise BootstrapAuthorizationError("caller principal is not bound to authority account")
-    match = CHANGE_SET_ARN.fullmatch(change_set_id)
-    if not match or match.group("account") != binding.authority_account_id:
-        raise BootstrapAuthorizationError("change set account binding mismatch")
-    if match.group("partition") != _aws_partition(binding.region):
-        raise BootstrapAuthorizationError("change set partition binding mismatch")
-    if match.group("region") != binding.region:
-        raise BootstrapAuthorizationError("change set region binding mismatch")
+    # GUG-209 deliberately reuses this generic record builder with its own
+    # separately validated founder-exception name. Normal bootstrap callers
+    # enforce CHANGE_SET_NAME before creation and when reading/executing it.
+    _bound_change_set_arn_match(change_set_id, binding=binding)
     if change_set_type not in ALLOWED_CHANGE_SET_TYPES:
         raise BootstrapAuthorizationError("bootstrap change set type is invalid")
     created = _parse_timestamp(_timestamp(created_at, "created_at"), "created_at")
@@ -666,31 +757,85 @@ def build_bootstrap_approval(
     return approval
 
 
-def authorize_bootstrap_apply(
+def prevalidate_bootstrap_apply(
     *,
     plan: Mapping[str, Any],
     approval: Mapping[str, Any],
     binding: BootstrapBinding,
-    caller_account_id: str,
-    caller_region: str,
-    caller_arn: str,
     current_template_sha256: str,
     now: datetime,
-) -> None:
-    """Authorize execution of exactly one previously reviewed change set."""
-    binding.authorize_identity(
-        caller_account_id=caller_account_id,
-        caller_region=caller_region,
-    )
+) -> ChangeSetIdentity:
+    """Validate all locally provable Apply evidence before creating a client."""
     _require_digest(plan, "record_digest", "bootstrap plan")
     _require_digest(approval, "approval_digest", "bootstrap approval")
+    if (
+        set(plan) != PLAN_RECORD_FIELDS
+        or plan.get("schema_version") != "1"
+        or plan.get("record_type") != "platform_authority_bootstrap_plan"
+        or plan.get("native_lockfile_enabled") is not True
+        or plan.get("change_set_type") != "CREATE"
+        or RECORD_DIGEST.fullmatch(str(plan.get("record_digest", ""))) is None
+        or RECORD_DIGEST.fullmatch(str(plan.get("caller_principal_digest", ""))) is None
+        or not isinstance(plan.get("initiator_id"), str)
+        or OPERATOR_ID.fullmatch(plan["initiator_id"]) is None
+    ):
+        raise BootstrapAuthorizationError("bootstrap plan record contract is invalid")
+    if (
+        set(approval) != APPROVAL_RECORD_FIELDS
+        or approval.get("schema_version") != "1"
+        or approval.get("record_type") != "platform_authority_bootstrap_approval"
+        or RECORD_DIGEST.fullmatch(str(approval.get("approval_digest", ""))) is None
+        or RECORD_DIGEST.fullmatch(str(approval.get("plan_record_digest", ""))) is None
+        or RECORD_DIGEST.fullmatch(
+            str(approval.get("initiator_principal_digest", ""))
+        )
+        is None
+        or RECORD_DIGEST.fullmatch(
+            str(approval.get("approver_principal_digest", ""))
+        )
+        is None
+        or not isinstance(approval.get("initiator_id"), str)
+        or OPERATOR_ID.fullmatch(approval["initiator_id"]) is None
+        or not isinstance(approval.get("approver_id"), str)
+        or OPERATOR_ID.fullmatch(approval["approver_id"]) is None
+    ):
+        raise BootstrapAuthorizationError("bootstrap approval record contract is invalid")
+    if approval.get("decision") != "APPROVED":
+        raise BootstrapAuthorizationError("bootstrap approval decision is not approved")
     for field, expected in binding.as_record().items():
         if plan.get(field) != expected:
             raise BootstrapAuthorizationError(f"bootstrap plan binding mismatch: {field}")
+    change_set_id = plan.get("change_set_id")
+    if not isinstance(change_set_id, str):
+        raise BootstrapAuthorizationError("bootstrap plan change set ID is missing")
+    identity = change_set_identity_from_arn(change_set_id, binding=binding)
     if plan.get("template_sha256") != _normalize_sha256(
         current_template_sha256, "template digest"
     ):
         raise BootstrapAuthorizationError("bootstrap template digest mismatch")
+    changes = plan.get("planned_resource_changes")
+    if (
+        not isinstance(changes, list)
+        or not 3 <= len(changes) <= 4
+        or not all(isinstance(change, Mapping) for change in changes)
+        or _normalize_resource_changes(changes, change_set_type="CREATE") != changes
+    ):
+        raise BootstrapAuthorizationError(
+            "bootstrap plan resource-change contract is invalid"
+        )
+    public_access_before = plan.get("account_public_access_block_before")
+    if public_access_before is not None and (
+        not isinstance(public_access_before, Mapping)
+        or set(public_access_before) != set(PUBLIC_ACCESS_BLOCK)
+        or not all(isinstance(value, bool) for value in public_access_before.values())
+    ):
+        raise BootstrapAuthorizationError(
+            "bootstrap plan prior public-access block is invalid"
+        )
+    if plan.get("account_public_access_block_after") != PUBLIC_ACCESS_BLOCK:
+        raise BootstrapAuthorizationError(
+            "bootstrap plan public-access block target is invalid"
+        )
     if approval.get("plan_record_digest") != plan.get("record_digest"):
         raise BootstrapAuthorizationError("bootstrap approval plan binding mismatch")
     for field in ("authority_account_id", "region", "change_set_id", "initiator_id"):
@@ -702,20 +847,49 @@ def authorize_bootstrap_apply(
         raise BootstrapAuthorizationError("bootstrap approval initiator principal mismatch")
     if approval.get("approver_principal_digest") == plan.get("caller_principal_digest"):
         raise BootstrapAuthorizationError("bootstrap apply requires an independent AWS principal")
-    current_principal_digest = canonical_digest({"caller_arn": caller_arn})
-    if approval.get("approver_principal_digest") != current_principal_digest:
-        raise BootstrapAuthorizationError("current AWS principal is not the approved executor")
     current = _parse_timestamp(_timestamp(now, "authorization time"), "authorization time")
     plan_created = _parse_timestamp(plan.get("created_at"), "plan created_at")
     plan_expires = _parse_timestamp(plan.get("expires_at"), "plan expires_at")
     approved = _parse_timestamp(approval.get("approved_at"), "approval approved_at")
     approval_expires = _parse_timestamp(approval.get("expires_at"), "approval expires_at")
+    if not 300 <= (plan_expires - plan_created).total_seconds() <= 7200:
+        raise BootstrapAuthorizationError("bootstrap plan lifetime is invalid")
     if current < plan_created or current >= plan_expires:
         raise BootstrapAuthorizationError("bootstrap plan is expired or not yet valid")
     if current < approved or current >= approval_expires:
         raise BootstrapAuthorizationError("bootstrap approval is expired or not yet valid")
     if not plan_created <= approved < approval_expires <= plan_expires:
         raise BootstrapAuthorizationError("bootstrap approval lifetime exceeds plan lifetime")
+    return identity
+
+
+def authorize_bootstrap_apply(
+    *,
+    plan: Mapping[str, Any],
+    approval: Mapping[str, Any],
+    binding: BootstrapBinding,
+    caller_account_id: str,
+    caller_region: str,
+    caller_arn: str,
+    current_template_sha256: str,
+    now: datetime,
+) -> ChangeSetIdentity:
+    """Authorize execution of exactly one previously reviewed change set."""
+    binding.authorize_identity(
+        caller_account_id=caller_account_id,
+        caller_region=caller_region,
+    )
+    identity = prevalidate_bootstrap_apply(
+        plan=plan,
+        approval=approval,
+        binding=binding,
+        current_template_sha256=current_template_sha256,
+        now=now,
+    )
+    current_principal_digest = canonical_digest({"caller_arn": caller_arn})
+    if approval.get("approver_principal_digest") != current_principal_digest:
+        raise BootstrapAuthorizationError("current AWS principal is not the approved executor")
+    return identity
 
 
 def render_backend_config(*, binding: BootstrapBinding, kms_key_arn: str) -> str:
