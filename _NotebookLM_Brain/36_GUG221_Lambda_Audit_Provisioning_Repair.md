@@ -174,6 +174,12 @@ therefore carries only static topology inputs and the exact KMS verification
 key/algorithm. Fresh readback is separately signed, binds the static
 `broker_topology_sha256`, and travels in the exact synchronous event.
 
+The active receipt is topology evidence v2. It includes the exact positive
+numeric alias target as `broker_alias_function_version`; that field is covered
+by the canonical digest and KMS signature, and v1 is historical-only. After KMS
+verification but before any OIDC, STS, ledger or CloudFormation client exists,
+the broker requires `context.function_version` to equal that signed target.
+
 The static environment is also closed and attested. `PhaseBIdentityBinding`
 projects exactly 37 string variables covering the fixed account/identity,
 roles, execution contract, policy digests, artifact tuple and topology
@@ -190,7 +196,9 @@ only through the one-shot synchronous payload.
 The broker treats the event only as a carrier. It rejects extra fields before
 client creation, enforces the 4 KiB evidence limit, validates freshness,
 static/policy/key/algorithm bindings and canonical digest, then requires
-`kms:Verify`. Only success can precede OIDC, STS, ledger or CloudFormation.
+`kms:Verify` and exact runtime-version equality. Only success can precede OIDC,
+STS, ledger or CloudFormation.
+
 The fresh receipt digest is retained downstream but excluded from immutable
 topology and binding digests.
 
@@ -351,6 +359,15 @@ sanitized denial. No ambiguous response is retried. This is repository and CI
 evidence only: no AWS or Lambda operation occurred, GUG-117/GUG-218/GUG-215/
 GUG-206 retain their separate live boundaries, and production remains
 **NO-GO**.
+
+`ExecutedVersion` must equal the v2 signed target, not merely have numeric
+shape. A different numeric value after the one allowed alias invocation is
+`PHASE_B_INVOKE_UNCERTAIN`; the caller does not trust the payload and never
+retries. Proof, ledger, effect and closure retain the v2 receipt digest, which
+transitively binds the version and prevents a foreign-version receipt chain
+from being spliced into success. Older or foreign code may lack the runtime
+guard and may have started an effect before the mismatch is reported, so alias
+mutation controls and change freeze remain separate live gates.
 
 ## Evidence state
 

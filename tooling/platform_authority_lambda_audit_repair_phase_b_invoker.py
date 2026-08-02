@@ -32,6 +32,7 @@ from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (
     PhaseBPepError,
     canonical_digest,
     parse_timestamp,
+    require_published_lambda_version,
     validate_broker_topology_evidence,
 )
 
@@ -43,7 +44,6 @@ _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NONZERO_DIGEST = re.compile(r"^sha256:(?!0{64})[0-9a-f]{64}$")
 _RAW_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _EXECUTION_ID = re.compile(r"^gug221-phase-b-[0-9a-f]{64}$")
-_EXECUTED_VERSION = re.compile(r"^[1-9][0-9]*$")
 _DENIAL_REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _STACK_ARN = re.compile(
     rf"^arn:aws:cloudformation:{REGION}:{AUTHORITY_ACCOUNT_ID}:stack/"
@@ -731,20 +731,34 @@ def invoke_phase_b_broker(
         or _DIGEST.fullmatch(broker_topology_sha256) is None
     ):
         raise PhaseBInvokerError("PHASE_B_INVOKE_BINDING_INVALID")
+    if not isinstance(broker_topology_evidence, Mapping):
+        raise PhaseBInvokerError("BROKER_TOPOLOGY_EVIDENCE_INVALID")
     try:
-        validate_broker_topology_evidence(
-            broker_topology_evidence,
+        evidence = dict(broker_topology_evidence)
+        validated_evidence = validate_broker_topology_evidence(
+            evidence,
             now=now,
         )
     except PhaseBPepError as exc:
         raise PhaseBInvokerError(exc.code) from None
+    except Exception:
+        raise PhaseBInvokerError("BROKER_TOPOLOGY_EVIDENCE_INVALID") from None
     if (
-        broker_topology_evidence.get("broker_topology_sha256")
+        evidence.get("broker_topology_sha256")
         != broker_topology_sha256
     ):
         raise PhaseBInvokerError("BROKER_TOPOLOGY_EVIDENCE_BINDING_MISMATCH")
 
-    evidence = dict(broker_topology_evidence)
+    expected_executed_version = (
+        validated_evidence.broker_alias_function_version
+    )
+    response_evidence = {
+        "receipt_digest": validated_evidence.receipt_digest,
+        **{
+            field_name: evidence[field_name]
+            for field_name in POLICY_DIGEST_FIELDS
+        },
+    }
     event: dict[str, Any] = {
         "schema_version": "1",
         "record_type": (
@@ -801,19 +815,24 @@ def invoke_phase_b_broker(
             raise _ApplicationResponseInvalid
         outer = dict(response)
         transport_status = outer.get("StatusCode")
-        executed_version = outer.get("ExecutedVersion")
+        try:
+            executed_version = require_published_lambda_version(
+                outer.get("ExecutedVersion"),
+                code="PHASE_B_INVOKE_UNCERTAIN",
+            )
+        except PhaseBPepError:
+            raise _ApplicationResponseInvalid from None
         if (
             type(transport_status) is not int
             or transport_status != 200
             or "FunctionError" in outer
-            or not isinstance(executed_version, str)
-            or _EXECUTED_VERSION.fullmatch(executed_version) is None
+            or executed_version != expected_executed_version
             or "Payload" not in outer
         ):
             raise _ApplicationResponseInvalid
         return _validated_application_response(
             outer["Payload"],
-            broker_topology_evidence=broker_topology_evidence,
+            broker_topology_evidence=response_evidence,
             execution_id=execution_id,
             broker_topology_sha256=broker_topology_sha256,
         )

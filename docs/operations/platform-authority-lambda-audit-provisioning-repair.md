@@ -334,6 +334,15 @@ binding and KMS verification key/algorithm, then collect and sign fresh
 provider evidence and supply it only as `broker_topology_evidence` in the exact
 synchronous invocation payload.
 
+Use only `broker_topology_evidence.v2`. Confirm that its
+`broker_alias_function_version` is the exact canonical positive numeric value
+returned by `GetAlias.FunctionVersion`, that the same version was used for the
+qualified `GetFunctionConfiguration` readback, and that the field is covered by
+the receipt digest and KMS signature. Do not convert, enrich or re-sign a v1
+receipt; recollect and separately authorize a fresh v2 signature. Reject
+`$LATEST`, zero, leading zeros, whitespace, signs, non-string values and alias
+routing weights.
+
 Before signing topology evidence, inspect direct `GetFunctionConfiguration`
 readback for the immutable published version. The response is acceptable only
 when `Environment` contains exactly one member, `Variables`, and that map is
@@ -364,7 +373,9 @@ The invoker preserves the exact `ClientContext` custom map (`transport`,
 evidence object larger than 4 KiB, stale/future evidence, a different static or
 policy digest, key/algorithm, canonical digest or KMS signature are terminal
 denies. Do not retry. These checks and `kms:Verify` precede creation of
-OIDC/STS/DynamoDB/CloudFormation clients and the one-shot CAS.
+OIDC/STS/DynamoDB/CloudFormation clients and the one-shot CAS. After KMS
+verification, the handler must still prove that `context.function_version`
+equals the v2 reviewed target before any of those clients exist.
 
 Ledger readback must also prove that the exact resource policy denies every
 principal from `PutResourcePolicy`, `DeleteResourcePolicy`, `DeleteTable`,
@@ -397,7 +408,8 @@ authorization code, verifier, tokens, opaque identity context and STS
 credentials out of arguments, shell history, files, receipts and logs.
 
 Do not treat outer Lambda `StatusCode = 200` as acceptance. The helper requires
-an exact numeric `ExecutedVersion`, one and only one bounded payload read, and
+`ExecutedVersion` to equal the exact v2 signed target, one and only one bounded
+payload read, and
 a trustworthy content length. The 64 KiB outer and 48 KiB body limits contain
 the reviewed three-receipt response with substantial headroom. It then
 validates exact application `statusCode = 200`, strict plain JSON, all three
@@ -407,6 +419,19 @@ malformed receipt or binding mismatch is `PHASE_B_INVOKE_UNCERTAIN`; stop and
 reconcile read-only. A well-formed application `403` is
 `PHASE_B_BROKER_DENIED`; review the sanitized stable code. Never retry either
 result, and never persist or print the raw response payload.
+
+A missing, malformed or different `ExecutedVersion` is observed only after the
+one allowed alias dispatch and is therefore `PHASE_B_INVOKE_UNCERTAIN`: do not
+read it as success and do not invoke again. Preserve the signed v2 evidence
+with proof/effect/closure receipts because their provider digest is the
+transitive audit link to the reviewed version.
+
+Do not infer that the runtime guard constrains an older or foreign published
+version that does not contain it. If control-plane authority repoints the alias,
+that version may have started an effect before the outer mismatch is observed.
+Keep alias mutation authority frozen and independently read back through the
+GUG-218/GUG-219/GUG-220 controls; absent that proof, retain repository-only
+classification and production **NO-GO**.
 
 The broker must pass the opaque context to exactly one STS `ProvidedContext`
 for the deny-all proof role, bind that proof to the exact receipt, consume the

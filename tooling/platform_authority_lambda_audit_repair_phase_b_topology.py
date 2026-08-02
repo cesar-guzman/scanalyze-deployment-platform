@@ -38,6 +38,7 @@ from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (
     PhaseBPepError,
     broker_topology_signature_digest,
     canonical_digest,
+    require_published_lambda_version,
 )
 
 
@@ -919,12 +920,13 @@ def _collect_lambda(
         FunctionName=FUNCTION_NAME,
         Name=FUNCTION_ALIAS,
     )
-    version = alias.get("FunctionVersion")
+    version = require_published_lambda_version(
+        alias.get("FunctionVersion"),
+        code="BROKER_TOPOLOGY_LAMBDA_ALIAS_MISMATCH",
+    )
     if (
         alias.get("AliasArn") != binding.broker_alias_arn
         or alias.get("Name") != FUNCTION_ALIAS
-        or not isinstance(version, str)
-        or re.fullmatch(r"[1-9][0-9]*", version) is None
         or alias.get("RoutingConfig") not in (None, {})
     ):
         _fail("BROKER_TOPOLOGY_LAMBDA_ALIAS_MISMATCH")
@@ -1370,7 +1372,7 @@ def collect_unsigned_broker_topology_evidence(
         "signing_key": signing_key,
     }
     evidence: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": "2",
         "record_type": (
             "platform_authority_lambda_audit_repair_phase_b_"
             "broker_topology_evidence"
@@ -1393,6 +1395,7 @@ def collect_unsigned_broker_topology_evidence(
         "synchronous_client_context_required": True,
         "asynchronous_effect_blocked": True,
         "pending_operations_absent": True,
+        "broker_alias_function_version": lambda_state["version"],
         "invoker_policy_sha256": binding.invoker_policy_sha256,
         "broker_policy_sha256": binding.broker_policy_sha256,
         "proof_policy_sha256": binding.proof_policy_sha256,
@@ -1427,7 +1430,7 @@ def attach_broker_topology_signature(
 
     if set(unsigned_evidence) != BROKER_TOPOLOGY_EVIDENCE_KEYS - {
         "signature"
-    }:
+    } or unsigned_evidence.get("schema_version") != "2":
         _fail("BROKER_TOPOLOGY_EVIDENCE_INVALID")
     if unsigned_evidence.get("signature_algorithm") != (
         BROKER_TOPOLOGY_SIGNATURE_ALGORITHM

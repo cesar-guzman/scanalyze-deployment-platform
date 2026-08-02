@@ -231,6 +231,15 @@ alias exists, read-only provider collection binds live state to that static
 The invoke-only client carries the complete receipt in the exact synchronous
 payload while `ClientContext` remains the exact transport marker.
 
+The active provider receipt is
+`broker_topology_evidence.v2`. It records the canonical positive numeric
+`broker_alias_function_version` returned by `GetAlias`; v1 remains historical
+schema evidence and is never accepted by the active invoker or broker. The
+field is covered by the canonical receipt digest and KMS signature. After KMS
+verification, and before any OIDC, STS, DynamoDB or CloudFormation client is
+created, the broker requires `context.function_version` to equal that reviewed
+version exactly. There is no coercion, downgrade path or `$LATEST` fallback.
+
 The immutable broker environment is itself an attested provider boundary, not
 an unreviewed configuration channel. `PhaseBIdentityBinding` projects exactly
 37 string variables into the published version. Readback accepts only an
@@ -254,10 +263,27 @@ outside the Lambda environment.
 The broker rejects an async, missing or expanded request before creating any
 AWS client. It then checks the 4 KiB evidence bound, schema, freshness, static
 topology and policy digests, key and algorithm, and calls only `kms:Verify`.
-Only after success may OIDC, STS, DynamoDB or CloudFormation clients exist. The
-fresh receipt digest enters proof, ledger and effect receipts but is excluded
+Only after KMS authentication and exact runtime-version equality may OIDC, STS,
+DynamoDB or CloudFormation clients exist. The fresh receipt digest enters
+proof, ledger and effect receipts but is excluded
 from immutable topology and binding digests; otherwise first readback would
 depend on a Lambda version that already embedded that readback.
+
+The synchronous invoker still addresses the reviewed alias exactly once. It
+requires the outer `ExecutedVersion` to equal the v2 reviewed target before it
+reads or accepts the application payload. A different but otherwise valid
+numeric version means the request may already have produced an effect, so the
+only result is `PHASE_B_INVOKE_UNCERTAIN`, followed by read-only reconciliation
+and never a retry. Proof, ledger, effect and closure receipts do not duplicate
+the version: their signed provider-evidence digest transitively binds the v2
+field and their existing cross-record links reject splicing.
+
+This is detection, not control-plane immutability. A repoint to a published
+version that lacks the reviewed server-side guard may have started an effect
+before `ExecutedVersion` exposes the mismatch. That path remains terminal
+uncertainty with no retry. Preventing the repoint itself still requires the
+separately reviewed account-wide Lambda authority controls, provider readback
+and change freeze; repository code does not claim that live boundary closed.
 
 Before the first protected effect, the broker consumes the exact Phase B
 execution binding through a durable one-shot compare-and-swap transition. Only

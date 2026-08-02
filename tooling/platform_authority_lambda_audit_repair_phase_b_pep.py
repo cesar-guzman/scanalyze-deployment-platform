@@ -101,6 +101,7 @@ _EXECUTION_ID = re.compile(r"^gug221-phase-b-[0-9a-f]{64}$")
 _TIMESTAMP = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
 )
+_PUBLISHED_LAMBDA_VERSION = re.compile(r"^[1-9][0-9]{0,1023}$")
 
 
 class PhaseBPepError(RuntimeError):
@@ -113,6 +114,29 @@ class PhaseBPepError(RuntimeError):
             else "PHASE_B_PEP_DENIED"
         )
         super().__init__(self.code)
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedBrokerTopologyEvidence:
+    """Canonical values extracted from structurally validated topology."""
+
+    receipt_digest: str
+    broker_alias_function_version: str
+
+
+def require_published_lambda_version(
+    value: object,
+    *,
+    code: str,
+) -> str:
+    """Return one canonical positive published Lambda version."""
+
+    if (
+        type(value) is not str
+        or _PUBLISHED_LAMBDA_VERSION.fullmatch(value) is None
+    ):
+        raise PhaseBPepError(code)
+    return value
 
 
 def canonical_digest(value: Any) -> str:
@@ -179,6 +203,7 @@ BROKER_TOPOLOGY_EVIDENCE_KEYS = frozenset(
         "synchronous_client_context_required",
         "asynchronous_effect_blocked",
         "pending_operations_absent",
+        "broker_alias_function_version",
         "invoker_policy_sha256",
         "broker_policy_sha256",
         "proof_policy_sha256",
@@ -209,8 +234,8 @@ def validate_broker_topology_evidence(
     value: Mapping[str, Any],
     *,
     now: datetime,
-) -> str:
-    """Validate a provider-derived prerequisite and return its receipt digest.
+) -> ValidatedBrokerTopologyEvidence:
+    """Validate a provider-derived prerequisite and return bound values.
 
     The collector is deliberately external to the broker.  This validator
     accepts no offline or synthetic status and recomputes the receipt digest
@@ -220,7 +245,7 @@ def validate_broker_topology_evidence(
     if not isinstance(value, Mapping) or set(value) != BROKER_TOPOLOGY_EVIDENCE_KEYS:
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_INVALID")
     expected = {
-        "schema_version": "1",
+        "schema_version": "2",
         "record_type": (
             "platform_authority_lambda_audit_repair_phase_b_"
             "broker_topology_evidence"
@@ -249,6 +274,10 @@ def validate_broker_topology_evidence(
         for key, expected_value in expected.items()
     ):
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_INVALID")
+    broker_alias_function_version = require_published_lambda_version(
+        value.get("broker_alias_function_version"),
+        code="BROKER_TOPOLOGY_EVIDENCE_INVALID",
+    )
     for field_name in (
         "invoker_policy_sha256",
         "broker_policy_sha256",
@@ -303,7 +332,10 @@ def validate_broker_topology_evidence(
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_INVALID")
     if broker_topology_signature_digest(value) != receipt_digest:
         raise PhaseBPepError("BROKER_TOPOLOGY_EVIDENCE_DIGEST_MISMATCH")
-    return receipt_digest
+    return ValidatedBrokerTopologyEvidence(
+        receipt_digest=receipt_digest,
+        broker_alias_function_version=broker_alias_function_version,
+    )
 
 
 BROKER_TOPOLOGY_INPUT_KEYS = frozenset(

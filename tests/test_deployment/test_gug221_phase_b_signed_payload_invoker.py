@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from datetime import UTC, datetime
 import io
@@ -12,6 +13,7 @@ from botocore.response import StreamingBody
 import pytest
 
 from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (
+    broker_topology_signature_digest,
     canonical_digest,
 )
 from tooling.platform_authority_lambda_audit_repair_phase_b_invoker import (
@@ -37,7 +39,7 @@ def evidence() -> dict[str, Any]:
             ROOT
             / "fixtures/valid/"
             "platform-authority-lambda-audit-repair-phase-b-"
-            "broker-topology-evidence-v1-synthetic.json"
+            "broker-topology-evidence-v2-synthetic.json"
         ).read_text(encoding="utf-8")
     )
 
@@ -143,7 +145,7 @@ class LambdaClient:
             return self.response
         return {
             "StatusCode": 200,
-            "ExecutedVersion": "1",
+            "ExecutedVersion": "7",
             "Payload": application_payload(200, accepted_body()),
         }
 
@@ -191,7 +193,7 @@ def client_with_payload(payload: object) -> LambdaClient:
     return LambdaClient(
         response={
             "StatusCode": 200,
-            "ExecutedVersion": "1",
+            "ExecutedVersion": "7",
             "Payload": payload,
         }
     )
@@ -357,7 +359,7 @@ def test_outer_success_never_promotes_non_200_broker_application_status(
     client = LambdaClient(
         response={
             "StatusCode": 200,
-            "ExecutedVersion": "1",
+            "ExecutedVersion": "7",
             "Payload": application_payload(status_code, body),
         }
     )
@@ -371,9 +373,9 @@ def test_outer_success_never_promotes_non_200_broker_application_status(
 @pytest.mark.parametrize(
     "response",
     [
-        {"StatusCode": 200, "ExecutedVersion": "1"},
-        {"StatusCode": 200, "ExecutedVersion": "1", "Payload": b""},
-        {"StatusCode": 200, "ExecutedVersion": "1", "Payload": b"{"},
+        {"StatusCode": 200, "ExecutedVersion": "7"},
+        {"StatusCode": 200, "ExecutedVersion": "7", "Payload": b""},
+        {"StatusCode": 200, "ExecutedVersion": "7", "Payload": b"{"},
     ],
 )
 def test_outer_success_rejects_missing_empty_or_malformed_application_payload(
@@ -758,15 +760,42 @@ def test_application_success_rejects_forged_or_spliced_receipt_sets(
     assert_uncertain(client_with_payload(application_payload(200, body)))
 
 
+def test_receipts_for_a_foreign_alias_version_cannot_be_spliced() -> None:
+    body = accepted_body()
+    proof = body["identity_proof"]
+    effect = body["broker_effect"]
+    closure = body["closure_pending"]
+    assert isinstance(proof, dict)
+    assert isinstance(effect, dict)
+    assert isinstance(closure, dict)
+    foreign_evidence = evidence()
+    foreign_evidence["broker_alias_function_version"] = "8"
+    foreign_digest = broker_topology_signature_digest(foreign_evidence)
+
+    for receipt in (proof, effect, closure):
+        receipt["broker_topology_provider_evidence_digest"] = foreign_digest
+    redigest(proof)
+    redigest(closure)
+    effect["proof_receipt_digest"] = proof["receipt_digest"]
+    effect["closure_pending_receipt_digest"] = closure["receipt_digest"]
+    redigest(effect)
+
+    assert_uncertain(client_with_payload(application_payload(200, body)))
+
+
 @pytest.mark.parametrize(
     "response",
     [
         [],
         {},
-        {"StatusCode": True, "ExecutedVersion": "1", "Payload": b"{}"},
+        {"StatusCode": True, "ExecutedVersion": "7", "Payload": b"{}"},
         {"StatusCode": 202, "Payload": application_payload(200, accepted_body())},
         {
             "StatusCode": 200.0,
+            "Payload": application_payload(200, accepted_body()),
+        },
+        {
+            "StatusCode": 200,
             "Payload": application_payload(200, accepted_body()),
         },
         {
@@ -777,7 +806,7 @@ def test_application_success_rejects_forged_or_spliced_receipt_sets(
         {
             "StatusCode": 200,
             "FunctionError": None,
-            "ExecutedVersion": "1",
+            "ExecutedVersion": "7",
             "Payload": application_payload(200, accepted_body()),
         },
         {
@@ -798,7 +827,7 @@ def test_outer_transport_failures_remain_uncertain(
 def test_outer_transport_tolerates_documented_harmless_metadata() -> None:
     response = {
         "StatusCode": 200,
-        "ExecutedVersion": "1",
+        "ExecutedVersion": "7",
         "Payload": application_payload(200, accepted_body()),
         "ResponseMetadata": {"RequestId": "synthetic-request"},
     }
@@ -806,6 +835,30 @@ def test_outer_transport_tolerates_documented_harmless_metadata() -> None:
     assert invoke_with(LambdaClient(response=response))["broker_effect"][
         "status"
     ] == "DISPATCH_ACCEPTED"
+
+
+def test_alias_repoint_to_another_numeric_version_fails_closed() -> None:
+    response = {
+        "StatusCode": 200,
+        "ExecutedVersion": "8",
+        "Payload": application_payload(200, accepted_body()),
+    }
+
+    assert_uncertain(LambdaClient(response=response))
+
+
+def test_executed_version_mismatch_does_not_read_payload() -> None:
+    payload = FailingStream()
+    client = LambdaClient(
+        response={
+            "StatusCode": 200,
+            "ExecutedVersion": "8",
+            "Payload": payload,
+        }
+    )
+
+    assert_uncertain(client)
+    assert payload.read_calls == 0
 
 
 @pytest.mark.parametrize(
@@ -940,6 +993,208 @@ def test_invoker_rejects_unbound_stale_or_expanded_evidence_before_lambda(
             now=NOW,
         )
     assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    "function_version",
+    (
+        "",
+        "$LATEST",
+        "0",
+        "01",
+        " 7",
+        "7 ",
+        "+7",
+        "-7",
+        "7.0",
+        7,
+        7.0,
+        True,
+        None,
+        [],
+        {},
+        "9" * 1025,
+    ),
+)
+def test_invoker_rejects_noncanonical_expected_version_before_lambda(
+    function_version: object,
+) -> None:
+    current = evidence()
+    current["broker_alias_function_version"] = function_version
+    current["receipt_digest"] = broker_topology_signature_digest(current)
+    client = LambdaClient()
+
+    with pytest.raises(
+        PhaseBInvokerError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_INVALID$",
+    ):
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=current,
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert client.calls == []
+
+
+@pytest.mark.parametrize("case", ("missing", "schema", "expanded"))
+def test_invoker_rejects_missing_or_wrong_version_contract_before_lambda(
+    case: str,
+) -> None:
+    current = evidence()
+    if case == "missing":
+        current.pop("broker_alias_function_version")
+    elif case == "schema":
+        current["schema_version"] = "3"
+    else:
+        current["version_authority"] = "caller"
+    current["receipt_digest"] = broker_topology_signature_digest(current)
+    client = LambdaClient()
+
+    with pytest.raises(
+        PhaseBInvokerError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_INVALID$",
+    ):
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=current,
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert client.calls == []
+
+
+@pytest.mark.parametrize("duplicate", (False, True))
+def test_invoker_rejects_sequence_conversion_before_lambda(
+    duplicate: bool,
+) -> None:
+    current = evidence()
+    sequence: object = list(current.items())
+    if duplicate:
+        assert isinstance(sequence, list)
+        sequence.append(("broker_alias_function_version", "8"))
+    client = LambdaClient()
+
+    with pytest.raises(
+        PhaseBInvokerError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_INVALID$",
+    ):
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=sequence,  # type: ignore[arg-type]
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert client.calls == []
+
+
+def test_invoker_sanitizes_mapping_snapshot_failure_before_lambda() -> None:
+    current = evidence()
+
+    class ExplodingMapping(Mapping[str, Any]):
+        def __getitem__(self, key: str) -> Any:
+            del key
+            raise RuntimeError("synthetic-sensitive-provider-value")
+
+        def __iter__(self) -> Iterator[str]:
+            raise RuntimeError("synthetic-sensitive-provider-value")
+
+        def __len__(self) -> int:
+            return len(current)
+
+    client = LambdaClient()
+    with pytest.raises(PhaseBInvokerError) as caught:
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=ExplodingMapping(),
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert str(caught.value) == "BROKER_TOPOLOGY_EVIDENCE_INVALID"
+    assert "synthetic-sensitive-provider-value" not in str(caught.value)
+    assert client.calls == []
+
+
+def test_invoker_rejects_v1_topology_evidence_before_lambda() -> None:
+    current = json.loads(
+        (
+            ROOT
+            / "fixtures/valid/"
+            "platform-authority-lambda-audit-repair-phase-b-"
+            "broker-topology-evidence-v1-synthetic.json"
+        ).read_text(encoding="utf-8")
+    )
+    client = LambdaClient()
+
+    with pytest.raises(
+        PhaseBInvokerError,
+        match="^BROKER_TOPOLOGY_EVIDENCE_INVALID$",
+    ):
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=current,
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert client.calls == []
+
+
+def test_invoker_snapshots_expected_version_before_dispatch() -> None:
+    current = evidence()
+
+    class MutatingClient(LambdaClient):
+        def invoke(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(kwargs)
+            current["broker_alias_function_version"] = "8"
+            current["receipt_digest"] = broker_topology_signature_digest(current)
+            return {
+                "StatusCode": 200,
+                "ExecutedVersion": "8",
+                "Payload": application_payload(200, accepted_body()),
+            }
+
+    client = MutatingClient()
+    with pytest.raises(
+        PhaseBInvokerError,
+        match="^PHASE_B_INVOKE_UNCERTAIN$",
+    ):
+        invoke_phase_b_broker(
+            client=client,
+            authorization_code="synthetic-one-shot-code",
+            code_verifier="v" * 64,
+            oauth_state="state-0123456789-abcdef-XYZ",
+            broker_topology_evidence=current,
+            execution_id=EXECUTION_ID,
+            broker_topology_sha256=str(current["broker_topology_sha256"]),
+            now=NOW,
+        )
+
+    assert len(client.calls) == 1
 
 
 def test_invoker_calls_lambda_once_and_marks_ambiguous_response_terminal() -> None:

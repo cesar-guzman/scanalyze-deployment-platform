@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 
 import tooling.platform_authority_lambda_audit_repair_change_set as module  # noqa: E402
 from tooling.platform_authority_lambda_audit_repair_phase_b_pep import (  # noqa: E402
+    BROKER_TOPOLOGY_EVIDENCE_KEYS,
     broker_topology_signature_digest,
     canonical_digest,
 )
@@ -38,6 +39,11 @@ def _load(relative: str) -> dict:
         (
             "platform-authority-lambda-audit-repair-phase-b-"
             "broker-topology-evidence-v1-synthetic.json",
+            "receipt_digest",
+        ),
+        (
+            "platform-authority-lambda-audit-repair-phase-b-"
+            "broker-topology-evidence-v2-synthetic.json",
             "receipt_digest",
         ),
         (
@@ -67,6 +73,26 @@ def test_valid_phase_b_fixture_digest_is_semantically_canonical(
         assert claimed == broker_topology_signature_digest(value)
     else:
         assert claimed == canonical_digest(value)
+
+
+def test_active_topology_schema_and_digest_bind_exact_alias_version() -> None:
+    schema = _load(
+        "schemas/platform-authority-lambda-audit-repair-phase-b-"
+        "broker-topology-evidence.v2.schema.json"
+    )
+    evidence = _load(
+        "fixtures/valid/platform-authority-lambda-audit-repair-phase-b-"
+        "broker-topology-evidence-v2-synthetic.json"
+    )
+    changed_version = deepcopy(evidence)
+    changed_version["broker_alias_function_version"] = "8"
+
+    assert schema["properties"]["schema_version"] == {"const": "2"}
+    assert set(schema["required"]) == BROKER_TOPOLOGY_EVIDENCE_KEYS
+    assert set(schema["properties"]) == BROKER_TOPOLOGY_EVIDENCE_KEYS
+    assert broker_topology_signature_digest(evidence) != (
+        broker_topology_signature_digest(changed_version)
+    )
 
 
 def _contract() -> dict:
