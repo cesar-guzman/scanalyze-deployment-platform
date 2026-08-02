@@ -23,9 +23,12 @@ read-only inspection observed `REVIEW_IN_PROGRESS`, zero stack resources and
 one `CREATE_COMPLETE` / `AVAILABLE` Change Set with four expected resource
 creations. The original private bootstrap Plan receipt cannot be proved.
 
-The historical `cancel` command correctly refuses to act without that Plan.
-Reconstructing it from live metadata would fabricate provenance, while leaving
-the Change Set active prevents GUG-214 from proving a recoverable shell.
+The historical `cancel` command originally refused to act without that Plan.
+ADR-038's GUG-210 request-parity amendment retires its direct mutation path:
+the compatibility command now fails locally before constructing an AWS client
+or making any call, even when a Plan is present. Reconstructing a Plan from
+live metadata would fabricate provenance, while retaining any human direct
+delete path would bypass this ADR's durable authority.
 
 An earlier GUG-215 design still placed CloudFormation and DynamoDB mutations in
 human sessions and lacked an AWS-enforced immutable-user boundary. Those
@@ -59,7 +62,8 @@ authority.
 Human permission sets and invoker roles never receive `DeleteChangeSet` or
 DynamoDB write authority. The human CLI has no direct delete or ledger-write
 adapter; it validates the exact invoker role and synchronously invokes one
-pinned alias.
+pinned alias. The normal bootstrap CLI likewise has no reachable direct delete
+adapter; GUG-215 remains the sole retirement authority.
 
 ### 2. Identity separation uses immutable Identity Store users
 

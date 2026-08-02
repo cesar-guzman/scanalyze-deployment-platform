@@ -19,11 +19,11 @@
 | Shell carries `RoleARN`, notification ARNs or nested-stack metadata | Quarantine and reconcile read-only; obtain a separate reviewed disposition | Adopt the shell, trust the role name, or execute a Change Set through inherited authority |
 | Account Public Access Block missing/partial | Stop and obtain separate reviewed remediation authorization | Repair PAB from the read-only recovery command |
 | Active or ambiguous Change Set inventory | Preserve the shell and reconcile read-only | Delete the stack/Change Sets automatically or ignore pagination |
-| One exact unexecuted Change Set retained and original Plan receipt absent/ambiguous | Use the separately authorized GUG-215 version-pinned broker with two identity-enhanced independent users and qualified aliases | Reconstruct a Plan, grant a human direct delete/ledger write, weaken historical `cancel`, or execute the Change Set |
-| Change Set creation failed | Inspect sanitized status; delete only the failed unexecuted Change Set after review | Execute template directly |
+| One exact unexecuted Change Set retained | Use the separately authorized GUG-215 version-pinned broker with two identity-enhanced independent users and qualified aliases; the normal `cancel` compatibility command is locally retired even when the original Plan exists | Reconstruct a Plan, grant a human direct delete/ledger write, re-enable normal `cancel`, or execute the Change Set |
+| Change Set creation failed | Inspect sanitized status and obtain a separately reviewed GUG-215 retirement disposition | Invoke normal `cancel`, delete directly, or execute the template |
 | Change Set IAM binding failure | Stop; verify the canonical stack ARN, exact `cloudformation:ChangeSetName`, request tags, and Plan/Apply separation offline | Add a Change Set ARN resource, broaden the name, or bypass the renderer |
 | Change Set available, unapproved | Let it expire or obtain independent approval | Self-approve or edit receipt |
-| Approval expired | Cancel only the exact Change Set, retain the zero-resource review shell, then create a new plan | Extend timestamps or delete the stack |
+| Approval expired | Preserve the exact Change Set and use the separately authorized GUG-215 retirement process before creating a new plan | Extend timestamps, invoke normal `cancel`, or delete the stack |
 | Founder exception Plan or Apply window expired | Retain AWS-side time denial, remove temporary identity assignment/membership, and record readback | Extend the window, edit timestamps, reuse the exception, or use normal apply as a bypass |
 | Future founder-PEP execution response lost | Mark the durable CAS attempt `UNCERTAIN` and reconcile read-only against the original Change Set | Execute again, create a replacement Change Set, or reset the ledger |
 | Founder exception cleanup incomplete | Keep the date-deny policy through its required twelve-hour retention and escalate as `REVOCATION_REQUIRED` | Claim revocation from local time or remove the deny early |
@@ -77,12 +77,15 @@ python3 scripts/deployment/platform-authority-bootstrap.py verify \
 `verify` performs no writes. If any control is missing or ambiguous, it emits
 no usable backend configuration.
 
-## Retained Change Set without a provable original Plan (GUG-215)
+## Retained Change Set retirement (GUG-215)
 
-The historical `cancel` command below remains valid only when the original
-private bootstrap Plan receipt exists and binds the exact live Change Set. If
-that receipt is absent or ambiguous, do not reconstruct it from live metadata,
-the repository template, a name, prior chat, or expected values.
+The historical normal-bootstrap `cancel` mutation path is retired. Its
+compatibility command always returns the stable sanitized
+`NORMAL_CANCEL_RETIRED` diagnostic before constructing an AWS client, reading
+the supplied Plan, making an AWS call or writing any ledger. No flag or
+environment setting re-enables direct deletion. If the original private Plan
+receipt is absent or ambiguous, do not reconstruct it from live metadata, the
+repository template, a name, prior chat, or expected values.
 
 Use the separate
 [GUG-215 deployment contract](../deployment/platform-authority-change-set-retirement.md)
@@ -125,36 +128,21 @@ identity-enhanced operator bindings have not been deployed or invoked.
 Therefore canonical live classification and retirement remain blocked. No live
 delete was executed by GUG-215 implementation.
 
-## Cancel an unexecuted plan
+## Normal cancel compatibility boundary
 
-Cancellation is allowed only while the exact Change Set is `AVAILABLE`, the
-stack is `REVIEW_IN_PROGRESS`, and `ListStackResources` proves the stack has
-zero resources. It removes only the exact Change Set. The empty CloudFormation
-review stack remains because neither bootstrap permission set grants
-`DeleteStack`.
+Do not use the normal bootstrap CLI to retire an unexecuted Change Set. The
+retained `cancel` subcommand exists only so older operator automation fails
+closed with a stable migration diagnostic. It performs zero AWS calls, zero
+`DeleteChangeSet` calls and zero ledger writes regardless of whether the Plan
+is present, valid or expired. GUG-215 is the sole retirement authority.
 
-```bash
-python3 scripts/deployment/platform-authority-bootstrap.py cancel \
-  --authority-account-id '<authority-account-id>' \
-  --region '<authority-region>' \
-  --destination-account-id '<customer-a-account-id>' \
-  --destination-account-id '<customer-b-account-id>' \
-  --plan '<private-evidence-dir>/bootstrap-plan.json' \
-  --allow-cancel-unexecuted
-```
-
-If any resource exists or the Change Set has started execution, cancellation
-fails closed and this command never calls a bucket/KMS delete operation.
-
-After a successful cancellation, `plan` accepts the same stack name only when
-the live status is still `REVIEW_IN_PROGRESS` and a fresh
-`ListStackResources` result is exactly empty and every `ListChangeSets` page is
-empty, and the stack carries no service role, notifications or nesting. It
-repeats the stack-authority and Change Set inventories immediately before
-creating a new
-`CREATE` Change Set from the current reviewed template. Any other stack status,
-resource or active/ambiguous Change Set forces escalation; the workflow never
-deletes the review stack as a recovery shortcut.
+After GUG-215 has separately proved exact retirement and canonical recovery
+preflight proves the live status is still `REVIEW_IN_PROGRESS`, a fresh
+`ListStackResources` result is exactly empty, every `ListChangeSets` page is
+empty, and the stack carries no service role, notifications or nesting, `plan`
+may create a new `CREATE` Change Set from the current reviewed template. Any
+other stack status, resource or active/ambiguous Change Set forces escalation;
+the workflow never deletes the review stack as a recovery shortcut.
 
 Every replacement plan invalidates the prior rendered Apply policy. Remove the
 old Apply assignment and render a new exact policy from the replacement plan;
@@ -198,8 +186,8 @@ of GUG-206.
 
 ## Rollback
 
-Before execution, remove the unexecuted Change Set only and retain the empty
-review stack shell. After the account S3
+Before execution, retire an unexecuted Change Set only through the separately
+reviewed GUG-215 broker, and retain the empty review stack shell. After the account S3
 public-access block is enabled, retain it even if the stack fails. After stack
 completion, do not roll back storage automatically; treat the verified backend
 as durable control-plane infrastructure and use a reviewed forward fix.

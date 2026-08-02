@@ -103,12 +103,15 @@ bound account/region, or a direct API fallback.
 ### GUG-210 supported Change Set IAM binding
 
 The plan policy cannot execute a Change Set or create backend resources. The
-apply policy cannot create/cancel a Change Set or delete the stack, and its
+apply policy cannot create or retire a Change Set or delete the stack, and its
 `${change_set_name}` condition must be rendered from the reviewed canonical
-name. AWS authorizes Create, Delete, and Execute against the exact stack ARN;
-the exact Change Set name is a required condition. The full Change Set ARN and
-UUID remain PEP evidence and are re-read from the plan before execution, not an
-IAM resource selector for those actions. Backend-mutating S3 and
+name. The normal Create and Execute statements authorize against the exact
+stack ARN and require the exact Change Set name. One pure helper derives that
+name only from a fully validated ARN bound to the expected partition, Region,
+account and UUID-shaped ID, returning one immutable typed identity rather than
+an independently supplied mutation field. The full Change Set ARN and UUID
+remain persisted PEP evidence and are used for exact readback; they are not
+sent as the final Execute mutation argument. Backend-mutating S3 and
 key-side KMS actions additionally require the multivalued `aws:CalledVia`
 context to contain `cloudformation.amazonaws.com`; a direct S3/KMS API call
 therefore does not receive all required permissions. The only direct mutation
@@ -141,11 +144,13 @@ Identity Center creates the account-local `AWSReservedSSO_*` role. Do not
 create a manual IAM role or IAM user for this workflow. The policy template is
 rendered from the exact account, region, and bucket binding under change
 control; placeholders must never be submitted to AWS. The CLI checks the live
-STS principal: `plan`/`cancel` require the canonical
+STS principal: `plan` requires the canonical
 `ScanalyzeAuthorityBootstrapPlan` permission set, while
 `approve`/`apply`/`verify` require
 `ScanalyzeAuthorityBootstrapApply`. `AWS_PROFILE` text is not trusted
-as proof of either role.
+as proof of either role. The retained `cancel` compatibility command requires
+no AWS identity because it fails locally before an AWS client can be created;
+GUG-215 is the sole retirement path.
 
 ## Preflight: read-only
 
@@ -223,8 +228,11 @@ python3 scripts/deployment/platform-authority-bootstrap.py plan \
 This creates one CloudFormation Change Set and an empty
 `REVIEW_IN_PROGRESS` stack record; it creates no template resources and does not
 execute the Change Set. Review the sanitized resource-type/action inventory,
-template digest, expiry, account public-access transition, and plan digest. The
-raw receipt remains controlled operational evidence.
+template digest, expiry, account public-access transition, and plan digest. Plan
+obtains the Change Set's `Original` template by full ARN with its existing
+exact-stack `GetTemplate` grant and requires byte-for-byte UTF-8 equality with
+the local bootstrap template before persisting the digest. The raw receipt
+remains controlled operational evidence.
 
 For a retained shell, `plan` repeats the complete active Change Set inventory
 immediately before creation. `ListChangeSets` is an active inventory, not a
@@ -246,8 +254,10 @@ python3 scripts/deployment/platform-authority-bootstrap.py render-apply-policy \
 
 The renderer derives the exact `change_set_name` from the full ARN in the
 digest-validated, unexpired plan, rejects foreign, malformed, or mismatched
-ARNs, and writes mode 0600. The runtime still verifies that exact ARN and UUID
-before execution. The identity administrator validates the output with IAM
+ARNs, and writes mode 0600. The runtime uses the same parser, still verifies
+that exact ARN and UUID through full-ARN `DescribeChangeSet` readback, and
+sends only the derived bare name plus the exact stack to `ExecuteChangeSet`.
+The identity administrator validates the output with IAM
 Access Analyzer, provisions or updates the canonical Apply permission set, and
 assigns it only to the independent approver/executor group for the approved
 window. Do not publish either ARN component in Git, Linear, NotebookLM, or
@@ -282,6 +292,21 @@ Apply is authorized separately. The exact command must be reviewed with its
 account, region, plan digest, approval digest, cost boundary, and change window.
 Keep the independent apply profile active; the plan profile is technically
 unable to execute the Change Set.
+
+Before constructing an AWS client, Apply loads the Plan and approval with
+duplicate-key rejection and validates their digests, immutable binding,
+template digest, validity windows and full Change Set ARN. It then validates
+the live approved identity, reads the exact Change Set by full ARN, and enables
+the all-true account public-access block. After that effect it repeats the
+exact empty review-shell check, then performs the final full-ARN Change Set
+readback and local template/time/principal binding. The Plan-time original
+template read and final read of the same UUID-bearing ARN are the equivalent
+immutable guarantee; Apply does not receive a new `GetTemplate` permission.
+That full-ARN readback is the last CloudFormation call before the final
+mutation. The mutation uses the helper-derived bare name plus exact stack and
+is issued once with provider attempts fixed to one. An ambiguous response
+enters read-only verification; it is never interpreted as authorization to
+execute again.
 
 ```bash
 python3 scripts/deployment/platform-authority-bootstrap.py apply \
