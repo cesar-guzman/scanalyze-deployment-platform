@@ -12,24 +12,29 @@ in a report without including customer data or credentials.
 Do not open a public GitHub issue, pull request, discussion, or Linear comment
 with exploit details, secrets, customer data, or production evidence.
 
-The canonical private reporting channel is **GitHub private vulnerability
-reporting** for this repository: open the repository **Security** tab and choose
-**"Report a vulnerability"**
+The checked-in target private reporting channel is **GitHub private
+vulnerability reporting** for this repository: open the repository **Security**
+tab and choose **"Report a vulnerability"**
 (`https://github.com/cesar-guzman/scanalyze-deployment-platform/security/advisories/new`).
-This creates a private advisory visible only to the reporter and repository
-security managers. Repository administrators and security managers may also
-create a draft GitHub Security Advisory directly.
+When the repository setting is verified enabled, this creates a private
+advisory visible only to the reporter and repository security managers.
+Repository administrators and security managers may also create a draft GitHub
+Security Advisory directly.
 
 This channel is only operable once GitHub private vulnerability reporting is
-enabled on the repository. Enabling it is a required governance action tracked
-in [GUG-262](https://linear.app/guguce/issue/GUG-262/establish-and-validate-claude-code-contributor-baseline)
-and reflected in
+enabled on the repository and a named triage owner has verified receipt. The
+checked-in target does not prove either condition. Enablement is a separate
+repository endpoint from branch protection and is tracked in
+[GUG-119](https://linear.app/guguce/issue/GUG-119/risk-single-maintainer-approval-model),
+with its historical observation reflected in
 [`docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md`](docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md).
-Until this repository control is confirmed enabled, this document MUST NOT be
-cited as an operable private route, and a repository administrator MUST enable it
-before external reporting is relied upon. Changing this setting is a reviewed
-repository-administration action; it is never performed automatically or by an
-AI assistant.
+Until a fresh remote readback and a synthetic, non-sensitive triage exercise
+confirm both enablement and ownership, this document MUST NOT be cited as an
+operable private route. Changing the setting requires its own reviewed endpoint
+plan only after the GUG-119 repository PR is merged and its reviewed tree is
+verified on `main`. A fresh remote-before readback and separate
+repository-administration authorization are then required; the change is never
+implied by merging policy text or by a branch-protection update.
 
 Do not open a public placeholder issue asking for a security contact when the
 report itself may disclose the affected component, exploit path, or customer
@@ -65,7 +70,7 @@ access, denial of service, or production exploitation to prove impact.
 
 ## Response process
 
-The security owner will:
+After the private route and triage owner are verified, the security owner will:
 
 1. acknowledge and establish a private tracking record;
 2. classify severity and affected versions/environments;
@@ -75,6 +80,11 @@ The security owner will:
 6. coordinate release and disclosure with authorized stakeholders;
 7. create public documentation only after sensitive details are removed and
    disclosure is approved.
+
+The triage verification MUST use a synthetic, non-sensitive report. Record the
+named triage owner, receipt timestamp, repository-setting readback, and sanitized
+result outside public issue content. A successful setting update without a
+readback and triage receipt is not an operable reporting path.
 
 Security reports do not authorize AWS writes, production access, data
 collection, or bypass of repository controls.

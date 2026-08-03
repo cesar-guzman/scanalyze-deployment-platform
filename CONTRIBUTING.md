@@ -86,6 +86,10 @@ The following evidence states MUST remain distinct:
 - Uses the severity and comment format in
   [`docs/engineering/CODE_REVIEW_STANDARD.md`](docs/engineering/CODE_REVIEW_STANDARD.md).
 - Rechecks material fixes after the last push.
+- For the GUG-119 technical floor, `guguce-google` is the required independent
+  reviewer candidate after a human attests that account's MFA, independence,
+  and least-privilege access. `@Ferrusca08` remains an authorized additional
+  code owner. Neither identity may approve its own change.
 
 ### Code owner
 
@@ -172,7 +176,16 @@ use a separate branch, worktree, and pull request.
 
 Self-approval never counts. A review made before a material last push MUST be
 revalidated. If the required independent reviewer is unavailable, the change
-waits or follows the exception process; urgency does not reduce the review bar.
+waits; the exception process cannot replace missing separation of duties, and
+urgency does not reduce the review bar.
+
+The checked-in GUG-119 target sets a technical branch-protection floor of one
+current independent CODEOWNER approval. That floor is not equivalent to this
+human risk policy: a P0 change still requires two humans, including the
+applicable code/security/architecture owner. A green GitHub branch rule showing
+one approval therefore cannot authorize a P0 merge by itself. Until a human
+attests `guguce-google`, or whenever that reviewer is unavailable or conflicted,
+the candidate-dependent change is blocked.
 
 The repository does not yet enforce all human-review requirements technically.
 See
@@ -445,6 +458,18 @@ The required static checks are defined in
 [`governance/github-policy.json`](governance/github-policy.json). Dynamic matrix
 jobs provide evidence but MUST NOT become unstable branch-protection API names.
 
+The exact required contexts are:
+
+1. `Lint, security, and schema checks`
+2. `Python tests`
+3. `Validate deployment manifest schema`
+4. `Terraform validate (no AWS)`
+5. `Verify clean clone reproducibility`
+6. `Microservices validation gate`
+
+Any missing, unexpected, duplicated, renamed, or silently unbound context is a
+governance failure, not a reason to weaken protection.
+
 Before merge, verify:
 
 - the exact head SHA;
@@ -523,6 +548,13 @@ No rule is skipped implicitly. An exception requires a linked issue containing:
 Break-glass is an incident procedure, not a shortcut. Preserve evidence, limit
 authority and duration, and complete retrospective review.
 
+No exception or break-glass procedure may permit self-approval, administrator
+bypass, an approval floor below one, fewer than two humans for P0, disabled or
+unbound required checks, unresolved conversations, force-push, deletion of
+`main`, auto-merge, creation or weakening of a GitHub Environment, or AWS or
+production activity. If separation of duties or a required reviewer cannot be
+preserved, the change waits.
+
 ## 18. Offboarding and transfer
 
 When a contributor changes role or leaves the team:
@@ -541,6 +573,21 @@ When a contributor changes role or leaves the team:
 Policy text is not equivalent to technical enforcement. The verified baseline
 and target controls are documented in
 [`docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md`](docs/engineering/GITHUB_ENFORCEMENT_BASELINE.md).
+
+For GUG-119, keep these facts separate: the historical snapshot, the checked-in
+target, fresh remote-before state, an authorized remote response, verified
+remote readback, human reviewer attestation, and production authorization.
+Publish and review the repository PR first, then stop at a human checkpoint
+before merge. After an approved merge is independently verified on `main`, any
+branch-protection, existing-Environment, private-reporting, or auto-merge write
+is a new, separately authorized administration action with an exact
+deterministic payload or endpoint plan, rollback evidence, and fresh readback.
+GUG-119 does not authorize creation of a missing Environment.
+
+Private vulnerability reporting is a separate repository endpoint with a
+separate triage requirement; a `SECURITY.md` link does not prove it is enabled.
+Production remains **NO-GO** unless a distinct current approval names the exact
+environment and action.
 
 If practice and this document diverge:
 

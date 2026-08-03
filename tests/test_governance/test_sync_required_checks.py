@@ -1328,6 +1328,34 @@ def test_manifest_requires_string_schema_version(tmp_path: Path) -> None:
     assert manifest.schema_version == "1"
 
 
+def test_repository_governance_policy_remains_compatible_with_status_sync() -> None:
+    manifest = sync.load_manifest(REPO_ROOT / "governance/github-policy.json")
+
+    assert manifest.default_branch == "main"
+    assert manifest.target_contexts == {
+        "Lint, security, and schema checks",
+        "Python tests",
+        "Validate deployment manifest schema",
+        "Terraform validate (no AWS)",
+        "Verify clean clone reproducibility",
+        "Microservices validation gate",
+    }
+
+
+def test_status_sync_rejects_duplicate_manifest_keys(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "github-policy.json"
+    document = json.dumps(manifest_document())
+    document = document.replace(
+        '"schema_version": "1"',
+        '"schema_version": "1", "schema_version": "1"',
+        1,
+    )
+    manifest_path.write_text(document, encoding="utf-8")
+
+    with pytest.raises(sync.GovernanceError, match="duplicate JSON key"):
+        sync.load_manifest(manifest_path)
+
+
 @pytest.mark.parametrize(
     "context",
     [

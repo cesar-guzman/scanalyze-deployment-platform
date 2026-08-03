@@ -9,6 +9,15 @@
     "scope",
     "default_branch",
     "required_status_checks",
+    "enforce_admins",
+    "required_pull_request_reviews",
+    "required_conversation_resolution",
+    "allow_force_pushes",
+    "allow_deletions",
+    "independent_review",
+    "private_vulnerability_reporting",
+    "environment_protection",
+    "auto_merge",
     "migration"
   ],
   "additionalProperties": false,
@@ -26,7 +35,7 @@
     },
     "default_branch": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
+      "const": "main"
     },
     "required_status_checks": {
       "type": "object",
@@ -48,6 +57,7 @@
         "checks": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 6,
           "items": {
             "$ref": "#/$defs/required_check"
           }
@@ -79,9 +89,153 @@
           }
         }
       }
+    },
+    "enforce_admins": {
+      "type": "boolean",
+      "const": true
+    },
+    "required_pull_request_reviews": {
+      "type": "object",
+      "required": [
+        "dismiss_stale_reviews",
+        "require_code_owner_reviews",
+        "require_last_push_approval",
+        "required_approving_review_count",
+        "bypass_pull_request_allowances"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dismiss_stale_reviews": {
+          "type": "boolean",
+          "const": true
+        },
+        "require_code_owner_reviews": {
+          "type": "boolean",
+          "const": true
+        },
+        "require_last_push_approval": {
+          "type": "boolean",
+          "const": true
+        },
+        "required_approving_review_count": {
+          "type": "integer",
+          "const": 1
+        },
+        "bypass_pull_request_allowances": {
+          "$ref": "#/$defs/no_bypass_actors"
+        }
+      }
+    },
+    "required_conversation_resolution": {
+      "type": "boolean",
+      "const": true
+    },
+    "allow_force_pushes": {
+      "type": "boolean",
+      "const": false
+    },
+    "allow_deletions": {
+      "type": "boolean",
+      "const": false
+    },
+    "independent_review": {
+      "type": "object",
+      "required": [
+        "reviewer_candidate",
+        "prevent_self_review"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reviewer_candidate": {
+          "type": "string",
+          "const": "guguce-google"
+        },
+        "prevent_self_review": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "private_vulnerability_reporting": {
+      "type": "object",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "environment_protection": {
+      "type": "object",
+      "required": [
+        "existing_environments_only",
+        "create_missing_environments",
+        "required_reviewer",
+        "prevent_self_review"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "existing_environments_only": {
+          "type": "boolean",
+          "const": true
+        },
+        "create_missing_environments": {
+          "type": "boolean",
+          "const": false
+        },
+        "required_reviewer": {
+          "type": "string",
+          "const": "guguce-google"
+        },
+        "prevent_self_review": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "auto_merge": {
+      "type": "object",
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "const": false
+        }
+      }
     }
   },
   "$defs": {
+    "empty_actor_list": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "no_bypass_actors": {
+      "type": "object",
+      "required": [
+        "users",
+        "teams",
+        "apps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "users": {
+          "$ref": "#/$defs/empty_actor_list"
+        },
+        "teams": {
+          "$ref": "#/$defs/empty_actor_list"
+        },
+        "apps": {
+          "$ref": "#/$defs/empty_actor_list"
+        }
+      }
+    },
     "static_context": {
       "type": "string",
       "minLength": 1,

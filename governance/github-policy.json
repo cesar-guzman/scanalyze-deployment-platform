@@ -3,6 +3,37 @@
   "schema_version": "1",
   "scope": "repository",
   "default_branch": "main",
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": true,
+    "required_approving_review_count": 1,
+    "require_last_push_approval": true,
+    "bypass_pull_request_allowances": {
+      "users": [],
+      "teams": [],
+      "apps": []
+    }
+  },
+  "required_conversation_resolution": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "independent_review": {
+    "reviewer_candidate": "guguce-google",
+    "prevent_self_review": true
+  },
+  "private_vulnerability_reporting": {
+    "enabled": true
+  },
+  "environment_protection": {
+    "existing_environments_only": true,
+    "create_missing_environments": false,
+    "required_reviewer": "guguce-google",
+    "prevent_self_review": true
+  },
+  "auto_merge": {
+    "enabled": false
+  },
   "required_status_checks": {
     "strict": true,
     "expected_app_slug": "github-actions",

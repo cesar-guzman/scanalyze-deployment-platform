@@ -2,37 +2,44 @@
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owner
-*                           @cesar-guzman
+*                           @cesar-guzman @guguce-google @Ferrusca08
 
 # Human contribution and review governance
-CONTRIBUTING.md             @cesar-guzman
-SECURITY.md                 @cesar-guzman
-.github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman
-.github/ISSUE_TEMPLATE/     @cesar-guzman
-.claude/                    @cesar-guzman
-docs/engineering/           @cesar-guzman
-tooling/validate_contributor_contract.py  @cesar-guzman
-tests/test_contributor_contract.py  @cesar-guzman
+CONTRIBUTING.md             @cesar-guzman @guguce-google @Ferrusca08
+SECURITY.md                 @cesar-guzman @guguce-google @Ferrusca08
+.github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman @guguce-google @Ferrusca08
+.github/ISSUE_TEMPLATE/     @cesar-guzman @guguce-google @Ferrusca08
+.claude/                    @cesar-guzman @guguce-google @Ferrusca08
+docs/engineering/           @cesar-guzman @guguce-google @Ferrusca08
+docs/governance/            @cesar-guzman @guguce-google @Ferrusca08
+tooling/validate_contributor_contract.py  @cesar-guzman @guguce-google @Ferrusca08
+tests/test_contributor_contract.py  @cesar-guzman @guguce-google @Ferrusca08
 
 # Architecture decisions require architecture review
-ADR/                        @cesar-guzman
+ADR/                        @cesar-guzman @guguce-google @Ferrusca08
 
 # CI/CD and governance controls require platform review
-.github/workflows/          @cesar-guzman
-governance/                 @cesar-guzman
-scripts/governance/         @cesar-guzman
-tooling/validate_github_policy.py  @cesar-guzman
+.github/workflows/          @cesar-guzman @guguce-google @Ferrusca08
+governance/                 @cesar-guzman @guguce-google @Ferrusca08
+scripts/governance/         @cesar-guzman @guguce-google @Ferrusca08
+tooling/validate_github_policy.py  @cesar-guzman @guguce-google @Ferrusca08
+tests/test_governance/      @cesar-guzman @guguce-google @Ferrusca08
 
 # Schemas require platform + architecture review
-schemas/                    @cesar-guzman
+schemas/                    @cesar-guzman @guguce-google @Ferrusca08
 
 # Security policies require security review
-policies/                   @cesar-guzman
-session-policies/           @cesar-guzman
+policies/                   @cesar-guzman @guguce-google @Ferrusca08
+session-policies/           @cesar-guzman @guguce-google @Ferrusca08
 
 # Infrastructure modules require platform review
-modules/                    @cesar-guzman
-roots/                      @cesar-guzman
+modules/                    @cesar-guzman @guguce-google @Ferrusca08
+roots/                      @cesar-guzman @guguce-google @Ferrusca08
+
+# Deployment and supply-chain authority require independent review
+deployment/                 @cesar-guzman @guguce-google @Ferrusca08
+scripts/deployment/         @cesar-guzman @guguce-google @Ferrusca08
+scripts/supply-chain/       @cesar-guzman @guguce-google @Ferrusca08
 
 # Acceptance gates require architecture + security review
-ARCHITECTURE_ACCEPTANCE_GATES.md  @cesar-guzman
+ARCHITECTURE_ACCEPTANCE_GATES.md  @cesar-guzman @guguce-google @Ferrusca08

@@ -42,6 +42,27 @@ class GovernanceError(RuntimeError):
     """A fail-closed governance error safe to present to an operator."""
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in document:
+            raise GovernanceError(f"duplicate JSON key {key!r} is prohibited")
+        document[key] = value
+    return document
+
+
+def _reject_json_constant(value: str) -> None:
+    raise GovernanceError(f"non-finite JSON value {value!r} is prohibited")
+
+
+def _strict_json_loads(value: str) -> Any:
+    return json.loads(
+        value,
+        object_pairs_hook=_unique_json_object,
+        parse_constant=_reject_json_constant,
+    )
+
+
 class PolicyState(str, Enum):
     LEGACY = "LEGACY"
     TARGET = "TARGET"
@@ -190,7 +211,7 @@ def run_gh(args: Sequence[str], *, input_data: str | None = None) -> Any:
     if not output:
         return None
     try:
-        return json.loads(output)
+        return _strict_json_loads(output)
     except json.JSONDecodeError as exc:
         raise GovernanceError("gh returned a non-JSON response") from exc
 
@@ -297,7 +318,7 @@ def _string_set(value: Any, field: str) -> frozenset[str]:
 
 def load_manifest(path: Path) -> PolicyManifest:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = _strict_json_loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise GovernanceError(f"unable to read policy manifest {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -319,6 +340,15 @@ def _policy_manifest_from_document(raw: Any) -> PolicyManifest:
             "scope",
             "default_branch",
             "required_status_checks",
+            "enforce_admins",
+            "required_pull_request_reviews",
+            "required_conversation_resolution",
+            "allow_force_pushes",
+            "allow_deletions",
+            "independent_review",
+            "private_vulnerability_reporting",
+            "environment_protection",
+            "auto_merge",
             "migration",
         },
         "root",
@@ -632,7 +662,7 @@ def _validate_apply_manifest_binding(
             "working tree differs from the policy manifest committed at the evidence SHA"
         )
     try:
-        raw = json.loads(working.decode("utf-8"))
+        raw = _strict_json_loads(working.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GovernanceError("bound policy manifest is not valid UTF-8 JSON") from exc
     bound_manifest = _policy_manifest_from_document(raw)
@@ -1198,7 +1228,7 @@ def load_snapshot(path: Path) -> dict[str, Any]:
     if stat.S_IMODE(metadata.st_mode) != 0o600:
         raise GovernanceError("snapshot permissions must be exactly 0600")
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = _strict_json_loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise GovernanceError(f"unable to load snapshot {path}") from exc
     if not isinstance(document, dict):
