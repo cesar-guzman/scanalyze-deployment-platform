@@ -1,0 +1,17 @@
+{
+  "activation_authorized": false,
+  "artifact_type": "scanalyze.platform_authority.bootstrap_artifact_signing_trust_root.v1",
+  "authority_account_id": "042360977644",
+  "code_signing_policy": "Enforce",
+  "configuration_status": "NOT_CONFIGURED",
+  "partition": "aws",
+  "production_status": "NO-GO",
+  "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
+  "profile_version_arn": null,
+  "profile_version_id": null,
+  "region": "us-east-1",
+  "schema_version": 1,
+  "signing_platform": "AWSLambda-SHA384-ECDSA",
+  "trust_root_generation": 1,
+  "work_package": "GUG-274"
+}

@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeExactBootstrapApprovalAuthorityVersion",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-bootstrap-approval-authority:1"
+    },
+    {
+      "Sid": "DenyAnyOtherLambdaInvocation",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunction",
+      "NotResource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-bootstrap-approval-authority:1"
+    },
+    {
+      "Sid": "DenyCloudFormationAndDirectArtifactAuthority",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "dynamodb:*",
+        "iam:*",
+        "kms:Sign",
+        "s3:PutAccountPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyEveryNonApprovalAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "lambda:InvokeFunction",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

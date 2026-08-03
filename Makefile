@@ -23,7 +23,7 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-221 platform-authority controls offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-274 platform-authority controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -426,11 +426,12 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-221, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-274, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
+		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
 		$(TESTS_DIR)/test_deployment/test_gug208_identity_center_name_contract.py \
 		$(TESTS_DIR)/test_deployment/test_gug209_founder_bootstrap_exception.py \
 		$(TESTS_DIR)/test_deployment/test_gug211_founder_bootstrap_pep.py \
@@ -469,7 +470,9 @@ platform-authority-bootstrap-check:
 		--fixtures-dir $(FIXTURES_DIR) \
 		--filter platform-authority
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
-	@$(PYTHON) scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-bootstrap.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-bootstrap-artifact-package.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-bootstrap-signed-artifact.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py compatibility-check
@@ -485,7 +488,7 @@ platform-authority-bootstrap-check:
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -911,6 +914,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-045-reviewed-lambda-authority-allowlist-and-collector.md \
 			ADR/ADR-046-lambda-audit-permission-set-provisioning.md \
 			ADR/ADR-047-lambda-audit-provisioning-repair.md \
+			ADR/ADR-048-platform-authority-bootstrap-artifact-authentication.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
@@ -948,6 +952,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md \
 			docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md \
 			docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md \
+			docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -964,6 +969,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			_NotebookLM_Brain/34_GUG219_Lambda_Authority_Allowlist_and_Collector.md \
 			_NotebookLM_Brain/35_GUG220_Lambda_Audit_Permission_Set.md \
 			_NotebookLM_Brain/36_GUG221_Lambda_Audit_Provisioning_Repair.md \
+			_NotebookLM_Brain/37_GUG274_Platform_Authority_Artifact_Authentication.md \
 			governance/github-policy.json deployment/layers.yaml; do \
 		if [ ! -f "$$f" ]; then \
 			echo "  MISSING: $$f"; \

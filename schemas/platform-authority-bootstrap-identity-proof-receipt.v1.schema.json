@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-identity-proof-receipt.v1.schema.json",
+  "title": "Platform Authority Bootstrap Identity Center Proof Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "domain_separator", "status",
+    "identity_binding_digest", "operation", "role_kind",
+    "expected_user_id_digest", "peer_user_id_digest",
+    "broker_execution_role_arn_digest", "proof_role_arn_digest",
+    "proof_session_arn_digest", "managed_policy_version",
+    "managed_policy_digest", "required_action", "proof_expires_at",
+    "credentials_consumed", "live_effect_authorized", "proof_receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "record_type": { "type": "string", "const": "platform_authority_bootstrap_identity_proof" },
+    "domain_separator": { "type": "string", "const": "scanalyze.platform-authority.bootstrap.identity-proof.v1" },
+    "status": { "type": "string", "const": "IDENTITY_CONTEXT_PROOF_VERIFIED" },
+    "identity_binding_digest": { "$ref": "#/$defs/digest" },
+    "operation": { "type": "string", "enum": ["plan", "approval", "apply"] },
+    "role_kind": { "type": "string", "enum": ["plan_author", "independent_approver", "apply_verifier"] },
+    "expected_user_id_digest": { "$ref": "#/$defs/digest" },
+    "peer_user_id_digest": { "$ref": "#/$defs/digest" },
+    "broker_execution_role_arn_digest": { "$ref": "#/$defs/digest" },
+    "proof_role_arn_digest": { "$ref": "#/$defs/digest" },
+    "proof_session_arn_digest": { "$ref": "#/$defs/digest" },
+    "managed_policy_version": { "type": "string", "pattern": "^v[1-9][0-9]*$" },
+    "managed_policy_digest": { "$ref": "#/$defs/digest" },
+    "required_action": { "type": "string", "const": "sts:SetContext" },
+    "proof_expires_at": { "$ref": "#/$defs/timestamp" },
+    "credentials_consumed": { "type": "boolean", "const": false },
+    "live_effect_authorized": { "type": "boolean", "const": false },
+    "proof_receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "operation": { "type": "string", "const": "plan" },
+        "role_kind": { "type": "string", "const": "plan_author" }
+      }
+    },
+    {
+      "properties": {
+        "operation": { "type": "string", "const": "approval" },
+        "role_kind": { "type": "string", "const": "independent_approver" }
+      }
+    },
+    {
+      "properties": {
+        "operation": { "type": "string", "const": "apply" },
+        "role_kind": { "type": "string", "const": "apply_verifier" }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "timestamp": {
+      "type": "string", "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

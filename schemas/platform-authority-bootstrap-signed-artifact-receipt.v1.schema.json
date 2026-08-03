@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-signed-artifact-receipt.v1.schema.json",
+  "title": "Platform Authority Bootstrap Signed Artifact Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "trust_root_generation",
+    "source_commit",
+    "unsigned_manifest_sha256",
+    "unsigned_archive_sha256",
+    "signing_trust_root_contract",
+    "trust_root",
+    "signing_job",
+    "signed_artifact",
+    "expected_sdk_versions",
+    "verifier",
+    "source_review",
+    "evaluated_at",
+    "expires_at",
+    "evidence_status",
+    "production_status",
+    "receipt_digest",
+    "cloudformation_parameters"
+  ],
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "const": "scanalyze.platform_authority.bootstrap_signed_artifact_receipt.v1"
+    },
+    "schema_version": { "type": "integer", "const": 1 },
+    "work_package": { "type": "string", "const": "GUG-274" },
+    "trust_root_generation": { "type": "integer", "const": 1 },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "unsigned_manifest_sha256": { "$ref": "#/$defs/digest" },
+    "unsigned_archive_sha256": { "$ref": "#/$defs/digest" },
+    "signing_trust_root_contract": {
+      "allOf": [
+        {
+          "$ref": "https://scanalyze.dev/schemas/platform-authority-bootstrap-artifact-signing-trust-root.v1.schema.json"
+        },
+        {
+          "properties": {
+            "configuration_status": { "const": "CONFIGURED_REVIEWED" },
+            "profile_version_id": { "$ref": "#/$defs/profile_version_id" },
+            "profile_version_arn": { "$ref": "#/$defs/profile_version_arn" }
+          }
+        }
+      ]
+    },
+    "trust_root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partition",
+        "authority_account_id",
+        "region",
+        "profile_name",
+        "profile_version_id",
+        "profile_version_arn",
+        "signing_platform",
+        "code_signing_policy",
+        "contract_digest"
+      ],
+      "properties": {
+        "partition": { "type": "string", "const": "aws" },
+        "authority_account_id": { "type": "string", "const": "042360977644" },
+        "region": { "type": "string", "const": "us-east-1" },
+        "profile_name": {
+          "type": "string",
+          "const": "scanalyze_gug274_bootstrap_artifact_authority"
+        },
+        "profile_version_id": { "$ref": "#/$defs/profile_version_id" },
+        "profile_version_arn": { "$ref": "#/$defs/profile_version_arn" },
+        "signing_platform": {
+          "type": "string",
+          "const": "AWSLambda-SHA384-ECDSA"
+        },
+        "code_signing_policy": { "type": "string", "const": "Enforce" },
+        "contract_digest": { "$ref": "#/$defs/domain_digest" }
+      }
+    },
+    "signing_job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "status",
+        "job_owner",
+        "job_invoker",
+        "signature_expires_at",
+        "source"
+      ],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "status": { "type": "string", "const": "Succeeded" },
+        "job_owner": { "type": "string", "const": "042360977644" },
+        "job_invoker": { "type": "string", "const": "042360977644" },
+        "signature_expires_at": { "$ref": "#/$defs/timestamp" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bucket", "key", "version"],
+          "properties": {
+            "bucket": { "$ref": "#/$defs/bucket" },
+            "key": { "$ref": "#/$defs/unsigned_key" },
+            "version": { "$ref": "#/$defs/s3_version" }
+          }
+        }
+      }
+    },
+    "signed_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket",
+        "key",
+        "version",
+        "archive_sha256",
+        "lambda_code_sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "key": { "$ref": "#/$defs/signed_key" },
+        "version": { "$ref": "#/$defs/s3_version" },
+        "archive_sha256": { "$ref": "#/$defs/digest" },
+        "lambda_code_sha256": { "$ref": "#/$defs/code_sha256" },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10485760
+        }
+      }
+    },
+    "expected_sdk_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boto3", "botocore"],
+      "properties": {
+        "boto3": { "$ref": "#/$defs/sdk_version" },
+        "botocore": { "$ref": "#/$defs/sdk_version" }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "account_id", "caller_arn"],
+      "properties": {
+        "profile": { "type": "string", "const": "042360977644_ReadOnlyAccess" },
+        "account_id": { "type": "string", "const": "042360977644" },
+        "caller_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_[0-9a-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"
+        }
+      }
+    },
+    "source_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "branch",
+        "source_commit",
+        "source_tree",
+        "pull_request_number",
+        "pull_request_head_commit",
+        "pull_request_head_tree",
+        "merged_at",
+        "required_checks",
+        "branch_protection_strict",
+        "evidence_status"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "const": "cesar-guzman/scanalyze-deployment-platform"
+        },
+        "branch": { "type": "string", "const": "main" },
+        "source_commit": { "$ref": "#/$defs/commit" },
+        "source_tree": { "$ref": "#/$defs/commit" },
+        "pull_request_number": { "type": "integer", "minimum": 1 },
+        "pull_request_head_commit": { "$ref": "#/$defs/commit" },
+        "pull_request_head_tree": { "$ref": "#/$defs/commit" },
+        "merged_at": { "$ref": "#/$defs/timestamp" },
+        "required_checks": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "$ref": "#/$defs/check_microservices" },
+            { "$ref": "#/$defs/check_lint" },
+            { "$ref": "#/$defs/check_python" },
+            { "$ref": "#/$defs/check_terraform" },
+            { "$ref": "#/$defs/check_manifest" },
+            { "$ref": "#/$defs/check_reproducibility" }
+          ],
+          "items": false
+        },
+        "branch_protection_strict": { "type": "boolean", "const": true },
+        "evidence_status": {
+          "type": "string",
+          "const": "MERGED_MAIN_REQUIRED_CHECKS_VERIFIED"
+        }
+      }
+    },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_status": {
+      "type": "string",
+      "const": "SIGNED_ARTIFACT_READ_ONLY_VERIFIED_FOR_CHANGE_SET_REVIEW"
+    },
+    "production_status": { "type": "string", "const": "NO-GO" },
+    "receipt_digest": { "$ref": "#/$defs/domain_digest" },
+    "cloudformation_parameters": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/parameter_authority_account" },
+        { "$ref": "#/$defs/parameter_artifact_bucket" },
+        { "$ref": "#/$defs/parameter_artifact_key" },
+        { "$ref": "#/$defs/parameter_artifact_version" },
+        { "$ref": "#/$defs/parameter_code_sha" },
+        { "$ref": "#/$defs/parameter_receipt_digest" },
+        { "$ref": "#/$defs/parameter_trust_root_digest" },
+        { "$ref": "#/$defs/parameter_profile_name" },
+        { "$ref": "#/$defs/parameter_profile_version" },
+        { "$ref": "#/$defs/parameter_source_commit" },
+        { "$ref": "#/$defs/parameter_boto3" },
+        { "$ref": "#/$defs/parameter_botocore" }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "domain_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "sdk_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "profile_version_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]{10}$"
+    },
+    "profile_version_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:signer:us-east-1:042360977644:/signing-profiles/scanalyze_gug274_bootstrap_artifact_authority/[A-Za-z0-9]{10}$"
+    },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
+    },
+    "s3_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\u0000-\\u001f]+$"
+    },
+    "unsigned_key": {
+      "type": "string",
+      "pattern": "^scanalyze/platform-authority/gug-274/unsigned/[0-9a-f]{40}/scanalyze-gug274-bootstrap-artifact-authority\\.zip$"
+    },
+    "signed_key": {
+      "type": "string",
+      "pattern": "^scanalyze/platform-authority/gug-274/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.zip$"
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "conclusion", "app_id", "app_slug"],
+      "properties": {
+        "name": { "type": "string" },
+        "conclusion": { "type": "string", "const": "success" },
+        "app_id": { "type": "integer", "const": 15368 },
+        "app_slug": { "type": "string", "const": "github-actions" }
+      }
+    },
+    "check_microservices": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Microservices validation gate" } } }
+      ]
+    },
+    "check_lint": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Lint, security, and schema checks" } } }
+      ]
+    },
+    "check_python": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Python tests" } } }
+      ]
+    },
+    "check_terraform": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Terraform validate (no AWS)" } } }
+      ]
+    },
+    "check_manifest": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Validate deployment manifest schema" } } }
+      ]
+    },
+    "check_reproducibility": {
+      "allOf": [
+        { "$ref": "#/$defs/check" },
+        { "properties": { "name": { "const": "Verify clean clone reproducibility" } } }
+      ]
+    },
+    "cfn_parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ParameterKey", "ParameterValue"],
+      "properties": {
+        "ParameterKey": { "type": "string" },
+        "ParameterValue": { "type": "string" }
+      }
+    },
+    "parameter_authority_account": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthorityAccountId" },
+            "ParameterValue": { "const": "042360977644" }
+          }
+        }
+      ]
+    },
+    "parameter_artifact_bucket": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthorityArtifactBucket" },
+            "ParameterValue": { "$ref": "#/$defs/bucket" }
+          }
+        }
+      ]
+    },
+    "parameter_artifact_key": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthorityArtifactKey" },
+            "ParameterValue": { "$ref": "#/$defs/signed_key" }
+          }
+        }
+      ]
+    },
+    "parameter_artifact_version": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthorityArtifactVersion" },
+            "ParameterValue": { "$ref": "#/$defs/s3_version" }
+          }
+        }
+      ]
+    },
+    "parameter_code_sha": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "SignedAuthorityArtifactCodeSha256" },
+            "ParameterValue": { "$ref": "#/$defs/code_sha256" }
+          }
+        }
+      ]
+    },
+    "parameter_receipt_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthoritySigningReceiptDigest" },
+            "ParameterValue": { "$ref": "#/$defs/domain_digest" }
+          }
+        }
+      ]
+    },
+    "parameter_trust_root_digest": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthoritySigningTrustRootContractDigest" },
+            "ParameterValue": { "$ref": "#/$defs/domain_digest" }
+          }
+        }
+      ]
+    },
+    "parameter_profile_name": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthoritySigningProfileName" },
+            "ParameterValue": { "const": "scanalyze_gug274_bootstrap_artifact_authority" }
+          }
+        }
+      ]
+    },
+    "parameter_profile_version": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "AuthoritySigningProfileVersionId" },
+            "ParameterValue": { "$ref": "#/$defs/profile_version_id" }
+          }
+        }
+      ]
+    },
+    "parameter_source_commit": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "SourceCommit" },
+            "ParameterValue": { "$ref": "#/$defs/commit" }
+          }
+        }
+      ]
+    },
+    "parameter_boto3": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExpectedBoto3Version" },
+            "ParameterValue": { "$ref": "#/$defs/sdk_version" }
+          }
+        }
+      ]
+    },
+    "parameter_botocore": {
+      "allOf": [
+        { "$ref": "#/$defs/cfn_parameter" },
+        {
+          "properties": {
+            "ParameterKey": { "const": "ExpectedBotocoreVersion" },
+            "ParameterValue": { "$ref": "#/$defs/sdk_version" }
+          }
+        }
+      ]
+    }
+  }
+}

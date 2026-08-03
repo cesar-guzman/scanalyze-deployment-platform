@@ -23,6 +23,9 @@ from tooling.platform_authority_bootstrap import (
     BootstrapBinding,
     render_bootstrap_iam_policy,
 )
+from tooling.platform_authority_bootstrap_artifact_authority import (
+    Boto3BootstrapApplyEffects,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -418,21 +421,21 @@ def test_recovery_preflight_rejects_ambiguous_notification_metadata(
         bootstrap_module._recovery_preflight(client, _binding())
 
 
-def test_normal_apply_rechecks_exact_shell_immediately_before_execute(
-    bootstrap_module: ModuleType,
-) -> None:
-    source = inspect.getsource(bootstrap_module._cmd_apply)
-    execute_index = source.index('"execute-change-set"')
-    execute_call_index = source.rfind("client.run(", 0, execute_index)
-    rechecks = [
+def test_service_owned_apply_rechecks_exact_shell_and_freshness_before_execute() -> None:
+    source = inspect.getsource(Boto3BootstrapApplyEffects.execute)
+    execute_index = source.index("execute_change_set")
+    stack_rechecks = [
         index
         for index in range(len(source))
-        if source.startswith("_require_exact_empty_review_stack", index)
+        if source.startswith("self._stack()", index)
     ]
+    final_freshness = source.rfind(
+        "prevalidate_bootstrap_apply_v2", 0, execute_index
+    )
 
-    assert len(rechecks) == 2
-    assert rechecks[-1] < execute_call_index
-    assert "client.run(" not in source[rechecks[-1] : execute_call_index]
+    assert len(stack_rechecks) == 2
+    assert stack_rechecks[-1] < final_freshness < execute_index
+    assert "put_public_access_block" not in source[final_freshness:execute_index]
 
 
 @pytest.mark.parametrize("command", ["_cmd_plan", "_cmd_apply"])

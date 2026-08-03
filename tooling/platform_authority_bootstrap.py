@@ -101,6 +101,8 @@ APPROVAL_RECORD_FIELDS = frozenset(
 class BootstrapAuthorizationError(ValueError):
     """The platform-authority bootstrap could not be proven safe."""
 
+    code = "BOOTSTRAP_AUTHORIZATION_DENIED"
+
 
 def require_exact_empty_review_stack(
     *,
@@ -192,7 +194,7 @@ def _validate_change_set_iam_boundary(
     binding: "BootstrapBinding",
     change_set_name: str,
 ) -> None:
-    """Reject unsupported CloudFormation resource authorization shapes."""
+    """Validate the Plan-only Change Set creation permission boundary."""
     statements = policy.get("Statement")
     if not isinstance(statements, list):
         raise BootstrapAuthorizationError("rendered IAM policy is malformed")
@@ -200,9 +202,6 @@ def _validate_change_set_iam_boundary(
         f"arn:{_aws_partition(binding.region)}:cloudformation:{binding.region}:"
         f"{binding.authority_account_id}:stack/{CANONICAL_STACK_NAME}/*"
     )
-    expected_name_condition = {
-        "StringEquals": {"cloudformation:ChangeSetName": change_set_name}
-    }
     read_actions = {
         "cloudformation:DescribeChangeSet",
         "cloudformation:DescribeStackEvents",
@@ -338,44 +337,61 @@ def _validate_change_set_iam_boundary(
             raise BootstrapAuthorizationError(
                 "Change Set tag authorization is not exact and create-bound"
             )
-    elif present == {"cloudformation:ExecuteChangeSet"}:
-        if list_change_sets_statement is not None or get_template_statement is not None:
-            raise BootstrapAuthorizationError(
-                "Apply authority must not add Plan-only recovery read scope"
-            )
-        expected_cloudformation_actions = read_actions | present
-        if (
-            by_action["cloudformation:ExecuteChangeSet"].get("Condition")
-            != expected_name_condition
-        ):
-            raise BootstrapAuthorizationError(
-                "ExecuteChangeSet is not bound to the exact Change Set name"
-            )
     else:
         raise BootstrapAuthorizationError(
-            "rendered policy does not preserve disjoint Plan or Apply authority"
+            "rendered policy is not the exact Plan-only authority"
         )
     if all_cloudformation_actions != expected_cloudformation_actions:
         raise BootstrapAuthorizationError(
             "rendered policy contains unexpected CloudFormation authorization"
         )
 
+    authority_function = "scanalyze-platform-authority-bootstrap-plan-authority"
+    expected_authority_arn = (
+        f"arn:{_aws_partition(binding.region)}:lambda:{binding.region}:"
+        f"{binding.authority_account_id}:function:{authority_function}:1"
+    )
+    lambda_statements = [
+        statement
+        for statement in statements
+        if isinstance(statement, Mapping)
+        and "Action" in statement
+        and any(
+            action.startswith("lambda:")
+            for action in _statement_actions(statement)
+        )
+    ]
+    expected_lambda_statements = [
+        {
+            "Sid": (
+                "InvokeExactBootstrapPlanAuthorityVersion"
+            ),
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "Resource": expected_authority_arn,
+        },
+        {
+            "Sid": "DenyAnyOtherLambdaInvocation",
+            "Effect": "Deny",
+            "Action": "lambda:InvokeFunction",
+            "NotResource": expected_authority_arn,
+        },
+    ]
+    if lambda_statements != expected_lambda_statements:
+        raise BootstrapAuthorizationError(
+            "artifact authority Lambda invocation boundary is not exact"
+        )
+
     dynamodb_statements = [
         statement
         for statement in statements
         if isinstance(statement, Mapping)
+        and "Action" in statement
         and any(
             action.startswith("dynamodb:")
             for action in _statement_actions(statement)
         )
     ]
-    if present == {"cloudformation:ExecuteChangeSet"}:
-        if dynamodb_statements:
-            raise BootstrapAuthorizationError(
-                "Apply authority must not access the recovery retirement ledger"
-            )
-        return
-
     if len(dynamodb_statements) != 1:
         raise BootstrapAuthorizationError(
             "Plan must not receive retirement ledger authority"
@@ -383,6 +399,7 @@ def _validate_change_set_iam_boundary(
     deny = dynamodb_statements[0]
     expected_denies = {
         "cloudformation:DeleteChangeSet",
+        "cloudformation:ExecuteChangeSet",
         "dynamodb:BatchWriteItem",
         "dynamodb:DeleteItem",
         "dynamodb:PartiQLDelete",
@@ -392,6 +409,7 @@ def _validate_change_set_iam_boundary(
         "dynamodb:Scan",
         "dynamodb:TransactWriteItems",
         "dynamodb:UpdateItem",
+        "s3:PutAccountPublicAccessBlock",
     }
     if (
         deny.get("Sid") != "DenyDirectRetirementEffects"
@@ -402,6 +420,27 @@ def _validate_change_set_iam_boundary(
     ):
         raise BootstrapAuthorizationError(
             "Plan direct-retirement explicit-deny boundary is not exact"
+        )
+    deny_all = [
+        statement
+        for statement in statements
+        if isinstance(statement, Mapping)
+        and statement.get("Sid") == "DenyEveryNonPlanAction"
+    ]
+    expected_not_actions = expected_cloudformation_actions | {
+        "lambda:InvokeFunction",
+        "s3:GetAccountPublicAccessBlock",
+        "sts:GetCallerIdentity",
+    }
+    if (
+        len(deny_all) != 1
+        or deny_all[0].get("Effect") != "Deny"
+        or set(deny_all[0].get("NotAction", [])) != expected_not_actions
+        or deny_all[0].get("Resource") != "*"
+        or "Condition" in deny_all[0]
+    ):
+        raise BootstrapAuthorizationError(
+            "Plan fail-closed NotAction boundary is not exact"
         )
 
 
@@ -566,7 +605,7 @@ def render_bootstrap_iam_policy(
     change_set_name: str | None = None,
     change_set_id: str | None = None,
 ) -> dict[str, Any]:
-    """Render a policy without accepting caller-selected authority fields."""
+    """Render the Plan-only policy without caller-selected authority fields."""
     bindings = {
         "aws_partition": _aws_partition(binding.region),
         "region": binding.region,
@@ -925,7 +964,19 @@ def build_bootstrap_verification(
     verified_at: datetime,
 ) -> dict[str, Any]:
     """Build success evidence only after every live backend control is proven."""
-    _require_digest(plan, "record_digest", "bootstrap plan")
+    if plan.get("schema_version") == "2":
+        # Imported lazily to preserve the side-effect-free v1/founder modules
+        # while allowing the active normal path to produce its existing
+        # verification receipt from an authenticated Plan v2.
+        from tooling.platform_authority_bootstrap_artifact_authority import (
+            validate_bootstrap_plan_v2,
+        )
+
+        validate_bootstrap_plan_v2(plan=plan, binding=binding)
+        plan_digest = plan["plan_artifact_digest"]
+    else:
+        _require_digest(plan, "record_digest", "bootstrap plan")
+        plan_digest = plan["record_digest"]
     for field, expected in binding.as_record().items():
         if plan.get(field) != expected:
             raise BootstrapAuthorizationError(f"bootstrap plan binding mismatch: {field}")
@@ -951,7 +1002,7 @@ def build_bootstrap_verification(
     record: dict[str, Any] = {
         "schema_version": "1",
         "record_type": "platform_authority_bootstrap_verification",
-        "plan_record_digest": plan["record_digest"],
+        "plan_record_digest": plan_digest,
         "authority_account_id": binding.authority_account_id,
         "region": binding.region,
         "stack_name": binding.stack_name,

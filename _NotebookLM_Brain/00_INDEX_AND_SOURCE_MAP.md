@@ -1,6 +1,6 @@
 # Scanalyze Knowledge Brain — índice y mapa de fuentes
 
-> **Última revisión editorial:** 2026-07-21
+> **Última revisión editorial:** 2026-08-02
 >
 > **Ámbito:** plataforma de despliegue dedicada y monorepo de microservicios
 >
@@ -88,6 +88,7 @@ Cuando dos documentos difieran, usar este orden:
 | ¿Cómo se produce la allowlist GUG-218 sin copiar evidencia sintética ni confiar en un perfil AWS? | [ADR-045](../ADR/ADR-045-reviewed-lambda-authority-allowlist-and-collector.md), [contrato GUG-219](../docs/deployment/platform-authority-lambda-invocation-materialization.md), [runbook GUG-219](../docs/operations/platform-authority-lambda-invocation-materialization.md), [delta GUG-219](../docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md) y [fuente sanitizada GUG-219](34_GUG219_Lambda_Authority_Allowlist_and_Collector.md) |
 | ¿Cómo se provisiona y verifica el collector Lambda mínimo sin confiar en nombres locales, intents stale ni respuestas asíncronas ambiguas? | [ADR-046](../ADR/ADR-046-lambda-audit-permission-set-provisioning.md), [contrato GUG-220](../docs/deployment/platform-authority-lambda-audit-permission-set.md), [runbook GUG-220](../docs/operations/platform-authority-lambda-audit-permission-set.md), [delta GUG-220](../docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md) y [fuente sanitizada GUG-220](35_GUG220_Lambda_Audit_Permission_Set.md) |
 | ¿Cómo se repara el estado parcial exacto del collector sin reintentar GUG-220 ni usar autoridad administrativa amplia? | [ADR-047](../ADR/ADR-047-lambda-audit-provisioning-repair.md), [contrato GUG-221](../docs/deployment/platform-authority-lambda-audit-provisioning-repair.md), [runbook GUG-221](../docs/operations/platform-authority-lambda-audit-provisioning-repair.md), [delta GUG-221](../docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md) y [fuente sanitizada GUG-221](36_GUG221_Lambda_Audit_Provisioning_Repair.md) |
+| ¿Cómo autentican user A/user B Plan v2 y Approval v2, cómo consume CAS un solo intento y por qué sólo el Apply executor firmado puede producir efectos? | [ADR-048](../ADR/ADR-048-platform-authority-bootstrap-artifact-authentication.md), [bootstrap de platform authority](../docs/deployment/platform-authority-bootstrap.md), [bootstrap de cuenta](../docs/deployment/platform-authority-account-bootstrap.md), [runbook de recuperación](../docs/operations/platform-authority-bootstrap-recovery.md), [delta GUG-274](../docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md) y [fuente sanitizada GUG-274](37_GUG274_Platform_Authority_Artifact_Authentication.md) |
 
 ## Estado de evidencia al 2026-07-22
 
@@ -129,6 +130,48 @@ Cuando dos documentos difieran, usar este orden:
 | Provisioning del collector Lambda GUG-220 | **Implemented** sólo cuando el commit revisado contiene contrato exacto `ScanalyzeAuthorityLambdaAudit`, policy exclusiva, `PT1H`, intent máximo 15 minutos ligado por digest al Instance/Identity Store live y al directorio privado `0700`, ledger one-shot `O_EXCL` por `intent_digest`, receipt reservado antes del write, asignación directa bootstrap, provisioning o reprovisioning explícito a un único target, reconciliación sin retry, paginación IAM completa, una sola instancia Identity Center `ACTIVE`, readback con ambos ARN digests y tres gates positivos, custodia `O_NOFOLLOW`/owner/`0600`, schemas de intent/ledger/receipt, tests, ADR/runbook/threat model y fuente sanitizada; **Locally validated** sólo con gates nombrados | Replay falla `EXECUTION_LEDGER_ALREADY_CONSUMED`; timeout, `OSError` o falla post-write queda `UNCERTAIN_RECONCILE_ONLY`. Intents v1 anteriores al hardening son obsoletos. Los IDs/ARNs/evidencia live permanecen privados. Una asignación a un único operador no es aprobación independiente; Candidate A/B son read-only y GUG-215 sigue bloqueado hasta dos humanos. Producción sigue **NO-GO**. |
 | Reparación del provisioning Lambda GUG-221 | **Implemented** sólo cuando el commit revisado contiene el invocador exacto `ScanalyzeLambdaAuditRepair` sin APIs crudas, funciones/aliases privados y versionados para Plan/repair/reconcile, seis roles separados incluido el inspector exacto, grafo account-wide verificado en cada snapshot, Plan durable create-only obligatorio, repair update-only, policy de sólo tres mutaciones detrás del PEP, intent corto, ledger DynamoDB CAS provider-backed, receipt sanitizado, reconciliación sin retry, lineage exacto de Phase A con `ClientRequestToken`/CloudTrail/StackEvents, readback SSO+IAM completo, schemas, tests, ADR/runbook/threat model y fuente sanitizada | El ledger GUG-220 permanece consumido: sólo puede leerse para sellar su digest y jamás mutarse o reutilizarse. Los dos stacks requieren bootstrap y readback separados; cualquier ambigüedad queda reconcile-only. No hay validación live. Candidate A/B, aprobación independiente y producción siguen **Blocked / NO-GO**. |
 
+### Actualización GUG-274 — 2026-08-02
+
+| Capacidad | Estado | Límite de la evidencia |
+|---|---|---|
+| Autenticación de artefactos normales de platform authority GUG-274 | **Implemented** sólo cuando el commit revisado contiene Plan v2/Approval v2, tabla fija con PK `trust_root_id` y SK `authority_record_id`, servicios Plan/Approval/Apply-executor exactos `:1`, prueba PKCE de user A/user B, CAS `PLAN_ANCHORED -> APPROVED -> CLAIMED`, Apply humano read-only/invoke-only, package unsigned determinista/no desplegable, los tres CLI con Python aislado, cierre operacional completo fuera del repo/`.venv` para `boto3`/`botocore`/`s3transfer`/`jmespath`/`python-dateutil`/`urllib3`/`six`, identidades de wheels y manifiestos instalados canónicos fijados en fuente, rechazo de preload/symlink/`.pyc`/extras, bindings absolutos revisados de Git/AWS/GitHub CLI independientes de `PATH`, rechazo de untracked, ZIP sin SDK y guard separado del SDK AWS-managed en Lambda `python3.12`, source review merged-main/required-checks, verifier Signer/S3 read-only, receipt de 15 minutos y refresh proveedor; **Locally validated** sólo con gates nombrados | El `RECORD` mutable no es autoridad: su proyección de archivos wheel-owned debe igualar el manifiesto fijado en fuente antes de verificar todos los archivos autoritativos. El repositorio autentica el contrato pero no provisiona ni hace rollback del runtime del host o de Lambda; la frontera Lambda sigue inactiva por el lock CFN. Mismatch es tooling stop y cambiar pins/bindings exige commit revisado, rebuild y nueva evidencia. El contrato Git fijo está deliberadamente `NOT_CONFIGURED` y CFN no puede crear Change Set: **SIGNING_TRUST_ROOT_NOT_CONFIGURED**. Signing/provider receipt/deploy, tabla/roles/funciones, pruebas Identity Center, transiciones, PAB y ejecución live están **NOT_OBSERVED**. El lector independently strongly consistent del ledger sigue **NOT_IMPLEMENTED** como follow-up P2: toda ambigüedad es terminal, sin retry ni IAM ad hoc. Activación requiere pin exacto de signer version+contract digest en otro commit revisado, refresh GitHub+Signer+S3 antes de consumo, deploy/readback exacto, revisión P0 y GUG-119. Producción sigue **Blocked / NO-GO**. |
+
+En GUG-274, la `ResourcePolicy` de DynamoDB es sólo-denegación y no concede
+acceso positivo. Cada `Allow` positivo existe únicamente en la identity policy
+del rol de ejecución correspondiente, con acción/tabla/key exactos y
+`lambda:SourceFunctionArn` igual al ARN fuente exacto no calificado. AWS entrega
+esa clave sin sufijo de versión; invocación calificada, permiso Lambda,
+deployment/readback y runtime fijan `:1` por separado.
+
+Para GUG-274, “Python aislado” significa exactamente
+`env -u PYTHONPATH -u PYTHONHOME python3 -I -S ...`; `-S` impide que `site`,
+`.pth` o `sitecustomize` se ejecuten antes del gate. Cada uno de los tres
+entrypoints lee y compila primero los bytes UTF-8 de
+`tooling/platform_authority_source_only_import.py`; el finder compila los `.py`
+exactos de `tooling` sin consumir ni emitir `.pyc` del repositorio.
+Normal/verifier reciben `SCANALYZE_GUG274_SDK_RUNTIME_ROOT`, una raíz absoluta
+externa al repo/`.venv` con un `site-packages/` dedicado que contiene sólo
+`boto3==1.42.57`, `botocore==1.42.97`, `s3transfer==0.16.1`,
+`jmespath==1.1.0`, `python-dateutil==2.9.0.post0`, `urllib3==2.7.0` y
+`six==1.17.0`. La raíz y cada ancestro POSIX deben pertenecer a root o al euid y
+no ser escribibles por grupo/otros, salvo un directorio ancestro sticky propiedad
+de root; todo el árbol `site-packages/` exige esos owners y modos seguros, sin
+symlink ni entrada no regular/directorio y sin esa excepción sticky. La ruta
+selecciona bytes candidatos, no autoridad: identidades de wheels y hashes
+canónicos de manifiesto instalado fijados en fuente deben autenticarlos antes de
+cualquier import. Los bytes locales mutables de `RECORD` no están fijados y no
+son autoridad.
+
+Los bindings de Git/AWS/GitHub CLI tampoco confían en `PATH`: el ejecutable
+resuelto y todos sus ancestros deben pertenecer a root o al euid. El archivo
+debe ser regular/ejecutable y no escribible por grupo/otros; cada ancestro debe
+ser directorio no escribible por grupo/otros, salvo un ancestro sticky propiedad
+de root. El path completo se vuelve a validar después de calcular el digest y
+los metadatos estables del ejecutable deben coincidir. El digest revisado de un
+binario non-root es adicional y no corrige un path inseguro. En la workstation
+inspeccionada, Homebrew `gh` falla cerrado porque `/opt/homebrew/Cellar` tiene
+modo `0775` y es group-writable.
+
 ## Inventario del Brain
 
 | Documento | Enfoque |
@@ -167,6 +210,7 @@ Cuando dos documentos difieran, usar este orden:
 | [34 — GUG-219 Lambda Authority Allowlist and Collector](34_GUG219_Lambda_Authority_Allowlist_and_Collector.md) | Renderer determinista desde evidencia privada, collector Identity Center mínimo, release anchor y segunda captura obligatoria |
 | [35 — GUG-220 Lambda Audit Permission Set](35_GUG220_Lambda_Audit_Permission_Set.md) | Permission set exacto, intent live-bound de máximo 15 minutos, ledger one-shot y receipt reservado, asignación bootstrap de un operador, provisioning/reprovisioning de un target, custodia privada descriptor-safe, reconciliación sin retry, paginación completa, readback completo y handoff report-only |
 | [36 — GUG-221 Lambda Audit Provisioning Repair](36_GUG221_Lambda_Audit_Provisioning_Repair.md) | Estado parcial exacto, paginación CLI SSO/IAM completa, invocador humano Lambda-only, funciones y versiones con contratos exactos, Plan durable obligatorio, ledger DynamoDB CAS, lineage exacto Phase A, ambigüedad terminal, readback Identity Center/IAM y NO-GO |
+| [37 — GUG-274 Platform Authority Artifact Authentication](37_GUG274_Platform_Authority_Artifact_Authentication.md) | Plan v2/Approval v2, user A/user B con prueba PKCE no persistente, trust root DynamoDB fijo, Apply executor único, package unsigned, Python/SDK/tooling host fail-closed con pins y bindings absolutos revisados, verifier merged-main+Signer+S3, receipt TTL/refresh, signing trust root `NOT_CONFIGURED`, CAS de un intento, rollback por artefacto inmutable con PAB retenido, reconciliación faltante y límites live |
 
 ## Reglas de ingestión y mantenimiento
 
@@ -233,6 +277,16 @@ Cuando dos documentos difieran, usar este orden:
     primer efecto y limita el service role a policy, asignación y provisioning,
     o intenta reusar el ledger anterior, ampliar la autoridad o reintentar tras
     ambigüedad?
+27. ¿Plan v2 y Approval v2 coinciden con el item externo exacto, la prueba
+    separada de user A/user B y todos los parámetros/metadatos; el Apply humano
+    sólo invoca al executor `:1`; el package unsigned está ligado a commit y
+    runtime pero nunca se trata como desplegable; el verifier prueba merged
+    protected main+required checks+Signer+S3; el receipt vigente se refresca en
+    el mismo flujo antes de usar parámetros; y el trust root Git está configurado
+    con exact signer version/contract digest, o se confía en el digest del
+    receipt, v1, identidad declarada, parámetros autodeclarados, lock CFN falso,
+    efectos humanos, versión mutable o retry tras una ambigüedad sin
+    reconciliador independiente implementado?
 
 Si una respuesta depende de datos ausentes, el Brain debe indicarlo como
 **Blocked** o **Unknown**, nunca completar el dato por inferencia.

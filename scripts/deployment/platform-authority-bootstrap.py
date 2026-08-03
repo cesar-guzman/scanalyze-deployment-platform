@@ -5,8 +5,8 @@ The CLI accepts only an SSO profile through ``AWS_PROFILE``.  It never reads a
 credential file, never prints AWS responses or principal identifiers, and
 writes operational receipts only to exclusive mode-0600 paths outside Git.
 ``plan`` creates a CloudFormation change set but does not execute it. ``apply``
-requires a different live AWS principal to approve and execute that exact
-change set.
+invokes the identity-gated service-owned executor; the human Apply role has no
+direct CloudFormation or account-public-access mutation authority.
 """
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import stat
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -22,31 +24,88 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
+ISOLATED_IMPORT_PATHS = tuple(sys.path)
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
+
+
+def _install_source_only_repository_imports(source_root: Path) -> None:
+    boundary = source_root / "tooling/platform_authority_source_only_import.py"
+    if boundary.is_symlink() or not boundary.is_file():
+        raise ValueError("REPOSITORY_SOURCE_IMPORT_BOUNDARY_INVALID")
+    namespace = {
+        "__file__": str(boundary),
+        "__name__": "_gug274_source_only_import_boundary",
+    }
+    exec(compile(boundary.read_bytes(), str(boundary), "exec"), namespace)
+    installer = namespace.get("install_repository_source_only_importer")
+    if not callable(installer):
+        raise ValueError("REPOSITORY_SOURCE_IMPORT_BOUNDARY_INVALID")
+    installer(source_root)
+
+
+if __name__ == "__main__":
+    if (
+        not sys.flags.isolated
+        or not sys.flags.no_site
+        or sys.pycache_prefix is not None
+        or "PYTHONPATH" in os.environ
+        or "PYTHONHOME" in os.environ
+    ):
+        print(
+            "GUG274_BOOTSTRAP_BLOCKED:ISOLATED_PYTHON_REQUIRED",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    try:
+        _install_source_only_repository_imports(REPO_ROOT)
+    except Exception:
+        print(
+            "GUG274_BOOTSTRAP_BLOCKED:REPOSITORY_SOURCE_IMPORT_BOUNDARY_INVALID",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
+elif str(REPO_ROOT) not in sys.path:
+    # Test-only module loading; operational execution never adds the repository
+    # to PathFinder and is owned by the source-only finder above.
     sys.path.insert(0, str(REPO_ROOT))
 
 from tooling.platform_authority_bootstrap import (  # noqa: E402
     PUBLIC_ACCESS_BLOCK,
     BootstrapAuthorizationError,
     BootstrapBinding,
-    authorize_bootstrap_apply,
-    build_bootstrap_approval,
-    build_bootstrap_plan,
     build_bootstrap_verification,
-    canonical_digest,
     change_set_identity_from_arn,
-    prevalidate_bootstrap_apply,
     require_exact_empty_review_stack,
     render_backend_config,
     render_bootstrap_iam_policy,
     validate_bootstrap_change_set_name,
+)
+from tooling.platform_authority_bootstrap_artifact_authority import (  # noqa: E402
+    BootstrapArtifactAuthorityClient,
+    LambdaBootstrapArtifactAuthorityClient,
+    authorize_bootstrap_apply_v2,
+    build_bootstrap_approval_v2,
+    build_bootstrap_plan_v2,
+    canonical_change_set_parameters,
+    prevalidate_bootstrap_apply_v2,
+    render_bootstrap_apply_iam_policy,
+    render_bootstrap_approval_iam_policy,
+    validate_bootstrap_plan_v2,
+)
+from tooling.platform_authority_bootstrap_artifact_package import (  # noqa: E402
+    BootstrapArtifactPackageError,
+    import_reviewed_aws_sdk,
+    resolve_trusted_executable,
+    sdk_runtime_root_from_environment,
 )
 
 
 TEMPLATE = REPO_ROOT / "bootstrap/cfn-platform-authority-state-backend.yaml"
 PLAN_POLICY_TEMPLATE = REPO_ROOT / "policies/iam/platform-authority-bootstrap-plan-role.json"
 APPLY_POLICY_TEMPLATE = REPO_ROOT / "policies/iam/platform-authority-bootstrap-apply-role.json"
+APPROVAL_POLICY_TEMPLATE = (
+    REPO_ROOT / "policies/iam/platform-authority-bootstrap-approval-role.json"
+)
 FORBIDDEN_CREDENTIAL_ENV = frozenset(
     {
         "AWS_ACCESS_KEY_ID",
@@ -54,8 +113,17 @@ FORBIDDEN_CREDENTIAL_ENV = frozenset(
         "AWS_SESSION_TOKEN",
         "AWS_WEB_IDENTITY_TOKEN_FILE",
         "AWS_ROLE_ARN",
+        "AWS_ENDPOINT_URL",
+        "AWS_CONFIG_FILE",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_DEFAULT_PROFILE",
+        "AWS_CA_BUNDLE",
+        "AWS_DATA_PATH",
+        "REQUESTS_CA_BUNDLE",
+        "BOTO_CONFIG",
     }
 )
+OPERATOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 SSO_ASSUMED_ROLE_ARN = re.compile(
     r"^arn:(?:aws|aws-us-gov|aws-cn):sts::(?P<account>[0-9]{12}):assumed-role/"
     r"(?P<role>AWSReservedSSO_[A-Za-z0-9+=,.@_-]+_[0-9A-Fa-f]{16})/"
@@ -63,6 +131,7 @@ SSO_ASSUMED_ROLE_ARN = re.compile(
 )
 AWS_PERMISSION_SET_NAME = re.compile(r"^[A-Za-z0-9_+=,.@-]{1,32}$")
 PLAN_PERMISSION_SET = "ScanalyzeAuthorityBootstrapPlan"
+APPROVAL_PERMISSION_SET = "ScanalyzeAuthorityBootApprove"
 APPLY_PERMISSION_SET = "ScanalyzeAuthorityBootstrapApply"
 NORMAL_CANCEL_RETIRED = (
     "NORMAL_CANCEL_RETIRED: use the separately reviewed GUG-215 retirement process"
@@ -82,6 +151,8 @@ REQUIRED_BUCKET_POLICY_SIDS = frozenset(
 
 class AwsCliError(RuntimeError):
     """An AWS CLI operation failed without exposing its response."""
+
+    code = "BOOTSTRAP_PROVIDER_OPERATION_FAILED"
 
 
 def _validate_permission_set_name(permission_set: str) -> None:
@@ -103,6 +174,67 @@ def _strict_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise BootstrapAuthorizationError("operational JSON must be an object")
     return value
+
+
+def _read_identity_grant_json(descriptor_number: int) -> str:
+    """Consume one PKCE grant from a non-persistent pipe/socket descriptor."""
+    if descriptor_number < 0:
+        raise BootstrapAuthorizationError("identity grant descriptor is invalid")
+    try:
+        descriptor = os.dup(descriptor_number)
+    except OSError as exc:
+        raise BootstrapAuthorizationError("identity grant is unavailable") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            os.isatty(descriptor)
+            or not (
+                stat.S_ISFIFO(metadata.st_mode) or stat.S_ISSOCK(metadata.st_mode)
+            )
+        ):
+            raise BootstrapAuthorizationError(
+                "identity grant must arrive through a non-persistent pipe or socket"
+            )
+        chunks: list[bytes] = []
+        length = 0
+        while True:
+            chunk = os.read(descriptor, min(4096, 12 * 1024 + 1 - length))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            length += len(chunk)
+            if length > 12 * 1024:
+                raise BootstrapAuthorizationError("identity grant exceeds size bound")
+        raw = b"".join(chunks)
+    finally:
+        os.close(descriptor)
+    if len(raw) < 2:
+        raise BootstrapAuthorizationError("identity grant JSON is invalid")
+    try:
+        document = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise BootstrapAuthorizationError("identity grant JSON is invalid") from None
+    if (
+        type(document) is not dict
+        or set(document)
+        != {"schema_version", "record_type", "authorization_code", "code_verifier"}
+        or document.get("schema_version") != "1"
+        or document.get("record_type")
+        != "platform_authority_bootstrap_identity_grant"
+        or not isinstance(document.get("authorization_code"), str)
+        or not 8 <= len(document["authorization_code"]) <= 4096
+        or document["authorization_code"].isspace()
+        or not isinstance(document.get("code_verifier"), str)
+        or re.fullmatch(r"[A-Za-z0-9._~-]{43,128}", document["code_verifier"])
+        is None
+    ):
+        if isinstance(document, dict):
+            document.clear()
+        raise BootstrapAuthorizationError("identity grant contract is invalid")
+    try:
+        return json.dumps(document, sort_keys=True, separators=(",", ":"))
+    finally:
+        document.clear()
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -184,10 +316,16 @@ class AwsCli:
 
     def __init__(self, *, region: str) -> None:
         self.region = region
+        try:
+            self.executable = resolve_trusted_executable(
+                name="aws", source_root=REPO_ROOT
+            )
+        except BootstrapArtifactPackageError as exc:
+            raise AwsCliError("reviewed AWS CLI is unavailable") from exc
 
     def _command(self, *parts: str) -> list[str]:
         return [
-            "aws",
+            str(self.executable),
             *parts,
             "--region",
             self.region,
@@ -196,10 +334,13 @@ class AwsCli:
             "--no-cli-pager",
         ]
 
-    @staticmethod
-    def _environment() -> dict[str, str]:
+    def _environment(self) -> dict[str, str]:
         environment = os.environ.copy()
+        environment["PATH"] = os.pathsep.join(
+            sorted({"/usr/bin", "/bin", str(self.executable.parent)})
+        )
         environment["AWS_MAX_ATTEMPTS"] = "1"
+        environment["AWS_IGNORE_CONFIGURED_ENDPOINT_URLS"] = "true"
         return environment
 
     def run(self, *parts: str) -> dict[str, Any]:
@@ -246,7 +387,13 @@ class AwsCli:
 
     def wait(self, *parts: str) -> None:
         completed = subprocess.run(
-            ["aws", *parts, "--region", self.region, "--no-cli-pager"],
+            [
+                str(self.executable),
+                *parts,
+                "--region",
+                self.region,
+                "--no-cli-pager",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -257,10 +404,46 @@ class AwsCli:
             raise AwsCliError(f"AWS waiter failed: {operation}")
 
 
+def _artifact_authority_client(
+    binding: BootstrapBinding,
+) -> BootstrapArtifactAuthorityClient:
+    """Construct the exact-version Lambda adapter after local validation."""
+    try:
+        sys.path[:] = list(ISOLATED_IMPORT_PATHS)
+        boto3, _, Config = import_reviewed_aws_sdk(
+            source_root=REPO_ROOT,
+            isolated_import_paths=ISOLATED_IMPORT_PATHS,
+            sdk_runtime_root=sdk_runtime_root_from_environment(),
+        )
+
+        lambda_client = boto3.client(
+            "lambda",
+            region_name=binding.region,
+            config=Config(
+                retries={"max_attempts": 0, "mode": "standard"},
+                ignore_configured_endpoint_urls=True,
+            ),
+        )
+    except Exception as exc:
+        raise BootstrapAuthorizationError(
+            "artifact authority provider is unavailable"
+        ) from exc
+    return LambdaBootstrapArtifactAuthorityClient(
+        binding=binding, lambda_client=lambda_client
+    )
+
+
 def _require_sso_environment(region: str) -> None:
     if not os.environ.get("AWS_PROFILE"):
         raise BootstrapAuthorizationError("AWS_PROFILE is required for the SSO bootstrap session")
     present = sorted(name for name in FORBIDDEN_CREDENTIAL_ENV if os.environ.get(name))
+    present.extend(
+        sorted(
+            name
+            for name, value in os.environ.items()
+            if name.startswith("AWS_ENDPOINT_URL_") and value
+        )
+    )
     if present:
         raise BootstrapAuthorizationError("static or ambient AWS credential material is forbidden")
     configured_regions = {
@@ -283,6 +466,12 @@ def _binding(args: argparse.Namespace) -> BootstrapBinding:
         state_key="platform-authority/terraform.tfstate",
         destination_account_ids=tuple(args.destination_account_id),
     )
+
+
+def _require_operator_id(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or OPERATOR_ID.fullmatch(value) is None:
+        raise BootstrapAuthorizationError(f"bootstrap {label} ID is invalid")
+    return value
 
 
 def _identity(client: AwsCli, binding: BootstrapBinding) -> tuple[str, str]:
@@ -498,25 +687,53 @@ def _require_exact_change_set_response(
         raise BootstrapAuthorizationError(
             "live change set tags differ from reviewed bootstrap contract"
         )
+    raw_parameters = response.get("Parameters")
+    if not isinstance(raw_parameters, list):
+        raise BootstrapAuthorizationError("live change set parameters are missing")
+    parameters: dict[str, str] = {}
+    for item in raw_parameters:
+        if not isinstance(item, Mapping) or set(item) != {
+            "ParameterKey",
+            "ParameterValue",
+        }:
+            raise BootstrapAuthorizationError("live change set parameters are malformed")
+        key = item.get("ParameterKey")
+        value = item.get("ParameterValue")
+        if not isinstance(key, str) or not isinstance(value, str) or key in parameters:
+            raise BootstrapAuthorizationError("live change set parameters are malformed")
+        parameters[key] = value
+    if parameters != canonical_change_set_parameters(binding):
+        raise BootstrapAuthorizationError(
+            "live change set parameters differ from reviewed bootstrap contract"
+        )
+    if (
+        response.get("Capabilities", []) != []
+        or "RoleARN" in response
+        or response.get("NotificationARNs", []) != []
+        or response.get("RollbackConfiguration") not in (None, {})
+        or response.get("IncludeNestedStacks") is not False
+        or response.get("ImportExistingResources") is not False
+        or response.get("OnStackFailure") != "ROLLBACK"
+        or "DeploymentMode" in response
+        or response.get("ParentChangeSetId") not in (None, "")
+        or response.get("RootChangeSetId") not in (None, "")
+    ):
+        raise BootstrapAuthorizationError(
+            "live change set request options differ from reviewed bootstrap contract"
+        )
 
 
 def _require_plan_matches_binding(
     plan: Mapping[str, Any], binding: BootstrapBinding
 ) -> None:
-    expected_digest = canonical_digest(
-        {key: value for key, value in plan.items() if key != "record_digest"}
-    )
-    if plan.get("record_digest") != expected_digest:
-        raise BootstrapAuthorizationError("bootstrap plan digest mismatch")
-    for field, expected in binding.as_record().items():
-        if plan.get(field) != expected:
-            raise BootstrapAuthorizationError(f"bootstrap plan binding mismatch: {field}")
+    validate_bootstrap_plan_v2(plan=plan, binding=binding)
     if plan.get("template_sha256") != "sha256:" + _sha256(TEMPLATE):
         raise BootstrapAuthorizationError("bootstrap template digest mismatch")
 
 
 def _cmd_preflight(args: argparse.Namespace) -> None:
     binding = _binding(args)
+    _require_sso_environment(binding.region)
     client = AwsCli(region=binding.region)
     _, _, existing_pab, _ = _preflight(client, binding)
     status = "configured" if existing_pab == PUBLIC_ACCESS_BLOCK else "requires planned update"
@@ -527,6 +744,7 @@ def _cmd_preflight(args: argparse.Namespace) -> None:
 
 def _cmd_preflight_recovery(args: argparse.Namespace) -> None:
     binding = _binding(args)
+    _require_sso_environment(binding.region)
     receipt = _recovery_preflight(AwsCli(region=binding.region), binding)
     if receipt["account_public_access_blocked"] is not True:
         raise BootstrapAuthorizationError(
@@ -558,13 +776,24 @@ def _cmd_render_apply_policy(args: argparse.Namespace) -> None:
     _require_plan_matches_binding(plan, binding)
     if _now() >= _parse_time(plan.get("expires_at"), "plan expires_at"):
         raise BootstrapAuthorizationError("expired bootstrap plan cannot render Apply authority")
-    policy = render_bootstrap_iam_policy(
+    policy = render_bootstrap_apply_iam_policy(
         policy_template=_strict_object(APPLY_POLICY_TEMPLATE),
         binding=binding,
-        change_set_id=str(plan.get("change_set_id", "")),
     )
     _write_json(args.policy_out, policy)
-    print("PASS: exact Change Set-bound Apply permission policy rendered privately")
+    print("PASS: exact read-only and broker-only Apply policy rendered privately")
+    print("NO_CHANGE: no AWS call or mutation was performed")
+
+
+def _cmd_render_approval_policy(args: argparse.Namespace) -> None:
+    binding = _binding(args)
+    _outside_repo(args.policy_out)
+    policy = render_bootstrap_approval_iam_policy(
+        policy_template=_strict_object(APPROVAL_POLICY_TEMPLATE),
+        binding=binding,
+    )
+    _write_json(args.policy_out, policy)
+    print("PASS: exact invoke-only Approval permission policy rendered privately")
     print("NO_CHANGE: no AWS call or mutation was performed")
 
 
@@ -573,6 +802,10 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         raise BootstrapAuthorizationError("plan requires --allow-change-set-write")
     _outside_repo(args.plan_out)
     binding = _binding(args)
+    _require_operator_id(args.initiator_id, label="initiator")
+    change_set_name = validate_bootstrap_change_set_name(args.change_set_name)
+    _require_sso_environment(binding.region)
+    authority = _artifact_authority_client(binding)
     client = AwsCli(region=binding.region)
     account_id, caller_arn, existing_pab, recovery_shell_present = _preflight(
         client,
@@ -581,7 +814,6 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     )
     _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
     created_at = _now()
-    change_set_name = validate_bootstrap_change_set_name(args.change_set_name)
     current_stack = _stack(client, binding.stack_name)
     if recovery_shell_present:
         if current_stack is None:
@@ -610,6 +842,11 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         "--parameters",
         f"ParameterKey=AuthorityAccountId,ParameterValue={binding.authority_account_id}",
         f"ParameterKey=StateKey,ParameterValue={binding.state_key}",
+        "ParameterKey=NoncurrentVersionRetentionDays,ParameterValue=365",
+        "--on-stack-failure",
+        "ROLLBACK",
+        "--no-include-nested-stacks",
+        "--no-import-existing-resources",
         "--tags",
         "Key=managed_by,Value=cloudformation",
         "Key=service,Value=scanalyze-platform-authority",
@@ -647,7 +884,7 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         binding,
         change_set_id,
     )
-    plan = build_bootstrap_plan(
+    plan = build_bootstrap_plan_v2(
         binding=binding,
         caller_account_id=account_id,
         caller_arn=caller_arn,
@@ -659,35 +896,51 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         created_at=created_at,
         expires_at=created_at + timedelta(hours=1),
         initiator_id=args.initiator_id,
+        artifact_nonce=secrets.token_hex(32),
     )
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    try:
+        authority.anchor_plan(plan, identity_grant_json)
+    finally:
+        identity_grant_json = ""
     _write_json(args.plan_out, plan)
-    print("PASS: exact CloudFormation change set created but not executed")
-    print(f"PLAN_DIGEST: {plan['record_digest']}")
+    print("PASS: exact CloudFormation change set created and Plan v2 anchored")
+    print(f"PLAN_DIGEST: {plan['plan_artifact_digest']}")
     print("AWS_CHANGE: change-set metadata only; infrastructure remains unchanged")
 
 
 def _cmd_approve(args: argparse.Namespace) -> None:
     binding = _binding(args)
     _outside_repo(args.approval_out)
-    _require_sso_environment(binding.region)
-    client = AwsCli(region=binding.region)
-    _, caller_arn = _identity(client, binding)
-    _require_permission_set(caller_arn, APPLY_PERMISSION_SET)
     plan = _strict_object(args.plan)
     _require_plan_matches_binding(plan, binding)
+    approver_id = _require_operator_id(args.approver_id, label="approver")
+    if approver_id == plan.get("initiator_id"):
+        raise BootstrapAuthorizationError("bootstrap approval requires another actor")
+    _require_sso_environment(binding.region)
+    authority = _artifact_authority_client(binding)
+    client = AwsCli(region=binding.region)
+    _, caller_arn = _identity(client, binding)
+    _require_permission_set(caller_arn, APPROVAL_PERMISSION_SET)
     now = _now()
     plan_expires = _parse_time(plan.get("expires_at"), "plan expires_at")
-    approval = build_bootstrap_approval(
+    approval = build_bootstrap_approval_v2(
         plan=plan,
-        initiator_id=str(plan.get("initiator_id", "")),
-        approver_id=args.approver_id,
+        binding=binding,
+        approver_id=approver_id,
         approver_arn=caller_arn,
         approved_at=now,
         expires_at=min(plan_expires, now + timedelta(minutes=30)),
+        approval_nonce=secrets.token_hex(32),
     )
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    try:
+        authority.approve_plan(plan, approval, identity_grant_json)
+    finally:
+        identity_grant_json = ""
     _write_json(args.approval_out, approval)
-    print("PASS: independent live AWS principal approved the exact bootstrap plan")
-    print(f"APPROVAL_DIGEST: {approval['approval_digest']}")
+    print("PASS: independent Approval role anchored the exact Plan v2")
+    print(f"APPROVAL_DIGEST: {approval['approval_artifact_digest']}")
     print("NO_CHANGE: approval did not execute the change set")
 
 
@@ -845,7 +1098,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     binding = _binding(args)
     plan = _strict_object(args.plan)
     approval = _strict_object(args.approval)
-    prevalidate_bootstrap_apply(
+    prevalidate_bootstrap_apply_v2(
         plan=plan,
         approval=approval,
         binding=binding,
@@ -856,53 +1109,26 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     client = AwsCli(region=binding.region)
     account_id, caller_arn = _identity(client, binding)
     _require_permission_set(caller_arn, APPLY_PERMISSION_SET)
-    review_stack = _stack(client, binding.stack_name)
-    if review_stack is None:
-        raise BootstrapAuthorizationError("bootstrap stack is not in exact review state")
-    _require_exact_empty_review_stack(client, binding, review_stack)
-    identity = authorize_bootstrap_apply(
-        plan=plan,
-        approval=approval,
-        binding=binding,
+    binding.authorize_identity(
         caller_account_id=account_id,
         caller_region=binding.region,
-        caller_arn=caller_arn,
-        current_template_sha256=_sha256(TEMPLATE),
-        now=_now(),
     )
-    _describe_exact_change_set(client, binding, plan)
-    client.run(
-        "s3control",
-        "put-public-access-block",
-        "--account-id",
-        binding.authority_account_id,
-        "--public-access-block-configuration",
-        json.dumps(PUBLIC_ACCESS_BLOCK, separators=(",", ":")),
-    )
-    current_stack = _stack(client, binding.stack_name)
-    if current_stack is None:
-        raise BootstrapAuthorizationError("bootstrap review stack disappeared before apply")
-    _require_exact_empty_review_stack(client, binding, current_stack)
-    _describe_exact_change_set(client, binding, plan)
-    identity = authorize_bootstrap_apply(
-        plan=plan,
-        approval=approval,
-        binding=binding,
-        caller_account_id=account_id,
-        caller_region=binding.region,
-        caller_arn=caller_arn,
-        current_template_sha256=_sha256(TEMPLATE),
-        now=_now(),
-    )
-    client.run(
-        "cloudformation",
-        "execute-change-set",
-        "--change-set-name",
-        identity.name,
-        "--stack-name",
-        binding.stack_name,
-        "--no-disable-rollback",
-    )
+    authority = _artifact_authority_client(binding)
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    try:
+        authorize_bootstrap_apply_v2(
+            plan=plan,
+            approval=approval,
+            binding=binding,
+            current_template_sha256=_sha256(TEMPLATE),
+            now=_now(),
+            authority=authority,
+            identity_grant_json=identity_grant_json,
+        )
+    finally:
+        identity_grant_json = ""
+    # The human role performs only read-only completion and control verification.
+    # Claim, PAB and Execute are owned exclusively by the immutable broker.
     client.wait(
         "cloudformation",
         "wait",
@@ -918,7 +1144,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
     )
     _write_json(verification_path, verification)
     _write_private(backend_path, backend)
-    print("PASS: exact approved platform-authority backend change set executed once")
+    print("PASS: service-owned executor requested the exact approved change set once")
     print(f"VERIFICATION_DIGEST: {verification['verification_digest']}")
     print("LIVE_STATUS: backend controls verified; platform-authority root not yet applied")
 
@@ -934,12 +1160,12 @@ def _cmd_verify(args: argparse.Namespace) -> None:
     backend_path = _outside_repo(args.backend_config_out)
     if verification_path == backend_path:
         raise BootstrapAuthorizationError("operational output paths must be distinct")
+    plan = _strict_object(args.plan)
+    _require_plan_matches_binding(plan, binding)
     _require_sso_environment(binding.region)
     client = AwsCli(region=binding.region)
     _, caller_arn = _identity(client, binding)
     _require_permission_set(caller_arn, APPLY_PERMISSION_SET)
-    plan = _strict_object(args.plan)
-    _require_plan_matches_binding(plan, binding)
     verification, backend = _verify_live(
         client=client,
         binding=binding,
@@ -988,6 +1214,14 @@ def _parser() -> argparse.ArgumentParser:
     render_apply.add_argument("--policy-out", type=Path, required=True)
     render_apply.set_defaults(handler=_cmd_render_apply_policy)
 
+    render_approval = subparsers.add_parser(
+        "render-approval-policy",
+        help="Render the exact invoke-only Approval inline policy offline",
+    )
+    _common(render_approval)
+    render_approval.add_argument("--policy-out", type=Path, required=True)
+    render_approval.set_defaults(handler=_cmd_render_approval_policy)
+
     preflight = subparsers.add_parser("preflight", help="Read-only identity and template checks")
     _common(preflight)
     preflight.set_defaults(handler=_cmd_preflight)
@@ -1004,6 +1238,7 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--initiator-id", required=True)
     plan.add_argument("--change-set-name", required=True)
     plan.add_argument("--plan-out", type=Path, required=True)
+    plan.add_argument("--identity-grant-fd", type=int, required=True)
     plan.add_argument("--allow-change-set-write", action="store_true")
     plan.set_defaults(handler=_cmd_plan)
 
@@ -1012,6 +1247,7 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--plan", type=Path, required=True)
     approve.add_argument("--approver-id", required=True)
     approve.add_argument("--approval-out", type=Path, required=True)
+    approve.add_argument("--identity-grant-fd", type=int, required=True)
     approve.set_defaults(handler=_cmd_approve)
 
     apply_parser = subparsers.add_parser("apply", help="Execute the exact approved change set once")
@@ -1020,6 +1256,7 @@ def _parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--approval", type=Path, required=True)
     apply_parser.add_argument("--verification-out", type=Path, required=True)
     apply_parser.add_argument("--backend-config-out", type=Path, required=True)
+    apply_parser.add_argument("--identity-grant-fd", type=int, required=True)
     apply_parser.add_argument("--allow-bootstrap-apply", action="store_true")
     apply_parser.set_defaults(handler=_cmd_apply)
 
@@ -1046,7 +1283,8 @@ def main() -> int:
     try:
         args.handler(args)
     except (BootstrapAuthorizationError, AwsCliError) as exc:
-        print(f"DENY: {exc}", file=sys.stderr)
+        code = getattr(exc, "code", "BOOTSTRAP_OPERATION_DENIED")
+        print(f"DENY [{code}]: {exc}", file=sys.stderr)
         return 1
     return 0
 

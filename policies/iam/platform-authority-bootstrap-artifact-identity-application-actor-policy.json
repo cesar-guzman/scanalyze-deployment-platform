@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowOnlyExactGug274BrokersToCreateToken",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug274BootstrapPlanAuthority",
+          "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug274BootstrapApprovalAuthority",
+          "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug274BootstrapApplyExecutor"
+        ]
+      },
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "*"
+    }
+  ]
+}

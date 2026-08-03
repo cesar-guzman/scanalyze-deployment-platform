@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-artifact-signing-trust-root.v1.schema.json",
+  "title": "Platform Authority Bootstrap Artifact Signing Trust Root v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "trust_root_generation",
+    "partition",
+    "authority_account_id",
+    "region",
+    "profile_name",
+    "profile_version_id",
+    "profile_version_arn",
+    "signing_platform",
+    "code_signing_policy",
+    "configuration_status",
+    "activation_authorized",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "const": "scanalyze.platform_authority.bootstrap_artifact_signing_trust_root.v1"
+    },
+    "schema_version": { "type": "integer", "const": 1 },
+    "work_package": { "type": "string", "const": "GUG-274" },
+    "trust_root_generation": { "type": "integer", "const": 1 },
+    "partition": { "type": "string", "const": "aws" },
+    "authority_account_id": { "type": "string", "const": "042360977644" },
+    "region": { "type": "string", "const": "us-east-1" },
+    "profile_name": {
+      "type": "string",
+      "const": "scanalyze_gug274_bootstrap_artifact_authority"
+    },
+    "profile_version_id": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/profile_version_id" }
+      ]
+    },
+    "profile_version_arn": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/profile_version_arn" }
+      ]
+    },
+    "signing_platform": {
+      "type": "string",
+      "const": "AWSLambda-SHA384-ECDSA"
+    },
+    "code_signing_policy": { "type": "string", "const": "Enforce" },
+    "configuration_status": {
+      "type": "string",
+      "enum": ["NOT_CONFIGURED", "CONFIGURED_REVIEWED"]
+    },
+    "activation_authorized": { "type": "boolean", "const": false },
+    "production_status": { "type": "string", "const": "NO-GO" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "configuration_status": { "const": "NOT_CONFIGURED" }
+        },
+        "required": ["configuration_status"]
+      },
+      "then": {
+        "properties": {
+          "profile_version_id": { "const": null },
+          "profile_version_arn": { "const": null }
+        }
+      },
+      "else": {
+        "properties": {
+          "profile_version_id": { "$ref": "#/$defs/profile_version_id" },
+          "profile_version_arn": { "$ref": "#/$defs/profile_version_arn" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "profile_version_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]{10}$"
+    },
+    "profile_version_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:signer:us-east-1:042360977644:/signing-profiles/scanalyze_gug274_bootstrap_artifact_authority/[A-Za-z0-9]{10}$"
+    }
+  }
+}

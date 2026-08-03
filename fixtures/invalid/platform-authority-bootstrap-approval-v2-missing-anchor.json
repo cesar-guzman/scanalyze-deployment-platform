@@ -1,0 +1,6 @@
+{
+  "schema_version": "2",
+  "record_type": "platform_authority_bootstrap_approval",
+  "decision": "APPROVED",
+  "approval_artifact_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
