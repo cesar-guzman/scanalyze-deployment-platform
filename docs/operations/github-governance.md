@@ -71,7 +71,80 @@ a deployment Environment, and may use `continue-on-error` only as literal
 `false`. Privileged post-merge jobs remain valid when they are outside that
 closure.
 
+## GUG-119 Independent-Approval Rollout Boundary
+
+The checked-in GUG-119 policy is a target contract, not evidence of current
+remote enforcement. Keep the historical snapshot, checked-in target,
+remote-before state, authorized remote response, fresh readback, human reviewer
+attestation, and production authorization as separate facts. The normative
+contract is in
+[`independent-approval-standard.md`](../governance/independent-approval-standard.md),
+and the sequencing and rollback requirements are in
+[`production-approval-runbook.md`](../governance/production-approval-runbook.md).
+
+Publish and review the repository PR first, then stop at a human checkpoint
+before merge. Bind that decision to the exact final PR SHA,
+`guguce-google` identity/MFA/independence/least-privilege attestation,
+negative-test evidence, and rollback design. After an approved merge is
+independently verified on `main`, fresh remote-before readbacks, the rollback
+artifact, and deterministic payload digest form a new remote-write package that
+requires separate authorization. `@Ferrusca08` remains an authorized additional
+code owner. Reviewer unavailability or missing attestation blocks; it does not
+invoke a bypass.
+
+Capture the branch-protection GET in a strict envelope containing
+`schema_version`, repository, branch, `captured_at`, effective rulesets,
+`check_app_bindings`, and protection. Derive `check_app_bindings` mechanically
+from completed check runs at the exact evidence SHA as `app_id`/`slug` pairs;
+the required checks must bind to the policy's `github-actions` slug.
+The envelope must be a mode-`0600` regular file in a current-user-owned
+mode-`0700` directory outside the repository. Actor objects must be mechanically
+sanitized to the documented `login`/`slug` identity fields; never hand-copy raw
+URLs, node IDs, email fields, or response metadata. Generate the canonical PUT
+JSON offline with the exact script committed at the reviewed SHA:
+
+```bash
+umask 077
+python scripts/governance/generate_protection_payload.py \
+  --input "$REMOTE_BEFORE_ENVELOPE" \
+  --policy governance/github-policy.json \
+  --output "$BRANCH_PROTECTION_PAYLOAD" \
+  --max-age-seconds 300
+```
+
+The generator creates a new mode-`0600` output outside the repository, prints
+its SHA-256 digest and separate-endpoint classification, and never calls GitHub.
+It fails closed on stale/ambiguous input, overlapping rulesets, unknown fields,
+unsafe paths, or missing/unexpected/duplicated/unbound required checks. Do not
+hand-edit the input or output. A changed input, policy, target SHA, or remote
+state invalidates the digest and authorization.
+
+Classic branch protection, existing Route B Environment protection, private
+vulnerability reporting, and auto-merge are separate endpoint families. The
+branch PUT must not silently claim or change the others. Each writable action
+requires separate, exact authorization after the checkpoint and immediate
+remote-before revalidation. GUG-119 inspects only existing Route B
+Environments: a missing Environment must be reported as **BLOCKED** and must not
+be created.
+
+After any authorized write, perform fresh endpoint-by-endpoint readback and the
+documented negative tests. Self-approval, stale approval reuse, unavailable
+reviewer, unresolved conversations, bypass actors, disabled checks, force-push,
+branch deletion, Environment creation, and unknown outcomes must fail closed.
+Rollback may use the protected before-state only while a new read confirms no
+third-party drift; otherwise stop rather than overwrite it.
+
+The technical branch-protection floor is one current CODEOWNER approval. It
+does not satisfy the manual P0 requirement for two humans in `CONTRIBUTING.md`.
+Break-glass cannot reduce either applicable bar, bypass administrators, disable
+checks, enable force-push, or grant production authority. Production remains
+**NO-GO**.
+
 ## Safe Branch-Protection Reconciliation
+
+This section reconciles required status checks only. Its
+`sync-required-checks.py` flow does not implement GUG-119 review controls and
+must not be used as a substitute for the independent-approval runbook.
 
 ### Preconditions
 
@@ -221,6 +294,11 @@ plan.
 
 ## Deployment-Scoped GitHub Environments
 
+GUG-119 may discover and verify only already-existing Route B Environments. It
+does not authorize Environment creation, deletion, renaming, or a deployment.
+A missing Environment, absent required reviewer, inability to prevent
+self-review, or conflicting configuration is a blocker.
+
 The logical environment and GitHub authorization boundary are different values:
 
 | Value | Meaning | Example |
@@ -228,7 +306,8 @@ The logical environment and GitHub authorization boundary are different values:
 | `logical_environment` | Release stage recorded in the Git-safe request | `dev` |
 | `github_environment` | Protected deployment-specific approval and variable boundary | `scanalyze-dep_...-dev` |
 
-For every new deployment and logical stage, create one distinct Environment.
+Outside GUG-119, any new deployment and logical stage requires a separate,
+reviewed onboarding authorization before creating one distinct Environment.
 Do not reuse a generic `dev` or `staging` Environment across clients.
 
 Minimum non-secret Environment variables:
@@ -282,7 +361,10 @@ authorization source. See
 
 ## Repeatable Client Onboarding
 
-For each deployment:
+This onboarding procedure is outside GUG-119. It requires its own approved issue
+and Environment-creation authority. Without that authority, stop before step 2.
+
+For each separately authorized deployment:
 
 1. allocate the immutable `deployment_id` in the approved external registry;
 2. create deployment-scoped GitHub Environments for the required logical stages;
@@ -300,8 +382,9 @@ application source.
 
 ## Organization-Scale Direction
 
-This repository is currently personal and uses classic branch protection. If
-platform source later spans multiple repositories, move enforcement to an
+The historical enforcement snapshot records a personal repository using classic
+branch protection; obtain fresh read-only metadata before relying on that fact.
+If platform source later spans multiple repositories, move enforcement to an
 organization ruleset or external governance controller using the same static
 context contract. Use a short-lived GitHub App installation token, reviewed
 plan/apply, and organization repository targeting. Do not run a self-modifying

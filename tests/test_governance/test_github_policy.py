@@ -37,6 +37,33 @@ def _write_fixture(tmp_path: Path, workflow_text: str) -> tuple[Path, Path, Path
             "added_contexts": ["Stable gate"],
             "retired_contexts": ["Legacy matrix leg"],
         },
+        "enforce_admins": True,
+        "required_pull_request_reviews": {
+            "dismiss_stale_reviews": True,
+            "require_code_owner_reviews": True,
+            "require_last_push_approval": True,
+            "required_approving_review_count": 1,
+            "bypass_pull_request_allowances": {
+                "users": [],
+                "teams": [],
+                "apps": [],
+            },
+        },
+        "required_conversation_resolution": True,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+        "independent_review": {
+            "reviewer_candidate": "guguce-google",
+            "prevent_self_review": True,
+        },
+        "private_vulnerability_reporting": {"enabled": True},
+        "environment_protection": {
+            "existing_environments_only": True,
+            "create_missing_environments": False,
+            "required_reviewer": "guguce-google",
+            "prevent_self_review": True,
+        },
+        "auto_merge": {"enabled": False},
     }
     policy_path = tmp_path / "policy.json"
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -85,6 +112,177 @@ def test_repository_policy_matches_static_workflow_contract() -> None:
     assert len(policy["_derived"]["legacy_contexts"]) == 14
     assert "Microservices validation gate" in policy["_derived"]["target_contexts"]
     assert "Validate ingest-api" not in policy["_derived"]["target_contexts"]
+    assert policy["_derived"]["codeowners_sensitive_paths"] >= 20
+    assert policy["_derived"]["documentation"] == "aligned"
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("default_branch",), "develop"),
+        (("required_status_checks", "strict"), False),
+        (("required_status_checks", "expected_app_slug"), "unbound-provider"),
+        (("required_pull_request_reviews", "required_approving_review_count"), 0),
+        (("required_pull_request_reviews", "require_code_owner_reviews"), False),
+        (("required_pull_request_reviews", "dismiss_stale_reviews"), False),
+        (("required_pull_request_reviews", "require_last_push_approval"), False),
+        (
+            ("required_pull_request_reviews", "bypass_pull_request_allowances", "users"),
+            ["admin-bypass"],
+        ),
+        (("enforce_admins",), False),
+        (("required_conversation_resolution",), False),
+        (("allow_force_pushes",), True),
+        (("allow_deletions",), True),
+        (("independent_review", "reviewer_candidate"), "someone-else"),
+        (("independent_review", "prevent_self_review"), False),
+        (("private_vulnerability_reporting", "enabled"), False),
+        (("environment_protection", "existing_environments_only"), False),
+        (("environment_protection", "create_missing_environments"), True),
+        (("environment_protection", "required_reviewer"), "someone-else"),
+        (("environment_protection", "prevent_self_review"), False),
+        (("auto_merge", "enabled"), True),
+    ],
+)
+def test_permissive_security_target_is_rejected(
+    tmp_path: Path,
+    path: tuple[str, ...],
+    value: object,
+) -> None:
+    policy = json.loads((REPO_ROOT / "governance/github-policy.json").read_text())
+    cursor = policy
+    for key in path[:-1]:
+        cursor = cursor[key]
+    cursor[path[-1]] = value
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="schema validation failed"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "removed_key",
+    [
+        "independent_review",
+        "private_vulnerability_reporting",
+        "environment_protection",
+        "auto_merge",
+    ],
+)
+def test_missing_security_target_is_rejected(tmp_path: Path, removed_key: str) -> None:
+    policy = json.loads((REPO_ROOT / "governance/github-policy.json").read_text())
+    del policy[removed_key]
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match=f"'{removed_key}' is a required property"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("required_status_checks", "strict"),
+        ("required_status_checks", "expected_app_slug"),
+        ("required_status_checks", "checks"),
+        ("required_pull_request_reviews", "dismiss_stale_reviews"),
+        ("required_pull_request_reviews", "require_code_owner_reviews"),
+        ("required_pull_request_reviews", "require_last_push_approval"),
+        ("required_pull_request_reviews", "required_approving_review_count"),
+        ("required_pull_request_reviews", "bypass_pull_request_allowances"),
+        ("independent_review", "reviewer_candidate"),
+        ("independent_review", "prevent_self_review"),
+        ("private_vulnerability_reporting", "enabled"),
+        ("environment_protection", "existing_environments_only"),
+        ("environment_protection", "create_missing_environments"),
+        ("environment_protection", "required_reviewer"),
+        ("environment_protection", "prevent_self_review"),
+        ("auto_merge", "enabled"),
+    ],
+)
+def test_missing_nested_security_target_is_rejected(
+    tmp_path: Path,
+    path: tuple[str, str],
+) -> None:
+    policy = json.loads((REPO_ROOT / "governance/github-policy.json").read_text())
+    del policy[path[0]][path[1]]
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match=f"'{path[1]}' is a required property"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
+
+
+def test_unexpected_policy_field_is_rejected(tmp_path: Path) -> None:
+    policy = json.loads((REPO_ROOT / "governance/github-policy.json").read_text())
+    policy["admin_bypass"] = True
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="Additional properties are not allowed"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
+
+
+def test_dropped_or_remapped_required_check_is_rejected(tmp_path: Path) -> None:
+    policy = json.loads((REPO_ROOT / "governance/github-policy.json").read_text())
+    policy["required_status_checks"]["checks"].pop()
+    policy["migration"]["added_contexts"] = []
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="exact six required checks"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
+
+
+def test_duplicate_json_key_is_rejected(tmp_path: Path) -> None:
+    policy_text = (REPO_ROOT / "governance/github-policy.json").read_text()
+    policy_text = policy_text.replace(
+        '"schema_version": "1"',
+        '"schema_version": "1",\n  "schema_version": "1"',
+        1,
+    )
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(policy_text, encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="duplicate JSON key"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=SCHEMA_PATH,
+            workflows_dir=REPO_ROOT / ".github/workflows",
+            enforce_repository_contract=True,
+        )
 
 
 def test_minimal_static_always_gate_is_valid(tmp_path: Path) -> None:
@@ -463,6 +661,61 @@ def test_noncanonical_required_context_is_rejected_by_schema(
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
 
     with pytest.raises(GitHubPolicyError, match="schema validation failed"):
+        validate_policy(
+            repo_root=tmp_path,
+            policy_path=policy_path,
+            schema_path=schema_path,
+            workflows_dir=workflow_dir,
+        )
+
+
+@pytest.mark.parametrize(
+    "removed_key",
+    [
+        "enforce_admins",
+        "required_pull_request_reviews",
+        "required_conversation_resolution",
+        "allow_force_pushes",
+        "allow_deletions",
+    ],
+)
+def test_branch_protection_keys_are_required(tmp_path: Path, removed_key: str) -> None:
+    policy_path, schema_path, workflow_dir = _write_fixture(tmp_path, _valid_workflow())
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    del policy[removed_key]
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match=f"'{removed_key}' is a required property"):
+        validate_policy(
+            repo_root=tmp_path,
+            policy_path=policy_path,
+            schema_path=schema_path,
+            workflows_dir=workflow_dir,
+        )
+
+
+def test_required_pull_request_reviews_missing_keys_fails(tmp_path: Path) -> None:
+    policy_path, schema_path, workflow_dir = _write_fixture(tmp_path, _valid_workflow())
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    del policy["required_pull_request_reviews"]["require_code_owner_reviews"]
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="'require_code_owner_reviews' is a required property"):
+        validate_policy(
+            repo_root=tmp_path,
+            policy_path=policy_path,
+            schema_path=schema_path,
+            workflows_dir=workflow_dir,
+        )
+
+
+def test_false_values_for_required_branch_protection_fails(tmp_path: Path) -> None:
+    policy_path, schema_path, workflow_dir = _write_fixture(tmp_path, _valid_workflow())
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["enforce_admins"] = False
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="True was expected"):
         validate_policy(
             repo_root=tmp_path,
             policy_path=policy_path,

@@ -173,6 +173,11 @@ frontend-check:
 github-governance-check:
 	@echo "Checking repository-global GitHub required-check governance..."
 	@$(PYTHON) $(TOOLING_DIR)/validate_github_policy.py
+	@$(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_governance/test_codeowners.py \
+		$(TESTS_DIR)/test_governance/test_github_policy.py \
+		$(TESTS_DIR)/test_governance/test_generate_protection_payload.py \
+		$(TESTS_DIR)/test_governance/test_sync_required_checks.py
 	@echo "GitHub governance check complete."
 
 # ── GitHub Deployment Identity Check ─────────────────────────────────
@@ -930,6 +935,9 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
 			docs/deployment/github-oidc-terminal-identity.md \
+			docs/governance/independent-approval-standard.md \
+			docs/governance/production-approval-runbook.md \
+			docs/governance/break-glass-procedure.md \
 			docs/operations/github-governance.md \
 			docs/operations/github-oidc-terminal-identity-rollout.md \
 			docs/operations/build-once-promotion-and-rollback.md \

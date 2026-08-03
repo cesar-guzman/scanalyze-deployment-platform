@@ -25,6 +25,16 @@ from typing import Any, Sequence
 from urllib.parse import quote, urlsplit
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tooling.github_policy_contract import (  # noqa: E402
+    is_canonical_repository,
+    repository_contract_violation,
+)
+
+
 API_VERSION = "2022-11-28"
 DEFAULT_MANIFEST = Path("governance/github-policy.json")
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -40,6 +50,27 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 
 class GovernanceError(RuntimeError):
     """A fail-closed governance error safe to present to an operator."""
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in document:
+            raise GovernanceError(f"duplicate JSON key {key!r} is prohibited")
+        document[key] = value
+    return document
+
+
+def _reject_json_constant(value: str) -> None:
+    raise GovernanceError(f"non-finite JSON value {value!r} is prohibited")
+
+
+def _strict_json_loads(value: str) -> Any:
+    return json.loads(
+        value,
+        object_pairs_hook=_unique_json_object,
+        parse_constant=_reject_json_constant,
+    )
 
 
 class PolicyState(str, Enum):
@@ -190,7 +221,7 @@ def run_gh(args: Sequence[str], *, input_data: str | None = None) -> Any:
     if not output:
         return None
     try:
-        return json.loads(output)
+        return _strict_json_loads(output)
     except json.JSONDecodeError as exc:
         raise GovernanceError("gh returned a non-JSON response") from exc
 
@@ -297,7 +328,7 @@ def _string_set(value: Any, field: str) -> frozenset[str]:
 
 def load_manifest(path: Path) -> PolicyManifest:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = _strict_json_loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise GovernanceError(f"unable to read policy manifest {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -319,6 +350,15 @@ def _policy_manifest_from_document(raw: Any) -> PolicyManifest:
             "scope",
             "default_branch",
             "required_status_checks",
+            "enforce_admins",
+            "required_pull_request_reviews",
+            "required_conversation_resolution",
+            "allow_force_pushes",
+            "allow_deletions",
+            "independent_review",
+            "private_vulnerability_reporting",
+            "environment_protection",
+            "auto_merge",
             "migration",
         },
         "root",
@@ -620,6 +660,7 @@ def read_working_manifest(repository_path: str) -> bytes:
 
 
 def _validate_apply_manifest_binding(
+    repository: str,
     manifest: PolicyManifest,
     manifest_path: Path,
     evidence_sha: str,
@@ -632,10 +673,22 @@ def _validate_apply_manifest_binding(
             "working tree differs from the policy manifest committed at the evidence SHA"
         )
     try:
-        raw = json.loads(working.decode("utf-8"))
+        raw = _strict_json_loads(working.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GovernanceError("bound policy manifest is not valid UTF-8 JSON") from exc
     bound_manifest = _policy_manifest_from_document(raw)
+    if is_canonical_repository(repository):
+        contract_error = repository_contract_violation(
+            default_branch=bound_manifest.default_branch,
+            strict=bound_manifest.strict,
+            expected_app_slug=bound_manifest.expected_app_slug,
+            checks=(
+                (check.context, check.workflow, check.job)
+                for check in bound_manifest.checks
+            ),
+        )
+        if contract_error is not None:
+            raise GovernanceError(contract_error)
     if bound_manifest != manifest:
         raise GovernanceError(
             "loaded manifest does not match the policy manifest bound to the evidence SHA"
@@ -1198,7 +1251,7 @@ def load_snapshot(path: Path) -> dict[str, Any]:
     if stat.S_IMODE(metadata.st_mode) != 0o600:
         raise GovernanceError("snapshot permissions must be exactly 0600")
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = _strict_json_loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise GovernanceError(f"unable to load snapshot {path}") from exc
     if not isinstance(document, dict):
@@ -1373,7 +1426,7 @@ def apply_policy(
     _validate_repository(repository)
     if confirm_repository != repository:
         raise GovernanceError("--confirm-repository must exactly match --repo")
-    _validate_apply_manifest_binding(manifest, manifest_path, evidence_sha)
+    _validate_apply_manifest_binding(repository, manifest, manifest_path, evidence_sha)
 
     initial = inspect_repository(repository, manifest)
     _assert_no_rulesets(initial.effective_rules)
@@ -1427,7 +1480,6 @@ def apply_policy(
         manifest.default_branch,
         evidence_pull_request,
     )
-    _validate_apply_manifest_binding(manifest, manifest_path, evidence_sha)
     # Snapshot creation and evidence revalidation take time. Narrow the
     # unavoidable read/PATCH race again after those operations so a concurrent
     # administrator change is never knowingly overwritten.
@@ -1438,6 +1490,9 @@ def apply_policy(
         raise GovernanceError(
             "required status checks changed concurrently after snapshot; apply aborted"
         )
+    # Bind the local mutation authority again after all reads and immediately
+    # before the PATCH so a changed or degraded manifest can never reach the sink.
+    _validate_apply_manifest_binding(repository, manifest, manifest_path, evidence_sha)
     try:
         patch_required_policy(repository, manifest.default_branch, desired)
         readback = read_required_policy(repository, manifest.default_branch)
