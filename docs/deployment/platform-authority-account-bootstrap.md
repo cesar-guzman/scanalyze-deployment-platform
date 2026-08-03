@@ -12,31 +12,217 @@ from every destination account, and governed through IAM Identity Center.
 Examples below use placeholders only. Never commit operational receipts,
 backend files, account inventories, credentials, or real bindings.
 
+> **GUG-274 authority boundary:** Any older instruction that grants the human
+> Apply session direct CloudFormation, account-PAB, KMS, S3, IAM, or DynamoDB
+> mutation is superseded. The human Apply role is read-only plus exact
+> invocation; only `scanalyze-platform-authority-bootstrap-apply-executor:1`
+> owns the post-CAS effects. This target is not live-authorized.
+
+## Artifact package and activation boundary
+
+Build the common unsigned Lambda service package only after the exact reviewed
+source is committed and the worktree is clean. The builder compares `HEAD` and
+every closed source path with Git object bytes, fixes ZIP ordering, timestamps,
+permissions and metadata, and emits per-file/archive digests plus
+`unsigned_archive_code_sha256`. Its Git subprocess uses a closed
+environment/config/locale and `--no-replace-objects`, rejects any
+`refs/replace`, ignores caller `PATH`, and accepts neither caller Git
+configuration nor any tracked or untracked working-tree change. It rejects an
+existing output path and any output inside the repository.
+
+```bash
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap-artifact-package.py \
+  --source-commit '<exact-reviewed-40-character-commit>' \
+  --expected-boto3-version '1.42.57' \
+  --expected-botocore-version '1.42.97' \
+  --output-directory '<new-private-directory-outside-repository>'
+```
+
+The output is intentionally unsigned, marked non-deployable, and is not
+publication evidence. A separately authorized signing lane must sign those exact bytes with
+the fixed AWS Signer profile
+`scanalyze_gug274_bootstrap_artifact_authority` and one immutable profile
+version and upload the AWS Signer destination object. This runbook neither
+starts that job nor uploads bytes.
+
+The second GUG-274 CLI is a read-only collector/verifier. It rebuilds the exact
+package, proves that the source commit is merged to protected `main` with all
+exact required checks green, reads the verifier STS identity, completed Signer
+job, versioned unsigned source, and single versioned signed S3 destination, and
+validates the signed ZIP. Every invocation must also use isolated Python:
+
+```bash
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
+
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap-signed-artifact.py \
+  --profile '<exact-authority-read-only-verifier-profile>' \
+  --region '<authority-region>' \
+  --source-commit '<exact-reviewed-40-character-commit>' \
+  --expected-boto3-version '1.42.57' \
+  --expected-botocore-version '1.42.97' \
+  --job-id '<exact-signer-job-uuid>' \
+  --output-receipt '<new-private-directory-outside-repository>/signed-receipt.json'
+```
+
+The receipt is private, write-once, and valid for no more than 15 minutes. It
+contains the exact S3 tuple, `SignedAuthorityArtifactCodeSha256`,
+`AuthoritySigningReceiptDigest`, and
+`AuthoritySigningTrustRootContractDigest`. Its unkeyed domain digest is an
+integrity value, not authority. Immediately before any CloudFormation parameter
+is consumed, the same flow must refresh GitHub, Signer, and S3 and require the
+complete immutable receipt projection to match. A command-line parameter,
+locally redigested receipt, unsigned manifest, source ZIP digest, or template
+declaration is not proof.
+
+The verifier loads only
+`bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json`.
+That fixed contract is deliberately `NOT_CONFIGURED`, with no profile version
+and no activation authorization, so the command currently fails closed with
+`SIGNING_TRUST_ROOT_NOT_CONFIGURED` before provider verification. The template
+also permits only `AuthoritySigningTrustRootConfigured=false` while its Rule
+requires `true`, so it cannot create a Change Set. A separate reviewed commit
+must pin the exact signer version ID/ARN and contract digest in both the Git
+contract and closed template allowlists before unlocking. The runtime rejects
+`AWS_DATA_PATH` and other provider configuration/endpoint overrides. Packaging,
+signing, real provider receipt/refresh, deployment, and readback remain
+**NOT_OBSERVED**.
+
+### Repository and host runtime boundary
+
+All three GUG-274 entry points -- the normal bootstrap CLI, package builder,
+and signed-artifact verifier -- fail before repository imports unless invoked
+with isolated Python and both Python path overrides absent:
+`env -u PYTHONPATH -u PYTHONHOME python3 -I -S ...`. Each entry point opens
+`tooling/platform_authority_source_only_import.py` as UTF-8 source and compiles
+those bytes before making repository modules importable. The installed finder
+compiles exact repository `.py` bytes for `tooling` modules directly and neither
+consumes nor emits repository `.pyc`; repository bytecode writes remain
+disabled.
+
+The two entry points that
+import the operational AWS SDK require
+`SCANALYZE_GUG274_SDK_RUNTIME_ROOT` to name an absolute root outside the
+repository and any repository-local `.venv`. Its direct `site-packages/` child
+is dedicated to, and may contain only, the fixed closure. The root and every
+directory in its POSIX ancestor chain must be owned by root or the effective
+user and group/world non-writable; only a root-owned sticky directory in that
+chain may be writable. Every `site-packages/` entry must also have a trusted
+owner and safe mode and be a regular file or directory, with no symlink and no
+sticky-root exception. `-S` prevents
+automatic `site`, `.pth`, and `sitecustomize` execution; the loader then admits
+the dedicated path explicitly and authenticates the entire closure before
+importing any SDK code. The environment path selects candidate bytes but grants
+no authority: source-reviewed official wheel identities, canonical
+installed-manifest hashes, and every authoritative file remain binding. The
+closure fixes
+`boto3==1.42.57`, `botocore==1.42.97`,
+`s3transfer==0.16.1`, `jmespath==1.1.0`,
+`python-dateutil==2.9.0.post0`, `urllib3==2.7.0`, and `six==1.17.0`, plus every
+distribution's canonical installed-manifest SHA-256. It rejects external
+`pycache_prefix`, preloaded closure modules,
+missing/ambiguous distributions, symlinks, unsafe or mismatched files, and
+unrecorded extras -- including `.pyc` -- in importable package trees, while
+disabling bytecode writes. Raw installation-specific `RECORD` bytes are not
+pinned or trusted; the wheel-owned package/stable-metadata projection must
+match the source-reviewed manifest digest before every authoritative file,
+size/digest, and import origin is verified. Caller version flags are equality
+assertions for the two public pins, not runtime selectors.
+
+Git, AWS CLI, and GitHub CLI selection never trusts caller `PATH`. Resolution
+uses only the source-reviewed absolute candidates, rejects an executable inside
+the repository, and requires the resolved file and every ancestor to be owned
+by root or the effective user. The file must be regular/executable and
+group/world non-writable; every ancestor must be a group/world non-writable
+directory except for a root-owned sticky ancestor. The complete path check is
+repeated after hashing, and stable executable metadata must not change across
+the digest read. A non-root binary additionally requires an exact digest
+allowlist entry; that digest cannot override an unsafe path. The current sole
+entry is GitHub CLI v2.89.0 for arm64 macOS with
+`sha256:abc4a820c3f423c17902feba71f8af9ae73c2b20559d117bac628d4cb53f3416`;
+Git and AWS CLI have no non-root digest exception. Subprocesses use the resolved
+absolute path and a derived constrained `PATH`. The currently inspected
+Homebrew `gh` fails closed because its resolved path crosses group-writable
+`/opt/homebrew/Cellar` at mode `0775`, even though its file digest is reviewed.
+
+The repository reviews and authenticates this runtime contract; it does not
+install, upgrade, or roll back the host interpreter, wheels, or executables. A
+missing or mismatched host dependency is a fail-closed tooling stop. Remediation
+is a separately reviewed host/toolchain change or a reviewed repository commit
+that changes the public pins/bindings and rebuilds, re-signs, and revalidates
+the artifact. Never work around the stop with `PATH`, `PYTHONPATH`, a local
+shadow module, placeholder version, or in-place receipt/package edit.
+
+The service ZIP deliberately excludes the SDK wheels. CloudFormation fixes all
+three functions to Lambda `python3.12` and passes the same expected versions;
+each function matches them to the embedded runtime lock and checks the
+AWS-managed `boto3`/`botocore` `__version__` values before constructing clients.
+The operator-host closure authenticator does not extend into Lambda. This
+AWS-managed boundary is not active because the signing trust root/CFN lock still
+makes Change Set creation impossible. After future activation, managed SDK
+drift is a fail-closed runtime stop, and neither repository nor host-toolchain
+rollback can downgrade that AWS-owned runtime.
+
 ## Identity Center permission sets
 
-Create two dedicated permission sets:
+Create three dedicated permission sets:
 
 - `ScanalyzeAuthorityBootstrapPlan`, rendered from
-  `policies/iam/platform-authority-bootstrap-plan-role.json`, for the initiator;
+  `policies/iam/platform-authority-bootstrap-plan-role.json`, for real Identity
+  Store user A;
+- `ScanalyzeAuthorityBootApprove`, rendered from
+  `policies/iam/platform-authority-bootstrap-approval-role.json`, for real
+  Identity Store user B's independent Approval invocation;
 - `ScanalyzeAuthorityBootstrapApply`, rendered from
   `policies/iam/platform-authority-bootstrap-apply-role.json`, for the
-  independent approver/executor after the exact Change Set exists.
+  same real user B's separate read-only/invoke-only Apply role after the exact
+  Change Set exists.
 
 These names are canonical. Each satisfies the IAM Identity Center 1-to-32
 character service contract and the portable ASCII character allowlist. Do not
 prepend `Platform`, append an environment/customer label, abbreviate the
-Plan/Apply suffix, or reuse the rejected overlength GUG-206 names. The CLI
-validates both the name contract and the exact account-local
+Plan/Approval/Apply suffix, or reuse the rejected overlength GUG-206 names. The
+CLI validates the name contract and the exact account-local
 `AWSReservedSSO_*` role before every protected operation.
 
-Both permission sets require:
+All three permission sets require:
 
 - a short session duration;
 - no managed `AdministratorAccess` policy;
 - assignment only to the dedicated platform-authority account;
-- independently attributable, non-overlapping groups; no principal receives
-  both permission sets during the same bootstrap window;
+- user A receives only Plan; different user B receives the distinct Approval
+  and Apply roles. User B holding both does not merge their policies, grants,
+  proof roles, or invocations;
 - organization audit retention and the standard emergency revocation path.
+
+For each operation, the real user supplies a new Identity Center authorization
+code and PKCE verifier through a non-persistent pipe or socket file descriptor.
+The CLI rejects regular files and terminals. Never place the code/verifier in a
+command argument, environment variable, Plan, Approval, receipt, log, Git,
+Linear, NotebookLM, or CI artifact. Candidate `initiator_id`, `approver_id`, and
+principal-digest fields are attribution assertions only; fixed UserIds and
+identity-proof receipt digests are the live authority. Those attribution fields
+are not cryptographically correlated with the live UserIds; strengthening that
+correlation is a P2 follow-up, not current authority.
+
+The exact service execution roles are
+`ScanalyzeGug274BootstrapPlanAuthority`,
+`ScanalyzeGug274BootstrapApprovalAuthority`, and
+`ScanalyzeGug274BootstrapApplyExecutor`. Their distinct deny-all proof roles are
+`ScanalyzeGug274BootstrapPlanIdentityProof`,
+`ScanalyzeGug274BootstrapApprovalIdentityProof`, and
+`ScanalyzeGug274BootstrapApplyIdentityProof`. Similar names or shared roles are
+invalid.
+
+The DynamoDB table resource policy is deny-only and grants no positive access.
+Every positive DynamoDB Allow lives solely in the relevant execution-role
+identity policy, is limited to that service's exact action/table/key boundary,
+and requires its exact unqualified source-function ARN through
+`lambda:SourceFunctionArn`. AWS supplies that condition key without a version
+suffix, so qualified `:1` invocation, Lambda permission, deployment/readback,
+and runtime checks enforce the published version separately. Never add a
+positive table-policy Allow or direct human ledger grant.
 
 ### Bounded founder exception (GUG-209)
 
@@ -84,7 +270,8 @@ requires `aws:CalledVia=cloudformation.amazonaws.com`.
 ### KMS alias authorization boundary
 
 KMS authorizes alias management against the alias and every affected key. The
-Apply policy therefore contains two complementary grants:
+service-owned Apply-executor role, not the human Apply policy, therefore
+contains two complementary forward-access grants:
 
 - one for the exact `alias/scanalyze-platform-authority-state` ARN;
 - one for keys in the exact authority account and region with the canonical
@@ -102,11 +289,13 @@ bound account/region, or a direct API fallback.
 
 ### GUG-210 supported Change Set IAM binding
 
-The plan policy cannot execute a Change Set or create backend resources. The
-apply policy cannot create or retire a Change Set or delete the stack, and its
-`${change_set_name}` condition must be rendered from the reviewed canonical
-name. The normal Create and Execute statements authorize against the exact
-stack ARN and require the exact Change Set name. One pure helper derives that
+The Plan policy cannot execute a Change Set or create backend resources. The
+human Apply policy cannot create, execute, or retire a Change Set, mutate PAB,
+or delete the stack. Only the exact service-owned Apply executor has the
+`cloudformation:ChangeSetName`-conditioned Execute permission and effect
+permissions after CAS. The normal Create and service Execute statements
+authorize against the exact stack ARN and require the exact Change Set name.
+One pure helper derives that
 name only from a fully validated ARN bound to the expected partition, Region,
 account and UUID-shaped ID, returning one immutable typed identity rather than
 an independently supplied mutation field. The full Change Set ARN and UUID
@@ -114,11 +303,19 @@ remain persisted PEP evidence and are used for exact readback; they are not
 sent as the final Execute mutation argument. Backend-mutating S3 and
 key-side KMS actions additionally require the multivalued `aws:CalledVia`
 context to contain `cloudformation.amazonaws.com`; a direct S3/KMS API call
-therefore does not receive all required permissions. The only direct mutation
-is the separately
-planned all-true account-level S3 public-access block, which the CLI binds to
-the current authority account and verifies immediately. Remove or disable the
-Apply assignment after the bootstrap window.
+therefore does not receive all required permissions. The executor is also the
+sole account-level PAB writer; the human role explicitly denies every such
+mutation.
+
+Both pre-PAB and final readback require the same full ARN/UUID, `Original`
+template, tags/status/resources, exact parameters `AuthorityAccountId`,
+`StateKey`, and `NoncurrentVersionRetentionDays=365`, and canonical request
+metadata: `OnStackFailure=ROLLBACK`, `IncludeNestedStacks=false`, empty
+capabilities/notifications, `ImportExistingResources=false`, absent
+`RoleARN`/`DeploymentMode`/parent/root IDs, and
+absent-or-empty default rollback configuration. Freshness is checked at both
+points; only the final request uses the derived bare name. Remove or disable
+all human assignments after the bootstrap window.
 
 Render the initial Plan policy offline into the controlled evidence directory;
 do not substitute policy placeholders by hand:
@@ -126,29 +323,40 @@ do not substitute policy placeholders by hand:
 ```bash
 umask 077
 mkdir -p '<private-evidence-dir>'
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
 
-python3 scripts/deployment/platform-authority-bootstrap.py render-plan-policy \
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py render-plan-policy \
   --authority-account-id '<authority-account-id>' \
   --region '<authority-region>' \
   --destination-account-id '<customer-a-account-id>' \
   --destination-account-id '<customer-b-account-id>' \
   --change-set-name '<scanalyze-platform-authority-bootstrap-YYYYMMDDHHMMSS>' \
   --policy-out '<private-evidence-dir>/bootstrap-plan-policy.json'
+
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py render-approval-policy \
+  --authority-account-id '<authority-account-id>' \
+  --region '<authority-region>' \
+  --destination-account-id '<customer-a-account-id>' \
+  --destination-account-id '<customer-b-account-id>' \
+  --policy-out '<private-evidence-dir>/bootstrap-approval-policy.json'
 ```
 
-The identity administrator validates that file with IAM Access Analyzer and
+The identity administrator validates both files with IAM Access Analyzer and
 uses the governed IAM Identity Center process to create or update only the
-canonical Plan permission set. The command performs no AWS call.
+canonical Plan and Approval permission sets. The commands perform no AWS call.
 
 Identity Center creates the account-local `AWSReservedSSO_*` role. Do not
 create a manual IAM role or IAM user for this workflow. The policy template is
 rendered from the exact account, region, and bucket binding under change
 control; placeholders must never be submitted to AWS. The CLI checks the live
 STS principal: `plan` requires the canonical
-`ScanalyzeAuthorityBootstrapPlan` permission set, while
-`approve`/`apply`/`verify` require
-`ScanalyzeAuthorityBootstrapApply`. `AWS_PROFILE` text is not trusted
-as proof of either role. The retained `cancel` compatibility command requires
+`ScanalyzeAuthorityBootstrapPlan` permission set, `approve` requires
+`ScanalyzeAuthorityBootApprove`, and `apply`/`verify` require
+`ScanalyzeAuthorityBootstrapApply`. `AWS_PROFILE` text is not trusted as proof
+of any role, and STS role text is not the live UserId proof produced inside the
+services. The retained `cancel` compatibility command requires
 no AWS identity because it fails locally before an AWS client can be created;
 GUG-215 is the sole retirement path.
 
@@ -161,8 +369,10 @@ session tokens.
 export AWS_PROFILE='<authority-bootstrap-plan-sso-profile>'
 export AWS_REGION='<authority-region>'
 export AWS_DEFAULT_REGION="$AWS_REGION"
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
 
-python3 scripts/deployment/platform-authority-bootstrap.py preflight \
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py preflight \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
@@ -180,7 +390,10 @@ means the account is safe to re-plan. Use the exact normal Plan profile and the
 dedicated recovery command:
 
 ```bash
-python3 scripts/deployment/platform-authority-bootstrap.py preflight-recovery \
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
+
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py preflight-recovery \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
@@ -213,8 +426,10 @@ CLI creates the receipt with mode 0600 and refuses existing paths or symlinks.
 ```bash
 umask 077
 mkdir -p '<private-evidence-dir>'
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
 
-python3 scripts/deployment/platform-authority-bootstrap.py plan \
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py plan \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
@@ -222,6 +437,7 @@ python3 scripts/deployment/platform-authority-bootstrap.py plan \
   --initiator-id '<approved-operator-id>' \
   --change-set-name '<same-exact-name-used-to-render-plan-policy>' \
   --plan-out '<private-evidence-dir>/bootstrap-plan.json' \
+  --identity-grant-fd '<non-persistent-pipe-or-socket-fd>' \
   --allow-change-set-write
 ```
 
@@ -234,16 +450,29 @@ exact-stack `GetTemplate` grant and requires byte-for-byte UTF-8 equality with
 the local bootstrap template before persisting the digest. The raw receipt
 remains controlled operational evidence.
 
+Creation fixes `AuthorityAccountId`, `StateKey`, and
+`NoncurrentVersionRetentionDays=365`; `OnStackFailure=ROLLBACK` and
+`IncludeNestedStacks=false` are explicit. The readback must also show
+`ImportExistingResources=false`, empty capabilities and notifications, absent
+`RoleARN`/`DeploymentMode`/parent/root metadata, and
+absent-or-empty default rollback configuration. Plan then passes the fresh
+non-persistent grant to Plan service `:1`, which proves user A and creates the
+exact durable anchor. An ambiguous anchor is terminal and does not authorize a
+retry or success claim.
+
 For a retained shell, `plan` repeats the complete active Change Set inventory
 immediately before creation. `ListChangeSets` is an active inventory, not a
 historical audit. Any returned or ambiguous summary stops; no stack or Change
 Set is auto-deleted.
 
-At this point, the identity administrator renders the Apply inline policy with
-the exact Change Set binding from the controlled plan:
+At this point, the identity administrator renders the human Apply inline policy
+from the still-valid controlled Plan:
 
 ```bash
-python3 scripts/deployment/platform-authority-bootstrap.py render-apply-policy \
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
+
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py render-apply-policy \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
@@ -252,64 +481,83 @@ python3 scripts/deployment/platform-authority-bootstrap.py render-apply-policy \
   --policy-out '<private-evidence-dir>/bootstrap-apply-policy.json'
 ```
 
-The renderer derives the exact `change_set_name` from the full ARN in the
-digest-validated, unexpired plan, rejects foreign, malformed, or mismatched
-ARNs, and writes mode 0600. The runtime uses the same parser, still verifies
-that exact ARN and UUID through full-ARN `DescribeChangeSet` readback, and
-sends only the derived bare name plus the exact stack to `ExecuteChangeSet`.
-The identity administrator validates the output with IAM
-Access Analyzer, provisions or updates the canonical Apply permission set, and
-assigns it only to the independent approver/executor group for the approved
+The renderer validates the exact unexpired Plan plus account, Region, and both
+destination bindings and writes mode 0600. The result fixes only the qualified
+`scanalyze-platform-authority-bootstrap-apply-executor:1` ARN, bounded
+verification reads, explicit direct-effect denies, and a final deny for every
+other non-read/non-broker action. It contains no direct effect authority. The
+executor's immutable runtime configuration, not the human policy, owns the
+exact Change Set name and effect permissions. The identity
+administrator validates the output with IAM Access Analyzer, provisions the
+canonical Apply permission set, and assigns it only to user B for the approved
 window. Do not publish either ARN component in Git, Linear, NotebookLM, or
 general CI artifacts.
 
 ## Approval: a different SSO principal
 
-The approver signs in through a distinct, attributable Identity Center session
-in the same account. Merely changing a profile name is insufficient; the CLI
-compares hashed STS principal evidence.
+Real user B signs in through the distinct Approval permission set in the same
+account. Merely changing a profile or STS role name is insufficient; Approval
+service `:1` exchanges a fresh code-plus-PKCE grant and proves the fixed user-B
+Identity Store binding through its operation-specific deny-all proof role.
 
 ```bash
-export AWS_PROFILE='<independent-authority-apply-sso-profile>'
+export AWS_PROFILE='<independent-authority-approval-sso-profile>'
 aws sso login --profile "$AWS_PROFILE"
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
 
-python3 scripts/deployment/platform-authority-bootstrap.py approve \
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py approve \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
   --destination-account-id '<customer-b-account-id>' \
   --plan '<private-evidence-dir>/bootstrap-plan.json' \
   --approver-id '<approved-reviewer-id>' \
-  --approval-out '<private-evidence-dir>/bootstrap-approval.json'
+  --approval-out '<private-evidence-dir>/bootstrap-approval.json' \
+  --identity-grant-fd '<non-persistent-pipe-or-socket-fd>'
 ```
 
 Approval expires no later than the plan. If the plan, template, account,
 principal, or time binding changes, create a new plan and obtain new approval.
+The candidate approver label/principal digest is anchored attribution, not
+UserId authority; the ledger proof receipt carries that authority. An ambiguous
+approval transition is terminal and never retried.
 
 ## Apply and verify
 
 Apply is authorized separately. The exact command must be reviewed with its
 account, region, plan digest, approval digest, cost boundary, and change window.
-Keep the independent apply profile active; the plan profile is technically
-unable to execute the Change Set.
+Real user B switches to the separate Apply permission set. User A is
+technically unable to approve or invoke Apply, and the human Apply role is
+technically unable to execute the Change Set or set account PAB directly.
 
-Before constructing an AWS client, Apply loads the Plan and approval with
-duplicate-key rejection and validates their digests, immutable binding,
-template digest, validity windows and full Change Set ARN. It then validates
-the live approved identity, reads the exact Change Set by full ARN, and enables
-the all-true account public-access block. After that effect it repeats the
-exact empty review-shell check, then performs the final full-ARN Change Set
-readback and local template/time/principal binding. The Plan-time original
-template read and final read of the same UUID-bearing ARN are the equivalent
-immutable guarantee; Apply does not receive a new `GetTemplate` permission.
-That full-ARN readback is the last CloudFormation call before the final
-mutation. The mutation uses the helper-derived bare name plus exact stack and
-is issued once with provider attempts fixed to one. An ambiguous response
-enters read-only verification; it is never interpreted as authorization to
-execute again.
+Apply first performs strict local Plan/Approval validation and consumes a fresh
+Apply-specific code-plus-PKCE grant from a pipe/socket. The exact Apply executor
+`:1` proves user B, reads the complete authenticated ledger item, revalidates
+freshness, and conditionally writes `CLAIMED` version 3/attempt 1. It constructs
+no CloudFormation or S3 Control client until that CAS succeeds unambiguously.
+
+After CAS, the executor validates the exact empty shell, full ARN/UUID,
+parameters, request metadata, tags/status/resources, and `Original` template,
+then revalidates freshness. It sets all-true account PAB, repeats that complete
+readback and freshness check, and issues one `ExecuteChangeSet` using only the
+helper-derived bare name plus exact stack. Any identity, CAS, PAB, or execution
+ambiguity is terminal: no retry and no success claim. The current package has
+no independent strongly consistent read-only ledger reconciliation endpoint;
+live activation remains blocked, and operators must not add ad hoc IAM to
+invent one.
+
+`OnStackFailure=ROLLBACK` and `DisableRollback=false` govern the CloudFormation
+stack only. The executor writes account-level S3 Public Access Block before
+`ExecuteChangeSet`; CloudFormation rollback cannot undo that account control.
+Retain PAB on failure and follow the recovery runbook. Do not weaken it as a
+rollback shortcut.
 
 ```bash
-python3 scripts/deployment/platform-authority-bootstrap.py apply \
+export SCANALYZE_GUG274_SDK_RUNTIME_ROOT='<absolute-reviewed-sdk-runtime-root>'
+
+env -u PYTHONPATH -u PYTHONHOME python3 -I -S \
+  scripts/deployment/platform-authority-bootstrap.py apply \
   --authority-account-id '<authority-account-id>' \
   --region "$AWS_REGION" \
   --destination-account-id '<customer-a-account-id>' \
@@ -318,8 +566,12 @@ python3 scripts/deployment/platform-authority-bootstrap.py apply \
   --approval '<private-evidence-dir>/bootstrap-approval.json' \
   --verification-out '<private-evidence-dir>/bootstrap-verification.json' \
   --backend-config-out '<private-evidence-dir>/platform-authority.backend.hcl' \
+  --identity-grant-fd '<non-persistent-pipe-or-socket-fd>' \
   --allow-bootstrap-apply
 ```
+
+Only after the service returns may the human role use its read-only permissions
+to wait for stack completion and verify the backend controls below.
 
 Success requires all of the following:
 
@@ -345,6 +597,15 @@ events, plans, approvals, or receipts.
 
 Repository and CI evidence are not live evidence. Backend live verification is
 not a Scanalyze deployment and does not establish two-customer isolation.
-Production remains **NO-GO**.
+The read-only verifier/receipt/refresh implementation is repository evidence.
+The deterministic package, Signer result, real provider receipt/refresh,
+operational CloudFormation handoff, signed S3 object version, deployed
+functions/roles, real user-A/user-B proof, DynamoDB transitions, PAB write, and
+CloudFormation execution are **NOT_OBSERVED**. The fixed signer contract is
+**SIGNING_TRUST_ROOT_NOT_CONFIGURED**, and Change Set creation is impossible.
+The independent strongly
+consistent exact-item ledger reconciliation capability is **NOT_IMPLEMENTED**
+and tracked as a P2 recovery follow-up, so activation is blocked. Production
+remains **NO-GO**.
 
 [founder-exception]: ../operations/founder-bootstrap-single-operator-exception.md

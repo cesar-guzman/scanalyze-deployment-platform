@@ -1,0 +1,18 @@
+{
+  "approval_artifact_digest": null,
+  "approval_identity_proof_digest": null,
+  "apply_identity_proof_digest": null,
+  "authority_record_id": "gug274#g1#sha256:350191c85f00eb5699f141b2cd686e7262295efbbcdae620474a1b0781d08446",
+  "domain_separator": "scanalyze.platform-authority.bootstrap.authority-receipt.v1",
+  "identity_binding_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+  "ledger_digest": "sha256:3e353c641fdb064072d0b9d6d79b95d2dea489803fa876b0a79d065907335039",
+  "plan_artifact_digest": "sha256:a8bd149e9c05ab5ba00bf51c8fde30d818173044fc935438a9d8e4feafb2620f",
+  "plan_identity_proof_digest": "sha256:6a50d398a73bf0e75acc4a1941a85ed2c45de46a485ab31610cd250d3acc3206",
+  "receipt_digest": "sha256:a92a3781c643a255b9457079555f06e9ac1f1b9a48543278dec951baf12e6207",
+  "record_type": "platform_authority_bootstrap_authority_receipt",
+  "schema_version": "1",
+  "state": "CLAIMED",
+  "trust_root_generation": 1,
+  "trust_root_id": "arn:aws:dynamodb:us-east-1:111122223333:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1",
+  "version": 1
+}

@@ -1,0 +1,790 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Repository declaration for the generation-1 GUG-274 Identity Center-gated
+  Plan/Approval CAS authority and service-owned Apply executor. Deployment and
+  invocation remain separately authorized non-production mutations.
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    AllowedPattern: '^(?!000000000000$)[0-9]{12}$'
+  DestinationAccountIds:
+    Type: CommaDelimitedList
+  BootstrapChangeSetName:
+    Type: String
+    AllowedPattern: '^scanalyze-platform-authority-bootstrap-[0-9]{14}$'
+  IdentityCenterApplicationArn:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^arn:(aws|aws-us-gov|aws-cn):sso::[0-9]{12}:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^arn:(aws|aws-us-gov|aws-cn):sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  IdentityStoreArn:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^arn:(aws|aws-us-gov|aws-cn):identitystore::[0-9]{12}:identitystore/d-[a-z0-9]{10,}$'
+  IdentityRedirectUri:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^http://127\.0\.0\.1:[0-9]{4,5}/callback$'
+  PlanIdentityStoreUserId:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^([0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+  SecondPartyIdentityStoreUserId:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^([0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+  AuthorityArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  AuthorityArtifactKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-274/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
+  AuthorityArtifactVersion:
+    Type: String
+    MinLength: 1
+    MaxLength: 1024
+  SignedAuthorityArtifactCodeSha256:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'
+    Description: Exact SHA-256 digest of the AWS Signer destination ZIP, not the unsigned source ZIP.
+  AuthoritySigningReceiptDigest:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+    Description: Domain-separated digest of the closed receipt derived from read-only Signer/S3 readbacks.
+  AuthoritySigningTrustRootContractDigest:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+    Description: Domain-separated digest of the reviewed generation-1 signer-version contract in Git.
+  AuthoritySigningProfileName:
+    Type: String
+    AllowedValues: [scanalyze_gug274_bootstrap_artifact_authority]
+  AuthoritySigningProfileVersionId:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9]{10}$'
+  AuthoritySigningTrustRootConfigured:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false']
+    Description: >-
+      Deliberate activation lock. A separately reviewed commit must bind exact
+      AllowedValues for the signer version and contract digest before changing
+      this closed value to true.
+  SourceCommit:
+    Type: String
+    AllowedPattern: '^[0-9a-f]{40}$'
+  ExpectedBoto3Version:
+    Type: String
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  ExpectedBotocoreVersion:
+    Type: String
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+Rules:
+  ReviewedSignerTrustRootMustBeConfigured:
+    Assertions:
+      - Assert: !Equals [!Ref AuthoritySigningTrustRootConfigured, 'true']
+        AssertDescription: >-
+          GUG-274 signer trust root is NOT_CONFIGURED; this repository template
+          must not create a Change Set until an exact reviewed version is pinned.
+  AuthorityAccountMustMatch:
+    Assertions:
+      - Assert: !Equals [!Ref AuthorityAccountId, !Ref AWS::AccountId]
+        AssertDescription: The artifact authority must be deployed in its bound account.
+  HumanIdentityUsersMustBeDistinct:
+    Assertions:
+      - Assert: !Not
+          - !Equals [!Ref PlanIdentityStoreUserId, !Ref SecondPartyIdentityStoreUserId]
+        AssertDescription: Plan and Approval/Apply must bind different Identity Store users.
+
+Resources:
+  AuthorityCodeSigningConfig:
+    Type: AWS::Lambda::CodeSigningConfig
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: GUG-274 generation-1 enforce-only reviewed signer
+      AllowedPublishers:
+        SigningProfileVersionArns:
+          - !Sub arn:${AWS::Partition}:signer:${AWS::Region}:${AWS::AccountId}:/signing-profiles/${AuthoritySigningProfileName}/${AuthoritySigningProfileVersionId}
+      CodeSigningPolicies:
+        UntrustedArtifactOnDeployment: Enforce
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+        - {Key: signing_receipt_digest, Value: !Ref AuthoritySigningReceiptDigest}
+        - {Key: signing_trust_root_digest, Value: !Ref AuthoritySigningTrustRootContractDigest}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanAuthorityLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-bootstrap-plan-authority
+      RetentionInDays: 30
+      Tags: &CommonTags
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: signing_receipt_digest, Value: !Ref AuthoritySigningReceiptDigest}
+        - {Key: signing_trust_root_digest, Value: !Ref AuthoritySigningTrustRootContractDigest}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ApprovalAuthorityLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-bootstrap-approval-authority
+      RetentionInDays: 30
+      Tags: *CommonTags
+
+  ApplyExecutorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-bootstrap-apply-executor
+      RetentionInDays: 30
+      Tags: *CommonTags
+
+  PlanIdentityProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapPlanIdentityProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeFromExactPlanAuthority
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapPlanAuthority
+          - Sid: SetExactPlanIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref PlanIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapPlanAuthority
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug274ZeroAuthorityIdentityProof
+          PolicyDocument: &ZeroAuthorityProof
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyEveryProofSessionAction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+      Tags: *CommonTags
+
+  ApprovalIdentityProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapApprovalIdentityProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeFromExactApprovalAuthority
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApprovalAuthority
+          - Sid: SetExactApprovalIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref SecondPartyIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApprovalAuthority
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug274ZeroAuthorityIdentityProof
+          PolicyDocument: *ZeroAuthorityProof
+      Tags: *CommonTags
+
+  ApplyIdentityProofRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapApplyIdentityProof
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeFromExactApplyExecutor
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApplyExecutor
+          - Sid: SetExactApplyIdentityContext
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: sts:SetContext
+            Condition:
+              ForAllValues:ArnEquals:
+                sts:RequestContextProviders:
+                  - arn:aws:iam::aws:contextProvider/IdentityCenter
+              StringEquals:
+                sts:RequestContext/identitystore:UserId: !Ref SecondPartyIdentityStoreUserId
+              ArnEquals:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApplyExecutor
+                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
+                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn
+                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn
+              'Null':
+                sts:RequestContextProviders: 'false'
+                sts:RequestContext/identitystore:UserId: 'false'
+                sts:RequestContext/identitystore:IdentityStoreArn: 'false'
+                sts:RequestContext/identitycenter:InstanceArn: 'false'
+                sts:RequestContext/identitycenter:ApplicationArn: 'false'
+      Policies:
+        - PolicyName: Gug274ZeroAuthorityIdentityProof
+          PolicyDocument: *ZeroAuthorityProof
+      Tags: *CommonTags
+
+  PlanAuthorityExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapPlanAuthority
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument: &LambdaTrust
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug274BootstrapPlanAuthorityExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOnlyOwnSanitizedLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/scanalyze-platform-authority-bootstrap-plan-authority:*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-plan-authority
+              - Sid: CreateOnlyExactPlanAnchor
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-plan-authority
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1
+                  'Null': {dynamodb:EnclosingOperation: 'true', dynamodb:LeadingKeys: 'false'}
+              - Sid: ExchangeExactPlanIdentityCode
+                Effect: Allow
+                Action: sso-oauth:CreateTokenWithIAM
+                Resource: !Ref IdentityCenterApplicationArn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-plan-authority
+              - Sid: EstablishExactPlanIdentityProof
+                Effect: Allow
+                Action: [sts:AssumeRole, sts:SetContext]
+                Resource: !GetAtt PlanIdentityProofRole.Arn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-plan-authority
+              - Sid: DenyPlanProviderEffects
+                Effect: Deny
+                Action: [cloudformation:*, iam:*, kms:Sign, s3:PutAccountPublicAccessBlock]
+                Resource: '*'
+      Tags: *CommonTags
+
+  ApprovalAuthorityExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapApprovalAuthority
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument: *LambdaTrust
+      Policies:
+        - PolicyName: Gug274BootstrapApprovalAuthorityExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOnlyOwnSanitizedLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/scanalyze-platform-authority-bootstrap-approval-authority:*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-approval-authority
+              - Sid: ReadAndApproveOnlyExactPlanAnchor
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-approval-authority
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1
+                  'Null': {dynamodb:EnclosingOperation: 'true', dynamodb:LeadingKeys: 'false'}
+              - Sid: ExchangeExactApprovalIdentityCode
+                Effect: Allow
+                Action: sso-oauth:CreateTokenWithIAM
+                Resource: !Ref IdentityCenterApplicationArn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-approval-authority
+              - Sid: EstablishExactApprovalIdentityProof
+                Effect: Allow
+                Action: [sts:AssumeRole, sts:SetContext]
+                Resource: !GetAtt ApprovalIdentityProofRole.Arn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-approval-authority
+              - Sid: DenyApprovalProviderEffects
+                Effect: Deny
+                Action: [cloudformation:*, iam:*, kms:Sign, s3:PutAccountPublicAccessBlock]
+                Resource: '*'
+      Tags: *CommonTags
+
+  ApplyExecutorExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug274BootstrapApplyExecutor
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument: *LambdaTrust
+      Policies:
+        - PolicyName: Gug274BootstrapApplyExecutorExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOnlyOwnSanitizedLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/scanalyze-platform-authority-bootstrap-apply-executor:*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: ReadAndClaimOnlyExactApprovalAnchor
+                Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1
+                  'Null': {dynamodb:EnclosingOperation: 'true', dynamodb:LeadingKeys: 'false'}
+              - Sid: ExchangeExactApplyIdentityCode
+                Effect: Allow
+                Action: sso-oauth:CreateTokenWithIAM
+                Resource: !Ref IdentityCenterApplicationArn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: EstablishExactApplyIdentityProof
+                Effect: Allow
+                Action: [sts:AssumeRole, sts:SetContext]
+                Resource: !GetAtt ApplyIdentityProofRole.Arn
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: ReadExactBootstrapReviewShell
+                Effect: Allow
+                Action: [cloudformation:DescribeStacks, cloudformation:ListStackResources]
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-state-backend/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: ReadAndExecuteExactBootstrapChangeSet
+                Effect: Allow
+                Action: [cloudformation:DescribeChangeSet, cloudformation:GetTemplate, cloudformation:ExecuteChangeSet]
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-state-backend/*
+                Condition:
+                  StringEquals:
+                    cloudformation:ChangeSetName: !Ref BootstrapChangeSetName
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: EnforceAccountPublicAccessBlock
+                Effect: Allow
+                Action: s3:PutAccountPublicAccessBlock
+                Resource: '*'
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+              - Sid: CreateExactStateBucketViaCloudFormation
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutLifecycleConfiguration
+                Resource: !Sub arn:${AWS::Partition}:s3:::scanalyze-platform-authority-${AuthorityAccountId}-${AWS::Region}-state
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: ReadExactStateBucketViaCloudFormation
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                Resource: !Sub arn:${AWS::Partition}:s3:::scanalyze-platform-authority-${AuthorityAccountId}-${AWS::Region}-state
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: CreateTaggedStateKeyViaCloudFormation
+                Effect: Allow
+                Action: kms:CreateKey
+                Resource: '*'
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  StringEquals:
+                    aws:RequestTag/managed_by: cloudformation
+                    aws:RequestTag/service: scanalyze-platform-authority
+                    aws:RequestTag/data_class: control-metadata
+                    aws:RequestTag/account_id: !Ref AuthorityAccountId
+                    aws:RequestTag/region: !Ref AWS::Region
+                    kms:KeySpec: SYMMETRIC_DEFAULT
+                    kms:KeyUsage: ENCRYPT_DECRYPT
+                  ForAllValues:StringEquals:
+                    aws:TagKeys: [managed_by, service, data_class, account_id, region]
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: ManageTaggedStateKeyViaCloudFormation
+                Effect: Allow
+                Action: [kms:EnableKeyRotation, kms:PutKeyPolicy, kms:TagResource]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AuthorityAccountId}:key/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  StringEquals:
+                    aws:ResourceTag/service: scanalyze-platform-authority
+                    aws:ResourceTag/data_class: control-metadata
+                    aws:ResourceTag/account_id: !Ref AuthorityAccountId
+                    aws:ResourceTag/region: !Ref AWS::Region
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: ReadTaggedStateKeyViaCloudFormation
+                Effect: Allow
+                Action: [kms:DescribeKey, kms:GetKeyPolicy, kms:GetKeyRotationStatus, kms:ListResourceTags]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AuthorityAccountId}:key/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  StringEquals:
+                    aws:ResourceTag/service: scanalyze-platform-authority
+                    aws:ResourceTag/data_class: control-metadata
+                    aws:ResourceTag/account_id: !Ref AuthorityAccountId
+                    aws:ResourceTag/region: !Ref AWS::Region
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: ManageExactStateKeyAliasViaCloudFormation
+                Effect: Allow
+                Action: [kms:CreateAlias, kms:DeleteAlias, kms:UpdateAlias]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AuthorityAccountId}:alias/scanalyze-platform-authority-state
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: BindAliasOnlyToTaggedStateKeyViaCloudFormation
+                Effect: Allow
+                Action: [kms:CreateAlias, kms:DeleteAlias, kms:UpdateAlias]
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AuthorityAccountId}:key/*
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor
+                  StringEquals:
+                    aws:ResourceTag/service: scanalyze-platform-authority
+                    aws:ResourceTag/data_class: control-metadata
+                    aws:ResourceTag/account_id: !Ref AuthorityAccountId
+                    aws:ResourceTag/region: !Ref AWS::Region
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: [cloudformation.amazonaws.com]
+              - Sid: DenyRetirementAndPrivilegeEscalation
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:PutItem
+                  - dynamodb:TransactWriteItems
+                  - iam:*
+                Resource: '*'
+      Tags: *CommonTags
+
+  ArtifactAuthorityTable:
+    Type: AWS::DynamoDB::Table
+    DependsOn: [PlanAuthorityExecutionRole, ApprovalAuthorityExecutionRole, ApplyExecutorExecutionRole]
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: scanalyze-platform-authority-bootstrap-artifacts
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - {AttributeName: trust_root_id, AttributeType: S}
+        - {AttributeName: authority_record_id, AttributeType: S}
+      KeySchema:
+        - {AttributeName: trust_root_id, KeyType: HASH}
+        - {AttributeName: authority_record_id, KeyType: RANGE}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true, SSEType: KMS}
+      ResourcePolicy:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyInsecureArtifactAuthorityTransport
+              Effect: Deny
+              Principal: '*'
+              Action: dynamodb:*
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition: {Bool: {aws:SecureTransport: 'false'}}
+            - Sid: DenyPlanCreatesOutsideExactPlanAuthority
+              Effect: Deny
+              Principal: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt PlanAuthorityExecutionRole.Arn
+            - Sid: DenyTransitionsOutsideExactApprovalAndApplyAuthorities
+              Effect: Deny
+              Principal: '*'
+              Action: dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: [!GetAtt ApprovalAuthorityExecutionRole.Arn, !GetAtt ApplyExecutorExecutionRole.Arn]
+            - Sid: DenyReadsOutsideExactApprovalAndApplyAuthorities
+              Effect: Deny
+              Principal: '*'
+              Action: dynamodb:GetItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: [!GetAtt ApprovalAuthorityExecutionRole.Arn, !GetAtt ApplyExecutorExecutionRole.Arn]
+            - Sid: DenyAnyForeignTrustRootKey
+              Effect: Deny
+              Principal: '*'
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition:
+                ForAllValues:StringNotEquals:
+                  dynamodb:LeadingKeys:
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1
+            - Sid: DenyUnsupportedArtifactAuthorityOperations
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:ConditionCheckItem
+                - dynamodb:DeleteItem
+                - dynamodb:PartiQLDelete
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLSelect
+                - dynamodb:PartiQLUpdate
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:TransactGetItems
+                - dynamodb:TransactWriteItems
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+      Tags: *CommonTags
+
+  PlanAuthorityFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [PlanAuthorityLogGroup, ArtifactAuthorityTable, AuthorityCodeSigningConfig]
+    Properties:
+      FunctionName: scanalyze-platform-authority-bootstrap-plan-authority
+      Description: GUG-274 generation-1 Plan v2 identity-gated durable anchor
+      Runtime: python3.12
+      Handler: tooling.platform_authority_bootstrap_artifact_authority.plan_anchor_handler
+      Architectures: [x86_64]
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt PlanAuthorityExecutionRole.Arn
+      CodeSigningConfigArn: !Ref AuthorityCodeSigningConfig
+      Code: &AuthorityCode
+        S3Bucket: !Ref AuthorityArtifactBucket
+        S3Key: !Ref AuthorityArtifactKey
+        S3ObjectVersion: !Ref AuthorityArtifactVersion
+      Environment:
+        Variables: &AuthorityEnvironment
+          GUG274_AUTHORITY_ACCOUNT_ID: !Ref AuthorityAccountId
+          GUG274_AUTHORITY_REGION: !Ref AWS::Region
+          GUG274_DESTINATION_ACCOUNT_IDS: !Join [',', !Ref DestinationAccountIds]
+          GUG274_CHANGE_SET_NAME: !Ref BootstrapChangeSetName
+          GUG274_IDENTITY_CENTER_APPLICATION_ARN: !Ref IdentityCenterApplicationArn
+          GUG274_IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          GUG274_IDENTITY_STORE_ARN: !Ref IdentityStoreArn
+          GUG274_IDENTITY_REDIRECT_URI: !Ref IdentityRedirectUri
+          GUG274_PLAN_IDENTITY_STORE_USER_ID: !Ref PlanIdentityStoreUserId
+          GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID: !Ref SecondPartyIdentityStoreUserId
+          GUG274_SOURCE_COMMIT: !Ref SourceCommit
+          GUG274_EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          GUG274_EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+      Tags: *CommonTags
+
+  PlanAuthorityVersion:
+    Type: AWS::Lambda::Version
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref PlanAuthorityFunction
+      CodeSha256: !Ref SignedAuthorityArtifactCodeSha256
+      Description: GUG-274 reviewed immutable Plan authority generation 1
+
+  ApprovalAuthorityFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [ApprovalAuthorityLogGroup, ArtifactAuthorityTable, AuthorityCodeSigningConfig]
+    Properties:
+      FunctionName: scanalyze-platform-authority-bootstrap-approval-authority
+      Description: GUG-274 generation-1 Approval v2 identity-gated CAS transition
+      Runtime: python3.12
+      Handler: tooling.platform_authority_bootstrap_artifact_authority.approval_anchor_handler
+      Architectures: [x86_64]
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt ApprovalAuthorityExecutionRole.Arn
+      CodeSigningConfigArn: !Ref AuthorityCodeSigningConfig
+      Code: *AuthorityCode
+      Environment: {Variables: *AuthorityEnvironment}
+      Tags: *CommonTags
+
+  ApprovalAuthorityVersion:
+    Type: AWS::Lambda::Version
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref ApprovalAuthorityFunction
+      CodeSha256: !Ref SignedAuthorityArtifactCodeSha256
+      Description: GUG-274 reviewed immutable Approval authority generation 1
+
+  ApplyExecutorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [ApplyExecutorLogGroup, ArtifactAuthorityTable, AuthorityCodeSigningConfig]
+    Properties:
+      FunctionName: scanalyze-platform-authority-bootstrap-apply-executor
+      Description: GUG-274 generation-1 identity-gated one-shot Apply executor
+      Runtime: python3.12
+      Handler: tooling.platform_authority_bootstrap_artifact_authority.apply_executor_handler
+      Architectures: [x86_64]
+      MemorySize: 512
+      Timeout: 60
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt ApplyExecutorExecutionRole.Arn
+      CodeSigningConfigArn: !Ref AuthorityCodeSigningConfig
+      Code: *AuthorityCode
+      Environment: {Variables: *AuthorityEnvironment}
+      Tags: *CommonTags
+
+  ApplyExecutorVersion:
+    Type: AWS::Lambda::Version
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref ApplyExecutorFunction
+      CodeSha256: !Ref SignedAuthorityArtifactCodeSha256
+      Description: GUG-274 reviewed immutable Apply executor generation 1
+
+Outputs:
+  ArtifactAuthorityTableName: {Value: !Ref ArtifactAuthorityTable}
+  ArtifactAuthorityTableArn: {Value: !GetAtt ArtifactAuthorityTable.Arn}
+  TrustRootGeneration: {Value: '1'}
+  CodeSigningConfigArn: {Value: !Ref AuthorityCodeSigningConfig}
+  AuthoritySigningReceiptDigest: {Value: !Ref AuthoritySigningReceiptDigest}
+  AuthoritySigningTrustRootContractDigest: {Value: !Ref AuthoritySigningTrustRootContractDigest}
+  SignedAuthorityArtifactCodeSha256: {Value: !Ref SignedAuthorityArtifactCodeSha256}
+  PlanAuthorityPublishedVersion: {Value: !GetAtt PlanAuthorityVersion.Version}
+  PlanAuthorityInvokeArn:
+    Value: !Sub
+      - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-plan-authority:${PublishedVersion}
+      - {PublishedVersion: !GetAtt PlanAuthorityVersion.Version}
+  ApprovalAuthorityPublishedVersion: {Value: !GetAtt ApprovalAuthorityVersion.Version}
+  ApprovalAuthorityInvokeArn:
+    Value: !Sub
+      - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-approval-authority:${PublishedVersion}
+      - {PublishedVersion: !GetAtt ApprovalAuthorityVersion.Version}
+  ApplyExecutorPublishedVersion: {Value: !GetAtt ApplyExecutorVersion.Version}
+  ApplyExecutorInvokeArn:
+    Value: !Sub
+      - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:scanalyze-platform-authority-bootstrap-apply-executor:${PublishedVersion}
+      - {PublishedVersion: !GetAtt ApplyExecutorVersion.Version}
+  InvocationContract:
+    Value: GENERATION_1_REQUIRES_ACTUAL_PUBLISHED_VERSION_1
+  ProductionAuthorized:
+    Description: This template does not authorize deployment or invocation.
+    Value: 'false'

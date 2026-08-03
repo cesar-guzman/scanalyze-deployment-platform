@@ -5,6 +5,7 @@ Validates JSON fixtures against their corresponding JSON Schemas.
 Valid fixtures must pass. Invalid fixtures must fail with the documented error.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import sys
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -22,6 +24,7 @@ if str(ROOT) not in sys.path:
 try:
     import jsonschema
     from jsonschema import Draft202012Validator, FormatChecker, ValidationError
+    from referencing import Registry, Resource
     HAS_JSONSCHEMA = True
 except ImportError:
     HAS_JSONSCHEMA = False
@@ -31,6 +34,18 @@ def load_json(path: Path) -> dict:
     """Load and parse a JSON file."""
     with open(path) as f:
         return json.load(f)
+
+
+@lru_cache(maxsize=4)
+def _schema_registry(schemas_dir: Path):
+    """Build an offline registry for schemas that compose versioned contracts."""
+    resources = []
+    for schema_path in sorted(schemas_dir.glob("*.json")):
+        schema = load_json(schema_path)
+        schema_id = schema.get("$id")
+        if isinstance(schema_id, str):
+            resources.append((schema_id, Resource.from_contents(schema)))
+    return Registry().with_resources(resources)
 
 
 def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None:
@@ -45,8 +60,14 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "github-environment-anchor": "github-environment-anchor.v{version}.schema.json",
         "github-platform-authority": "github-platform-authority.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
+        "platform-authority-bootstrap-authority-receipt": "platform-authority-bootstrap-authority-receipt.v{version}.schema.json",
         "platform-authority-bootstrap-approval": "platform-authority-bootstrap-approval.v{version}.schema.json",
+        "platform-authority-bootstrap-artifact-authority": "platform-authority-bootstrap-artifact-authority.v{version}.schema.json",
+        "platform-authority-bootstrap-artifact-package": "platform-authority-bootstrap-artifact-package.v{version}.schema.json",
+        "platform-authority-bootstrap-artifact-signing-trust-root": "platform-authority-bootstrap-artifact-signing-trust-root.v{version}.schema.json",
+        "platform-authority-bootstrap-identity-proof-receipt": "platform-authority-bootstrap-identity-proof-receipt.v{version}.schema.json",
         "platform-authority-bootstrap-plan": "platform-authority-bootstrap-plan.v{version}.schema.json",
+        "platform-authority-bootstrap-signed-artifact-receipt": "platform-authority-bootstrap-signed-artifact-receipt.v{version}.schema.json",
         "platform-authority-bootstrap-verification": "platform-authority-bootstrap-verification.v{version}.schema.json",
         "platform-authority-change-set-retirement-ledger": (
             "platform-authority-change-set-retirement-ledger.v{version}.schema.json"
@@ -1681,10 +1702,503 @@ def _validate_gug218_guard_receipt(
     return errors
 
 
+GUG274_PLAN_DOMAIN = "scanalyze.platform-authority.bootstrap.plan.v2"
+GUG274_APPROVAL_DOMAIN = "scanalyze.platform-authority.bootstrap.approval.v2"
+GUG274_LEDGER_DOMAIN = (
+    "scanalyze.platform-authority.bootstrap.artifact-authority.v1"
+)
+GUG274_RECEIPT_DOMAIN = (
+    "scanalyze.platform-authority.bootstrap.authority-receipt.v1"
+)
+GUG274_IDENTITY_PROOF_DOMAIN = (
+    "scanalyze.platform-authority.bootstrap.identity-proof.v1"
+)
+GUG274_KEY_DOMAIN = "scanalyze.platform-authority.bootstrap.authority-key.v1"
+GUG274_INVENTORY_DOMAIN = (
+    "scanalyze.platform-authority.bootstrap.resource-inventory.v1"
+)
+GUG274_CHANGE_SET_ARN = re.compile(
+    r"^arn:(aws|aws-us-gov|aws-cn):cloudformation:([a-z0-9-]+):"
+    r"([0-9]{12}):changeSet/(scanalyze-platform-authority-bootstrap-[0-9]{14})/"
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-"
+    r"[0-9a-f]{12})$"
+)
+
+
+def _gug274_domain_digest(domain: str, value: dict) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(
+        domain.encode("ascii") + b"\x00" + payload
+    ).hexdigest()
+
+
+def _gug274_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+        value,
+    ) is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _gug274_partition(region: object) -> str | None:
+    if not isinstance(region, str):
+        return None
+    if region.startswith("cn-"):
+        return "aws-cn"
+    if region.startswith("us-gov-"):
+        return "aws-us-gov"
+    return "aws"
+
+
+def _validate_gug274_plan(instance: dict) -> list[str]:
+    errors: list[str] = []
+    account_id = instance.get("authority_account_id")
+    region = instance.get("region")
+    partition = _gug274_partition(region)
+    if instance.get("aws_partition") != partition:
+        errors.append("Plan partition must be derived from its bound region")
+    if isinstance(account_id, str) and isinstance(region, str):
+        expected_root = (
+            f"arn:{partition}:dynamodb:{region}:{account_id}:table/"
+            "scanalyze-platform-authority-bootstrap-artifacts#generation/1"
+        )
+        if instance.get("trust_root_id") != expected_root:
+            errors.append("Plan trust root must match its authority binding")
+        if instance.get("state_bucket_name") != (
+            f"scanalyze-platform-authority-{account_id}-{region}-state"
+        ):
+            errors.append("Plan state bucket must be authority-derived")
+        destinations = instance.get("destination_account_ids")
+        if isinstance(destinations, list) and account_id in destinations:
+            errors.append("Plan authority and destination accounts must be disjoint")
+        if instance.get("change_set_parameters") != {
+            "AuthorityAccountId": account_id,
+            "StateKey": "platform-authority/terraform.tfstate",
+            "NoncurrentVersionRetentionDays": "365",
+        }:
+            errors.append(
+                "Plan Change Set parameters must match the immutable bootstrap binding"
+            )
+
+    change_set = instance.get("change_set_id")
+    match = (
+        GUG274_CHANGE_SET_ARN.fullmatch(change_set)
+        if isinstance(change_set, str)
+        else None
+    )
+    if match is None:
+        errors.append("Plan Change Set ARN must be complete and canonical")
+    elif (
+        match.group(1) != instance.get("aws_partition")
+        or match.group(2) != region
+        or match.group(3) != account_id
+        or match.group(4) != instance.get("change_set_name")
+        or match.group(5) != instance.get("change_set_uuid")
+    ):
+        errors.append("Plan Change Set tuple must match its full ARN")
+
+    changes = instance.get("planned_resource_changes")
+    if isinstance(changes, list) and all(isinstance(item, dict) for item in changes):
+        if changes != sorted(
+            changes, key=lambda item: str(item.get("logical_resource_id", ""))
+        ):
+            errors.append("Plan resource inventory must be canonically ordered")
+        logical_ids = [item.get("logical_resource_id") for item in changes]
+        if len(logical_ids) != len(set(logical_ids)):
+            errors.append("Plan resource inventory logical IDs must be unique")
+        required_types = {
+            "AWS::KMS::Key",
+            "AWS::S3::Bucket",
+            "AWS::S3::BucketPolicy",
+        }
+        if not required_types <= {
+            str(item.get("resource_type")) for item in changes
+        }:
+            errors.append("Plan resource inventory is incomplete")
+        expected_inventory_digest = _gug274_domain_digest(
+            GUG274_INVENTORY_DOMAIN, {"planned_resource_changes": changes}
+        )
+        if instance.get("planned_resource_inventory_digest") != (
+            expected_inventory_digest
+        ):
+            errors.append("Plan resource inventory digest must cover the exact inventory")
+
+    created = _gug274_timestamp(instance.get("created_at"))
+    expires = _gug274_timestamp(instance.get("expires_at"))
+    if created is None or expires is None:
+        errors.append("Plan timestamps must be canonical UTC instants")
+    elif not 300 <= (expires - created).total_seconds() <= 7200:
+        errors.append("Plan lifetime must be between five minutes and two hours")
+
+    if all(
+        isinstance(instance.get(field), str)
+        for field in (
+            "authority_account_id",
+            "aws_partition",
+            "region",
+            "stack_name",
+            "change_set_id",
+        )
+    ):
+        key_material = {
+            "domain_separator": GUG274_KEY_DOMAIN,
+            "trust_root_generation": 1,
+            "authority_account_id": instance["authority_account_id"],
+            "aws_partition": instance["aws_partition"],
+            "region": instance["region"],
+            "stack_name": instance["stack_name"],
+            "change_set_id": instance["change_set_id"],
+        }
+        expected_record_id = "gug274#g1#" + _gug274_domain_digest(
+            GUG274_KEY_DOMAIN, key_material
+        )
+        if instance.get("authority_record_id") != expected_record_id:
+            errors.append("Plan authority record ID must be binding-derived")
+
+    unsigned = {
+        key: value for key, value in instance.items() if key != "plan_artifact_digest"
+    }
+    if instance.get("plan_artifact_digest") != _gug274_domain_digest(
+        GUG274_PLAN_DOMAIN, unsigned
+    ):
+        errors.append("Plan artifact digest must cover the complete Plan v2")
+    return errors
+
+
+def _validate_gug274_approval(
+    instance: dict, *, expected_plan: dict | None = None
+) -> list[str]:
+    errors: list[str] = []
+    approved = _gug274_timestamp(instance.get("approved_at"))
+    expires = _gug274_timestamp(instance.get("expires_at"))
+    plan_created = _gug274_timestamp(instance.get("plan_created_at"))
+    plan_expires = _gug274_timestamp(instance.get("plan_expires_at"))
+    if None in {approved, expires, plan_created, plan_expires}:
+        errors.append("Approval timestamps must be canonical UTC instants")
+    elif not plan_created <= approved < expires <= plan_expires:
+        errors.append("Approval lifetime must be contained by its Plan lifetime")
+    if instance.get("approver_id") == instance.get("initiator_id"):
+        errors.append("Approval operator IDs must be distinct")
+    if instance.get("approver_principal_digest") == instance.get(
+        "initiator_principal_digest"
+    ):
+        errors.append("Approval principal digests must be distinct")
+    if expected_plan is not None:
+        cross_fields = {
+            "authority_record_id": "authority_record_id",
+            "plan_artifact_digest": "plan_artifact_digest",
+            "authority_account_id": "authority_account_id",
+            "aws_partition": "aws_partition",
+            "region": "region",
+            "stack_name": "stack_name",
+            "state_bucket_name": "state_bucket_name",
+            "state_key": "state_key",
+            "destination_account_ids": "destination_account_ids",
+            "native_lockfile_enabled": "native_lockfile_enabled",
+            "template_sha256": "template_sha256",
+            "change_set_id": "change_set_id",
+            "change_set_name": "change_set_name",
+            "change_set_uuid": "change_set_uuid",
+            "change_set_type": "change_set_type",
+            "change_set_parameters": "change_set_parameters",
+            "planned_resource_inventory_digest": "planned_resource_inventory_digest",
+            "initiator_id": "initiator_id",
+            "initiator_principal_digest": "initiator_principal_digest",
+            "plan_created_at": "created_at",
+            "plan_expires_at": "expires_at",
+        }
+        if any(
+            instance.get(approval_field) != expected_plan.get(plan_field)
+            for approval_field, plan_field in cross_fields.items()
+        ):
+            errors.append("Approval must be an exact projection of its anchored Plan")
+        if instance.get("approval_nonce") == expected_plan.get("artifact_nonce"):
+            errors.append("Approval nonce must differ from the Plan nonce")
+
+    unsigned = {
+        key: value
+        for key, value in instance.items()
+        if key != "approval_artifact_digest"
+    }
+    if instance.get("approval_artifact_digest") != _gug274_domain_digest(
+        GUG274_APPROVAL_DOMAIN, unsigned
+    ):
+        errors.append("Approval artifact digest must cover the complete Approval v2")
+    return errors
+
+
+def _validate_gug274_identity_proof(instance: dict) -> list[str]:
+    errors: list[str] = []
+    expected_roles = {
+        "plan": "plan_author",
+        "approval": "independent_approver",
+        "apply": "apply_verifier",
+    }
+    if expected_roles.get(instance.get("operation")) != instance.get("role_kind"):
+        errors.append("identity proof role must match its exact operation")
+    if instance.get("expected_user_id_digest") == instance.get(
+        "peer_user_id_digest"
+    ):
+        errors.append("identity proof users must be distinct")
+    unsigned = {
+        key: value for key, value in instance.items() if key != "proof_receipt_digest"
+    }
+    if instance.get("proof_receipt_digest") != _gug274_domain_digest(
+        GUG274_IDENTITY_PROOF_DOMAIN, unsigned
+    ):
+        errors.append("identity proof digest must cover the complete sanitized proof")
+    return errors
+
+
+def _validate_gug274_ledger(instance: dict) -> list[str]:
+    errors: list[str] = []
+    plan = instance.get("plan")
+    approval = instance.get("approval")
+    if isinstance(plan, dict):
+        errors.extend(_validate_gug274_plan(plan))
+        for field in (
+            "trust_contract_version",
+            "trust_root_id",
+            "trust_root_generation",
+            "trust_algorithm",
+            "authority_record_id",
+        ):
+            if instance.get(field) != plan.get(field):
+                errors.append(f"ledger {field} must match its Plan")
+        if instance.get("created_at") != plan.get("created_at"):
+            errors.append("ledger creation time must match its Plan creation time")
+    if isinstance(approval, dict):
+        errors.extend(
+            _validate_gug274_approval(
+                approval,
+                expected_plan=plan if isinstance(plan, dict) else None,
+            )
+        )
+
+    proof_names = (
+        "plan_identity_proof",
+        "approval_identity_proof",
+        "apply_identity_proof",
+    )
+    proofs = {
+        name: instance.get(name)
+        for name in proof_names
+        if isinstance(instance.get(name), dict)
+    }
+    for proof in proofs.values():
+        errors.extend(_validate_gug274_identity_proof(proof))
+        if proof.get("identity_binding_digest") != instance.get(
+            "identity_binding_digest"
+        ):
+            errors.append("ledger identity proofs must share one immutable binding")
+
+    plan_proof = proofs.get("plan_identity_proof")
+    approval_proof = proofs.get("approval_identity_proof")
+    apply_proof = proofs.get("apply_identity_proof")
+    if isinstance(plan_proof, dict) and isinstance(approval_proof, dict):
+        if (
+            approval_proof.get("expected_user_id_digest")
+            != plan_proof.get("peer_user_id_digest")
+            or approval_proof.get("peer_user_id_digest")
+            != plan_proof.get("expected_user_id_digest")
+        ):
+            errors.append("Plan and Approval proofs must bind opposite real users")
+        if (
+            approval_proof.get("proof_role_arn_digest")
+            == plan_proof.get("proof_role_arn_digest")
+            or approval_proof.get("broker_execution_role_arn_digest")
+            == plan_proof.get("broker_execution_role_arn_digest")
+        ):
+            errors.append("Plan and Approval proofs must use distinct roles")
+    if (
+        isinstance(plan_proof, dict)
+        and isinstance(approval_proof, dict)
+        and isinstance(apply_proof, dict)
+    ):
+        if (
+            apply_proof.get("expected_user_id_digest")
+            != approval_proof.get("expected_user_id_digest")
+            or apply_proof.get("peer_user_id_digest")
+            != approval_proof.get("peer_user_id_digest")
+        ):
+            errors.append("Apply proof must bind the approved second party")
+        if apply_proof.get("proof_role_arn_digest") in {
+            plan_proof.get("proof_role_arn_digest"),
+            approval_proof.get("proof_role_arn_digest"),
+        } or apply_proof.get("broker_execution_role_arn_digest") in {
+            plan_proof.get("broker_execution_role_arn_digest"),
+            approval_proof.get("broker_execution_role_arn_digest"),
+        }:
+            errors.append("Apply proof must use an independently scoped role")
+
+    created = _gug274_timestamp(instance.get("created_at"))
+    updated = _gug274_timestamp(instance.get("updated_at"))
+    claimed = _gug274_timestamp(instance.get("claimed_at"))
+    if created is not None and updated is not None and updated < created:
+        errors.append("ledger update time cannot precede creation")
+    if instance.get("state") == "CLAIMED" and claimed != updated:
+        errors.append("terminal claim time must equal its ledger update time")
+
+    unsigned = {
+        key: value for key, value in instance.items() if key != "ledger_digest"
+    }
+    if instance.get("ledger_digest") != _gug274_domain_digest(
+        GUG274_LEDGER_DOMAIN, unsigned
+    ):
+        errors.append("ledger digest must cover the complete state snapshot")
+    return errors
+
+
+def _validate_gug274_authority_receipt(instance: dict) -> list[str]:
+    unsigned = {
+        key: value for key, value in instance.items() if key != "receipt_digest"
+    }
+    if instance.get("receipt_digest") != _gug274_domain_digest(
+        GUG274_RECEIPT_DOMAIN, unsigned
+    ):
+        return ["authority receipt digest must cover the complete receipt"]
+    return []
+
+
+GUG274_PACKAGE_PATHS = (
+    "gug274_runtime_lock.json",
+    "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json",
+    "tooling/__init__.py",
+    "tooling/platform_authority_bootstrap.py",
+    "tooling/platform_authority_bootstrap_artifact_authority.py",
+    "tooling/platform_authority_bootstrap_identity_proof.py",
+    "tooling/platform_authority_identity_context_compatibility.py",
+    "tooling/platform_authority_identity_context_pep.py",
+)
+
+
+def _validate_gug274_artifact_package(instance: dict) -> list[str]:
+    errors: list[str] = []
+    archive_digest = instance.get("archive_sha256")
+    if isinstance(archive_digest, str) and re.fullmatch(
+        r"[a-f0-9]{64}", archive_digest
+    ):
+        expected_code_digest = base64.b64encode(
+            bytes.fromhex(archive_digest)
+        ).decode("ascii")
+        if instance.get("unsigned_archive_code_sha256") != expected_code_digest:
+            errors.append(
+                "unsigned archive CodeSha256 must encode the exact archive digest"
+            )
+
+    entries = instance.get("entries")
+    if isinstance(entries, list) and all(isinstance(entry, dict) for entry in entries):
+        paths = tuple(entry.get("path") for entry in entries)
+        if paths != GUG274_PACKAGE_PATHS:
+            errors.append("package entries must be the exact sorted runtime closure")
+        runtime = instance.get("runtime_dependencies")
+        if isinstance(runtime, dict):
+            runtime_lock = {
+                "record_type": (
+                    "scanalyze.platform_authority."
+                    "bootstrap_artifact_authority_runtime_lock.v1"
+                ),
+                "schema_version": 1,
+                "work_package": "GUG-274",
+                "trust_root_generation": 1,
+                "source_commit": instance.get("source_commit"),
+                "expected_boto3_version": runtime.get("expected_boto3_version"),
+                "expected_botocore_version": runtime.get(
+                    "expected_botocore_version"
+                ),
+            }
+            runtime_lock_bytes = (
+                json.dumps(
+                    runtime_lock,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            lock_entry = entries[0] if entries else None
+            if not isinstance(lock_entry, dict) or (
+                lock_entry.get("path") != runtime.get("runtime_lock_path")
+                or lock_entry.get("sha256")
+                != hashlib.sha256(runtime_lock_bytes).hexdigest()
+                or lock_entry.get("size_bytes") != len(runtime_lock_bytes)
+            ):
+                errors.append(
+                    "runtime lock entry must bind the exact source and SDK versions"
+                )
+
+        if len(entries) == len(GUG274_PACKAGE_PATHS) and all(
+            type(entry.get("size_bytes")) is int for entry in entries
+        ):
+            expected_archive_size = (
+                sum(entry["size_bytes"] for entry in entries)
+                + sum(
+                    76 + (2 * len(path.encode("utf-8")))
+                    for path in GUG274_PACKAGE_PATHS
+                )
+                + 22
+            )
+            if instance.get("archive_size_bytes") != expected_archive_size:
+                errors.append(
+                    "archive size must match ZIP_STORED fixed-metadata entries"
+                )
+    return errors
+
+
+def _validate_gug274_signing_trust_root(instance: dict) -> list[str]:
+    """Apply the exact runtime trust-root state machine to schema fixtures."""
+
+    try:
+        from tooling.platform_authority_bootstrap_signed_artifact import (
+            BootstrapSignedArtifactError,
+            validate_signing_trust_root_contract,
+        )
+    except ImportError as exc:
+        return [f"GUG-274 signing trust-root validator unavailable: {exc}"]
+    try:
+        validate_signing_trust_root_contract(
+            instance, require_configured=False
+        )
+    except BootstrapSignedArtifactError as exc:
+        return [f"GUG-274 signing trust-root contract invalid: {exc}"]
+    return []
+
+
+def _validate_gug274_signed_artifact_receipt(
+    instance: dict, *, evaluation_at: datetime | None
+) -> list[str]:
+    """Validate digest, review, freshness, trust root, and CFN projection."""
+
+    try:
+        from tooling.platform_authority_bootstrap_signed_artifact import (
+            BootstrapSignedArtifactError,
+            validate_signed_artifact_receipt,
+        )
+    except ImportError as exc:
+        return [f"GUG-274 signed-artifact validator unavailable: {exc}"]
+    try:
+        validate_signed_artifact_receipt(instance, now=evaluation_at)
+    except BootstrapSignedArtifactError as exc:
+        return [f"GUG-274 signed-artifact receipt invalid: {exc}"]
+    return []
+
+
 def validate_semantics(
     instance: dict,
     schema_path: Path,
     *,
+    gug274_plan: dict | None = None,
     gug218_allowlist: dict | None = None,
     gug218_inventory: dict | None = None,
     gug219_collector_contract: dict | None = None,
@@ -1824,6 +2338,48 @@ def validate_semantics(
             )
         if customer_value is not None and customer_value == deployment_value:
             errors.append("customer and deployment canonical values must be distinct")
+
+    if schema_name == "platform-authority-bootstrap-plan.v2.schema.json":
+        errors.extend(_validate_gug274_plan(instance))
+
+    if schema_name == "platform-authority-bootstrap-approval.v2.schema.json":
+        errors.extend(
+            _validate_gug274_approval(instance, expected_plan=gug274_plan)
+        )
+
+    if schema_name == (
+        "platform-authority-bootstrap-identity-proof-receipt.v1.schema.json"
+    ):
+        errors.extend(_validate_gug274_identity_proof(instance))
+
+    if schema_name == (
+        "platform-authority-bootstrap-artifact-authority.v1.schema.json"
+    ):
+        errors.extend(_validate_gug274_ledger(instance))
+
+    if schema_name == (
+        "platform-authority-bootstrap-artifact-package.v1.schema.json"
+    ):
+        errors.extend(_validate_gug274_artifact_package(instance))
+
+    if schema_name == (
+        "platform-authority-bootstrap-artifact-signing-trust-root.v1.schema.json"
+    ):
+        errors.extend(_validate_gug274_signing_trust_root(instance))
+
+    if schema_name == (
+        "platform-authority-bootstrap-signed-artifact-receipt.v1.schema.json"
+    ):
+        errors.extend(
+            _validate_gug274_signed_artifact_receipt(
+                instance, evaluation_at=evaluation_at
+            )
+        )
+
+    if schema_name == (
+        "platform-authority-bootstrap-authority-receipt.v1.schema.json"
+    ):
+        errors.extend(_validate_gug274_authority_receipt(instance))
 
     if schema_name in {
         "platform-authority-change-set-retirement-ledger.v1.schema.json",
@@ -1989,7 +2545,11 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
     fixture_clean = {k: v for k, v in fixture.items() if k != "_test_metadata"}
 
     try:
-        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        validator = Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+            registry=_schema_registry(schema_path.parent),
+        )
         validator.validate(fixture_clean)
         metadata = fixture.get("_test_metadata")
         evaluation_at = _gug215_timestamp(
@@ -2007,6 +2567,21 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
         ):
             evaluation_at = datetime(2026, 7, 20, 10, 2, tzinfo=UTC)
         if (
+            schema_path.name
+            == "platform-authority-bootstrap-approval.v2.schema.json"
+        ):
+            valid_dir = fixture_path.parent.parent / "valid"
+            plan = load_json(
+                valid_dir / "platform-authority-bootstrap-plan-v2-synthetic.json"
+            )
+            plan.pop("_test_metadata", None)
+            semantic_errors = validate_semantics(
+                fixture_clean,
+                schema_path,
+                gug274_plan=plan,
+                evaluation_at=evaluation_at,
+            )
+        elif (
             schema_path.name
             == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json"
         ):

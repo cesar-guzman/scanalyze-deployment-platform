@@ -1,0 +1,108 @@
+{
+  "approval": null,
+  "approval_identity_proof": null,
+  "apply_identity_proof": null,
+  "attempt_count": 0,
+  "authority_record_id": "gug274#g1#sha256:350191c85f00eb5699f141b2cd686e7262295efbbcdae620474a1b0781d08446",
+  "claimed_at": null,
+  "created_at": "2030-01-01T00:00:00Z",
+  "domain_separator": "scanalyze.platform-authority.bootstrap.artifact-authority.v1",
+  "identity_binding_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+  "ledger_digest": "sha256:3e353c641fdb064072d0b9d6d79b95d2dea489803fa876b0a79d065907335039",
+  "plan": {
+    "account_public_access_block_after": {
+      "BlockPublicAcls": true,
+      "BlockPublicPolicy": true,
+      "IgnorePublicAcls": true,
+      "RestrictPublicBuckets": true
+    },
+    "account_public_access_block_before": null,
+    "artifact_nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+    "authority_account_id": "111122223333",
+    "authority_record_id": "gug274#g1#sha256:350191c85f00eb5699f141b2cd686e7262295efbbcdae620474a1b0781d08446",
+    "aws_partition": "aws",
+    "change_set_id": "arn:aws:cloudformation:us-east-1:111122223333:changeSet/scanalyze-platform-authority-bootstrap-20300101000000/00000000-0000-4000-8000-000000000000",
+    "change_set_name": "scanalyze-platform-authority-bootstrap-20300101000000",
+    "change_set_parameters": {
+      "AuthorityAccountId": "111122223333",
+      "NoncurrentVersionRetentionDays": "365",
+      "StateKey": "platform-authority/terraform.tfstate"
+    },
+    "change_set_type": "CREATE",
+    "change_set_uuid": "00000000-0000-4000-8000-000000000000",
+    "created_at": "2030-01-01T00:00:00Z",
+    "destination_account_ids": [
+      "444455556666",
+      "777788889999"
+    ],
+    "domain_separator": "scanalyze.platform-authority.bootstrap.plan.v2",
+    "expires_at": "2030-01-01T01:00:00Z",
+    "initiator_id": "operator-1001",
+    "initiator_principal_digest": "sha256:9b7b41f61e80ca941bbc00a4b427873cd78029e2011cdbb42b93132c62fd370b",
+    "native_lockfile_enabled": true,
+    "plan_artifact_digest": "sha256:a8bd149e9c05ab5ba00bf51c8fde30d818173044fc935438a9d8e4feafb2620f",
+    "planned_resource_changes": [
+      {
+        "action": "Add",
+        "logical_resource_id": "StateBucket",
+        "replacement": "False",
+        "resource_type": "AWS::S3::Bucket"
+      },
+      {
+        "action": "Add",
+        "logical_resource_id": "StateBucketPolicy",
+        "replacement": "False",
+        "resource_type": "AWS::S3::BucketPolicy"
+      },
+      {
+        "action": "Add",
+        "logical_resource_id": "StateKmsKey",
+        "replacement": "False",
+        "resource_type": "AWS::KMS::Key"
+      }
+    ],
+    "planned_resource_inventory_digest": "sha256:626519b349185dcdfa93669c6b9dcdbd0ec7ddf7456a1daf0a1e2f4620876169",
+    "record_type": "platform_authority_bootstrap_plan",
+    "region": "us-east-1",
+    "schema_version": "2",
+    "stack_name": "scanalyze-platform-authority-state-backend",
+    "state_bucket_name": "scanalyze-platform-authority-111122223333-us-east-1-state",
+    "state_key": "platform-authority/terraform.tfstate",
+    "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "trust_algorithm": "AWS_DYNAMODB_STRONGLY_CONSISTENT_CAS_SHA256",
+    "trust_contract_version": "1",
+    "trust_root_generation": 1,
+    "trust_root_id": "arn:aws:dynamodb:us-east-1:111122223333:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1"
+  },
+  "plan_identity_proof": {
+    "broker_execution_role_arn_digest": "sha256:4040404040404040404040404040404040404040404040404040404040404040",
+    "credentials_consumed": false,
+    "domain_separator": "scanalyze.platform-authority.bootstrap.identity-proof.v1",
+    "expected_user_id_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020",
+    "identity_binding_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+    "live_effect_authorized": false,
+    "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+    "managed_policy_version": "v12",
+    "operation": "plan",
+    "peer_user_id_digest": "sha256:3030303030303030303030303030303030303030303030303030303030303030",
+    "proof_expires_at": "2030-01-01T00:15:00Z",
+    "proof_receipt_digest": "sha256:6a50d398a73bf0e75acc4a1941a85ed2c45de46a485ab31610cd250d3acc3206",
+    "proof_role_arn_digest": "sha256:5050505050505050505050505050505050505050505050505050505050505050",
+    "proof_session_arn_digest": "sha256:6060606060606060606060606060606060606060606060606060606060606060",
+    "record_type": "platform_authority_bootstrap_identity_proof",
+    "required_action": "sts:SetContext",
+    "role_kind": "plan_author",
+    "schema_version": "1",
+    "status": "IDENTITY_CONTEXT_PROOF_VERIFIED"
+  },
+  "previous_ledger_digest": null,
+  "record_type": "platform_authority_bootstrap_artifact_authority",
+  "schema_version": "1",
+  "state": "PLAN_ANCHORED",
+  "trust_algorithm": "AWS_DYNAMODB_STRONGLY_CONSISTENT_CAS_SHA256",
+  "trust_contract_version": "1",
+  "trust_root_generation": 1,
+  "trust_root_id": "arn:aws:dynamodb:us-east-1:111122223333:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1",
+  "updated_at": "2030-01-01T00:01:00Z",
+  "version": 1
+}

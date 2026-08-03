@@ -1,0 +1,174 @@
+{
+  "_test_metadata": {
+    "trusted_evaluation_at": "2026-08-02T23:49:38Z"
+  },
+  "artifact_type": "scanalyze.platform_authority.bootstrap_signed_artifact_receipt.v1",
+  "cloudformation_parameters": [
+    {
+      "ParameterKey": "AuthorityAccountId",
+      "ParameterValue": "042360977644"
+    },
+    {
+      "ParameterKey": "AuthorityArtifactBucket",
+      "ParameterValue": "scanalyze-gug274-artifacts-7644"
+    },
+    {
+      "ParameterKey": "AuthorityArtifactKey",
+      "ParameterValue": "scanalyze/platform-authority/gug-274/signed/11111111-2222-4333-8444-555555555555.zip"
+    },
+    {
+      "ParameterKey": "AuthorityArtifactVersion",
+      "ParameterValue": "SignedVersion1"
+    },
+    {
+      "ParameterKey": "SignedAuthorityArtifactCodeSha256",
+      "ParameterValue": "jUtAxfWD0CPq0ZTgJzCQv4sMtEFdkNCu/SM5zsk4+cs="
+    },
+    {
+      "ParameterKey": "AuthoritySigningReceiptDigest",
+      "ParameterValue": "sha256:f38b0e258cfef6cec165b200cb523af21ac8dbc7ff54beacbf8966b357db7caf"
+    },
+    {
+      "ParameterKey": "AuthoritySigningTrustRootContractDigest",
+      "ParameterValue": "sha256:bccfd8bcfe8ee3c0319af8300e549c9f493f1efcfcc9ae7ec8db0fb56fee81da"
+    },
+    {
+      "ParameterKey": "AuthoritySigningProfileName",
+      "ParameterValue": "scanalyze_gug274_bootstrap_artifact_authority"
+    },
+    {
+      "ParameterKey": "AuthoritySigningProfileVersionId",
+      "ParameterValue": "ABCDEFGHIJ"
+    },
+    {
+      "ParameterKey": "SourceCommit",
+      "ParameterValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "ParameterKey": "ExpectedBoto3Version",
+      "ParameterValue": "1.42.57"
+    },
+    {
+      "ParameterKey": "ExpectedBotocoreVersion",
+      "ParameterValue": "1.42.97"
+    }
+  ],
+  "evaluated_at": "2026-08-02T23:49:38Z",
+  "evidence_status": "SIGNED_ARTIFACT_READ_ONLY_VERIFIED_FOR_CHANGE_SET_REVIEW",
+  "expected_sdk_versions": {
+    "boto3": "1.42.57",
+    "botocore": "1.42.97"
+  },
+  "expires_at": "2026-08-03T00:04:38Z",
+  "production_status": "NO-GO",
+  "receipt_digest": "sha256:038b0e258cfef6cec165b200cb523af21ac8dbc7ff54beacbf8966b357db7caf",
+  "schema_version": 1,
+  "signed_artifact": {
+    "archive_sha256": "8d4b40c5f583d023ead194e0273090bf8b0cb4415d90d0aefd2339cec938f9cb",
+    "bucket": "scanalyze-gug274-artifacts-7644",
+    "key": "scanalyze/platform-authority/gug-274/signed/11111111-2222-4333-8444-555555555555.zip",
+    "lambda_code_sha256": "jUtAxfWD0CPq0ZTgJzCQv4sMtEFdkNCu/SM5zsk4+cs=",
+    "size_bytes": 214039,
+    "version": "SignedVersion1"
+  },
+  "signing_job": {
+    "job_id": "11111111-2222-4333-8444-555555555555",
+    "job_invoker": "042360977644",
+    "job_owner": "042360977644",
+    "signature_expires_at": "2031-01-01T00:00:00Z",
+    "source": {
+      "bucket": "scanalyze-gug274-artifacts-7644",
+      "key": "scanalyze/platform-authority/gug-274/unsigned/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/scanalyze-gug274-bootstrap-artifact-authority.zip",
+      "version": "UnsignedVersion1"
+    },
+    "status": "Succeeded"
+  },
+  "signing_trust_root_contract": {
+    "activation_authorized": false,
+    "artifact_type": "scanalyze.platform_authority.bootstrap_artifact_signing_trust_root.v1",
+    "authority_account_id": "042360977644",
+    "code_signing_policy": "Enforce",
+    "configuration_status": "CONFIGURED_REVIEWED",
+    "partition": "aws",
+    "production_status": "NO-GO",
+    "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
+    "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/scanalyze_gug274_bootstrap_artifact_authority/ABCDEFGHIJ",
+    "profile_version_id": "ABCDEFGHIJ",
+    "region": "us-east-1",
+    "schema_version": 1,
+    "signing_platform": "AWSLambda-SHA384-ECDSA",
+    "trust_root_generation": 1,
+    "work_package": "GUG-274"
+  },
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_review": {
+    "branch": "main",
+    "branch_protection_strict": true,
+    "evidence_status": "MERGED_MAIN_REQUIRED_CHECKS_VERIFIED",
+    "merged_at": "2026-08-02T00:00:00Z",
+    "pull_request_head_commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "pull_request_head_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "pull_request_number": 274,
+    "repository": "cesar-guzman/scanalyze-deployment-platform",
+    "required_checks": [
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Microservices validation gate"
+      },
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Lint, security, and schema checks"
+      },
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Python tests"
+      },
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Terraform validate (no AWS)"
+      },
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Validate deployment manifest schema"
+      },
+      {
+        "app_id": 15368,
+        "app_slug": "github-actions",
+        "conclusion": "success",
+        "name": "Verify clean clone reproducibility"
+      }
+    ],
+    "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "trust_root": {
+    "authority_account_id": "042360977644",
+    "code_signing_policy": "Enforce",
+    "contract_digest": "sha256:bccfd8bcfe8ee3c0319af8300e549c9f493f1efcfcc9ae7ec8db0fb56fee81da",
+    "partition": "aws",
+    "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
+    "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/scanalyze_gug274_bootstrap_artifact_authority/ABCDEFGHIJ",
+    "profile_version_id": "ABCDEFGHIJ",
+    "region": "us-east-1",
+    "signing_platform": "AWSLambda-SHA384-ECDSA"
+  },
+  "trust_root_generation": 1,
+  "unsigned_archive_sha256": "83cad05ca19fed941bb8ea1e6f9f338a219a278b0ec90bd561ca75006bfff570",
+  "unsigned_manifest_sha256": "822526d64c45bff477f2fce96261a69ded15f27bea9981d2ce55a1782a3849df",
+  "verifier": {
+    "account_id": "042360977644",
+    "caller_arn": "arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_AWSReadOnlyAccess_0123456789abcdef/synthetic@example.invalid",
+    "profile": "042360977644_ReadOnlyAccess"
+  },
+  "work_package": "GUG-274"
+}

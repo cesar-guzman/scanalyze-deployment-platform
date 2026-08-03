@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-approval.v2.schema.json",
+  "title": "Externally Anchored Platform Authority Bootstrap Approval v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "domain_separator",
+    "trust_contract_version", "trust_root_id", "trust_root_generation",
+    "trust_algorithm", "authority_record_id", "approval_nonce",
+    "plan_artifact_digest", "authority_account_id", "aws_partition", "region",
+    "stack_name", "state_bucket_name", "state_key", "destination_account_ids",
+    "native_lockfile_enabled", "template_sha256", "change_set_id",
+    "change_set_name", "change_set_uuid", "change_set_type",
+    "change_set_parameters",
+    "planned_resource_inventory_digest", "initiator_id", "approver_id",
+    "initiator_principal_digest", "approver_principal_digest",
+    "plan_created_at", "plan_expires_at", "decision", "approved_at",
+    "expires_at", "approval_artifact_digest"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "2" },
+    "record_type": { "type": "string", "const": "platform_authority_bootstrap_approval" },
+    "domain_separator": { "type": "string", "const": "scanalyze.platform-authority.bootstrap.approval.v2" },
+    "trust_contract_version": { "type": "string", "const": "1" },
+    "trust_root_id": {
+      "type": "string",
+      "pattern": "^arn:(?:aws|aws-us-gov|aws-cn):dynamodb:[a-z0-9-]+:[0-9]{12}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1$"
+    },
+    "trust_root_generation": { "type": "integer", "const": 1 },
+    "trust_algorithm": { "type": "string", "const": "AWS_DYNAMODB_STRONGLY_CONSISTENT_CAS_SHA256" },
+    "authority_record_id": { "$ref": "#/$defs/authority_record_id" },
+    "approval_nonce": { "$ref": "#/$defs/nonce" },
+    "plan_artifact_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "$ref": "#/$defs/account_id" },
+    "aws_partition": { "enum": ["aws", "aws-us-gov", "aws-cn"] },
+    "region": { "$ref": "#/$defs/region" },
+    "stack_name": { "type": "string", "const": "scanalyze-platform-authority-state-backend" },
+    "state_bucket_name": {
+      "type": "string",
+      "pattern": "^scanalyze-platform-authority-[0-9]{12}-[a-z]{2}(?:-[a-z]+)+-[0-9]+-state$",
+      "maxLength": 63
+    },
+    "state_key": { "type": "string", "const": "platform-authority/terraform.tfstate" },
+    "destination_account_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/account_id" }
+    },
+    "native_lockfile_enabled": { "type": "boolean", "const": true },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "change_set_id": { "$ref": "#/$defs/change_set_arn" },
+    "change_set_name": {
+      "type": "string", "pattern": "^scanalyze-platform-authority-bootstrap-[0-9]{14}$"
+    },
+    "change_set_uuid": { "$ref": "#/$defs/uuid" },
+    "change_set_type": { "type": "string", "const": "CREATE" },
+    "change_set_parameters": { "$ref": "#/$defs/change_set_parameters" },
+    "planned_resource_inventory_digest": { "$ref": "#/$defs/digest" },
+    "initiator_id": { "$ref": "#/$defs/operator_id" },
+    "approver_id": { "$ref": "#/$defs/operator_id" },
+    "initiator_principal_digest": { "$ref": "#/$defs/digest" },
+    "approver_principal_digest": { "$ref": "#/$defs/digest" },
+    "plan_created_at": { "$ref": "#/$defs/timestamp" },
+    "plan_expires_at": { "$ref": "#/$defs/timestamp" },
+    "decision": { "type": "string", "const": "APPROVED" },
+    "approved_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "approval_artifact_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nonce": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "operator_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
+    "timestamp": {
+      "type": "string", "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "change_set_arn": {
+      "type": "string",
+      "pattern": "^arn:(?:aws|aws-us-gov|aws-cn):cloudformation:[a-z0-9-]+:[0-9]{12}:changeSet/scanalyze-platform-authority-bootstrap-[0-9]{14}/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "authority_record_id": {
+      "type": "string", "pattern": "^gug274#g1#sha256:[a-f0-9]{64}$"
+    },
+    "change_set_parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "AuthorityAccountId", "StateKey", "NoncurrentVersionRetentionDays"
+      ],
+      "properties": {
+        "AuthorityAccountId": { "$ref": "#/$defs/account_id" },
+        "StateKey": { "type": "string", "const": "platform-authority/terraform.tfstate" },
+        "NoncurrentVersionRetentionDays": { "type": "string", "const": "365" }
+      }
+    }
+  }
+}

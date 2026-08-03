@@ -78,10 +78,23 @@
       "Resource": "*"
     },
     {
+      "Sid": "InvokeExactBootstrapPlanAuthorityVersion",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-bootstrap-plan-authority:1"
+    },
+    {
+      "Sid": "DenyAnyOtherLambdaInvocation",
+      "Effect": "Deny",
+      "Action": "lambda:InvokeFunction",
+      "NotResource": "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-bootstrap-plan-authority:1"
+    },
+    {
       "Sid": "DenyDirectRetirementEffects",
       "Effect": "Deny",
       "Action": [
         "cloudformation:DeleteChangeSet",
+        "cloudformation:ExecuteChangeSet",
         "dynamodb:BatchWriteItem",
         "dynamodb:DeleteItem",
         "dynamodb:PartiQLDelete",
@@ -90,7 +103,28 @@
         "dynamodb:PutItem",
         "dynamodb:Scan",
         "dynamodb:TransactWriteItems",
-        "dynamodb:UpdateItem"
+        "dynamodb:UpdateItem",
+        "s3:PutAccountPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyEveryNonPlanAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources",
+        "cloudformation:TagResource",
+        "cloudformation:ValidateTemplate",
+        "lambda:InvokeFunction",
+        "s3:GetAccountPublicAccessBlock",
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*"
     }

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-authority-receipt.v1.schema.json",
+  "title": "Platform Authority Bootstrap Artifact Authority Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "domain_separator", "trust_root_id",
+    "trust_root_generation", "authority_record_id", "plan_artifact_digest",
+    "approval_artifact_digest", "identity_binding_digest",
+    "plan_identity_proof_digest", "approval_identity_proof_digest",
+    "apply_identity_proof_digest", "state", "version", "ledger_digest",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "record_type": { "type": "string", "const": "platform_authority_bootstrap_authority_receipt" },
+    "domain_separator": { "type": "string", "const": "scanalyze.platform-authority.bootstrap.authority-receipt.v1" },
+    "trust_root_id": { "$ref": "#/$defs/trust_root_id" },
+    "trust_root_generation": { "type": "integer", "const": 1 },
+    "authority_record_id": { "$ref": "#/$defs/authority_record_id" },
+    "plan_artifact_digest": { "$ref": "#/$defs/digest" },
+    "approval_artifact_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "identity_binding_digest": { "$ref": "#/$defs/digest" },
+    "plan_identity_proof_digest": { "$ref": "#/$defs/digest" },
+    "approval_identity_proof_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "apply_identity_proof_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "state": { "type": "string", "enum": ["PLAN_ANCHORED", "APPROVED", "CLAIMED"] },
+    "version": { "type": "integer", "enum": [1, 2, 3] },
+    "ledger_digest": { "$ref": "#/$defs/digest" },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "state": { "type": "string", "const": "PLAN_ANCHORED" },
+        "version": { "type": "integer", "const": 1 },
+        "approval_artifact_digest": { "type": "null" },
+        "approval_identity_proof_digest": { "type": "null" },
+        "apply_identity_proof_digest": { "type": "null" }
+      }
+    },
+    {
+      "properties": {
+        "state": { "type": "string", "const": "APPROVED" },
+        "version": { "type": "integer", "const": 2 },
+        "approval_artifact_digest": { "$ref": "#/$defs/digest" },
+        "approval_identity_proof_digest": { "$ref": "#/$defs/digest" },
+        "apply_identity_proof_digest": { "type": "null" }
+      }
+    },
+    {
+      "properties": {
+        "state": { "type": "string", "const": "CLAIMED" },
+        "version": { "type": "integer", "const": 3 },
+        "approval_artifact_digest": { "$ref": "#/$defs/digest" },
+        "approval_identity_proof_digest": { "$ref": "#/$defs/digest" },
+        "apply_identity_proof_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "authority_record_id": {
+      "type": "string", "pattern": "^gug274#g1#sha256:[a-f0-9]{64}$"
+    },
+    "trust_root_id": {
+      "type": "string",
+      "pattern": "^arn:(?:aws|aws-us-gov|aws-cn):dynamodb:[a-z0-9-]+:[0-9]{12}:table/scanalyze-platform-authority-bootstrap-artifacts#generation/1$"
+    }
+  }
+}

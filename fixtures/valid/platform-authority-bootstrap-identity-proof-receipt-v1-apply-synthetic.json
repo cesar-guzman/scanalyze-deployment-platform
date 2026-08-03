@@ -1,0 +1,21 @@
+{
+  "broker_execution_role_arn_digest": "sha256:4242424242424242424242424242424242424242424242424242424242424242",
+  "credentials_consumed": false,
+  "domain_separator": "scanalyze.platform-authority.bootstrap.identity-proof.v1",
+  "expected_user_id_digest": "sha256:3030303030303030303030303030303030303030303030303030303030303030",
+  "identity_binding_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+  "live_effect_authorized": false,
+  "managed_policy_digest": "sha256:588e10587ff62c683615a9612b1f42ded9fccd03bd94810dc6760dad50665655",
+  "managed_policy_version": "v12",
+  "operation": "apply",
+  "peer_user_id_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020",
+  "proof_expires_at": "2030-01-01T00:25:00Z",
+  "proof_receipt_digest": "sha256:5bd8d56085c1325ec82d9edc204469f31847fe9dd994e08bb7f6e2b7cd313f84",
+  "proof_role_arn_digest": "sha256:abababababababababababababababababababababababababababababababab",
+  "proof_session_arn_digest": "sha256:6262626262626262626262626262626262626262626262626262626262626262",
+  "record_type": "platform_authority_bootstrap_identity_proof",
+  "required_action": "sts:SetContext",
+  "role_kind": "apply_verifier",
+  "schema_version": "1",
+  "status": "IDENTITY_CONTEXT_PROOF_VERIFIED"
+}

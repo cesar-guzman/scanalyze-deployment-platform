@@ -975,7 +975,7 @@ def test_normal_plan_cannot_delete_or_write_retirement_ledger() -> None:
     allowed: set[str] = set()
     denied: set[str] = set()
     for statement in policy["Statement"]:
-        actions = statement["Action"]
+        actions = statement.get("Action", [])
         actions = [actions] if isinstance(actions, str) else actions
         (allowed if statement["Effect"] == "Allow" else denied).update(actions)
     assert "cloudformation:DeleteChangeSet" not in allowed

@@ -26,6 +26,15 @@ from tooling.platform_authority_bootstrap import (
     render_backend_config,
     render_bootstrap_iam_policy,
 )
+from tooling.platform_authority_bootstrap_artifact_authority import (
+    APPROVAL_DOMAIN,
+    PLAN_DOMAIN,
+    BootstrapArtifactAuthorityError,
+    BootstrapArtifactAuthorityUncertainError,
+    build_bootstrap_approval_v2,
+    build_bootstrap_plan_v2,
+    render_bootstrap_apply_iam_policy,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,6 +57,19 @@ def _redigest(document: dict, field: str) -> None:
     document[field] = _canonical_digest(
         {key: value for key, value in document.items() if key != field}
     )
+
+
+def _artifact_redigest(document: dict, field: str, domain: str) -> None:
+    payload = json.dumps(
+        {key: value for key, value in document.items() if key != field},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    document[field] = "sha256:" + hashlib.sha256(
+        domain.encode("ascii") + b"\0" + payload
+    ).hexdigest()
 
 
 def _binding(**overrides: object) -> BootstrapBinding:
@@ -100,7 +122,7 @@ def _load_bootstrap_cli(module_name: str):
 
 def _live_plan_and_approval(now: datetime | None = None) -> tuple[dict, dict]:
     current = now or datetime.now(tz=UTC).replace(microsecond=0)
-    plan = build_bootstrap_plan(
+    plan = build_bootstrap_plan_v2(
         binding=_binding(),
         caller_account_id=SYNTHETIC_AUTHORITY,
         caller_arn=(
@@ -132,18 +154,20 @@ def _live_plan_and_approval(now: datetime | None = None) -> tuple[dict, dict]:
         created_at=current - timedelta(minutes=5),
         expires_at=current + timedelta(minutes=55),
         initiator_id="operator-1001",
+        artifact_nonce="1" * 64,
     )
-    approval = build_bootstrap_approval(
+    approval = build_bootstrap_approval_v2(
         plan=plan,
-        initiator_id="operator-1001",
+        binding=_binding(),
         approver_id="reviewer-2002",
         approver_arn=(
             "arn:aws:sts::111122223333:assumed-role/"
-            "AWSReservedSSO_ScanalyzeAuthorityBootstrapApply_"
+            "AWSReservedSSO_ScanalyzeAuthorityBootApprove_"
             "fedcba9876543210/synthetic.reviewer"
         ),
         approved_at=current - timedelta(minutes=1),
         expires_at=current + timedelta(minutes=30),
+        approval_nonce="2" * 64,
     )
     return plan, approval
 
@@ -155,6 +179,19 @@ def _live_change_set_response(plan: dict) -> dict:
         "StackName": "scanalyze-platform-authority-state-backend",
         "Status": "CREATE_COMPLETE",
         "ExecutionStatus": "AVAILABLE",
+        "Capabilities": [],
+        "NotificationARNs": [],
+        "IncludeNestedStacks": False,
+        "ImportExistingResources": False,
+        "OnStackFailure": "ROLLBACK",
+            "Parameters": [
+                {"ParameterKey": key, "ParameterValue": value}
+            for key, value in {
+                "AuthorityAccountId": SYNTHETIC_AUTHORITY,
+                "NoncurrentVersionRetentionDays": "365",
+                "StateKey": "platform-authority/terraform.tfstate",
+            }.items()
+        ],
         "Tags": [
             {"Key": "managed_by", "Value": "cloudformation"},
             {"Key": "service", "Value": "scanalyze-platform-authority"},
@@ -207,13 +244,12 @@ def _run_apply_until_execute(
                     "Account": SYNTHETIC_AUTHORITY,
                     "Arn": (
                         "arn:aws:sts::111122223333:assumed-role/"
-                        "AWSReservedSSO_ScanalyzeAuthorityBootstrapApply_"
-                        "fedcba9876543210/"
                         + (
-                            "foreign.reviewer"
+                            "AWSReservedSSO_ForeignPermissionSet_"
                             if wrong_approved_principal
-                            else "synthetic.reviewer"
+                            else "AWSReservedSSO_ScanalyzeAuthorityBootstrapApply_"
                         )
+                        + "fedcba9876543210/synthetic.reviewer"
                     ),
                 }
             if (service, operation) == ("cloudformation", "list-stack-resources"):
@@ -263,15 +299,44 @@ def _run_apply_until_execute(
 
     client = FakeClient()
     monkeypatch.setattr(module, "AwsCli", lambda *, region: client)
-    if expire_before_execute:
-        valid_now = datetime.fromisoformat(
-            str(approval["approved_at"]).replace("Z", "+00:00")
-        ) + timedelta(seconds=1)
-        expired_now = datetime.fromisoformat(
-            str(approval["expires_at"]).replace("Z", "+00:00")
-        )
-        authorization_times = iter((valid_now, valid_now, expired_now))
-        monkeypatch.setattr(module, "_now", lambda: next(authorization_times))
+
+    class FakeAuthority:
+        def claim_and_execute(
+            self,
+            candidate_plan: dict,
+            candidate_approval: dict,
+            identity_grant_json: str,
+        ) -> dict:
+            assert candidate_plan == plan
+            assert candidate_approval == approval
+            assert identity_grant_json == "synthetic-one-shot-grant"
+            calls.append(
+                ("artifact-authority", "claim-and-execute", (identity_grant_json,))
+            )
+            if expire_before_execute:
+                raise BootstrapArtifactAuthorityError(
+                    "bootstrap Approval is expired or not yet valid"
+                )
+            if substitute_uuid_on_final_readback:
+                raise BootstrapArtifactAuthorityError(
+                    "live change set identity differs from authenticated Plan"
+                )
+            if ambiguous_execute:
+                raise BootstrapArtifactAuthorityUncertainError(
+                    "Change Set execution result is uncertain; reconcile only"
+                )
+            raise StopAfterExecute
+
+    monkeypatch.setattr(module, "_artifact_authority_client", lambda binding: FakeAuthority())
+    monkeypatch.setattr(
+        module,
+        "_read_identity_grant_json",
+        lambda descriptor: (
+            "synthetic-one-shot-grant"
+            if descriptor == 274
+            else (_ for _ in ()).throw(AssertionError("unexpected grant descriptor"))
+        ),
+    )
     monkeypatch.setenv("AWS_PROFILE", "synthetic-sso-profile")
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
@@ -285,25 +350,30 @@ def _run_apply_until_execute(
         approval=approval_path,
         verification_out=tmp_path / "verification.json",
         backend_config_out=tmp_path / "backend.hcl",
+        identity_grant_fd=274,
         allow_bootstrap_apply=True,
     )
     if expire_before_execute:
         with pytest.raises(
             BootstrapAuthorizationError,
-            match="bootstrap approval is expired or not yet valid",
+            match="bootstrap Approval is expired or not yet valid",
         ):
             module._cmd_apply(args)
     elif wrong_approved_principal:
         with pytest.raises(
             BootstrapAuthorizationError,
-            match="current AWS principal is not the approved executor",
+            match="permission set",
         ):
             module._cmd_apply(args)
     elif substitute_uuid_on_final_readback:
         with pytest.raises(BootstrapAuthorizationError, match="identity differs"):
             module._cmd_apply(args)
     else:
-        expected_error = module.AwsCliError if ambiguous_execute else StopAfterExecute
+        expected_error = (
+            BootstrapArtifactAuthorityUncertainError
+            if ambiguous_execute
+            else StopAfterExecute
+        )
         with pytest.raises(expected_error):
             module._cmd_apply(args)
     return module, calls, plan
@@ -549,17 +619,14 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
     assert "s3:PutAccountPublicAccessBlock" not in plan_actions
     assert "kms:CreateKey" not in plan_actions
 
-    assert "cloudformation:ExecuteChangeSet" in apply_actions
-    assert "s3:PutAccountPublicAccessBlock" in apply_actions
-    assert "kms:CreateKey" in apply_actions
+    assert "lambda:InvokeFunction" in apply_actions
+    assert "cloudformation:ExecuteChangeSet" not in apply_actions
+    assert "s3:PutAccountPublicAccessBlock" not in apply_actions
+    assert "kms:CreateKey" not in apply_actions
     assert "cloudformation:CreateChangeSet" not in apply_actions
     assert "cloudformation:DeleteChangeSet" not in apply_actions
 
-    statements = {
-        statement["Sid"]: statement
-        for policy in (plan_policy, apply_policy)
-        for statement in policy["Statement"]
-    }
+    statements = {statement["Sid"]: statement for statement in plan_policy["Statement"]}
     stack_arn = (
         "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:"
         "stack/scanalyze-platform-authority-state-backend/*"
@@ -599,14 +666,7 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
             "aws:TagKeys": ["managed_by", "service", "work_package"]
         },
     }
-    execute_statement = statements["ExecuteExactBootstrapChangeSet"]
-    assert execute_statement["Action"] == "cloudformation:ExecuteChangeSet"
-    assert execute_statement["Resource"] == stack_arn
-    assert execute_statement["Condition"] == {
-        "StringEquals": {"cloudformation:ChangeSetName": "${change_set_name}"}
-    }
-    for statement in (create_statement, execute_statement):
-        assert ":changeSet/" not in json.dumps(statement["Resource"])
+    assert ":changeSet/" not in json.dumps(create_statement["Resource"])
 
     for policy in (plan_policy, apply_policy):
         serialized = json.dumps(policy)
@@ -624,91 +684,33 @@ def test_bootstrap_policies_enforce_disjoint_plan_and_apply_authority() -> None:
         ):
             assert forbidden not in serialized
 
-    alias_statements = {
-        statement["Sid"]: statement
-        for statement in apply_policy["Statement"]
-        if "kms:CreateAlias" in (
-            [statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"]
-        )
-    }
-    exact_alias_statement = alias_statements[
-        "ManageExactStateKeyAliasViaCloudFormation"
-    ]
-    assert exact_alias_statement["Resource"] == (
-        "arn:${aws_partition}:kms:${region}:${authority_account_id}:"
-        "alias/scanalyze-platform-authority-state"
-    )
-    assert "Condition" not in exact_alias_statement
-    assert alias_statements["BindAliasOnlyToTaggedStateKeyViaCloudFormation"]["Resource"] == (
-        "arn:${aws_partition}:kms:${region}:${authority_account_id}:key/*"
-    )
-    key_alias_statement = alias_statements[
-        "BindAliasOnlyToTaggedStateKeyViaCloudFormation"
-    ]
-    assert set(key_alias_statement["Action"]) == {
-        "kms:CreateAlias",
-        "kms:DeleteAlias",
-        "kms:UpdateAlias",
-    }
-    assert key_alias_statement["Condition"]["StringEquals"] == {
-        "aws:ResourceTag/service": "scanalyze-platform-authority",
-        "aws:ResourceTag/data_class": "control-metadata",
-        "aws:ResourceTag/account_id": "${authority_account_id}",
-        "aws:ResourceTag/region": "${region}",
-    }
-    assert key_alias_statement["Condition"]["ForAnyValue:StringEquals"] == {
-        "aws:CalledVia": ["cloudformation.amazonaws.com"]
-    }
-    assert "kms:RequestAlias" not in json.dumps(alias_statements)
-
-    direct_mutation_exception = {"s3:PutAccountPublicAccessBlock"}
-    backend_mutations = {
-        action
-        for statement in apply_policy["Statement"]
-        for action in (
-            [statement["Action"]]
-            if isinstance(statement["Action"], str)
-            else statement["Action"]
-        )
-        if action.startswith(
-            (
-                "s3:Put",
-                "s3:Create",
-                "kms:Put",
-                "kms:Create",
-                "kms:Update",
-                "kms:Delete",
-                "kms:Enable",
-                "kms:Tag",
-            )
-        )
-        and action not in direct_mutation_exception
-    }
-    assert backend_mutations
-    for statement in apply_policy["Statement"]:
-        actions = (
-            [statement["Action"]]
-            if isinstance(statement["Action"], str)
-            else statement["Action"]
-        )
-        if backend_mutations.intersection(actions):
-            if statement["Sid"] == "ManageExactStateKeyAliasViaCloudFormation":
-                assert "Condition" not in statement
-                continue
-            assert statement["Condition"]["ForAnyValue:StringEquals"]["aws:CalledVia"] == [
-                "cloudformation.amazonaws.com"
-            ]
-
-    account_public_access = next(
+    invoke = next(
         statement
         for statement in apply_policy["Statement"]
-        if statement["Sid"] == "ManageAccountPublicAccessBlock"
+        if statement["Sid"] == "InvokeExactBootstrapApplyExecutorVersion"
     )
-    assert account_public_access["Action"] == [
-        "s3:GetAccountPublicAccessBlock",
+    assert invoke["Resource"].endswith(
+        ":function:scanalyze-platform-authority-bootstrap-apply-executor:1"
+    )
+    direct_deny = next(
+        statement
+        for statement in apply_policy["Statement"]
+        if statement["Sid"] == "DenyDirectBootstrapEffects"
+    )
+    assert {
+        "cloudformation:ExecuteChangeSet",
+        "dynamodb:*",
+        "iam:*",
+        "kms:CreateKey",
         "s3:PutAccountPublicAccessBlock",
-    ]
-    assert account_public_access["Resource"] == "*"
+    } <= set(direct_deny["Action"])
+    deny_all = next(
+        statement
+        for statement in apply_policy["Statement"]
+        if statement["Sid"] == "DenyEveryNonReadOrBrokerAction"
+    )
+    assert deny_all["Effect"] == "Deny"
+    assert set(deny_all["NotAction"]) == apply_actions | {"sts:GetCallerIdentity"}
 
 
 def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
@@ -719,38 +721,27 @@ def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
         binding=_binding(),
         change_set_name=SYNTHETIC_CHANGE_SET_NAME,
     )
-    apply_policy = render_bootstrap_iam_policy(
+    apply_policy = render_bootstrap_apply_iam_policy(
         policy_template=apply_template,
         binding=_binding(),
-        change_set_id=str(_plan()["change_set_id"]),
     )
 
     assert "${" not in json.dumps(plan_policy)
     assert "${" not in json.dumps(apply_policy)
-    execute = next(
+    invoke = next(
         statement
         for statement in apply_policy["Statement"]
-        if statement["Sid"] == "ExecuteExactBootstrapChangeSet"
+        if statement["Sid"] == "InvokeExactBootstrapApplyExecutorVersion"
     )
-    assert execute["Resource"] == (
-        "arn:aws:cloudformation:us-east-1:111122223333:"
-        "stack/scanalyze-platform-authority-state-backend/*"
+    assert invoke["Resource"] == (
+        "arn:aws:lambda:us-east-1:111122223333:function:"
+        "scanalyze-platform-authority-bootstrap-apply-executor:1"
     )
-    assert execute["Condition"] == {
-        "StringEquals": {"cloudformation:ChangeSetName": SYNTHETIC_CHANGE_SET_NAME}
-    }
 
     with pytest.raises(BootstrapAuthorizationError, match="unbound placeholder"):
         render_bootstrap_iam_policy(
             policy_template=plan_template,
             binding=_binding(),
-        )
-    with pytest.raises(BootstrapAuthorizationError, match="name does not match"):
-        render_bootstrap_iam_policy(
-            policy_template=apply_template,
-            binding=_binding(),
-            change_set_name="scanalyze-platform-authority-bootstrap-20300101000001",
-            change_set_id=str(_plan()["change_set_id"]),
         )
     with pytest.raises(BootstrapAuthorizationError, match="name is invalid"):
         render_bootstrap_iam_policy(
@@ -758,14 +749,21 @@ def test_policy_renderer_binds_account_bucket_and_exact_change_set() -> None:
             binding=_binding(),
             change_set_name="request-selected-name",
         )
-    with pytest.raises(BootstrapAuthorizationError, match="does not match"):
-        render_bootstrap_iam_policy(
-            policy_template=apply_template,
+    extra_apply = copy.deepcopy(apply_template)
+    extra_apply["Statement"].append(
+        {
+            "Sid": "DirectExecuteBypass",
+            "Effect": "Allow",
+            "Action": "cloudformation:ExecuteChangeSet",
+            "Resource": "*",
+        }
+    )
+    with pytest.raises(
+        BootstrapArtifactAuthorityError, match="exact read-only broker boundary"
+    ):
+        render_bootstrap_apply_iam_policy(
+            policy_template=extra_apply,
             binding=_binding(),
-            change_set_id=(
-                "arn:aws:cloudformation:us-east-1:999900001111:changeSet/"
-                "scanalyze-bootstrap-20300101/00000000-0000-4000-8000-000000000000"
-            ),
         )
 
     unsupported = copy.deepcopy(plan_template)
@@ -919,77 +917,57 @@ def test_change_set_identity_from_arn_rejects_foreign_or_ambiguous_values(
         parser(change_set_id, binding=_binding())
 
 
-def test_apply_mutation_request_matches_the_policy_bound_bare_name(
+def test_apply_cli_invokes_only_the_service_owned_executor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _, calls, plan = _run_apply_until_execute(
+    _, calls, _ = _run_apply_until_execute(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
         module_name="gug210_apply_request_parity",
     )
-    execute_calls = [
+    authority_calls = [
         args
         for service, operation, args in calls
-        if (service, operation) == ("cloudformation", "execute-change-set")
+        if (service, operation) == ("artifact-authority", "claim-and-execute")
     ]
-    assert len(execute_calls) == 1
-    execute_args = execute_calls[0]
-    execute_name = execute_args[execute_args.index("--change-set-name") + 1]
-    stack_name = execute_args[execute_args.index("--stack-name") + 1]
-    policy = render_bootstrap_iam_policy(
+    assert authority_calls == [("synthetic-one-shot-grant",)]
+    policy = render_bootstrap_apply_iam_policy(
         policy_template=json.loads(APPLY_POLICY.read_text(encoding="utf-8")),
         binding=_binding(),
-        change_set_id=str(plan["change_set_id"]),
     )
-    execute_statement = next(
+    invoke_statement = next(
         statement
         for statement in policy["Statement"]
-        if statement["Sid"] == "ExecuteExactBootstrapChangeSet"
+        if statement["Sid"] == "InvokeExactBootstrapApplyExecutorVersion"
     )
-    policy_name = execute_statement["Condition"]["StringEquals"][
-        "cloudformation:ChangeSetName"
-    ]
+    assert invoke_statement["Resource"].endswith(
+        ":function:scanalyze-platform-authority-bootstrap-apply-executor:1"
+    )
+    assert not any(
+        (service, operation)
+        in {
+            ("cloudformation", "execute-change-set"),
+            ("s3control", "put-public-access-block"),
+        }
+        for service, operation, _ in calls
+    )
 
-    assert execute_name == policy_name == SYNTHETIC_CHANGE_SET_NAME
-    assert execute_name != plan["change_set_id"]
-    assert stack_name == _binding().stack_name
 
-
-def test_apply_repeats_full_arn_readback_after_other_mutation(
+def test_apply_cli_delegates_all_gug210_readbacks_to_the_executor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _, calls, plan = _run_apply_until_execute(
+    _, calls, _ = _run_apply_until_execute(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
         module_name="gug210_apply_final_readback",
     )
-    describe_indexes = [
-        index
-        for index, (service, operation, args) in enumerate(calls)
-        if (service, operation) == ("cloudformation", "describe-change-set")
-        and plan["change_set_id"] in args
-    ]
-    public_block_index = next(
-        index
-        for index, (service, operation, _) in enumerate(calls)
-        if (service, operation) == ("s3control", "put-public-access-block")
-    )
-    execute_index = next(
-        index
-        for index, (service, operation, _) in enumerate(calls)
-        if (service, operation) == ("cloudformation", "execute-change-set")
-    )
-
-    assert len(describe_indexes) == 2
-    assert describe_indexes[0] < public_block_index < describe_indexes[1] < execute_index
-    cloudformation_before_execute = [
-        index
-        for index, (service, _, _) in enumerate(calls[:execute_index])
-        if service == "cloudformation"
-    ]
-    assert cloudformation_before_execute[-1] == describe_indexes[-1]
+    assert sum(
+        (service, operation) == ("artifact-authority", "claim-and-execute")
+        for service, operation, _ in calls
+    ) == 1
+    assert not any(service in {"cloudformation", "s3control"} for service, _, _ in calls)
 
 
 def test_apply_rejects_same_name_different_uuid_on_final_readback(
@@ -1004,11 +982,11 @@ def test_apply_rejects_same_name_different_uuid_on_final_readback(
     )
 
     assert sum(
-        (service, operation) == ("cloudformation", "describe-change-set")
+        (service, operation) == ("artifact-authority", "claim-and-execute")
         for service, operation, _ in calls
-    ) == 2
+    ) == 1
     assert not any(
-        (service, operation) == ("cloudformation", "execute-change-set")
+        service in {"cloudformation", "s3control"}
         for service, operation, _ in calls
     )
 
@@ -1025,7 +1003,7 @@ def test_apply_rechecks_approval_expiry_immediately_before_execute(
     )
 
     assert not any(
-        (service, operation) == ("cloudformation", "execute-change-set")
+        service in {"cloudformation", "s3control"}
         for service, operation, _ in calls
     )
 
@@ -1064,7 +1042,7 @@ def test_apply_does_not_retry_after_ambiguous_execute_result(
     execute_indexes = [
         index
         for index, (service, operation, _) in enumerate(calls)
-        if (service, operation) == ("cloudformation", "execute-change-set")
+        if (service, operation) == ("artifact-authority", "claim-and-execute")
     ]
 
     assert execute_indexes == [len(calls) - 1]
@@ -1087,16 +1065,16 @@ def test_invalid_plan_change_set_id_fails_before_any_aws_call() -> None:
     ("mutation", "expected_error"),
     (
         ("malformed-arn", "Change Set ARN"),
-        ("plan-digest", "bootstrap plan digest mismatch"),
-        ("approval-digest", "bootstrap approval digest mismatch"),
-        ("approval-binding", "bootstrap approval binding mismatch"),
-        ("approval-expired", "bootstrap approval is expired or not yet valid"),
-        ("approval-not-yet-valid", "bootstrap approval is expired or not yet valid"),
-        ("approval-decision", "bootstrap approval decision is not approved"),
-        ("plan-record-type", "bootstrap plan record contract is invalid"),
-        ("operator-type-confusion", "bootstrap plan record contract is invalid"),
-        ("wrong-stack", "bootstrap plan binding mismatch: stack_name"),
-        ("expired", "bootstrap plan is expired"),
+        ("plan-digest", "Plan artifact digest mismatch"),
+        ("approval-digest", "Approval artifact digest mismatch"),
+        ("approval-binding", "Approval Plan binding mismatch"),
+        ("approval-expired", "Approval is expired or not yet valid"),
+        ("approval-not-yet-valid", "Approval is expired or not yet valid"),
+        ("approval-decision", "Approval trust metadata"),
+        ("plan-record-type", "Plan trust metadata"),
+        ("operator-type-confusion", "Plan initiator ID"),
+        ("wrong-stack", "Plan binding mismatch: stack_name"),
+        ("expired", "Plan is expired"),
         ("duplicate-json", "duplicate operational JSON key"),
         ("duplicate-approval-json", "duplicate operational JSON key"),
     ),
@@ -1118,10 +1096,10 @@ def test_apply_prevalidates_local_evidence_before_creating_aws_client(
     )
     if mutation == "malformed-arn":
         plan["change_set_id"] = SYNTHETIC_CHANGE_SET_NAME
-        _redigest(plan, "record_digest")
-        approval["plan_record_digest"] = plan["record_digest"]
+        _artifact_redigest(plan, "plan_artifact_digest", PLAN_DOMAIN)
+        approval["plan_artifact_digest"] = plan["plan_artifact_digest"]
         approval["change_set_id"] = plan["change_set_id"]
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "plan-digest":
         plan["state_key"] = "tampered/terraform.tfstate"
     elif mutation == "approval-digest":
@@ -1131,7 +1109,7 @@ def test_apply_prevalidates_local_evidence_before_creating_aws_client(
             "00000000-0000-4000-8000-000000000000",
             "11111111-1111-4111-8111-111111111111",
         )
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "approval-expired":
         approval["approved_at"] = (current - timedelta(minutes=2)).isoformat().replace(
             "+00:00", "Z"
@@ -1139,7 +1117,7 @@ def test_apply_prevalidates_local_evidence_before_creating_aws_client(
         approval["expires_at"] = (current - timedelta(minutes=1)).isoformat().replace(
             "+00:00", "Z"
         )
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "approval-not-yet-valid":
         approval["approved_at"] = (current + timedelta(minutes=1)).isoformat().replace(
             "+00:00", "Z"
@@ -1147,40 +1125,40 @@ def test_apply_prevalidates_local_evidence_before_creating_aws_client(
         approval["expires_at"] = (current + timedelta(minutes=10)).isoformat().replace(
             "+00:00", "Z"
         )
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "approval-decision":
         approval["decision"] = "DENIED"
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "plan-record-type":
         plan["record_type"] = "self_consistent_but_foreign_plan"
-        _redigest(plan, "record_digest")
-        approval["plan_record_digest"] = plan["record_digest"]
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(plan, "plan_artifact_digest", PLAN_DOMAIN)
+        approval["plan_artifact_digest"] = plan["plan_artifact_digest"]
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "operator-type-confusion":
         plan["initiator_id"] = 123
-        _redigest(plan, "record_digest")
-        approval["plan_record_digest"] = plan["record_digest"]
+        _artifact_redigest(plan, "plan_artifact_digest", PLAN_DOMAIN)
+        approval["plan_artifact_digest"] = plan["plan_artifact_digest"]
         approval["initiator_id"] = 123
         approval["approver_id"] = "123"
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
     elif mutation == "wrong-stack":
         plan["stack_name"] = "foreign-stack"
-        _redigest(plan, "record_digest")
-        approval["plan_record_digest"] = plan["record_digest"]
-        _redigest(approval, "approval_digest")
+        _artifact_redigest(plan, "plan_artifact_digest", PLAN_DOMAIN)
+        approval["plan_artifact_digest"] = plan["plan_artifact_digest"]
+        _artifact_redigest(approval, "approval_artifact_digest", APPROVAL_DOMAIN)
 
     plan_path = tmp_path / "plan.json"
     approval_path = tmp_path / "approval.json"
     if mutation == "duplicate-json":
         plan_path.write_text(
-            '{"record_digest":"first","record_digest":"second"}',
+            '{"plan_artifact_digest":"first","plan_artifact_digest":"second"}',
             encoding="utf-8",
         )
     else:
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
     if mutation == "duplicate-approval-json":
         approval_path.write_text(
-            '{"approval_digest":"first","approval_digest":"second"}',
+            '{"approval_artifact_digest":"first","approval_artifact_digest":"second"}',
             encoding="utf-8",
         )
     else:
@@ -1311,12 +1289,13 @@ def test_live_cli_requires_explicit_write_flags_sso_and_private_external_outputs
     assert "--allow-bootstrap-apply" in cli
     assert "--allow-cancel-unexecuted" in cli
     assert "NORMAL_CANCEL_RETIRED" in cli
-    assert "--no-disable-rollback" in cli
+    assert "--identity-grant-fd" in cli
+    assert "authorize_bootstrap_apply_v2" in cli
     assert "operational output must be outside the repository" in cli
     assert "os.O_EXCL" in cli
     assert "0o600" in cli
-    assert "cloudformation\",\n        \"execute-change-set" in cli
-    assert "put-public-access-block" in cli
+    assert "cloudformation\",\n        \"execute-change-set" not in cli
+    assert "put-public-access-block" not in cli
     assert "delete-change-set" not in cli
     assert "delete-stack" not in cli
     assert "delete-bucket" not in cli
@@ -1350,11 +1329,15 @@ def test_legacy_normal_cancel_fails_locally_without_reaching_aws(
         "AWS_SESSION_TOKEN",
         "AWS_WEB_IDENTITY_TOKEN_FILE",
         "AWS_ROLE_ARN",
+        "PYTHONPATH",
+        "PYTHONHOME",
     ):
         env.pop(name, None)
     result = subprocess.run(
         [
             sys.executable,
+            "-I",
+            "-S",
             str(REPO_ROOT / "scripts/deployment/platform-authority-bootstrap.py"),
             "cancel",
             "--authority-account-id",
@@ -1508,29 +1491,7 @@ def test_live_change_set_pep_revalidates_identity_tags_and_inventory() -> None:
 
     plan = _plan()
     change_set_id = str(plan["change_set_id"])
-    response = {
-        "ChangeSetId": change_set_id,
-        "ChangeSetName": SYNTHETIC_CHANGE_SET_NAME,
-        "StackName": "scanalyze-platform-authority-state-backend",
-        "Status": "CREATE_COMPLETE",
-        "ExecutionStatus": "AVAILABLE",
-        "Tags": [
-            {"Key": "managed_by", "Value": "cloudformation"},
-            {"Key": "service", "Value": "scanalyze-platform-authority"},
-            {"Key": "work_package", "Value": "GUG-206"},
-        ],
-        "Changes": [
-            {
-                "ResourceChange": {
-                    "Action": change["action"],
-                    "LogicalResourceId": change["logical_resource_id"],
-                    "ResourceType": change["resource_type"],
-                    "Replacement": change["replacement"],
-                }
-            }
-            for change in plan["planned_resource_changes"]
-        ],
-    }
+    response = _live_change_set_response(plan)
 
     class FakeClient:
         def __init__(self, result: dict[str, object]) -> None:
@@ -1569,6 +1530,25 @@ def test_live_change_set_pep_revalidates_identity_tags_and_inventory() -> None:
     tampered_changes["Changes"][0]["ResourceChange"]["Action"] = "Remove"  # type: ignore[index]
     with pytest.raises(BootstrapAuthorizationError, match="live change set differs"):
         module._describe_exact_change_set(FakeClient(tampered_changes), _binding(), plan)
+
+    for field, value in (
+        ("RoleARN", "arn:aws:iam::111122223333:role/foreign-service-role"),
+        ("OnStackFailure", "DO_NOTHING"),
+        ("DeploymentMode", "REVERT_DRIFT"),
+    ):
+        tampered_request = copy.deepcopy(response)
+        tampered_request[field] = value
+        with pytest.raises(BootstrapAuthorizationError, match="request options differ"):
+            module._describe_exact_change_set(
+                FakeClient(tampered_request), _binding(), plan
+            )
+
+    tampered_parameters = copy.deepcopy(response)
+    tampered_parameters["Parameters"][1]["ParameterValue"] = "90"  # type: ignore[index]
+    with pytest.raises(BootstrapAuthorizationError, match="parameters differ"):
+        module._describe_exact_change_set(
+            FakeClient(tampered_parameters), _binding(), plan
+        )
 
 
 def test_plan_reads_original_template_by_full_change_set_arn() -> None:
@@ -1665,6 +1645,26 @@ def test_plan_command_persists_only_the_exact_original_template_digest(
     )
     monkeypatch.setattr(module, "_stack", lambda client, stack_name: None)
     monkeypatch.setattr(module, "_now", lambda: now)
+    monkeypatch.setattr(module, "_require_sso_environment", lambda region: None)
+
+    class FakePlanAuthority:
+        def anchor_plan(self, plan: dict, identity_grant_json: str) -> dict:
+            assert plan["schema_version"] == "2"
+            assert identity_grant_json == "synthetic-plan-grant"
+            return {"state": "PLAN_ANCHORED", "version": 1}
+
+    monkeypatch.setattr(
+        module, "_artifact_authority_client", lambda binding: FakePlanAuthority()
+    )
+    monkeypatch.setattr(
+        module,
+        "_read_identity_grant_json",
+        lambda descriptor: (
+            "synthetic-plan-grant"
+            if descriptor == 274
+            else (_ for _ in ()).throw(AssertionError("unexpected grant descriptor"))
+        ),
+    )
 
     def plan_args(plan_out: Path) -> argparse.Namespace:
         return argparse.Namespace(
@@ -1674,6 +1674,7 @@ def test_plan_command_persists_only_the_exact_original_template_digest(
             initiator_id="operator-1001",
             change_set_name=SYNTHETIC_CHANGE_SET_NAME,
             plan_out=plan_out,
+            identity_grant_fd=274,
             allow_change_set_write=True,
         )
 
@@ -1681,7 +1682,17 @@ def test_plan_command_persists_only_the_exact_original_template_digest(
     module._cmd_plan(plan_args(plan_out))
     persisted = json.loads(plan_out.read_text(encoding="utf-8"))
     expected_digest = hashlib.sha256(template_body.encode("utf-8")).hexdigest()
+    assert persisted["schema_version"] == "2"
     assert persisted["template_sha256"] == f"sha256:{expected_digest}"
+    create_args = next(
+        args
+        for service, operation, args in calls
+        if (service, operation) == ("cloudformation", "create-change-set")
+    )
+    assert "ParameterKey=NoncurrentVersionRetentionDays,ParameterValue=365" in create_args
+    assert create_args[create_args.index("--on-stack-failure") + 1] == "ROLLBACK"
+    assert "--no-include-nested-stacks" in create_args
+    assert "--no-import-existing-resources" in create_args
     assert calls[-1] == (
         "cloudformation",
         "get-template",
@@ -1719,9 +1730,13 @@ def test_live_cli_rejects_invalid_evidence_paths_before_any_aws_call(tmp_path: P
         "AWS_CALL_MARKER": str(marker),
         "PATH": str(tmp_path),
     }
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
     result = subprocess.run(
         [
             sys.executable,
+            "-I",
+            "-S",
             str(REPO_ROOT / "scripts/deployment/platform-authority-bootstrap.py"),
             "plan",
             "--authority-account-id",
@@ -1736,6 +1751,8 @@ def test_live_cli_rejects_invalid_evidence_paths_before_any_aws_call(tmp_path: P
             SYNTHETIC_CHANGE_SET_NAME,
             "--plan-out",
             str(REPO_ROOT / "forbidden-operational-output.json"),
+            "--identity-grant-fd",
+            "274",
             "--allow-change-set-write",
         ],
         check=False,
@@ -1752,7 +1769,11 @@ def test_live_cli_rejects_invalid_evidence_paths_before_any_aws_call(tmp_path: P
 def test_schemas_docs_and_offline_gate_are_registered() -> None:
     expected = {
         "platform-authority-bootstrap-plan.v1.schema.json",
+        "platform-authority-bootstrap-plan.v2.schema.json",
         "platform-authority-bootstrap-approval.v1.schema.json",
+        "platform-authority-bootstrap-approval.v2.schema.json",
+        "platform-authority-bootstrap-artifact-authority.v1.schema.json",
+        "platform-authority-bootstrap-authority-receipt.v1.schema.json",
         "platform-authority-bootstrap-verification.v1.schema.json",
     }
     assert expected <= {path.name for path in SCHEMA_DIR.iterdir()}
@@ -1760,6 +1781,7 @@ def test_schemas_docs_and_offline_gate_are_registered() -> None:
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     assert "platform-authority-bootstrap-check" in makefile
     assert "test_gug206_platform_authority_bootstrap.py" in makefile
+    assert "test_gug274_bootstrap_artifact_trust_root.py" in makefile
 
     for relative in (
         "ADR/ADR-034-dedicated-platform-authority-account-bootstrap.md",
@@ -1767,6 +1789,9 @@ def test_schemas_docs_and_offline_gate_are_registered() -> None:
         "docs/operations/platform-authority-bootstrap-recovery.md",
         "docs/security/gug-206-threat-model-delta.md",
         "_NotebookLM_Brain/23_GUG206_Platform_Authority_Account_Bootstrap.md",
+        "ADR/ADR-048-platform-authority-bootstrap-artifact-authentication.md",
+        "docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md",
+        "_NotebookLM_Brain/37_GUG274_Platform_Authority_Artifact_Authentication.md",
     ):
         assert (REPO_ROOT / relative).is_file()
 

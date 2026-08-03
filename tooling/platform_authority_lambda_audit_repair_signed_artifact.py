@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from zipfile import BadZipFile, ZipFile
 
 from tooling.platform_authority_lambda_audit_repair_package import (
@@ -247,7 +247,12 @@ def _aws_call(call: Any, /, **kwargs: Any) -> Mapping[str, Any]:
     return response
 
 
-def _command_text(*, source_root: Path, command: list[str]) -> str:
+def _command_text(
+    *,
+    source_root: Path,
+    command: list[str],
+    environment: Mapping[str, str] | None = None,
+) -> str:
     try:
         result = subprocess.run(
             command,
@@ -256,14 +261,24 @@ def _command_text(*, source_root: Path, command: list[str]) -> str:
             capture_output=True,
             text=True,
             timeout=30,
+            env=dict(environment) if environment is not None else None,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise SignedArtifactError("SOURCE_RELEASE_READBACK_FAILED") from exc
     return result.stdout.strip()
 
 
-def _command_json(*, source_root: Path, command: list[str]) -> Any:
-    payload = _command_text(source_root=source_root, command=command)
+def _command_json(
+    *,
+    source_root: Path,
+    command: list[str],
+    environment: Mapping[str, str] | None = None,
+) -> Any:
+    payload = _command_text(
+        source_root=source_root,
+        command=command,
+        environment=environment,
+    )
     try:
         return json.loads(payload)
     except json.JSONDecodeError as exc:
@@ -271,7 +286,13 @@ def _command_json(*, source_root: Path, command: list[str]) -> Any:
 
 
 def verify_github_merged_release(
-    *, source_root: Path, source_commit: str
+    *,
+    source_root: Path,
+    source_commit: str,
+    git_executable: str = "git",
+    gh_executable: str = "gh",
+    command_environment: Mapping[str, str] | None = None,
+    api_reader: Callable[[str], Any] | None = None,
 ) -> Mapping[str, Any]:
     """Prove the candidate is merged to origin/main with required PR checks."""
 
@@ -279,21 +300,43 @@ def verify_github_merged_release(
         f"https://github.com/{GITHUB_REPOSITORY}.git",
         f"git@github.com:{GITHUB_REPOSITORY}.git",
     }
-    remote = _command_text(
-        source_root=source_root,
-        command=["git", "remote", "get-url", "origin"],
+    def read_command_text(command: list[str]) -> str:
+        if command_environment is None:
+            return _command_text(source_root=source_root, command=command)
+        return _command_text(
+            source_root=source_root,
+            command=command,
+            environment=command_environment,
+        )
+
+    remote = read_command_text(
+        [git_executable, "remote", "get-url", "origin"]
     )
-    main_commit = _command_text(
-        source_root=source_root,
-        command=["git", "rev-parse", "--verify", GITHUB_MAIN_REF],
+    main_commit = read_command_text(
+        [git_executable, "rev-parse", "--verify", GITHUB_MAIN_REF]
     )
     if remote not in allowed_remotes or main_commit != source_commit:
         raise SignedArtifactError("SOURCE_NOT_EXACT_ORIGIN_MAIN")
 
-    remote_main = _command_json(
-        source_root=source_root,
-        command=["gh", "api", f"repos/{GITHUB_REPOSITORY}/branches/main"],
-    )
+    def read_api(endpoint: str) -> Any:
+        if api_reader is not None:
+            return api_reader(endpoint)
+        command = [
+            gh_executable,
+            "api",
+            endpoint,
+            "-H",
+            "Accept: application/vnd.github+json",
+        ]
+        if command_environment is None:
+            return _command_json(source_root=source_root, command=command)
+        return _command_json(
+            source_root=source_root,
+            command=command,
+            environment=command_environment,
+        )
+
+    remote_main = read_api(f"repos/{GITHUB_REPOSITORY}/branches/main")
     remote_main_commit = (
         remote_main.get("commit") if isinstance(remote_main, Mapping) else None
     )
@@ -303,12 +346,8 @@ def verify_github_merged_release(
         or remote_main.get("protected") is not True
     ):
         raise SignedArtifactError("SOURCE_NOT_CURRENT_PROTECTED_MAIN")
-    protection = _command_json(
-        source_root=source_root,
-        command=[
-            "gh", "api",
-            f"repos/{GITHUB_REPOSITORY}/branches/main/protection/required_status_checks",
-        ],
+    protection = read_api(
+        f"repos/{GITHUB_REPOSITORY}/branches/main/protection/required_status_checks"
     )
     protected_checks = protection.get("checks") if isinstance(protection, Mapping) else None
     if (
@@ -333,14 +372,7 @@ def verify_github_merged_release(
     ):
         raise SignedArtifactError("SOURCE_REQUIRED_CHECK_POLICY_DRIFT")
 
-    pulls = _command_json(
-        source_root=source_root,
-        command=[
-            "gh", "api",
-            f"repos/{GITHUB_REPOSITORY}/commits/{source_commit}/pulls",
-            "-H", "Accept: application/vnd.github+json",
-        ],
-    )
+    pulls = read_api(f"repos/{GITHUB_REPOSITORY}/commits/{source_commit}/pulls")
     if not isinstance(pulls, list):
         raise SignedArtifactError("SOURCE_PULL_REQUEST_READBACK_INVALID")
     merged = [
@@ -364,14 +396,8 @@ def verify_github_merged_release(
     ):
         raise SignedArtifactError("SOURCE_PULL_REQUEST_READBACK_INVALID")
     head_commit = str(head["sha"])
-    source_git = _command_json(
-        source_root=source_root,
-        command=["gh", "api", f"repos/{GITHUB_REPOSITORY}/git/commits/{source_commit}"],
-    )
-    head_git = _command_json(
-        source_root=source_root,
-        command=["gh", "api", f"repos/{GITHUB_REPOSITORY}/git/commits/{head_commit}"],
-    )
+    source_git = read_api(f"repos/{GITHUB_REPOSITORY}/git/commits/{source_commit}")
+    head_git = read_api(f"repos/{GITHUB_REPOSITORY}/git/commits/{head_commit}")
     source_tree = source_git.get("tree") if isinstance(source_git, Mapping) else None
     head_tree = head_git.get("tree") if isinstance(head_git, Mapping) else None
     if (
@@ -382,13 +408,8 @@ def verify_github_merged_release(
     ):
         raise SignedArtifactError("SOURCE_PULL_REQUEST_TREE_MISMATCH")
 
-    check_readback = _command_json(
-        source_root=source_root,
-        command=[
-            "gh", "api",
-            f"repos/{GITHUB_REPOSITORY}/commits/{head_commit}/check-runs?per_page=100",
-            "-H", "Accept: application/vnd.github+json",
-        ],
+    check_readback = read_api(
+        f"repos/{GITHUB_REPOSITORY}/commits/{head_commit}/check-runs?per_page=100"
     )
     if not isinstance(check_readback, Mapping):
         raise SignedArtifactError("SOURCE_CHECK_READBACK_INVALID")

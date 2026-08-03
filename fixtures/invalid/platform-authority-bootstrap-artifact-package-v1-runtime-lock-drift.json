@@ -1,0 +1,85 @@
+{
+  "activation_contract": {
+    "all_three_functions_same_signed_code_sha256": true,
+    "all_three_published_versions_must_equal": 1,
+    "deployment_evidence_observed": false,
+    "live_identity_proof_observed": false,
+    "signed_artifact_evidence_observed": false
+  },
+  "archive_format": "ZIP_STORED_FIXED_METADATA",
+  "archive_name": "scanalyze-gug274-bootstrap-artifact-authority.zip",
+  "archive_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "archive_size_bytes": 2270,
+  "artifact_type": "scanalyze.platform_authority.bootstrap_artifact_authority_package.v1",
+  "entries": [
+    {
+      "path": "gug274_runtime_lock.json",
+      "sha256": "3f52bf138a75e85276e01bd5ccb861294a4db52619ae9db70ac42c6f920ace77",
+      "size_bytes": 294
+    },
+    {
+      "path": "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size_bytes": 100
+    },
+    {
+      "path": "tooling/__init__.py",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size_bytes": 0
+    },
+    {
+      "path": "tooling/platform_authority_bootstrap.py",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "size_bytes": 100
+    },
+    {
+      "path": "tooling/platform_authority_bootstrap_artifact_authority.py",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "size_bytes": 100
+    },
+    {
+      "path": "tooling/platform_authority_bootstrap_identity_proof.py",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "size_bytes": 100
+    },
+    {
+      "path": "tooling/platform_authority_identity_context_compatibility.py",
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "size_bytes": 100
+    },
+    {
+      "path": "tooling/platform_authority_identity_context_pep.py",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "size_bytes": 100
+    }
+  ],
+  "handlers": {
+    "apply": "tooling.platform_authority_bootstrap_artifact_authority.apply_executor_handler",
+    "approval": "tooling.platform_authority_bootstrap_artifact_authority.approval_anchor_handler",
+    "plan": "tooling.platform_authority_bootstrap_artifact_authority.plan_anchor_handler"
+  },
+  "unsigned_archive_code_sha256": "ERERERERERERERERERERERERERERERERERERERERERE=",
+  "production_status": "NO-GO",
+  "runtime_dependencies": {
+    "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
+    "expected_boto3_version": "1.42.58",
+    "expected_botocore_version": "1.42.97",
+    "runtime_lock_path": "gug274_runtime_lock.json"
+  },
+  "schema_version": 1,
+  "signing_contract": {
+    "immutable_profile_version_required": true,
+    "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
+    "signed_artifact_receipt_required": true,
+    "signed_lambda_code_sha256_from_receipt_required": true,
+    "signed_s3_object_version_required": true,
+    "trust_root_configuration_status": "NOT_CONFIGURED",
+    "trust_root_contract_path": "bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json",
+    "trusted_read_only_refresh_required": true,
+    "unsigned_archive_is_not_deployable": true,
+    "untrusted_artifact_on_deployment": "Enforce"
+  },
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "trust_root_generation": 1,
+  "work_package": "GUG-274"
+}

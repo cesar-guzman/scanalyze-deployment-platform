@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-artifact-package.v1.schema.json",
+  "title": "Platform Authority Bootstrap Artifact Package Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package",
+    "trust_root_generation", "source_commit", "archive_name",
+    "archive_format", "archive_sha256", "unsigned_archive_code_sha256",
+    "archive_size_bytes", "handlers", "runtime_dependencies", "entries",
+    "signing_contract", "activation_contract", "production_status"
+  ],
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "const": "scanalyze.platform_authority.bootstrap_artifact_authority_package.v1"
+    },
+    "schema_version": { "type": "integer", "const": 1 },
+    "work_package": { "type": "string", "const": "GUG-274" },
+    "trust_root_generation": { "type": "integer", "const": 1 },
+    "source_commit": { "$ref": "#/$defs/source_commit" },
+    "archive_name": {
+      "type": "string",
+      "const": "scanalyze-gug274-bootstrap-artifact-authority.zip"
+    },
+    "archive_format": { "type": "string", "const": "ZIP_STORED_FIXED_METADATA" },
+    "archive_sha256": { "$ref": "#/$defs/digest" },
+    "unsigned_archive_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "archive_size_bytes": { "type": "integer", "minimum": 1 },
+    "handlers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apply", "approval", "plan"],
+      "properties": {
+        "apply": {
+          "type": "string",
+          "const": "tooling.platform_authority_bootstrap_artifact_authority.apply_executor_handler"
+        },
+        "approval": {
+          "type": "string",
+          "const": "tooling.platform_authority_bootstrap_artifact_authority.approval_anchor_handler"
+        },
+        "plan": {
+          "type": "string",
+          "const": "tooling.platform_authority_bootstrap_artifact_authority.plan_anchor_handler"
+        }
+      }
+    },
+    "runtime_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_lock_path", "expected_boto3_version",
+        "expected_botocore_version", "aws_sdk"
+      ],
+      "properties": {
+        "runtime_lock_path": { "type": "string", "const": "gug274_runtime_lock.json" },
+        "expected_boto3_version": { "$ref": "#/$defs/sdk_version" },
+        "expected_botocore_version": { "$ref": "#/$defs/sdk_version" },
+        "aws_sdk": {
+          "type": "string",
+          "const": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD"
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/runtime_lock_entry" },
+        { "$ref": "#/$defs/managed_policy_entry" },
+        { "$ref": "#/$defs/tooling_init_entry" },
+        { "$ref": "#/$defs/bootstrap_entry" },
+        { "$ref": "#/$defs/artifact_authority_entry" },
+        { "$ref": "#/$defs/identity_proof_entry" },
+        { "$ref": "#/$defs/identity_compatibility_entry" },
+        { "$ref": "#/$defs/identity_pep_entry" }
+      ],
+      "items": false
+    },
+    "signing_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_name", "trust_root_contract_path",
+        "trust_root_configuration_status", "immutable_profile_version_required",
+        "untrusted_artifact_on_deployment", "signed_s3_object_version_required",
+        "signed_artifact_receipt_required",
+        "signed_lambda_code_sha256_from_receipt_required",
+        "trusted_read_only_refresh_required",
+        "unsigned_archive_is_not_deployable"
+      ],
+      "properties": {
+        "profile_name": {
+          "type": "string",
+          "const": "scanalyze_gug274_bootstrap_artifact_authority"
+        },
+        "trust_root_contract_path": {
+          "type": "string",
+          "const": "bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json"
+        },
+        "trust_root_configuration_status": {
+          "type": "string",
+          "const": "NOT_CONFIGURED"
+        },
+        "immutable_profile_version_required": { "type": "boolean", "const": true },
+        "untrusted_artifact_on_deployment": { "type": "string", "const": "Enforce" },
+        "signed_s3_object_version_required": { "type": "boolean", "const": true },
+        "signed_artifact_receipt_required": { "type": "boolean", "const": true },
+        "signed_lambda_code_sha256_from_receipt_required": { "type": "boolean", "const": true },
+        "trusted_read_only_refresh_required": { "type": "boolean", "const": true },
+        "unsigned_archive_is_not_deployable": { "type": "boolean", "const": true }
+      }
+    },
+    "activation_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_three_functions_same_signed_code_sha256",
+        "all_three_published_versions_must_equal",
+        "signed_artifact_evidence_observed", "deployment_evidence_observed",
+        "live_identity_proof_observed"
+      ],
+      "properties": {
+        "all_three_functions_same_signed_code_sha256": { "type": "boolean", "const": true },
+        "all_three_published_versions_must_equal": { "type": "integer", "const": 1 },
+        "signed_artifact_evidence_observed": { "type": "boolean", "const": false },
+        "deployment_evidence_observed": { "type": "boolean", "const": false },
+        "live_identity_proof_observed": { "type": "boolean", "const": false }
+      }
+    },
+    "production_status": { "type": "string", "const": "NO-GO" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sdk_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/digest" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "runtime_lock_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "gug274_runtime_lock.json" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "managed_policy_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "tooling_init_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/__init__.py" } } }
+      ]
+    },
+    "bootstrap_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/platform_authority_bootstrap.py" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "artifact_authority_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/platform_authority_bootstrap_artifact_authority.py" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "identity_proof_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/platform_authority_bootstrap_identity_proof.py" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "identity_compatibility_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/platform_authority_identity_context_compatibility.py" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    },
+    "identity_pep_entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entry" },
+        { "properties": { "path": { "const": "tooling/platform_authority_identity_context_pep.py" }, "size_bytes": { "minimum": 1 } } }
+      ]
+    }
+  }
+}
