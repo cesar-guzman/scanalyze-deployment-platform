@@ -25,6 +25,16 @@ from typing import Any, Sequence
 from urllib.parse import quote, urlsplit
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tooling.github_policy_contract import (  # noqa: E402
+    is_canonical_repository,
+    repository_contract_violation,
+)
+
+
 API_VERSION = "2022-11-28"
 DEFAULT_MANIFEST = Path("governance/github-policy.json")
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -650,6 +660,7 @@ def read_working_manifest(repository_path: str) -> bytes:
 
 
 def _validate_apply_manifest_binding(
+    repository: str,
     manifest: PolicyManifest,
     manifest_path: Path,
     evidence_sha: str,
@@ -666,6 +677,18 @@ def _validate_apply_manifest_binding(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GovernanceError("bound policy manifest is not valid UTF-8 JSON") from exc
     bound_manifest = _policy_manifest_from_document(raw)
+    if is_canonical_repository(repository):
+        contract_error = repository_contract_violation(
+            default_branch=bound_manifest.default_branch,
+            strict=bound_manifest.strict,
+            expected_app_slug=bound_manifest.expected_app_slug,
+            checks=(
+                (check.context, check.workflow, check.job)
+                for check in bound_manifest.checks
+            ),
+        )
+        if contract_error is not None:
+            raise GovernanceError(contract_error)
     if bound_manifest != manifest:
         raise GovernanceError(
             "loaded manifest does not match the policy manifest bound to the evidence SHA"
@@ -1403,7 +1426,7 @@ def apply_policy(
     _validate_repository(repository)
     if confirm_repository != repository:
         raise GovernanceError("--confirm-repository must exactly match --repo")
-    _validate_apply_manifest_binding(manifest, manifest_path, evidence_sha)
+    _validate_apply_manifest_binding(repository, manifest, manifest_path, evidence_sha)
 
     initial = inspect_repository(repository, manifest)
     _assert_no_rulesets(initial.effective_rules)
@@ -1457,7 +1480,6 @@ def apply_policy(
         manifest.default_branch,
         evidence_pull_request,
     )
-    _validate_apply_manifest_binding(manifest, manifest_path, evidence_sha)
     # Snapshot creation and evidence revalidation take time. Narrow the
     # unavoidable read/PATCH race again after those operations so a concurrent
     # administrator change is never knowingly overwritten.
@@ -1468,6 +1490,9 @@ def apply_policy(
         raise GovernanceError(
             "required status checks changed concurrently after snapshot; apply aborted"
         )
+    # Bind the local mutation authority again after all reads and immediately
+    # before the PATCH so a changed or degraded manifest can never reach the sink.
+    _validate_apply_manifest_binding(repository, manifest, manifest_path, evidence_sha)
     try:
         patch_required_policy(repository, manifest.default_branch, desired)
         readback = read_required_policy(repository, manifest.default_branch)

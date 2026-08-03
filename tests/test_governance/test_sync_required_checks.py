@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
+from tooling.validate_github_policy import GitHubPolicyError, validate_policy
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "governance" / "sync-required-checks.py"
@@ -21,6 +23,7 @@ SPEC.loader.exec_module(sync)
 
 
 REPOSITORY = "example/scanalyze-client"
+CANONICAL_REPOSITORY = "cesar-guzman/scanalyze-deployment-platform"
 BRANCH = "main"
 EVIDENCE_SHA = "a" * 40
 APP_ID = 15368
@@ -80,6 +83,50 @@ def manifest_document(
             "retired_contexts": sorted(selected.retired_contexts),
         },
     }
+
+
+def repository_manifest_document() -> dict[str, object]:
+    return json.loads(
+        (REPO_ROOT / "governance" / "github-policy.json").read_text(encoding="utf-8")
+    )
+
+
+def degraded_repository_manifest_document(case: str) -> dict[str, object]:
+    document = repository_manifest_document()
+    required = document["required_status_checks"]
+    migration = document["migration"]
+    assert isinstance(required, dict) and isinstance(migration, dict)
+    checks = required["checks"]
+    assert isinstance(checks, list)
+
+    if case == "one-check-strict-false":
+        required["strict"] = False
+        required["checks"] = checks[:1]
+        migration["added_contexts"] = []
+    elif case == "one-check-strict-true":
+        required["checks"] = checks[:1]
+        migration["added_contexts"] = []
+    elif case == "dropped-check":
+        checks.pop()
+        migration["added_contexts"] = []
+    elif case == "reordered-checks":
+        checks[0], checks[1] = checks[1], checks[0]
+    elif case == "renamed-context":
+        checks[0]["context"] = "Renamed security gate"
+    elif case == "remapped-check":
+        checks[0]["workflow"] = checks[-1]["workflow"]
+        checks[0]["job"] = checks[-1]["job"]
+    elif case == "wrong-workflow":
+        checks[0]["workflow"] = ".github/workflows/repro-check.yml"
+    elif case == "wrong-job":
+        checks[0]["job"] = "clean-clone-check"
+    elif case == "wrong-app-slug":
+        required["expected_app_slug"] = "unbound-provider"
+    elif case == "wrong-branch":
+        document["default_branch"] = "develop"
+    else:  # pragma: no cover - the parametrization is the closed case set
+        raise AssertionError(f"unsupported degraded manifest case: {case}")
+    return document
 
 
 def make_policy(
@@ -418,6 +465,145 @@ def test_apply_rejects_loaded_manifest_object_not_bound_to_evidence(
             )
 
     assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "one-check-strict-false",
+        "one-check-strict-true",
+        "dropped-check",
+        "reordered-checks",
+        "renamed-context",
+        "remapped-check",
+        "wrong-workflow",
+        "wrong-job",
+        "wrong-app-slug",
+        "wrong-branch",
+    ],
+)
+def test_canonical_apply_rejects_degraded_repository_contract_before_remote_or_snapshot(
+    case: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = degraded_repository_manifest_document(case)
+    manifest_bytes = json.dumps(document, sort_keys=True).encode("utf-8")
+    manifest = sync._policy_manifest_from_document(document)
+    monkeypatch.setattr(sync, "read_working_manifest", lambda path: manifest_bytes)
+    monkeypatch.setattr(
+        sync,
+        "read_manifest_blob",
+        lambda revision, path: manifest_bytes,
+    )
+    snapshot = tmp_path / "snapshot.json"
+
+    with (
+        patch.object(sync, "run_gh") as run_gh,
+        patch.object(sync, "write_snapshot") as write_snapshot,
+    ):
+        with pytest.raises(sync.GovernanceError, match="canonical repository contract"):
+            sync.apply_policy(
+                CANONICAL_REPOSITORY,
+                manifest,
+                evidence_sha=EVIDENCE_SHA,
+                snapshot_out=snapshot,
+                confirm_repository=CANONICAL_REPOSITORY,
+            )
+
+    run_gh.assert_not_called()
+    write_snapshot.assert_not_called()
+    assert not snapshot.exists()
+
+
+def test_canonical_apply_contract_accepts_exact_six_and_preserves_app_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = repository_manifest_document()
+    manifest_bytes = json.dumps(document, sort_keys=True).encode("utf-8")
+    manifest = sync._policy_manifest_from_document(document)
+    monkeypatch.setattr(sync, "read_working_manifest", lambda path: manifest_bytes)
+    monkeypatch.setattr(
+        sync,
+        "read_manifest_blob",
+        lambda revision, path: manifest_bytes,
+    )
+
+    sync._validate_apply_manifest_binding(
+        CANONICAL_REPOSITORY,
+        manifest,
+        sync.DEFAULT_MANIFEST,
+        EVIDENCE_SHA,
+    )
+    app_ids = {check.context: APP_ID for check in manifest.checks}
+    desired = sync.target_policy(manifest, app_ids)
+
+    assert desired.strict is True
+    assert {check.context: check.app_id for check in desired.checks} == app_ids
+    assert all(check.app_id == APP_ID for check in desired.checks)
+
+
+def test_canonical_apply_contract_cannot_be_bypassed_by_repository_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = degraded_repository_manifest_document("one-check-strict-true")
+    manifest_bytes = json.dumps(document, sort_keys=True).encode("utf-8")
+    manifest = sync._policy_manifest_from_document(document)
+    monkeypatch.setattr(sync, "read_working_manifest", lambda path: manifest_bytes)
+    monkeypatch.setattr(
+        sync,
+        "read_manifest_blob",
+        lambda revision, path: manifest_bytes,
+    )
+    repository_alias = "Cesar-Guzman/Scanalyze-Deployment-Platform"
+
+    with patch.object(sync, "run_gh") as run_gh:
+        with pytest.raises(sync.GovernanceError, match="exact six required checks"):
+            sync.apply_policy(
+                repository_alias,
+                manifest,
+                evidence_sha=EVIDENCE_SHA,
+                snapshot_out=tmp_path / "snapshot.json",
+                confirm_repository=repository_alias,
+            )
+
+    run_gh.assert_not_called()
+
+
+def test_canonical_apply_contract_matches_offline_validator_for_remapped_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = degraded_repository_manifest_document("wrong-job")
+    policy_path = tmp_path / "github-policy.json"
+    policy_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(GitHubPolicyError, match="exact six required checks"):
+        validate_policy(
+            repo_root=REPO_ROOT,
+            policy_path=policy_path,
+            schema_path=REPO_ROOT / "schemas" / "github-policy.schema.json",
+            workflows_dir=REPO_ROOT / ".github" / "workflows",
+            enforce_repository_contract=True,
+        )
+
+    manifest_bytes = json.dumps(document, sort_keys=True).encode("utf-8")
+    manifest = sync._policy_manifest_from_document(document)
+    monkeypatch.setattr(sync, "read_working_manifest", lambda path: manifest_bytes)
+    monkeypatch.setattr(
+        sync,
+        "read_manifest_blob",
+        lambda revision, path: manifest_bytes,
+    )
+
+    with pytest.raises(sync.GovernanceError, match="exact six required checks"):
+        sync._validate_apply_manifest_binding(
+            CANONICAL_REPOSITORY,
+            manifest,
+            sync.DEFAULT_MANIFEST,
+            EVIDENCE_SHA,
+        )
 
 
 def test_apply_revalidates_manifest_binding_immediately_before_patch(

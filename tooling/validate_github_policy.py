@@ -22,43 +22,20 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tooling.github_policy_contract import (  # noqa: E402
+    CANONICAL_REQUIRED_CHECKS,
+    repository_contract_violation,
+    required_checks_contract_violation,
+)
+
+
 DEFAULT_POLICY = REPO_ROOT / "governance" / "github-policy.json"
 DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "github-policy.schema.json"
 DEFAULT_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 REQUIRED_PR_ACTIVITY_TYPES = frozenset({"opened", "synchronize", "reopened"})
-
-CANONICAL_REQUIRED_CHECKS = (
-    (
-        "Lint, security, and schema checks",
-        ".github/workflows/pr-validation.yml",
-        "lint-and-security",
-    ),
-    (
-        "Python tests",
-        ".github/workflows/pr-validation.yml",
-        "python-tests",
-    ),
-    (
-        "Validate deployment manifest schema",
-        ".github/workflows/pr-validation.yml",
-        "manifest-validation",
-    ),
-    (
-        "Terraform validate (no AWS)",
-        ".github/workflows/pr-validation.yml",
-        "terraform-validate",
-    ),
-    (
-        "Verify clean clone reproducibility",
-        ".github/workflows/repro-check.yml",
-        "clean-clone-check",
-    ),
-    (
-        "Microservices validation gate",
-        ".github/workflows/microservices-build.yml",
-        "validation_gate",
-    ),
-)
 
 REPOSITORY_SENSITIVE_PATHS = (
     "CONTRIBUTING.md",
@@ -71,6 +48,7 @@ REPOSITORY_SENSITIVE_PATHS = (
     "governance/github-policy.json",
     "scripts/governance/sync-required-checks.py",
     "scripts/governance/generate_protection_payload.py",
+    "tooling/github_policy_contract.py",
     "tooling/validate_github_policy.py",
     "tests/test_governance/test_codeowners.py",
     "tests/test_governance/test_github_policy.py",
@@ -532,25 +510,23 @@ def validate_policy(
     schema = _load_json(schema_path.resolve())
     if enforce_repository_contract:
         raw_required = policy.get("required_status_checks")
-        raw_checks = raw_required.get("checks") if isinstance(raw_required, dict) else None
+        raw_checks = (
+            raw_required.get("checks") if isinstance(raw_required, dict) else None
+        )
         if isinstance(raw_checks, list):
-            observed_checks = tuple(
+            contract_error = required_checks_contract_violation(
                 (
-                    str(check.get("context")),
-                    str(check.get("workflow")),
-                    str(check.get("job")),
+                    (
+                        str(check.get("context")),
+                        str(check.get("workflow")),
+                        str(check.get("job")),
+                    )
+                    for check in raw_checks
+                    if isinstance(check, dict)
                 )
-                for check in raw_checks
-                if isinstance(check, dict)
             )
-            if (
-                len(observed_checks) != len(raw_checks)
-                or observed_checks != CANONICAL_REQUIRED_CHECKS
-            ):
-                raise GitHubPolicyError(
-                    "repository contract must preserve the exact six required checks "
-                    "and their workflow/job mappings"
-                )
+            if contract_error is not None:
+                raise GitHubPolicyError(contract_error)
     try:
         jsonschema.Draft202012Validator.check_schema(schema)
         jsonschema.Draft202012Validator(schema).validate(policy)
@@ -564,6 +540,18 @@ def validate_policy(
 
     required = policy["required_status_checks"]
     checks = required["checks"]
+    if enforce_repository_contract:
+        contract_error = repository_contract_violation(
+            default_branch=policy["default_branch"],
+            strict=required["strict"],
+            expected_app_slug=required["expected_app_slug"],
+            checks=(
+                (check["context"], check["workflow"], check["job"])
+                for check in checks
+            ),
+        )
+        if contract_error is not None:
+            raise GitHubPolicyError(contract_error)
     contexts = [str(check["context"]) for check in checks]
     if len(contexts) != len(set(contexts)):
         raise GitHubPolicyError("required status-check contexts must be unique")
