@@ -1559,16 +1559,40 @@ def test_source_only_repository_importer_ignores_unchecked_bytecode(
 
 
 def _materialize_locked_sdk_runtime(runtime_site: Path) -> None:
-    for distribution_name in SDK_DISTRIBUTION_LOCKS:
+    for distribution_name, contract in SDK_DISTRIBUTION_LOCKS.items():
         distribution = metadata.distribution(distribution_name)
         distribution_root = Path(distribution.locate_file("")).resolve()
         record_path = Path(distribution._path) / "RECORD"
-        for row in csv.reader(record_path.read_text(encoding="utf-8").splitlines()):
+        rows = [
+            row
+            for row in csv.reader(
+                record_path.read_text(encoding="utf-8").splitlines()
+            )
+            if "__pycache__" not in Path(row[0]).parts
+            and not row[0].endswith((".pyc", ".pyo"))
+        ]
+        record_relative = record_path.relative_to(distribution_root).as_posix()
+        ignored_install_paths = frozenset(contract.get("ignored_install_paths", ()))
+        for row in rows:
+            if row[0] in ignored_install_paths:
+                continue
             source = (distribution_root / row[0]).resolve(strict=True)
             destination = Path(os.path.abspath(runtime_site / row[0]))
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            missing_directories: list[Path] = []
+            parent = destination.parent
+            while not parent.exists():
+                missing_directories.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing_directories):
+                directory.mkdir(mode=0o700)
             if not destination.exists():
-                os.link(source, destination)
+                if row[0] == record_relative:
+                    with destination.open("w", encoding="utf-8", newline="") as stream:
+                        writer = csv.writer(stream, lineterminator="\n")
+                        writer.writerows(rows)
+                else:
+                    destination.write_bytes(source.read_bytes())
+                destination.chmod(0o600)
 
 
 def _isolated_sdk_probe_code(
@@ -1649,10 +1673,12 @@ def test_reviewed_sdk_rejects_pth_and_unreviewed_site_content_before_import(
     runtime_site = tmp_path / "reviewed-runtime/lib/python3.11/site-packages"
     _materialize_locked_sdk_runtime(runtime_site)
     marker = tmp_path / "pth-executed"
-    (runtime_site / "hostile.pth").write_text(
+    hostile_pth = runtime_site / "hostile.pth"
+    hostile_pth.write_text(
         f"import pathlib; pathlib.Path({str(marker)!r}).write_text('bad')\n",
         encoding="utf-8",
     )
+    hostile_pth.chmod(0o600)
     source_root = tmp_path / "source"
     source_root.mkdir()
     result = subprocess.run(
@@ -1735,6 +1761,7 @@ def test_reviewed_sdk_authenticates_complete_tree_before_import(
         "class Session: pass\n"
     ).encode()
     session_path.write_bytes(malicious)
+    session_path.chmod(0o600)
     expected_error = "SDK_DISTRIBUTION_FILE_MISMATCH"
     if redigest_record:
         record_path = runtime_site / "boto3-1.42.57.dist-info/RECORD"
@@ -1750,6 +1777,7 @@ def test_reviewed_sdk_authenticates_complete_tree_before_import(
         with record_path.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream, lineterminator="\n")
             writer.writerows(rows)
+        record_path.chmod(0o600)
         expected_error = "SDK_DISTRIBUTION_RECORD_MISMATCH"
     source_root = tmp_path / "source"
     source_root.mkdir()
@@ -1776,8 +1804,12 @@ def test_reviewed_sdk_authenticates_complete_tree_before_import(
     assert not marker.exists()
 
 
-def test_reviewed_sdk_rejects_repository_local_virtualenv_before_import() -> None:
-    runtime_site = Path(metadata.distribution("boto3").locate_file("")).resolve()
+def test_reviewed_sdk_rejects_repository_local_virtualenv_before_import(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    runtime_site = source_root / ".venv/lib/python3.11/site-packages"
+    _materialize_locked_sdk_runtime(runtime_site)
     result = subprocess.run(
         [
             sys.executable,
@@ -1786,7 +1818,7 @@ def test_reviewed_sdk_rejects_repository_local_virtualenv_before_import() -> Non
             "-c",
             _isolated_sdk_probe_code(
                 runtime_site=runtime_site,
-                source_root=REPO_ROOT,
+                source_root=source_root,
                 success_expected=False,
             ),
         ],
