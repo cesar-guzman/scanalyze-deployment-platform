@@ -66,35 +66,63 @@ checked-in target reached `main`.
 
 ## Phase 2: Generate the deterministic payload offline
 
-Use only the generator committed at the reviewed SHA. Capture the GitHub GET
-responses into a strict, timestamped readback envelope outside the repository.
-The mode-`0600` envelope resides in a current-user-owned mode-`0700` directory
-and contains `schema_version`, repository, branch, `captured_at`, effective
-rulesets, `check_app_bindings`, and protection; do not hand-edit it. Derive each
-`app_id`/`slug` binding mechanically from completed check runs at the exact
-evidence SHA. The collection step must mechanically retain only documented
-security fields and actor `login`/`slug` values, excluding raw URLs, node IDs,
-email fields, and unrelated response metadata. With restrictive permissions in
-effect, generate and hash the payload:
+Use only the generator committed at the reviewed SHA. Capture the authenticated
+GitHub branch-protection GET response and derive a strict, timestamped readback
+envelope from the same response. Store both mode-`0600` inputs outside Git in a
+current-user-owned mode-`0700` directory; do not hand-edit either input. The
+envelope contains `schema_version`, repository, branch, `captured_at`, effective
+rulesets, `check_app_bindings`, and protection. Derive each `app_id`/`slug`
+binding mechanically from completed check runs at the exact evidence SHA. The
+collection step must mechanically retain only documented security fields and
+actor `login`/`slug` values in the envelope, excluding raw URLs, node IDs, email
+fields, and unrelated response metadata. With restrictive permissions in
+effect, generate and hash the complete reviewed bundle:
 
 ```bash
 umask 077
 python scripts/governance/generate_protection_payload.py \
+  --raw-input "$REMOTE_BEFORE_RAW" \
   --input "$REMOTE_BEFORE_ENVELOPE" \
   --policy governance/github-policy.json \
-  --output "$BRANCH_PROTECTION_PAYLOAD" \
+  --output "$BRANCH_PROTECTION_TARGET" \
+  --recovery-output "$BRANCH_PROTECTION_RECOVERY" \
+  --completion-output "$BRANCH_PROTECTION_COMPLETION" \
   --max-age-seconds 300
-shasum -a 256 "$BRANCH_PROTECTION_PAYLOAD"
+shasum -a 256 \
+  "$BRANCH_PROTECTION_TARGET" \
+  "$BRANCH_PROTECTION_RECOVERY" \
+  "$BRANCH_PROTECTION_COMPLETION"
 ```
 
-The generator is offline, creates a new mode-`0600` output outside the
-repository, and prints the canonical payload digest and separate-endpoint
-classification. It must validate the canonical policy, reject stale
-or ambiguous input, reject overlapping rulesets, preserve supported fields,
-preserve application-bound checks, and refuse unknown fields or unsafe paths.
-It must classify required-signature, Environment, private-reporting, and
-auto-merge state as separate endpoint work rather than adding those settings to
-the branch-protection payload.
+The generator is offline and creates two new mode-`0600` payloads plus a
+mode-`0600` completion manifest outside the repository with exclusive-create,
+atomic-file semantics. The manifest is written last and is the bundle commit
+marker; payload files without that manifest are incomplete and must not be
+used. A manifest without the generator's successful `PASS` and matching printed
+digests is also invalid. It binds every mapped sanitized control to the
+authenticated raw response.
+Omitted or `null` actor groups normalize only when the raw evidence has the
+same empty semantics, while present groups must match the raw identities
+exactly. Any malformed, unknown, duplicated, lossy, incomplete, or mismatched
+raw/envelope evidence fails closed.
+
+The target output is the canonical policy projection. The recovery output is
+classified as `EXACT_BEFORE` only when the mapped before-state already meets the
+non-weaker security floor. If the before-state is weaker, recovery is classified
+as `FORWARD_ONLY_TARGET`, its bytes and digest equal the target, and it must
+never be described or authorized as rollback. An ambiguous or unmappable state
+is `RECOVERY_NOT_PROVABLE` and produces no successful result. The complete
+bundle needs independent review, a fresh pre-write readback, and separate owner
+authorization.
+
+The generator prints the raw-input, sanitized-input, policy, target, recovery,
+and completion-manifest digests plus the recovery and separate-endpoint
+classifications. The manifest binds all five source/payload digests and the
+recovery mode. The generator validates the canonical policy, rejects stale or
+ambiguous input and overlapping rulesets, preserves supported fields and
+application-bound checks, and refuses unknown fields or unsafe paths.
+Required-signature, Environment, private-reporting, and auto-merge state remain
+separate endpoint work and are never added to branch protection.
 
 Any input, policy, remote-before state, or final SHA change invalidates the
 payload and its approval.
@@ -105,8 +133,12 @@ The remote-write package must bind:
 - fresh branch-protection, ruleset, Environment, private-reporting, and
   auto-merge readbacks classified as `REMOTE_BEFORE`;
 - confirmation that only existing Route B Environments are in scope;
-- the deterministic branch-protection payload and printed SHA-256 digest;
-- mode-`0600` before-state and rollback artifacts stored outside Git;
+- the authenticated raw input digest and the paired sanitized envelope;
+- the deterministic target and recovery payloads, their printed SHA-256
+  digests, and the explicit `EXACT_BEFORE` or `FORWARD_ONLY_TARGET` mode;
+- the completion-manifest digest proving the target/recovery bundle completed;
+- mode-`0600` before-state, target, recovery, and completion artifacts stored
+  outside Git;
 - negative-test results and residual risks; and
 - exact actor, repository, endpoint set, execution window, and rollback owner.
 
@@ -149,10 +181,16 @@ test. Failed, partial, unavailable, or ambiguous evidence is not a pass.
 
 ## Rollback and unknown outcomes
 
-Rollback requires its own human authorization and the exact protected
-before-state artifact. Before rollback, read the endpoint again. Abort rather
-than overwrite third-party drift, and do not retry an operation whose outcome
-cannot be read reliably.
+Recovery requires its own human authorization and the reviewed recovery
+artifact. Before recovery, read the endpoint again. Abort rather than overwrite
+third-party drift, and do not retry an operation whose outcome cannot be read
+reliably.
+
+Use `EXACT_BEFORE` as rollback only when the generator proved that the mapped
+before-state meets the security floor. When the mode is `FORWARD_ONLY_TARGET`,
+`ROLLBACK_NOT_PROVABLE` is intentional: the recovery artifact is a separately
+reviewed forward fix identical to the target, not restoration of the weaker
+before-state. `RECOVERY_NOT_PROVABLE` is a hard stop.
 
 Rollback must restore the captured safe state without:
 
@@ -164,8 +202,9 @@ Rollback must restore the captured safe state without:
 - creating or weakening an Environment; or
 - disabling a verified private-reporting path without incident-owner approval.
 
-If safe rollback would require any prohibited weakening, stop and escalate. A
-forward fix may be safer, but it also requires review and authorization.
+If safe rollback would require any prohibited weakening, stop and use no
+before-state restoration. A forward fix also requires independent review,
+fresh readback, and explicit authorization.
 
 ## Closeout
 

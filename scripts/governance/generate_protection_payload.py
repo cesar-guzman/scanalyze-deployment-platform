@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import tempfile
 from typing import Any
 
 import jsonschema
@@ -60,7 +61,7 @@ PROTECTION_FIELDS = {
     "allow_fork_syncing",
     "restrictions",
 }
-REQUIRED_PROTECTION_FIELDS = PROTECTION_FIELDS - {"url"}
+REQUIRED_PROTECTION_FIELDS = PROTECTION_FIELDS - {"url", "restrictions"}
 STATUS_CHECK_FIELDS = {
     "url",
     "strict",
@@ -78,13 +79,20 @@ REVIEW_FIELDS = {
     "require_last_push_approval",
     "required_approving_review_count",
 }
-REQUIRED_REVIEW_FIELDS = REVIEW_FIELDS - {"url"}
-BOOLEAN_FIELDS_TO_PRESERVE = (
-    "required_linear_history",
-    "block_creations",
-    "lock_branch",
-    "allow_fork_syncing",
-)
+REQUIRED_REVIEW_FIELDS = REVIEW_FIELDS - {
+    "url",
+    "dismissal_restrictions",
+    "bypass_pull_request_allowances",
+}
+RAW_ACTOR_GROUP_FIELDS = {
+    "users",
+    "teams",
+    "apps",
+    "url",
+    "users_url",
+    "teams_url",
+    "apps_url",
+}
 
 
 class GitHubProtectionError(ValueError):
@@ -93,11 +101,37 @@ class GitHubProtectionError(ValueError):
 
 @dataclass(frozen=True)
 class GenerationResult:
-    """Deterministic result metadata safe to print without the payload."""
+    """Deterministic result metadata safe to print without either payload."""
 
     payload: dict[str, Any]
     digest: str
+    recovery_payload: dict[str, Any]
+    recovery_digest: str
+    recovery_mode: str
+    raw_input_digest: str
+    input_digest: str
+    policy_digest: str
+    completion_manifest: dict[str, Any]
+    completion_digest: str
     classifications: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ParsedProtection:
+    """One canonical semantic parse shared by target and recovery builders."""
+
+    required_status_checks: dict[str, Any]
+    enforce_admins: bool
+    required_pull_request_reviews: dict[str, Any]
+    restrictions: dict[str, list[str]] | None
+    required_signatures: bool
+    required_linear_history: bool
+    allow_force_pushes: bool
+    allow_deletions: bool
+    block_creations: bool
+    required_conversation_resolution: bool
+    lock_branch: bool
+    allow_fork_syncing: bool
 
 
 def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -113,10 +147,11 @@ def _reject_nonfinite(value: str) -> None:
     raise GitHubProtectionError(f"non-finite JSON value is prohibited: {value}")
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def _load_json_bytes(path: Path) -> tuple[dict[str, Any], bytes]:
     try:
+        content = path.read_bytes()
         document = json.loads(
-            path.read_text(encoding="utf-8"),
+            content,
             object_pairs_hook=_strict_object,
             parse_constant=_reject_nonfinite,
         )
@@ -126,6 +161,11 @@ def _load_json(path: Path) -> dict[str, Any]:
         raise GitHubProtectionError(f"unable to load JSON document {path}: {exc}") from None
     if not isinstance(document, dict):
         raise GitHubProtectionError(f"JSON document must be an object: {path}")
+    return document, content
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    document, _ = _load_json_bytes(path)
     return document
 
 
@@ -208,23 +248,46 @@ def _validate_new_private_output(path: Path) -> None:
 
 
 def _write_private_output(path: Path, content: bytes) -> None:
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    """Fully sync a private temporary file, then publish it without overwrite."""
+
+    descriptor = -1
+    temporary_path: Path | None = None
     try:
-        descriptor = os.open(path, flags, 0o600)
-    except OSError as exc:
-        raise GitHubProtectionError(f"unable to create private output {path}: {exc}") from None
-    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary_path = Path(temporary_name)
         os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "wb", closefd=False) as output:
+        with os.fdopen(descriptor, "wb") as output:
+            descriptor = -1
             output.write(content)
             output.flush()
             os.fsync(output.fileno())
+            if stat.S_IMODE(os.fstat(output.fileno()).st_mode) != 0o600:
+                raise GitHubProtectionError(
+                    f"generated temporary output is not mode 0600: {path}"
+                )
+        # All fallible content operations happen before this atomic,
+        # no-overwrite publication step. Never unlink the published path: a
+        # later failure may race with a replacement. The completion manifest,
+        # written last, is the only bundle commit marker.
+        os.link(temporary_path, path, follow_symlinks=False)
+    except GitHubProtectionError:
+        raise
+    except OSError as exc:
+        raise GitHubProtectionError(
+            f"unable to atomically create private output {path}: {exc}"
+        ) from None
     finally:
-        os.close(descriptor)
-    if stat.S_IMODE(path.stat().st_mode) != 0o600:
-        raise GitHubProtectionError(f"generated output is not mode 0600: {path}")
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
 
 
 def _validate_exact_fields(
@@ -384,6 +447,10 @@ def _project_actor_list(
         identity = actor[identity_key]
         if not isinstance(identity, str) or not identity.strip():
             raise GitHubProtectionError(f"{owner}.{field} has an invalid {identity_key}")
+        if identity != identity.strip():
+            raise GitHubProtectionError(
+                f"{owner}.{field} {identity_key} must not contain surrounding whitespace"
+            )
         normalized = identity.casefold()
         if normalized in seen:
             raise GitHubProtectionError(f"{owner}.{field} contains a duplicate actor")
@@ -424,7 +491,181 @@ def _project_actor_group(
     return projected
 
 
-def _project_status_checks(
+def _project_raw_actor_list(
+    value: object,
+    *,
+    field: str,
+    identity_key: str,
+    owner: str,
+) -> list[str]:
+    """Project authenticated raw GitHub actors to the sanitized identity surface."""
+
+    if not isinstance(value, list):
+        raise GitHubProtectionError(f"raw {owner}.{field} must be an array")
+    identities: list[str] = []
+    seen: set[str] = set()
+    for actor in value:
+        if not isinstance(actor, dict) or identity_key not in actor:
+            raise GitHubProtectionError(
+                f"raw {owner}.{field} actors must contain {identity_key}"
+            )
+        identity = actor[identity_key]
+        if not isinstance(identity, str) or not identity.strip():
+            raise GitHubProtectionError(
+                f"raw {owner}.{field} has an invalid {identity_key}"
+            )
+        if identity != identity.strip():
+            raise GitHubProtectionError(
+                f"raw {owner}.{field} {identity_key} has surrounding whitespace"
+            )
+        normalized = identity.casefold()
+        if normalized in seen:
+            raise GitHubProtectionError(f"raw {owner}.{field} contains a duplicate actor")
+        seen.add(normalized)
+        identities.append(identity)
+    return identities
+
+
+def _project_raw_actor_group(
+    value: object,
+    *,
+    owner: str,
+    apps_optional: bool,
+) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        raise GitHubProtectionError(f"raw {owner} must be an object")
+    required = {"users", "teams"} if apps_optional else {"users", "teams", "apps"}
+    _validate_exact_fields(
+        value,
+        allowed=RAW_ACTOR_GROUP_FIELDS,
+        required=required,
+        owner=f"raw {owner}",
+    )
+    for metadata_field in RAW_ACTOR_GROUP_FIELDS - {"users", "teams", "apps"}:
+        if metadata_field in value and not isinstance(value[metadata_field], str):
+            raise GitHubProtectionError(
+                f"raw {owner}.{metadata_field} must be a string"
+            )
+    projected = {
+        "users": _project_raw_actor_list(
+            value["users"], field="users", identity_key="login", owner=owner
+        ),
+        "teams": _project_raw_actor_list(
+            value["teams"], field="teams", identity_key="slug", owner=owner
+        ),
+    }
+    if "apps" in value:
+        projected["apps"] = _project_raw_actor_list(
+            value["apps"], field="apps", identity_key="slug", owner=owner
+        )
+    if sum(len(actors) for actors in projected.values()) > 100:
+        raise GitHubProtectionError(f"raw {owner} exceeds GitHub's 100-actor limit")
+    return projected
+
+
+def _actor_group_semantics(
+    container: dict[str, Any],
+    field: str,
+    *,
+    owner: str,
+    apps_optional: bool,
+    raw: bool,
+) -> dict[str, list[str]] | None:
+    value = container.get(field)
+    if value is None:
+        return None
+    projector = _project_raw_actor_group if raw else _project_actor_group
+    return projector(value, owner=owner, apps_optional=apps_optional)
+
+
+def _validate_raw_actor_provenance(
+    raw_protection: dict[str, Any],
+    protection: dict[str, Any],
+    *,
+    branch: str,
+) -> dict[str, Any]:
+    """Bind nullable/omitted sanitized groups to the authenticated raw GET shape."""
+
+    _validate_exact_fields(
+        raw_protection,
+        allowed=PROTECTION_FIELDS,
+        required=REQUIRED_PROTECTION_FIELDS | {"url"},
+        owner="raw branch protection",
+    )
+    expected_url = (
+        f"https://api.github.com/repos/{EXPECTED_REPOSITORY}/branches/{branch}/protection"
+    )
+    if raw_protection["url"] != expected_url:
+        raise GitHubProtectionError("raw branch-protection URL differs from repository/branch")
+
+    raw_reviews = raw_protection["required_pull_request_reviews"]
+    sanitized_reviews = protection["required_pull_request_reviews"]
+    if not isinstance(raw_reviews, dict):
+        raise GitHubProtectionError("raw required_pull_request_reviews must be an object")
+    if not isinstance(sanitized_reviews, dict):
+        raise GitHubProtectionError("required_pull_request_reviews must be an object")
+    _validate_exact_fields(
+        raw_reviews,
+        allowed=REVIEW_FIELDS,
+        required=REQUIRED_REVIEW_FIELDS,
+        owner="raw required_pull_request_reviews",
+    )
+
+    groups = (
+        (
+            raw_reviews,
+            sanitized_reviews,
+            "dismissal_restrictions",
+            "dismissal_restrictions",
+            True,
+        ),
+        (
+            raw_reviews,
+            sanitized_reviews,
+            "bypass_pull_request_allowances",
+            "bypass_pull_request_allowances",
+            False,
+        ),
+        (raw_protection, protection, "restrictions", "restrictions", True),
+    )
+    provenance: dict[str, Any] = {}
+    for raw_container, sanitized_container, field, owner, apps_optional in groups:
+        raw_semantics = _actor_group_semantics(
+            raw_container,
+            field,
+            owner=owner,
+            apps_optional=apps_optional,
+            raw=True,
+        )
+        sanitized_semantics = _actor_group_semantics(
+            sanitized_container,
+            field,
+            owner=owner,
+            apps_optional=apps_optional,
+            raw=False,
+        )
+        if raw_semantics != sanitized_semantics:
+            raise GitHubProtectionError(
+                f"sanitized {owner} does not match authenticated raw evidence"
+            )
+        provenance[owner] = {
+            "raw_presence": (
+                "omitted"
+                if field not in raw_container
+                else "null"
+                if raw_container[field] is None
+                else "object"
+            ),
+            "semantic_actor_count": (
+                0
+                if raw_semantics is None
+                else sum(len(actors) for actors in raw_semantics.values())
+            ),
+        }
+    return provenance
+
+
+def _parse_status_checks(
     current: object,
     policy: dict[str, Any],
     *,
@@ -486,7 +727,7 @@ def _project_status_checks(
         )
 
     return {
-        "strict": policy["required_status_checks"]["strict"],
+        "strict": current["strict"],
         "contexts": [],
         "checks": [
             {"context": context, "app_id": bindings[context]}
@@ -495,7 +736,11 @@ def _project_status_checks(
     }
 
 
-def _project_reviews(current: object, policy: dict[str, Any]) -> dict[str, Any]:
+def _parse_reviews(
+    current: object,
+    *,
+    raw_actor_groups: bool = False,
+) -> dict[str, Any]:
     if not isinstance(current, dict):
         raise GitHubProtectionError("required_pull_request_reviews must be a GET object")
     _validate_exact_fields(
@@ -516,41 +761,56 @@ def _project_reviews(current: object, policy: dict[str, Any]) -> dict[str, Any]:
         raise GitHubProtectionError(
             "required_pull_request_reviews.required_approving_review_count must be integer"
         )
+    if not 0 <= count <= 6:
+        raise GitHubProtectionError(
+            "required_pull_request_reviews.required_approving_review_count must be 0..6"
+        )
 
-    dismissal = current["dismissal_restrictions"]
+    actor_projector = (
+        _project_raw_actor_group if raw_actor_groups else _project_actor_group
+    )
+    dismissal = current.get("dismissal_restrictions")
     if dismissal is None:
         projected_dismissal = None
     else:
-        projected_dismissal = _project_actor_group(
+        projected_dismissal = actor_projector(
             dismissal,
             owner="dismissal_restrictions",
             apps_optional=True,
         )
-    # Parse the full current bypass surface before intentionally applying the
-    # reviewed empty target. This rejects hidden or lossy actor shapes.
-    _project_actor_group(
-        current["bypass_pull_request_allowances"],
-        owner="bypass_pull_request_allowances",
-        apps_optional=False,
+    bypass = current.get("bypass_pull_request_allowances")
+    projected_bypass = (
+        {"users": [], "teams": [], "apps": []}
+        if bypass is None
+        else actor_projector(
+            bypass,
+            owner="bypass_pull_request_allowances",
+            apps_optional=False,
+        )
     )
-
-    target = policy["required_pull_request_reviews"]
     projected: dict[str, Any] = {
-        "dismiss_stale_reviews": target["dismiss_stale_reviews"],
-        "require_code_owner_reviews": target["require_code_owner_reviews"],
-        "required_approving_review_count": target["required_approving_review_count"],
-        "require_last_push_approval": target["require_last_push_approval"],
-        "bypass_pull_request_allowances": target["bypass_pull_request_allowances"],
+        "dismiss_stale_reviews": current["dismiss_stale_reviews"],
+        "require_code_owner_reviews": current["require_code_owner_reviews"],
+        "required_approving_review_count": count,
+        "require_last_push_approval": current["require_last_push_approval"],
+        "bypass_pull_request_allowances": projected_bypass,
     }
     if projected_dismissal is not None:
         projected["dismissal_restrictions"] = projected_dismissal
     return projected
 
 
-def _project_restrictions(value: object) -> dict[str, list[str]] | None:
+def _project_restrictions(
+    value: object,
+    *,
+    raw_actor_group: bool = False,
+) -> dict[str, list[str]] | None:
     if value is None:
         return None
-    return _project_actor_group(
+    actor_projector = (
+        _project_raw_actor_group if raw_actor_group else _project_actor_group
+    )
+    return actor_projector(
         value,
         owner="restrictions",
         apps_optional=True,
@@ -570,28 +830,205 @@ def _canonical_bytes(payload: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+def _parse_protection(
+    protection: dict[str, Any],
+    policy: dict[str, Any],
+    *,
+    expected_app_id: int,
+    raw_actor_groups: bool = False,
+) -> ParsedProtection:
+    """Parse every mapped GET field once before building either PUT body."""
+
+    return ParsedProtection(
+        required_status_checks=_parse_status_checks(
+            protection["required_status_checks"],
+            policy,
+            expected_app_id=expected_app_id,
+        ),
+        enforce_admins=_enabled_wrapper(protection["enforce_admins"], "enforce_admins"),
+        required_pull_request_reviews=_parse_reviews(
+            protection["required_pull_request_reviews"],
+            raw_actor_groups=raw_actor_groups,
+        ),
+        restrictions=_project_restrictions(
+            protection.get("restrictions"),
+            raw_actor_group=raw_actor_groups,
+        ),
+        required_signatures=_enabled_wrapper(
+            protection["required_signatures"], "required_signatures"
+        ),
+        required_linear_history=_enabled_wrapper(
+            protection["required_linear_history"], "required_linear_history"
+        ),
+        allow_force_pushes=_enabled_wrapper(
+            protection["allow_force_pushes"], "allow_force_pushes"
+        ),
+        allow_deletions=_enabled_wrapper(
+            protection["allow_deletions"], "allow_deletions"
+        ),
+        block_creations=_enabled_wrapper(protection["block_creations"], "block_creations"),
+        required_conversation_resolution=_enabled_wrapper(
+            protection["required_conversation_resolution"],
+            "required_conversation_resolution",
+        ),
+        lock_branch=_enabled_wrapper(protection["lock_branch"], "lock_branch"),
+        allow_fork_syncing=_enabled_wrapper(
+            protection["allow_fork_syncing"], "allow_fork_syncing"
+        ),
+    )
+
+
+def _validate_full_raw_projection(
+    raw: ParsedProtection,
+    sanitized: ParsedProtection,
+) -> None:
+    """Require every mapped sanitized control to equal authenticated raw GET."""
+
+    for field_name in ParsedProtection.__dataclass_fields__:
+        if getattr(raw, field_name) != getattr(sanitized, field_name):
+            raise GitHubProtectionError(
+                "sanitized branch protection does not match authenticated raw "
+                f"evidence for {field_name}"
+            )
+
+
+def _target_payload(parsed: ParsedProtection, policy: dict[str, Any]) -> dict[str, Any]:
+    target_reviews = policy["required_pull_request_reviews"]
+    projected_reviews: dict[str, Any] = {
+        "dismiss_stale_reviews": target_reviews["dismiss_stale_reviews"],
+        "require_code_owner_reviews": target_reviews["require_code_owner_reviews"],
+        "required_approving_review_count": target_reviews[
+            "required_approving_review_count"
+        ],
+        "require_last_push_approval": target_reviews["require_last_push_approval"],
+        "bypass_pull_request_allowances": target_reviews[
+            "bypass_pull_request_allowances"
+        ],
+    }
+    if "dismissal_restrictions" in parsed.required_pull_request_reviews:
+        projected_reviews["dismissal_restrictions"] = parsed.required_pull_request_reviews[
+            "dismissal_restrictions"
+        ]
+    return {
+        "required_status_checks": {
+            **parsed.required_status_checks,
+            "strict": policy["required_status_checks"]["strict"],
+        },
+        "enforce_admins": policy["enforce_admins"],
+        "required_pull_request_reviews": projected_reviews,
+        "restrictions": parsed.restrictions,
+        "required_linear_history": parsed.required_linear_history,
+        "block_creations": parsed.block_creations,
+        "lock_branch": parsed.lock_branch,
+        "allow_fork_syncing": parsed.allow_fork_syncing,
+        "required_conversation_resolution": policy[
+            "required_conversation_resolution"
+        ],
+        "allow_force_pushes": policy["allow_force_pushes"],
+        "allow_deletions": policy["allow_deletions"],
+    }
+
+
+def _exact_before_payload(parsed: ParsedProtection) -> dict[str, Any]:
+    return {
+        "required_status_checks": parsed.required_status_checks,
+        "enforce_admins": parsed.enforce_admins,
+        "required_pull_request_reviews": parsed.required_pull_request_reviews,
+        "restrictions": parsed.restrictions,
+        "required_linear_history": parsed.required_linear_history,
+        "block_creations": parsed.block_creations,
+        "lock_branch": parsed.lock_branch,
+        "allow_fork_syncing": parsed.allow_fork_syncing,
+        "required_conversation_resolution": parsed.required_conversation_resolution,
+        "allow_force_pushes": parsed.allow_force_pushes,
+        "allow_deletions": parsed.allow_deletions,
+    }
+
+
+def _recovery_floor_violations(payload: dict[str, Any]) -> list[str]:
+    violations: list[str] = []
+    status_checks = payload["required_status_checks"]
+    checks = status_checks["checks"]
+    observed_contexts = tuple(check["context"] for check in checks)
+    observed_app_ids = {check["app_id"] for check in checks}
+    if status_checks["strict"] is not True:
+        violations.append("strict_required_checks_disabled")
+    if status_checks["contexts"] != []:
+        violations.append("bare_required_check_contexts_present")
+    if observed_contexts != EXPECTED_STATUS_CONTEXTS:
+        violations.append("required_check_contract_changed")
+    invalid_app_id = any(
+        isinstance(app_id, bool) or not isinstance(app_id, int) or app_id <= 0
+        for app_id in observed_app_ids
+    )
+    if len(observed_app_ids) != 1 or invalid_app_id:
+        violations.append("required_check_app_binding_invalid")
+
+    reviews = payload["required_pull_request_reviews"]
+    if reviews["required_approving_review_count"] < 1:
+        violations.append("required_approving_review_count_below_one")
+    if reviews["require_code_owner_reviews"] is not True:
+        violations.append("code_owner_review_disabled")
+    if reviews["dismiss_stale_reviews"] is not True:
+        violations.append("stale_review_dismissal_disabled")
+    if reviews["require_last_push_approval"] is not True:
+        violations.append("last_push_approval_disabled")
+    bypass = reviews["bypass_pull_request_allowances"]
+    if any(bypass[actor_type] for actor_type in ("users", "teams", "apps")):
+        violations.append("bypass_actors_present")
+    if payload["required_conversation_resolution"] is not True:
+        violations.append("conversation_resolution_disabled")
+    if payload["enforce_admins"] is not True:
+        violations.append("admin_enforcement_disabled")
+    if payload["allow_force_pushes"] is not False:
+        violations.append("force_push_allowed")
+    if payload["allow_deletions"] is not False:
+        violations.append("branch_deletion_allowed")
+    return violations
+
+
 def generate_payload(
     input_path: Path,
+    raw_input_path: Path,
     policy_path: Path,
     output_path: Path,
+    recovery_output_path: Path,
+    completion_output_path: Path,
     *,
     now: datetime | None = None,
     max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS,
 ) -> GenerationResult:
-    """Validate evidence and write one deterministic, private PUT payload."""
+    """Write a deterministic target/recovery bundle with a commit manifest."""
 
     input_path = _absolute_without_resolving(input_path)
+    raw_input_path = _absolute_without_resolving(raw_input_path)
     policy_path = _absolute_without_resolving(policy_path)
     output_path = _absolute_without_resolving(output_path)
+    recovery_output_path = _absolute_without_resolving(recovery_output_path)
+    completion_output_path = _absolute_without_resolving(completion_output_path)
     _validate_private_input(input_path)
+    _validate_private_input(raw_input_path)
+    if input_path == raw_input_path:
+        raise GitHubProtectionError("sanitized and raw operational inputs must differ")
+    output_paths = {output_path, recovery_output_path, completion_output_path}
+    if len(output_paths) != 3:
+        raise GitHubProtectionError(
+            "target, recovery, and completion output paths must differ"
+        )
     _validate_new_private_output(output_path)
+    _validate_new_private_output(recovery_output_path)
+    _validate_new_private_output(completion_output_path)
     _reject_symlink_components(policy_path)
     if policy_path.resolve(strict=False) != DEFAULT_POLICY.resolve():
         raise GitHubProtectionError(
             "--policy must reference the canonical governance/github-policy.json"
         )
-    envelope = _load_json(input_path)
-    policy = _load_json(policy_path)
+    envelope, input_bytes = _load_json_bytes(input_path)
+    input_digest = hashlib.sha256(input_bytes).hexdigest()
+    raw_protection, raw_input_bytes = _load_json_bytes(raw_input_path)
+    raw_input_digest = hashlib.sha256(raw_input_bytes).hexdigest()
+    policy, policy_bytes = _load_json_bytes(policy_path)
+    policy_digest = hashlib.sha256(policy_bytes).hexdigest()
     _validate_policy(policy)
     protection = _validate_envelope(
         envelope,
@@ -603,45 +1040,75 @@ def generate_payload(
         envelope["check_app_bindings"],
         expected_slug=policy["required_status_checks"]["expected_app_slug"],
     )
-
-    # These current-state values are intentionally replaced by the reviewed
-    # policy target. Still parse their complete GET wrapper first so an API
-    # shape change or hidden field cannot be silently discarded by the PUT.
-    for field in (
-        "enforce_admins",
-        "required_conversation_resolution",
-        "allow_force_pushes",
-        "allow_deletions",
-    ):
-        _enabled_wrapper(protection[field], field)
-
-    payload: dict[str, Any] = {
-        "required_status_checks": _project_status_checks(
-            protection["required_status_checks"],
-            policy,
-            expected_app_id=expected_app_id,
-        ),
-        "enforce_admins": policy["enforce_admins"],
-        "required_pull_request_reviews": _project_reviews(
-            protection["required_pull_request_reviews"], policy
-        ),
-        "restrictions": _project_restrictions(protection["restrictions"]),
-    }
-    for field in BOOLEAN_FIELDS_TO_PRESERVE:
-        payload[field] = _enabled_wrapper(protection[field], field)
-    payload["required_conversation_resolution"] = policy[
-        "required_conversation_resolution"
-    ]
-    payload["allow_force_pushes"] = policy["allow_force_pushes"]
-    payload["allow_deletions"] = policy["allow_deletions"]
-
-    required_signatures = _enabled_wrapper(
-        protection["required_signatures"], "required_signatures"
+    actor_provenance = _validate_raw_actor_provenance(
+        raw_protection,
+        protection,
+        branch=envelope["branch"],
     )
+    parsed = _parse_protection(
+        protection,
+        policy,
+        expected_app_id=expected_app_id,
+    )
+    raw_parsed = _parse_protection(
+        raw_protection,
+        policy,
+        expected_app_id=expected_app_id,
+        raw_actor_groups=True,
+    )
+    _validate_full_raw_projection(raw_parsed, parsed)
+    payload = _target_payload(parsed, policy)
+    target_violations = _recovery_floor_violations(payload)
+    if target_violations:
+        raise GitHubProtectionError(
+            "RECOVERY_NOT_PROVABLE: target violates non-weaker floor: "
+            + target_violations[0]
+        )
+
+    exact_before = _exact_before_payload(parsed)
+    before_violations = _recovery_floor_violations(exact_before)
+    if before_violations:
+        recovery_mode = "FORWARD_ONLY_TARGET"
+        recovery_payload = payload
+        rollback_disposition = "ROLLBACK_NOT_PROVABLE"
+    else:
+        recovery_mode = "EXACT_BEFORE"
+        recovery_payload = exact_before
+        rollback_disposition = "EXACT_BEFORE"
+
+    content = _canonical_bytes(payload)
+    digest = hashlib.sha256(content).hexdigest()
+    recovery_content = _canonical_bytes(recovery_payload)
+    recovery_digest = hashlib.sha256(recovery_content).hexdigest()
+    completion_manifest: dict[str, Any] = {
+        "schema_version": "1",
+        "artifact_type": "github_branch_protection_projection_bundle",
+        "raw_input_sha256": raw_input_digest,
+        "sanitized_input_sha256": input_digest,
+        "policy_sha256": policy_digest,
+        "target_payload_sha256": digest,
+        "recovery_payload_sha256": recovery_digest,
+        "recovery_mode": recovery_mode,
+        "remote_mutation": "NONE",
+    }
+    completion_content = _canonical_bytes(completion_manifest)
+    completion_digest = hashlib.sha256(completion_content).hexdigest()
     classifications: dict[str, dict[str, Any]] = {
+        "raw_actor_provenance": actor_provenance,
+        "recovery": {
+            "strategy": recovery_mode,
+            "rollback_disposition": rollback_disposition,
+            "before_floor_violations": before_violations,
+            "requires_fresh_readback": True,
+            "requires_independent_review": True,
+            "requires_owner_authorization": True,
+            "target_payload_sha256": digest,
+            "recovery_payload_sha256": recovery_digest,
+            "completion_manifest_sha256": completion_digest,
+        },
         "required_signatures": {
             "action": "separate_endpoint_unchanged",
-            "observed_enabled": required_signatures,
+            "observed_enabled": parsed.required_signatures,
         },
         "environments": {
             "action": "separate_endpoint_not_mutated",
@@ -667,23 +1134,38 @@ def generate_payload(
             "target_enabled": policy["auto_merge"]["enabled"],
         },
     }
-    content = _canonical_bytes(payload)
-    digest = hashlib.sha256(content).hexdigest()
+    # The completion manifest is the commit marker. A bundle without it and a
+    # successful PASS is incomplete and must never be used. Earlier payloads
+    # may remain after a failure, but this function never deletes a published
+    # path and therefore cannot unlink a concurrent replacement.
+    _write_private_output(recovery_output_path, recovery_content)
     _write_private_output(output_path, content)
+    _write_private_output(completion_output_path, completion_content)
     return GenerationResult(
         payload=payload,
         digest=digest,
+        recovery_payload=recovery_payload,
+        recovery_digest=recovery_digest,
+        recovery_mode=recovery_mode,
+        raw_input_digest=raw_input_digest,
+        input_digest=input_digest,
+        policy_digest=policy_digest,
+        completion_manifest=completion_manifest,
+        completion_digest=completion_digest,
         classifications=classifications,
     )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate an offline, exact branch-protection PUT payload"
+        description="Generate an offline target/recovery bundle with commit manifest"
     )
     parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--raw-input", required=True, type=Path)
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--recovery-output", required=True, type=Path)
+    parser.add_argument("--completion-output", required=True, type=Path)
     parser.add_argument(
         "--max-age-seconds",
         type=int,
@@ -697,15 +1179,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = generate_payload(
             input_path=args.input,
+            raw_input_path=args.raw_input,
             policy_path=args.policy,
             output_path=args.output,
+            recovery_output_path=args.recovery_output,
+            completion_output_path=args.completion_output,
             max_age_seconds=args.max_age_seconds,
         )
     except GitHubProtectionError as exc:
         print(f"FAIL: branch-protection payload was not generated\n{exc}", file=sys.stderr)
         return 1
-    print("PASS: deterministic branch-protection PUT payload generated offline")
-    print(f"payload_sha256={result.digest}")
+    print("PASS: deterministic target/recovery bundle generated offline")
+    print(f"raw_input_sha256={result.raw_input_digest}")
+    print(f"sanitized_input_sha256={result.input_digest}")
+    print(f"policy_sha256={result.policy_digest}")
+    print(f"target_payload_sha256={result.digest}")
+    print(f"recovery_payload_sha256={result.recovery_digest}")
+    print(f"recovery_mode={result.recovery_mode}")
+    print(f"completion_manifest_sha256={result.completion_digest}")
     print(
         "separate_controls="
         + json.dumps(
