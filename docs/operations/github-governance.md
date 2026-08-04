@@ -87,37 +87,57 @@ before merge. Bind that decision to the exact final PR SHA,
 `guguce-google` identity/MFA/independence/least-privilege attestation,
 negative-test evidence, and rollback design. After an approved merge is
 independently verified on `main`, fresh remote-before readbacks, the rollback
-artifact, and deterministic payload digest form a new remote-write package that
-requires separate authorization. `@Ferrusca08` remains an authorized additional
-code owner. Reviewer unavailability or missing attestation blocks; it does not
-invoke a bypass.
+or forward-fix recovery artifact, deterministic target/recovery digests, and the
+completion-manifest digest form a new remote-write package that requires
+separate authorization. `@Ferrusca08` remains an authorized additional code
+owner. Reviewer unavailability or missing attestation blocks; it does not invoke
+a bypass.
 
-Capture the branch-protection GET in a strict envelope containing
-`schema_version`, repository, branch, `captured_at`, effective rulesets,
-`check_app_bindings`, and protection. Derive `check_app_bindings` mechanically
-from completed check runs at the exact evidence SHA as `app_id`/`slug` pairs;
-the required checks must bind to the policy's `github-actions` slug.
-The envelope must be a mode-`0600` regular file in a current-user-owned
-mode-`0700` directory outside the repository. Actor objects must be mechanically
-sanitized to the documented `login`/`slug` identity fields; never hand-copy raw
-URLs, node IDs, email fields, or response metadata. Generate the canonical PUT
-JSON offline with the exact script committed at the reviewed SHA:
+Capture the authenticated branch-protection GET and derive a strict envelope
+from that same response containing `schema_version`, repository, branch,
+`captured_at`, effective rulesets, `check_app_bindings`, and protection. Derive
+`check_app_bindings` mechanically from completed check runs at the exact
+evidence SHA as `app_id`/`slug` pairs; the required checks must bind to the
+policy's `github-actions` slug. Both inputs must be mode-`0600` regular files in
+a current-user-owned mode-`0700` directory outside the repository. Actor
+objects in the envelope must be mechanically sanitized to the documented
+`login`/`slug` identity fields; never hand-copy raw URLs, node IDs, email fields,
+or response metadata. Generate the target and non-weaker recovery JSON offline
+with the exact script committed at the reviewed SHA:
 
 ```bash
 umask 077
 python scripts/governance/generate_protection_payload.py \
+  --raw-input "$REMOTE_BEFORE_RAW" \
   --input "$REMOTE_BEFORE_ENVELOPE" \
   --policy governance/github-policy.json \
-  --output "$BRANCH_PROTECTION_PAYLOAD" \
+  --output "$BRANCH_PROTECTION_TARGET" \
+  --recovery-output "$BRANCH_PROTECTION_RECOVERY" \
+  --completion-output "$BRANCH_PROTECTION_COMPLETION" \
   --max-age-seconds 300
 ```
 
-The generator creates a new mode-`0600` output outside the repository, prints
-its SHA-256 digest and separate-endpoint classification, and never calls GitHub.
-It fails closed on stale/ambiguous input, overlapping rulesets, unknown fields,
-unsafe paths, or missing/unexpected/duplicated/unbound required checks. Do not
-hand-edit the input or output. A changed input, policy, target SHA, or remote
-state invalidates the digest and authorization.
+The generator creates two new mode-`0600` payloads and a mode-`0600` completion
+manifest outside the repository, prints the raw-input, sanitized-input, policy,
+target, recovery, and manifest SHA-256 digests plus classifications, and never
+calls GitHub. The manifest binds the source and payload digests plus recovery
+mode. Each file is published atomically and the manifest is written last;
+without it, a successful generator `PASS`, and matching printed digests, the
+bundle is incomplete and must not be used. Every mapped sanitized control must
+equal the authenticated raw GET.
+Omitted or `null` actor groups normalize only when raw evidence proves
+equivalent empty semantics; present groups must match the raw identities
+exactly. It fails closed on stale, ambiguous, malformed, duplicated, lossy,
+incomplete, or mismatched input, overlapping rulesets, unknown fields, unsafe
+paths, or missing, unexpected, duplicated, or unbound required checks. Do not
+hand-edit any input or output. A changed input, policy, target SHA, or remote
+state invalidates the digests and authorization.
+
+`EXACT_BEFORE` means the recovery artifact is the mapped before-state and meets
+the non-weaker floor. `FORWARD_ONLY_TARGET` means the before-state was weaker,
+so recovery is byte-identical to the target and is not rollback.
+`RECOVERY_NOT_PROVABLE` is a hard stop. Every recovery path requires fresh
+readback, independent review, and explicit owner authorization.
 
 Classic branch protection, existing Route B Environment protection, private
 vulnerability reporting, and auto-merge are separate endpoint families. The
@@ -131,8 +151,10 @@ After any authorized write, perform fresh endpoint-by-endpoint readback and the
 documented negative tests. Self-approval, stale approval reuse, unavailable
 reviewer, unresolved conversations, bypass actors, disabled checks, force-push,
 branch deletion, Environment creation, and unknown outcomes must fail closed.
-Rollback may use the protected before-state only while a new read confirms no
-third-party drift; otherwise stop rather than overwrite it.
+Rollback may use an `EXACT_BEFORE` artifact only while a new read confirms no
+third-party drift. A `FORWARD_ONLY_TARGET` artifact is a forward fix, not
+rollback. Any other or unreadable outcome requires a stop rather than an
+overwrite.
 
 The technical branch-protection floor is one current CODEOWNER approval. It
 does not satisfy the manual P0 requirement for two humans in `CONTRIBUTING.md`.

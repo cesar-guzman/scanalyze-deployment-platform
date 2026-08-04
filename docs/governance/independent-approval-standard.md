@@ -115,9 +115,17 @@ Before any remote mutation, retain synthetic/offline evidence that:
   check, force-push allowance, or branch-deletion allowance is rejected;
 - missing, unexpected, duplicated, or unbound required checks are rejected;
 - a missing Environment is reported as blocked and is not created;
-- the deterministic generator preserves supported remote fields and rejects
-  ambiguous or unknown inputs; and
-- rollback refuses to overwrite third-party drift or an unknown outcome.
+- the deterministic generator binds a sanitized envelope to the authenticated
+  raw GET, normalizes only proven omitted/`null` actor groups, preserves present
+  actor identities, and rejects malformed, duplicated, lossy, or unknown input;
+- target and recovery artifacts are separately hashed, mode-`0600`, and
+  exclusive-created outside Git, with an atomically published completion
+  manifest written last as the only valid bundle commit marker;
+- `EXACT_BEFORE` is emitted only for a before-state that meets the non-weaker
+  security floor, while a weaker before-state yields an identical-target
+  `FORWARD_ONLY_TARGET` recovery and never a rollback claim; and
+- recovery refuses third-party drift, an unknown outcome, or any state whose
+  non-weaker recovery cannot be proved.
 
 The final remote-after evidence must be read back from every affected endpoint
 and compared with the reviewed target. A green PR, merged policy, API response,

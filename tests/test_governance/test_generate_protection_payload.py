@@ -6,6 +6,7 @@ import copy
 from datetime import UTC, datetime
 import hashlib
 import importlib.util
+from itertools import product
 import json
 from pathlib import Path
 import stat
@@ -97,6 +98,30 @@ def _envelope() -> dict[str, object]:
     }
 
 
+def _raw_protection() -> dict[str, object]:
+    return copy.deepcopy(_protection())
+
+
+def _safe_protection() -> dict[str, object]:
+    protection = _protection()
+    protection["required_status_checks"]["strict"] = True
+    protection["enforce_admins"]["enabled"] = True
+    reviews = protection["required_pull_request_reviews"]
+    reviews["dismiss_stale_reviews"] = True
+    reviews["require_code_owner_reviews"] = True
+    reviews["require_last_push_approval"] = True
+    reviews["required_approving_review_count"] = 2
+    reviews["bypass_pull_request_allowances"] = {
+        "users": [],
+        "teams": [],
+        "apps": [],
+    }
+    protection["required_conversation_resolution"]["enabled"] = True
+    protection["allow_force_pushes"]["enabled"] = False
+    protection["allow_deletions"]["enabled"] = False
+    return protection
+
+
 def _write_input(tmp_path: Path, document: object | str) -> Path:
     tmp_path.chmod(0o700)
     path = tmp_path / "before.json"
@@ -106,28 +131,47 @@ def _write_input(tmp_path: Path, document: object | str) -> Path:
     return path
 
 
+def _write_raw_input(tmp_path: Path, document: object | str | None = None) -> Path:
+    tmp_path.chmod(0o700)
+    path = tmp_path / "raw-before.json"
+    raw_document = _raw_protection() if document is None else document
+    text = raw_document if isinstance(raw_document, str) else json.dumps(raw_document)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
 def _generate(
     tmp_path: Path,
     document: dict[str, object] | None = None,
     *,
+    raw_document: dict[str, object] | None = None,
     output_name: str = "payload.json",
+    recovery_output_name: str = "recovery.json",
+    completion_output_name: str = "completion.json",
 ):
     input_path = _write_input(tmp_path, document or _envelope())
+    raw_input_path = _write_raw_input(tmp_path, raw_document)
     output_path = tmp_path / output_name
+    recovery_output_path = tmp_path / recovery_output_name
+    completion_output_path = tmp_path / completion_output_name
     result = generator.generate_payload(
         input_path=input_path,
+        raw_input_path=raw_input_path,
         policy_path=POLICY_PATH,
         output_path=output_path,
+        recovery_output_path=recovery_output_path,
+        completion_output_path=completion_output_path,
         now=FIXED_NOW,
         max_age_seconds=300,
     )
-    return result, output_path
+    return result, output_path, recovery_output_path
 
 
 def test_generator_preserves_exact_checks_bindings_and_supported_controls(
     tmp_path: Path,
 ) -> None:
-    result, output_path = _generate(tmp_path)
+    result, output_path, recovery_output_path = _generate(tmp_path)
     payload = json.loads(output_path.read_text(encoding="utf-8"))
 
     assert payload["required_status_checks"] == {
@@ -178,28 +222,549 @@ def test_generator_preserves_exact_checks_bindings_and_supported_controls(
         "required_reviewer": "guguce-google",
         "prevent_self_review": True,
     }
+    assert recovery_output_path.exists()
+
+
+@pytest.mark.parametrize("representation", ["null", "omitted"])
+def test_real_get_shape_normalizes_absent_actor_groups(
+    tmp_path: Path,
+    representation: str,
+) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    reviews = document["protection"]["required_pull_request_reviews"]
+    raw_reviews = raw_document["required_pull_request_reviews"]
+    for field in ("dismissal_restrictions", "bypass_pull_request_allowances"):
+        if representation == "null":
+            reviews[field] = None
+            raw_reviews[field] = None
+        else:
+            reviews.pop(field)
+            raw_reviews.pop(field)
+    if representation == "null":
+        document["protection"]["restrictions"] = None
+        raw_document["restrictions"] = None
+    else:
+        document["protection"].pop("restrictions")
+        raw_document.pop("restrictions")
+
+    result, output_path, recovery_output_path = _generate(
+        tmp_path,
+        document,
+        raw_document=raw_document,
+    )
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert payload["required_pull_request_reviews"][
+        "bypass_pull_request_allowances"
+    ] == {"users": [], "teams": [], "apps": []}
+    assert "dismissal_restrictions" not in payload["required_pull_request_reviews"]
+    assert payload["restrictions"] is None
+    assert result.digest == hashlib.sha256(output_path.read_bytes()).hexdigest()
+    assert result.recovery_digest == hashlib.sha256(
+        recovery_output_path.read_bytes()
+    ).hexdigest()
+
+
+def test_weak_before_state_requires_forward_fix_recovery(tmp_path: Path) -> None:
+    result, output_path, recovery_output_path = _generate(tmp_path)
+
+    assert result.classifications["recovery"]["rollback_disposition"] == (
+        "ROLLBACK_NOT_PROVABLE"
+    )
+    assert result.classifications["recovery"]["strategy"] == "FORWARD_ONLY_TARGET"
+    assert result.recovery_mode == "FORWARD_ONLY_TARGET"
+    assert recovery_output_path.read_bytes() == output_path.read_bytes()
+    assert result.recovery_digest == result.digest
+
+
+@pytest.mark.parametrize(
+    ("bypass_shape", "dismissal_shape", "restrictions_shape"),
+    list(product(("null", "object"), repeat=3)),
+)
+def test_actor_group_null_object_matrix_is_deterministic(
+    tmp_path: Path,
+    bypass_shape: str,
+    dismissal_shape: str,
+    restrictions_shape: str,
+) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    reviews = document["protection"]["required_pull_request_reviews"]
+    raw_reviews = raw_document["required_pull_request_reviews"]
+    if bypass_shape == "null":
+        reviews["bypass_pull_request_allowances"] = None
+        raw_reviews["bypass_pull_request_allowances"] = None
+    if dismissal_shape == "null":
+        reviews["dismissal_restrictions"] = None
+        raw_reviews["dismissal_restrictions"] = None
+    if restrictions_shape == "null":
+        document["protection"]["restrictions"] = None
+        raw_document["restrictions"] = None
+
+    result, output_path, recovery_output_path = _generate(
+        tmp_path,
+        document,
+        raw_document=raw_document,
+    )
+
+    assert result.digest == hashlib.sha256(output_path.read_bytes()).hexdigest()
+    assert result.recovery_digest == hashlib.sha256(
+        recovery_output_path.read_bytes()
+    ).hexdigest()
+    assert result.classifications["raw_actor_provenance"][
+        "bypass_pull_request_allowances"
+    ]["raw_presence"] == bypass_shape
+
+
+def test_null_and_explicit_empty_bypass_generate_identical_target(tmp_path: Path) -> None:
+    results = []
+    for name, bypass in (
+        ("null", None),
+        ("empty", {"users": [], "teams": [], "apps": []}),
+    ):
+        case_path = tmp_path / name
+        case_path.mkdir()
+        document = _envelope()
+        raw_document = _raw_protection()
+        document["protection"]["required_pull_request_reviews"][
+            "bypass_pull_request_allowances"
+        ] = bypass
+        raw_document["required_pull_request_reviews"][
+            "bypass_pull_request_allowances"
+        ] = copy.deepcopy(bypass)
+        results.append(
+            _generate(case_path, document, raw_document=raw_document)
+        )
+
+    assert results[0][0].digest == results[1][0].digest
+    assert results[0][1].read_bytes() == results[1][1].read_bytes()
+
+
+@pytest.mark.parametrize("invalid", [{}, [], False, "", 0])
+@pytest.mark.parametrize(
+    ("container_name", "field"),
+    [
+        ("reviews", "bypass_pull_request_allowances"),
+        ("reviews", "dismissal_restrictions"),
+        ("protection", "restrictions"),
+    ],
+)
+def test_optional_actor_groups_reject_falsey_malformed_values(
+    tmp_path: Path,
+    container_name: str,
+    field: str,
+    invalid: object,
+) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    document_container = (
+        document["protection"]["required_pull_request_reviews"]
+        if container_name == "reviews"
+        else document["protection"]
+    )
+    raw_container = (
+        raw_document["required_pull_request_reviews"]
+        if container_name == "reviews"
+        else raw_document
+    )
+    document_container[field] = copy.deepcopy(invalid)
+    raw_container[field] = copy.deepcopy(invalid)
+
+    with pytest.raises(generator.GitHubProtectionError, match="object|required"):
+        _generate(tmp_path, document, raw_document=raw_document)
+
+
+@pytest.mark.parametrize(
+    ("actors", "error"),
+    [
+        ([{"login": "Release"}, {"login": "release"}], "duplicate actor"),
+        ([{"login": " release-manager "}], "whitespace"),
+        ([{"login": f"actor-{index}"} for index in range(101)], "100-actor"),
+    ],
+)
+def test_bypass_actor_identity_edge_cases_fail_closed(
+    tmp_path: Path,
+    actors: list[dict[str, str]],
+    error: str,
+) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    bypass = {"users": actors, "teams": [], "apps": []}
+    document["protection"]["required_pull_request_reviews"][
+        "bypass_pull_request_allowances"
+    ] = copy.deepcopy(bypass)
+    raw_document["required_pull_request_reviews"][
+        "bypass_pull_request_allowances"
+    ] = copy.deepcopy(bypass)
+
+    with pytest.raises(generator.GitHubProtectionError, match=error):
+        _generate(tmp_path, document, raw_document=raw_document)
+
+
+def test_authenticated_raw_actor_mismatch_creates_no_outputs(tmp_path: Path) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    document["protection"]["required_pull_request_reviews"][
+        "bypass_pull_request_allowances"
+    ] = {"users": [], "teams": [], "apps": []}
+
+    with pytest.raises(generator.GitHubProtectionError, match="authenticated raw"):
+        _generate(tmp_path, document, raw_document=raw_document)
+
+    assert not (tmp_path / "payload.json").exists()
+    assert not (tmp_path / "recovery.json").exists()
+    assert not (tmp_path / "completion.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_field"),
+    [
+        ("status-checks", "required_status_checks"),
+        ("admins", "enforce_admins"),
+        ("reviews", "required_pull_request_reviews"),
+        ("signatures", "required_signatures"),
+        ("linear-history", "required_linear_history"),
+    ],
+)
+def test_authenticated_raw_non_actor_mismatch_creates_no_outputs(
+    tmp_path: Path,
+    mutation: str,
+    expected_field: str,
+) -> None:
+    raw_document = _raw_protection()
+    if mutation == "status-checks":
+        raw_document["required_status_checks"]["strict"] = True
+    elif mutation == "admins":
+        raw_document["enforce_admins"]["enabled"] = True
+    elif mutation == "reviews":
+        raw_document["required_pull_request_reviews"]["dismiss_stale_reviews"] = True
+    elif mutation == "signatures":
+        raw_document["required_signatures"]["enabled"] = False
+    else:
+        raw_document["required_linear_history"]["enabled"] = False
+
+    with pytest.raises(generator.GitHubProtectionError, match=expected_field):
+        _generate(tmp_path, raw_document=raw_document)
+
+    assert not (tmp_path / "payload.json").exists()
+    assert not (tmp_path / "recovery.json").exists()
+    assert not (tmp_path / "completion.json").exists()
+
+
+def test_authenticated_raw_requires_complete_mapped_state(tmp_path: Path) -> None:
+    raw_document = _raw_protection()
+    raw_document.pop("block_creations")
+
+    with pytest.raises(generator.GitHubProtectionError, match="block_creations"):
+        _generate(tmp_path, raw_document=raw_document)
+
+
+def test_documented_raw_actor_metadata_is_projected_without_loss(
+    tmp_path: Path,
+) -> None:
+    raw_document = _raw_protection()
+    raw_reviews = raw_document["required_pull_request_reviews"]
+    raw_reviews["dismissal_restrictions"].update(
+        {
+            "url": "https://api.github.com/example/dismissals",
+            "users_url": "https://api.github.com/example/dismissals/users",
+            "teams_url": "https://api.github.com/example/dismissals/teams",
+        }
+    )
+    raw_document["restrictions"].update(
+        {
+            "url": "https://api.github.com/example/restrictions",
+            "users_url": "https://api.github.com/example/restrictions/users",
+            "teams_url": "https://api.github.com/example/restrictions/teams",
+            "apps_url": "https://api.github.com/example/restrictions/apps",
+        }
+    )
+    raw_reviews["dismissal_restrictions"]["users"][0].update(
+        {"id": 7, "node_id": "synthetic-node"}
+    )
+
+    result, output_path, recovery_output_path = _generate(
+        tmp_path,
+        raw_document=raw_document,
+    )
+
+    assert result.classifications["raw_actor_provenance"][
+        "dismissal_restrictions"
+    ]["semantic_actor_count"] == 2
+    assert output_path.exists()
+    assert recovery_output_path.exists()
+
+
+def test_unknown_raw_actor_group_metadata_fails_closed(tmp_path: Path) -> None:
+    raw_document = _raw_protection()
+    raw_document["restrictions"]["unexpected"] = "synthetic"
+
+    with pytest.raises(generator.GitHubProtectionError, match="unknown.*raw"):
+        _generate(tmp_path, raw_document=raw_document)
+
+
+@pytest.mark.parametrize("count", [-1, 7])
+def test_review_count_outside_github_put_range_is_rejected(
+    tmp_path: Path,
+    count: int,
+) -> None:
+    document = _envelope()
+    raw_document = _raw_protection()
+    document["protection"]["required_pull_request_reviews"][
+        "required_approving_review_count"
+    ] = count
+    raw_document["required_pull_request_reviews"][
+        "required_approving_review_count"
+    ] = count
+
+    with pytest.raises(generator.GitHubProtectionError, match=r"0\.\.6"):
+        _generate(tmp_path, document, raw_document=raw_document)
+
+
+def test_safe_before_state_generates_exact_before_recovery(tmp_path: Path) -> None:
+    protection = _safe_protection()
+    document = _envelope()
+    document["protection"] = copy.deepcopy(protection)
+
+    result, output_path, recovery_output_path = _generate(
+        tmp_path,
+        document,
+        raw_document=copy.deepcopy(protection),
+    )
+    recovery = json.loads(recovery_output_path.read_text(encoding="utf-8"))
+    target = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert result.recovery_mode == "EXACT_BEFORE"
+    assert result.classifications["recovery"]["rollback_disposition"] == "EXACT_BEFORE"
+    assert recovery["required_pull_request_reviews"][
+        "required_approving_review_count"
+    ] == 2
+    assert target["required_pull_request_reviews"]["required_approving_review_count"] == 1
+    assert result.recovery_digest != result.digest
+
+
+@pytest.mark.parametrize(
+    ("weakness", "expected_violation"),
+    [
+        ("strict", "strict_required_checks_disabled"),
+        ("approval", "required_approving_review_count_below_one"),
+        ("codeowner", "code_owner_review_disabled"),
+        ("stale", "stale_review_dismissal_disabled"),
+        ("last-push", "last_push_approval_disabled"),
+        ("conversation", "conversation_resolution_disabled"),
+        ("admins", "admin_enforcement_disabled"),
+        ("bypass", "bypass_actors_present"),
+        ("force-push", "force_push_allowed"),
+        ("deletion", "branch_deletion_allowed"),
+    ],
+)
+def test_each_weak_before_control_forces_forward_only_recovery(
+    tmp_path: Path,
+    weakness: str,
+    expected_violation: str,
+) -> None:
+    protection = _safe_protection()
+    reviews = protection["required_pull_request_reviews"]
+    if weakness == "strict":
+        protection["required_status_checks"]["strict"] = False
+    elif weakness == "approval":
+        reviews["required_approving_review_count"] = 0
+    elif weakness == "codeowner":
+        reviews["require_code_owner_reviews"] = False
+    elif weakness == "stale":
+        reviews["dismiss_stale_reviews"] = False
+    elif weakness == "last-push":
+        reviews["require_last_push_approval"] = False
+    elif weakness == "conversation":
+        protection["required_conversation_resolution"]["enabled"] = False
+    elif weakness == "admins":
+        protection["enforce_admins"]["enabled"] = False
+    elif weakness == "bypass":
+        reviews["bypass_pull_request_allowances"] = {
+            "users": [{"login": "legacy-bypass"}],
+            "teams": [],
+            "apps": [],
+        }
+    elif weakness == "force-push":
+        protection["allow_force_pushes"]["enabled"] = True
+    else:
+        protection["allow_deletions"]["enabled"] = True
+    document = _envelope()
+    document["protection"] = copy.deepcopy(protection)
+
+    result, output_path, recovery_output_path = _generate(
+        tmp_path,
+        document,
+        raw_document=copy.deepcopy(protection),
+    )
+
+    assert result.recovery_mode == "FORWARD_ONLY_TARGET"
+    assert expected_violation in result.classifications["recovery"][
+        "before_floor_violations"
+    ]
+    assert recovery_output_path.read_bytes() == output_path.read_bytes()
 
 
 def test_output_is_private_canonical_and_digest_is_deterministic(tmp_path: Path) -> None:
     input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     outputs = [tmp_path / "payload-a.json", tmp_path / "payload-b.json"]
+    recovery_outputs = [tmp_path / "recovery-a.json", tmp_path / "recovery-b.json"]
+    completion_outputs = [
+        tmp_path / "completion-a.json",
+        tmp_path / "completion-b.json",
+    ]
     results = [
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=output,
+            recovery_output_path=recovery_output,
+            completion_output_path=completion_output,
             now=FIXED_NOW,
             max_age_seconds=300,
         )
-        for output in outputs
+        for output, recovery_output, completion_output in zip(
+            outputs,
+            recovery_outputs,
+            completion_outputs,
+            strict=True,
+        )
     ]
 
     assert results[0].digest == results[1].digest
-    for result, output in zip(results, outputs, strict=True):
+    assert results[0].recovery_digest == results[1].recovery_digest
+    assert results[0].completion_digest == results[1].completion_digest
+    for result, output, recovery_output, completion_output in zip(
+        results,
+        outputs,
+        recovery_outputs,
+        completion_outputs,
+        strict=True,
+    ):
         payload_bytes = output.read_bytes()
         assert stat.S_IMODE(output.stat().st_mode) == 0o600
         assert payload_bytes.endswith(b"\n")
         assert result.digest == hashlib.sha256(payload_bytes).hexdigest()
+        recovery_bytes = recovery_output.read_bytes()
+        assert stat.S_IMODE(recovery_output.stat().st_mode) == 0o600
+        assert recovery_bytes.endswith(b"\n")
+        assert result.recovery_digest == hashlib.sha256(recovery_bytes).hexdigest()
+        completion_bytes = completion_output.read_bytes()
+        assert stat.S_IMODE(completion_output.stat().st_mode) == 0o600
+        assert completion_bytes.endswith(b"\n")
+        assert result.completion_digest == hashlib.sha256(
+            completion_bytes
+        ).hexdigest()
+        assert json.loads(completion_bytes) == result.completion_manifest
+
+
+def test_target_and_recovery_output_paths_must_differ(tmp_path: Path) -> None:
+    with pytest.raises(generator.GitHubProtectionError, match="must differ"):
+        _generate(
+            tmp_path,
+            output_name="same.json",
+            recovery_output_name="same.json",
+        )
+
+    assert not (tmp_path / "same.json").exists()
+
+    with pytest.raises(generator.GitHubProtectionError, match="must differ"):
+        _generate(
+            tmp_path,
+            output_name="same.json",
+            completion_output_name="same.json",
+        )
+
+
+def test_preexisting_recovery_output_blocks_both_writes(tmp_path: Path) -> None:
+    recovery_output = tmp_path / "recovery.json"
+    recovery_output.write_text("synthetic-existing", encoding="utf-8")
+    recovery_output.chmod(0o600)
+
+    with pytest.raises(generator.GitHubProtectionError, match="overwrite"):
+        _generate(tmp_path)
+
+    assert recovery_output.read_text(encoding="utf-8") == "synthetic-existing"
+    assert not (tmp_path / "payload.json").exists()
+    assert not (tmp_path / "completion.json").exists()
+
+
+def test_preexisting_completion_output_blocks_all_writes(tmp_path: Path) -> None:
+    completion_output = tmp_path / "completion.json"
+    completion_output.write_text("synthetic-existing", encoding="utf-8")
+    completion_output.chmod(0o600)
+
+    with pytest.raises(generator.GitHubProtectionError, match="overwrite"):
+        _generate(tmp_path)
+
+    assert completion_output.read_text(encoding="utf-8") == "synthetic-existing"
+    assert not (tmp_path / "payload.json").exists()
+    assert not (tmp_path / "recovery.json").exists()
+
+
+@pytest.mark.parametrize("fail_on_write", [1, 2, 3])
+def test_bundle_write_failure_never_publishes_completion_manifest(
+    tmp_path: Path,
+    fail_on_write: int,
+) -> None:
+    original_write = generator._write_private_output
+    call_count = 0
+
+    def injected_failure(path: Path, content: bytes):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_on_write:
+            raise generator.GitHubProtectionError("synthetic bundle write failure")
+        return original_write(path, content)
+
+    with patch.object(generator, "_write_private_output", injected_failure):
+        with pytest.raises(generator.GitHubProtectionError, match="synthetic"):
+            _generate(tmp_path)
+
+    assert (tmp_path / "recovery.json").exists() is (fail_on_write > 1)
+    assert (tmp_path / "payload.json").exists() is (fail_on_write > 2)
+    assert not (tmp_path / "completion.json").exists()
+
+
+def test_bundle_failure_never_deletes_concurrent_replacement(tmp_path: Path) -> None:
+    original_write = generator._write_private_output
+    call_count = 0
+
+    def replace_then_fail(path: Path, content: bytes):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            recovery_path = tmp_path / "recovery.json"
+            recovery_path.unlink()
+            recovery_path.write_text("synthetic-replacement", encoding="utf-8")
+            recovery_path.chmod(0o600)
+            raise generator.GitHubProtectionError("synthetic bundle write failure")
+        return original_write(path, content)
+
+    with patch.object(generator, "_write_private_output", replace_then_fail):
+        with pytest.raises(generator.GitHubProtectionError, match="synthetic"):
+            _generate(tmp_path)
+
+    assert (tmp_path / "recovery.json").read_text(encoding="utf-8") == (
+        "synthetic-replacement"
+    )
+    assert not (tmp_path / "payload.json").exists()
+    assert not (tmp_path / "completion.json").exists()
+
+
+def test_atomic_writer_does_not_publish_partial_file(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    output_path = tmp_path / "atomic.json"
+
+    with patch.object(generator.os, "fsync", side_effect=OSError("synthetic fsync")):
+        with pytest.raises(generator.GitHubProtectionError, match="atomically"):
+            generator._write_private_output(output_path, b"synthetic\n")
+
+    assert not output_path.exists()
+    assert not list(tmp_path.glob(".atomic.json.*.tmp"))
 
 
 @pytest.mark.parametrize(
@@ -275,12 +840,16 @@ def test_uniform_but_wrong_app_id_is_rejected(tmp_path: Path) -> None:
 )
 def test_strict_json_rejects_ambiguous_values(tmp_path: Path, document, error: str) -> None:
     input_path = _write_input(tmp_path, document())
+    raw_input_path = _write_raw_input(tmp_path)
 
     with pytest.raises(generator.GitHubProtectionError, match=error):
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=tmp_path / "payload.json",
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
@@ -304,6 +873,7 @@ def test_ruleset_and_classic_protection_overlap_is_rejected(tmp_path: Path) -> N
 
 def test_noncanonical_policy_check_contract_is_rejected(tmp_path: Path) -> None:
     input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     policy["required_status_checks"]["checks"][0]["context"] = "Renamed gate"
     policy_path = tmp_path / "alternate-policy.json"
@@ -312,8 +882,11 @@ def test_noncanonical_policy_check_contract_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(generator.GitHubProtectionError, match="canonical governance"):
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=policy_path,
             output_path=tmp_path / "payload.json",
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
@@ -361,13 +934,35 @@ def test_unsanitized_actor_metadata_is_rejected(tmp_path: Path) -> None:
 
 def test_weak_permission_input_is_rejected(tmp_path: Path) -> None:
     input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     input_path.chmod(0o644)
 
     with pytest.raises(generator.GitHubProtectionError, match="mode 0600"):
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=tmp_path / "payload.json",
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
+            now=FIXED_NOW,
+            max_age_seconds=300,
+        )
+
+
+def test_weak_permission_raw_input_is_rejected(tmp_path: Path) -> None:
+    input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
+    raw_input_path.chmod(0o644)
+
+    with pytest.raises(generator.GitHubProtectionError, match="mode 0600"):
+        generator.generate_payload(
+            input_path=input_path,
+            raw_input_path=raw_input_path,
+            policy_path=POLICY_PATH,
+            output_path=tmp_path / "payload.json",
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
@@ -375,14 +970,18 @@ def test_weak_permission_input_is_rejected(tmp_path: Path) -> None:
 
 def test_symlinked_input_is_rejected(tmp_path: Path) -> None:
     source = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     link = tmp_path / "linked-before.json"
     link.symlink_to(source)
 
     with pytest.raises(generator.GitHubProtectionError, match="symlink"):
         generator.generate_payload(
             input_path=link,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=tmp_path / "payload.json",
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
@@ -390,6 +989,7 @@ def test_symlinked_input_is_rejected(tmp_path: Path) -> None:
 
 def test_symlinked_output_is_rejected(tmp_path: Path) -> None:
     input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     target = tmp_path / "unrelated.json"
     target.write_text("{}", encoding="utf-8")
     target.chmod(0o600)
@@ -399,8 +999,11 @@ def test_symlinked_output_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(generator.GitHubProtectionError, match="symlink"):
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=link,
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
@@ -409,13 +1012,17 @@ def test_symlinked_output_is_rejected(tmp_path: Path) -> None:
 
 def test_operational_output_inside_repository_is_rejected(tmp_path: Path) -> None:
     input_path = _write_input(tmp_path, _envelope())
+    raw_input_path = _write_raw_input(tmp_path)
     forbidden_output = REPO_ROOT / "tests" / ".gug119-operational-payload.json"
 
     with pytest.raises(generator.GitHubProtectionError, match="outside the repository"):
         generator.generate_payload(
             input_path=input_path,
+            raw_input_path=raw_input_path,
             policy_path=POLICY_PATH,
             output_path=forbidden_output,
+            recovery_output_path=tmp_path / "recovery.json",
+            completion_output_path=tmp_path / "completion.json",
             now=FIXED_NOW,
             max_age_seconds=300,
         )
