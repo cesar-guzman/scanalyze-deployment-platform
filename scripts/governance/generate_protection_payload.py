@@ -728,7 +728,6 @@ def _parse_status_checks(
 
     return {
         "strict": current["strict"],
-        "contexts": [],
         "checks": [
             {"context": context, "app_id": bindings[context]}
             for context in target_contexts
@@ -953,7 +952,7 @@ def _recovery_floor_violations(payload: dict[str, Any]) -> list[str]:
     observed_app_ids = {check["app_id"] for check in checks}
     if status_checks["strict"] is not True:
         violations.append("strict_required_checks_disabled")
-    if status_checks["contexts"] != []:
+    if "contexts" in status_checks:
         violations.append("bare_required_check_contexts_present")
     if observed_contexts != EXPECTED_STATUS_CONTEXTS:
         violations.append("required_check_contract_changed")
