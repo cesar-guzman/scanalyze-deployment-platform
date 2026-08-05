@@ -127,6 +127,84 @@ separate endpoint work and are never added to branch protection.
 Any input, policy, remote-before state, or final SHA change invalidates the
 payload and its approval.
 
+### Exact authorization write boundary
+
+Do not invoke `gh api` directly for the branch-protection PUT. After the owner
+authorizes a canonical envelope and its exact SHA-256, use the reviewed
+executor. The envelope binds the authorization ID, repository owner, named
+operator, repository, endpoint, target/recovery/completion digests, recovery
+mode, `github.com`, operator identity, `gh` executable digest, prewrite
+collector digest, fresh prewrite-result and evidence-manifest digests,
+remote-before digest, probe PR and head, expiration, and zero retries. The
+SHA-256 supplied on the command line is an external trust anchor: copy it
+verbatim from the owner's approved checkpoint.
+The executor validates the binding but cannot prove the human identity behind
+an unsigned local file; that authenticity remains an explicit out-of-band
+review responsibility.
+
+The final read-only collector must first publish a canonical mode-`0600`
+prewrite result. It must bind the same operator, bundle, remote-before state and
+probe identity; classify the state as `EXACT_AUTHORIZED_REMOTE_BEFORE`; report
+no attempted network write; and mark every required repository, protection,
+ruleset, effective-rule, permission, probe, check-run, private-reporting,
+Environment, and auto-merge check as `PASS`. It must also publish a canonical
+evidence manifest with one unique physical raw artifact, SHA-256, and byte size
+for every check. The executor opens and verifies every single-link mode-`0600`
+artifact and hashes the reviewed collector executable. The authorization
+envelope binds all of those digests. The write executor accepts no arbitrary
+prewrite command or callback.
+
+```bash
+umask 077
+python scripts/governance/execute_authorized_protection_write.py \
+  --target "$BRANCH_PROTECTION_TARGET" \
+  --recovery "$BRANCH_PROTECTION_RECOVERY" \
+  --completion-manifest "$BRANCH_PROTECTION_COMPLETION" \
+  --authorization-envelope "$WRITE_AUTHORIZATION_ENVELOPE" \
+  --owner-approved-authorization-sha256 "$OWNER_APPROVED_AUTHORIZATION_SHA256" \
+  --prewrite-result "$PREWRITE_RESULT" \
+  --prewrite-evidence-manifest "$PREWRITE_EVIDENCE_MANIFEST" \
+  --prewrite-collector /absolute/path/to/reviewed-read-only-collector \
+  --receipt-output "$AUTHORIZATION_BOUNDARY_RECEIPT" \
+  --response-output "$WRITE_RESPONSE_RAW" \
+  --transport-error-output "$WRITE_TRANSPORT_ERROR_RAW"
+```
+
+The executor requires all six private control inputs and every raw readback in
+one mode-`0700` run directory as single-link mode-`0600` files. It validates the
+physical recovery artifact, not only its digest string. It resolves `gh` once,
+requires its approved digest, pins `github.com`, and performs a bounded `/user`
+read with the same absolute binary immediately before the write boundary. The
+effective login must equal the authorized operator.
+
+More than 90 seconds must remain at process launch: the 60-second authorization
+floor plus a 30-second transport reserve. The actual PUT process has a
+10-second timeout, leaving a further termination cushion inside the reserve.
+Time is checked before identity verification, again before authorization
+consumption, and immediately before the only callback that can start the PUT.
+The receipt calls that last value the launch-gate time; it does not invent an
+unobservable socket-send timestamp.
+
+Before that callback, it exclusively publishes and syncs a marker derived from
+the authorization ID in
+`~/.local/share/scanalyze-evidence/gug-277/authorization-consumption`, which
+must already exist with mode `0700`. The marker is never removed or rewritten.
+A crash, disk error, timeout, or ambiguous response after consumption therefore
+requires read-only reconciliation and a new owner authorization; changing the
+run directory or receipt filename cannot replay the old ID. The executor sends
+zero retries and zero recovery requests. Its receipt binds the SHA-256 and byte
+size of a lossless private transport capture containing both stdout and stderr.
+Never use a new target, replace an artifact, extend an expiry, or delete a
+consumption marker under an existing authorization.
+
+The local trusted computing base is explicit: the current UID, host kernel,
+filesystem, reviewed collector, resolved `gh` binary, GitHub CLI credential
+store, and consumption-ledger directory must remain uncompromised. The executor
+never prints or copies the token. A malicious same-UID process can replace
+local evidence or remove a marker and is outside this local replay guarantee;
+any suspicion of that condition is a hard stop requiring host remediation and
+a new authorization, not a retry.
+
 The remote-write package must bind:
 
 - the independently verified merged `main` SHA;

@@ -147,6 +147,22 @@ remote-before revalidation. GUG-119 inspects only existing Route B
 Environments: a missing Environment must be reported as **BLOCKED** and must not
 be created.
 
+For the full classic-protection PUT, the final remote-before/probe verification
+must produce the structured, canonical prewrite result bound by the owner-
+approved authorization envelope consumed by
+`scripts/governance/execute_authorized_protection_write.py`. The executor has no
+arbitrary command surface. It validates the physical recovery artifact, every
+prewrite `PASS`, every physical raw-readback digest/size, the reviewed collector
+digest, the exact owner/operator/probe/bundle bindings, and an external owner-
+approved envelope SHA-256. It pins `github.com`, hashes the resolved `gh`
+binary, and verifies the effective `/user` login with that binary. It requires
+more than 90 seconds at launch (the 60-second floor plus a 30-second reserve),
+bounds the PUT process to 10 seconds, then durably consumes the authorization
+ID before the one-shot write. A consumed, crashed, timed-out, or ambiguous
+attempt is never retried or recovered automatically. The exact invocation,
+same-UID/local-host trust boundary, durable consumption ledger, and private
+evidence outputs are documented in the production approval runbook.
+
 After any authorized write, perform fresh endpoint-by-endpoint readback and the
 documented negative tests. Self-approval, stale approval reuse, unavailable
 reviewer, unresolved conversations, bypass actors, disabled checks, force-push,

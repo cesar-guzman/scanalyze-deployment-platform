@@ -177,7 +177,8 @@ github-governance-check:
 		$(TESTS_DIR)/test_governance/test_codeowners.py \
 		$(TESTS_DIR)/test_governance/test_github_policy.py \
 		$(TESTS_DIR)/test_governance/test_generate_protection_payload.py \
-		$(TESTS_DIR)/test_governance/test_finalize_protection_evidence.py \
+		$(TESTS_DIR)/test_governance/test_execute_authorized_protection_write.py \
+    $(TESTS_DIR)/test_governance/test_finalize_protection_evidence.py \
 		$(TESTS_DIR)/test_governance/test_sync_required_checks.py
 	@echo "GitHub governance check complete."
 
