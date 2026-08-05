@@ -172,6 +172,60 @@ third-party drift. A `FORWARD_ONLY_TARGET` artifact is a forward fix, not
 rollback. Any other or unreadable outcome requires a stop rather than an
 overwrite.
 
+### Finalize post-write evidence
+
+After the write result and immediate raw readback exist, freeze the execution
+ledger and publish a final evidence manifest. All named inputs and outputs must
+be distinct mode-`0600`, single-link files in the same current-user-owned
+mode-`0700` run directory outside the repository. Use `--raw-response` with
+`--http-status`, or use `--raw-transport-error` with a sanitized
+`--transport-error-class`; never supply both.
+
+```bash
+python scripts/governance/finalize_protection_evidence.py finalize \
+  --target "$BRANCH_PROTECTION_TARGET" \
+  --raw-response "$WRITE_RESPONSE_RAW" \
+  --sanitized-receipt "$WRITE_RECEIPT_SANITIZED" \
+  --raw-readback "$BRANCH_PROTECTION_READBACK_RAW" \
+  --sanitized-classification "$WRITE_CLASSIFICATION_SANITIZED" \
+  --ledger "$EXECUTION_LEDGER" \
+  --frozen-ledger-output "$FROZEN_EXECUTION_LEDGER" \
+  --manifest-output "$POST_WRITE_MANIFEST" \
+  --endpoint 'PUT /repos/cesar-guzman/scanalyze-deployment-platform/branches/main/protection' \
+  --expected-target-sha256 "$AUTHORIZED_TARGET_SHA256" \
+  --request-attempted true \
+  --http-status 422 \
+  --retry-count 0 \
+  --readback-class EXACT_BEFORE \
+  --admin-state-changed NO
+```
+
+The finalizer performs no network activity. It binds the SHA-256 and byte size
+of the exact target, raw response or transport error, sanitized receipt, raw
+readback, sanitized classification, and frozen ledger. It publishes the frozen
+ledger first and the final manifest last with exclusive-create semantics. Never
+append the printed manifest digest to either file: a manifest cannot contain
+its own stable digest. Preserve `final_manifest_sha256` as the external trust
+anchor in the separately authorized checkpoint/evidence record.
+
+`--expected-target-sha256` is mandatory and must be the independently
+authorized target digest; observing and hashing an arbitrary target file is not
+authorization. `admin_state_changed` is strict tri-state metadata: use `NO`
+with `EXACT_BEFORE`, `UNKNOWN` with `DIFFERENT`, `UNAVAILABLE`, or `UNKNOWN`
+readback, and `YES` only when exact evidence proves a change. The finalizer
+proves byte integrity and metadata consistency. It intentionally treats raw
+response/readback and sanitized receipt/classification bodies as opaque because
+this repository defines no stable schema for those operational artifacts; a
+separate reviewer must validate their semantics before accepting the run.
+
+Before accepting or transferring the evidence, run the same command with the
+`verify` subcommand, replace the ledger/output arguments with
+`--frozen-ledger`, `--manifest`, and `--expected-manifest-sha256`, and pass the
+exact printed digest. Missing, changed, linked, mis-permissioned, cross-directory,
+contradictory, retried, or partially written evidence fails closed. A frozen
+ledger changed after finalization invalidates the manifest; do not regenerate
+or overwrite either output in place.
+
 The technical branch-protection floor is one current CODEOWNER approval. It
 does not satisfy the manual P0 requirement for two humans in `CONTRIBUTING.md`.
 Break-glass cannot reduce either applicable bar, bypass administrators, disable
