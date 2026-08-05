@@ -35,6 +35,16 @@ def _target_contexts() -> list[str]:
     return [item["context"] for item in policy["required_status_checks"]["checks"]]
 
 
+def _expected_put_status_checks() -> dict[str, object]:
+    return {
+        "strict": True,
+        "checks": [
+            {"context": context, "app_id": APP_ID}
+            for context in _target_contexts()
+        ],
+    }
+
+
 def _protection() -> dict[str, object]:
     contexts = _target_contexts()
     return {
@@ -168,20 +178,13 @@ def _generate(
     return result, output_path, recovery_output_path
 
 
-def test_generator_preserves_exact_checks_bindings_and_supported_controls(
+def test_generator_emits_single_app_bound_checks_put_representation(
     tmp_path: Path,
 ) -> None:
     result, output_path, recovery_output_path = _generate(tmp_path)
     payload = json.loads(output_path.read_text(encoding="utf-8"))
 
-    assert payload["required_status_checks"] == {
-        "strict": True,
-        "contexts": [],
-        "checks": [
-            {"context": context, "app_id": APP_ID}
-            for context in _target_contexts()
-        ],
-    }
+    assert payload["required_status_checks"] == _expected_put_status_checks()
     assert payload["enforce_admins"] is True
     assert payload["required_pull_request_reviews"] == {
         "dismissal_restrictions": {
@@ -268,6 +271,8 @@ def test_real_get_shape_normalizes_absent_actor_groups(
 
 def test_weak_before_state_requires_forward_fix_recovery(tmp_path: Path) -> None:
     result, output_path, recovery_output_path = _generate(tmp_path)
+    target = json.loads(output_path.read_text(encoding="utf-8"))
+    recovery = json.loads(recovery_output_path.read_text(encoding="utf-8"))
 
     assert result.classifications["recovery"]["rollback_disposition"] == (
         "ROLLBACK_NOT_PROVABLE"
@@ -276,6 +281,38 @@ def test_weak_before_state_requires_forward_fix_recovery(tmp_path: Path) -> None
     assert result.recovery_mode == "FORWARD_ONLY_TARGET"
     assert recovery_output_path.read_bytes() == output_path.read_bytes()
     assert result.recovery_digest == result.digest
+    assert target["required_status_checks"] == _expected_put_status_checks()
+    assert recovery["required_status_checks"] == _expected_put_status_checks()
+
+
+def test_mixed_status_check_recovery_candidate_fails_closed_to_target(
+    tmp_path: Path,
+) -> None:
+    protection = _safe_protection()
+    document = _envelope()
+    document["protection"] = copy.deepcopy(protection)
+    original_exact_before = generator._exact_before_payload
+
+    def mixed_exact_before(parsed):
+        recovery_candidate = original_exact_before(parsed)
+        recovery_candidate["required_status_checks"]["contexts"] = []
+        return recovery_candidate
+
+    with patch.object(generator, "_exact_before_payload", mixed_exact_before):
+        result, output_path, recovery_output_path = _generate(
+            tmp_path,
+            document,
+            raw_document=copy.deepcopy(protection),
+        )
+
+    target = json.loads(output_path.read_text(encoding="utf-8"))
+    recovery = json.loads(recovery_output_path.read_text(encoding="utf-8"))
+    assert result.recovery_mode == "FORWARD_ONLY_TARGET"
+    assert "bare_required_check_contexts_present" in result.classifications[
+        "recovery"
+    ]["before_floor_violations"]
+    assert recovery == target
+    assert recovery["required_status_checks"] == _expected_put_status_checks()
 
 
 @pytest.mark.parametrize(
