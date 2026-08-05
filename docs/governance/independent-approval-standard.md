@@ -124,6 +124,11 @@ Before any remote mutation, retain synthetic/offline evidence that:
 - `EXACT_BEFORE` is emitted only for a before-state that meets the non-weaker
   security floor, while a weaker before-state yields an identical-target
   `FORWARD_ONLY_TARGET` recovery and never a rollback claim; and
+- after any attempted write, a final manifest published after readback binds
+  the target (which must match the independently authorized target digest), raw
+  response or transport error, sanitized receipt, raw readback, sanitized
+  classification, and frozen ledger by SHA-256 and byte size; its own SHA-256
+  is retained externally rather than creating a self-reference; and
 - recovery refuses third-party drift, an unknown outcome, or any state whose
   non-weaker recovery cannot be proved.
 
