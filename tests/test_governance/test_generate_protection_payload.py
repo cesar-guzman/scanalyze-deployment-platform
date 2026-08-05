@@ -191,11 +191,6 @@ def test_generator_emits_single_app_bound_checks_put_representation(
             "users": ["release-manager"],
             "teams": ["security-reviewers"],
         },
-        "bypass_pull_request_allowances": {
-            "users": [],
-            "teams": [],
-            "apps": [],
-        },
         "dismiss_stale_reviews": True,
         "require_code_owner_reviews": True,
         "require_last_push_approval": True,
@@ -258,9 +253,10 @@ def test_real_get_shape_normalizes_absent_actor_groups(
     )
     payload = json.loads(output_path.read_text(encoding="utf-8"))
 
-    assert payload["required_pull_request_reviews"][
+    assert (
         "bypass_pull_request_allowances"
-    ] == {"users": [], "teams": [], "apps": []}
+        not in payload["required_pull_request_reviews"]
+    )
     assert "dismissal_restrictions" not in payload["required_pull_request_reviews"]
     assert payload["restrictions"] is None
     assert result.digest == hashlib.sha256(output_path.read_bytes()).hexdigest()
@@ -354,28 +350,38 @@ def test_actor_group_null_object_matrix_is_deterministic(
     ]["raw_presence"] == bypass_shape
 
 
-def test_null_and_explicit_empty_bypass_generate_identical_target(tmp_path: Path) -> None:
+def test_omitted_null_and_explicit_empty_bypass_generate_identical_target(
+    tmp_path: Path,
+) -> None:
     results = []
-    for name, bypass in (
-        ("null", None),
-        ("empty", {"users": [], "teams": [], "apps": []}),
+    for name, bypass, omitted in (
+        ("omitted", None, True),
+        ("null", None, False),
+        ("empty", {"users": [], "teams": [], "apps": []}, False),
     ):
         case_path = tmp_path / name
         case_path.mkdir()
         document = _envelope()
         raw_document = _raw_protection()
-        document["protection"]["required_pull_request_reviews"][
-            "bypass_pull_request_allowances"
-        ] = bypass
-        raw_document["required_pull_request_reviews"][
-            "bypass_pull_request_allowances"
-        ] = copy.deepcopy(bypass)
+        reviews = document["protection"]["required_pull_request_reviews"]
+        raw_reviews = raw_document["required_pull_request_reviews"]
+        if omitted:
+            reviews.pop("bypass_pull_request_allowances")
+            raw_reviews.pop("bypass_pull_request_allowances")
+        else:
+            reviews["bypass_pull_request_allowances"] = bypass
+            raw_reviews["bypass_pull_request_allowances"] = copy.deepcopy(bypass)
         results.append(
             _generate(case_path, document, raw_document=raw_document)
         )
 
-    assert results[0][0].digest == results[1][0].digest
-    assert results[0][1].read_bytes() == results[1][1].read_bytes()
+    assert len({result.digest for result, _, _ in results}) == 1
+    assert len({output_path.read_bytes() for _, output_path, _ in results}) == 1
+    for _, output_path, _ in results:
+        reviews = json.loads(output_path.read_text(encoding="utf-8"))[
+            "required_pull_request_reviews"
+        ]
+        assert "bypass_pull_request_allowances" not in reviews
 
 
 @pytest.mark.parametrize("invalid", [{}, [], False, "", 0])
@@ -577,6 +583,10 @@ def test_safe_before_state_generates_exact_before_recovery(tmp_path: Path) -> No
     assert recovery["required_pull_request_reviews"][
         "required_approving_review_count"
     ] == 2
+    assert (
+        "bypass_pull_request_allowances"
+        not in recovery["required_pull_request_reviews"]
+    )
     assert target["required_pull_request_reviews"]["required_approving_review_count"] == 1
     assert result.recovery_digest != result.digest
 

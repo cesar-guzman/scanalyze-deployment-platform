@@ -829,6 +829,23 @@ def _canonical_bytes(payload: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+def _put_reviews(reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return the GitHub PUT representation for review protections.
+
+    GitHub rejects user/team restriction shapes on personal repositories, even
+    when their arrays are empty. Omitting an empty bypass allowance encodes the
+    same zero-actor policy without sending an organization-only shape.
+    """
+
+    projected = dict(reviews)
+    bypass = projected.get("bypass_pull_request_allowances")
+    if bypass is not None and not any(
+        bypass[actor_type] for actor_type in ("users", "teams", "apps")
+    ):
+        projected.pop("bypass_pull_request_allowances")
+    return projected
+
+
 def _parse_protection(
     protection: dict[str, Any],
     policy: dict[str, Any],
@@ -908,6 +925,7 @@ def _target_payload(parsed: ParsedProtection, policy: dict[str, Any]) -> dict[st
         projected_reviews["dismissal_restrictions"] = parsed.required_pull_request_reviews[
             "dismissal_restrictions"
         ]
+    projected_reviews = _put_reviews(projected_reviews)
     return {
         "required_status_checks": {
             **parsed.required_status_checks,
@@ -932,7 +950,9 @@ def _exact_before_payload(parsed: ParsedProtection) -> dict[str, Any]:
     return {
         "required_status_checks": parsed.required_status_checks,
         "enforce_admins": parsed.enforce_admins,
-        "required_pull_request_reviews": parsed.required_pull_request_reviews,
+        "required_pull_request_reviews": _put_reviews(
+            parsed.required_pull_request_reviews
+        ),
         "restrictions": parsed.restrictions,
         "required_linear_history": parsed.required_linear_history,
         "block_creations": parsed.block_creations,
@@ -972,8 +992,10 @@ def _recovery_floor_violations(payload: dict[str, Any]) -> list[str]:
         violations.append("stale_review_dismissal_disabled")
     if reviews["require_last_push_approval"] is not True:
         violations.append("last_push_approval_disabled")
-    bypass = reviews["bypass_pull_request_allowances"]
-    if any(bypass[actor_type] for actor_type in ("users", "teams", "apps")):
+    bypass = reviews.get("bypass_pull_request_allowances")
+    if bypass is not None and any(
+        bypass[actor_type] for actor_type in ("users", "teams", "apps")
+    ):
         violations.append("bypass_actors_present")
     if payload["required_conversation_resolution"] is not True:
         violations.append("conversation_resolution_disabled")
