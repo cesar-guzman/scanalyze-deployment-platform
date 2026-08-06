@@ -5,5 +5,5 @@ locals {
   state_scope  = "global" # "global" or "regional"
 
   # Contract identity binding
-  contract_key = "edge/v1"
+  contract_key = "edge/v2"
 }

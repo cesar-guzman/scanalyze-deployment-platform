@@ -2,28 +2,32 @@
 
 > **Layer**: 5a+  
 > **Scope**: global  
-> **Produces contract**: `edge/v1`  
-> **Consumes**: edge-identity/v1
+> **Produces contract**: `edge/v2`
+> **Consumes**: `edge-identity/v2`
 
 ## Purpose
 
-Interface skeleton for the edge layer. M1 does not implement production
-AWS resources — this module defines the typed input/output interface that
-the root skeleton (`roots/edgeedge`) will call.
+Edge implementation for CloudFront, WAF, ACM, Route53, the shared frontend S3
+origin, and the Terraform-owned public `frontend-config/v3` object. Its
+Terraform root is `roots/edge`; this repository-only contract does not certify
+the live deployment wrapper or authorize an apply.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `versions.tf` | Terraform version constraint (no provider) |
-| `variables.tf` | Typed inputs aligned with M0 schemas |
-| `outputs.tf` | Contract-aligned outputs |
+| `versions.tf` | Terraform and provider constraints |
+| `variables.tf` | Typed, fail-closed contract inputs |
+| `outputs.tf` | Contract and public runtime-config outputs |
 | `locals.tf` | Layer metadata |
 | `contract.tf` | Contract producer gate |
+| `runtime_config.tf` | Canonical runtime-config rendering and exact S3 publication |
+| `cloudfront.tf` | Edge routing and isolated no-store runtime-config behavior |
 
-## M1 Constraints
+## Constraints
 
-- No production AWS resources
-- No provider configuration (injected by root)
-- Interface-only skeleton
+- Provider configuration is injected by the root
+- No `terraform_remote_state`
+- Runtime config contains public routing/identity metadata only and grants no authority
+- API Gateway, Cognito, frontend origin, and upstream digest bindings fail closed
 - All inputs/outputs schema-aligned

@@ -6,11 +6,15 @@
 > **Live validation:** No
 > **Production:** NO-GO
 
+> **GUG-101 amendment (2026-08-05):** The active runtime boundary is
+> `frontend-config/v3`. The former v2 statement below is superseded; only the
+> documented compatibility subset can be upgraded to v3 at load time.
+
 ## Runtime boundary
 
 The console is available at `/admin/users` only when
 `features.user_administration=true` and the bounded access-token display
-contract exactly matches the loaded `frontend-config.v2` customer, deployment,
+contract exactly matches the loaded `frontend-config.v3` customer, deployment,
 policy digest, catalogs, active membership, role, scopes, and time bounds.
 
 This browser check is not authority. Every API request is independently

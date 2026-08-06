@@ -239,7 +239,20 @@
       "consumers": ["edge", "synthetic-validation"],
       "consumer_bindings": {
         "edge": {
-          "output_variables": { "api_gateway_endpoint": "api_gateway_endpoint" },
+          "output_variables": {
+            "api_gateway_id": "api_gateway_id",
+            "api_gateway_endpoint": "api_gateway_endpoint",
+            "aws_partition": "aws_partition",
+            "cognito_user_pool_id": "cognito_user_pool_id",
+            "cognito_issuer_url": "cognito_issuer_url",
+            "cognito_spa_client_id": "cognito_spa_client_id",
+            "allowed_token_uses": "allowed_token_uses",
+            "action_scopes": "identity_action_scopes",
+            "policy_version": "identity_policy_version",
+            "policy_digest": "identity_policy_digest",
+            "policy_canonicalization": "identity_policy_canonicalization",
+            "id_tokens_accepted": "id_tokens_accepted"
+          },
           "metadata_variables": {
             "contract_digest": ["upstream_contract_digest", "expected_upstream_digest"],
             "output_schema_version": ["upstream_contract_id"],

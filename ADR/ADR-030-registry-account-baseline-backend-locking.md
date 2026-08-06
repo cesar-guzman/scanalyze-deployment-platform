@@ -1,7 +1,8 @@
 # ADR-030: Deployment Registry, Account Baseline, Backend, and Locking
 
 - **Status:** Proposed; accepted only after reviewed merge and main verification
-- **Date:** 2026-07-14; transition/recovery boundary clarified 2026-07-27
+- **Date:** 2026-07-14; transition/recovery boundary clarified 2026-07-27;
+  runtime-origin versioning amended by GUG-101 on 2026-08-05
 - **Work package:** GUG-122
 - **Baseline:** `82fd2c7156f88897ca78af3ba0b54ee8921a4f40`
 - **Remediation baseline:** `af0d99ee4020d8cd1ded608dd640fa405d97002f`
@@ -45,11 +46,27 @@ state bucket ARN, and KMS key ARN. Its canonical digest must equal a separate
 anchor retrieved from the approved registry path. A self-consistent request
 record without that independent version/digest anchor is denied.
 
+Deployment-target v2 additively binds one closed `runtime_origin/v1` containing
+the exact public application domain. Identity-control-plane, edge-identity and
+edge require v2 so callback/logout registration, API CORS and SPA routing cannot
+select different origins under one execution lock. Their generated backend
+binding v2 carries that origin from the target record. Manifest and CLI values
+remain assertions; Terraform inputs use the authorized binding values. Target
+v1 and backend-binding v1 remain unchanged for layers that do not own the
+runtime origin.
+
 Registry creation uses `attribute_not_exists(deployment_id)`. Updates use an
 exact version/digest compare-and-swap, increment by one, preserve every
 ownership/backend field, and follow the reviewed status state machine. Table
 scan, delete, ownership reassignment, silent re-registration, and arbitrary
 attributes are not authorized.
+
+The sole schema transition is an exact CAS migration from target v1 to v2. It
+must preserve status and every existing binding, add only `runtime_origin/v1`,
+increment the registry version and recompute the record digest. The new digest
+invalidates the prior anchor and lock binding, so execution requires a freshly
+retrieved anchor and a newly acquired lock. Subsequent v2 updates treat
+`runtime_origin` as immutable.
 
 ### 3. ACCOUNT_READY v2 proves the baseline
 
@@ -148,7 +165,8 @@ verifies the actual caller account before Terraform initialization.
 No automatic conversion of manifest v1, `ACCOUNT_READY` v1, legacy DynamoDB
 lock tables, unbound state buckets, or pre-existing state keys is permitted.
 Classify each as bound, partially bound, ambiguous, orphaned, or inconsistent.
-Normal execution denies every class except fully bound v2. Migration requires
+Normal execution denies every class except fully bound evidence. Domain-owning
+layers additionally deny target v1. Migration requires
 report-only inventory, explicit owner review, collision analysis, a recovery
 point, and a separately approved change.
 
@@ -175,4 +193,5 @@ v1 baseline inference, DynamoDB locking, or automatic force-unlock.
 - **Production:** **NO-GO**.
 
 No schema version or third-party dependency changed in the 2026-07-27
-remediation.
+remediation. The later GUG-101 amendment adds target/binding v2 while preserving
+the v1 schema bytes and execution-lock v1 contract.

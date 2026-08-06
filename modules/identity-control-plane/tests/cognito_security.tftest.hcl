@@ -46,6 +46,7 @@ variables {
   account_id                          = "000000000000"
   runtime_permissions_boundary_arn    = "arn:aws:iam::000000000000:policy/scanalyze-identity-runtime-boundary"
   region                              = "us-east-1"
+  domain_name                         = "app.synthetic.example"
   release_version                     = "v0.0.0-synthetic"
   release_manifest_digest             = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   policy_version                      = "1.0.0"
@@ -65,7 +66,7 @@ variables {
     "https://app.synthetic.example/callback",
   ]
   spa_logout_urls = [
-    "https://app.synthetic.example/logout",
+    "https://app.synthetic.example/",
   ]
 }
 
@@ -233,13 +234,14 @@ run "configures_a_public_authorization_code_spa_client" {
   }
 
   assert {
-    condition = alltrue([
-      for url in concat(
-        tolist(aws_cognito_user_pool_client.spa.callback_urls),
-        tolist(aws_cognito_user_pool_client.spa.logout_urls),
-      ) : startswith(url, "https://") && !strcontains(lower(url), "localhost")
-    ])
-    error_message = "customer-deployment callback and logout URLs must be exact HTTPS URLs; localhost is test-only"
+    condition = (
+      aws_cognito_user_pool_domain.main.domain == lower(replace("${var.deployment_id}-identity", "_", "-")) &&
+      length(aws_cognito_user_pool_client.spa.callback_urls) == 1 &&
+      one(aws_cognito_user_pool_client.spa.callback_urls) == "https://${var.domain_name}/callback" &&
+      length(aws_cognito_user_pool_client.spa.logout_urls) == 1 &&
+      one(aws_cognito_user_pool_client.spa.logout_urls) == "https://${var.domain_name}/"
+    )
+    error_message = "hosted UI, callback, and logout registrations must use the exact shared deployment-derived values"
   }
 
   assert {
@@ -251,6 +253,26 @@ run "configures_a_public_authorization_code_spa_client" {
     condition     = aws_cognito_user_pool_client.spa.enable_token_revocation
     error_message = "the SPA client must support session revocation"
   }
+}
+
+run "rejects_a_callback_not_derived_from_the_shared_domain" {
+  command = plan
+
+  variables {
+    spa_callback_urls = ["https://foreign.synthetic.example/callback"]
+  }
+
+  expect_failures = [aws_cognito_user_pool_client.spa]
+}
+
+run "rejects_a_logout_not_derived_from_the_shared_domain" {
+  command = plan
+
+  variables {
+    spa_logout_urls = ["https://app.synthetic.example/logout"]
+  }
+
+  expect_failures = [aws_cognito_user_pool_client.spa]
 }
 
 run "binds_the_user_pool_to_a_versioned_v2_pre_token_trigger" {

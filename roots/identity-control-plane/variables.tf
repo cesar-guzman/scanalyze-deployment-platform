@@ -54,6 +54,17 @@ variable "aws_partition" {
   }
 }
 
+variable "domain_name" {
+  type        = string
+  description = "Exact lowercase DNS hostname shared with the deployment edge."
+  nullable    = false
+
+  validation {
+    condition     = length(var.domain_name) <= 253 && can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.domain_name))
+    error_message = "domain_name must be an exact lowercase DNS hostname of at most 253 characters."
+  }
+}
+
 variable "release_version" {
   type        = string
   description = "Immutable reviewed release version."
@@ -160,18 +171,6 @@ variable "policy_digest" {
     condition     = can(regex("^sha256:[0-9a-f]{64}$", var.policy_digest))
     error_message = "policy_digest must be sha256:<64 lowercase hex>."
   }
-}
-
-variable "spa_callback_urls" {
-  type        = list(string)
-  description = "Exact deployment SPA callback URLs."
-  nullable    = false
-}
-
-variable "spa_logout_urls" {
-  type        = list(string)
-  description = "Exact deployment SPA logout URLs."
-  nullable    = false
 }
 
 variable "alarm_actions" {

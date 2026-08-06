@@ -53,6 +53,7 @@ def _manifest() -> dict:
         "environment": ENVIRONMENT,
         "aws_account_id": ACCOUNT_ID,
         "aws_region": REGION,
+        "domain": "app.synthetic.example",
         "github": {
             "environment": "synthetic-sandbox",
             "oidc_role_arn": (
@@ -148,6 +149,17 @@ def _target(account_ready: dict) -> dict:
             "state_bucket": account_ready["state_infrastructure"]["state_bucket"],
             "state_kms_key": account_ready["state_infrastructure"]["state_kms_key"],
         },
+    }
+    document["record_digest"] = _digest(document, "record_digest")
+    return document
+
+
+def _target_v2(account_ready: dict) -> dict:
+    document = _target(account_ready)
+    document["schema_version"] = "2"
+    document["runtime_origin"] = {
+        "schema_version": "1",
+        "domain_name": "app.synthetic.example",
     }
     document["record_digest"] = _digest(document, "record_digest")
     return document
@@ -385,6 +397,139 @@ def test_authorization_derives_backend_only_from_trusted_bindings() -> None:
     }
     assert binding["registry_record_digest"] == target["record_digest"]
     assert binding["binding_digest"] == _digest(binding, "binding_digest")
+
+
+def test_domain_owning_layer_uses_digest_bound_target_v2_origin() -> None:
+    account_ready = _account_ready()
+    target = _target_v2(account_ready)
+    binding = authorize_backend(
+        manifest=_manifest(),
+        target=target,
+        anchor=_anchor(target),
+        account_ready=account_ready,
+        execution_lock=_lock(target),
+        layer_catalog=_catalog(),
+        layer="edge",
+        now=NOW,
+        schema_dir=SCHEMAS,
+    )
+
+    assert binding["schema_version"] == "2"
+    assert binding["runtime_origin"] == target["runtime_origin"]
+    assert binding["registry_record_digest"] == target["record_digest"]
+    assert binding["binding_digest"] == _digest(binding, "binding_digest")
+
+
+def test_domain_owning_layer_rejects_manifest_origin_substitution() -> None:
+    account_ready = _account_ready()
+    target = _target_v2(account_ready)
+    manifest = _manifest()
+    manifest["domain"] = "substituted.synthetic.example"
+
+    with pytest.raises(AuthorizationError, match="conflicting domain_name binding"):
+        authorize_backend(
+            manifest=manifest,
+            target=target,
+            anchor=_anchor(target),
+            account_ready=account_ready,
+            execution_lock=_lock(target),
+            layer_catalog=_catalog(),
+            layer="identity-control-plane",
+            now=NOW,
+            schema_dir=SCHEMAS,
+        )
+
+
+def test_domain_owning_layer_rejects_unbound_target_v1() -> None:
+    account_ready = _account_ready()
+    target = _target(account_ready)
+
+    with pytest.raises(
+        AuthorizationError,
+        match="domain-owning layers require deployment target v2",
+    ):
+        authorize_backend(
+            manifest=_manifest(),
+            target=target,
+            anchor=_anchor(target),
+            account_ready=account_ready,
+            execution_lock=_lock(target),
+            layer_catalog=_catalog(),
+            layer="edge",
+            now=NOW,
+            schema_dir=SCHEMAS,
+        )
+
+
+def test_registry_v2_makes_runtime_origin_immutable() -> None:
+    account_ready = _account_ready()
+    current = _target_v2(account_ready)
+    current["registry_version"] = 1
+    current["status"] = "REQUESTED"
+    current["record_digest"] = _digest(current, "record_digest")
+    assert prepare_registry_create(current)["condition_expression"] == (
+        "attribute_not_exists(deployment_id)"
+    )
+
+    proposed = copy.deepcopy(current)
+    proposed["registry_version"] = 2
+    proposed["status"] = "BASELINING"
+    proposed["runtime_origin"]["domain_name"] = "substituted.synthetic.example"
+    proposed["record_digest"] = _digest(proposed, "record_digest")
+
+    with pytest.raises(AuthorizationError, match="runtime_origin"):
+        prepare_registry_update(
+            current=current,
+            proposed=proposed,
+            expected_version=current["registry_version"],
+            expected_digest=current["record_digest"],
+        )
+
+
+def test_registry_cas_migrates_v1_to_v2_without_other_state_change() -> None:
+    current = _target(_account_ready())
+    proposed = copy.deepcopy(current)
+    proposed["schema_version"] = "2"
+    proposed["registry_version"] += 1
+    proposed["runtime_origin"] = {
+        "schema_version": "1",
+        "domain_name": "app.synthetic.example",
+    }
+    proposed["record_digest"] = _digest(proposed, "record_digest")
+
+    write = prepare_registry_update(
+        current=current,
+        proposed=proposed,
+        expected_version=current["registry_version"],
+        expected_digest=current["record_digest"],
+    )
+
+    assert "schema_version = :expected_schema_version" in write[
+        "condition_expression"
+    ]
+    assert write["expression_attribute_values"][":expected_schema_version"] == "1"
+    assert proposed["record_digest"] != current["record_digest"]
+
+
+def test_registry_v1_to_v2_migration_cannot_change_status() -> None:
+    current = _target(_account_ready())
+    proposed = copy.deepcopy(current)
+    proposed["schema_version"] = "2"
+    proposed["registry_version"] += 1
+    proposed["status"] = "ACTIVE"
+    proposed["runtime_origin"] = {
+        "schema_version": "1",
+        "domain_name": "app.synthetic.example",
+    }
+    proposed["record_digest"] = _digest(proposed, "record_digest")
+
+    with pytest.raises(AuthorizationError, match="cannot change status"):
+        prepare_registry_update(
+            current=current,
+            proposed=proposed,
+            expected_version=current["registry_version"],
+            expected_digest=current["record_digest"],
+        )
 
 
 def test_manifest_v2_rejects_request_supplied_backend_coordinates() -> None:

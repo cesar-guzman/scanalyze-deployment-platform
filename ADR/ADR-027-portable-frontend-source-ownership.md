@@ -12,6 +12,11 @@
 
 Production: **NO-GO**
 
+> **GUG-101 amendment (2026-08-05):** This ADR records the historical v2
+> import boundary. The active runtime contract is now `frontend-config/v3` as
+> defined by ADR-014 and `docs/deployment/frontend-config.md`; v2 is accepted
+> only through the explicit compatibility subset documented there.
+
 ## Context
 
 The deployment-platform monorepo was already the declared canonical source for
@@ -46,7 +51,8 @@ untracked working-tree file.
 that the CodeCommit ref was not fetched or live-verified. Its closed schema and
 repository tests prevent the evidence class from being upgraded silently.
 
-The SPA consumes only the closed `frontend-config.v2` runtime contract. Missing,
+At the time of this decision, the SPA consumed only the closed
+`frontend-config.v2` runtime contract. Missing,
 oversized, malformed, legacy, mixed-region, identity-authoritative, HTTP, or
 policy-digest-conflicting configuration blocks application initialization.
 There is no build-time environment or local endpoint fallback. Runtime identity

@@ -1,7 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Link, useLocation } from 'react-router';
 import { getConfig } from '../config';
+import {
+  AuthOperationTimeoutError,
+  buildCognitoLogoutUrl,
+  withAuthOperationTimeout,
+} from '../auth/bootstrap';
 import { resolveEnterpriseUxAuthorizationFromSession } from '../security/enterpriseUxAuthorization.js';
 
 export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -9,6 +14,38 @@ export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   const location = useLocation();
   const isDashboard = location.pathname === '/dashboard';
   let showUserAdministration: boolean;
+  const [logoutFailure, setLogoutFailure] = useState<string | null>(
+    auth.error && auth.isAuthenticated ? 'AUTH_LOGOUT_FAILED' : null,
+  );
+  const [logoutAttempting, setLogoutAttempting] = useState(false);
+
+  const beginLogout = () => {
+    if (logoutAttempting) return;
+    setLogoutFailure(null);
+    setLogoutAttempting(true);
+    void (async () => {
+      try {
+        const config = getConfig();
+        const logoutUrl = buildCognitoLogoutUrl(
+          config.cognitoDomain,
+          config.cognitoClientId,
+          config.postLogoutRedirectUri,
+        );
+        await withAuthOperationTimeout(
+          auth.removeUser(),
+          'AUTH_LOGOUT_TIMEOUT',
+        );
+        window.location.assign(logoutUrl);
+      } catch (error: unknown) {
+        setLogoutFailure(
+          error instanceof AuthOperationTimeoutError
+            ? error.code
+            : 'AUTH_LOGOUT_FAILED',
+        );
+        setLogoutAttempting(false);
+      }
+    })();
+  };
   try {
     const config = getConfig();
     const capabilities = resolveEnterpriseUxAuthorizationFromSession(auth.user, config);
@@ -54,12 +91,17 @@ export const PageLayout: React.FC<{ children: React.ReactNode }> = ({ children }
           </div>
           <button
             className="btn btn-outline text-sm py-1.5 px-3 whitespace-nowrap"
-            onClick={() => void auth.signoutRedirect()}
+            disabled={logoutAttempting}
+            onClick={beginLogout}
           >
             Cerrar Sesión
           </button>
         </div>
       </header>
+
+      {logoutFailure && (
+        <p className="mx-auto mt-4 text-sm text-rose-400" role="alert">{logoutFailure}</p>
+      )}
 
       <main className="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-8 lg:p-12 box-border z-10 animate-slide-up flex flex-col">
         {children}

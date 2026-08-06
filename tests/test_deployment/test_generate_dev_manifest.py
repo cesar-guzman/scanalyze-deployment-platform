@@ -15,6 +15,7 @@ SCRIPT = REPO_ROOT / "scripts" / "deployment" / "generate-dev-manifest.sh"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
 CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 GITHUB_ENVIRONMENT = f"scanalyze-{DEPLOYMENT_ID}-dev"
+DOMAIN_NAME = "app.synthetic.example"
 
 
 def _fake_aws(tmp_path: Path) -> Path:
@@ -47,6 +48,8 @@ def _generator_args(output: Path) -> list[str]:
         DEPLOYMENT_ID,
         "--github-environment",
         GITHUB_ENVIRONMENT,
+        "--domain-name",
+        DOMAIN_NAME,
         "--output",
         str(output),
     ]
@@ -111,6 +114,7 @@ def test_generator_writes_private_file_outside_repository(tmp_path: Path) -> Non
     assert 'aws_account_id: "123456789012"' in content
     manifest = yaml.safe_load(content)
     assert manifest["deployment_id"] == DEPLOYMENT_ID
+    assert manifest["domain"] == DOMAIN_NAME
     assert manifest["github"]["environment"] == GITHUB_ENVIRONMENT
     assert "github_environment" not in manifest
 
@@ -124,6 +128,8 @@ def test_generator_requires_registry_assigned_deployment_id(tmp_path: Path) -> N
             CUSTOMER_ID,
             "--github-environment",
             GITHUB_ENVIRONMENT,
+            "--domain-name",
+            DOMAIN_NAME,
             "--output",
             str(output),
         ],
@@ -150,6 +156,8 @@ def test_generator_requires_separate_github_environment_binding(
             CUSTOMER_ID,
             "--deployment-id",
             DEPLOYMENT_ID,
+            "--domain-name",
+            DOMAIN_NAME,
             "--output",
             str(output),
         ],
@@ -162,6 +170,51 @@ def test_generator_requires_separate_github_environment_binding(
 
     assert result.returncode == 2
     assert "--github-environment is required" in result.stderr
+    assert not output.exists()
+
+
+def test_generator_requires_registry_bound_domain(tmp_path: Path) -> None:
+    output = tmp_path / "manifest.yaml"
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--github-environment",
+            GITHUB_ENVIRONMENT,
+            "--output",
+            str(output),
+        ],
+        cwd=REPO_ROOT,
+        env=_safe_env(tmp_path),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--domain-name is required" in result.stderr
+    assert not output.exists()
+
+
+def test_generator_rejects_noncanonical_domain(tmp_path: Path) -> None:
+    output = tmp_path / "manifest.yaml"
+    args = _generator_args(output)
+    args[args.index(DOMAIN_NAME)] = "HTTPS://app.synthetic.example"
+
+    result = subprocess.run(
+        args,
+        cwd=REPO_ROOT,
+        env=_safe_env(tmp_path),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "exact lowercase public DNS hostname" in result.stderr
     assert not output.exists()
 
 

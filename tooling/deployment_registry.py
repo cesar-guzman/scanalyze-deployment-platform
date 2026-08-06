@@ -27,6 +27,10 @@ IMMUTABLE_FIELDS = frozenset(
         "state_binding",
     }
 )
+TARGET_SCHEMAS = {
+    "1": "deployment-target.v1.schema.json",
+    "2": "deployment-target.v2.schema.json",
+}
 ALLOWED_TRANSITIONS = {
     "REQUESTED": frozenset({"BASELINING"}),
     "BASELINING": frozenset({"READY"}),
@@ -39,7 +43,10 @@ ALLOWED_TRANSITIONS = {
 
 
 def _validate(record: dict[str, Any]) -> None:
-    schema = load_json_strict(REPO_ROOT / "schemas/deployment-target.v1.schema.json")
+    schema_name = TARGET_SCHEMAS.get(record.get("schema_version"))
+    if schema_name is None:
+        raise AuthorizationError("deployment registry schema version is unsupported")
+    schema = load_json_strict(REPO_ROOT / "schemas" / schema_name)
     errors = list(jsonschema.Draft202012Validator(schema).iter_errors(record))
     if errors:
         raise AuthorizationError("deployment registry record schema validation failed")
@@ -78,8 +85,44 @@ def prepare_registry_update(
         raise AuthorizationError("deployment registry digest conflict")
     if proposed["registry_version"] != current["registry_version"] + 1:
         raise AuthorizationError("deployment registry version must increment by one")
-    for field in IMMUTABLE_FIELDS:
-        if proposed[field] != current[field]:
+    if (
+        current.get("schema_version") == "1"
+        and proposed.get("schema_version") == "2"
+    ):
+        migration_fields = set(IMMUTABLE_FIELDS) - {"schema_version"}
+        for field in migration_fields:
+            if proposed.get(field) != current.get(field):
+                raise AuthorizationError(
+                    f"deployment registry field is immutable: {field}"
+                )
+        if proposed.get("status") != current.get("status"):
+            raise AuthorizationError(
+                "deployment target v1 to v2 migration cannot change status"
+            )
+        return {
+            "condition_expression": (
+                "registry_version = :expected_version "
+                "AND record_digest = :expected_digest "
+                "AND schema_version = :expected_schema_version "
+                "AND customer_id = :customer_id "
+                "AND account_id = :account_id "
+                "AND #region = :region"
+            ),
+            "expression_attribute_names": {"#region": "region"},
+            "expression_attribute_values": {
+                ":expected_version": expected_version,
+                ":expected_digest": expected_digest,
+                ":expected_schema_version": "1",
+                ":customer_id": current["customer_id"],
+                ":account_id": current["account_id"],
+                ":region": current["region"],
+            },
+        }
+    immutable_fields = set(IMMUTABLE_FIELDS)
+    if current.get("schema_version") == "2":
+        immutable_fields.add("runtime_origin")
+    for field in immutable_fields:
+        if proposed.get(field) != current.get(field):
             raise AuthorizationError(f"deployment registry field is immutable: {field}")
     old_status = current["status"]
     new_status = proposed["status"]

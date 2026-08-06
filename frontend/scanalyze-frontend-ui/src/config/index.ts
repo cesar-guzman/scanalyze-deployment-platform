@@ -1,32 +1,76 @@
-import { parseRuntimeConfig, RuntimeConfigError } from './runtime.js';
+import {
+  parseRuntimeConfig,
+  parseStrictJson,
+  RuntimeConfigError,
+  type ParsedRuntimeConfig,
+} from './runtime.js';
 
-export interface AppConfig {
-  schemaVersion: '2';
-  customerId: string;
-  deploymentId: string;
-  accountId: string;
-  region: string;
-  environment: 'sandbox' | 'dev' | 'staging' | 'production';
-  apiBaseUrl: string;
-  cognitoRegion: string;
-  cognitoUserPoolId: string;
-  cognitoClientId: string;
-  cognitoIssuerUrl: string;
-  cognitoDomain: string;
-  actionScopes: Readonly<{ read: string; write: string; admin: string }>;
-  policyDigest: string;
-  identityValuesAuthoritative: false;
-  features: Readonly<Record<string, boolean>>;
-  configVersion: string;
-}
+export type AppConfig = ParsedRuntimeConfig;
+
+const CONFIG_TIMEOUT_MS = 5_000;
+const MAX_CONFIG_BYTES = 65_536;
 
 let config: AppConfig | null = null;
+let pendingConfig: Promise<AppConfig> | null = null;
 
-export const loadConfig = async (): Promise<AppConfig> => {
-  if (config) return config;
+const isAbortError = (error: unknown): boolean => (
+  error instanceof DOMException
+    ? error.name === 'AbortError'
+    : Boolean(error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+);
 
+const readBoundedResponse = async (
+  response: Response,
+  controller: AbortController,
+): Promise<string> => {
+  const declaredLength = response.headers.get('Content-Length');
+  if (
+    declaredLength !== null
+    && /^[0-9]+$/.test(declaredLength)
+    && Number(declaredLength) > MAX_CONFIG_BYTES
+  ) {
+    controller.abort();
+    throw new RuntimeConfigError();
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new RuntimeConfigError('RUNTIME_CONFIG_UNAVAILABLE');
+
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_CONFIG_BYTES) {
+      controller.abort();
+      try {
+        await reader.cancel();
+      } catch {
+        // The abort already closed the body; never project transport details.
+      }
+      throw new RuntimeConfigError();
+    }
+    chunks.push(value);
+  }
+  if (size === 0) throw new RuntimeConfigError();
+
+  const content = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    content.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(content);
+  } catch {
+    throw new RuntimeConfigError();
+  }
+};
+
+const loadConfigOnce = async (): Promise<AppConfig> => {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  const timeout = window.setTimeout(() => controller.abort(), CONFIG_TIMEOUT_MS);
   try {
     const response = await fetch('/config.json', {
       cache: 'no-store',
@@ -35,25 +79,37 @@ export const loadConfig = async (): Promise<AppConfig> => {
       signal: controller.signal,
     });
     if (!response.ok) throw new RuntimeConfigError('RUNTIME_CONFIG_UNAVAILABLE');
-    const serialized = await response.text();
-    if (serialized.length === 0 || serialized.length > 65_536) {
-      throw new RuntimeConfigError();
-    }
-    const parsed: unknown = JSON.parse(serialized);
-    config = parseRuntimeConfig(parsed) as AppConfig;
-    return config;
+
+    const serialized = await readBoundedResponse(response, controller);
+
+    const parsed = parseStrictJson(serialized);
+    return parseRuntimeConfig(parsed, { origin: window.location.origin });
   } catch (error: unknown) {
     if (error instanceof RuntimeConfigError) throw error;
-    throw new RuntimeConfigError();
+    if (isAbortError(error)) throw new RuntimeConfigError('RUNTIME_CONFIG_TIMEOUT');
+    throw new RuntimeConfigError('RUNTIME_CONFIG_UNAVAILABLE');
   } finally {
     window.clearTimeout(timeout);
   }
 };
 
+export const loadConfig = (): Promise<AppConfig> => {
+  if (config) return Promise.resolve(config);
+  if (pendingConfig) return pendingConfig;
+
+  pendingConfig = loadConfigOnce()
+    .then((loaded) => {
+      config = loaded;
+      return loaded;
+    })
+    .finally(() => {
+      pendingConfig = null;
+    });
+  return pendingConfig;
+};
+
 export const getConfig = (): AppConfig => {
-  if (!config) {
-    throw new RuntimeConfigError('RUNTIME_CONFIG_NOT_LOADED');
-  }
+  if (!config) throw new RuntimeConfigError('RUNTIME_CONFIG_NOT_LOADED');
   return config;
 };
 

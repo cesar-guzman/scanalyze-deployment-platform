@@ -11,6 +11,7 @@ environment: "dev"
 
 aws_account_id: "__ACCOUNT_ID__"
 aws_region: "__REGION__"
+domain: "__DOMAIN_NAME__"
 
 github:
   environment: "__GITHUB_ENVIRONMENT__"

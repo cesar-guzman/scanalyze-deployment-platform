@@ -155,4 +155,16 @@ resource "aws_cognito_user_pool_client" "spa" {
   access_token_validity  = 15
   id_token_validity      = 15
   refresh_token_validity = 1
+
+  lifecycle {
+    precondition {
+      condition = (
+        length(var.spa_callback_urls) == 1 &&
+        one(var.spa_callback_urls) == "https://${var.domain_name}/callback" &&
+        length(var.spa_logout_urls) == 1 &&
+        one(var.spa_logout_urls) == "https://${var.domain_name}/"
+      )
+      error_message = "Cognito SPA callback and logout registrations must be the exact singleton URIs derived from domain_name."
+    }
+  }
 }

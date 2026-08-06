@@ -18,11 +18,13 @@ usage() {
   cat >&2 <<'EOF'
 Usage: generate-dev-manifest.sh <customer-id> \
   --deployment-id <registry-assigned-dep_ULID> \
+  --domain-name <lowercase-public-dns-name> \
   --github-environment <deployment-scoped-environment> \
   --output <path-outside-repository>
 
 Required operational inputs:
   --deployment-id       Immutable deployment ID allocated by the approved registry
+  --domain-name         Exact domain in the approved deployment-target/v2 runtime origin
   --github-environment  Pre-created, protected Environment for this deployment/stage
 
 Required environment:
@@ -37,6 +39,7 @@ CUSTOMER_ID="$1"
 shift
 OUTPUT_FILE=""
 DEPLOYMENT_ID=""
+DOMAIN_NAME=""
 GITHUB_ENVIRONMENT=""
 
 while [[ "$#" -gt 0 ]]; do
@@ -49,6 +52,11 @@ while [[ "$#" -gt 0 ]]; do
     --github-environment)
       [[ -n "${2:-}" ]] || { echo "ERROR: --github-environment requires a value" >&2; exit 2; }
       GITHUB_ENVIRONMENT="$2"
+      shift 2
+      ;;
+    --domain-name)
+      [[ -n "${2:-}" ]] || { echo "ERROR: --domain-name requires a value" >&2; exit 2; }
+      DOMAIN_NAME="$2"
       shift 2
       ;;
     --output)
@@ -74,6 +82,14 @@ done
 }
 [[ -n "$DEPLOYMENT_ID" ]] || {
   echo "ERROR: --deployment-id is required and must come from the approved registry" >&2
+  exit 2
+}
+[[ -n "$DOMAIN_NAME" ]] || {
+  echo "ERROR: --domain-name is required and must match deployment-target/v2" >&2
+  exit 2
+}
+[[ "${#DOMAIN_NAME}" -le 253 && "$DOMAIN_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || {
+  echo "ERROR: --domain-name must be an exact lowercase public DNS hostname" >&2
   exit 2
 }
 [[ "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]] || {
@@ -144,6 +160,7 @@ sed -e "s/__ACCOUNT_ID__/${ACCOUNT_ID}/g" \
     -e "s/__REGION__/${REGION}/g" \
     -e "s/__CUSTOMER_ID__/${CUSTOMER_ID}/g" \
     -e "s/__DEPLOYMENT_ID__/${DEPLOYMENT_ID}/g" \
+    -e "s/__DOMAIN_NAME__/${DOMAIN_NAME}/g" \
     -e "s/__GITHUB_ENVIRONMENT__/${GITHUB_ENVIRONMENT}/g" \
     -e "s/__LOWER_ULID__/${LOWER_ULID}/g" \
     "$TEMPLATE_FILE" > "$TEMP_OUTPUT"

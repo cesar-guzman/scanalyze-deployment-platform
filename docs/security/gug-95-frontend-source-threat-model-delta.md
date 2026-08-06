@@ -6,6 +6,11 @@
 - **Live validation:** No
 - **Production:** NO-GO
 
+> **GUG-101 amendment (2026-08-05):** This delta preserves the historical v2
+> prerequisite assessment. The active parser and runtime boundary are
+> `frontend-config/v3`; v2 survives only as the explicit, fail-closed
+> compatibility subset documented in `docs/deployment/frontend-config.md`.
+
 ## Assets and trust boundaries
 
 The protected assets are source integrity, dependency reproducibility, exact
@@ -13,8 +18,8 @@ deployment/runtime binding, access-token custody, frontend/backend authority
 separation, and absence of customer or operational evidence in the canonical
 source tree.
 
-Trust boundaries are: legacy Git object to import allowlist; clean clone to npm
-lockfile; `/config.json` to the closed v2 parser; OIDC session storage to the API
+Trust boundaries at the time were: legacy Git object to import allowlist; clean
+clone to npm lockfile; `/config.json` to the then-current closed v2 parser; OIDC session storage to the API
 client; SPA route visibility to backend PDP/PEP; and browser tests to synthetic
 network mocks.
 
@@ -24,7 +29,7 @@ network mocks.
 |---|---|
 | Dirty-source or secret import | Exact cached commit/tree, allowlist export, denied classes, Git safety and security sentinel |
 | Build-time/customer fork | One target path and release line; no `.env` or live `config.json` |
-| Config spoofing or legacy fallback | Closed v2 parser, exact policy digest/scopes/issuer/region, no local/build-time fallback |
+| Config spoofing or legacy fallback | Then-current closed v2 parser, exact policy digest/scopes/issuer/region, no local/build-time fallback; superseded by the GUG-101 v3 parser boundary |
 | ID token or missing token sent to API | Access-token OIDC storage binding; request fails before network if session is absent, invalid, or expired |
 | Spreadsheet formula injection in local exports | All browser-generated CSV cells are quoted, quote-escaped, and formula-neutralized |
 | Unsafe presigned/download navigation | Central HTTPS-only browser boundary rejects credentials and non-HTTPS schemes; new windows use `noopener,noreferrer` |

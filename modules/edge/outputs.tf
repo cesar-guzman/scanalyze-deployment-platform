@@ -30,3 +30,21 @@ output "route53_zone_id" {
   description = "Route53 hosted zone ID (passed through from input)"
   value       = var.route53_zone_id
 }
+
+output "frontend_runtime_config" {
+  description = "Closed public frontend-config/v3 object; contains no secrets and grants no authority"
+  value       = local.frontend_runtime_config
+  sensitive   = false
+}
+
+output "frontend_runtime_config_json" {
+  description = "Deterministic JSON encoding of the public frontend-config/v3 object"
+  value       = local.frontend_runtime_config_json
+  sensitive   = false
+}
+
+output "frontend_runtime_config_sha256" {
+  description = "SHA-256 digest of the exact emitted frontend-config/v3 JSON bytes"
+  value       = local.frontend_runtime_config_sha256
+  sensitive   = false
+}

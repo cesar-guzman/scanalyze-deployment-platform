@@ -33,6 +33,9 @@ EXPECTED_CONTROLS = {
     "state_object_lock_enabled": False,
     "native_lockfile_enabled": True,
 }
+DOMAIN_BOUND_LAYERS = frozenset(
+    {"identity-control-plane", "edge-identity", "edge"}
+)
 KMS_ARN = re.compile(
     r"^arn:aws(?:-[a-z]+)*:kms:(?P<region>[a-z0-9-]+):"
     r"(?P<account>[0-9]{12}):key/[A-Za-z0-9-]+$"
@@ -165,6 +168,11 @@ def _exact_bindings(
         "region": (manifest.get("aws_region"), target.get("region"), account_ready.get("region")),
         "environment": (manifest.get("environment"), target.get("environment"), account_ready.get("environment")),
     }
+    if target.get("schema_version") == "2":
+        comparisons["domain_name"] = (
+            manifest.get("domain"),
+            target.get("runtime_origin", {}).get("domain_name"),
+        )
     for field, values in comparisons.items():
         if any(value is None or value == "" for value in values) or len(set(values)) != 1:
             raise AuthorizationError(f"conflicting {field} binding")
@@ -294,7 +302,19 @@ def authorize_backend(
 ) -> dict[str, Any]:
     """Return a content-addressed backend binding or fail closed."""
     _validate_schema(manifest, schema_dir, "deployment-manifest.v2.schema.json", "manifest v2")
-    _validate_schema(target, schema_dir, "deployment-target.v1.schema.json", "deployment target")
+    target_schema_version = target.get("schema_version")
+    if target_schema_version not in {"1", "2"}:
+        raise AuthorizationError("deployment target schema version is unsupported")
+    _validate_schema(
+        target,
+        schema_dir,
+        f"deployment-target.v{target_schema_version}.schema.json",
+        f"deployment target v{target_schema_version}",
+    )
+    if layer in DOMAIN_BOUND_LAYERS and target_schema_version != "2":
+        raise AuthorizationError(
+            "domain-owning layers require deployment target v2"
+        )
     _validate_schema(anchor, schema_dir, "deployment-target-anchor.v1.schema.json", "registry anchor")
     _validate_schema(account_ready, schema_dir, "account-ready.v2.schema.json", "ACCOUNT_READY v2")
     _validate_schema(execution_lock, schema_dir, "deployment-execution-lock.v1.schema.json", "execution lock")
@@ -331,8 +351,9 @@ def authorize_backend(
         target["region"],
     )
 
+    binding_schema_version = "2" if target_schema_version == "2" else "1"
     binding: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": binding_schema_version,
         "customer_id": target["customer_id"],
         "deployment_id": target["deployment_id"],
         "account_id": target["account_id"],
@@ -354,11 +375,13 @@ def authorize_backend(
             "allowed_account_ids": [target["account_id"]],
         },
     }
+    if binding_schema_version == "2":
+        binding["runtime_origin"] = target["runtime_origin"]
     binding["binding_digest"] = canonical_digest(binding)
     _validate_schema(
         binding,
         schema_dir,
-        "terraform-backend-binding.v1.schema.json",
+        f"terraform-backend-binding.v{binding_schema_version}.schema.json",
         "backend binding",
     )
     return binding

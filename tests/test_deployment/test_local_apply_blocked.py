@@ -108,6 +108,7 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
         "environment": "sandbox",
         "aws_account_id": ACCOUNT_ID,
         "aws_region": "us-east-1",
+        "domain": "app.synthetic.example",
         "github": {
             "environment": "synthetic-sandbox",
             "oidc_role_arn": f"arn:aws:iam::{ACCOUNT_ID}:role/github-oidc-scanalyze-deploy",

@@ -169,7 +169,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: "true"
         run: make provider-check
 
-      - name: Test identity Terraform contracts with mock provider
+      - name: Test identity and frontend runtime Terraform contracts with mock provider
         env:
           AWS_EC2_METADATA_DISABLED: "true"
         run: |
@@ -177,3 +177,5 @@ jobs:
           terraform -chdir=modules/identity-control-plane test -no-color
           terraform -chdir=modules/edge-identity init -backend=false -input=false
           terraform -chdir=modules/edge-identity test -no-color
+          terraform -chdir=modules/edge init -backend=false -input=false
+          terraform -chdir=modules/edge test -no-color

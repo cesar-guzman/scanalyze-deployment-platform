@@ -54,7 +54,7 @@ def test_frontend_import_excludes_sensitive_and_imperative_artifacts() -> None:
     assert not any(path.endswith((".log", ".har", ".pem", ".key")) for path in imported)
 
 
-def test_frontend_runtime_config_is_v2_only_and_fail_closed() -> None:
+def test_frontend_runtime_config_is_versioned_and_fail_closed() -> None:
     source = "\n".join(
         (
             _read(FRONTEND / "src" / "config" / "index.ts"),
@@ -64,7 +64,6 @@ def test_frontend_runtime_config_is_v2_only_and_fail_closed() -> None:
 
     for forbidden in (
         "import.meta.env",
-        "localhost",
         "falling back",
         "VITE_",
     ):
@@ -77,6 +76,10 @@ def test_frontend_runtime_config_is_v2_only_and_fail_closed() -> None:
         "policy_digest",
         "customer_id",
         "deployment_id",
+        "sourceSchemaVersion === '3'",
+        "environment === 'sandbox'",
+        "parsed.hostname === 'localhost'",
+        "parsed.port !== ''",
     ):
         assert required in source
 
