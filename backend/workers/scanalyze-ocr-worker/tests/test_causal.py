@@ -11,7 +11,6 @@ import boto3
 # 1. Kill network
 def _kill_network(*args, **kwargs):
     raise RuntimeError("Network is disabled in hermetic tests")
-socket.socket = _kill_network
 
 # 2. Setup Boto3 Mocks BEFORE importing app code
 def _mock_s3_read(bucket, key):
@@ -36,7 +35,7 @@ def _mock_boto_client(*args, **kwargs):
                 {"Name": "/scanalyze/test/tenants/test_tenant/ocr_poll_queue_url", "Value": "queue"},
                 {"Name": "/scanalyze/test/tenants/test_tenant/ocr_sns_topic_arn", "Value": "arn:aws:sns:us-east-1:123456789012:topic"}
             ]}]
-            
+
     class MockClient:
         def __init__(self):
             class MockExceptions:
@@ -55,6 +54,9 @@ def _mock_boto_client(*args, **kwargs):
             pass
         def get_paginator(self, name):
             return MockPaginator()
+        def __getattr__(self, name):
+            if name in ["exceptions"]: raise AttributeError()
+            raise RuntimeError(f"Unexpected client method called: {name}")
     return MockClient()
 
 def _mock_boto_resource(*args, **kwargs):
@@ -81,13 +83,39 @@ def _mock_boto_resource(*args, **kwargs):
             }}
         def update_item(self, *args, **kwargs):
             return {}
+        def __getattr__(self, name):
+            raise RuntimeError(f"Unexpected table method called: {name}")
     class MockResource:
         def Table(self, name):
             return MockTable()
+        def __getattr__(self, name):
+            raise RuntimeError(f"Unexpected resource method called: {name}")
     return MockResource()
+
+call_tracker = {"client": 0, "resource": 0, "Session": 0}
+
+def _mock_boto_client_tracked(*args, **kwargs):
+    call_tracker["client"] += 1
+    return _mock_boto_client(*args, **kwargs)
+
+def _mock_boto_resource_tracked(*args, **kwargs):
+    call_tracker["resource"] += 1
+    return _mock_boto_resource(*args, **kwargs)
+
+class _MockSession:
+    def client(self, *args, **kwargs):
+        call_tracker["client"] += 1
+        return _mock_boto_client(*args, **kwargs)
+    def resource(self, *args, **kwargs):
+        call_tracker["resource"] += 1
+        return _mock_boto_resource(*args, **kwargs)
 
 @pytest.fixture
 def hermetic_aws(monkeypatch):
+    call_tracker["client"] = 0
+    call_tracker["resource"] = 0
+    call_tracker["Session"] = 0
+
     monkeypatch.setenv("SCANALYZE_ENV", "test")
     monkeypatch.setenv("SCANALYZE_TENANT", "test_tenant")
     monkeypatch.setenv("SCANALYZE_DEPLOYMENT_CUSTOMER_ID", "cust_0123456789ABCDEFGHJKMNP123")
@@ -104,31 +132,36 @@ def hermetic_aws(monkeypatch):
     def guard(*args, **kwargs):
         raise RuntimeError("Network blocked in causal test")
     monkeypatch.setattr(socket, "socket", guard)
-    
+
 
     import boto3
-    monkeypatch.setattr(boto3, "client", _mock_boto_client)
-    monkeypatch.setattr(boto3, "resource", _mock_boto_resource)
-    
-    from src.ocr_worker import aws
-    monkeypatch.setattr(aws, "sqs_client", _mock_boto_client())
-    monkeypatch.setattr(aws, "s3_client", _mock_boto_client())
-    monkeypatch.setattr(aws, "textract_client", _mock_boto_client())
-    monkeypatch.setattr(aws, "dynamodb_resource", _mock_boto_resource())
-    
-    from src.ocr_worker import config
-    monkeypatch.setattr(config.config, "ssm_client", _mock_boto_client())
+    monkeypatch.setattr(boto3, "client", _mock_boto_client_tracked)
+    monkeypatch.setattr(boto3, "resource", _mock_boto_resource_tracked)
+    monkeypatch.setattr(boto3, "Session", _MockSession)
+
+    import sys
+    to_delete = [m for m in sys.modules if m.startswith("src.ocr_worker")]
+    for m in to_delete:
+        del sys.modules[m]
+
+    # Also patch the killswitch here
+    import socket
+    def guard(*args, **kwargs):
+        raise RuntimeError("Network is disabled in hermetic tests")
+    monkeypatch.setattr(socket, "socket", guard)
+
+    return call_tracker
 
 def test_causal_ingest_log(hermetic_aws, monkeypatch):
     from src.ocr_worker.logger import setup_logging, clear_context
     from src.ocr_worker.contracts import IngestMessage, MessageMetadata, S3Location
     setup_logging()
-    
+
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(logging.getLogger().handlers[0].formatter)
     logging.getLogger().addHandler(handler)
-    
+
     # Valid
     msg_valid = IngestMessage(
         schemaVersion="scanalyze.ingest.v2",
@@ -141,7 +174,7 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
         raw=S3Location(bucket="b", key="customers/cust_0123456789ABCDEFGHJKMNP123/deployments/dep_0123456789ABCDEFGHJKMNP123/documents/d1/original.pdf"),
         _metadata=MessageMetadata(correlationId="550e8400-e29b-41d4-a716-446655440000", traceId="1-67891233-defdefdefdefdefdefdefdef")
     )
-    
+
     # Invalid (sentinel)
     msg_invalid = IngestMessage(
         schemaVersion="scanalyze.ingest.v2",
@@ -154,20 +187,44 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
         raw=S3Location(bucket="b", key="customers/cust_0123456789ABCDEFGHJKMNP123/deployments/dep_0123456789ABCDEFGHJKMNP123/documents/d2/original.pdf"),
         _metadata=MessageMetadata(correlationId="<SENTINEL_CORR>", traceId="<SENTINEL_TRACE>")
     )
-    
+
     # Must import *after* hermetic_aws mocks are in place
     from src.ocr_worker.processors.ingest import process_ingest_message
-    
+
     # These must NOT throw an exception. We removed try/except.
     process_ingest_message(msg_valid.model_dump_json(), "receipt", "msg1", 1)
     process_ingest_message(msg_invalid.model_dump_json(), "receipt", "msg2", 1)
-        
+
     logs = stream.getvalue()
     assert "550e8400-e29b-41d4-a716-446655440000" in logs
     assert "1-67891233-defdefdefdefdefdefdefdef" in logs
     assert "<SENTINEL_CORR>" not in logs
     assert "<SENTINEL_TRACE>" not in logs
 
-boto3.Session = _MockSession
-boto3.client = _mock_boto_client
-boto3.resource = _mock_boto_resource
+
+
+def test_causal_enums(hermetic_aws):
+    from src.ocr_worker.logger import setup_logging, clear_context, log_event
+    setup_logging()
+
+    import io
+    import logging
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.getLogger().handlers[0].formatter)
+    logging.getLogger().addHandler(handler)
+
+    valid_routes = ["platform", "default", "bank", "personal", "gov"]
+    valid_next_stages = ["classify", "bank-extract", "personal-extract", "gov-extract"]
+
+    for route in valid_routes:
+        log_event("test", document_route=route)
+
+    for stage in valid_next_stages:
+        log_event("test", next_stage=stage)
+
+    logs = stream.getvalue()
+    for route in valid_routes:
+        assert f'"document_route": "{route}"' in logs
+    for stage in valid_next_stages:
+        assert f'"next_stage": "{stage}"' in logs

@@ -544,15 +544,15 @@ def test_approved_metadata_survives():
 
         log_event(
             "positive_control",
-            message_id="msg-001",
+            message_id="550e8400-e29b-41d4-a716-446655440001",
             receive_count=3,
             errorType="ValueError",
             state="OCR_COMPLETED",
             next_stage="classify",
-            document_route="standard",
+            document_route="default",
             jobId="job-123",
             textractJobId="tj-456",
-            downstream_message_id="ds-789",
+            downstream_message_id="550e8400-e29b-41d4-a716-446655440002",
             delay=30,
             attempt=2,
             status="SUCCEEDED",
@@ -577,13 +577,13 @@ def test_approved_metadata_survives():
             assert record.get("attempt") == 2
             assert record.get("jobId") == "job-123"
             assert record.get("textractJobId") == "tj-456"
-            assert record.get("downstream_message_id") == "ds-789"
+            assert record.get("downstream_message_id") == "550e8400-e29b-41d4-a716-446655440002"
             assert record.get("status") == "SUCCEEDED"
-            assert record.get("message_id") == "msg-001"
+            assert record.get("message_id") == "550e8400-e29b-41d4-a716-446655440001"
             assert record.get("queue_name") == "ocr-queue"
             assert record.get("reason") == "test_reason"
             assert record.get("signal") == 15
-            assert record.get("document_route") == "standard"
+            assert record.get("document_route") == "default"
             print("POSITIVE_CONTROL_OK")
         """,
         pythonpath=str(SRC_DIR),
@@ -829,6 +829,27 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
             return True
         return False
 
+    _ALLOWED_VARS = {
+        "documentId": {"documentId", "doc_id"},
+        "messageId": {"messageId", "message_id"},
+        "message_id": {"messageId", "message_id"},
+        "receiveCount": {"receiveCount", "receive_count"},
+        "receive_count": {"receiveCount", "receive_count"},
+        "errorType": {"errorType", "error_type"},
+        "queue": {"queue", "queue_name", "next_stage"},
+        "queue_name": {"queue", "queue_name", "next_stage"},
+        "jobId": {"jobId", "job_id"},
+        "textractJobId": {"textractJobId", "job_id"},
+        "document_route": {"document_route"},
+        "next_stage": {"next_stage"},
+        "status": {"status"},
+        "state": {"state"},
+        "delay": {"delay_seconds", "delay"},
+        "attempt": {"attempt"},
+        "signal": {"signal", "signum"},
+        "downstream_message_id": {"downstream_message_id"},
+    }
+
     def check_unsafe_expr(expr: ast.expr, context: str, lineno: int, kwarg_name: str = None):
         if isinstance(expr, ast.JoinedStr):
             violations.append(f"{filename}:{lineno}: Disallowed f-string in {context}")
@@ -855,6 +876,10 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
                     pass
                 else:
                     violations.append(f"{filename}:{lineno}: Disallowed variable in {context} (must be literal)")
+            elif kwarg_name:
+                allowed = _ALLOWED_VARS.get(kwarg_name)
+                if not allowed or expr.id not in allowed:
+                    violations.append(f"{filename}:{lineno}: Disallowed variable name '{expr.id}' for kwarg '{kwarg_name}'")
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -931,7 +956,11 @@ def test_ast_audit_negative_snippets():
         "log_event_fstring": "log_event(f'event_{id}')",
         "msg_kwarg": "logger.info(msg=f'test {x}')",
         "log_event_kwarg_fstring": "log_event('event', data=f'val_{x}')",
-        "log_event_kwarg_str": "log_event('event', error=str(e))"
+        "log_event_kwarg_str": "log_event('event', error=str(e))",
+        "messageId_wrong_var": "log_event('failure', messageId=payload_alias)",
+        "jobId_wrong_var": "log_event('failure', jobId=message_body)",
+        "queue_wrong_var": "log_event('failure', queue=customer_content)",
+        "status_wrong_var": "log_event('failure', status=payload_alias)",
     }
     
     for name, code in snippets.items():

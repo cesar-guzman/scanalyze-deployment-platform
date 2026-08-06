@@ -33,21 +33,98 @@ class _ScanalyzeEventFields(dict):
 _MAX_VALUE_LENGTH = 1024
 _CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
+
 _ENUMS = {
     "status": frozenset({"SUBMITTED", "ENQUEUED", "OCR", "BANK_EXTRACTED", "CLASSIFY_COMPLETED", "SUCCEEDED", "FAILED", "IN_PROGRESS", "PARTIAL_SUCCESS", "COMPLETED", "HANDOFF_ENQUEUED"}),
     "state": frozenset({"OCR_COMPLETED", "HANDOFF_ENQUEUED", "FAILED", "SUBMITTED", "ENQUEUED", "IN_PROGRESS"}),
     "stage": frozenset({"scanalyze-ocr-worker", "ocr_ingest", "ocr"}),
-    "document_route": frozenset({"standard", "default", "bank", "personal", "gov", "fast", "express"}),
-    "next_stage": frozenset({"classify", "postprocess", "bank", "personal", "gov"}),
+    "document_route": frozenset({"platform", "default", "bank", "personal", "gov"}),
+    "next_stage": frozenset({"classify", "bank-extract", "personal-extract", "gov-extract"}),
     "reason": frozenset({"missing_message_id", "test_reason", "textract_failure", "dynamo_failure", "sqs_failure"}),
 }
 
-_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,256}$")
-_SAFE_ERR_RE = re.compile(r"^[A-Za-z0-9]{1,128}$")
+def _val_enum(field: str):
+    def validator(value):
+        if not isinstance(value, str): return None
+        cleaned = _CONTROL_CHAR_RE.sub('', value)
+        return cleaned if cleaned in _ENUMS[field] else None
+    return validator
+
+def _val_document_id(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", cleaned) else None
+
+def _val_uuid(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if re.fullmatch(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", cleaned, re.IGNORECASE) else None
+
+def _val_job_id(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", cleaned) else None
+
+def _val_queue(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", cleaned) else None
+
+def _val_error_type(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if re.fullmatch(r"^[A-Za-z0-9]{1,128}$", cleaned) else None
+
+def _val_event(value):
+    if not isinstance(value, str): return None
+    cleaned = _CONTROL_CHAR_RE.sub('', value)
+    return cleaned if len(cleaned) <= 64 else None
+
+def _val_counter(value):
+    if type(value) is bool: return None
+    if type(value) is float: return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    return None
+
+FIELD_VALIDATORS = {
+    "status": _val_enum("status"),
+    "state": _val_enum("state"),
+    "stage": _val_enum("stage"),
+    "document_route": _val_enum("document_route"),
+    "next_stage": _val_enum("next_stage"),
+    "reason": _val_enum("reason"),
+    "documentId": _val_document_id,
+    "message_id": _val_uuid,
+    "messageId": _val_uuid,
+    "downstream_message_id": _val_uuid,
+    "jobId": _val_job_id,
+    "textractJobId": _val_job_id,
+    "queue": _val_queue,
+    "queue_name": _val_queue,
+    "errorType": _val_error_type,
+    "event": _val_event,
+    "errorCount": _val_counter,
+    "parameterCount": _val_counter,
+    "attempt": _val_counter,
+    "receiveCount": _val_counter,
+    "receive_count": _val_counter,
+    "delay": _val_counter,
+    "signal": _val_counter,
+    "line": _val_counter,
+    "column": _val_counter,
+}
 
 def _sanitize_scalar(value: object, field: str = None) -> object:
     if value is None:
         return None
+    validator = FIELD_VALIDATORS.get(field)
+    if validator:
+        return validator(value)
+
+    # Generic string fallback for unspecified fields (only traceId/correlationId/invalidFields might hit this?
+    # Actually they are handled in _sanitize_log_value directly and return before this)
+    return None
     counters = frozenset({"errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay", "signal", "line", "column"})
     if type(value) is bool:
         return None if field in counters else value
@@ -59,20 +136,20 @@ def _sanitize_scalar(value: object, field: str = None) -> object:
         return value
     if isinstance(value, str):
         cleaned = _CONTROL_CHAR_RE.sub('', value)
-        
+
         if field in _ENUMS:
             return cleaned if cleaned in _ENUMS[field] else None
-            
+
         if field == "errorType":
             return cleaned if _SAFE_ERR_RE.fullmatch(cleaned) else None
-            
+
         id_fields = {"message_id", "messageId", "downstream_message_id", "jobId", "textractJobId", "queue", "queue_name", "documentId"}
         if field in id_fields:
             return cleaned if _SAFE_ID_RE.fullmatch(cleaned) else None
-            
+
         if field == "event":
             return cleaned if len(cleaned) <= 64 else None
-            
+
         if len(cleaned) > _MAX_VALUE_LENGTH:
             suffix = "…[truncated]"
             cleaned = cleaned[:_MAX_VALUE_LENGTH - len(suffix)] + suffix
@@ -200,12 +277,12 @@ class JSONFormatter(logging.Formatter):
         # 2. Context Overrides Event/Extra
         ctx = _log_context.get()
         sanitized_ctx = _sanitize_log_fields(dict(ctx), source="context")
-        
+
         stage = sanitized_ctx.get("stage", self.stage)
         if stage not in ("scanalyze-ocr-worker", "ocr_ingest", "ocr"):
             stage = "scanalyze-ocr-worker"
         merged["stage"] = stage
-        
+
         for k in ("documentId", "correlationId", "traceId"):
             if k in sanitized_ctx:
                 val = sanitized_ctx[k]
@@ -222,20 +299,20 @@ class JSONFormatter(logging.Formatter):
         level = record.levelname.lower()
         if level not in ("info", "warn", "error", "debug", "fatal", "warning", "critical"):
             level = "warn" if level == "warning" else "info"
-                
+
         env = self.env
         if env not in ("local", "dev", "test", "staging", "prod", "ci"):
             env = "unknown"
-            
+
         msg = str(record.getMessage())
         if len(msg) > 1024:
             msg = msg[:1024]
-            
+
         merged["timestamp"] = datetime.fromtimestamp(record.created, timezone.utc).isoformat()
         merged["level"] = level
         merged["env"] = env
         merged["message"] = msg
-        
+
         return json.dumps(merged, allow_nan=False)
 
 def setup_logging():
