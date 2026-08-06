@@ -122,38 +122,6 @@ def _sanitize_scalar(value: object, field: str = None) -> object:
     if validator:
         return validator(value)
 
-    # Generic string fallback for unspecified fields (only traceId/correlationId/invalidFields might hit this?
-    # Actually they are handled in _sanitize_log_value directly and return before this)
-    return None
-    counters = frozenset({"errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay", "signal", "line", "column"})
-    if type(value) is bool:
-        return None if field in counters else value
-    if isinstance(value, (int, float)):
-        if type(value) is float:
-            return None if field in counters or not math.isfinite(value) else value
-        if type(value) is not bool and isinstance(value, int):
-            return None if field in counters and value < 0 else value
-        return value
-    if isinstance(value, str):
-        cleaned = _CONTROL_CHAR_RE.sub('', value)
-
-        if field in _ENUMS:
-            return cleaned if cleaned in _ENUMS[field] else None
-
-        if field == "errorType":
-            return cleaned if _SAFE_ERR_RE.fullmatch(cleaned) else None
-
-        id_fields = {"message_id", "messageId", "downstream_message_id", "jobId", "textractJobId", "queue", "queue_name", "documentId"}
-        if field in id_fields:
-            return cleaned if _SAFE_ID_RE.fullmatch(cleaned) else None
-
-        if field == "event":
-            return cleaned if len(cleaned) <= 64 else None
-
-        if len(cleaned) > _MAX_VALUE_LENGTH:
-            suffix = "…[truncated]"
-            cleaned = cleaned[:_MAX_VALUE_LENGTH - len(suffix)] + suffix
-        return cleaned
     return None
 
 def _sanitize_invalid_fields(value: object) -> object:

@@ -77,7 +77,7 @@ def _mock_boto_resource(*args, **kwargs):
                     "ingest": {
                         "status": "ENQUEUED",
                         "enqueueId": "q1" if doc_id == "d1" else "q2",
-                        "sqsMessageId": "msg1" if doc_id == "d1" else "msg2"
+                        "sqsMessageId": "11111111-2222-3333-4444-555555555555" if doc_id == "d1" else "22222222-3333-4444-5555-666666666666"
                     }
                 }
             }}
@@ -103,6 +103,8 @@ def _mock_boto_resource_tracked(*args, **kwargs):
     return _mock_boto_resource(*args, **kwargs)
 
 class _MockSession:
+    def __init__(self, *args, **kwargs):
+        call_tracker["Session"] += 1
     def client(self, *args, **kwargs):
         call_tracker["client"] += 1
         return _mock_boto_client(*args, **kwargs)
@@ -192,14 +194,20 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
     from src.ocr_worker.processors.ingest import process_ingest_message
 
     # These must NOT throw an exception. We removed try/except.
-    process_ingest_message(msg_valid.model_dump_json(), "receipt", "msg1", 1)
-    process_ingest_message(msg_invalid.model_dump_json(), "receipt", "msg2", 1)
+    process_ingest_message(msg_valid.model_dump_json(), "receipt", "11111111-2222-3333-4444-555555555555", 1)
+    process_ingest_message(msg_invalid.model_dump_json(), "receipt", "22222222-3333-4444-5555-666666666666", 1)
 
     logs = stream.getvalue()
     assert "550e8400-e29b-41d4-a716-446655440000" in logs
     assert "1-67891233-defdefdefdefdefdefdefdef" in logs
     assert "<SENTINEL_CORR>" not in logs
     assert "<SENTINEL_TRACE>" not in logs
+    
+    # Assert counts to prove isolation
+    assert hermetic_aws["Session"] == 0
+    assert hermetic_aws["client"] > 0
+    assert hermetic_aws["resource"] > 0
+
 
 
 
@@ -228,3 +236,15 @@ def test_causal_enums(hermetic_aws):
         assert f'"document_route": "{route}"' in logs
     for stage in valid_next_stages:
         assert f'"next_stage": "{stage}"' in logs
+
+def test_causal_isolation_restored():
+    import boto3
+    import socket
+    
+    # Assert that boto3.client is not our mock
+    assert boto3.client is not _mock_boto_client_tracked
+    assert boto3.resource is not _mock_boto_resource_tracked
+    assert boto3.Session is not _MockSession
+    
+    # Assert that socket.socket is not the killswitch
+    assert socket.socket.__name__ == "socket"
