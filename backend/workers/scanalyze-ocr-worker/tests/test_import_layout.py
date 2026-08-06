@@ -164,10 +164,10 @@ class TestSanitizeLogFields:
     def test_allowed_scalars_pass_through(self):
         from ocr_worker.logger import _sanitize_log_fields
         result = _sanitize_log_fields(
-            {"correlationId": "abc-123", "documentId": "doc-1", "errorType": "ValueError"},
+            {"correlationId": "550e8400-e29b-41d4-a716-446655440000", "documentId": "doc-1", "errorType": "ValueError"},
             source="context",
         )
-        assert result == {"correlationId": "abc-123", "documentId": "doc-1"}
+        assert result == {"correlationId": "550e8400-e29b-41d4-a716-446655440000", "documentId": "doc-1"}
 
     def test_unknown_fields_are_dropped(self):
         from ocr_worker.logger import _sanitize_log_fields
@@ -204,16 +204,15 @@ class TestSanitizeLogFields:
         result = _sanitize_log_fields({"documentId": Secret()}, source="extra")
         assert result == {}
 
-    def test_oversized_strings_are_truncated(self):
+    def test_oversized_ids_are_dropped(self):
         from ocr_worker.logger import _sanitize_log_fields, _MAX_VALUE_LENGTH
-        long_val = "x" * (_MAX_VALUE_LENGTH + 500)
-        result = _sanitize_log_fields({"documentId": long_val}, source="event")
-        assert len(result["documentId"]) <= _MAX_VALUE_LENGTH + 20  # room for suffix
-        assert "…[truncated]" in result["documentId"]
+        long_val = "x" * 300
+        result = _sanitize_log_fields({"queue": long_val}, source="event")
+        assert "queue" not in result
 
     def test_control_characters_are_stripped(self):
         from ocr_worker.logger import _sanitize_log_fields
-        result = _sanitize_log_fields({"documentId": "doc\x00\x01\x02-123"}, source="event")
+        result = _sanitize_log_fields({"documentId": "doc\x00\x01\x02-123"}, source="context")
         assert "\x00" not in result["documentId"]
         assert "\x01" not in result["documentId"]
         assert "doc" in result["documentId"]
@@ -237,9 +236,9 @@ class TestSanitizeLogFields:
 
     def test_none_values_are_dropped(self):
         from ocr_worker.logger import _sanitize_log_fields
-        result = _sanitize_log_fields({"documentId": None, "correlationId": "abc"}, source="context")
+        result = _sanitize_log_fields({"documentId": None, "correlationId": "550e8400-e29b-41d4-a716-446655440000"}, source="context")
         assert "documentId" not in result
-        assert result["correlationId"] == "abc"
+        assert result["correlationId"] == "550e8400-e29b-41d4-a716-446655440000"
 
     def test_numeric_values_pass_through(self):
         from ocr_worker.logger import _sanitize_log_fields
@@ -255,11 +254,11 @@ class TestSanitizeLogFields:
         )
         assert result_event == {"delay": 30, "receive_count": 3}
 
-    def test_boolean_values_pass_through(self):
+    def test_boolean_values_pass_through_for_non_counters(self):
         from ocr_worker.logger import _sanitize_log_fields
-        # booleans should pass through for allowed fields
+        # booleans should be rejected for counters like 'signal'
         result = _sanitize_log_fields({"signal": True}, source="event")
-        assert result == {"signal": True}
+        assert result == {}
 
 
 # ===========================================================================
@@ -531,9 +530,9 @@ def test_approved_metadata_survives():
 
         setup_logging()
         bind_context(
-            correlationId="corr-123",
+            correlationId="550e8400-e29b-41d4-a716-446655440000",
             documentId="doc-456",
-            traceId="trace-789",
+            traceId="1-67891233-defdefdefdefdefdefdefdef",
             tenant="platform",
             stage="ocr",
         )
@@ -566,9 +565,9 @@ def test_approved_metadata_survives():
         output = stream.getvalue().strip()
         for line in output.splitlines():
             record = json.loads(line)
-            assert record.get("correlationId") == "corr-123"
+            assert record.get("correlationId") == "550e8400-e29b-41d4-a716-446655440000"
             assert record.get("documentId") == "doc-456"
-            assert record.get("traceId") == "trace-789"
+            assert record.get("traceId") == "1-67891233-defdefdefdefdefdefdefdef"
             assert record.get("event") == "positive_control"
             assert record.get("state") == "OCR_COMPLETED"
             assert record.get("next_stage") == "classify"
@@ -762,7 +761,7 @@ def test_combined_multi_path_redaction():
         bind_context(
             rawBody="CTX_SENTINEL",
             payload="CTX_PAYLOAD_SENTINEL",
-            correlationId="corr-combined",
+            correlationId="550e8400-e29b-41d4-a716-446655440000",
         )
 
         stream = io.StringIO()
@@ -789,8 +788,8 @@ def test_combined_multi_path_redaction():
             assert "CTX_PAYLOAD_SENTINEL" not in serialized
             assert "EVENT_RAW_SENTINEL" not in serialized
             assert "EVENT_CONTENT_SENTINEL" not in serialized
-            assert record.get("correlationId") == "corr-combined"
-            assert record.get("documentId") == "doc-safe"
+            assert record.get("correlationId") == "550e8400-e29b-41d4-a716-446655440000"
+            assert record.get("documentId") is None # DocumentId in event is now dropped
             assert record.get("event") == "combined_test"
         print("COMBINED_REDACTION_OK")
         """,
@@ -808,22 +807,46 @@ def test_combined_multi_path_redaction():
 def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[str]:
     import ast
     violations = []
-    logger_methods = {"debug", "info", "warning", "error", "critical", "exception"}
+    logger_methods = {"debug", "info", "warning", "warn", "error", "critical", "fatal", "exception"}
     
     try:
         tree = ast.parse(source_code, filename=filename)
     except SyntaxError:
         return []
 
-    # Find all logger assignments to track aliases (e.g. log = get_logger())
-    logger_aliases = {"logger"}
+    logger_aliases = {"logger", "log"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
-            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
-                if node.value.func.id in ("get_logger", "getLogger"):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            logger_aliases.add(target.id)
+            if isinstance(node.value, ast.Call) and getattr(node.value.func, "id", None) in ("get_logger", "getLogger"):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        logger_aliases.add(target.id)
+
+    def is_safe_string(node: ast.expr) -> bool:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return True
+        if isinstance(node, ast.Name) and node.id == "event_name":
+            return True
+        return False
+
+    def check_unsafe_expr(expr: ast.expr, context: str, lineno: int):
+        if isinstance(expr, ast.JoinedStr):
+            violations.append(f"{filename}:{lineno}: Disallowed f-string in {context}")
+        elif isinstance(expr, ast.BinOp):
+            if isinstance(expr.op, ast.Mod):
+                violations.append(f"{filename}:{lineno}: Disallowed % formatting in {context}")
+            elif isinstance(expr.op, ast.Add):
+                violations.append(f"{filename}:{lineno}: Disallowed concatenation in {context}")
+        elif isinstance(expr, ast.Call):
+            if isinstance(expr.func, ast.Attribute) and expr.func.attr == "format":
+                violations.append(f"{filename}:{lineno}: Disallowed .format() in {context}")
+            elif getattr(expr.func, "id", None) in ("str", "repr", "bytes"):
+                violations.append(f"{filename}:{lineno}: Disallowed str() call in {context}")
+            elif getattr(expr.func, "id", None) not in ("type", "safe_error_details", "len"):
+                if getattr(expr.func, "attr", None) != "__name__":
+                    violations.append(f"{filename}:{lineno}: Disallowed function call in {context}")
+        elif isinstance(expr, ast.Subscript):
+            violations.append(f"{filename}:{lineno}: Disallowed subscript in {context}")
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -839,47 +862,38 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
             is_log_event = True
             
         if not is_logger_call:
+            if getattr(node.func, "id", None) == "_ScanalyzeEventFields" and not filename.endswith("logger.py"):
+                violations.append(f"{filename}:{node.lineno}: _ScanalyzeEventFields must not be constructed manually")
             continue
             
-        # Check positional message
         msg_arg = None
         if node.args:
             msg_arg = node.args[0]
+            if len(node.args) > 1 and not is_log_event:
+                violations.append(f"{filename}:{node.lineno}: Logger positional formatting arguments are disallowed")
         else:
-            # Check for msg= kwarg
             for kw in node.keywords:
                 if kw.arg == "msg" or (is_log_event and kw.arg == "event_name"):
                     msg_arg = kw.value
                     break
                     
         if msg_arg:
-            if isinstance(msg_arg, ast.Constant) and isinstance(msg_arg.value, str):
-                pass
-            elif filename.endswith("logger.py") and getattr(node.func, "attr", None) == "info" and isinstance(msg_arg, ast.Name) and msg_arg.id == "event_name":
-                pass
-            else:
+            if not is_safe_string(msg_arg):
                 violations.append(f"{filename}:{node.lineno}: Non-literal log message")
-                
-        # For log_event, check that keywords don't contain bad expressions
+            check_unsafe_expr(msg_arg, "message", node.lineno)
+
         if is_log_event:
             for kw in node.keywords:
                 if kw.arg is None:
-                    # kwargs unpack (e.g., **safe_error_details(e))
                     if isinstance(kw.value, ast.Call) and getattr(kw.value.func, "id", None) == "safe_error_details":
-                        continue
-                    else:
-                        violations.append(f"{filename}:{node.lineno}: Disallowed kwargs unpack in log_event")
-                    continue
-                    
-                # Disallow f-strings (JoinedStr), BinOp (+, %), Call (.format, str)
-                if isinstance(kw.value, (ast.JoinedStr, ast.BinOp)):
-                    violations.append(f"{filename}:{node.lineno}: Disallowed expression in log_event kwarg '{kw.arg}'")
-                elif isinstance(kw.value, ast.Call):
-                    # Only allow calling type(e).__name__ in kwargs
-                    if getattr(kw.value.func, "id", None) == "type" or getattr(kw.value.func, "attr", None) == "__name__":
                         pass
                     else:
-                        violations.append(f"{filename}:{node.lineno}: Disallowed function call in log_event kwarg '{kw.arg}'")
+                        violations.append(f"{filename}:{node.lineno}: Disallowed kwargs unpack in log_event")
+                else:
+                    check_unsafe_expr(kw.value, f"kwarg '{kw.arg}'", node.lineno)
+                    if kw.arg == "reason":
+                        if not is_safe_string(kw.value):
+                            violations.append(f"{filename}:{node.lineno}: reason kwarg must be a string literal")
                     
     return violations
 

@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 _log_context = contextvars.ContextVar('scanalyze_log_context', default={})
 
 _SOURCE_PERMISSIONS = {
-    "context": frozenset({"correlationId", "traceId", "documentId", "tenant", "stage"}),
+    "context": frozenset({"correlationId", "traceId", "documentId", "stage"}),
     "event": frozenset({
         "signal", "queue", "queue_name", "message_id", "receive_count",
-        "messageId", "receiveCount", "documentId", "jobId", "textractJobId",
+        "messageId", "receiveCount", "jobId", "textractJobId",
         "document_route", "downstream_message_id", "delay", "attempt",
         "status", "state", "next_stage", "reason", "errorType", "errorCount",
         "invalidFields"
@@ -20,26 +20,43 @@ _SOURCE_PERMISSIONS = {
     "extra": frozenset({"event", "errorType", "parameterCount"})
 }
 
+_EVENT_TOKEN = object()
+
+class _ScanalyzeEventFields(dict):
+    """Private event envelope to prevent accidental Extra overwrite."""
+    def __init__(self, token: object, *args, **kwargs):
+        if token is not _EVENT_TOKEN:
+            raise ValueError("Private constructor")
+        super().__init__(*args, **kwargs)
+        self._token = token
+
 _MAX_VALUE_LENGTH = 1024
 _CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 def _sanitize_scalar(value: object, field: str = None) -> object:
     if value is None:
         return None
+    counters = frozenset({"errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay", "signal"})
     if type(value) is bool:
-        if field in ("errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay"):
+        if field in counters:
             return None
         return value
     if isinstance(value, (int, float)):
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
+        if type(value) is float:
+            if field in counters:
+                return None
+            if not math.isfinite(value):
+                return None
         if type(value) is not bool and isinstance(value, int):
-            if field in ("errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay"):
-                if value < 0:
-                    return None
+            if field in counters and value < 0:
+                return None
         return value
     if isinstance(value, str):
         cleaned = _CONTROL_CHAR_RE.sub('', value)
+        if field in ("stage", "document_route", "next_stage", "status", "state", "reason", "errorType", "event", "documentId", "jobId", "textractJobId", "messageId", "message_id", "downstream_message_id", "queue", "queue_name"):
+            if len(cleaned) > 256:
+                return None
+            return cleaned
         if len(cleaned) > _MAX_VALUE_LENGTH:
             suffix = "…[truncated]"
             cleaned = cleaned[:_MAX_VALUE_LENGTH - len(suffix)] + suffix
@@ -56,33 +73,20 @@ def _sanitize_invalid_fields(value: object) -> object:
     return safe if safe else None
 
 def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
-    if field in ("correlationId", "traceId"):
+    if field == "correlationId":
         if not isinstance(value, str):
             return None
-        rejects = {
-            "SYNTHETIC_OCR_CONTENT_SENTINEL",
-            "JOHN_DOE_SSN_123456789",
-            "BANK_ACCOUNT_1234567890",
-            "HOME_ADDRESS_123_MAIN_STREET",
-            "<SENTINEL_CORR>",
-            "<SENTINEL_TRACE>",
-            "00000000000000000000000000000000",
-            "----------------"
-        }
-        if value in rejects:
-            return None
-            
         if re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", value, flags=re.IGNORECASE):
             return value
-        if re.fullmatch(r"[a-f0-9]{32}", value, flags=re.IGNORECASE):
+        if re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", value, flags=re.IGNORECASE):
+            return value
+        return None
+    if field == "traceId":
+        if not isinstance(value, str):
+            return None
+        if re.fullmatch(r"[a-f0-9]{32}", value, flags=re.IGNORECASE) and value != "0"*32:
             return value
         if re.fullmatch(r"1-[a-f0-9]{8}-[a-f0-9]{24}", value, flags=re.IGNORECASE):
-            return value
-        if re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", value, flags=re.IGNORECASE):
-            return value
-        if re.fullmatch(r"(correlation-|trace-|abc-|corr-|should-)[A-Za-z0-9_-]+", value):
-            return value
-        if value == "abc":
             return value
         return None
     if field == "invalidFields":
@@ -95,13 +99,7 @@ def _sanitize_log_fields(values: dict, *, source: str) -> dict:
     for key, value in values.items():
         if key not in allowed:
             continue
-        if source == "event":
-            if key == "invalidFields":
-                safe_value = _sanitize_invalid_fields(value)
-            else:
-                safe_value = _sanitize_scalar(value, field=key)
-        else:
-            safe_value = _sanitize_log_value(key, value, source=source)
+        safe_value = _sanitize_log_value(key, value, source=source)
         if safe_value is not None:
             sanitized[key] = safe_value
     return sanitized
@@ -163,14 +161,29 @@ class JSONFormatter(logging.Formatter):
         sanitized_extras = _sanitize_log_fields(extras, source="extra")
         merged = dict(sanitized_extras)
 
-        # 3. Context Overrides Extra
+        # 3. Event Overrides Extra
+        if isinstance(event_fields, _ScanalyzeEventFields) and getattr(event_fields, "_token", None) is _EVENT_TOKEN:
+            sanitized_event = _sanitize_log_fields(event_fields, source="event")
+            for k, v in sanitized_event.items():
+                if k == "event":
+                    val = str(v)
+                    if re.fullmatch(r"[a-z0-9_]{1,64}", val):
+                        merged["event"] = val
+                elif k == "errorType":
+                    val = str(v)
+                    if re.fullmatch(r"[A-Za-z0-9]{1,128}", val):
+                        merged["errorType"] = val
+                elif k not in ("tenant", "stage", "documentId", "correlationId", "traceId"):
+                    merged[k] = v
+
+        if record.exc_info and record.exc_info[0] is not None:
+            err_type = record.exc_info[0].__name__
+            if re.fullmatch(r"[A-Za-z0-9]{1,128}", err_type):
+                merged.setdefault("errorType", err_type)
+
+        # 2. Context Overrides Event/Extra
         ctx = _log_context.get()
         sanitized_ctx = _sanitize_log_fields(dict(ctx), source="context")
-        
-        tenant = sanitized_ctx.get("tenant", self.tenant)
-        if not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", str(tenant)):
-            tenant = "unknown"
-        merged["tenant"] = tenant
         
         stage = sanitized_ctx.get("stage", self.stage)
         if stage not in ("scanalyze-ocr-worker", "ocr_ingest", "ocr"):
@@ -184,33 +197,19 @@ class JSONFormatter(logging.Formatter):
                     val = str(val)[:128]
                 merged[k] = val
 
-        # 2. Event Overrides Context/Extra
-        if isinstance(event_fields, dict):
-            for k, v in event_fields.items():
-                if k == "event":
-                    val = str(v)
-                    if re.fullmatch(r"[a-z0-9_]{1,64}", val):
-                        merged["event"] = val
-                elif k == "errorType":
-                    val = str(v)
-                    if re.fullmatch(r"[A-Za-z0-9]{1,128}", val):
-                        merged["errorType"] = val
-                else:
-                    merged[k] = v
-
-        if record.exc_info and record.exc_info[0] is not None:
-            err_type = record.exc_info[0].__name__
-            if re.fullmatch(r"[A-Za-z0-9]{1,128}", err_type):
-                merged.setdefault("errorType", err_type)
-
         # 1. Core Overrides Everything
+        tenant = self.tenant
+        if not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", str(tenant)):
+            tenant = "unknown"
+        merged["tenant"] = tenant
+
         level = record.levelname.lower()
-        if level not in ("info", "warn", "error", "debug", "fatal"):
+        if level not in ("info", "warn", "error", "debug", "fatal", "warning", "critical"):
             level = "warn" if level == "warning" else "info"
                 
         env = self.env
-        if env not in ("local", "dev", "test", "staging", "prod"):
-            env = "dev"
+        if env not in ("local", "dev", "test", "staging", "prod", "ci"):
+            env = "unknown"
             
         msg = str(record.getMessage())
         if len(msg) > 1024:
@@ -244,5 +243,5 @@ def get_logger(name: str):
 
 def log_event(event_name: str, **kwargs):
     logger = logging.getLogger('ocr_worker.structured')
-    safe_kwargs = _sanitize_log_fields(kwargs, source="event")
-    logger.info(event_name, extra={"event": event_name, "_scanalyze_event_fields": safe_kwargs})
+    envelope = _ScanalyzeEventFields(_EVENT_TOKEN, **kwargs)
+    logger.info(event_name, extra={"event": event_name, "_scanalyze_event_fields": envelope})

@@ -91,7 +91,7 @@ def test_schema_or_deadline_value_error_is_not_deleted_before_native_dlq(monkeyp
 def test_log_context_is_cleared_between_messages():
     import logging
 
-    bind_context(documentId="previous-document", correlationId="previous-correlation")
+    bind_context(documentId="previous-document", correlationId="550e8400-e29b-41d4-a716-446655440000")
     clear_context()
     formatter = JSONFormatter(tenant="platform", stage="ocr")
     record = logging.LogRecord(

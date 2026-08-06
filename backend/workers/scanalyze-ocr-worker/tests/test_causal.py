@@ -81,9 +81,15 @@ def hermetic_aws(monkeypatch):
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
-    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+
+    import socket
+    def guard(*args, **kwargs):
+        raise RuntimeError("Network blocked in causal test")
+    monkeypatch.setattr(socket, "socket", guard)
+    
 
     import boto3
     monkeypatch.setattr(boto3, "client", _mock_boto_client)
@@ -117,7 +123,7 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
         enqueue_id="q1",
         documentId="d1",
         raw=S3Location(bucket="b", key="customers/cust_0123456789ABCDEFGHJKMNP123/deployments/dep_0123456789ABCDEFGHJKMNP123/documents/d1/original.pdf"),
-        _metadata=MessageMetadata(correlationId="corr-valid-123", traceId="trace-valid-456")
+        _metadata=MessageMetadata(correlationId="550e8400-e29b-41d4-a716-446655440000", traceId="1-67891233-defdefdefdefdefdefdefdef")
     )
     
     # Invalid (sentinel)
@@ -141,7 +147,7 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
     process_ingest_message(msg_invalid.model_dump_json(), "receipt", "msg2", 1)
         
     logs = stream.getvalue()
-    assert "corr-valid-123" in logs
-    assert "trace-valid-456" in logs
+    assert "550e8400-e29b-41d4-a716-446655440000" in logs
+    assert "1-67891233-defdefdefdefdefdefdefdef" in logs
     assert "<SENTINEL_CORR>" not in logs
     assert "<SENTINEL_TRACE>" not in logs
