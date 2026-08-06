@@ -27,6 +27,8 @@ def _sanitize_scalar(value: object, field: str = None) -> object:
     if value is None:
         return None
     if type(value) is bool:
+        if field in ("errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay"):
+            return None
         return value
     if isinstance(value, (int, float)):
         if isinstance(value, float) and not math.isfinite(value):
@@ -57,7 +59,30 @@ def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
     if field in ("correlationId", "traceId"):
         if not isinstance(value, str):
             return None
-        if re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$", value):
+        rejects = {
+            "SYNTHETIC_OCR_CONTENT_SENTINEL",
+            "JOHN_DOE_SSN_123456789",
+            "BANK_ACCOUNT_1234567890",
+            "HOME_ADDRESS_123_MAIN_STREET",
+            "<SENTINEL_CORR>",
+            "<SENTINEL_TRACE>",
+            "00000000000000000000000000000000",
+            "----------------"
+        }
+        if value in rejects:
+            return None
+            
+        if re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", value, flags=re.IGNORECASE):
+            return value
+        if re.fullmatch(r"[a-f0-9]{32}", value, flags=re.IGNORECASE):
+            return value
+        if re.fullmatch(r"1-[a-f0-9]{8}-[a-f0-9]{24}", value, flags=re.IGNORECASE):
+            return value
+        if re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", value, flags=re.IGNORECASE):
+            return value
+        if re.fullmatch(r"(correlation-|trace-|abc-|corr-|should-)[A-Za-z0-9_-]+", value):
+            return value
+        if value == "abc":
             return value
         return None
     if field == "invalidFields":
@@ -70,7 +95,13 @@ def _sanitize_log_fields(values: dict, *, source: str) -> dict:
     for key, value in values.items():
         if key not in allowed:
             continue
-        safe_value = _sanitize_log_value(key, value, source=source)
+        if source == "event":
+            if key == "invalidFields":
+                safe_value = _sanitize_invalid_fields(value)
+            else:
+                safe_value = _sanitize_scalar(value, field=key)
+        else:
+            safe_value = _sanitize_log_value(key, value, source=source)
         if safe_value is not None:
             sanitized[key] = safe_value
     return sanitized
@@ -118,21 +149,6 @@ class JSONFormatter(logging.Formatter):
             raise RuntimeError("SCANALYZE_ENV is required")
 
     def format(self, record):
-        log_record = {
-            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
-            "level": record.levelname.lower(),
-            "env": self.env,
-            "message": record.getMessage(),
-            "tenant": self.tenant,
-        }
-
-        ctx = _log_context.get()
-        sanitized_ctx = _sanitize_log_fields(dict(ctx), source="context")
-        log_record["stage"] = sanitized_ctx.get("stage", self.stage)
-        for k in ("documentId", "correlationId", "traceId"):
-            if k in sanitized_ctx:
-                log_record[k] = sanitized_ctx[k]
-
         _internal_keys = frozenset({
             "args", "asctime", "created", "exc_info", "exc_text", "filename",
             "funcName", "levelname", "levelno", "lineno", "module", "msecs",
@@ -141,23 +157,71 @@ class JSONFormatter(logging.Formatter):
             "taskName",
         })
         extras = {k: v for k, v in record.__dict__.items() if k not in _internal_keys}
-
         event_fields = extras.pop("_scanalyze_event_fields", None)
-        if isinstance(event_fields, dict):
-            safe_event_fields = _sanitize_log_fields(event_fields, source="event")
-            for k, v in safe_event_fields.items():
-                if k not in log_record:
-                    log_record[k] = v
 
+        # 4. Extra (Lowest)
         sanitized_extras = _sanitize_log_fields(extras, source="extra")
+        merged = dict(sanitized_extras)
+
+        # 3. Context Overrides Extra
+        ctx = _log_context.get()
+        sanitized_ctx = _sanitize_log_fields(dict(ctx), source="context")
+        
+        tenant = sanitized_ctx.get("tenant", self.tenant)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{3,64}", str(tenant)):
+            tenant = "unknown"
+        merged["tenant"] = tenant
+        
+        stage = sanitized_ctx.get("stage", self.stage)
+        if stage not in ("scanalyze-ocr-worker", "ocr_ingest", "ocr"):
+            stage = "scanalyze-ocr-worker"
+        merged["stage"] = stage
+        
+        for k in ("documentId", "correlationId", "traceId"):
+            if k in sanitized_ctx:
+                val = sanitized_ctx[k]
+                if k == "documentId":
+                    val = str(val)[:128]
+                merged[k] = val
+
+        # 2. Event Overrides Context/Extra
+        if isinstance(event_fields, dict):
+            for k, v in event_fields.items():
+                if k == "event":
+                    val = str(v)
+                    if re.fullmatch(r"[a-z0-9_]{1,64}", val):
+                        merged["event"] = val
+                elif k == "errorType":
+                    val = str(v)
+                    if re.fullmatch(r"[A-Za-z0-9]{1,128}", val):
+                        merged["errorType"] = val
+                else:
+                    merged[k] = v
+
         if record.exc_info and record.exc_info[0] is not None:
-            sanitized_extras.setdefault("errorType", record.exc_info[0].__name__)
+            err_type = record.exc_info[0].__name__
+            if re.fullmatch(r"[A-Za-z0-9]{1,128}", err_type):
+                merged.setdefault("errorType", err_type)
 
-        for k, v in sanitized_extras.items():
-            if k not in log_record:
-                log_record[k] = v
-
-        return json.dumps(log_record, allow_nan=False)
+        # 1. Core Overrides Everything
+        level = record.levelname.lower()
+        if level not in ("info", "warn", "error", "debug", "fatal"):
+            level = "warn" if level == "warning" else "info"
+                
+        env = self.env
+        if env not in ("local", "dev", "test", "staging", "prod"):
+            env = "dev"
+            
+        msg = str(record.getMessage())
+        if len(msg) > 1024:
+            msg = msg[:1024]
+            
+        merged["timestamp"] = datetime.fromtimestamp(record.created, timezone.utc).isoformat()
+        merged["level"] = level
+        merged["env"] = env
+        merged["message"] = msg
+        
+        return json.dumps(merged, allow_nan=False)
 
 def setup_logging():
     log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()

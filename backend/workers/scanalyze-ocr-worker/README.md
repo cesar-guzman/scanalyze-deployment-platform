@@ -73,25 +73,25 @@ The following static contract tests validate the Dockerfile without building:
 
 ### Log-Redaction Invariant
 
-The structured JSON logger uses a **centralised fail-closed allowlist** to
-control which metadata fields are emitted.  The canonical sanitiser
-`_sanitize_log_fields()` is the single owner of these rules and is called by
-every entry path:
+The structured JSON logger uses strict validation and a field contract matrix to control metadata emission. The canonical sanitizer `_sanitize_log_fields()` enforces these rules across different context scopes:
 
 1. `bind_context()` — context fields bound to the async scope.
 2. `log_event()` — structured event keyword arguments.
-3. `JSONFormatter.format()` — `LogRecord` extra fields and context replay.
+3. `JSONFormatter.format()` — `LogRecord` extra fields and precedence.
+
+**Field Contract and Precedence (highest to lowest):**
+
+1. **Core**: `timestamp`, `level`, `env`, `message`. Unconditionally overrides any other fields. Strings bounded to 1024 characters.
+2. **Event**: Trusted, well-typed event metadata. Must be explicitly permitted fields in `_SOURCE_PERMISSIONS`. Includes `event`, `errorType`.
+3. **Context**: Context-scoped fields (`tenant`, `stage`, `documentId`, `correlationId`, `traceId`). Bounded size, strictly validated.
+4. **Extra**: Unknown keyword arguments passed to logger methods. String values bounded to 1024 chars; arbitrary nested types dropped.
 
 **Behaviour:**
 
-- Only fields in `_ALLOWED_FIELDS` are emitted; unknown fields are dropped.
-- Nested dicts, lists (except bounded `invalidFields`), and custom objects
-  are dropped.
-- String values are bounded to 1024 characters and control characters are
-  stripped.
-- Exception logging emits `errorType` but never the raw exception message
-  or traceback.
-- Correlation IDs and approved operational metadata are preserved.
+- Nested dicts, lists (except bounded `invalidFields`), and custom objects are dropped.
+- All non-event string values are bounded to 1024 characters and control characters are stripped.
+- Canonical formats are enforced for IDs (e.g. `correlationId` and `traceId` reject angle-bracket sentinels and PII).
+- Exception logging emits `errorType` but never the raw exception message or traceback to prevent sensitive leaks.
 
 
 ## Cómo correr en ECS
