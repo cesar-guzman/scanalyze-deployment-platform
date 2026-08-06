@@ -25,7 +25,7 @@ def sigterm_handler(signum, frame):
     shutdown_requested = True
 
 def poll_queue(queue_url: str, processor_func, queue_name: str):
-    logger.info(f"Starting long polling on {queue_name} queue")
+    logger.info("Starting long polling on queue")
     log_event("worker_started", queue=queue_name)
     
     while not shutdown_requested:
@@ -51,7 +51,7 @@ def poll_queue(queue_url: str, processor_func, queue_name: str):
                 body = msg['Body']
                 message_id = msg['MessageId']
                 
-                logger.info(f"Received message {message_id} from {queue_name}")
+                logger.info("Received message from queue")
                 
                 try:
                     attributes = msg.get('Attributes', {})
@@ -68,7 +68,7 @@ def poll_queue(queue_url: str, processor_func, queue_name: str):
                             QueueUrl=queue_url,
                             ReceiptHandle=receipt_handle
                         )
-                        logger.info(f"Successfully processed and deleted message {message_id}")
+                        logger.info("Successfully processed and deleted message")
                 except ValueError as ve:
                     # Schema/deadline failures must remain unacknowledged so the
                     # native redrive policy can retain them in the DLQ.
@@ -89,7 +89,7 @@ def poll_queue(queue_url: str, processor_func, queue_name: str):
                     
         except Exception as e:
             logger.error(
-                f"Queue poll error on {queue_name}",
+                "Queue poll error on queue",
                 extra={"errorType": type(e).__name__},
             )
             if not shutdown_requested:
@@ -103,10 +103,10 @@ def main():
 
     worker_mode = os.environ.get("WORKER_MODE", "").upper()
     if worker_mode not in ["INGEST", "OCR_POLL"]:
-        logger.critical(f"Invalid WORKER_MODE: '{worker_mode}'. Must be INGEST or OCR_POLL.")
+        logger.critical("Invalid WORKER_MODE. Must be INGEST or OCR_POLL.")
         sys.exit(1)
 
-    logger.info(f"Starting worker in {worker_mode} mode")
+    logger.info("Starting worker in specified mode")
     
     try:
         # Pre-fetch SSM params al inicio
@@ -126,7 +126,7 @@ def main():
         queue_url = config.get("queues/ocr_url")
         poll_queue(queue_url, process_ocr_poll_message, "OCR")
     else:
-        logger.error(f"Unknown WORKER_MODE: {worker_mode}. Must be INGEST or OCR_POLL.")
+        logger.error("Unknown WORKER_MODE. Must be INGEST or OCR_POLL.")
         sys.exit(1)
         
     logger.info("Worker shut down cleanly.")

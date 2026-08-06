@@ -17,7 +17,7 @@ def get_next_stage(document_route: str) -> str:
     
     next_stage = route_map.get(document_route)
     if not next_stage:
-        logger.error(f"Unrecognized document_route: {document_route}. Cannot determine next_stage.")
+        logger.error("Unrecognized document_route. Cannot determine next_stage.")
         raise ValueError(f"Unrecognized document_route: {document_route}")
         
     return next_stage

@@ -165,9 +165,9 @@ class TestSanitizeLogFields:
         from ocr_worker.logger import _sanitize_log_fields
         result = _sanitize_log_fields(
             {"correlationId": "abc-123", "documentId": "doc-1", "errorType": "ValueError"},
-            source="event",
+            source="context",
         )
-        assert result == {"correlationId": "abc-123", "documentId": "doc-1", "errorType": "ValueError"}
+        assert result == {"correlationId": "abc-123", "documentId": "doc-1"}
 
     def test_unknown_fields_are_dropped(self):
         from ocr_worker.logger import _sanitize_log_fields
@@ -189,7 +189,7 @@ class TestSanitizeLogFields:
         from ocr_worker.logger import _sanitize_log_fields
         result = _sanitize_log_fields(
             {"documentId": ["a", "b"], "invalidFields": ["field1", "field2"]},
-            source="extra",
+            source="event",
         )
         assert "documentId" not in result
         assert result["invalidFields"] == ["field1", "field2"]
@@ -245,9 +245,15 @@ class TestSanitizeLogFields:
         from ocr_worker.logger import _sanitize_log_fields
         result = _sanitize_log_fields(
             {"delay": 30, "receive_count": 3, "parameterCount": 15},
+            source="extra",
+        )
+        assert result == {"parameterCount": 15}
+        
+        result_event = _sanitize_log_fields(
+            {"delay": 30, "receive_count": 3, "parameterCount": 15},
             source="event",
         )
-        assert result == {"delay": 30, "receive_count": 3, "parameterCount": 15}
+        assert result_event == {"delay": 30, "receive_count": 3}
 
     def test_boolean_values_pass_through(self):
         from ocr_worker.logger import _sanitize_log_fields
@@ -800,44 +806,63 @@ def test_combined_multi_path_redaction():
 
 
 def test_message_channel_no_payload_interpolation():
-    """Log message strings in production code do not interpolate payload variables.
-
-    This is a source-contract test: it scans all production .py files for
-    logger calls whose f-string or format arguments reference known
-    payload-bearing variable names.
+    """Log message strings in production code must be static string literals.
+    
+    This AST-based test enforces that `logger.debug/info/warning/error/critical`
+    and `log_event()` are called with a static string (or a trusted constant)
+    as their first positional argument. F-strings, concatenation, and variables
+    are categorically rejected.
     """
-    import re as re_mod
-
-    # Variables that MUST NOT appear in log message f-strings/format calls
-    payload_vars = {
-        "message_body", "rawBody", "raw_body", "payload", "full_result",
-        "out_msg", "msg_dict", "all_blocks", "blocks", "ocr_result",
-        "textract_response", "document_text", "s3_content",
-        "ingest_msg.rawBody", "poll_msg.rawBody",
-    }
-
+    import ast
+    
     src_root = SRC_DIR / "ocr_worker"
-    # Match f"...{var}..." or .format(var=...) in logger calls
-    fstring_pattern = re_mod.compile(
-        r'logger\.\w+\(\s*f["\'].*?\{(' + "|".join(re_mod.escape(v) for v in payload_vars) + r')[.}\[]',
-    )
-
     violations = []
+    
+    # Methods that emit log messages
+    logger_methods = {"debug", "info", "warning", "error", "critical", "exception"}
+    
     for py_file in src_root.rglob("*.py"):
         source = py_file.read_text(encoding="utf-8")
-        for i, line in enumerate(source.splitlines(), 1):
-            stripped = line.strip()
-            # Skip comments and non-logger lines
-            if stripped.startswith("#"):
+        try:
+            tree = ast.parse(source, filename=str(py_file))
+        except SyntaxError:
+            continue
+            
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
                 continue
-            if "logger." not in stripped:
+                
+            is_logger_call = False
+            
+            # Check for logger.* calls
+            if isinstance(node.func, ast.Attribute) and getattr(node.func.value, "id", None) == "logger" and node.func.attr in logger_methods:
+                is_logger_call = True
+            
+            # Check for log_event calls
+            elif getattr(node.func, "id", None) == "log_event":
+                is_logger_call = True
+                
+            if not is_logger_call:
                 continue
-            if fstring_pattern.search(stripped):
-                violations.append(f"{py_file.relative_to(REPO_ROOT)}:{i}: {stripped}")
-
+                
+            if not node.args:
+                continue
+                
+            msg_arg = node.args[0]
+            
+            # Allowed: string literal
+            if isinstance(msg_arg, ast.Constant) and isinstance(msg_arg.value, str):
+                continue
+                
+            # Allowed: event_name variable inside logger.py (log_event implementation)
+            if py_file.name == "logger.py" and getattr(node.func, "attr", None) == "info":
+                if isinstance(msg_arg, ast.Name) and msg_arg.id == "event_name":
+                    continue
+            
+            violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}: Non-literal log message")
+            
     assert not violations, (
-        "Logger message strings interpolate payload variables:\n"
-        + "\n".join(violations)
+        "Logger messages must be static string literals:\n" + "\n".join(violations)
     )
 
 
@@ -847,10 +872,10 @@ def test_message_channel_no_payload_interpolation():
 
 
 def test_sanitizer_has_allowlist():
-    """The logger module defines _ALLOWED_FIELDS and _sanitize_log_fields."""
+    """The logger module defines _SOURCE_PERMISSIONS and _sanitize_log_fields."""
     logger_py = SRC_DIR / "ocr_worker" / "logger.py"
     source = logger_py.read_text(encoding="utf-8")
-    assert "_ALLOWED_FIELDS" in source, "Logger must define _ALLOWED_FIELDS allowlist"
+    assert "_SOURCE_PERMISSIONS" in source, "Logger must define _SOURCE_PERMISSIONS allowlist"
     assert "def _sanitize_log_fields(" in source, "Logger must define _sanitize_log_fields"
     assert source.count("_sanitize_log_fields(") >= 4, (
         "_sanitize_log_fields must be called from bind_context, log_event, and JSONFormatter"

@@ -40,7 +40,7 @@ class ConfigCache:
         self.ssm_client = boto3.client('ssm')
 
     def _fetch_from_ssm(self) -> None:
-        logger.info(f"Fetching SSM parameters from path: {self.root}")
+        logger.info("Fetching SSM parameters from path")
         paginator = self.ssm_client.get_paginator('get_parameters_by_path')
         
         new_cache = {}

@@ -92,7 +92,7 @@ def record_usage_metering_with_idempotency(dynamodb_client, tenant: str, doc_id:
         
     try:
         dynamodb_client.transact_write_items(TransactItems=transact_items)
-        logger.info(f"Successfully metered {pages} pages")
+        logger.info("Successfully metered pages")
         return True
     except ClientError as e:
         error_code = e.response['Error']['Code']
