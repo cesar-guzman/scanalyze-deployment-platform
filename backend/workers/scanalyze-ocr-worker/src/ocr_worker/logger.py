@@ -92,7 +92,7 @@ class JSONFormatter(logging.Formatter):
         for k, v in record.__dict__.items():
             if k not in ["args", "asctime", "created", "exc_info", "exc_text", "filename", "funcName", "levelname", "levelno", "lineno", "module", "msecs", "message", "msg", "name", "pathname", "process", "processName", "relativeCreated", "stack_info", "thread", "threadName", "event"]:
                 kl = k.lower()
-                if "text" not in kl and "ocr" not in kl and "person" not in kl and "identifier" not in kl:
+                if "text" not in kl and "ocr" not in kl and "person" not in kl and "identifier" not in kl and "body" not in kl and "raw" not in kl:
                     log_record[k] = v
 
         return json.dumps(log_record)
@@ -123,6 +123,6 @@ def get_logger(name: str):
 def log_event(event_name: str, **kwargs):
     logger = logging.getLogger('ocr_worker.structured')
     
-    safe_kwargs = {k: v for k, v in kwargs.items() if "text" not in k.lower() and "ocr" not in k.lower() and "person" not in k.lower() and "identifiers" not in k.lower()}
+    safe_kwargs = {k: v for k, v in kwargs.items() if "text" not in k.lower() and "ocr" not in k.lower() and "person" not in k.lower() and "identifiers" not in k.lower() and "body" not in k.lower() and "raw" not in k.lower()}
     
     logger.info(event_name, extra={"event": event_name, **safe_kwargs})

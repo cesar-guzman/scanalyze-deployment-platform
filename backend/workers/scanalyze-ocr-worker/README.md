@@ -13,15 +13,64 @@ Este worker soporta dos modos de ejecución inyectados vía la variable de entor
 El worker cuenta con un smoke test que usa `unittest.mock` para emular completamente los servicios de AWS, incluyendo SSM para config y DynamoDB/SQS/S3 para el procesamiento.
 
 ### Prerrequisitos
-- Python 3.11
-- pip install -r requirements.txt
+- Python 3.11.14 (pinned in `.tool-versions`)
+- `pip install -r requirements.txt`
+- `pip install 'pytest==9.1.1'`
 
-### Ejecutar Smoke Test
+### Package Layout
+
+The worker uses relative imports internally. Both layouts resolve the same
+production modules:
+
+| Context | PYTHONPATH | Import prefix | Example |
+|---------|-----------|---------------|---------|
+| **Source** (host tests/CI) | `<service>/src` | `ocr_worker.…` | `from ocr_worker.logger import get_logger` |
+| **Container** (Docker) | `/app` | `src.ocr_worker.…` | `python -m src.ocr_worker.main` |
+
+The canonical owner of `get_logger` is `ocr_worker.logger` (one definition,
+no fallback, no duplicate).
+
+### Ejecutar Tests Offline (sin AWS)
+
 ```sh
-export PYTHONPATH=src/
-python tests/smoke_test.py
+# Variables sintéticas requeridas
+export SCANALYZE_ENV=test
+export SCANALYZE_TENANT=platform
+export SCANALYZE_DEPLOYMENT_CUSTOMER_ID=cust_01ARZ3NDEKTSV4RRFFQ69G5FAW
+export SCANALYZE_DEPLOYMENT_ID=dep_01ARZ3NDEKTSV4RRFFQ69G5FAV
+export SCANALYZE_PARAM_ROOT=/scanalyze/test/tenants
+export AWS_EC2_METADATA_DISABLED=true
+export AWS_REGION=us-east-1
+
+# Suite completa del worker
+PYTHONPATH=backend/workers/scanalyze-ocr-worker/src:backend/workers/scanalyze-ocr-worker \
+  python -m pytest backend/workers/scanalyze-ocr-worker/tests -q
+
+# Smoke test legacy
+PYTHONPATH=backend/workers/scanalyze-ocr-worker/src \
+  python backend/workers/scanalyze-ocr-worker/tests/smoke_test.py
 ```
-> El Output debe de mostrar `¡Smoke Test Pasó Correctamente!` demostrando el flujo de ingest -> poll (backoff) -> poll (succeded) -> guardado a s3 -> encolado classify.
+
+### Docker Build (offline, sin push)
+
+```sh
+docker build \
+  --pull=false \
+  --network=none \
+  --platform linux/amd64 \
+  --build-arg BASE_IMAGE=<digest-pinned-base> \
+  --tag scanalyze-local/ocr-worker:local \
+  backend/workers/scanalyze-ocr-worker
+```
+
+### Log-Redaction Invariant
+
+The structured JSON formatter filters fields whose lowercased key contains
+any of: `text`, `ocr`, `person`, `identifier`, `body`, `raw`.
+
+Exception logging emits the exception type (`errorType`) but never the raw
+exception message or traceback. Correlation IDs are preserved.
+
 
 ## Cómo correr en ECS
 
@@ -68,6 +117,9 @@ La Task Definition en ECS requiere los siguientes permisos IAM:
 *Se recomienda tener un servicio para la task definitions de Ingest, y otro para OCR_POLL para escalar independientemente las colas.*
 
 ## Cómo hacer smoke test real en AWS CLI
+
+> **Nota:** Esta sección requiere un entorno AWS en vivo con credenciales
+> configuradas. No forma parte de la validación offline (GUG-105).
 
 1. **Obtener las colas desde SSM**
 ```bash
