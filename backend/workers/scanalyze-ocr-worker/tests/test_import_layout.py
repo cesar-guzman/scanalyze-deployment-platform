@@ -154,14 +154,12 @@ class TestSanitizeLogFields:
     @pytest.fixture(autouse=True)
     def _patch_path(self):
         """Ensure SRC_DIR is importable."""
-        import importlib
-        sys.path.insert(0, str(SRC_DIR))
+        already = str(SRC_DIR) in sys.path
+        if not already:
+            sys.path.insert(0, str(SRC_DIR))
         yield
-        sys.path.remove(str(SRC_DIR))
-        # Remove cached module to avoid cross-test contamination
-        for mod in list(sys.modules):
-            if mod.startswith("ocr_worker"):
-                del sys.modules[mod]
+        if not already:
+            sys.path.remove(str(SRC_DIR))
 
     def test_allowed_scalars_pass_through(self):
         from ocr_worker.logger import _sanitize_log_fields
