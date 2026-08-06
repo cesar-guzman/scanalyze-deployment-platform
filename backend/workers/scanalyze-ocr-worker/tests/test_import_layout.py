@@ -805,65 +805,116 @@ def test_combined_multi_path_redaction():
 # ===========================================================================
 
 
-def test_message_channel_no_payload_interpolation():
-    """Log message strings in production code must be static string literals.
-    
-    This AST-based test enforces that `logger.debug/info/warning/error/critical`
-    and `log_event()` are called with a static string (or a trusted constant)
-    as their first positional argument. F-strings, concatenation, and variables
-    are categorically rejected.
-    """
+def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[str]:
     import ast
+    violations = []
+    logger_methods = {"debug", "info", "warning", "error", "critical", "exception"}
     
+    try:
+        tree = ast.parse(source_code, filename=filename)
+    except SyntaxError:
+        return []
+
+    # Find all logger assignments to track aliases (e.g. log = get_logger())
+    logger_aliases = {"logger"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                if node.value.func.id in ("get_logger", "getLogger"):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            logger_aliases.add(target.id)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+            
+        is_logger_call = False
+        is_log_event = False
+        
+        if isinstance(node.func, ast.Attribute) and getattr(node.func.value, "id", None) in logger_aliases and node.func.attr in logger_methods:
+            is_logger_call = True
+        elif getattr(node.func, "id", None) == "log_event":
+            is_logger_call = True
+            is_log_event = True
+            
+        if not is_logger_call:
+            continue
+            
+        # Check positional message
+        msg_arg = None
+        if node.args:
+            msg_arg = node.args[0]
+        else:
+            # Check for msg= kwarg
+            for kw in node.keywords:
+                if kw.arg == "msg" or (is_log_event and kw.arg == "event_name"):
+                    msg_arg = kw.value
+                    break
+                    
+        if msg_arg:
+            if isinstance(msg_arg, ast.Constant) and isinstance(msg_arg.value, str):
+                pass
+            elif filename.endswith("logger.py") and getattr(node.func, "attr", None) == "info" and isinstance(msg_arg, ast.Name) and msg_arg.id == "event_name":
+                pass
+            else:
+                violations.append(f"{filename}:{node.lineno}: Non-literal log message")
+                
+        # For log_event, check that keywords don't contain bad expressions
+        if is_log_event:
+            for kw in node.keywords:
+                if kw.arg is None:
+                    # kwargs unpack (e.g., **safe_error_details(e))
+                    if isinstance(kw.value, ast.Call) and getattr(kw.value.func, "id", None) == "safe_error_details":
+                        continue
+                    else:
+                        violations.append(f"{filename}:{node.lineno}: Disallowed kwargs unpack in log_event")
+                    continue
+                    
+                # Disallow f-strings (JoinedStr), BinOp (+, %), Call (.format, str)
+                if isinstance(kw.value, (ast.JoinedStr, ast.BinOp)):
+                    violations.append(f"{filename}:{node.lineno}: Disallowed expression in log_event kwarg '{kw.arg}'")
+                elif isinstance(kw.value, ast.Call):
+                    # Only allow calling type(e).__name__ in kwargs
+                    if getattr(kw.value.func, "id", None) == "type" or getattr(kw.value.func, "attr", None) == "__name__":
+                        pass
+                    else:
+                        violations.append(f"{filename}:{node.lineno}: Disallowed function call in log_event kwarg '{kw.arg}'")
+                    
+    return violations
+
+def test_message_channel_no_payload_interpolation():
+    """Log message strings in production code must be static string literals."""
     src_root = SRC_DIR / "ocr_worker"
     violations = []
     
-    # Methods that emit log messages
-    logger_methods = {"debug", "info", "warning", "error", "critical", "exception"}
-    
     for py_file in src_root.rglob("*.py"):
         source = py_file.read_text(encoding="utf-8")
-        try:
-            tree = ast.parse(source, filename=str(py_file))
-        except SyntaxError:
-            continue
-            
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-                
-            is_logger_call = False
-            
-            # Check for logger.* calls
-            if isinstance(node.func, ast.Attribute) and getattr(node.func.value, "id", None) == "logger" and node.func.attr in logger_methods:
-                is_logger_call = True
-            
-            # Check for log_event calls
-            elif getattr(node.func, "id", None) == "log_event":
-                is_logger_call = True
-                
-            if not is_logger_call:
-                continue
-                
-            if not node.args:
-                continue
-                
-            msg_arg = node.args[0]
-            
-            # Allowed: string literal
-            if isinstance(msg_arg, ast.Constant) and isinstance(msg_arg.value, str):
-                continue
-                
-            # Allowed: event_name variable inside logger.py (log_event implementation)
-            if py_file.name == "logger.py" and getattr(node.func, "attr", None) == "info":
-                if isinstance(msg_arg, ast.Name) and msg_arg.id == "event_name":
-                    continue
-            
-            violations.append(f"{py_file.relative_to(REPO_ROOT)}:{node.lineno}: Non-literal log message")
+        file_violations = _check_ast_for_logging_violations(source, str(py_file.relative_to(REPO_ROOT)))
+        violations.extend(file_violations)
             
     assert not violations, (
         "Logger messages must be static string literals:\n" + "\n".join(violations)
     )
+
+def test_ast_audit_negative_snippets():
+    """Prove the AST auditor catches negative patterns."""
+    snippets = {
+        "f-string": "logger.info(f'Hello {name}')",
+        "concat": "logger.error('Error: ' + str(e))",
+        "format": "logger.warning('Code: {}'.format(code))",
+        "percent": "logger.debug('User %s' % user)",
+        "variable": "msg = 'bad'; logger.info(msg)",
+        "alias_fstring": "log = get_logger(__name__); log.info(f'Fail {x}')",
+        "log_event_fstring": "log_event(f'event_{id}')",
+        "msg_kwarg": "logger.info(msg=f'test {x}')",
+        "log_event_kwarg_fstring": "log_event('event', data=f'val_{x}')",
+        "log_event_kwarg_str": "log_event('event', error=str(e))"
+    }
+    
+    for name, code in snippets.items():
+        violations = _check_ast_for_logging_violations(code, f"test_{name}.py")
+        assert violations, f"AST auditor failed to catch {name} pattern"
 
 
 # ===========================================================================
