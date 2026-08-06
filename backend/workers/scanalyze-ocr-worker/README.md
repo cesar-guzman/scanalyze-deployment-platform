@@ -51,25 +51,47 @@ PYTHONPATH=backend/workers/scanalyze-ocr-worker/src \
   python backend/workers/scanalyze-ocr-worker/tests/smoke_test.py
 ```
 
-### Docker Build (offline, sin push)
+### Docker Build
 
-```sh
-docker build \
-  --pull=false \
-  --network=none \
-  --platform linux/amd64 \
-  --build-arg BASE_IMAGE=<digest-pinned-base> \
-  --tag scanalyze-local/ocr-worker:local \
-  backend/workers/scanalyze-ocr-worker
-```
+> **Blocker:** The current Dockerfile runs `pip install` during the build,
+> which requires network access.  An offline build with `--network=none` will
+> fail because the pip dependencies are not pre-cached in the base image.
+> CI builds succeed because runners have network access.
+
+The following static contract tests validate the Dockerfile without building:
+
+- `test_dockerfile_entrypoint_references_src_module` — ENTRYPOINT references
+  `src.ocr_worker.main`.
+- `test_dockerfile_copies_src_into_app` — `COPY src/ ./src/` is present.
+
+**What is not validated offline:**
+- Actual Docker image build
+- Container import (`src.ocr_worker.*` inside image)
+- Container startup (`WORKER_MODE=INVALID` entrypoint)
+- Synthetic processing inside the container
+- Container log-redaction
 
 ### Log-Redaction Invariant
 
-The structured JSON formatter filters fields whose lowercased key contains
-any of: `text`, `ocr`, `person`, `identifier`, `body`, `raw`.
+The structured JSON logger uses a **centralised fail-closed allowlist** to
+control which metadata fields are emitted.  The canonical sanitiser
+`_sanitize_log_fields()` is the single owner of these rules and is called by
+every entry path:
 
-Exception logging emits the exception type (`errorType`) but never the raw
-exception message or traceback. Correlation IDs are preserved.
+1. `bind_context()` — context fields bound to the async scope.
+2. `log_event()` — structured event keyword arguments.
+3. `JSONFormatter.format()` — `LogRecord` extra fields and context replay.
+
+**Behaviour:**
+
+- Only fields in `_ALLOWED_FIELDS` are emitted; unknown fields are dropped.
+- Nested dicts, lists (except bounded `invalidFields`), and custom objects
+  are dropped.
+- String values are bounded to 1024 characters and control characters are
+  stripped.
+- Exception logging emits `errorType` but never the raw exception message
+  or traceback.
+- Correlation IDs and approved operational metadata are preserved.
 
 
 ## Cómo correr en ECS
