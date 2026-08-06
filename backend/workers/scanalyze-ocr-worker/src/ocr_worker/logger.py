@@ -15,9 +15,9 @@ _SOURCE_PERMISSIONS = {
         "messageId", "receiveCount", "jobId", "textractJobId",
         "document_route", "downstream_message_id", "delay", "attempt",
         "status", "state", "next_stage", "reason", "errorType", "errorCount",
-        "invalidFields"
+        "invalidFields", "line", "column"
     }),
-    "extra": frozenset({"event", "errorType", "parameterCount"})
+    "extra": frozenset({"event", "errorType", "parameterCount", "line", "column"})
 }
 
 _EVENT_TOKEN = object()
@@ -33,30 +33,46 @@ class _ScanalyzeEventFields(dict):
 _MAX_VALUE_LENGTH = 1024
 _CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
+_ENUMS = {
+    "status": frozenset({"SUBMITTED", "ENQUEUED", "OCR", "BANK_EXTRACTED", "CLASSIFY_COMPLETED", "SUCCEEDED", "FAILED", "IN_PROGRESS", "PARTIAL_SUCCESS", "COMPLETED", "HANDOFF_ENQUEUED"}),
+    "state": frozenset({"OCR_COMPLETED", "HANDOFF_ENQUEUED", "FAILED", "SUBMITTED", "ENQUEUED", "IN_PROGRESS"}),
+    "stage": frozenset({"scanalyze-ocr-worker", "ocr_ingest", "ocr"}),
+    "document_route": frozenset({"standard", "default", "bank", "personal", "gov", "fast", "express"}),
+    "next_stage": frozenset({"classify", "postprocess", "bank", "personal", "gov"}),
+    "reason": frozenset({"missing_message_id", "test_reason", "textract_failure", "dynamo_failure", "sqs_failure"}),
+}
+
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,256}$")
+_SAFE_ERR_RE = re.compile(r"^[A-Za-z0-9]{1,128}$")
+
 def _sanitize_scalar(value: object, field: str = None) -> object:
     if value is None:
         return None
-    counters = frozenset({"errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay", "signal"})
+    counters = frozenset({"errorCount", "parameterCount", "attempt", "receiveCount", "receive_count", "delay", "signal", "line", "column"})
     if type(value) is bool:
-        if field in counters:
-            return None
-        return value
+        return None if field in counters else value
     if isinstance(value, (int, float)):
         if type(value) is float:
-            if field in counters:
-                return None
-            if not math.isfinite(value):
-                return None
+            return None if field in counters or not math.isfinite(value) else value
         if type(value) is not bool and isinstance(value, int):
-            if field in counters and value < 0:
-                return None
+            return None if field in counters and value < 0 else value
         return value
     if isinstance(value, str):
         cleaned = _CONTROL_CHAR_RE.sub('', value)
-        if field in ("stage", "document_route", "next_stage", "status", "state", "reason", "errorType", "event", "documentId", "jobId", "textractJobId", "messageId", "message_id", "downstream_message_id", "queue", "queue_name"):
-            if len(cleaned) > 256:
-                return None
-            return cleaned
+        
+        if field in _ENUMS:
+            return cleaned if cleaned in _ENUMS[field] else None
+            
+        if field == "errorType":
+            return cleaned if _SAFE_ERR_RE.fullmatch(cleaned) else None
+            
+        id_fields = {"message_id", "messageId", "downstream_message_id", "jobId", "textractJobId", "queue", "queue_name", "documentId"}
+        if field in id_fields:
+            return cleaned if _SAFE_ID_RE.fullmatch(cleaned) else None
+            
+        if field == "event":
+            return cleaned if len(cleaned) <= 64 else None
+            
         if len(cleaned) > _MAX_VALUE_LENGTH:
             suffix = "…[truncated]"
             cleaned = cleaned[:_MAX_VALUE_LENGTH - len(suffix)] + suffix
@@ -179,7 +195,7 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0] is not None:
             err_type = record.exc_info[0].__name__
             if re.fullmatch(r"[A-Za-z0-9]{1,128}", err_type):
-                merged.setdefault("errorType", err_type)
+                merged["errorType"] = err_type
 
         # 2. Context Overrides Event/Extra
         ctx = _log_context.get()

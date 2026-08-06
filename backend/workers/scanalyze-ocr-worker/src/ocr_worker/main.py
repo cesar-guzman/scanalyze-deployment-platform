@@ -81,11 +81,12 @@ def poll_queue(queue_url: str, processor_func, queue_name: str):
                 except Exception as e:
                     # Transient error (boto throttling, S3 eventual consistency)
                     # Dejamos que el VisibilityTimeout expire y SQS haga retry
+                    error_type = type(e).__name__
                     logger.error(
                         "Processing error",
-                        extra={"errorType": type(e).__name__},
+                        extra={"errorType": error_type},
                     )
-                    log_event("processing_error", messageId=message_id, errorType=type(e).__name__)
+                    log_event("processing_error", messageId=message_id, errorType=error_type)
                     
         except Exception as e:
             logger.error(

@@ -1,13 +1,28 @@
 import os
 import pytest
-from src.ocr_worker.contracts import IngestMessage, MessageMetadata, S3Location
 import json
 import io
 import logging
 import asyncio
+import socket
+import boto3
 
+# --- HERMETIC KILLSWITCH & MOCKS ---
+# 1. Kill network
+def _kill_network(*args, **kwargs):
+    raise RuntimeError("Network is disabled in hermetic tests")
+socket.socket = _kill_network
+
+# 2. Setup Boto3 Mocks BEFORE importing app code
 def _mock_s3_read(bucket, key):
     return b"dummy_data"
+
+class _MockSession:
+    def client(self, *args, **kwargs):
+        return _mock_boto_client(*args, **kwargs)
+    def resource(self, *args, **kwargs):
+        return _mock_boto_resource(*args, **kwargs)
+
 
 def _mock_boto_client(*args, **kwargs):
     class MockPaginator:
@@ -106,6 +121,7 @@ def hermetic_aws(monkeypatch):
 
 def test_causal_ingest_log(hermetic_aws, monkeypatch):
     from src.ocr_worker.logger import setup_logging, clear_context
+    from src.ocr_worker.contracts import IngestMessage, MessageMetadata, S3Location
     setup_logging()
     
     stream = io.StringIO()
@@ -151,3 +167,7 @@ def test_causal_ingest_log(hermetic_aws, monkeypatch):
     assert "1-67891233-defdefdefdefdefdefdefdef" in logs
     assert "<SENTINEL_CORR>" not in logs
     assert "<SENTINEL_TRACE>" not in logs
+
+boto3.Session = _MockSession
+boto3.client = _mock_boto_client
+boto3.resource = _mock_boto_resource

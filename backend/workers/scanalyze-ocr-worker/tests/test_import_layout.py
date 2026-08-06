@@ -829,7 +829,7 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
             return True
         return False
 
-    def check_unsafe_expr(expr: ast.expr, context: str, lineno: int):
+    def check_unsafe_expr(expr: ast.expr, context: str, lineno: int, kwarg_name: str = None):
         if isinstance(expr, ast.JoinedStr):
             violations.append(f"{filename}:{lineno}: Disallowed f-string in {context}")
         elif isinstance(expr, ast.BinOp):
@@ -847,6 +847,14 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
                     violations.append(f"{filename}:{lineno}: Disallowed function call in {context}")
         elif isinstance(expr, ast.Subscript):
             violations.append(f"{filename}:{lineno}: Disallowed subscript in {context}")
+        elif isinstance(expr, ast.Attribute):
+            violations.append(f"{filename}:{lineno}: Disallowed attribute access in {context}")
+        elif isinstance(expr, ast.Name):
+            if kwarg_name in ("reason", "event_name", "event", "message", "msg"):
+                if kwarg_name in ("message", "msg") and expr.id == "event_name" and filename.endswith("logger.py"):
+                    pass
+                else:
+                    violations.append(f"{filename}:{lineno}: Disallowed variable in {context} (must be literal)")
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -880,7 +888,7 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
         if msg_arg:
             if not is_safe_string(msg_arg):
                 violations.append(f"{filename}:{node.lineno}: Non-literal log message")
-            check_unsafe_expr(msg_arg, "message", node.lineno)
+            check_unsafe_expr(msg_arg, "message", node.lineno, "message")
 
         if is_log_event:
             for kw in node.keywords:
@@ -890,7 +898,7 @@ def _check_ast_for_logging_violations(source_code: str, filename: str) -> list[s
                     else:
                         violations.append(f"{filename}:{node.lineno}: Disallowed kwargs unpack in log_event")
                 else:
-                    check_unsafe_expr(kw.value, f"kwarg '{kw.arg}'", node.lineno)
+                    check_unsafe_expr(kw.value, f"kwarg '{kw.arg}'", node.lineno, kw.arg)
                     if kw.arg == "reason":
                         if not is_safe_string(kw.value):
                             violations.append(f"{filename}:{node.lineno}: reason kwarg must be a string literal")

@@ -218,6 +218,7 @@ def process_ocr_poll_message(
                 ":now": datetime.now(timezone.utc).isoformat(),
             },
         )
+        attempt = next_poll.attempt
         log_event(
             "ocr_poll_requeued",
             documentId=doc_id,
@@ -225,7 +226,7 @@ def process_ocr_poll_message(
             document_route=document_route,
             message_id=message_id,
             receive_count=receive_count,
-            attempt=next_poll.attempt,
+            attempt=attempt,
         )
 
         # Acknowledge the current message only after the replacement and checkpoint
@@ -397,14 +398,15 @@ def process_ocr_poll_message(
         try:
             handoff_response = sqs_client.send_message(**send_kwargs)
         except Exception as e:
-            logger.error("Failed to enqueue OCR handoff", extra={"errorType": type(e).__name__})
+            error_type = type(e).__name__
+            logger.error("Failed to enqueue OCR handoff", extra={"errorType": error_type})
             log_event(
                 "ocr_handoff_failed",
                 documentId=doc_id,
                 next_stage=next_stage,
                 document_route=document_route,
                 message_id=message_id,
-                errorType=type(e).__name__,
+                errorType=error_type,
             )
             raise
 
