@@ -22,6 +22,19 @@ _SOURCE_PERMISSIONS = {
 
 _EVENT_TOKEN = object()
 
+VALID_ENVIRONMENTS = frozenset({
+    "local", "test", "ci", "demo", "sandbox", "dev", "staging", "production"
+})
+
+def validate_env(env: str | None) -> str:
+    if not env:
+        raise RuntimeError("SCANALYZE_ENV is required")
+    if not isinstance(env, str):
+        return "unknown"
+    if env not in VALID_ENVIRONMENTS:
+        return "unknown"
+    return env
+
 class _ScanalyzeEventFields(dict):
     """Private event envelope to prevent accidental Extra overwrite."""
     def __init__(self, token: object, *args, **kwargs):
@@ -203,9 +216,7 @@ class JSONFormatter(logging.Formatter):
         super().__init__()
         self.tenant = tenant
         self.stage = stage
-        self.env = os.environ.get('SCANALYZE_ENV', '').strip()
-        if not self.env:
-            raise RuntimeError("SCANALYZE_ENV is required")
+        self.env = validate_env(os.environ.get('SCANALYZE_ENV'))
 
     def format(self, record):
         _internal_keys = frozenset({
@@ -269,7 +280,7 @@ class JSONFormatter(logging.Formatter):
             level = "warn" if level == "warning" else "info"
 
         env = self.env
-        if env not in ("local", "dev", "test", "staging", "prod", "ci"):
+        if env not in VALID_ENVIRONMENTS:
             env = "unknown"
 
         msg = str(record.getMessage())

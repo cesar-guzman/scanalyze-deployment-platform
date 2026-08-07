@@ -5,14 +5,16 @@ import logging
 import boto3
 from typing import Dict, Any
 
+from .logger import validate_env
+
 logger = logging.getLogger(__name__)
 
 
 def require_nonempty_env(name: str) -> str:
     value = os.environ.get(name)
-    if value is None or not value.strip():
+    if value is None or value == "":
         raise RuntimeError(f"{name} is required")
-    return value.strip()
+    return value
 
 
 class ConfigCache:
@@ -21,7 +23,7 @@ class ConfigCache:
         self._last_fetch = 0
         self.ttl = ttl_seconds
         
-        self.env = require_nonempty_env("SCANALYZE_ENV")
+        self.env = validate_env(os.environ.get("SCANALYZE_ENV"))
         self.tenant = require_nonempty_env("SCANALYZE_TENANT")
         self.customer_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_CUSTOMER_ID")
         self.deployment_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_ID")
@@ -36,8 +38,13 @@ class ConfigCache:
         else:
             self.root = f"{param_root.rstrip('/')}/{self.tenant}"
             
-        # Optional: session could check if we are local or in AWS, but standard boto3 behavior works.
-        self.ssm_client = boto3.client('ssm')
+        self._ssm_client = None
+
+    @property
+    def ssm_client(self):
+        if self._ssm_client is None:
+            self._ssm_client = boto3.client('ssm')
+        return self._ssm_client
 
     def _fetch_from_ssm(self) -> None:
         logger.info("Fetching SSM parameters from path")
