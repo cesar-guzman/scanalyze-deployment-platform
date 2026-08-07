@@ -82,8 +82,8 @@ variable "domain_name" {
   nullable    = false
 
   validation {
-    condition     = trimspace(var.domain_name) != "" && !strcontains(var.domain_name, "*")
-    error_message = "domain_name must be a non-wildcard DNS name."
+    condition     = length(var.domain_name) <= 253 && can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.domain_name))
+    error_message = "domain_name must be an exact lowercase DNS hostname of at most 253 characters."
   }
 }
 

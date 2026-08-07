@@ -1,17 +1,19 @@
 export const syntheticRuntimeConfig = {
-  schema_version: '2',
+  schema_version: '3',
   customer_id: 'cust_01ARZ3NDEKTSV4RRFFQ69G5FAV',
   deployment_id: 'dep_01ARZ3NDEKTSV4RRFFQ69G5FAV',
   account_id: '123456789012',
   region: 'us-east-1',
   environment: 'sandbox',
-  api_endpoint: 'https://api.synthetic.invalid/api',
+  api_endpoint: 'http://localhost:5173/api',
   cognito: {
     user_pool_id: 'us-east-1_SYNTHETIC01',
     spa_client_id: 'syntheticspaclient000000000001',
     issuer_url: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_SYNTHETIC01',
     region: 'us-east-1',
-    hosted_ui_domain: 'synthetic-login.auth.us-east-1.amazoncognito.com',
+    hosted_ui_domain: 'https://dep-01arz3ndektsv4rrffq69g5fav-identity.auth.us-east-1.amazoncognito.com',
+    redirect_uri: 'http://localhost:5173/callback',
+    post_logout_redirect_uri: 'http://localhost:5173/',
     allowed_oauth_flows: ['code'],
     pkce_required: true,
     client_secret_embedded: false,
@@ -36,7 +38,7 @@ export const syntheticRuntimeConfig = {
     batch_processing: true,
     audit_view: false,
   },
-  config_version: 'synthetic-v2',
+  config_version: '2026.07.14',
 } as const;
 
 export const syntheticAuthState = {

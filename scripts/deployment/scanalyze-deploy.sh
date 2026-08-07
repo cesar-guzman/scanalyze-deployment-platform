@@ -24,6 +24,7 @@ DEPLOYMENT_ID=""
 ACCOUNT_ID=""
 REGION=""
 ENVIRONMENT=""
+DOMAIN_NAME=""
 GIT_REF=""
 NON_INTERACTIVE=false
 DRY_RUN=true
@@ -240,6 +241,28 @@ print(value)
 PY
 }
 
+manifest_optional_field() {
+  local field="$1"
+  python3 - "$MANIFEST" "$field" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+manifest_path = Path(sys.argv[1])
+field = sys.argv[2]
+document = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+if not isinstance(document, dict):
+    raise SystemExit("manifest must be a mapping")
+value = document.get(field)
+if value is None:
+    raise SystemExit(0)
+if not isinstance(value, str) or not value:
+    raise SystemExit(f"manifest field {field!r} must be a non-empty string")
+print(value)
+PY
+}
+
 load_manifest() {
   if [[ -z "$MANIFEST" ]]; then
     return
@@ -255,7 +278,7 @@ load_manifest() {
 
   # The validated manifest is authoritative. CLI values may assert, never override.
   local manifest_customer_id manifest_deployment_id manifest_account_id
-  local manifest_region manifest_environment
+  local manifest_region manifest_environment manifest_domain_name
   manifest_customer_id="$(manifest_field customer_id)" \
     || die "Unable to read customer_id from manifest"
   manifest_deployment_id="$(manifest_field deployment_id)" \
@@ -266,6 +289,8 @@ load_manifest() {
     || die "Unable to read aws_region from manifest"
   manifest_environment="$(manifest_field environment)" \
     || die "Unable to read environment from manifest"
+  manifest_domain_name="$(manifest_optional_field domain)" \
+    || die "Unable to read optional domain from manifest"
 
   [[ -z "$CUSTOMER_ID" || "$CUSTOMER_ID" == "$manifest_customer_id" ]] \
     || die "--customer-id conflicts with the validated manifest"
@@ -283,6 +308,7 @@ load_manifest() {
   ACCOUNT_ID="$manifest_account_id"
   REGION="$manifest_region"
   ENVIRONMENT="$manifest_environment"
+  DOMAIN_NAME="$manifest_domain_name"
 }
 
 # ── Subcommands ───────────────────────────────────────────────────────
@@ -386,12 +412,21 @@ cmd_plan_layer() {
 
   guard_live
 
+  local domain_arguments=()
+  if grep -q '^variable "domain_name"' "${root_dir}"/*.tf; then
+    [[ -n "$DOMAIN_NAME" ]] \
+      || die "Validated manifest domain is required for layer ${LAYER}"
+    domain_arguments=(--domain-name "$DOMAIN_NAME")
+  fi
+
   bash "$SCRIPT_DIR/terraform-layer.sh" plan \
     --layer "$LAYER" \
     --plan-dir "$PLAN_DIR" \
     --customer-id "$CUSTOMER_ID" \
     --account-id "$ACCOUNT_ID" \
     --region "$REGION" \
+    --environment "$ENVIRONMENT" \
+    "${domain_arguments[@]}" \
     --deployment-id "$DEPLOYMENT_ID" \
     --release-version "$RELEASE_VERSION" \
     --release-digest "$RELEASE_DIGEST" \

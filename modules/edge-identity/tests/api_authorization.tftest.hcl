@@ -7,7 +7,7 @@ variables {
   region                  = "us-east-1"
   release_version         = "v0.0.0-synthetic"
   release_manifest_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  domain_name             = "synthetic.example"
+  domain_name             = "app.synthetic.example"
 
   vpc_id = "vpc-00000000000000000"
   private_subnet_ids = {
@@ -134,7 +134,8 @@ run "uses_an_exact_cors_allowlist_without_legacy_identity_headers" {
 
   assert {
     condition = (
-      toset(aws_apigatewayv2_api.main.cors_configuration[0].allow_origins) == toset(var.cors_allowed_origins) &&
+      length(aws_apigatewayv2_api.main.cors_configuration[0].allow_origins) == 1 &&
+      one(aws_apigatewayv2_api.main.cors_configuration[0].allow_origins) == "https://${var.domain_name}" &&
       alltrue([
         for origin in aws_apigatewayv2_api.main.cors_configuration[0].allow_origins :
         origin != "*" && startswith(origin, "https://") && !strcontains(lower(origin), "localhost")
@@ -173,6 +174,29 @@ run "uses_an_exact_cors_allowlist_without_legacy_identity_headers" {
     ])
     error_message = "CORS must expose only sanitized opaque diagnostic references"
   }
+}
+
+run "rejects_cors_origin_substitution_or_broadening" {
+  command = plan
+
+  variables {
+    cors_allowed_origins = [
+      "https://app.synthetic.example",
+      "https://substituted.synthetic.example",
+    ]
+  }
+
+  expect_failures = [aws_apigatewayv2_api.main]
+}
+
+run "rejects_domain_names_over_253_characters" {
+  command = plan
+
+  variables {
+    domain_name = join(".", [for _ in range(4) : join("", [for _ in range(63) : "a"])])
+  }
+
+  expect_failures = [var.domain_name]
 }
 
 run "requires_a_reviewed_stage_and_sanitized_access_logs" {

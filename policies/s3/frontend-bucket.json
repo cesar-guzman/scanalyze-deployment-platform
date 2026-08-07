@@ -5,13 +5,13 @@
       "Sid": "AllowCloudFrontOAC",
       "Effect": "Allow",
       "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-frontend/${deployment_id}/*",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/${deployment_id}/*",
       "Principal": {
         "Service": "cloudfront.amazonaws.com"
       },
       "Condition": {
         "StringEquals": {
-          "AWS:SourceArn": "arn:aws:cloudfront::${account_id}:distribution/${cloudfront_distribution_id}"
+          "AWS:SourceArn": "arn:${aws_partition}:cloudfront::${account_id}:distribution/${cloudfront_distribution_id}"
         }
       }
     },
@@ -23,11 +23,23 @@
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::scanalyze-${account_id}-frontend",
-        "arn:aws:s3:::scanalyze-${account_id}-frontend/${deployment_id}/releases/*"
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/${deployment_id}/releases/*"
       ],
       "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Promotion"
+        "AWS": "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Promotion"
+      }
+    },
+    {
+      "Sid": "AllowEdgeApplyRuntimeConfig",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/${deployment_id}/config.json",
+      "Principal": {
+        "AWS": "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Apply"
       }
     },
     {
@@ -35,8 +47,8 @@
       "Effect": "Deny",
       "Action": "s3:*",
       "Resource": [
-        "arn:aws:s3:::scanalyze-${account_id}-frontend",
-        "arn:aws:s3:::scanalyze-${account_id}-frontend/*"
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/*"
       ],
       "Principal": "*",
       "Condition": {
@@ -50,8 +62,8 @@
       "Effect": "Deny",
       "Action": "s3:*",
       "Resource": [
-        "arn:aws:s3:::scanalyze-${account_id}-frontend",
-        "arn:aws:s3:::scanalyze-${account_id}-frontend/*"
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/*"
       ],
       "Principal": "*",
       "Condition": {

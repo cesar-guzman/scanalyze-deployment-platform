@@ -1,9 +1,34 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Navigate } from 'react-router';
+import { loginErrorCode, useOperationTimeout } from '../auth/bootstrap';
 
 export const Login: React.FC = () => {
   const auth = useAuth();
+  const [attempting, setAttempting] = useState(false);
+  const timedOut = useOperationTimeout(auth.isLoading);
+
+  const beginSignin = () => {
+    if (attempting || auth.isLoading) return;
+    setAttempting(true);
+    void auth.signinRedirect()
+      .catch(() => undefined)
+      .finally(() => setAttempting(false));
+  };
+
+  if (timedOut) {
+    return (
+      <div className="flex justify-center items-center min-h-screen w-full bg-slate-950">
+        <div className="glass-card animate-fade-in p-10 text-center max-w-md w-11/12">
+          <h2 className="text-2xl font-bold mb-4 text-slate-100">Error de Autenticación</h2>
+          <p className="text-rose-400 mb-8 text-sm" role="alert">OIDC_BOOTSTRAP_TIMEOUT</p>
+          <button className="btn-outline w-full py-3" onClick={() => window.location.reload()}>
+            Recargar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (auth.isLoading) {
     return (
@@ -22,8 +47,8 @@ export const Login: React.FC = () => {
         <div className="glass-card animate-fade-in p-10 text-center max-w-md w-11/12">
           <div className="text-5xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold mb-4 text-slate-100">Error de Autenticación</h2>
-          <p className="text-rose-400 mb-8 text-sm">AUTHENTICATION_FAILED</p>
-          <button className="btn-outline w-full py-3" onClick={() => void auth.signinRedirect()}>
+          <p className="text-rose-400 mb-8 text-sm" role="alert">{loginErrorCode(auth.error)}</p>
+          <button className="btn-outline w-full py-3" disabled={attempting} onClick={beginSignin}>
             Intentar nuevamente
           </button>
         </div>
@@ -54,7 +79,8 @@ export const Login: React.FC = () => {
 
         <button
           className="btn-primary w-full py-3.5 text-lg flex items-center justify-center gap-2 transition-transform hover:-translate-y-0.5"
-          onClick={() => void auth.signinRedirect()}
+          disabled={attempting}
+          onClick={beginSignin}
         >
           Iniciar Sesión
           <svg className="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>

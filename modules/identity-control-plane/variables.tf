@@ -54,6 +54,17 @@ variable "aws_partition" {
   }
 }
 
+variable "domain_name" {
+  type        = string
+  description = "Exact lowercase DNS hostname shared with the deployment edge."
+  nullable    = false
+
+  validation {
+    condition     = length(var.domain_name) <= 253 && can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.domain_name))
+    error_message = "domain_name must be an exact lowercase DNS hostname of at most 253 characters."
+  }
+}
+
 variable "runtime_permissions_boundary_arn" {
   type        = string
   description = "Customer-owned permissions boundary required on every identity runtime role."
