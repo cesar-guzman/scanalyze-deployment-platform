@@ -29,7 +29,7 @@ OCR_KEY = (
 
 
 def test_owner_bound_contract_chain_smoke():
-    metadata = MessageMetadata(correlationId="correlation-smoke")
+    metadata = MessageMetadata(correlationId="550e8400-e29b-41d4-a716-446655440000")
     ingest = IngestMessage(
         schemaVersion="scanalyze.ingest.v2",
         customer_id=CUSTOMER_ID,

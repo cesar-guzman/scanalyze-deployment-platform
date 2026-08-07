@@ -20,6 +20,38 @@ def test_config_rejects_missing_deployment_environment(monkeypatch):
     boto_client.assert_not_called()
 
 
+@pytest.mark.parametrize("valid_env", ["local", "test", "ci", "demo", "sandbox", "dev", "staging", "production"])
+def test_environment_positive_cases(monkeypatch, valid_env):
+    monkeypatch.setenv("SCANALYZE_ENV", valid_env)
+    formatter = JSONFormatter(tenant="platform", stage="ocr")
+    import json
+    import logging
+    record = logging.LogRecord("test", logging.INFO, "path", 1, "msg", (), None)
+    out = json.loads(formatter.format(record))
+    assert out["env"] == valid_env
+
+
+@pytest.mark.parametrize("invalid_env", [
+    " ",
+    " test ",
+    "dev\n",
+    "x" * 100,
+    "unknown-free-text",
+    "SYNTHETIC-SENTINEL-123",
+    '{"env": "test"}',
+])
+def test_environment_negative_cases(monkeypatch, invalid_env):
+    monkeypatch.setenv("SCANALYZE_ENV", invalid_env)
+    formatter = JSONFormatter(tenant="platform", stage="ocr")
+    import json
+    import logging
+    record = logging.LogRecord("test", logging.INFO, "path", 1, "msg", (), None)
+    out = json.loads(formatter.format(record))
+    assert out["env"] == "unknown"
+    if invalid_env.strip():
+        assert invalid_env not in repr(out)
+
+
 def test_config_rejects_missing_tenant(monkeypatch):
     monkeypatch.setenv("SCANALYZE_ENV", "test")
     monkeypatch.delenv("SCANALYZE_TENANT", raising=False)
@@ -91,7 +123,7 @@ def test_schema_or_deadline_value_error_is_not_deleted_before_native_dlq(monkeyp
 def test_log_context_is_cleared_between_messages():
     import logging
 
-    bind_context(documentId="previous-document", correlationId="previous-correlation")
+    bind_context(documentId="previous-document", correlationId="550e8400-e29b-41d4-a716-446655440000")
     clear_context()
     formatter = JSONFormatter(tenant="platform", stage="ocr")
     record = logging.LogRecord(

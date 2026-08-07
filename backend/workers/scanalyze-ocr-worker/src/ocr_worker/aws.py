@@ -14,10 +14,8 @@ boto_config = Config(
     }
 )
 
-# Sesión global
 aws_session = boto3.Session()
 
-# Clientes y recursos a usar en toda la app
 sqs_client = aws_session.client('sqs', config=boto_config)
 s3_client = aws_session.client('s3', config=boto_config)
 textract_client = aws_session.client('textract', config=boto_config)
