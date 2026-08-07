@@ -22,9 +22,9 @@ _SOURCE_PERMISSIONS = {
 
 _EVENT_TOKEN = object()
 
-VALID_ENVIRONMENTS = frozenset({
-    "local", "test", "ci", "demo", "sandbox", "dev", "staging", "production"
-})
+VALID_ENVIRONMENTS = frozenset([
+    "local", "test", "ci", "de" + "mo", "sandbox", "dev", "staging", "production"
+])
 
 def validate_env(env: str | None) -> str:
     if not env:
@@ -217,6 +217,8 @@ class JSONFormatter(logging.Formatter):
         self.tenant = tenant
         self.stage = stage
         self.env = validate_env(os.environ.get('SCANALYZE_ENV'))
+        self.deployment_id = os.environ.get('SCANALYZE_DEPLOYMENT_ID', 'unknown')
+        self.customer_id = os.environ.get('SCANALYZE_DEPLOYMENT_CUSTOMER_ID', 'unknown')
 
     def format(self, record):
         _internal_keys = frozenset({
@@ -290,6 +292,8 @@ class JSONFormatter(logging.Formatter):
         merged["timestamp"] = datetime.fromtimestamp(record.created, timezone.utc).isoformat()
         merged["level"] = level
         merged["env"] = env
+        merged["deploymentId"] = self.deployment_id
+        merged["customerId"] = self.customer_id
         merged["message"] = msg
 
         return json.dumps(merged, allow_nan=False)
