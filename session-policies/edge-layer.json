@@ -8,7 +8,16 @@
         "ssm:PutParameter",
         "ssm:AddTagsToResource"
       ],
-      "Resource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/edge/*"
+      "Resource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/edge/*"
+    },
+    {
+      "Sid": "ManageExactFrontendRuntimeConfig",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/${deployment_id}/config.json"
     },
     {
       "Sid": "DenySSMWriteOutsideLayer",
@@ -17,7 +26,7 @@
         "ssm:PutParameter",
         "ssm:DeleteParameter"
       ],
-      "NotResource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/edge/*"
+      "NotResource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/edge/*"
     }
   ]
 }

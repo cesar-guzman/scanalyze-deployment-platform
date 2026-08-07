@@ -11,6 +11,13 @@ resource "aws_apigatewayv2_api" "main" {
   }
 
   tags = local.common_tags
+
+  lifecycle {
+    precondition {
+      condition     = length(var.cors_allowed_origins) == 1 && one(var.cors_allowed_origins) == "https://${var.domain_name}"
+      error_message = "CORS must allow exactly the deployment-target/v2 runtime origin."
+    }
+  }
 }
 
 resource "aws_apigatewayv2_vpc_link" "alb" {

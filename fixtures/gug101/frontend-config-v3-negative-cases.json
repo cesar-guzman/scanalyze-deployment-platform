@@ -1,0 +1,39 @@
+{
+  "base_fixture": "fixtures/valid/frontend-config-v3-synthetic-a.json",
+  "cases": [
+    {
+      "name": "missing_redirect",
+      "operation": "remove",
+      "path": ["cognito", "redirect_uri"],
+      "expected_code": "FRONTEND_CONFIG_SCHEMA_INVALID"
+    },
+    {
+      "name": "unexpected_origin",
+      "operation": "replace",
+      "path": ["cognito", "post_logout_redirect_uri"],
+      "value": "https://unexpected.synthetic.invalid/",
+      "expected_code": "FRONTEND_CONFIG_ORIGIN_BINDING_INVALID"
+    },
+    {
+      "name": "hosted_domain_mismatch",
+      "operation": "replace",
+      "path": ["cognito", "hosted_ui_domain"],
+      "value": "https://different-identity.auth.us-east-1.amazoncognito.com",
+      "expected_code": "FRONTEND_CONFIG_HOSTED_UI_BINDING_INVALID"
+    },
+    {
+      "name": "unknown_field",
+      "operation": "add",
+      "path": ["unexpected_runtime_field"],
+      "value": false,
+      "expected_code": "FRONTEND_CONFIG_SCHEMA_INVALID"
+    },
+    {
+      "name": "secret_like_field_injection",
+      "operation": "add",
+      "path": ["cognito", "client_secret"],
+      "value": "synthetic-denied-value",
+      "expected_code": "FRONTEND_CONFIG_SECRET_LIKE_KEY"
+    }
+  ]
+}

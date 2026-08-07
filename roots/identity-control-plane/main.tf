@@ -6,14 +6,15 @@ module "identity_control_plane" {
   account_id                       = var.account_id
   region                           = var.region
   aws_partition                    = var.aws_partition
+  domain_name                      = var.domain_name
   runtime_permissions_boundary_arn = var.global_contract.identity_runtime_permissions_boundary_arn
   release_version                  = var.release_version
   release_manifest_digest          = var.release_manifest_digest
   policy_version                   = var.policy_version
   policy_digest                    = var.policy_digest
 
-  spa_callback_urls = var.spa_callback_urls
-  spa_logout_urls   = var.spa_logout_urls
+  spa_callback_urls = ["https://${var.domain_name}/callback"]
+  spa_logout_urls   = ["https://${var.domain_name}/"]
 
   pre_token_s3_bucket         = var.release_manifest_contract.pre_token_artifact.bucket
   pre_token_s3_key            = var.release_manifest_contract.pre_token_artifact.key

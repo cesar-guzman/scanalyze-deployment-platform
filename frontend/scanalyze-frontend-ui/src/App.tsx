@@ -16,17 +16,51 @@ import { BankStatements } from './pages/BankStatements';
 import { EmployeeProfiles } from './pages/EmployeeProfiles';
 import { EmployeeProfileDetail } from './pages/EmployeeProfileDetail';
 import { EnterpriseUserConsole } from './pages/EnterpriseUserConsole';
+import {
+  callbackErrorCode,
+  preflightAuthCallback,
+  scrubAuthCallbackUrl,
+  useOperationTimeout,
+} from './auth/bootstrap';
+
+const SafeAuthFailure: React.FC<{ code: string }> = ({ code }) => (
+  <main className="flex justify-center items-center min-h-screen w-full bg-slate-950 text-slate-200">
+    <section className="max-w-lg rounded-xl border border-red-500/40 bg-slate-900 p-8 text-center">
+      <h1 className="mb-3 text-xl font-semibold">No fue posible completar la autenticación</h1>
+      <p className="mb-4 text-slate-400">La operación se detuvo de forma segura. Vuelve a iniciar sesión.</p>
+      <p className="font-mono text-sm text-red-300" role="alert">{code}</p>
+      <button
+        className="btn-outline mt-6 w-full py-3"
+        onClick={() => window.location.replace('/login')}
+      >
+        Volver a iniciar sesión
+      </button>
+    </section>
+  </main>
+);
 
 const CallbackHandler: React.FC = () => {
   const auth = useAuth();
+  const parameters = new URLSearchParams(window.location.search);
+  const hasResponse = parameters.has('code') || parameters.has('error');
+  const invalidEnvelope = hasResponse && !parameters.has('state');
+  const timedOut = useOperationTimeout(auth.isLoading && !invalidEnvelope);
+  const failureCode = invalidEnvelope
+    ? 'AUTH_CALLBACK_INVALID'
+    : auth.error
+      ? callbackErrorCode(auth.error)
+      : timedOut
+        ? 'AUTH_CALLBACK_TIMEOUT'
+        : !auth.isLoading && !auth.isAuthenticated
+          ? 'AUTH_CALLBACK_INVALID'
+          : null;
 
   useEffect(() => {
-    if (auth.isAuthenticated) {
-      window.location.replace('/upload');
-    } else if (auth.error) {
-      window.location.replace('/');
-    }
-  }, [auth.isAuthenticated, auth.error]);
+    if (failureCode !== null) scrubAuthCallbackUrl();
+  }, [failureCode]);
+
+  if (failureCode !== null) return <SafeAuthFailure code={failureCode} />;
+  if (auth.isAuthenticated) return <Navigate to="/upload" replace />;
 
   return (
     <div className="flex justify-center items-center min-h-screen w-full bg-slate-950">
@@ -41,7 +75,9 @@ const CallbackHandler: React.FC = () => {
 // Layout for simple protected routes without nested routes (for backward compat)
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useAuth();
+  const timedOut = useOperationTimeout(auth.isLoading);
 
+  if (timedOut) return <SafeAuthFailure code="OIDC_BOOTSTRAP_TIMEOUT" />;
   if (auth.isLoading) {
     return <div className="flex items-center justify-center min-h-screen bg-slate-950 text-slate-300">Verificando sesión segura...</div>;
   }
@@ -81,15 +117,25 @@ const AppRoutes = () => {
 export const App: React.FC = () => {
   const [configState, setConfigState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [failureCode, setFailureCode] = useState('RUNTIME_CONFIG_INVALID');
+  const [authBootstrapFailure, setAuthBootstrapFailure] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     void loadConfig()
-      .then(() => {
-        if (active) setConfigState('ready');
+      .then((loadedConfig) => {
+        if (!active) return;
+        const callbackFailure = preflightAuthCallback(loadedConfig);
+        if (callbackFailure !== null) setAuthBootstrapFailure(callbackFailure);
+        setConfigState('ready');
       })
       .catch((error: unknown) => {
         if (!active) return;
+        if (window.location.pathname === '/callback') {
+          const callbackParameters = new URLSearchParams(window.location.search);
+          if (callbackParameters.has('code') || callbackParameters.has('error')) {
+            scrubAuthCallbackUrl();
+          }
+        }
         setFailureCode(
           error instanceof RuntimeConfigError ? error.code : 'RUNTIME_CONFIG_INVALID',
         );
@@ -109,6 +155,12 @@ export const App: React.FC = () => {
             La aplicación permanece bloqueada porque no pudo validar su configuración de despliegue.
           </p>
           <p className="font-mono text-sm text-red-300" role="alert">{failureCode}</p>
+          <button
+            className="btn-outline mt-6 w-full py-3"
+            onClick={() => window.location.reload()}
+          >
+            Recargar configuración
+          </button>
         </section>
       </main>
     );
@@ -123,6 +175,10 @@ export const App: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (authBootstrapFailure !== null) {
+    return <SafeAuthFailure code={authBootstrapFailure} />;
   }
 
   return (

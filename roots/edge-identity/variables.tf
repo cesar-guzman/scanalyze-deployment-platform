@@ -229,6 +229,11 @@ variable "domain_name" {
   type        = string
   description = "Deployment DNS name retained as non-authoritative routing metadata."
   nullable    = false
+
+  validation {
+    condition     = length(var.domain_name) <= 253 && can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.domain_name))
+    error_message = "domain_name must be an exact lowercase DNS hostname of at most 253 characters."
+  }
 }
 
 variable "cors_allowed_origins" {

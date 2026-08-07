@@ -38,6 +38,8 @@ CUSTOMER_ID=""
 DEPLOYMENT_ID=""
 ACCOUNT_ID=""
 REGION=""
+ENVIRONMENT=""
+DOMAIN_NAME=""
 RELEASE_VERSION=""
 RELEASE_DIGEST=""
 RESOLVED_INPUT=""
@@ -56,6 +58,8 @@ while [[ "$#" -gt 0 ]]; do
     --deployment-id)   [[ -n "${2:-}" ]] || die "--deployment-id requires a value"; DEPLOYMENT_ID="$2"; shift 2 ;;
     --account-id)      [[ -n "${2:-}" ]] || die "--account-id requires a value"; ACCOUNT_ID="$2"; shift 2 ;;
     --region)          [[ -n "${2:-}" ]] || die "--region requires a value"; REGION="$2"; shift 2 ;;
+    --environment)     [[ -n "${2:-}" ]] || die "--environment requires a value"; ENVIRONMENT="$2"; shift 2 ;;
+    --domain-name)     [[ -n "${2:-}" ]] || die "--domain-name requires a value"; DOMAIN_NAME="$2"; shift 2 ;;
     --release-version) [[ -n "${2:-}" ]] || die "--release-version requires a value"; RELEASE_VERSION="$2"; shift 2 ;;
     --release-digest)  [[ -n "${2:-}" ]] || die "--release-digest requires a value"; RELEASE_DIGEST="$2"; shift 2 ;;
     --resolved-input)  [[ -n "${2:-}" ]] || die "--resolved-input requires a value"; RESOLVED_INPUT="$2"; shift 2 ;;
@@ -87,6 +91,14 @@ done
 
 ROOT_DIR="${REPO_ROOT}/roots/${LAYER}"
 [[ -d "$ROOT_DIR" ]] || die "Layer root not found"
+ROOT_REQUIRES_DOMAIN=false
+if grep -q '^variable "domain_name"' "${ROOT_DIR}"/*.tf; then
+  ROOT_REQUIRES_DOMAIN=true
+  [[ -n "$DOMAIN_NAME" ]] || die "--domain-name is required for layer ${LAYER}"
+fi
+if grep -q '^variable "environment"' "${ROOT_DIR}"/*.tf && [[ -z "$ENVIRONMENT" ]]; then
+  die "--environment is required for layer ${LAYER}"
+fi
 
 ABS_PLAN_DIR="$(cd "$PLAN_DIR" && pwd)" || die "--plan-dir does not exist"
 [[ "$ABS_PLAN_DIR" != "$REPO_ROOT" && "$ABS_PLAN_DIR" != "$REPO_ROOT/"* ]] \
@@ -123,6 +135,47 @@ python3 "${REPO_ROOT}/tooling/authorize_deployment_backend.py" \
   --expected-execution-id "$EXECUTION_ID" \
   || die "Authorized registry-backed backend binding is required"
 
+AUTHORIZED_ENVIRONMENT="$(python3 - "$BACKEND_BINDING" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = document.get("environment") if isinstance(document, dict) else None
+if not isinstance(value, str) or not value:
+    raise SystemExit("authorized environment binding is unavailable")
+print(value)
+PY
+)" || die "Unable to read environment from the authorized backend binding"
+[[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$AUTHORIZED_ENVIRONMENT" ]] \
+  || die "--environment conflicts with the authorized deployment target"
+ENVIRONMENT="$AUTHORIZED_ENVIRONMENT"
+
+if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
+  AUTHORIZED_DOMAIN_NAME="$(python3 - "$BACKEND_BINDING" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+runtime_origin = document.get("runtime_origin") if isinstance(document, dict) else None
+value = runtime_origin.get("domain_name") if isinstance(runtime_origin, dict) else None
+if (
+    document.get("schema_version") != "2"
+    or not isinstance(runtime_origin, dict)
+    or runtime_origin.get("schema_version") != "1"
+):
+    raise SystemExit("authorized runtime-origin binding is unavailable")
+if not isinstance(value, str) or not value:
+    raise SystemExit("authorized runtime-origin domain is unavailable")
+print(value)
+PY
+)" || die "Unable to read domain from the authorized backend binding"
+  [[ "$DOMAIN_NAME" == "$AUTHORIZED_DOMAIN_NAME" ]] \
+    || die "--domain-name conflicts with the authorized deployment target"
+  DOMAIN_NAME="$AUTHORIZED_DOMAIN_NAME"
+fi
+
 CALLER_ACCOUNT="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
   || die "Unable to verify AWS caller identity"
 [[ "$CALLER_ACCOUNT" == "$ACCOUNT_ID" ]] \
@@ -152,6 +205,12 @@ terraform_variables=(
 )
 if grep -q '^variable "customer_id"' "${ROOT_DIR}"/*.tf; then
   terraform_variables+=("-var=customer_id=${CUSTOMER_ID}")
+fi
+if grep -q '^variable "environment"' "${ROOT_DIR}"/*.tf; then
+  terraform_variables+=("-var=environment=${ENVIRONMENT}")
+fi
+if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
+  terraform_variables+=("-var=domain_name=${DOMAIN_NAME}")
 fi
 if grep -q '^variable "release_version"' "${ROOT_DIR}"/*.tf; then
   terraform_variables+=("-var=release_version=${RELEASE_VERSION}")

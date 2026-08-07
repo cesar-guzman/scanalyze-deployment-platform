@@ -13,7 +13,7 @@ resource "aws_cloudfront_distribution" "main" {
   http_version        = "http2and3"
   web_acl_id          = aws_wafv2_web_acl.cloudfront.arn
 
-  aliases = var.domain_aliases
+  aliases = distinct(concat([var.domain_name], var.domain_aliases))
 
   # S3 origin for frontend (bucket consumed from contract, not created here)
   origin {
@@ -22,9 +22,18 @@ resource "aws_cloudfront_distribution" "main" {
     origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
   }
 
+  # Runtime config is mutable deployment state, isolated from immutable assets.
+  # /config.json resolves to /{deployment_id}/config.json in the shared bucket.
+  origin {
+    domain_name              = var.frontend_bucket_domain_name
+    origin_id                = "s3-runtime-config"
+    origin_path              = "/${var.deployment_id}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
+  }
+
   # API Gateway origin
   origin {
-    domain_name = replace(var.api_gateway_endpoint, "https://", "")
+    domain_name = local.api_gateway_domain
     origin_id   = "api-gateway"
 
     custom_origin_config {
@@ -48,39 +57,51 @@ resource "aws_cloudfront_distribution" "main" {
         forward = "none"
       }
     }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_route_rewrite.arn
+    }
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/api/*"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "api-gateway"
-    viewer_protocol_policy = "redirect-to-https"
+    path_pattern               = "/config.json"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = "s3-runtime-config"
+    viewer_protocol_policy     = "redirect-to-https"
+    compress                   = true
+    cache_policy_id            = aws_cloudfront_cache_policy.runtime_config.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.runtime_config.id
+  }
 
-    forwarded_values {
-      query_string = true
-      headers      = ["Authorization", "x-tenant-id", "Origin"]
-      cookies {
-        forward = "none"
+  dynamic "ordered_cache_behavior" {
+    for_each = toset(["/api", "/api/*"])
+
+    content {
+      path_pattern           = ordered_cache_behavior.value
+      allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+      cached_methods         = ["GET", "HEAD"]
+      target_origin_id       = "api-gateway"
+      viewer_protocol_policy = "redirect-to-https"
+
+      forwarded_values {
+        query_string = true
+        headers      = ["Authorization", "x-tenant-id", "Origin"]
+        cookies {
+          forward = "none"
+        }
       }
+
+      function_association {
+        event_type   = "viewer-request"
+        function_arn = aws_cloudfront_function.api_path_rewrite.arn
+      }
+
+      min_ttl     = 0
+      default_ttl = 0
+      max_ttl     = 0
     }
-
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
-  }
-
-  # SPA fallback
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
   }
 
   restrictions {
@@ -100,6 +121,76 @@ resource "aws_cloudfront_distribution" "main" {
     managed_by    = "terraform"
     layer         = "edge"
   }
+}
+
+resource "aws_cloudfront_cache_policy" "runtime_config" {
+  provider    = aws.us_east_1
+  name        = "${var.deployment_id}-runtime-config-no-store"
+  comment     = "Disable edge caching for the mutable public SPA runtime config"
+  default_ttl = 0
+  max_ttl     = 0
+  min_ttl     = 0
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = false
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
+}
+
+resource "aws_cloudfront_response_headers_policy" "runtime_config" {
+  provider = aws.us_east_1
+  name     = "${var.deployment_id}-runtime-config-no-store"
+  comment  = "Prevent browsers and intermediaries from retaining SPA runtime config"
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      override = true
+      value    = "no-store, max-age=0, must-revalidate"
+    }
+  }
+}
+
+resource "aws_cloudfront_function" "spa_route_rewrite" {
+  provider = aws.us_east_1
+  name     = "${var.deployment_id}-spa-route-rewrite"
+  runtime  = "cloudfront-js-2.0"
+  comment  = "Rewrite navigation routes without masking missing files such as config.json"
+  publish  = true
+  code     = <<-JAVASCRIPT
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+      var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+
+      if (uri === '/' || lastSegment.indexOf('.') === -1) {
+        request.uri = '/index.html';
+      }
+
+      return request;
+    }
+  JAVASCRIPT
+}
+
+resource "aws_cloudfront_function" "api_path_rewrite" {
+  provider = aws.us_east_1
+  name     = "${var.deployment_id}-api-path-rewrite"
+  runtime  = "cloudfront-js-2.0"
+  comment  = "Remove only the same-origin SPA API prefix before API Gateway routing"
+  publish  = true
+  code     = file("${path.module}/api_path_rewrite.js")
 }
 
 resource "aws_cloudfront_origin_access_control" "s3" {

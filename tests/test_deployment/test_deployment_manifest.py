@@ -25,6 +25,7 @@ def valid_manifest():
         "environment": "sandbox",
         "aws_account_id": "123456789012",
         "aws_region": "us-east-1",
+        "domain": "app.synthetic.example",
         "terraform_backend": {
             "bucket": "dep-01synth3t1cabc0xamp0ehabcd-tfstate",
             "lock_table": "dep_01SYNTH3T1CABC0XAMP0EHABCD-tflock",
@@ -70,6 +71,16 @@ def test_missing_region_fails(schema, valid_manifest):
     del valid_manifest["aws_region"]
     errors = _validate(schema, valid_manifest)
     assert len(errors) > 0
+
+
+def test_historical_manifest_without_domain_remains_valid(schema, valid_manifest):
+    del valid_manifest["domain"]
+    assert _validate(schema, valid_manifest) == []
+
+
+def test_historical_domain_shape_remains_backward_compatible(schema, valid_manifest):
+    valid_manifest["domain"] = "https://app.synthetic.example/callback"
+    assert _validate(schema, valid_manifest) == []
 
 
 def test_missing_base_image_fails(schema, valid_manifest):

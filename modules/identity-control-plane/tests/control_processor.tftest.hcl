@@ -44,6 +44,7 @@ variables {
   account_id                       = "000000000000"
   runtime_permissions_boundary_arn = "arn:aws:iam::000000000000:policy/scanalyze-identity-runtime-boundary"
   region                           = "us-east-1"
+  domain_name                      = "app.synthetic.example"
   release_version                  = "v0.0.0-synthetic"
   release_manifest_digest          = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   policy_version                   = "1.0.0"
@@ -62,7 +63,7 @@ variables {
   m2m_bindings                        = []
 
   spa_callback_urls = ["https://app.synthetic.example/callback"]
-  spa_logout_urls   = ["https://app.synthetic.example/logout"]
+  spa_logout_urls   = ["https://app.synthetic.example/"]
 }
 
 run "pins_real_handlers_and_immutable_artifacts" {
