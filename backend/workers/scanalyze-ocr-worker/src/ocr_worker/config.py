@@ -5,16 +5,21 @@ import logging
 import boto3
 from typing import Dict, Any
 
-from .logger import validate_env
-
+from .environment_contract import (
+    require_runtime_environment,
+    require_customer_id,
+    require_deployment_id
+)
 logger = logging.getLogger(__name__)
-
 
 def require_nonempty_env(name: str) -> str:
     value = os.environ.get(name)
-    if value is None or value == "":
+    if value is None:
         raise RuntimeError(f"{name} is required")
-    return value
+    stripped = value.strip()
+    if not stripped:
+        raise RuntimeError(f"{name} is required")
+    return stripped
 
 
 class ConfigCache:
@@ -23,14 +28,10 @@ class ConfigCache:
         self._last_fetch = 0
         self.ttl = ttl_seconds
         
-        self.env = validate_env(os.environ.get("SCANALYZE_ENV"))
+        self.env = require_runtime_environment(os.environ.get("SCANALYZE_ENV"))
         self.tenant = require_nonempty_env("SCANALYZE_TENANT")
-        self.customer_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_CUSTOMER_ID")
-        self.deployment_id = require_nonempty_env("SCANALYZE_DEPLOYMENT_ID")
-        if not re.fullmatch(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$", self.customer_id):
-            raise RuntimeError("SCANALYZE_DEPLOYMENT_CUSTOMER_ID is invalid")
-        if not re.fullmatch(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$", self.deployment_id):
-            raise RuntimeError("SCANALYZE_DEPLOYMENT_ID is invalid")
+        self.customer_id = require_customer_id(os.environ.get("SCANALYZE_DEPLOYMENT_CUSTOMER_ID"))
+        self.deployment_id = require_deployment_id(os.environ.get("SCANALYZE_DEPLOYMENT_ID"))
             
         param_root = os.environ.get("SCANALYZE_PARAM_ROOT", f"/scanalyze/{self.env}/tenants")
         if param_root.endswith(f"/{self.tenant}"):

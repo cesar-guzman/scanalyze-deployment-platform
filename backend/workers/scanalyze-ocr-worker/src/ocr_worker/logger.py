@@ -6,6 +6,12 @@ import re
 import math
 from datetime import datetime, timezone
 
+from .environment_contract import (
+    project_log_environment,
+    project_customer_id,
+    project_deployment_id
+)
+
 _log_context = contextvars.ContextVar('scanalyze_log_context', default={})
 
 _SOURCE_PERMISSIONS = {
@@ -22,18 +28,6 @@ _SOURCE_PERMISSIONS = {
 
 _EVENT_TOKEN = object()
 
-VALID_ENVIRONMENTS = frozenset([
-    "local", "test", "ci", "de" + "mo", "sandbox", "dev", "staging", "production"
-])
-
-def validate_env(env: str | None) -> str:
-    if not env:
-        raise RuntimeError("SCANALYZE_ENV is required")
-    if not isinstance(env, str):
-        return "unknown"
-    if env not in VALID_ENVIRONMENTS:
-        return "unknown"
-    return env
 
 class _ScanalyzeEventFields(dict):
     """Private event envelope to prevent accidental Extra overwrite."""
@@ -216,9 +210,9 @@ class JSONFormatter(logging.Formatter):
         super().__init__()
         self.tenant = tenant
         self.stage = stage
-        self.env = validate_env(os.environ.get('SCANALYZE_ENV'))
-        self.deployment_id = os.environ.get('SCANALYZE_DEPLOYMENT_ID', 'unknown')
-        self.customer_id = os.environ.get('SCANALYZE_DEPLOYMENT_CUSTOMER_ID', 'unknown')
+        self.env = project_log_environment(os.environ.get('SCANALYZE_ENV'))
+        self.deployment_id = project_deployment_id(os.environ.get('SCANALYZE_DEPLOYMENT_ID'))
+        self.customer_id = project_customer_id(os.environ.get('SCANALYZE_DEPLOYMENT_CUSTOMER_ID'))
 
     def format(self, record):
         _internal_keys = frozenset({
@@ -282,8 +276,6 @@ class JSONFormatter(logging.Formatter):
             level = "warn" if level == "warning" else "info"
 
         env = self.env
-        if env not in VALID_ENVIRONMENTS:
-            env = "unknown"
 
         msg = str(record.getMessage())
         if len(msg) > 1024:

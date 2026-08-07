@@ -14,12 +14,12 @@ boto_config = Config(
     }
 )
 
-# Clientes y recursos a usar en toda la app
-# Usamos boto3.client/resource directamente para reutilizar la sesión por defecto de boto3
-sqs_client = boto3.client('sqs', config=boto_config)
-s3_client = boto3.client('s3', config=boto_config)
-textract_client = boto3.client('textract', config=boto_config)
-dynamodb_resource = boto3.resource('dynamodb', config=boto_config)
+aws_session = boto3.Session()
+
+sqs_client = aws_session.client('sqs', config=boto_config)
+s3_client = aws_session.client('s3', config=boto_config)
+textract_client = aws_session.client('textract', config=boto_config)
+dynamodb_resource = aws_session.resource('dynamodb', config=boto_config)
 
 def extend_visibility(queue_url: str, receipt_handle: str, timeout: int):
     """
