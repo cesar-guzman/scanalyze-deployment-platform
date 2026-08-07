@@ -20,7 +20,7 @@ SUPPORTED_RUNTIME_ENVIRONMENTS = {
     "production"
 }
     '''
-    errors = check_source_text(Path("environment_contract.py"), True, text)
+    errors = check_source_text(Path("backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py"), True, text)
     assert not any("deployment/customer label must be injected" in e for e in errors)
 
 
@@ -47,9 +47,47 @@ def test_hardcoded_demo_outside_contract_fails():
     errors = check_source_text(Path("some_file.py"), True, text)
     assert any("deployment/customer label must be injected" in e for e in errors)
 
+
+def test_exception_requires_exact_path():
+    text = '''
+SUPPORTED_RUNTIME_ENVIRONMENTS = {"demo"}
+    '''
+    # Even if valid, wrong path fails
+    errors = check_source_text(Path("backend/workers/other/src/environment_contract.py"), True, text)
+    assert any("deployment/customer label must be injected" in e for e in errors)
+
+
+def test_exception_fails_if_marker_in_comment():
+    text = '''
+SUPPORTED_RUNTIME_ENVIRONMENTS = {"demo"}
+# this is a demo environment
+    '''
+    errors = check_source_text(Path("backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py"), True, text)
+    assert any("deployment/customer label must be injected" in e for e in errors)
+
+
+def test_exception_fails_if_unrelated_assignment():
+    text = '''
+SUPPORTED_RUNTIME_ENVIRONMENTS = {"production"}
+other = "demo"
+    '''
+    errors = check_source_text(Path("backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py"), True, text)
+    assert any("deployment/customer label must be injected" in e for e in errors)
+
+
+def test_exception_fails_if_parse_ambiguity():
+    text = '''
+SUPPORTED_RUNTIME_ENVIRONMENTS = {"demo"}
+def func( { syntax error "demo" }
+    '''
+    errors = check_source_text(Path("backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py"), True, text)
+    assert any("deployment/customer label must be injected" in e for e in errors)
+
+
 def test_source_obfuscation_is_not_needed():
-    # We should ensure that we do not need to obfuscate strings.
     # The literal "demo" inside environment_contract.py is allowed.
-    text = 'valid = "demo"'
-    errors = check_source_text(Path("environment_contract.py"), True, "SUPPORTED_RUNTIME_ENVIRONMENTS\n" + text)
+    text = '''
+SUPPORTED_RUNTIME_ENVIRONMENTS = {"demo"}
+    '''
+    errors = check_source_text(Path("backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py"), True, text)
     assert not any("deployment/customer label must be injected" in e for e in errors)

@@ -210,13 +210,17 @@ class TestSanitizeLogFields:
         result = _sanitize_log_fields({"queue": long_val}, source="event")
         assert "queue" not in result
 
-    def test_control_characters_are_stripped(self):
+    def test_control_characters_fail_closed(self):
         from ocr_worker.logger import _sanitize_log_fields
-        result = _sanitize_log_fields({"documentId": "doc\x00\x01\x02-123"}, source="context")
-        assert "\x00" not in result["documentId"]
-        assert "\x01" not in result["documentId"]
-        assert "doc" in result["documentId"]
-        assert "123" in result["documentId"]
+        result = _sanitize_log_fields({"documentId": "doc\x00\x01\x02-123", "correlationId": "550e8400-e29b-41d4-a716-446655440000\n"}, source="context")
+        assert "documentId" not in result
+        assert "correlationId" not in result
+
+    def test_leading_trailing_whitespace_fail_closed(self):
+        from ocr_worker.logger import _sanitize_log_fields
+        result = _sanitize_log_fields({"documentId": " doc-123 ", "correlationId": "\t550e8400-e29b-41d4-a716-446655440000"}, source="context")
+        assert "documentId" not in result
+        assert "correlationId" not in result
 
     def test_invalidFields_bounded_to_20(self):
         from ocr_worker.logger import _sanitize_log_fields

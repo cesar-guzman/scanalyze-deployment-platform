@@ -38,7 +38,7 @@ class _ScanalyzeEventFields(dict):
         self._token = token
 
 _MAX_VALUE_LENGTH = 1024
-_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+_CONTROL_CHAR_RE = re.compile(r'[\x00-\x1f\x7f]')
 
 
 _ENUMS = {
@@ -53,39 +53,39 @@ _ENUMS = {
 def _val_enum(field: str):
     def validator(value):
         if not isinstance(value, str): return None
-        cleaned = _CONTROL_CHAR_RE.sub('', value)
-        return cleaned if cleaned in _ENUMS[field] else None
+        if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+        return value if value in _ENUMS[field] else None
     return validator
 
 def _val_document_id(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", cleaned) else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", value) else None
 
 def _val_uuid(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if re.fullmatch(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", cleaned, re.IGNORECASE) else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", value, re.IGNORECASE) else None
 
 def _val_job_id(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", cleaned) else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", value) else None
 
 def _val_queue(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", cleaned) else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[A-Za-z0-9_-]{1,64}$", value) else None
 
 def _val_error_type(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if re.fullmatch(r"^[A-Za-z0-9]{1,128}$", cleaned) else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[A-Za-z0-9]{1,128}$", value) else None
 
 def _val_event(value):
     if not isinstance(value, str): return None
-    cleaned = _CONTROL_CHAR_RE.sub('', value)
-    return cleaned if len(cleaned) <= 64 else None
+    if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
+    return value if re.fullmatch(r"^[a-z0-9_]{1,64}$", value) else None
 
 def _val_counter(value):
     if type(value) is bool: return None
@@ -144,6 +144,7 @@ def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
     if field == "correlationId":
         if not isinstance(value, str):
             return None
+        if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
         if re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", value, flags=re.IGNORECASE):
             return value
         if re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", value, flags=re.IGNORECASE):
@@ -152,6 +153,7 @@ def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
     if field == "traceId":
         if not isinstance(value, str):
             return None
+        if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
         if re.fullmatch(r"[a-f0-9]{32}", value, flags=re.IGNORECASE) and value != "0"*32:
             return value
         if re.fullmatch(r"1-[a-f0-9]{8}-[a-f0-9]{24}", value, flags=re.IGNORECASE):
@@ -260,10 +262,7 @@ class JSONFormatter(logging.Formatter):
 
         for k in ("documentId", "correlationId", "traceId"):
             if k in sanitized_ctx:
-                val = sanitized_ctx[k]
-                if k == "documentId":
-                    val = str(val)[:128]
-                merged[k] = val
+                merged[k] = sanitized_ctx[k]
 
         # 1. Core Overrides Everything
         tenant = self.tenant

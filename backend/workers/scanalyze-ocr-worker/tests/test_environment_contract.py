@@ -27,6 +27,25 @@ def test_require_runtime_environment():
     with pytest.raises(RuntimeError):
         require_runtime_environment("demo\n")
 
+def test_rejected_environment_not_echoed():
+    import subprocess
+    import sys
+    sentinel = "SENSITIVE_SECRET_123"
+    with pytest.raises(RuntimeError) as exc:
+        require_runtime_environment(sentinel)
+    assert sentinel not in str(exc.value)
+    assert str(exc.value) == "SCANALYZE_ENV is unsupported"
+
+    # Also test isolated subprocess stderr
+    code = f"""
+from src.ocr_worker.environment_contract import require_runtime_environment
+require_runtime_environment('{sentinel}')
+    """
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert sentinel not in result.stderr
+
+
 def test_project_log_environment():
     assert project_log_environment("demo") == "demo"
     assert project_log_environment("production") == "production"

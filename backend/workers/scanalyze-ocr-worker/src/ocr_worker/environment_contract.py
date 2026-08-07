@@ -19,7 +19,7 @@ def require_runtime_environment(value: str | None) -> str:
     if not isinstance(value, str):
         raise RuntimeError("SCANALYZE_ENV is required")
     if value not in SUPPORTED_RUNTIME_ENVIRONMENTS:
-        raise RuntimeError(f"Unsupported SCANALYZE_ENV: {value}")
+        raise RuntimeError("SCANALYZE_ENV is unsupported")
     return value
 
 

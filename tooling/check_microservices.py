@@ -117,11 +117,42 @@ def check_source_text(relative_path: Path, is_prod_source: bool, text: str) -> l
             add_error(errors, relative_path, "production AWS region must be injected")
         if PRODUCTION_CONFIG_DEFAULT_PATTERN.search(text):
             add_error(errors, relative_path, "deployment identity must not have a nonempty default")
-        if PRODUCTION_DEPLOYMENT_LABEL_PATTERN.search(text):
-            if relative_path.name == "environment_contract.py" and "SUPPORTED_RUNTIME_ENVIRONMENTS" in text:
-                # narrow exception for canonical environment contract
-                pass
-            else:
+        matches = list(PRODUCTION_DEPLOYMENT_LABEL_PATTERN.finditer(text))
+        if matches:
+            exception_applies = False
+            if relative_path.as_posix() == "backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py":
+                import ast
+                try:
+                    tree = ast.parse(text)
+                    valid_demo_spans = []
+                    assignment_count = 0
+                    for node in tree.body:
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if getattr(target, "id", None) == "SUPPORTED_RUNTIME_ENVIRONMENTS":
+                                    assignment_count += 1
+                                    if isinstance(node.value, ast.Set):
+                                        for elt in node.value.elts:
+                                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str) and elt.value.lower() == "demo":
+                                                valid_demo_spans.append((elt.lineno, elt.col_offset, getattr(elt, "end_lineno", elt.lineno), getattr(elt, "end_col_offset", elt.col_offset)))
+                    
+                    if assignment_count == 1 and valid_demo_spans:
+                        lines = text.splitlines(keepends=True)
+                        for sl, sc, el, ec in valid_demo_spans:
+                            if sl == el:
+                                lines[sl - 1] = lines[sl - 1][:sc] + " " * (ec - sc) + lines[sl - 1][ec:]
+                            else:
+                                lines[sl - 1] = lines[sl - 1][:sc] + " " * (len(lines[sl - 1]) - sc)
+                                for l in range(sl, el - 1):
+                                    lines[l] = " " * len(lines[l])
+                                lines[el - 1] = " " * ec + lines[el - 1][ec:]
+                        masked_text = "".join(lines)
+                        
+                        if not PRODUCTION_DEPLOYMENT_LABEL_PATTERN.search(masked_text):
+                            exception_applies = True
+                except Exception:
+                    pass
+            if not exception_applies:
                 add_error(errors, relative_path, "deployment/customer label must be injected")
     return errors
 
