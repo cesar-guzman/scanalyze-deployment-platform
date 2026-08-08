@@ -5,6 +5,24 @@ mock_provider "aws" {
 mock_provider "aws" {
   alias           = "us_east_1"
   override_during = plan
+
+  mock_resource "aws_acm_certificate" {
+    defaults = {
+      arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+      domain_validation_options = [{
+        domain_name           = "app.synthetic.example"
+        resource_record_name  = "_synthetic.app.synthetic.example"
+        resource_record_type  = "CNAME"
+        resource_record_value = "_synthetic.acm-validations.aws"
+      }]
+    }
+  }
+
+  mock_resource "aws_acm_certificate_validation" {
+    defaults = {
+      certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+    }
+  }
 }
 
 variables {
