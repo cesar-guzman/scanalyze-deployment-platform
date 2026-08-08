@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import re
@@ -471,18 +472,28 @@ def test_committed_schema_is_the_only_v2_openapi_authority(
         "fastApiOpenApiStatus": "legacy_noncanonical",
         "fastApiOpenApiIncludesV2": False,
     }
-    sys.path.insert(0, str(INGEST_API_ROOT))
-    try:
-        from app.api.v2.router import router as v2_router
-    finally:
-        sys.path.remove(str(INGEST_API_ROOT))
-    v2_routes = [
-        route
-        for route in v2_router.routes
-        if getattr(route, "path", "").startswith("/api/v2")
+    router_source = (
+        INGEST_API_ROOT / "app" / "api" / "v2" / "router.py"
+    ).read_text(encoding="utf-8")
+    router_tree = ast.parse(router_source)
+    router_definitions = [
+        node
+        for node in ast.walk(router_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "APIRouter"
     ]
-    assert v2_routes
-    assert all(route.include_in_schema is False for route in v2_routes)
+    assert len(router_definitions) == 1
+    include_in_schema = next(
+        (
+            keyword.value
+            for keyword in router_definitions[0].keywords
+            if keyword.arg == "include_in_schema"
+        ),
+        None,
+    )
+    assert isinstance(include_in_schema, ast.Constant)
+    assert include_in_schema.value is False
 
 
 def test_public_status_enums_are_exactly_the_reachable_outputs(

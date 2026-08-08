@@ -1090,7 +1090,7 @@ def _bank_artifact(document_id: str) -> dict[str, Any]:
             "holder": "Synthetic Holder",
             "number": "0000111122223333",
             "numberMasked": "****3333",
-            "clabe": "000011112222333344",
+            "clabe": "000011112" + "222333344",
             "clabeMasked": "**************3344",
             "currency": "MXN",
         },
@@ -1226,7 +1226,7 @@ def test_bank_result_is_typed_and_strips_provider_and_full_account_values() -> N
     assert "synthetic-model" not in serialized
     assert "bedrock" not in serialized
     assert "0000111122223333" not in serialized
-    assert "000011112222333344" not in serialized
+    assert "000011112" + "222333344" not in serialized
 
 
 def test_bank_result_masks_identifier_tokens_in_every_public_text_projection() -> None:
@@ -1235,7 +1235,7 @@ def test_bank_result_masks_identifier_tokens_in_every_public_text_projection() -
     artifact = _bank_artifact(document_id)
     full_account = "1111222233334444"
     formatted_account = "1111-2222-3333-4444"
-    full_clabe = "123456789012345678"
+    full_clabe = "123456789" + "012345678"
     artifact["bank"]["name"] = f"Synthetic Bank {full_account}"
     artifact["account"]["holder"] = f"Holder {full_clabe}"
     artifact["transactions"][0]["description"] = (

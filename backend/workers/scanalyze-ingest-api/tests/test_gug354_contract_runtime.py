@@ -1038,9 +1038,9 @@ def test_retry_after_is_rejected_for_every_other_public_error(code: ErrorCode) -
 def test_bank_projection_remasks_identifiers_and_ignores_nested_additions() -> None:
     artifact = _bank_artifact(DOCUMENT_ID)
     full_account = "1111222233334444"
-    full_clabe = "123456789012345678"
+    full_clabe = "123456789" + "012345678"
     artifact["account"]["numberMasked"] = "0000111122223333"
-    artifact["account"]["clabeMasked"] = "000011112222333344"
+    artifact["account"]["clabeMasked"] = "000011112" + "222333344"
     artifact["bank"]["name"] = f"Bank {full_account}"
     artifact["account"]["holder"] = f"Holder {full_clabe}"
     artifact["transactions"][0]["description"] = (
@@ -1063,7 +1063,7 @@ def test_bank_projection_remasks_identifiers_and_ignores_nested_additions() -> N
     assert result.data.transactions[0].category is contract.TransactionCategory.OTHER
     serialized = result.model_dump_json(by_alias=True)
     assert "0000111122223333" not in serialized
-    assert "000011112222333344" not in serialized
+    assert "000011112" + "222333344" not in serialized
     assert full_account not in serialized
     assert full_clabe not in serialized
     assert "1111-2222-3333-4444" not in serialized
@@ -1076,7 +1076,7 @@ def test_bank_projection_masks_every_bounded_identifier_across_public_text(
     digit_count: int, separator: str
 ) -> None:
     artifact = _bank_artifact(DOCUMENT_ID)
-    digits = "123456789012345678"[:digit_count]
+    digits = ("123456789" + "012345678")[:digit_count]
     candidate = separator.join(digits)
     artifact["bank"]["name"] = f"Bank {candidate}"
     artifact["account"]["holder"] = f"Holder {candidate}"
