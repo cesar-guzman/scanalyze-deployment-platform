@@ -109,6 +109,44 @@ class Settings(BaseSettings):
     # DynamoDB
     documents_table_name: Optional[str] = Field(default=None, alias="DOCUMENTS_TABLE_NAME")
     batches_table_name: Optional[str] = Field(default=None, alias="BATCHES_TABLE_NAME")
+    # GUG-354: the durable operation ledger intentionally reuses the managed
+    # documents table.  Production configuration must still name it
+    # explicitly so the authority boundary is reviewable and cannot silently
+    # drift to an unmanaged table.
+    operation_ledger_table_name: Optional[str] = Field(
+        default=None,
+        alias="OPERATION_LEDGER_TABLE_NAME",
+    )
+    journey_operation_retention_seconds: int = Field(
+        default=2_592_000,
+        ge=2_592_000,
+        le=31_536_000,
+        alias="JOURNEY_OPERATION_RETENTION_SECONDS",
+    )
+    journey_pending_reconciliation_grace_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        alias="JOURNEY_PENDING_RECONCILIATION_GRACE_SECONDS",
+    )
+    journey_result_max_bytes: int = Field(
+        default=5_242_880,
+        ge=1_024,
+        le=20_971_520,
+        alias="JOURNEY_RESULT_MAX_BYTES",
+    )
+    journey_capability_refresh_min_interval_seconds: int = Field(
+        default=1,
+        ge=1,
+        le=60,
+        alias="JOURNEY_CAPABILITY_REFRESH_MIN_INTERVAL_SECONDS",
+    )
+    journey_reconciliation_min_interval_seconds: int = Field(
+        default=1,
+        ge=1,
+        le=60,
+        alias="JOURNEY_RECONCILIATION_MIN_INTERVAL_SECONDS",
+    )
 
     # Buckets direct (A)
     raw_bucket: Optional[str] = Field(default=None, alias="RAW_BUCKET")
@@ -252,7 +290,7 @@ class Settings(BaseSettings):
     employee_profiles_max_docs_per_batch: int = Field(default=200, alias="EMPLOYEE_PROFILES_MAX_DOCUMENTS_PER_BATCH")
 
     # CORS (normalmente APIGW maneja CORS, pero lo dejamos configurable)
-    cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")
+    cors_allow_origins: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
 
     @field_validator(
         "buckets_json",
@@ -325,7 +363,9 @@ class Settings(BaseSettings):
         return prefix
 
     def cors_origins_list(self) -> list[str]:
-        v = (self.cors_allow_origins or "*").strip()
+        v = (self.cors_allow_origins or "").strip()
+        if not v:
+            return []
         if v == "*":
             return ["*"]
         # comma-separated

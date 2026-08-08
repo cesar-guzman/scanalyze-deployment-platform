@@ -41,13 +41,34 @@ variables {
   ]
 
   api_authorization_routes = {
-    "GET /documents" = [
+    "GET /api/v1/documents" = [
       "scanalyze.api.v1/read",
     ]
-    "POST /documents" = [
+    "GET /api/v2/documents/{documentId}" = [
+      "scanalyze.api.v1/read",
+    ]
+    "GET /api/v2/documents/{documentId}/result" = [
+      "scanalyze.api.v1/read",
+    ]
+    "POST /api/v1/documents" = [
       "scanalyze.api.v1/write",
     ]
-    "POST /batches/{batch_id}/export" = [
+    "POST /api/v2/batches" = [
+      "scanalyze.api.v1/write",
+    ]
+    "POST /api/v2/documents" = [
+      "scanalyze.api.v1/write",
+    ]
+    "POST /api/v2/documents/{documentId}/submit" = [
+      "scanalyze.api.v1/write",
+    ]
+    "POST /api/v2/documents/{documentId}/upload-capabilities" = [
+      "scanalyze.api.v1/write",
+    ]
+    "POST /api/v2/operations/{operation}/reconciliation" = [
+      "scanalyze.api.v1/write",
+    ]
+    "POST /api/v1/batches/{batch_id}/export" = [
       "scanalyze.api.v1/admin",
     ]
   }
@@ -115,6 +136,28 @@ run "requires_canonical_authorization_scopes_on_every_protected_route" {
     ])
     error_message = "protected routes must be explicit, JWT-authorized, and require only the canonical reviewed scopes"
   }
+
+  assert {
+    condition = setsubtract(toset([
+      "GET /api/v2/documents/{documentId}",
+      "GET /api/v2/documents/{documentId}/result",
+      "POST /api/v2/batches",
+      "POST /api/v2/documents",
+      "POST /api/v2/documents/{documentId}/submit",
+      "POST /api/v2/documents/{documentId}/upload-capabilities",
+      "POST /api/v2/operations/{operation}/reconciliation",
+    ]), toset(keys(aws_apigatewayv2_route.protected))) == toset([])
+    error_message = "every canonical document-journey/v1 route must remain an explicit JWT-protected API Gateway route"
+  }
+
+  assert {
+    condition = (
+      var.api_authorization_routes["GET /api/v1/documents"] == ["scanalyze.api.v1/read"] &&
+      var.api_authorization_routes["POST /api/v1/documents"] == ["scanalyze.api.v1/write"] &&
+      var.api_authorization_routes["POST /api/v1/batches/{batch_id}/export"] == ["scanalyze.api.v1/admin"]
+    )
+    error_message = "historical facade routes must use the exact /api/v1 paths produced by the CloudFront rewrite and retain their reviewed scopes"
+  }
 }
 
 run "rejects_a_malformed_route_key_even_with_a_canonical_scope" {
@@ -157,7 +200,8 @@ run "uses_an_exact_cors_allowlist_without_legacy_identity_headers" {
         "authorization",
         "content-type",
         "idempotency-key",
-        "x-amz-date",
+        "x-correlation-id",
+        "x-scanalyze-contract-version",
       ])
     )
     error_message = "CORS must not advertise X-Tenant-ID or unreviewed headers as identity inputs"
@@ -171,6 +215,7 @@ run "uses_an_exact_cors_allowlist_without_legacy_identity_headers" {
       "x-correlation-id",
       "x-request-id",
       "x-trace-id",
+      "retry-after",
     ])
     error_message = "CORS must expose only sanitized opaque diagnostic references"
   }

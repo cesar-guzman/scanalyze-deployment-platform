@@ -535,8 +535,38 @@ def test_document_updates_bind_customer_and_deployment_in_dynamo_condition() -> 
     kwargs = repo.table.update_item.call_args.kwargs
     assert "#customer_id = :customer_id" in kwargs["ConditionExpression"]
     assert "#deployment_id = :deployment_id" in kwargs["ConditionExpression"]
+    assert "#docStatus = :created" in kwargs["ConditionExpression"]
+    assert "#docStatus = :uploaded" in kwargs["ConditionExpression"]
+    assert "attribute_not_exists(#stages.#stage)" in kwargs["ConditionExpression"]
+    assert (
+        "#docStatus = :docSubmitted" in kwargs["ConditionExpression"]
+    )
     assert kwargs["ExpressionAttributeValues"][":customer_id"] == CUSTOMER_A
     assert kwargs["ExpressionAttributeValues"][":deployment_id"] == DEPLOYMENT_A
+
+    repo.set_stage_enqueued(
+        document_id=DOCUMENT_ID,
+        stage="ingest",
+        enqueue_id="enqueue-synthetic",
+        queue_url="https://example.invalid/synthetic-queue",
+        message_id="message-synthetic",
+        ownership=ownership,
+    )
+    enqueued = repo.table.update_item.call_args.kwargs
+    assert "#docStatus = :docSubmitted" in enqueued["ConditionExpression"]
+    assert enqueued["ExpressionAttributeValues"][":docSubmitted"] == "SUBMITTED"
+
+    repo.set_stage_enqueue_failed(
+        document_id=DOCUMENT_ID,
+        stage="ingest",
+        enqueue_id="enqueue-synthetic",
+        error_code="SYNTHETIC_ERROR",
+        error_message="Synthetic safe message",
+        ownership=ownership,
+    )
+    failed = repo.table.update_item.call_args.kwargs
+    assert "#docStatus = :docSubmitted" in failed["ConditionExpression"]
+    assert failed["ExpressionAttributeValues"][":docSubmitted"] == "SUBMITTED"
 
 
 def test_batch_query_uses_exact_ownership_partition_and_paginates() -> None:
