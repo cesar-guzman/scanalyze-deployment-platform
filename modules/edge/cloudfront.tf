@@ -87,7 +87,14 @@ resource "aws_cloudfront_distribution" "main" {
 
       forwarded_values {
         query_string = true
-        headers      = ["Authorization", "x-tenant-id", "Origin"]
+        headers = [
+          "Authorization",
+          "Content-Type",
+          "Idempotency-Key",
+          "Origin",
+          "X-Correlation-ID",
+          "X-Scanalyze-Contract-Version",
+        ]
         cookies {
           forward = "none"
         }
@@ -188,7 +195,7 @@ resource "aws_cloudfront_function" "api_path_rewrite" {
   provider = aws.us_east_1
   name     = "${var.deployment_id}-api-path-rewrite"
   runtime  = "cloudfront-js-2.0"
-  comment  = "Remove only the same-origin SPA API prefix before API Gateway routing"
+  comment  = "Preserve explicit /api/v2 and map only the historical SPA facade to /api/v1"
   publish  = true
   code     = file("${path.module}/api_path_rewrite.js")
 }

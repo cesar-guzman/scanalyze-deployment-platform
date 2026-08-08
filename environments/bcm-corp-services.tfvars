@@ -54,8 +54,12 @@ service_definitions = [
       { name = "SQS_OCR_QUEUE_URL",          value = "https://sqs.us-east-1.amazonaws.com/905418363887/dep_01KWM783E0S1FZVAM8FRDV1HR2-ocr-queue" },
       { name = "INGEST_QUEUE_URL",           value = "https://sqs.us-east-1.amazonaws.com/905418363887/dep_01KWM783E0S1FZVAM8FRDV1HR2-ocr-queue" },
       { name = "DOCUMENTS_TABLE_NAME",       value = "dep_01KWM783E0S1FZVAM8FRDV1HR2-documents" },
+      # GUG-354 reservation-first operation ledger. It deliberately reuses the
+      # Terraform-managed documents table; no new table or IAM action is added.
+      { name = "OPERATION_LEDGER_TABLE_NAME", value = "dep_01KWM783E0S1FZVAM8FRDV1HR2-documents" },
       { name = "JOBS_TABLE_NAME",            value = "dep_01KWM783E0S1FZVAM8FRDV1HR2-jobs" },
       { name = "DOCUMENTS_BUCKET",           value = "dep-01kwm783e0s1fzvam8frdv1hr2-documents" },
+      { name = "STRUCTURED_BUCKET",          value = "dep-01kwm783e0s1fzvam8frdv1hr2-documents" },
       { name = "RAW_BUCKET",                 value = "dep-01kwm783e0s1fzvam8frdv1hr2-documents" },
       { name = "PORT",                        value = "8080" },
       { name = "ROOT_PATH",                   value = "/ingest-api" },

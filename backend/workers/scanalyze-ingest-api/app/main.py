@@ -9,6 +9,7 @@ from .logging import configure_logging
 from .middleware import RequestContextMiddleware
 from .api.health import router as health_router
 from .api.v1.router import router as v1_router
+from .api.v2.router import router as v2_router
 
 def create_app() -> FastAPI:
     s = get_settings()
@@ -34,13 +35,25 @@ def create_app() -> FastAPI:
         allow_origins=s.cors_origins_list(),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
-        expose_headers=["X-Correlation-ID", "X-Request-ID", "X-Trace-ID"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Correlation-ID",
+            "X-Scanalyze-Contract-Version",
+        ],
+        expose_headers=[
+            "Retry-After",
+            "X-Correlation-ID",
+            "X-Request-ID",
+            "X-Trace-ID",
+        ],
     )
 
     # Routers
     app.include_router(health_router)
     app.include_router(v1_router)
+    app.include_router(v2_router)
 
     # Error handling
     register_exception_handlers(app)

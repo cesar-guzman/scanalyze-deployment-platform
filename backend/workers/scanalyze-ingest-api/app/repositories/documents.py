@@ -120,12 +120,20 @@ class DocumentsRepository:
                 )
             raise
 
-    def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+    def get_document(
+        self,
+        document_id: str,
+        *,
+        consistent: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         self._ensure_ready()
         assert self.table is not None
 
         key = self._key_for(document_id)
-        resp = self.table.get_item(Key=key)
+        get_kwargs: Dict[str, Any] = {"Key": key}
+        if consistent:
+            get_kwargs["ConsistentRead"] = True
+        resp = self.table.get_item(**get_kwargs)
         return resp.get("Item")
 
     def set_stage_enqueue_pending(
@@ -138,8 +146,8 @@ class DocumentsRepository:
     ) -> bool:
         """
         Idempotencia por stage:
-        - Si no existe enqueuedAt, permite.
-        - Si existe pero status==ENQUEUE_FAILED, permite retry.
+        - Si el documento está CREATED/UPLOADED y no existe el stage, permite.
+        - Si está SUBMITTED y el stage es ENQUEUE_FAILED, permite retry.
         - Si ya está PENDING/ENQUEUED, no permite.
 
         Retorna True si se pudo marcar pending (debe encolarse).
@@ -161,7 +169,6 @@ class DocumentsRepository:
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
-            "#enqueuedAt": "enqueuedAt",
             "#updatedAt": "updatedAt",
             "#docStatus": "status",
         }
@@ -171,6 +178,8 @@ class DocumentsRepository:
             ":deployment_id": ownership.deployment_id,
             ":ownership_schema_version": 1,
             ":failed": "ENQUEUE_FAILED",
+            ":created": "CREATED",
+            ":uploaded": "UPLOADED",
             ":now": now,
             ":docSubmitted": "SUBMITTED",
             ":stageData": {
@@ -180,10 +189,14 @@ class DocumentsRepository:
             }
         }
 
-        # condition: attribute_not_exists(stages.stage.enqueuedAt) OR stages.stage.status == ENQUEUE_FAILED
+        # The top-level lifecycle and stage evidence are one atomic transition.
+        # A malformed pre-existing stage is never overwritten merely because
+        # it happens not to contain enqueuedAt.
         transition_condition = (
-            "attribute_not_exists(#stages.#stage.#enqueuedAt) "
-            "OR #stages.#stage.#status = :failed"
+            "((#docStatus = :created OR #docStatus = :uploaded) AND "
+            "attribute_not_exists(#stages.#stage)) OR "
+            "(#docStatus = :docSubmitted AND "
+            "#stages.#stage.#status = :failed)"
         )
         condition = (
             "attribute_exists(#pk) AND "
@@ -238,6 +251,7 @@ class DocumentsRepository:
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
+            "#docStatus": "status",
             "#enqueueId": "enqueueId",
             "#queueUrl": "queueUrl",
             "#sqsMessageId": "sqsMessageId",
@@ -249,6 +263,7 @@ class DocumentsRepository:
             ":ownership_schema_version": 1,
             ":enqueued": "ENQUEUED",
             ":pending": "ENQUEUE_PENDING",
+            ":docSubmitted": "SUBMITTED",
             ":enqueueId": enqueue_id,
             ":queueUrl": queue_url,
             ":mid": message_id,
@@ -270,6 +285,7 @@ class DocumentsRepository:
                     "#customer_id = :customer_id AND "
                     "#deployment_id = :deployment_id AND "
                     "#ownership_schema_version = :ownership_schema_version AND "
+                    "#docStatus = :docSubmitted AND "
                     "#stages.#stage.#status = :pending AND "
                     "#stages.#stage.#enqueueId = :enqueueId"
                 ),
@@ -311,6 +327,7 @@ class DocumentsRepository:
             "#stages": "stages",
             "#stage": stage,
             "#status": "status",
+            "#docStatus": "status",
             "#enqueueId": "enqueueId",
             "#errorCode": "errorCode",
             "#errorMessage": "errorMessage",
@@ -322,6 +339,7 @@ class DocumentsRepository:
             ":ownership_schema_version": 1,
             ":failed": "ENQUEUE_FAILED",
             ":pending": "ENQUEUE_PENDING",
+            ":docSubmitted": "SUBMITTED",
             ":enqueueId": enqueue_id,
             ":code": error_code,
             ":msg": error_message,
@@ -343,6 +361,7 @@ class DocumentsRepository:
                     "#customer_id = :customer_id AND "
                     "#deployment_id = :deployment_id AND "
                     "#ownership_schema_version = :ownership_schema_version AND "
+                    "#docStatus = :docSubmitted AND "
                     "#stages.#stage.#status = :pending AND "
                     "#stages.#stage.#enqueueId = :enqueueId"
                 ),
