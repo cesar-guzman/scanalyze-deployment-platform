@@ -38,7 +38,7 @@ from app.journey_contract import (
     public_error,
     validate_lifecycle_transition,
 )
-from tests.test_gug354_journey_service import _bank_artifact
+from test_gug354_journey_service import _bank_artifact
 
 
 DOCUMENT_ID = "a" * 32

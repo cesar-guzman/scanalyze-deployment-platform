@@ -34,7 +34,7 @@ from app.repositories.operations import (
     ReservationOutcome,
 )
 from app.services.journey import BoundedIntervalLimiter, JourneyService
-from tests.test_gug354_journey_repository import FakeTable
+from test_gug354_journey_repository import FakeTable
 
 
 NOW = datetime(2026, 8, 7, 18, 0, tzinfo=timezone.utc)

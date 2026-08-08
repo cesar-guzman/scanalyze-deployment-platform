@@ -138,7 +138,7 @@ run "requires_canonical_authorization_scopes_on_every_protected_route" {
   }
 
   assert {
-    condition = setsubtract(toset([
+    condition = length(setsubtract(toset([
       "GET /api/v2/documents/{documentId}",
       "GET /api/v2/documents/{documentId}/result",
       "POST /api/v2/batches",
@@ -146,15 +146,18 @@ run "requires_canonical_authorization_scopes_on_every_protected_route" {
       "POST /api/v2/documents/{documentId}/submit",
       "POST /api/v2/documents/{documentId}/upload-capabilities",
       "POST /api/v2/operations/{operation}/reconciliation",
-    ]), toset(keys(aws_apigatewayv2_route.protected))) == toset([])
+    ]), toset(keys(aws_apigatewayv2_route.protected)))) == 0
     error_message = "every canonical document-journey/v1 route must remain an explicit JWT-protected API Gateway route"
   }
 
   assert {
     condition = (
-      var.api_authorization_routes["GET /api/v1/documents"] == ["scanalyze.api.v1/read"] &&
-      var.api_authorization_routes["POST /api/v1/documents"] == ["scanalyze.api.v1/write"] &&
-      var.api_authorization_routes["POST /api/v1/batches/{batch_id}/export"] == ["scanalyze.api.v1/admin"]
+      length(var.api_authorization_routes["GET /api/v1/documents"]) == 1 &&
+      var.api_authorization_routes["GET /api/v1/documents"][0] == "scanalyze.api.v1/read" &&
+      length(var.api_authorization_routes["POST /api/v1/documents"]) == 1 &&
+      var.api_authorization_routes["POST /api/v1/documents"][0] == "scanalyze.api.v1/write" &&
+      length(var.api_authorization_routes["POST /api/v1/batches/{batch_id}/export"]) == 1 &&
+      var.api_authorization_routes["POST /api/v1/batches/{batch_id}/export"][0] == "scanalyze.api.v1/admin"
     )
     error_message = "historical facade routes must use the exact /api/v1 paths produced by the CloudFront rewrite and retain their reviewed scopes"
   }
