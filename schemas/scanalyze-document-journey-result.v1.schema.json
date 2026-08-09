@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.scanalyze.invalid/scanalyze-document-journey-result.v1.schema.json",
+  "title": "Scanalyze Document Journey Result v1",
+  "description": "Closed, identity-bound public result envelope. Version 1 supports only the current bank_statement producer contract and never contains a signed locator.",
+  "x-identity-binding": "resultId must equal result_<documentId>_v1 and is enforced by the runtime adapter before serialization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "documentType",
+    "resultType",
+    "documentId",
+    "resultId",
+    "resultVersion",
+    "provenance",
+    "data",
+    "warnings",
+    "quality"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "scanalyze.document-result.v1"
+    },
+    "contractVersion": {
+      "const": "scanalyze.document-journey.v1"
+    },
+    "documentType": {
+      "const": "bank_statement"
+    },
+    "resultType": {
+      "const": "bank_statement"
+    },
+    "documentId": {
+      "$ref": "#/$defs/documentId"
+    },
+    "resultId": {
+      "type": "string",
+      "pattern": "^result_[0-9a-f]{32}_v1$"
+    },
+    "resultVersion": {
+      "const": "1.0"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "data": {
+      "$ref": "#/$defs/bankStatementData"
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/warning"
+      }
+    },
+    "quality": {
+      "$ref": "#/$defs/quality"
+    }
+  },
+  "$defs": {
+    "documentId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "nullableBoundedString": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "nullableAmount": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "nullableMask": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 5,
+      "maxLength": 8,
+      "pattern": "^\\*{4}[0-9]{1,4}$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processor",
+        "producerSchemaVersion",
+        "promptVersion",
+        "generatedAt"
+      ],
+      "properties": {
+        "processor": {
+          "const": "bank-extract"
+        },
+        "producerSchemaVersion": {
+          "const": "1.0"
+        },
+        "promptVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "BALANCE_RECONCILIATION_WARNING",
+            "INCOMPLETE_EXTRACTION",
+            "LOW_CONFIDENCE"
+          ]
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overallConfidence"
+      ],
+      "properties": {
+        "overallConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "bank": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nullableBoundedString"
+        }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holder",
+        "numberMasked",
+        "clabeMasked",
+        "currency"
+      ],
+      "properties": {
+        "holder": {
+          "$ref": "#/$defs/nullableBoundedString"
+        },
+        "numberMasked": {
+          "$ref": "#/$defs/nullableMask"
+        },
+        "clabeMasked": {
+          "$ref": "#/$defs/nullableMask"
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-period-invariant": "When both values are present, periodStart must be less than or equal to periodEnd.",
+      "required": [
+        "periodStart",
+        "periodEnd"
+      ],
+      "properties": {
+        "periodStart": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "periodEnd": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      }
+    },
+    "balances": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opening",
+        "closing",
+        "totalCredits",
+        "totalDebits"
+      ],
+      "properties": {
+        "opening": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "closing": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "totalCredits": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "totalDebits": {
+          "$ref": "#/$defs/nullableAmount"
+        }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "description",
+        "reference",
+        "direction",
+        "amount",
+        "balanceAfter",
+        "category"
+      ],
+      "properties": {
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "description": {
+          "$ref": "#/$defs/nullableBoundedString"
+        },
+        "reference": {
+          "$ref": "#/$defs/nullableBoundedString"
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "credit",
+            "debit"
+          ]
+        },
+        "amount": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "balanceAfter": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "nómina",
+            "transferencia",
+            "spei",
+            "comisión",
+            "retiro_atm",
+            "compra_pos",
+            "pago_servicio",
+            "interés",
+            "dividendo",
+            "cheque",
+            "domiciliación",
+            "otro",
+            null
+          ]
+        }
+      }
+    },
+    "fees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalFees",
+        "ivaOnFees"
+      ],
+      "properties": {
+        "totalFees": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "ivaOnFees": {
+          "$ref": "#/$defs/nullableAmount"
+        }
+      }
+    },
+    "bankStatementData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bank",
+        "account",
+        "statement",
+        "balances",
+        "transactions",
+        "accountType",
+        "bankCountry",
+        "fees",
+        "interestEarned",
+        "interestCharged",
+        "summaryText"
+      ],
+      "properties": {
+        "bank": {
+          "$ref": "#/$defs/bank"
+        },
+        "account": {
+          "$ref": "#/$defs/account"
+        },
+        "statement": {
+          "$ref": "#/$defs/statement"
+        },
+        "balances": {
+          "$ref": "#/$defs/balances"
+        },
+        "transactions": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/transaction"
+          }
+        },
+        "accountType": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "cheques",
+            "ahorro",
+            "crédito",
+            "inversión",
+            "nómina",
+            null
+          ]
+        },
+        "bankCountry": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z]{2}$"
+        },
+        "fees": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/fees"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interestEarned": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "interestCharged": {
+          "$ref": "#/$defs/nullableAmount"
+        },
+        "summaryText": {
+          "$ref": "#/$defs/nullableBoundedString"
+        }
+      }
+    }
+  }
+}

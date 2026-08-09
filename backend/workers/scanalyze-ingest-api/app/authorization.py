@@ -289,13 +289,15 @@ def require_export_access(
 
 def require_operation(
     operation_id: OperationId,
+    *,
+    auth_dependency: Callable[..., AuthContext] = get_auth_context,
 ) -> Callable[..., AuthContext]:
     """Create one closed PEP dependency for a reviewed operation identifier."""
     policy = operation_policy(operation_id)
 
     def dependency(
         request: Request,
-        auth: AuthContext = Depends(get_auth_context),
+        auth: AuthContext = Depends(auth_dependency),
     ) -> AuthContext:
         runtime = getattr(
             request.app.state,

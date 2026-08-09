@@ -70,10 +70,18 @@ class BatchesRepository:
                 )
             raise
 
-    def get_batch(self, batch_id: str) -> Optional[Dict[str, Any]]:
+    def get_batch(
+        self,
+        batch_id: str,
+        *,
+        consistent: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         self._ensure_ready()
         assert self.table is not None
 
         key = self._key_for(batch_id)
-        resp = self.table.get_item(Key=key)
+        get_kwargs: Dict[str, Any] = {"Key": key}
+        if consistent:
+            get_kwargs["ConsistentRead"] = True
+        resp = self.table.get_item(**get_kwargs)
         return resp.get("Item")

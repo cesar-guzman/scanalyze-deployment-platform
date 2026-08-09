@@ -34,10 +34,12 @@ const rewrite = (uri) => {
   return result.uri;
 };
 
-test('removes only the exact same-origin API prefix', () => {
-  assert.equal(rewrite('/api'), '/');
-  assert.equal(rewrite('/api/'), '/');
-  assert.equal(rewrite('/api/documents'), '/documents');
-  assert.equal(rewrite('/api/documents/item'), '/documents/item');
+test('maps the historical facade to v1 and preserves the explicit v2 namespace', () => {
+  assert.equal(rewrite('/api'), '/api/v1');
+  assert.equal(rewrite('/api/'), '/api/v1/');
+  assert.equal(rewrite('/api/documents'), '/api/v1/documents');
+  assert.equal(rewrite('/api/documents/item'), '/api/v1/documents/item');
+  assert.equal(rewrite('/api/v2'), '/api/v2');
+  assert.equal(rewrite('/api/v2/documents'), '/api/v2/documents');
   assert.equal(rewrite('/apix/documents'), '/apix/documents');
 });

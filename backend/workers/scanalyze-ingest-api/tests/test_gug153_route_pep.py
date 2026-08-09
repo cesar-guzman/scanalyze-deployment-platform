@@ -13,6 +13,7 @@ import pytest
 from fastapi.routing import APIRoute
 
 from app.api.v1.router import router as v1_router
+from app.api.v2.router import router as v2_router
 from app.authorization import (
     ROUTE_ACTION_POLICY_ATTRIBUTE,
     ROUTE_OPERATION_POLICY_ATTRIBUTE,
@@ -122,6 +123,23 @@ EXPECTED_ROUTE_OPERATIONS = {
     ("GET", "/api/v1/admin/audit-events"): "authorization_administration.audit.read",
 }
 
+EXPECTED_V2_ROUTE_OPERATIONS = {
+    ("POST", "/api/v2/batches"): "batches.create",
+    ("POST", "/api/v2/documents"): "documents.create",
+    ("POST", "/api/v2/documents/{documentId}/submit"): "documents.submit",
+    ("GET", "/api/v2/documents/{documentId}"): "documents.read_metadata",
+    (
+        "POST",
+        "/api/v2/documents/{documentId}/upload-capabilities",
+    ): "documents.create",
+    ("GET", "/api/v2/documents/{documentId}/result"): "results.read_full",
+}
+EXPECTED_V2_DYNAMIC_ROUTE_OPERATIONS = {
+    ("POST", "/api/v2/operations/{operation}/reconciliation"): frozenset(
+        {"batches.create", "documents.create"}
+    ),
+}
+
 
 # Keep these action sets byte-for-byte equivalent to the reviewed GUG-102 route
 # contract.  Human sensitivity is expressed by OperationId and the human PDP;
@@ -214,6 +232,42 @@ def test_all_41_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
     assert actual == EXPECTED_ROUTE_OPERATIONS
 
 
+def test_all_seven_api_v2_routes_have_one_closed_operation_pep() -> None:
+    """The versioned journey cannot add an unmarked or free-form operation."""
+
+    actual: dict[tuple[str, str], str | frozenset[str]] = {}
+    for route in v2_router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+
+        operation_dependencies = _dependencies_with_attribute(
+            route,
+            ROUTE_OPERATION_POLICY_ATTRIBUTE,
+        )
+        assert len(operation_dependencies) == 1, (
+            f"{route.path} must have exactly one enterprise operation PEP; "
+            f"found {len(operation_dependencies)}"
+        )
+        operation = getattr(
+            operation_dependencies[0],
+            ROUTE_OPERATION_POLICY_ATTRIBUTE,
+        )
+        if isinstance(operation, frozenset):
+            operation_value: str | frozenset[str] = frozenset(
+                _operation_value(item) for item in operation
+            )
+        else:
+            operation_value = _operation_value(operation)
+
+        for method in route.methods:
+            actual[(method, route.path)] = operation_value
+
+    assert actual == {
+        **EXPECTED_V2_ROUTE_OPERATIONS,
+        **EXPECTED_V2_DYNAMIC_ROUTE_OPERATIONS,
+    }
+
+
 def test_only_public_health_routes_are_outside_the_operation_pep() -> None:
     """A newly mounted API route cannot bypass the closed business inventory."""
 
@@ -229,7 +283,11 @@ def test_only_public_health_routes_are_outside_the_operation_pep() -> None:
         target = protected if operation_dependencies else public
         target.update((method, route.path) for method in route.methods)
 
-    assert protected == set(EXPECTED_ROUTE_OPERATIONS)
+    assert protected == (
+        set(EXPECTED_ROUTE_OPERATIONS)
+        | set(EXPECTED_V2_ROUTE_OPERATIONS)
+        | set(EXPECTED_V2_DYNAMIC_ROUTE_OPERATIONS)
+    )
     assert public == {
         ("GET", "/health"),
         ("GET", "/api/v1/health"),

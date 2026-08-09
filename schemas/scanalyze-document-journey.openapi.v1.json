@@ -1,0 +1,1514 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Scanalyze Document Journey API",
+    "version": "1.0.0",
+    "description": "Authoritative additive contract for the idempotent, owner-bound Scanalyze document journey. The historical /api/v1 routes are not aliases for this contract and are not silently upgraded."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Same-origin API. Current clients call the explicit /api/v2 namespace; the /api facade remains a bounded historical /api/v1 adapter."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "x-contract-version": "scanalyze.document-journey.v1",
+  "x-canonical-namespace": "/api/v2",
+  "x-schema-authority": {
+    "status": "sole_v2_authority",
+    "fastApiOpenApiPath": "/openapi.json",
+    "fastApiOpenApiStatus": "legacy_noncanonical",
+    "fastApiOpenApiIncludesV2": false
+  },
+  "x-historical-routes": {
+    "namespace": "/api/v1",
+    "status": "historical_noncanonical",
+    "equivalentToCurrentContract": false
+  },
+  "x-json-parsing": {
+    "duplicateKeys": "reject",
+    "nonFiniteNumbers": "reject",
+    "unknownRequestFields": "reject"
+  },
+  "paths": {
+    "/api/v2/batches": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "post": {
+        "operationId": "createBatchV2",
+        "summary": "Create one durable batch",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The batch was created, or the same durable batch was replayed.",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationResponseHeader"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchCreateResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/documents": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "post": {
+        "operationId": "createDocumentV2",
+        "summary": "Create one durable upload intent",
+        "description": "The durableResponse is replay-stable. uploadCapability is ephemeral, separately authorized, and is never part of the idempotency ledger. A first create (replayed=false) always includes it. An exact replay may omit it when the durable document is no longer uploadable; the client can use the owner-authorized refresh route only while the document remains uploadable.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The upload intent was created, or its durable projection was replayed with a fresh ephemeral capability.",
+            "headers": {
+              "X-Correlation-ID": {
+                "$ref": "#/components/headers/CorrelationResponseHeader"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentCreateResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/documents/{documentId}/submit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DocumentIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "post": {
+        "operationId": "submitDocumentV2",
+        "summary": "Submit the durable document to the canonical ingest stage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDocumentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Submission accepted or already enqueued.",
+            "headers": {
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SubmitDocumentResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/documents/{documentId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DocumentIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "get": {
+        "operationId": "getDocumentStatusV2",
+        "summary": "Read the closed public lifecycle projection",
+        "responses": {
+          "200": {
+            "description": "Owner-bound document status.",
+            "headers": {
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DocumentStatusResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/documents/{documentId}/upload-capabilities": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DocumentIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "post": {
+        "operationId": "refreshDocumentUploadCapabilityV2",
+        "summary": "Mint a fresh bounded upload capability after owner and state checks",
+        "responses": {
+          "200": {
+            "description": "Fresh ephemeral upload capability. This response is not durable ledger evidence.",
+            "headers": {
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UploadCapabilityResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/operations/{operation}/reconciliation": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/OperationPath"
+        },
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "post": {
+        "operationId": "reconcileDocumentJourneyOperationV2",
+        "summary": "Resolve a lost create response without a resource identifier",
+        "description": "The original Idempotency-Key is scoped to the authenticated actor, customer, deployment, operation, and contract version. This lookup never creates a second business resource.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Closed reconciliation state and, for SUCCEEDED, the exact durable response projection.",
+            "headers": {
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReconciliationResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v2/documents/{documentId}/result": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/DocumentIdPath"
+        },
+        {
+          "$ref": "#/components/parameters/ContractVersionHeader"
+        },
+        {
+          "$ref": "#/components/parameters/CorrelationRequestHeader"
+        }
+      ],
+      "get": {
+        "operationId": "getDocumentResultV2",
+        "summary": "Read a typed terminal result",
+        "responses": {
+          "200": {
+            "description": "Typed, identity-bound bank_statement result. Other document families fail explicitly.",
+            "headers": {
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "./scanalyze-document-journey-result.v1.schema.json" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "parameters": {
+      "ContractVersionHeader": {
+        "name": "X-Scanalyze-Contract-Version",
+        "in": "header",
+        "required": true,
+        "description": "Exact document-journey contract. Missing or unsupported values are rejected; there is no downgrade.",
+        "schema": {
+          "const": "scanalyze.document-journey.v1"
+        }
+      },
+      "IdempotencyKeyHeader": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Opaque canonical UUID. The raw value is never persisted or logged.",
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      },
+      "CorrelationRequestHeader": {
+        "name": "X-Correlation-ID",
+        "in": "header",
+        "required": false,
+        "description": "Optional opaque diagnostic reference. It never establishes identity or ownership.",
+        "schema": {
+          "$ref": "#/components/schemas/CorrelationReference"
+        }
+      },
+      "DocumentIdPath": {
+        "name": "documentId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/DocumentId"
+        }
+      },
+      "OperationPath": {
+        "name": "operation",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Operation"
+        }
+      }
+    },
+    "headers": {
+      "CorrelationResponseHeader": {
+        "required": true,
+        "description": "Safe opaque diagnostic reference for support correlation.",
+        "schema": {
+          "$ref": "#/components/schemas/CorrelationReference"
+        }
+      },
+      "RetryAfterHeader": {
+        "required": false,
+        "description": "Bounded whole seconds before another allowed attempt. Emitted only for RATE_LIMITED or SERVICE_UNAVAILABLE when a server delay is authoritative.",
+        "x-emission-policy": "omit for every other code, including REQUEST_TIMEOUT and all retry-only-after-reconciliation outcomes",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed JSON, duplicate keys, invalid headers, or unsupported contract version.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["MALFORMED_REQUEST", "UNSUPPORTED_CONTRACT_VERSION"] } }, "required": ["code"] }
+        ] } } }
+      },
+      "Unauthorized": {
+        "description": "Authentication is missing or invalid.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["AUTHENTICATION_REQUIRED", "AUTHENTICATION_INVALID"] } }, "required": ["code"] }
+        ] } } }
+      },
+      "Forbidden": {
+        "description": "The authenticated principal is not authorized.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "const": "AUTHORIZATION_DENIED" } }, "required": ["code"] }
+        ] } } }
+      },
+      "NotFound": {
+        "description": "Enumeration-safe owner-bound absence or unavailable resource.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "const": "NOT_FOUND" } }, "required": ["code"] }
+        ] } } }
+      },
+      "Conflict": {
+        "description": "Idempotency conflict, result not ready, wrong document state, or expired operation key.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["IDEMPOTENCY_CONFLICT", "RESULT_NOT_READY", "STATE_CONFLICT", "EXPIRED_OPERATION"] } }, "required": ["code"] }
+        ] } } }
+      },
+      "UnprocessableEntity": {
+        "description": "The request is structurally valid but violates the closed semantic contract.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["SEMANTIC_VALIDATION_FAILED", "UNSUPPORTED_RESULT_TYPE"] } }, "required": ["code"] }
+        ] } } }
+      },
+      "RateLimited": {
+        "description": "The bounded request rate was exceeded.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" },
+          "Retry-After": { "$ref": "#/components/headers/RetryAfterHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "const": "RATE_LIMITED" } }, "required": ["code"] }
+        ] } } }
+      },
+      "InternalError": {
+        "description": "Safe internal, unsupported-state, malformed-result, or unknown-write-outcome failure; implementation details are never exposed.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["INTERNAL_ERROR", "UNKNOWN_WRITE_OUTCOME", "UNSUPPORTED_STATE", "MALFORMED_INTERNAL_RESULT"] } }, "required": ["code"] }
+        ] } } }
+      },
+      "UpstreamError": {
+        "description": "A reviewed upstream dependency failed; provider text is never exposed.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "const": "UPSTREAM_ERROR" } }, "required": ["code"] }
+        ] } } }
+      },
+      "ServiceUnavailable": {
+        "description": "The service is temporarily unavailable, or a request timed out with an unconfirmed outcome that requires reconciliation before retry.",
+        "headers": {
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationResponseHeader" },
+          "Retry-After": { "$ref": "#/components/headers/RetryAfterHeader" }
+        },
+        "content": { "application/json": { "schema": { "allOf": [
+          { "$ref": "#/components/schemas/ErrorEnvelope" },
+          { "properties": { "code": { "enum": ["SERVICE_UNAVAILABLE", "REQUEST_TIMEOUT"] } }, "required": ["code"] }
+        ] } } }
+      }
+    },
+    "schemas": {
+      "DocumentId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      },
+      "BatchId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "CorrelationReference": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+      },
+      "Operation": {
+        "type": "string",
+        "enum": [
+          "batches.create",
+          "documents.create"
+        ]
+      },
+      "LedgerState": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "SUCCEEDED",
+          "FAILED_RETRYABLE",
+          "FAILED_TERMINAL",
+          "UNKNOWN_OR_QUARANTINED",
+          "EXPIRED"
+        ]
+      },
+      "BatchCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "maxProperties": 0
+      },
+      "DocumentCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contentType"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?!\\s*\\.{1,2}\\s*$)(?=.*\\S)[^\\x00-\\x1F\\x7F/\\\\]+$"
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png",
+              "image/tiff"
+            ]
+          },
+          "contentLength": {
+            "type": "integer",
+            "x-strict-json-type": "The runtime accepts only a JSON integer token; booleans, strings, and floating-point tokens such as 1.0 are rejected before model validation.",
+            "minimum": 0,
+            "maximum": 536870912
+          },
+          "batchId": {
+            "$ref": "#/components/schemas/BatchId"
+          }
+        }
+      },
+      "BatchDurableResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "operation",
+          "batchId",
+          "status",
+          "createdAt"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.batch-create-result.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "operation": { "const": "batches.create" },
+          "batchId": { "$ref": "#/components/schemas/BatchId" },
+          "status": { "const": "OPEN" },
+          "createdAt": { "$ref": "#/components/schemas/Timestamp" }
+        }
+      },
+      "DocumentDurableResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "operation",
+          "documentId",
+          "status",
+          "contentType",
+          "createdAt"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.document-create-result.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "operation": { "const": "documents.create" },
+          "documentId": { "$ref": "#/components/schemas/DocumentId" },
+          "batchId": { "$ref": "#/components/schemas/BatchId" },
+          "status": { "const": "UPLOAD_PENDING" },
+          "contentType": { "$ref": "#/components/schemas/DocumentCreateRequest/properties/contentType" },
+          "createdAt": { "$ref": "#/components/schemas/Timestamp" }
+        }
+      },
+      "UploadRequiredHeaders": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "Content-Type"
+        ],
+        "properties": {
+          "Content-Type": { "$ref": "#/components/schemas/DocumentCreateRequest/properties/contentType" }
+        }
+      },
+      "UploadCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Ephemeral transport capability. It must never be persisted in a ledger, result, log, or audit record.",
+        "required": [
+          "method",
+          "url",
+          "expiresAt",
+          "requiredHeaders"
+        ],
+        "properties": {
+          "method": { "const": "PUT" },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "minLength": 9,
+            "maxLength": 8192,
+            "readOnly": true
+          },
+          "expiresAt": { "$ref": "#/components/schemas/Timestamp" },
+          "requiredHeaders": { "$ref": "#/components/schemas/UploadRequiredHeaders" }
+        }
+      },
+      "BatchCreateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "replayed",
+          "durableResponse"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.operation-response.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "replayed": { "type": "boolean" },
+          "durableResponse": { "$ref": "#/components/schemas/BatchDurableResponse" }
+        }
+      },
+      "DocumentCreateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "replayed",
+          "durableResponse"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.operation-response.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "replayed": { "type": "boolean" },
+          "durableResponse": { "$ref": "#/components/schemas/DocumentDurableResponse" },
+          "uploadCapability": { "$ref": "#/components/schemas/UploadCapability" }
+        },
+        "oneOf": [
+          {
+            "title": "First document create",
+            "properties": { "replayed": { "const": false } },
+            "required": ["replayed", "uploadCapability"]
+          },
+          {
+            "title": "Exact document replay",
+            "properties": { "replayed": { "const": true } },
+            "required": ["replayed"]
+          }
+        ]
+      },
+      "SubmitDocumentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "const": "ingest",
+            "default": "ingest"
+          }
+        }
+      },
+      "SubmitDocumentResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "documentId",
+          "stage",
+          "enqueued"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.document-submit.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "documentId": { "$ref": "#/components/schemas/DocumentId" },
+          "stage": { "const": "ingest" },
+          "enqueued": { "type": "boolean" }
+        }
+      },
+      "UploadCapabilityResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "documentId",
+          "uploadCapability"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.upload-capability.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "documentId": { "$ref": "#/components/schemas/DocumentId" },
+          "uploadCapability": { "$ref": "#/components/schemas/UploadCapability" }
+        }
+      },
+      "ReconciliationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "operation",
+          "ledgerState",
+          "createdAt",
+          "updatedAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.reconciliation.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "operation": { "$ref": "#/components/schemas/Operation" },
+          "ledgerState": { "$ref": "#/components/schemas/LedgerState" },
+          "durableResponse": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/BatchDurableResponse" },
+              { "$ref": "#/components/schemas/DocumentDurableResponse" }
+            ]
+          },
+          "failureCode": {
+            "type": "string",
+            "enum": [
+              "CREATE_FAILED_RETRYABLE",
+              "CREATE_FAILED_TERMINAL",
+              "UNKNOWN_WRITE_OUTCOME",
+              "OPERATION_EXPIRED"
+            ]
+          },
+          "createdAt": { "$ref": "#/components/schemas/Timestamp" },
+          "updatedAt": { "$ref": "#/components/schemas/Timestamp" },
+          "completedAt": { "$ref": "#/components/schemas/Timestamp" },
+          "expiresAt": { "$ref": "#/components/schemas/Timestamp" }
+        },
+        "x-timestamp-invariant": "For EXPIRED: createdAt < expiresAt <= updatedAt and createdAt <= completedAt <= updatedAt; completedAt may preserve an original terminal completion before expiresAt. For every other state: createdAt <= updatedAt < expiresAt; when completedAt is present, createdAt <= completedAt <= updatedAt.",
+        "allOf": [
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "SUCCEEDED" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "required": ["durableResponse", "completedAt"],
+              "not": { "required": ["failureCode"] }
+            },
+            "else": {
+              "not": { "required": ["durableResponse"] }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "PENDING" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  { "required": ["failureCode"] },
+                  { "required": ["completedAt"] }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "FAILED_RETRYABLE" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "required": ["failureCode"],
+              "properties": { "failureCode": { "const": "CREATE_FAILED_RETRYABLE" } },
+              "not": { "required": ["completedAt"] }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "FAILED_TERMINAL" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "required": ["failureCode", "completedAt"],
+              "properties": { "failureCode": { "const": "CREATE_FAILED_TERMINAL" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "UNKNOWN_OR_QUARANTINED" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "required": ["failureCode", "completedAt"],
+              "properties": { "failureCode": { "const": "UNKNOWN_WRITE_OUTCOME" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "EXPIRED" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "required": ["failureCode", "completedAt"],
+              "properties": { "failureCode": { "const": "OPERATION_EXPIRED" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "ledgerState": { "const": "EXPIRED" } },
+              "required": ["ledgerState"]
+            },
+            "then": {
+              "x-timestamp-order": "createdAt < expiresAt <= updatedAt"
+            },
+            "else": {
+              "x-timestamp-order": "createdAt <= updatedAt < expiresAt"
+            }
+          },
+          {
+            "if": {
+              "properties": { "operation": { "const": "batches.create" } },
+              "required": ["operation", "durableResponse"]
+            },
+            "then": {
+              "properties": { "durableResponse": { "$ref": "#/components/schemas/BatchDurableResponse" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "operation": { "const": "documents.create" } },
+              "required": ["operation", "durableResponse"]
+            },
+            "then": {
+              "properties": { "durableResponse": { "$ref": "#/components/schemas/DocumentDurableResponse" } }
+            }
+          }
+        ]
+      },
+      "DocumentLifecycle": {
+        "type": "string",
+        "x-valid-transitions": {
+          "UPLOAD_PENDING": ["UPLOAD_PENDING", "SUBMITTED"],
+          "SUBMITTED": ["SUBMITTED", "PROCESSING"],
+          "PROCESSING": ["PROCESSING", "COMPLETED", "FAILED"],
+          "COMPLETED": ["COMPLETED"],
+          "FAILED": ["FAILED"]
+        },
+        "enum": [
+          "UPLOAD_PENDING",
+          "SUBMITTED",
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED"
+        ]
+      },
+      "PipelineStage": {
+        "type": "string",
+        "enum": [
+          "INGEST",
+          "OCR",
+          "CLASSIFY",
+          "BANK_EXTRACT",
+          "PERSONAL_EXTRACT",
+          "VALIDATE",
+          "TERMINAL"
+        ]
+      },
+      "StageState": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED"
+        ]
+      },
+      "ProcessingCondition": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "NOT_APPLICABLE"
+        ]
+      },
+      "FailureDisposition": {
+        "type": "string",
+        "enum": [
+          "RETRYABLE",
+          "TERMINAL"
+        ]
+      },
+      "SafeFailureCode": {
+        "type": "string",
+        "enum": [
+          "DOCUMENT_PROCESSING_FAILED",
+          "OCR_FAILED",
+          "ENQUEUE_FAILED"
+        ]
+      },
+      "Progress": {
+        "type": "object",
+        "additionalProperties": false,
+        "x-progress-invariant": "completedStages must not exceed totalStages when both are present",
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 0, "maximum": 1000 },
+          "completedStages": { "type": "integer", "minimum": 0, "maximum": 10 },
+          "totalStages": { "type": "integer", "minimum": 1, "maximum": 10 }
+        }
+      },
+      "DocumentStatusResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "contractVersion",
+          "documentId",
+          "lifecycle",
+          "currentStage",
+          "stageState",
+          "processingCondition",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.document-status.v1" },
+          "contractVersion": { "const": "scanalyze.document-journey.v1" },
+          "batchId": { "$ref": "#/components/schemas/BatchId" },
+          "documentId": { "$ref": "#/components/schemas/DocumentId" },
+          "lifecycle": { "$ref": "#/components/schemas/DocumentLifecycle" },
+          "currentStage": { "$ref": "#/components/schemas/PipelineStage" },
+          "stageState": { "$ref": "#/components/schemas/StageState" },
+          "processingCondition": { "$ref": "#/components/schemas/ProcessingCondition" },
+          "createdAt": { "$ref": "#/components/schemas/Timestamp" },
+          "updatedAt": { "$ref": "#/components/schemas/Timestamp" },
+          "terminalAt": { "$ref": "#/components/schemas/Timestamp" },
+          "correlationReference": { "$ref": "#/components/schemas/CorrelationReference" },
+          "progress": { "$ref": "#/components/schemas/Progress" },
+          "failureDisposition": { "$ref": "#/components/schemas/FailureDisposition" },
+          "safeFailureCode": { "$ref": "#/components/schemas/SafeFailureCode" }
+        },
+        "x-timestamp-invariant": "createdAt <= terminalAt <= updatedAt when terminalAt is present; otherwise createdAt <= updatedAt",
+        "oneOf": [
+          {
+            "properties": {
+              "lifecycle": {
+                "const": "UPLOAD_PENDING"
+              },
+              "currentStage": { "const": "INGEST" },
+              "stageState": { "const": "PENDING" },
+              "processingCondition": { "const": "ACTIVE" }
+            },
+            "required": ["lifecycle", "currentStage", "stageState", "processingCondition"],
+            "not": {
+              "anyOf": [
+                { "required": ["terminalAt"] },
+                { "required": ["failureDisposition"] },
+                { "required": ["safeFailureCode"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "lifecycle": { "const": "SUBMITTED" },
+              "currentStage": { "const": "INGEST" },
+              "stageState": { "enum": ["PENDING", "RUNNING"] },
+              "processingCondition": { "const": "ACTIVE" }
+            },
+            "required": ["lifecycle", "currentStage", "stageState", "processingCondition"],
+            "not": {
+              "anyOf": [
+                { "required": ["terminalAt"] },
+                { "required": ["failureDisposition"] },
+                { "required": ["safeFailureCode"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "lifecycle": { "const": "PROCESSING" },
+              "currentStage": {
+                "enum": [
+                  "INGEST",
+                  "OCR",
+                  "CLASSIFY",
+                  "BANK_EXTRACT",
+                  "PERSONAL_EXTRACT",
+                  "VALIDATE"
+                ]
+              },
+              "stageState": { "enum": ["PENDING", "RUNNING", "SUCCEEDED"] },
+              "processingCondition": { "const": "ACTIVE" }
+            },
+            "required": ["lifecycle", "currentStage", "stageState", "processingCondition"],
+            "not": {
+              "anyOf": [
+                { "required": ["terminalAt"] },
+                { "required": ["failureDisposition"] },
+                { "required": ["safeFailureCode"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "lifecycle": { "const": "SUBMITTED" },
+              "currentStage": { "const": "INGEST" },
+              "stageState": { "const": "FAILED" },
+              "processingCondition": { "const": "NOT_APPLICABLE" },
+              "failureDisposition": { "const": "RETRYABLE" },
+              "safeFailureCode": { "const": "ENQUEUE_FAILED" }
+            },
+            "required": [
+              "lifecycle",
+              "currentStage",
+              "stageState",
+              "processingCondition",
+              "failureDisposition",
+              "safeFailureCode"
+            ],
+            "not": { "required": ["terminalAt"] }
+          },
+          {
+            "properties": {
+              "lifecycle": { "const": "COMPLETED" },
+              "currentStage": { "const": "TERMINAL" },
+              "stageState": { "const": "SUCCEEDED" },
+              "processingCondition": { "const": "NOT_APPLICABLE" }
+            },
+            "required": [
+              "lifecycle",
+              "currentStage",
+              "stageState",
+              "processingCondition",
+              "terminalAt"
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["failureDisposition"] },
+                { "required": ["safeFailureCode"] }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "lifecycle": { "const": "FAILED" },
+              "currentStage": { "const": "TERMINAL" },
+              "stageState": { "const": "FAILED" },
+              "processingCondition": { "const": "NOT_APPLICABLE" },
+              "failureDisposition": { "const": "TERMINAL" },
+              "safeFailureCode": {
+                "enum": ["DOCUMENT_PROCESSING_FAILED", "OCR_FAILED"]
+              }
+            },
+            "required": [
+              "lifecycle",
+              "currentStage",
+              "stageState",
+              "processingCondition",
+              "terminalAt",
+              "failureDisposition",
+              "safeFailureCode"
+            ]
+          }
+        ]
+      },
+      "RetryClass": {
+        "type": "string",
+        "enum": [
+          "NOT_RETRYABLE",
+          "RETRYABLE_WITH_BACKOFF",
+          "RETRY_ONLY_AFTER_RECONCILIATION",
+          "TERMINAL",
+          "UNKNOWN_OR_QUARANTINED"
+        ]
+      },
+      "ErrorDetails": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "body",
+              "contentLength",
+              "contentType",
+              "documentId",
+              "Idempotency-Key",
+              "operation",
+              "stage",
+              "X-Scanalyze-Contract-Version"
+            ]
+          },
+          "operation": { "$ref": "#/components/schemas/Operation" },
+          "retryAfterSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "code",
+          "message",
+          "correlationId",
+          "retryClass"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "scanalyze.error.v1" },
+          "code": {
+            "type": "string",
+            "x-code-contract": {
+              "MALFORMED_REQUEST": {
+                "httpStatus": 400,
+                "message": "The request is malformed.",
+                "retryClass": "NOT_RETRYABLE",
+                "retryAfterAllowed": false
+              },
+              "AUTHENTICATION_REQUIRED": {
+                "httpStatus": 401,
+                "message": "Authentication is required.",
+                "retryClass": "NOT_RETRYABLE",
+                "retryAfterAllowed": false
+              },
+              "AUTHENTICATION_INVALID": {
+                "httpStatus": 401,
+                "message": "Authentication is invalid.",
+                "retryClass": "NOT_RETRYABLE",
+                "retryAfterAllowed": false
+              },
+              "AUTHORIZATION_DENIED": {
+                "httpStatus": 403,
+                "message": "The operation is not authorized.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              },
+              "NOT_FOUND": {
+                "httpStatus": 404,
+                "message": "The requested resource was not found.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              },
+              "IDEMPOTENCY_CONFLICT": {
+                "httpStatus": 409,
+                "message": "The idempotency key is bound to a different request.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              },
+              "RESULT_NOT_READY": {
+                "httpStatus": 409,
+                "message": "The document result is not ready.",
+                "retryClass": "RETRYABLE_WITH_BACKOFF",
+                "retryAfterAllowed": false
+              },
+              "SEMANTIC_VALIDATION_FAILED": {
+                "httpStatus": 422,
+                "message": "The request failed semantic validation.",
+                "retryClass": "NOT_RETRYABLE",
+                "retryAfterAllowed": false
+              },
+              "RATE_LIMITED": {
+                "httpStatus": 429,
+                "message": "The request rate is limited.",
+                "retryClass": "RETRYABLE_WITH_BACKOFF",
+                "retryAfterAllowed": true
+              },
+              "INTERNAL_ERROR": {
+                "httpStatus": 500,
+                "message": "The service could not complete the request.",
+                "retryClass": "UNKNOWN_OR_QUARANTINED",
+                "retryAfterAllowed": false
+              },
+              "UPSTREAM_ERROR": {
+                "httpStatus": 502,
+                "message": "A required service failed.",
+                "retryClass": "RETRYABLE_WITH_BACKOFF",
+                "retryAfterAllowed": false
+              },
+              "SERVICE_UNAVAILABLE": {
+                "httpStatus": 503,
+                "message": "The service is temporarily unavailable.",
+                "retryClass": "RETRYABLE_WITH_BACKOFF",
+                "retryAfterAllowed": true
+              },
+              "REQUEST_TIMEOUT": {
+                "httpStatus": 503,
+                "message": "The request outcome is not confirmed.",
+                "retryClass": "RETRY_ONLY_AFTER_RECONCILIATION",
+                "retryAfterAllowed": false
+              },
+              "UNSUPPORTED_CONTRACT_VERSION": {
+                "httpStatus": 400,
+                "message": "The contract version is not supported.",
+                "retryClass": "NOT_RETRYABLE",
+                "retryAfterAllowed": false
+              },
+              "UNKNOWN_WRITE_OUTCOME": {
+                "httpStatus": 500,
+                "message": "The write outcome requires reconciliation.",
+                "retryClass": "RETRY_ONLY_AFTER_RECONCILIATION",
+                "retryAfterAllowed": false
+              },
+              "STATE_CONFLICT": {
+                "httpStatus": 409,
+                "message": "The resource state conflicts with this operation.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              },
+              "UNSUPPORTED_STATE": {
+                "httpStatus": 500,
+                "message": "The resource state is not supported.",
+                "retryClass": "UNKNOWN_OR_QUARANTINED",
+                "retryAfterAllowed": false
+              },
+              "MALFORMED_INTERNAL_RESULT": {
+                "httpStatus": 500,
+                "message": "The document result is invalid.",
+                "retryClass": "UNKNOWN_OR_QUARANTINED",
+                "retryAfterAllowed": false
+              },
+              "EXPIRED_OPERATION": {
+                "httpStatus": 409,
+                "message": "The operation key has expired.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              },
+              "UNSUPPORTED_RESULT_TYPE": {
+                "httpStatus": 422,
+                "message": "The document result type is not supported.",
+                "retryClass": "TERMINAL",
+                "retryAfterAllowed": false
+              }
+            },
+            "enum": [
+              "MALFORMED_REQUEST",
+              "AUTHENTICATION_REQUIRED",
+              "AUTHENTICATION_INVALID",
+              "AUTHORIZATION_DENIED",
+              "NOT_FOUND",
+              "IDEMPOTENCY_CONFLICT",
+              "RESULT_NOT_READY",
+              "SEMANTIC_VALIDATION_FAILED",
+              "RATE_LIMITED",
+              "INTERNAL_ERROR",
+              "UPSTREAM_ERROR",
+              "SERVICE_UNAVAILABLE",
+              "REQUEST_TIMEOUT",
+              "UNSUPPORTED_CONTRACT_VERSION",
+              "UNKNOWN_WRITE_OUTCOME",
+              "STATE_CONFLICT",
+              "UNSUPPORTED_STATE",
+              "MALFORMED_INTERNAL_RESULT",
+              "EXPIRED_OPERATION",
+              "UNSUPPORTED_RESULT_TYPE"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "correlationId": { "$ref": "#/components/schemas/CorrelationReference" },
+          "retryClass": { "$ref": "#/components/schemas/RetryClass" },
+          "details": { "$ref": "#/components/schemas/ErrorDetails" }
+        },
+        "x-error-policy": "code, HTTP status, safe message and retryClass are an exact runtime allowlist; arbitrary provider text is forbidden",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "details": { "required": ["retryAfterSeconds"] }
+              },
+              "required": ["details"]
+            },
+            "then": {
+              "properties": {
+                "code": { "enum": ["RATE_LIMITED", "SERVICE_UNAVAILABLE"] },
+                "retryClass": { "const": "RETRYABLE_WITH_BACKOFF" }
+              }
+            }
+          }
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "code": { "const": "MALFORMED_REQUEST" },
+              "message": { "const": "The request is malformed." },
+              "retryClass": { "const": "NOT_RETRYABLE" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "AUTHENTICATION_REQUIRED" },
+              "message": { "const": "Authentication is required." },
+              "retryClass": { "const": "NOT_RETRYABLE" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "AUTHENTICATION_INVALID" },
+              "message": { "const": "Authentication is invalid." },
+              "retryClass": { "const": "NOT_RETRYABLE" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "AUTHORIZATION_DENIED" },
+              "message": { "const": "The operation is not authorized." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "NOT_FOUND" },
+              "message": { "const": "The requested resource was not found." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "IDEMPOTENCY_CONFLICT" },
+              "message": { "const": "The idempotency key is bound to a different request." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "RESULT_NOT_READY" },
+              "message": { "const": "The document result is not ready." },
+              "retryClass": { "const": "RETRYABLE_WITH_BACKOFF" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "SEMANTIC_VALIDATION_FAILED" },
+              "message": { "const": "The request failed semantic validation." },
+              "retryClass": { "const": "NOT_RETRYABLE" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "RATE_LIMITED" },
+              "message": { "const": "The request rate is limited." },
+              "retryClass": { "const": "RETRYABLE_WITH_BACKOFF" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "INTERNAL_ERROR" },
+              "message": { "const": "The service could not complete the request." },
+              "retryClass": { "const": "UNKNOWN_OR_QUARANTINED" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "UPSTREAM_ERROR" },
+              "message": { "const": "A required service failed." },
+              "retryClass": { "const": "RETRYABLE_WITH_BACKOFF" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "SERVICE_UNAVAILABLE" },
+              "message": { "const": "The service is temporarily unavailable." },
+              "retryClass": { "const": "RETRYABLE_WITH_BACKOFF" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "REQUEST_TIMEOUT" },
+              "message": { "const": "The request outcome is not confirmed." },
+              "retryClass": { "const": "RETRY_ONLY_AFTER_RECONCILIATION" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "UNSUPPORTED_CONTRACT_VERSION" },
+              "message": { "const": "The contract version is not supported." },
+              "retryClass": { "const": "NOT_RETRYABLE" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "UNKNOWN_WRITE_OUTCOME" },
+              "message": { "const": "The write outcome requires reconciliation." },
+              "retryClass": { "const": "RETRY_ONLY_AFTER_RECONCILIATION" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "STATE_CONFLICT" },
+              "message": { "const": "The resource state conflicts with this operation." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "UNSUPPORTED_STATE" },
+              "message": { "const": "The resource state is not supported." },
+              "retryClass": { "const": "UNKNOWN_OR_QUARANTINED" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "MALFORMED_INTERNAL_RESULT" },
+              "message": { "const": "The document result is invalid." },
+              "retryClass": { "const": "UNKNOWN_OR_QUARANTINED" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "EXPIRED_OPERATION" },
+              "message": { "const": "The operation key has expired." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          },
+          {
+            "properties": {
+              "code": { "const": "UNSUPPORTED_RESULT_TYPE" },
+              "message": { "const": "The document result type is not supported." },
+              "retryClass": { "const": "TERMINAL" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
