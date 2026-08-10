@@ -26,6 +26,7 @@ ECR_PREFIX=""
 PUSH_IMAGES=false
 WRITE_SSM=false
 RECONCILE_DIGEST=""
+HERMETIC=false
 
 SERVICE_SEEN=false
 ALL_SEEN=false
@@ -38,6 +39,7 @@ ECR_PREFIX_SEEN=false
 PUSH_MODE_SEEN=false
 SSM_MODE_SEEN=false
 RECONCILE_SEEN=false
+HERMETIC_SEEN=false
 
 usage() {
   cat <<'USAGE'
@@ -62,6 +64,7 @@ Modes (safe defaults shown):
   --push | --no-push                 Default: --no-push
   --write-ssm | --no-write-ssm       Default: --no-write-ssm
   --reconcile-existing <sha256:...>   Service-only recovery for an existing tag
+  --hermetic                          Offline OCR-only no-push build
 
 Publishing requires a digest-pinned base image in the target account ECR.
 SSM writes require --push and occur only after ECR returns a valid digest.
@@ -204,6 +207,12 @@ while [[ "$#" -gt 0 ]]; do
       RECONCILE_SEEN=true
       shift 2
       ;;
+    --hermetic)
+      [[ "$HERMETIC_SEEN" == false ]] || die "--hermetic may be specified only once"
+      HERMETIC=true
+      HERMETIC_SEEN=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -252,6 +261,16 @@ if [[ "$WRITE_SSM" == true && "$PUSH_IMAGES" != true ]]; then
   die "--write-ssm requires --push"
 fi
 
+if [[ "$HERMETIC" == true ]]; then
+  [[ "$SERVICE_SEEN" == true && "$ALL_SEEN" == false && "$SELECTED_SERVICE" == "ocr-worker" ]] ||
+    die "--hermetic requires exactly --service ocr-worker"
+  [[ "$PUSH_IMAGES" == false && "$WRITE_SSM" == false ]] ||
+    die "--hermetic is no-push and cannot write SSM"
+  [[ "$RECONCILE_SEEN" == false ]] || die "--hermetic cannot reconcile an existing image"
+  [[ "$ACCOUNT_ID_SEEN" == false && "$REGION_SEEN" == false && "$DEPLOYMENT_ID_SEEN" == false && "$ECR_PREFIX_SEEN" == false ]] ||
+    die "--hermetic does not accept AWS or deployment arguments"
+fi
+
 if [[ "$RECONCILE_SEEN" == true ]]; then
   [[ "$SERVICE_SEEN" == true ]] || die "--reconcile-existing requires exactly one --service"
   [[ "$PUSH_IMAGES" == true ]] || die "--reconcile-existing requires --push authorization"
@@ -284,6 +303,37 @@ REVISION="${GITHUB_SHA:-$HEAD_REVISION}"
 git -C "$REPO_ROOT" cat-file -e "${REVISION}^{commit}" 2>/dev/null || die "source revision is not a Git commit"
 REVISION="$(git -C "$REPO_ROOT" rev-parse "${REVISION}^{commit}")"
 CREATED="$(git -C "$REPO_ROOT" show -s --format=%cI "$REVISION")"
+
+if [[ "$HERMETIC" == true ]]; then
+  [[ "$REVISION" == "$HEAD_REVISION" ]] ||
+    die "hermetic revision must match the checked-out HEAD"
+  HERMETIC_WORKTREE_STATUS="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ||
+    die "unable to verify the hermetic Git worktree"
+  [[ -z "$HERMETIC_WORKTREE_STATUS" ]] ||
+    die "hermetic build requires a clean Git worktree"
+
+  expected_tag="sha-${REVISION:0:12}"
+  [[ "$TAG" == "$expected_tag" ]] || die "--hermetic tag must be ${expected_tag}"
+
+  wheelhouse="${REPO_ROOT}/backend/workers/scanalyze-ocr-worker/.wheelhouse"
+  marker="${wheelhouse}/.gug291-wheelhouse"
+  lock_file="${REPO_ROOT}/backend/workers/scanalyze-ocr-worker/requirements.lock"
+  [[ -d "$wheelhouse" && -f "$marker" && -f "$lock_file" ]] ||
+    die "prepare the OCR wheelhouse before a hermetic build"
+  if command -v sha256sum >/dev/null 2>&1; then
+    lock_digest="$(sha256sum "$lock_file" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    lock_digest="$(shasum -a 256 "$lock_file" | awk '{print $1}')"
+  else
+    die "sha256sum or shasum is required for a hermetic build"
+  fi
+  expected_marker="$(printf 'lock_sha256=%s\ntarget=linux/amd64\npython=3.11.14' "$lock_digest")"
+  [[ "$(<"$marker")" == "$expected_marker" ]] ||
+    die "OCR wheelhouse does not match requirements.lock"
+  if find "$wheelhouse" -type l | grep -q .; then
+    die "OCR wheelhouse must not contain symbolic links"
+  fi
+fi
 
 REGISTRY=""
 if [[ "$PUSH_IMAGES" == true ]]; then
@@ -356,14 +406,22 @@ for service in "${SERVICES_TO_BUILD[@]}"; do
   fi
 
   log "Building ${service} as ${image_uri}"
-  docker build \
-    --platform linux/amd64 \
-    --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
-    --label "org.opencontainers.image.source=${SOURCE_URL}" \
-    --label "org.opencontainers.image.revision=${REVISION}" \
-    --label "org.opencontainers.image.created=${CREATED}" \
-    --tag "$image_uri" \
+  docker_args=(
+    build
+    --platform linux/amd64
+  )
+  if [[ "$HERMETIC" == true ]]; then
+    docker_args+=(--pull=false --network=none)
+  fi
+  docker_args+=(
+    --build-arg "BASE_IMAGE=${BASE_IMAGE}"
+    --label "org.opencontainers.image.source=${SOURCE_URL}"
+    --label "org.opencontainers.image.revision=${REVISION}"
+    --label "org.opencontainers.image.created=${CREATED}"
+    --tag "$image_uri"
     "$context"
+  )
+  docker "${docker_args[@]}"
 
   if [[ "$PUSH_IMAGES" != true ]]; then
     log "Validated ${service} locally; no image was pushed."

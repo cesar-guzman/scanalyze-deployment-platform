@@ -53,11 +53,35 @@ PYTHONPATH=backend/workers/scanalyze-ocr-worker/src \
 
 ### Docker Build
 
-> **Blocker:** The current Dockerfile runs `pip install` during the build,
-> which requires network access.  An offline build with `--network=none` will
-> fail because the pip dependencies are not pre-cached in the base image.
-> CI builds the image only when the repository variable `CI_BASE_IMAGE` is
-> configured; otherwise it explicitly skips Docker after compile-and-test.
+El cierre de dependencias se descarga antes del build desde `requirements.lock`
+con hashes obligatorios. El resultado se escribe únicamente en `.wheelhouse/`,
+que está ignorado por Git pero incluido en el contexto Docker. La instalación
+dentro de la imagen usa `--no-index --find-links=/wheelhouse --require-hashes`.
+
+```bash
+revision="$(git rev-parse HEAD)"
+base_image="<APPROVED_BASE_IMAGE>@sha256:<DIGEST>"
+
+docker pull --platform linux/amd64 "$base_image"
+scripts/microservices/prepare-ocr-wheelhouse.sh
+scripts/microservices/build-push.sh \
+  --service ocr-worker \
+  --tag "sha-${revision:0:12}" \
+  --base-image "$base_image" \
+  --no-push \
+  --no-write-ssm \
+  --hermetic
+scripts/microservices/verify-ocr-container.sh \
+  --image "scanalyze-ci/ocr-worker:sha-${revision:0:12}" \
+  --revision "$revision"
+```
+
+La base se materializa primero mediante un pull explícito del digest y plataforma
+aprobados, sin login de registry ni comandos AWS. La preparación del wheelhouse
+puede acceder al índice Python configurado. El build posterior usa
+`--pull=false --network=none`; la base aprobada debe cumplir de antemano el
+contrato de Python/runtime. El verificador no hace pull y falla si la imagen
+exacta no existe localmente.
 
 The following static contract tests validate the Dockerfile without building:
 
@@ -65,13 +89,21 @@ The following static contract tests validate the Dockerfile without building:
   `ENTRYPOINT ["python", "-m", "src.ocr_worker.main"]` instruction.
 - `test_dockerfile_copies_src_into_app` — requires the exact
   `COPY --chown=app:app src/ ./src/` instruction.
+- `test_dockerfile_installs_requirements_from_generated_wheelhouse_only` — exige
+  el `COPY .wheelhouse/ /wheelhouse/`, instalación offline con hashes y ausencia
+  de package managers de red en las instrucciones `RUN`.
 
-**What is not validated offline:**
-- Actual Docker image build
-- Container import (`src.ocr_worker.*` inside image)
-- Container startup (`WORKER_MODE=INVALID` entrypoint)
-- Synthetic processing inside the container
-- Container log-redaction
+`verify-ocr-container.sh` valida sobre la imagen local exacta:
+
+- plataforma `linux/amd64`, usuario no-root, entrypoint y label de revisión;
+- import de `src.ocr_worker.main` y versiones críticas instaladas;
+- fallo cerrado para `WORKER_MODE` ausente o inválido;
+- procesamiento causal de un fixture completamente sintético;
+- ausencia de sentinels de contenido, PII sintética y errores en la salida.
+
+Esto no valida AWS, ECR, ECS, colas/objetos reales, despliegue, servicio vivo ni
+producción. La configuración del workflow sólo se convierte en evidencia cuando
+el job OCR termina exitosamente para el SHA revisado.
 
 ### Log-Redaction Invariant
 

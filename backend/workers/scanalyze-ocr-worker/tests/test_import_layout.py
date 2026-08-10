@@ -254,6 +254,51 @@ def _assert_exact_worker_entrypoint(instructions: list[str]) -> None:
     )
 
 
+def _assert_hermetic_dependency_install(instructions: list[str]) -> None:
+    lock_copy = "COPY requirements.lock ."
+    wheelhouse_copy = "COPY .wheelhouse/ /wheelhouse/"
+    lock_copies = [instruction for instruction in instructions if instruction == lock_copy]
+    copies = [instruction for instruction in instructions if instruction == wheelhouse_copy]
+    assert lock_copies == [lock_copy], (
+        "Dockerfile must copy exactly one reviewed requirements.lock"
+    )
+    assert copies == [wheelhouse_copy], (
+        "Dockerfile must copy exactly one generated .wheelhouse into /wheelhouse"
+    )
+
+    installs = [
+        instruction
+        for instruction in instructions
+        if instruction.upper().startswith("RUN ")
+        and "pip install" in instruction
+        and "requirements.lock" in instruction
+    ]
+    assert len(installs) == 1, (
+        "Dockerfile must contain exactly one locked requirements install instruction"
+    )
+    install = installs[0]
+    assert "--no-index" in install
+    assert "--require-hashes" in install
+    assert (
+        "--find-links=/wheelhouse" in install
+        or "--find-links /wheelhouse" in install
+    )
+    assert instructions.index(lock_copy) < instructions.index(install)
+    assert instructions.index(wheelhouse_copy) < instructions.index(install)
+
+    forbidden_network_commands = ("apt-get", "apk ", "dnf ", "yum ", "curl ", "wget ")
+    run_instructions = [
+        instruction
+        for instruction in instructions
+        if instruction.upper().startswith("RUN ")
+    ]
+    assert not any(
+        command in instruction
+        for instruction in run_instructions
+        for command in forbidden_network_commands
+    ), "Hermetic Dockerfile RUN instructions must not invoke network package tools"
+
+
 def test_dockerfile_entrypoint_references_src_module():
     """The effective ENTRYPOINT is the exact supported module invocation."""
     instructions = _effective_dockerfile_instructions(
@@ -284,17 +329,41 @@ def test_dockerfile_copies_src_into_app():
     )
 
 
+def test_dockerfile_installs_requirements_from_generated_wheelhouse_only():
+    """The OCR image dependency layer is consumable with Docker network disabled."""
+    instructions = _effective_dockerfile_instructions(
+        DOCKERFILE.read_text(encoding="utf-8")
+    )
+    _assert_hermetic_dependency_install(instructions)
+
+
+def test_hermetic_dependency_guard_rejects_online_or_late_install():
+    instructions = _effective_dockerfile_instructions(
+        """
+        RUN pip install -r requirements.lock
+        COPY requirements.lock .
+        COPY .wheelhouse/ /wheelhouse/
+        """
+    )
+    with pytest.raises(AssertionError):
+        _assert_hermetic_dependency_install(instructions)
+
+
 def test_dockerfile_parser_ignores_commented_contracts():
     """Commented examples cannot make a broken Dockerfile contract look valid."""
     instructions = _effective_dockerfile_instructions(
         """
         # COPY --chown=app:app src/ ./src/
         COPY src/ /wrong-layout/
+        # COPY requirements.lock .
+        # COPY .wheelhouse/ /wheelhouse/
         # ENTRYPOINT ["python", "-m", "src.ocr_worker.main"]
         ENTRYPOINT ["python", "src/ocr_worker/main.py"]
         """
     )
     assert "COPY --chown=app:app src/ ./src/" not in instructions
+    assert "COPY requirements.lock ." not in instructions
+    assert "COPY .wheelhouse/ /wheelhouse/" not in instructions
     assert 'ENTRYPOINT ["python", "-m", "src.ocr_worker.main"]' not in instructions
 
 

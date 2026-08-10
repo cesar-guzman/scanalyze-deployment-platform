@@ -17,6 +17,7 @@ on:
       - "scripts/microservices/**"
       - "tests/test_microservices/**"
       - "tooling/check_microservices.py"
+      - ".gitignore"
       - "pyproject.toml"
       - ".github/workflows/microservices-build.yml"
   workflow_dispatch:
@@ -170,13 +171,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11.14"
           cache: pip
-          cache-dependency-path: backend/workers/scanalyze-${{ matrix.service }}/requirements.txt
+          cache-dependency-path: |
+            backend/workers/scanalyze-${{ matrix.service }}/requirements.txt
+            backend/workers/scanalyze-ocr-worker/requirements.lock
 
       - name: Validate repository policy
         run: python tooling/check_microservices.py
@@ -200,29 +204,84 @@ jobs:
           export SCANALYZE_TENANT="$service_tenant"
           export SCANALYZE_TENANTS="$service_tenant"
           python -m compileall -q "$service_dir"
+          if [[ "$SERVICE" == "ocr-worker" ]]; then
+            python -m pip install --require-hashes -r "$service_dir/requirements.lock"
+          else
+            python -m pip install -r "$service_dir/requirements.txt"
+          fi
           python -m pip install \
-            -r "$service_dir/requirements.txt" \
             'jsonschema==4.26.0' \
             'pytest==9.1.1'
           PYTHONPATH="$service_dir/src:$service_dir" python -m pytest "$service_dir/tests" -q
 
+      - name: Materialize approved OCR base image
+        if: matrix.service == 'ocr-worker'
+        env:
+          CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CI_BASE_IMAGE" ]]; then
+            echo "::error::CI_BASE_IMAGE is required when ocr-worker is selected"
+            exit 1
+          fi
+          if [[ ! "$CI_BASE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::CI_BASE_IMAGE must be an immutable sha256 reference"
+            exit 1
+          fi
+          docker pull --platform linux/amd64 "$CI_BASE_IMAGE"
+          docker image inspect "$CI_BASE_IMAGE" >/dev/null
+
+      - name: Prepare OCR hermetic wheelhouse
+        if: matrix.service == 'ocr-worker'
+        env:
+          CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CI_BASE_IMAGE" ]]; then
+            echo "::error::CI_BASE_IMAGE is required when ocr-worker is selected"
+            exit 1
+          fi
+          scripts/microservices/prepare-ocr-wheelhouse.sh
+
       - name: Build without publishing
         env:
           CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SERVICE: ${{ matrix.service }}
         run: |
           set -euo pipefail
           if [[ -z "$CI_BASE_IMAGE" ]]; then
+            if [[ "$SERVICE" == "ocr-worker" ]]; then
+              echo "::error::CI_BASE_IMAGE is required when ocr-worker is selected"
+              exit 1
+            fi
             echo "::notice::Skipping Docker build: repository variable CI_BASE_IMAGE is not configured"
             echo "Code validation was performed by the compile-and-test step above"
             exit 0
           fi
-          scripts/microservices/build-push.sh \
-            --service "$SERVICE" \
-            --tag "sha-${GITHUB_SHA:0:12}" \
-            --base-image "$CI_BASE_IMAGE" \
-            --no-push \
+
+          build_args=(
+            --service "$SERVICE"
+            --tag "sha-${GITHUB_SHA:0:12}"
+            --base-image "$CI_BASE_IMAGE"
+            --no-push
             --no-write-ssm
+          )
+          if [[ "$SERVICE" == "ocr-worker" ]]; then
+            build_args+=(--hermetic)
+          fi
+          scripts/microservices/build-push.sh "${build_args[@]}"
+
+      - name: Verify OCR container evidence
+        if: matrix.service == 'ocr-worker'
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          image="scanalyze-ci/ocr-worker:sha-${GITHUB_SHA:0:12}"
+          scripts/microservices/verify-ocr-container.sh \
+            --image "$image" \
+            --revision "$GITHUB_SHA"
 
   tooling:
     name: Validate build tooling
