@@ -17,7 +17,7 @@ _log_context = contextvars.ContextVar('scanalyze_log_context', default={})
 _SOURCE_PERMISSIONS = {
     "context": frozenset({"correlationId", "traceId", "documentId", "stage"}),
     "event": frozenset({
-        "signal", "queue", "queue_name", "message_id", "receive_count",
+        "event", "signal", "queue", "queue_name", "message_id", "receive_count",
         "messageId", "receiveCount", "jobId", "textractJobId",
         "document_route", "downstream_message_id", "delay", "attempt",
         "status", "state", "next_stage", "reason", "errorType", "errorCount",
@@ -39,6 +39,47 @@ class _ScanalyzeEventFields(dict):
 
 _MAX_VALUE_LENGTH = 1024
 _CONTROL_CHAR_RE = re.compile(r'[\x00-\x1f\x7f]')
+_OPAQUE_REFERENCE_PATTERN = re.compile(r"^ref_[0-9a-f]{24,64}$")
+_ERROR_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+_KNOWN_VALIDATION_PATH_SEGMENTS = frozenset({
+    "_metadata",
+    "api",
+    "artifactBucket",
+    "artifactKey",
+    "attempt",
+    "bucket",
+    "contentType",
+    "correlationId",
+    "customer_id",
+    "deployment_id",
+    "documentId",
+    "documentRoute",
+    "enqueue_id",
+    "env",
+    "jobId",
+    "key",
+    "meta",
+    "metadata",
+    "ocr",
+    "ownership_schema_version",
+    "pages",
+    "pipeline_stage",
+    "processing_domain",
+    "raw",
+    "requestedNextStage",
+    "schemaVersion",
+    "sourceBucket",
+    "sourceEtag",
+    "sourceKey",
+    "submittedAt",
+    "tenant",
+    "textract",
+    "textractJobId",
+    "timeoutAt",
+    "traceId",
+    "uploadedAt",
+})
 
 
 _ENUMS = {
@@ -80,7 +121,7 @@ def _val_queue(value):
 def _val_error_type(value):
     if not isinstance(value, str): return None
     if _CONTROL_CHAR_RE.search(value) or value != value.strip(): return None
-    return value if re.fullmatch(r"^[A-Za-z0-9]{1,128}$", value) else None
+    return value if _ERROR_TYPE_PATTERN.fullmatch(value) else None
 
 def _val_event(value):
     if not isinstance(value, str): return None
@@ -149,6 +190,8 @@ def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
             return value
         if re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", value, flags=re.IGNORECASE):
             return value
+        if _OPAQUE_REFERENCE_PATTERN.fullmatch(value):
+            return value
         return None
     if field == "traceId":
         if not isinstance(value, str):
@@ -157,6 +200,8 @@ def _sanitize_log_value(field: str, value: object, *, source: str) -> object:
         if re.fullmatch(r"[a-f0-9]{32}", value, flags=re.IGNORECASE) and value != "0"*32:
             return value
         if re.fullmatch(r"1-[a-f0-9]{8}-[a-f0-9]{24}", value, flags=re.IGNORECASE):
+            return value
+        if _OPAQUE_REFERENCE_PATTERN.fullmatch(value):
             return value
         return None
     if field == "invalidFields":
@@ -175,7 +220,7 @@ def _sanitize_log_fields(values: dict, *, source: str) -> dict:
     return sanitized
 
 def safe_error_details(exc: BaseException) -> dict:
-    details = {"errorType": type(exc).__name__}
+    details = {"errorType": _val_error_type(type(exc).__name__) or "Exception"}
     errors_method = getattr(exc, "errors", None)
     if callable(errors_method):
         try:
@@ -186,8 +231,12 @@ def safe_error_details(exc: BaseException) -> dict:
         for error in errors:
             parts = []
             for part in error.get("loc", ()):
-                value = str(part)
-                parts.append(value if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value) else "<field>")
+                if type(part) is int:
+                    parts.append("<index>")
+                elif isinstance(part, str) and part in _KNOWN_VALIDATION_PATH_SEGMENTS:
+                    parts.append(part)
+                else:
+                    parts.append("<field>")
             location = ".".join(parts) or "<root>"
             if location not in locations:
                 locations.append(location)
@@ -240,16 +289,15 @@ class JSONFormatter(logging.Formatter):
                     if re.fullmatch(r"[a-z0-9_]{1,64}", val):
                         merged["event"] = val
                 elif k == "errorType":
-                    val = str(v)
-                    if re.fullmatch(r"[A-Za-z0-9]{1,128}", val):
+                    val = _val_error_type(v)
+                    if val is not None:
                         merged["errorType"] = val
                 elif k not in ("tenant", "stage", "documentId", "correlationId", "traceId"):
                     merged[k] = v
 
         if record.exc_info and record.exc_info[0] is not None:
             err_type = record.exc_info[0].__name__
-            if re.fullmatch(r"[A-Za-z0-9]{1,128}", err_type):
-                merged["errorType"] = err_type
+            merged["errorType"] = _val_error_type(err_type) or "Exception"
 
         # 2. Context Overrides Event/Extra
         ctx = _log_context.get()
@@ -310,5 +358,10 @@ def get_logger(name: str):
 
 def log_event(event_name: str, **kwargs):
     logger = logging.getLogger('ocr_worker.structured')
-    envelope = _ScanalyzeEventFields(_EVENT_TOKEN, **kwargs)
-    logger.info(event_name, extra={"event": event_name, "_scanalyze_event_fields": envelope})
+    event_fields = dict(kwargs)
+    event_fields["event"] = event_name
+    envelope = _ScanalyzeEventFields(_EVENT_TOKEN, event_fields)
+    logger.info(
+        "OCR worker event",
+        extra={"_scanalyze_event_fields": envelope},
+    )

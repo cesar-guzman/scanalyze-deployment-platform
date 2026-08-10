@@ -117,7 +117,9 @@ and pushes nothing.
 ## GitHub Actions
 
 `.github/workflows/microservices-build.yml` detects affected services and runs a
-matrix of tests and no-push Docker builds for pull requests and `main`.
+matrix of tests for pull requests and `main`. No-push Docker builds run only
+when the repository-level `CI_BASE_IMAGE` is configured; otherwise the workflow
+reports the build as skipped, which is not container acceptance evidence.
 Publication is disabled unless explicitly requested through a protected GitHub
 Environment or a reviewed `MAIN_PUBLISH_ENABLED` repository mapping.
 

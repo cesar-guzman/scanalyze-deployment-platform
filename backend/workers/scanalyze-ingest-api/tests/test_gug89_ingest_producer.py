@@ -11,6 +11,7 @@ from app.auth import AuthContext
 from app.authorization import ObjectOwnership
 from app.config import Settings
 from app.errors import AppError
+from app.logging import bind_context, clear_context, opaque_log_reference
 from app.services.documents import DocumentsService
 
 OCR_SRC = Path(__file__).resolve().parents[2] / "scanalyze-ocr-worker" / "src"
@@ -217,6 +218,26 @@ def test_submit_emits_strict_owner_bound_v2_envelope() -> None:
     assert "route" not in body["_metadata"]
     assert "customerStack" not in body["_metadata"]
     assert "uploaderUserId" not in body["_metadata"]
+
+
+def test_submit_emits_the_logging_contract_references_consumed_by_ocr() -> None:
+    service = _submit_service(processing_domain="bank")
+    raw_correlation = "synthetic-request-correlation"
+    raw_trace = "synthetic-request-trace"
+    expected_metadata = {
+        "correlationId": opaque_log_reference(raw_correlation),
+        "traceId": opaque_log_reference(raw_trace),
+    }
+
+    clear_context()
+    try:
+        bind_context(correlationId=raw_correlation, traceId=raw_trace)
+        service.submit_document(auth=_auth(), document_id=DOCUMENT_ID)
+    finally:
+        clear_context()
+
+    body = json.loads(service.sqs.send_message.call_args.kwargs["MessageBody"])
+    assert body["_metadata"] == expected_metadata
 
 
 def test_unclassified_envelope_does_not_infer_customer_as_domain() -> None:

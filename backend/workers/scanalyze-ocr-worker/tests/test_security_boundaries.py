@@ -1,15 +1,38 @@
+import json
+import logging
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ocr_worker.config import ConfigCache
-from ocr_worker.logger import JSONFormatter, bind_context, clear_context, safe_error_details
+from ocr_worker.logger import (
+    JSONFormatter,
+    bind_context,
+    clear_context,
+    log_event,
+    safe_error_details,
+)
 from ocr_worker import main as worker_main
 
 
 class _StrictPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     pages: int
+
+
+class _StrictMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    correlationId: str
+
+
+class _StrictMetadataListPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    metadata: list[_StrictMetadata]
 
 
 def test_config_rejects_missing_deployment_environment(monkeypatch):
@@ -87,6 +110,154 @@ def test_validation_summary_omits_input_value():
     assert details["errorCount"] == 1
     assert details["invalidFields"] == ["pages"]
     assert sensitive_value not in repr(details)
+
+
+def test_validation_summary_redacts_unknown_extra_key():
+    hostile_field = "HOSTILE_FIELD_SENTINEL_123"
+    with pytest.raises(ValidationError) as captured:
+        _StrictPayload.model_validate({"pages": 1, hostile_field: "SYNTHETIC-SENSITIVE-VALUE"})
+
+    details = safe_error_details(captured.value)
+
+    assert details["errorCount"] == 1
+    assert details["invalidFields"] == ["<field>"]
+    assert hostile_field not in repr(details)
+
+
+def test_validation_summary_redacts_nested_unknown_key_and_preserves_index_shape():
+    hostile_field = "HOSTILE_NESTED_KEY_123456"
+    with pytest.raises(ValidationError) as captured:
+        _StrictMetadataListPayload.model_validate(
+            {
+                "metadata": [
+                    {
+                        "correlationId": "ref_" + "a" * 32,
+                        hostile_field: "SYNTHETIC-SENSITIVE-VALUE",
+                    }
+                ]
+            }
+        )
+
+    details = safe_error_details(captured.value)
+
+    assert details["invalidFields"] == ["metadata.<index>.<field>"]
+    assert hostile_field not in repr(details)
+
+
+def test_validation_summary_preserves_known_nested_schema_path():
+    with pytest.raises(ValidationError) as captured:
+        _StrictMetadataListPayload.model_validate({"metadata": [{"correlationId": 123}]})
+
+    details = safe_error_details(captured.value)
+
+    assert details["invalidFields"] == ["metadata.<index>.correlationId"]
+
+
+@pytest.mark.parametrize("opaque_length", [24, 32, 64])
+def test_context_preserves_producer_opaque_references(opaque_length):
+    opaque_reference = "ref_" + "a" * opaque_length
+    clear_context()
+    try:
+        bind_context(correlationId=opaque_reference, traceId=opaque_reference)
+        formatter = JSONFormatter(tenant="platform", stage="ocr")
+        record = logging.LogRecord("test", logging.INFO, "path", 1, "processing", (), None)
+        rendered = json.loads(formatter.format(record))
+    finally:
+        clear_context()
+
+    assert rendered["correlationId"] == opaque_reference
+    assert rendered["traceId"] == opaque_reference
+
+
+@pytest.mark.parametrize(
+    ("correlation_id", "trace_id"),
+    [
+        (
+            "550e8400-e29b-41d4-a716-446655440000",
+            "1-67891233-defdefdefdefdefdefdefdef",
+        ),
+        (
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "0123456789abcdef0123456789abcdef",
+        ),
+    ],
+)
+def test_context_preserves_existing_correlation_and_trace_formats(correlation_id, trace_id):
+    clear_context()
+    try:
+        bind_context(correlationId=correlation_id, traceId=trace_id)
+        formatter = JSONFormatter(tenant="platform", stage="ocr")
+        record = logging.LogRecord("test", logging.INFO, "path", 1, "processing", (), None)
+        rendered = json.loads(formatter.format(record))
+    finally:
+        clear_context()
+
+    assert rendered["correlationId"] == correlation_id
+    assert rendered["traceId"] == trace_id
+
+
+def test_context_drops_unsafe_opaque_reference_payloads():
+    unsafe_reference = "ref_SYNTHETIC-SENSITIVE-PAYLOAD"
+    clear_context()
+    try:
+        bind_context(correlationId=unsafe_reference, traceId=unsafe_reference)
+        formatter = JSONFormatter(tenant="platform", stage="ocr")
+        record = logging.LogRecord("test", logging.INFO, "path", 1, "processing", (), None)
+        rendered = json.loads(formatter.format(record))
+    finally:
+        clear_context()
+
+    assert "correlationId" not in rendered
+    assert "traceId" not in rendered
+    assert unsafe_reference not in repr(rendered)
+
+
+def test_actual_exception_type_with_underscore_overrides_caller_value():
+    class Custom_Error(RuntimeError):
+        pass
+
+    try:
+        raise Custom_Error("SYNTHETIC-SENSITIVE-VALUE")
+    except Custom_Error:
+        record = logging.LogRecord(
+            "test",
+            logging.ERROR,
+            "path",
+            1,
+            "processing failed",
+            (),
+            sys.exc_info(),
+        )
+    record.errorType = "CallerSpoof"
+
+    rendered = json.loads(JSONFormatter(tenant="platform", stage="ocr").format(record))
+
+    assert rendered["errorType"] == "Custom_Error"
+    assert "SYNTHETIC-SENSITIVE-VALUE" not in repr(rendered)
+
+
+def test_log_event_uses_constant_message_and_validated_event_field(caplog):
+    with caplog.at_level(logging.INFO, logger="ocr_worker.structured"):
+        log_event("worker_started")
+
+    record = caplog.records[-1]
+    rendered = json.loads(JSONFormatter(tenant="platform", stage="ocr").format(record))
+
+    assert rendered["message"] == "OCR worker event"
+    assert rendered["event"] == "worker_started"
+
+
+def test_log_event_does_not_reflect_invalid_event_name(caplog):
+    hostile_event = "worker_started\nSYNTHETIC-SENSITIVE-VALUE"
+    with caplog.at_level(logging.INFO, logger="ocr_worker.structured"):
+        log_event(hostile_event)
+
+    record = caplog.records[-1]
+    rendered = json.loads(JSONFormatter(tenant="platform", stage="ocr").format(record))
+
+    assert rendered["message"] == "OCR worker event"
+    assert "event" not in rendered
+    assert hostile_event not in repr(rendered)
 
 
 def test_schema_or_deadline_value_error_is_not_deleted_before_native_dlq(monkeypatch):
