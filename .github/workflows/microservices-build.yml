@@ -246,7 +246,7 @@ jobs:
       - name: Build without publishing
         env:
           CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
-          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SCANALYZE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           SERVICE: ${{ matrix.service }}
         run: |
           set -euo pipefail
@@ -262,7 +262,7 @@ jobs:
 
           build_args=(
             --service "$SERVICE"
-            --tag "sha-${GITHUB_SHA:0:12}"
+            --tag "sha-${SCANALYZE_SOURCE_REVISION:0:12}"
             --base-image "$CI_BASE_IMAGE"
             --no-push
             --no-write-ssm
@@ -275,13 +275,13 @@ jobs:
       - name: Verify OCR container evidence
         if: matrix.service == 'ocr-worker'
         env:
-          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SCANALYZE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          image="scanalyze-ci/ocr-worker:sha-${GITHUB_SHA:0:12}"
+          image="scanalyze-ci/ocr-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"
           scripts/microservices/verify-ocr-container.sh \
             --image "$image" \
-            --revision "$GITHUB_SHA"
+            --revision "$SCANALYZE_SOURCE_REVISION"
 
   tooling:
     name: Validate build tooling

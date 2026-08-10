@@ -553,6 +553,67 @@ def test_hermetic_clean_build_allows_ignored_wheelhouse_and_disables_network(
     assert f"scanalyze-ci/ocr-worker:sha-{revision[:12]}" in invocation
 
 
+def test_hermetic_build_prefers_explicit_source_revision_over_github_merge_sha(
+    tmp_path: Path,
+) -> None:
+    script, revision = init_hermetic_build_repo(
+        tmp_path,
+        with_wheelhouse=True,
+    )
+    env, docker_log = fake_tool_env(tmp_path)
+    env["GITHUB_SHA"] = "f" * 40
+    env["SCANALYZE_SOURCE_REVISION"] = revision
+
+    result = run_script(
+        script,
+        "--service",
+        "ocr-worker",
+        "--tag",
+        f"sha-{revision[:12]}",
+        "--base-image",
+        f"python@sha256:{'a' * 64}",
+        "--no-push",
+        "--no-write-ssm",
+        "--hermetic",
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    invocation = docker_log.read_text(encoding="utf-8")
+    assert f"org.opencontainers.image.revision={revision}" in invocation
+    assert f"scanalyze-ci/ocr-worker:sha-{revision[:12]}" in invocation
+
+
+def test_hermetic_build_rejects_invalid_explicit_source_revision_before_docker(
+    tmp_path: Path,
+) -> None:
+    script, revision = init_hermetic_build_repo(
+        tmp_path,
+        with_wheelhouse=True,
+    )
+    env, docker_log = fake_tool_env(tmp_path)
+    env["GITHUB_SHA"] = revision
+    env["SCANALYZE_SOURCE_REVISION"] = "f" * 40
+
+    result = run_script(
+        script,
+        "--service",
+        "ocr-worker",
+        "--tag",
+        f"sha-{revision[:12]}",
+        "--base-image",
+        f"python@sha256:{'a' * 64}",
+        "--no-push",
+        "--no-write-ssm",
+        "--hermetic",
+        env=env,
+    )
+
+    assert result.returncode == 2
+    assert "source revision is not a Git commit" in result.stderr
+    assert not docker_log.exists()
+
+
 def test_hermetic_build_rejects_dirty_worktree_before_docker(tmp_path: Path) -> None:
     script, revision = init_hermetic_build_repo(
         tmp_path,

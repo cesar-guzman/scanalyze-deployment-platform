@@ -57,7 +57,8 @@ def _run_validate_step(
     env = {
         "PATH": os.environ["PATH"],
         "CI_BASE_IMAGE": ci_base_image,
-        "GITHUB_SHA": "a" * 40,
+        "GITHUB_SHA": "b" * 40,
+        "SCANALYZE_SOURCE_REVISION": "a" * 40,
         "SERVICE": service,
     }
     return subprocess.run(
@@ -244,16 +245,21 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert "scripts/microservices/prepare-ocr-wheelhouse.sh" in prepare["run"]
 
     build = _validate_step("Build without publishing")
-    assert build["env"]["GITHUB_SHA"] == SOURCE_SHA_EXPRESSION
-    assert '--tag "sha-${GITHUB_SHA:0:12}"' in build["run"]
+    assert "GITHUB_SHA" not in build["env"]
+    assert build["env"]["SCANALYZE_SOURCE_REVISION"] == SOURCE_SHA_EXPRESSION
+    assert '--tag "sha-${SCANALYZE_SOURCE_REVISION:0:12}"' in build["run"]
     assert 'build_args+=(--hermetic)' in build["run"]
     assert 'scripts/microservices/build-push.sh "${build_args[@]}"' in build["run"]
 
     verify = _validate_step("Verify OCR container evidence")
     assert verify["if"] == "matrix.service == 'ocr-worker'"
-    assert verify["env"]["GITHUB_SHA"] == SOURCE_SHA_EXPRESSION
-    assert 'image="scanalyze-ci/ocr-worker:sha-${GITHUB_SHA:0:12}"' in verify["run"]
-    assert '--revision "$GITHUB_SHA"' in verify["run"]
+    assert "GITHUB_SHA" not in verify["env"]
+    assert verify["env"]["SCANALYZE_SOURCE_REVISION"] == SOURCE_SHA_EXPRESSION
+    assert (
+        'image="scanalyze-ci/ocr-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"'
+        in verify["run"]
+    )
+    assert '--revision "$SCANALYZE_SOURCE_REVISION"' in verify["run"]
 
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == ["changes", "validation_gate"]

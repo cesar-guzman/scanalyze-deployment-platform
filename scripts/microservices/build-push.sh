@@ -299,7 +299,7 @@ if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
 fi
 
 HEAD_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)" || die "repository HEAD is unavailable"
-REVISION="${GITHUB_SHA:-$HEAD_REVISION}"
+REVISION="${SCANALYZE_SOURCE_REVISION:-${GITHUB_SHA:-$HEAD_REVISION}}"
 git -C "$REPO_ROOT" cat-file -e "${REVISION}^{commit}" 2>/dev/null || die "source revision is not a Git commit"
 REVISION="$(git -C "$REPO_ROOT" rev-parse "${REVISION}^{commit}")"
 CREATED="$(git -C "$REPO_ROOT" show -s --format=%cI "$REVISION")"
