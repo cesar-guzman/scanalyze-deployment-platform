@@ -16,6 +16,7 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 MICROSERVICES_WORKFLOW = WORKFLOW_DIR / "microservices-build.yml"
 REPRO_WORKFLOW = WORKFLOW_DIR / "repro-check.yml"
 STABLE_GATE_NAME = "Microservices validation gate"
+SOURCE_SHA_EXPRESSION = "${{ github.event.pull_request.head.sha || github.sha }}"
 SERVICE_IDS = (
     "ingest-api",
     "ocr-worker",
@@ -35,6 +36,82 @@ def _load_workflow(path: Path) -> dict[str, Any]:
 
 def _gate() -> dict[str, Any]:
     return _load_workflow(MICROSERVICES_WORKFLOW)["jobs"]["validation_gate"]
+
+
+def _validate_step(name: str) -> dict[str, Any]:
+    workflow = _load_workflow(MICROSERVICES_WORKFLOW)
+    return next(
+        step
+        for step in workflow["jobs"]["validate"]["steps"]
+        if step.get("name") == name
+    )
+
+
+def _run_validate_step(
+    name: str,
+    *,
+    service: str,
+    ci_base_image: str,
+) -> subprocess.CompletedProcess[str]:
+    step = _validate_step(name)
+    env = {
+        "PATH": os.environ["PATH"],
+        "CI_BASE_IMAGE": ci_base_image,
+        "GITHUB_SHA": "b" * 40,
+        "SCANALYZE_SOURCE_REVISION": "a" * 40,
+        "SERVICE": service,
+    }
+    return subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _run_compile_and_test_step(
+    tmp_path: Path,
+    *,
+    service: str,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    step = _validate_step("Compile and test service")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    python_log = tmp_path / "python.log"
+    fake_python = bin_dir / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s' \"${1:-}\" >> \"$PYTHON_LOG\"\n"
+        "shift || true\n"
+        "for argument in \"$@\"; do\n"
+        "  printf '\\t%s' \"$argument\" >> \"$PYTHON_LOG\"\n"
+        "done\n"
+        "printf '\\n' >> \"$PYTHON_LOG\"\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "PYTHON_LOG": str(python_log),
+        "SERVICE": service,
+    }
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    calls = (
+        python_log.read_text(encoding="utf-8").splitlines()
+        if python_log.exists()
+        else []
+    )
+    return result, calls
 
 
 def _run_dispatch_selection(
@@ -126,12 +203,63 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert validate["strategy"]["matrix"]["service"] == (
         "${{ fromJSON(needs.changes.outputs.services) }}"
     )
+    setup_python = next(
+        step for step in validate["steps"] if step.get("name") == "Set up Python"
+    )
+    cache_paths = setup_python["with"]["cache-dependency-path"].splitlines()
+    assert cache_paths == [
+        "backend/workers/scanalyze-${{ matrix.service }}/requirements.txt",
+        "backend/workers/scanalyze-ocr-worker/requirements.lock",
+    ]
     isolated_test_step = next(
         step
         for step in validate["steps"]
         if step.get("name") == "Compile and test service"
     )
-    assert "'jsonschema==4.26.0'" in isolated_test_step["run"]
+    isolated_test_script = isolated_test_step["run"]
+    assert 'if [[ "$SERVICE" == "ocr-worker" ]]; then' in isolated_test_script
+    assert (
+        'python -m pip install --require-hashes -r "$service_dir/requirements.lock"'
+        in isolated_test_script
+    )
+    assert (
+        'python -m pip install -r "$service_dir/requirements.txt"'
+        in isolated_test_script
+    )
+    assert "python -m pip install \\\n  'jsonschema==4.26.0' \\\n  'pytest==9.1.1'" in isolated_test_script
+
+    checkout = next(step for step in validate["steps"] if step["name"] == "Check out source")
+    assert checkout["with"]["ref"] == SOURCE_SHA_EXPRESSION
+
+    materialize = _validate_step("Materialize approved OCR base image")
+    assert materialize["if"] == "matrix.service == 'ocr-worker'"
+    assert materialize["env"]["CI_BASE_IMAGE"] == "${{ vars.CI_BASE_IMAGE }}"
+    assert "CI_BASE_IMAGE must be an immutable sha256 reference" in materialize["run"]
+    assert 'docker pull --platform linux/amd64 "$CI_BASE_IMAGE"' in materialize["run"]
+    assert 'docker image inspect "$CI_BASE_IMAGE"' in materialize["run"]
+
+    prepare = _validate_step("Prepare OCR hermetic wheelhouse")
+    assert prepare["if"] == "matrix.service == 'ocr-worker'"
+    assert prepare["env"]["CI_BASE_IMAGE"] == "${{ vars.CI_BASE_IMAGE }}"
+    assert "CI_BASE_IMAGE is required when ocr-worker is selected" in prepare["run"]
+    assert "scripts/microservices/prepare-ocr-wheelhouse.sh" in prepare["run"]
+
+    build = _validate_step("Build without publishing")
+    assert "GITHUB_SHA" not in build["env"]
+    assert build["env"]["SCANALYZE_SOURCE_REVISION"] == SOURCE_SHA_EXPRESSION
+    assert '--tag "sha-${SCANALYZE_SOURCE_REVISION:0:12}"' in build["run"]
+    assert 'build_args+=(--hermetic)' in build["run"]
+    assert 'scripts/microservices/build-push.sh "${build_args[@]}"' in build["run"]
+
+    verify = _validate_step("Verify OCR container evidence")
+    assert verify["if"] == "matrix.service == 'ocr-worker'"
+    assert "GITHUB_SHA" not in verify["env"]
+    assert verify["env"]["SCANALYZE_SOURCE_REVISION"] == SOURCE_SHA_EXPRESSION
+    assert (
+        'image="scanalyze-ci/ocr-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"'
+        in verify["run"]
+    )
+    assert '--revision "$SCANALYZE_SOURCE_REVISION"' in verify["run"]
 
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == ["changes", "validation_gate"]
@@ -146,6 +274,82 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
         "Deny legacy publishing until the authorized release engine exists"
     )
     assert "exit 1" in publish["steps"][0]["run"]
+
+
+def test_ocr_compile_step_uses_hashed_lock_and_separate_test_dependencies(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_compile_and_test_step(tmp_path, service="ocr-worker")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls == [
+        "-m\tcompileall\t-q\tbackend/workers/scanalyze-ocr-worker",
+        (
+            "-m\tpip\tinstall\t--require-hashes\t-r\t"
+            "backend/workers/scanalyze-ocr-worker/requirements.lock"
+        ),
+        "-m\tpip\tinstall\tjsonschema==4.26.0\tpytest==9.1.1",
+        "-m\tpytest\tbackend/workers/scanalyze-ocr-worker/tests\t-q",
+    ]
+
+
+def test_non_ocr_compile_step_preserves_requirements_txt(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_compile_and_test_step(tmp_path, service="ingest-api")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls == [
+        "-m\tcompileall\t-q\tbackend/workers/scanalyze-ingest-api",
+        (
+            "-m\tpip\tinstall\t-r\t"
+            "backend/workers/scanalyze-ingest-api/requirements.txt"
+        ),
+        "-m\tpip\tinstall\tjsonschema==4.26.0\tpytest==9.1.1",
+        "-m\tpytest\tbackend/workers/scanalyze-ingest-api/tests\t-q",
+    ]
+
+
+def test_ocr_validation_fails_closed_without_ci_base_image() -> None:
+    materialize = _run_validate_step(
+        "Materialize approved OCR base image",
+        service="ocr-worker",
+        ci_base_image="",
+    )
+    prepare = _run_validate_step(
+        "Prepare OCR hermetic wheelhouse",
+        service="ocr-worker",
+        ci_base_image="",
+    )
+    build = _run_validate_step(
+        "Build without publishing",
+        service="ocr-worker",
+        ci_base_image="",
+    )
+
+    assert materialize.returncode != 0
+    assert prepare.returncode != 0
+    assert build.returncode != 0
+    assert "CI_BASE_IMAGE is required when ocr-worker is selected" in (
+        materialize.stdout + materialize.stderr
+    )
+    assert "CI_BASE_IMAGE is required when ocr-worker is selected" in (
+        prepare.stdout + prepare.stderr
+    )
+    assert "CI_BASE_IMAGE is required when ocr-worker is selected" in (
+        build.stdout + build.stderr
+    )
+
+
+def test_non_ocr_validation_preserves_no_base_image_skip() -> None:
+    result = _run_validate_step(
+        "Build without publishing",
+        service="ingest-api",
+        ci_base_image="",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Skipping Docker build" in result.stdout
 
 
 @pytest.mark.parametrize(

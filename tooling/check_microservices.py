@@ -24,6 +24,7 @@ FORBIDDEN_DIRECTORY_NAMES = {
     ".git",
     ".terraform",
     ".venv",
+    ".wheelhouse",
     "__pycache__",
     "build",
     "coverage",
@@ -32,6 +33,15 @@ FORBIDDEN_DIRECTORY_NAMES = {
     "node_modules",
     "venv",
 }
+OCR_WHEELHOUSE_GITIGNORE_ENTRY = (
+    "backend/workers/scanalyze-ocr-worker/.wheelhouse/"
+)
+OCR_WHEELHOUSE_COPY_INSTRUCTION = "COPY .wheelhouse/ /wheelhouse/"
+OCR_LOCK_COPY_INSTRUCTION = "COPY requirements.lock ."
+OCR_HERMETIC_SCRIPTS = (
+    "prepare-ocr-wheelhouse.sh",
+    "verify-ocr-container.sh",
+)
 FORBIDDEN_FILE_NAMES = {
     ".DS_Store",
     "tfplan",
@@ -205,6 +215,270 @@ def check_dockerignore(path: Path, errors: list[str]) -> None:
         )
 
 
+def logical_dockerfile_instructions(text: str) -> list[str]:
+    instructions: list[str] = []
+    continued_parts: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        continued = line.endswith("\\")
+        continued_parts.append(line[:-1].rstrip() if continued else line)
+        if not continued:
+            instructions.append(" ".join(continued_parts))
+            continued_parts.clear()
+    if continued_parts:
+        raise ValueError("Dockerfile ends with an incomplete continued instruction")
+    return instructions
+
+
+def exact_requirement_pins(
+    path: Path,
+    *,
+    repo_root: Path,
+    errors: list[str],
+) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("--hash="):
+            continue
+        line = line.removesuffix("\\").rstrip()
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\s;\\]+)", line)
+        if match is None:
+            add_error(
+                errors,
+                path.relative_to(repo_root),
+                f"line {line_number} must be an exact name==version pin",
+            )
+            continue
+        name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        if name in pins:
+            add_error(
+                errors,
+                path.relative_to(repo_root),
+                f"duplicate requirement pin for {name}",
+            )
+            continue
+        pins[name] = match.group(2)
+    return pins
+
+
+def check_lock_hash_blocks(
+    path: Path,
+    *,
+    repo_root: Path,
+    errors: list[str],
+) -> None:
+    current_pin: str | None = None
+    current_hashes = 0
+
+    def close_current_block() -> None:
+        if current_pin is not None and current_hashes == 0:
+            add_error(
+                errors,
+                path.relative_to(repo_root),
+                f"locked requirement {current_pin} must carry at least one reviewed hash",
+            )
+
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        normalized = line.removesuffix("\\").rstrip()
+        if normalized.startswith("--hash="):
+            if current_pin is None:
+                add_error(
+                    errors,
+                    path.relative_to(repo_root),
+                    f"line {line_number} contains an orphan lock hash",
+                )
+            elif re.fullmatch(r"--hash=sha256:[0-9a-f]{64}", normalized) is None:
+                add_error(
+                    errors,
+                    path.relative_to(repo_root),
+                    f"line {line_number} must be a lowercase sha256 lock hash",
+                )
+            else:
+                current_hashes += 1
+            continue
+
+        close_current_block()
+        current_pin = normalized
+        current_hashes = 0
+
+    close_current_block()
+
+
+def check_ocr_hermetic_contract(repo_root: Path, errors: list[str]) -> None:
+    service_dir = repo_root / "backend" / "workers" / "scanalyze-ocr-worker"
+    dockerfile = service_dir / "Dockerfile"
+    dockerignore = service_dir / ".dockerignore"
+    requirements = service_dir / "requirements.txt"
+    lock_file = service_dir / "requirements.lock"
+    gitignore = repo_root / ".gitignore"
+    scripts_dir = repo_root / "scripts" / "microservices"
+
+    for script_name in OCR_HERMETIC_SCRIPTS:
+        script = scripts_dir / script_name
+        if not script.is_file():
+            add_error(errors, script.relative_to(repo_root), "required OCR hermetic script is missing")
+            continue
+        if script.stat().st_mode & 0o111 == 0:
+            add_error(errors, script.relative_to(repo_root), "OCR hermetic script must be executable")
+        script_text = script.read_text(encoding="utf-8")
+        if not script_text.startswith("#!/usr/bin/env bash\n"):
+            add_error(errors, script.relative_to(repo_root), "OCR hermetic script must use the Bash entrypoint")
+        if "set -euo pipefail" not in script_text:
+            add_error(errors, script.relative_to(repo_root), "OCR hermetic script must fail closed")
+
+    if not gitignore.is_file():
+        add_error(errors, ".gitignore", "repository ignore policy is missing")
+    else:
+        active_gitignore = {
+            line.strip()
+            for line in gitignore.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        if OCR_WHEELHOUSE_GITIGNORE_ENTRY not in active_gitignore:
+            add_error(
+                errors,
+                ".gitignore",
+                f"must ignore generated {OCR_WHEELHOUSE_GITIGNORE_ENTRY}",
+            )
+
+    if dockerignore.is_file():
+        active_dockerignore = [
+            line.strip()
+            for line in dockerignore.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if any("wheelhouse" in line.lower() for line in active_dockerignore):
+            add_error(
+                errors,
+                dockerignore.relative_to(repo_root),
+                "OCR .wheelhouse must remain in the Docker build context",
+            )
+
+    if not requirements.is_file():
+        add_error(errors, requirements.relative_to(repo_root), "OCR requirements file is missing")
+    if not lock_file.is_file():
+        add_error(errors, lock_file.relative_to(repo_root), "OCR lock file is missing")
+    if requirements.is_file() and lock_file.is_file():
+        direct_pins = exact_requirement_pins(
+            requirements,
+            repo_root=repo_root,
+            errors=errors,
+        )
+        locked_pins = exact_requirement_pins(
+            lock_file,
+            repo_root=repo_root,
+            errors=errors,
+        )
+        for name, version in sorted(direct_pins.items()):
+            if locked_pins.get(name) != version:
+                add_error(
+                    errors,
+                    lock_file.relative_to(repo_root),
+                    f"requirements.lock must match direct requirement {name}=={version}",
+                )
+        check_lock_hash_blocks(
+            lock_file,
+            repo_root=repo_root,
+            errors=errors,
+        )
+
+    if not dockerfile.is_file():
+        return
+    try:
+        instructions = logical_dockerfile_instructions(
+            dockerfile.read_text(encoding="utf-8")
+        )
+    except ValueError as exc:
+        add_error(errors, dockerfile.relative_to(repo_root), str(exc))
+        return
+
+    wheelhouse_copies = [
+        instruction
+        for instruction in instructions
+        if instruction == OCR_WHEELHOUSE_COPY_INSTRUCTION
+    ]
+    if wheelhouse_copies != [OCR_WHEELHOUSE_COPY_INSTRUCTION]:
+        add_error(
+            errors,
+            dockerfile.relative_to(repo_root),
+            f"must contain exactly one {OCR_WHEELHOUSE_COPY_INSTRUCTION}",
+        )
+
+    lock_copies = [
+        instruction
+        for instruction in instructions
+        if instruction == OCR_LOCK_COPY_INSTRUCTION
+    ]
+    if lock_copies != [OCR_LOCK_COPY_INSTRUCTION]:
+        add_error(
+            errors,
+            dockerfile.relative_to(repo_root),
+            f"must contain exactly one {OCR_LOCK_COPY_INSTRUCTION}",
+        )
+
+    offline_installs = [
+        instruction
+        for instruction in instructions
+        if instruction.upper().startswith("RUN ")
+        and "pip install" in instruction
+        and "requirements.lock" in instruction
+    ]
+    if len(offline_installs) != 1:
+        add_error(
+            errors,
+            dockerfile.relative_to(repo_root),
+            "must contain exactly one locked requirements install instruction",
+        )
+    else:
+        install = offline_installs[0]
+        has_wheelhouse_link = (
+            "--find-links=/wheelhouse" in install
+            or "--find-links /wheelhouse" in install
+        )
+        if (
+            "--no-index" not in install
+            or "--require-hashes" not in install
+            or not has_wheelhouse_link
+        ):
+            add_error(
+                errors,
+                dockerfile.relative_to(repo_root),
+                "requirements.lock must install with hashes and --no-index from /wheelhouse",
+            )
+        if (
+            wheelhouse_copies
+            and instructions.index(OCR_WHEELHOUSE_COPY_INSTRUCTION)
+            > instructions.index(install)
+        ):
+            add_error(
+                errors,
+                dockerfile.relative_to(repo_root),
+                "wheelhouse COPY must precede the offline requirements install",
+            )
+        if (
+            lock_copies
+            and instructions.index(OCR_LOCK_COPY_INSTRUCTION)
+            > instructions.index(install)
+        ):
+            add_error(
+                errors,
+                dockerfile.relative_to(repo_root),
+                "requirements.lock COPY must precede the offline install",
+            )
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     workers_root = repo_root / "backend" / "workers"
@@ -238,6 +512,8 @@ def main() -> int:
     if not workers_root.is_dir():
         print("FAIL: backend/workers does not exist")
         return 1
+
+    check_ocr_hermetic_contract(repo_root, errors)
 
     expected_directories = {f"scanalyze-{service}" for service in EXPECTED_SERVICES}
     actual_directories = {path.name for path in workers_root.iterdir() if path.is_dir()}

@@ -38,29 +38,48 @@ PYTHONPATH="${service_dir}/src:${service_dir}" \
 Some tests set additional synthetic service configuration. Never point unit
 tests at a customer account or use production data as fixtures.
 
-## Build a local image
+## Build the OCR image hermetically
 
-Every Dockerfile is fail-closed and requires `BASE_IMAGE`. The repository script
-always passes it explicitly:
+Every Dockerfile is fail-closed and requires a digest-pinned `BASE_IMAGE`. OCR
+dependencies are locked with hashes and downloaded before Docker into the
+generated, Git-ignored `.wheelhouse/` directory. Docker then installs only from
+that directory with package-index access disabled:
 
 ```bash
+revision="$(git rev-parse HEAD)"
+base_image="<APPROVED_BASE_IMAGE>@sha256:<DIGEST>"
+
+docker pull --platform linux/amd64 "$base_image"
+scripts/microservices/prepare-ocr-wheelhouse.sh
 scripts/microservices/build-push.sh \
   --service ocr-worker \
-  --tag local-dev \
-  --base-image python:3.11-slim \
+  --tag "sha-${revision:0:12}" \
+  --base-image "$base_image" \
   --no-push \
-  --no-write-ssm
+  --no-write-ssm \
+  --hermetic
+scripts/microservices/verify-ocr-container.sh \
+  --image "scanalyze-ci/ocr-worker:sha-${revision:0:12}" \
+  --revision "$revision"
 ```
 
-`python:3.11-slim` is a local-development example only. Enterprise publication
-requires a digest-pinned base image in the target account ECR, such as:
+CI first materializes only the approved digest with an explicit platform-bound
+pull; no registry login or AWS command is part of this lane. Wheel preparation
+may then access the configured Python package index. The subsequent Docker build
+uses `--pull=false --network=none`; the approved base must already satisfy the
+pinned Python/runtime prerequisites. The flow does not publish an image or deploy ECS.
+
+Enterprise publication requires a digest-pinned base image in the target account
+ECR, such as:
 
 ```text
 <account>.dkr.ecr.<region>.amazonaws.com/base-images/python@sha256:<digest>
 ```
 
 The build script targets `linux/amd64`, applies OCI source/revision/created
-labels, rejects `latest`, and uses a closed seven-service allowlist.
+labels, rejects `latest`, and uses a closed seven-service allowlist. Hermetic
+mode is restricted to exactly `--service ocr-worker`, an exact `sha-<revision>`
+tag, no push, no SSM write, and a wheelhouse matching `requirements.lock`.
 
 ## Publish for a customer deployment
 
@@ -116,10 +135,16 @@ and pushes nothing.
 
 ## GitHub Actions
 
-`.github/workflows/microservices-build.yml` detects affected services and runs a
-matrix of tests for pull requests and `main`. No-push Docker builds run only
-when the repository-level `CI_BASE_IMAGE` is configured; otherwise the workflow
-reports the build as skipped, which is not container acceptance evidence.
+.github/workflows/microservices-build.yml detects affected services and runs a
+matrix of tests for pull requests and `main`. When OCR is selected, an empty
+repository-level `CI_BASE_IMAGE` fails the matrix. CI prepares the wheelhouse,
+materializes the approved base digest, builds the exact PR-head or push SHA with
+network-disabled hermetic mode, and runs local container verification. Other
+services retain the explicit Docker skip when `CI_BASE_IMAGE` is unset.
+
+A passing OCR matrix entry is evidence for that exact source SHA and local
+image only. A skipped non-OCR build is not container evidence, and neither result
+is AWS, deployment, live-service, or production evidence.
 Publication is disabled unless explicitly requested through a protected GitHub
 Environment or a reviewed `MAIN_PUBLISH_ENABLED` repository mapping.
 
@@ -147,7 +172,7 @@ belongs in GitHub.
 - Customer documents, uploads, dumps, production logs, or real PII
 - Credentials, tokens, private keys, certificates, or environment files
 - Terraform state, plans, local/generated tfvars, or generated config
-- Python caches, virtual environments, coverage, build output, or logs
+- Python caches, virtual environments, coverage, build output, wheelhouses, or logs
 - Finder-numbered duplicates, local backups, archives, or legacy per-service
   buildspecs
 

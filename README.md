@@ -69,22 +69,46 @@ The platform uses structured JSON logging with strict precedence and ownership t
 - **Core-owned fields**: `tenant`, `customerId`, `deploymentId`. These are injected by the formatter and canonically validated.
 - **Context-owned fields**: `stage`, `documentId`, `correlationId`, `traceId`.
 - **Event metadata** cannot replace context identity or core fields.
-- Docker/container acceptance is not currently observed and remains tracked in GUG-291.
+- The OCR CI lane is configured to build and exercise an exact-source image
+  without dependency-network access during `docker build`. Only a successful
+  run for the reviewed source SHA is container evidence; repository code alone
+  is not an observed CI result.
 
 ## Build entrypoint
 
-All Dockerfiles require an explicit `BASE_IMAGE`. CI Docker build: skipped when
-`CI_BASE_IMAGE` is unset. A public image can be passed explicitly for local
-development only:
+All Dockerfiles require an explicit, digest-pinned `BASE_IMAGE`. Non-OCR CI
+matrix entries preserve the existing skip when `CI_BASE_IMAGE` is unset. The
+OCR entry fails closed instead, because compile-and-test evidence cannot stand
+in for its required container evidence.
+
+The OCR dependency closure is prepared outside Docker, ignored by Git at
+`backend/workers/scanalyze-ocr-worker/.wheelhouse/`, and then installed from the
+reviewed `requirements.lock` with index access disabled:
 
 ```bash
+revision="$(git rev-parse HEAD)"
+base_image="<APPROVED_BASE_IMAGE>@sha256:<DIGEST>"
+
+docker pull --platform linux/amd64 "$base_image"
+scripts/microservices/prepare-ocr-wheelhouse.sh
 scripts/microservices/build-push.sh \
-  --service ingest-api \
-  --tag local-dev \
-  --base-image python:3.11-slim \
+  --service ocr-worker \
+  --tag "sha-${revision:0:12}" \
+  --base-image "$base_image" \
   --no-push \
-  --no-write-ssm
+  --no-write-ssm \
+  --hermetic
+scripts/microservices/verify-ocr-container.sh \
+  --image "scanalyze-ci/ocr-worker:sha-${revision:0:12}" \
+  --revision "$revision"
 ```
+
+Base materialization is an explicit digest-bound pull and wheel download is a
+separate networked preparation step. No registry login or AWS command is part of
+this CI lane. The Docker build then uses `--pull=false --network=none`; its base
+image must already satisfy the pinned Python/runtime contract. Verification performs local image inspection, import,
+fail-closed startup, synthetic processing, and redaction checks. It does not
+push, deploy, contact AWS, or prove a live service.
 
 Enterprise publication uses a digest-pinned base image from the target customer
 ECR and a protected GitHub Environment. The workflow resolves the pushed digest
@@ -119,8 +143,8 @@ make preflight-m2
 
 Run the narrowest relevant gate first, then the broader gates before review.
 No validation target authorizes AWS mutation.
-Passing local gates does not replace a real image build and reviewed Terraform
-plan in non-production before any production release.
+Passing local gates or the OCR container smoke does not replace a reviewed
+Terraform plan and live non-production acceptance before any production release.
 
 ## Contributing
 
