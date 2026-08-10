@@ -61,10 +61,21 @@ reports/                Historical implementation evidence
 See [`backend/workers/README.md`](backend/workers/README.md) for local tests and
 image-build instructions.
 
+## Logging Architecture
+
+The platform uses structured JSON logging with strict precedence and ownership to prevent spoofing and ensure correlation:
+
+- **Precedence**: Core > Context > Event > Extra
+- **Core-owned fields**: `tenant`, `customerId`, `deploymentId`. These are injected by the formatter and canonically validated.
+- **Context-owned fields**: `stage`, `documentId`, `correlationId`, `traceId`.
+- **Event metadata** cannot replace context identity or core fields.
+- Docker/container acceptance is not currently observed and remains tracked in GUG-291.
+
 ## Build entrypoint
 
-All Dockerfiles require an explicit `BASE_IMAGE`. A public image can be passed
-explicitly for local development only:
+All Dockerfiles require an explicit `BASE_IMAGE`. CI Docker build: skipped when
+`CI_BASE_IMAGE` is unset. A public image can be passed explicitly for local
+development only:
 
 ```bash
 scripts/microservices/build-push.sh \

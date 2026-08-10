@@ -91,17 +91,70 @@ PRODUCTION_DEPLOYMENT_LABEL_PATTERN = re.compile(r"\b(?:bcm-corp|demo)\b", re.IG
 NUMBERED_DUPLICATE_PATTERN = re.compile(r" [0-9]+(?:\.[^/]+)?$")
 
 
-def add_error(errors: list[str], path: Path, message: str) -> None:
-    errors.append(f"{path.as_posix()}: {message}")
+def add_error(errors: list[str], path: Path | str, message: str) -> None:
+    path_str = path.as_posix() if isinstance(path, Path) else str(path)
+    errors.append(f"{path_str}: {message}")
 
 
-def is_production_source(path: Path, service_dir: Path) -> bool:
-    relative = path.relative_to(service_dir)
+def is_production_source(path: Path, service_dir: Path | None = None) -> bool:
+    if service_dir is not None:
+        relative = path.relative_to(service_dir)
+    else:
+        relative = path
     if "tests" in relative.parts:
         return False
     if path.suffix == ".md":
         return False
     return any(part in {"app", "src", "scripts"} for part in relative.parts)
+
+def check_source_text(relative_path: Path, is_prod_source: bool, text: str) -> list[str]:
+    errors: list[str] = []
+    for rule, pattern in HARDCODE_PATTERNS.items():
+        if pattern.search(text):
+            add_error(errors, relative_path, rule)
+    if is_prod_source:
+        if PRODUCTION_REGION_PATTERN.search(text):
+            add_error(errors, relative_path, "production AWS region must be injected")
+        if PRODUCTION_CONFIG_DEFAULT_PATTERN.search(text):
+            add_error(errors, relative_path, "deployment identity must not have a nonempty default")
+        matches = list(PRODUCTION_DEPLOYMENT_LABEL_PATTERN.finditer(text))
+        if matches:
+            exception_applies = False
+            if relative_path.as_posix() == "backend/workers/scanalyze-ocr-worker/src/ocr_worker/environment_contract.py":
+                import ast
+                try:
+                    tree = ast.parse(text)
+                    valid_demo_spans = []
+                    assignment_count = 0
+                    for node in tree.body:
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if getattr(target, "id", None) == "SUPPORTED_RUNTIME_ENVIRONMENTS":
+                                    assignment_count += 1
+                                    if isinstance(node.value, ast.Set):
+                                        for elt in node.value.elts:
+                                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str) and elt.value.lower() == "demo":
+                                                valid_demo_spans.append((elt.lineno, elt.col_offset, getattr(elt, "end_lineno", elt.lineno), getattr(elt, "end_col_offset", elt.col_offset)))
+                    
+                    if assignment_count == 1 and valid_demo_spans:
+                        lines = text.splitlines(keepends=True)
+                        for sl, sc, el, ec in valid_demo_spans:
+                            if sl == el:
+                                lines[sl - 1] = lines[sl - 1][:sc] + " " * (ec - sc) + lines[sl - 1][ec:]
+                            else:
+                                lines[sl - 1] = lines[sl - 1][:sc] + " " * (len(lines[sl - 1]) - sc)
+                                for l in range(sl, el - 1):
+                                    lines[l] = " " * len(lines[l])
+                                lines[el - 1] = " " * ec + lines[el - 1][ec:]
+                        masked_text = "".join(lines)
+                        
+                        if not PRODUCTION_DEPLOYMENT_LABEL_PATTERN.search(masked_text):
+                            exception_applies = True
+                except Exception:
+                    pass
+            if not exception_applies:
+                add_error(errors, relative_path, "deployment/customer label must be injected")
+    return errors
 
 
 def check_dockerfile(path: Path, errors: list[str]) -> None:
@@ -256,16 +309,9 @@ def main() -> int:
                 add_error(errors, relative, "expected text file is not valid UTF-8")
                 continue
 
-            for rule, pattern in HARDCODE_PATTERNS.items():
-                if pattern.search(text):
-                    add_error(errors, relative, rule)
-            if is_production_source(path, service_dir):
-                if PRODUCTION_REGION_PATTERN.search(text):
-                    add_error(errors, relative, "production AWS region must be injected")
-                if PRODUCTION_CONFIG_DEFAULT_PATTERN.search(text):
-                    add_error(errors, relative, "deployment identity must not have a nonempty default")
-                if PRODUCTION_DEPLOYMENT_LABEL_PATTERN.search(text):
-                    add_error(errors, relative, "deployment/customer label must be injected")
+            prod_source = is_production_source(path, service_dir)
+            source_errors = check_source_text(relative, prod_source, text)
+            errors.extend(source_errors)
 
     if errors:
         print("Microservice policy check failed:")

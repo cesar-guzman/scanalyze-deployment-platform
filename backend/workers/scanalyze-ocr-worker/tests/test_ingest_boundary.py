@@ -12,6 +12,8 @@ OTHER_CUSTOMER_ID = "cust_01BX5ZZKBKACTAV9WEVGEMMVS1"
 DEPLOYMENT_ID = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 OTHER_DEPLOYMENT_ID = "dep_01BX5ZZKBKACTAV9WEVGEMMVS0"
 DOCUMENT_ID = "doc-ingest-1"
+CORRELATION_REFERENCE = "ref_f07165b64216ae9a4988fc779b08f0db"
+TRACE_REFERENCE = "ref_8d49ce52b2f423b5306c54091fa2fb54"
 RAW_BUCKET = "raw-bucket"
 OCR_BUCKET = "ocr-bucket"
 RAW_KEY = (
@@ -36,7 +38,10 @@ def _message(**overrides) -> str:
         "raw": {"bucket": RAW_BUCKET, "key": RAW_KEY},
         "contentType": "application/pdf",
         "uploadedAt": "2026-07-12T00:00:00+00:00",
-        "_metadata": {"correlationId": "correlation-1", "traceId": "trace-1"},
+        "_metadata": {
+            "correlationId": CORRELATION_REFERENCE,
+            "traceId": TRACE_REFERENCE,
+        },
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -135,6 +140,10 @@ def test_ingest_reconciles_authoritative_owner_and_locators_before_side_effects(
     assert sent["pipeline_stage"] == "ocr"
     assert sent["documentRoute"] == "bank"
     assert sent["artifactKey"] == OCR_KEY
+    assert sent["_metadata"] == {
+        "correlationId": CORRELATION_REFERENCE,
+        "traceId": TRACE_REFERENCE,
+    }
 
 
 @pytest.mark.parametrize(
