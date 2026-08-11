@@ -1,0 +1,10 @@
+{
+  "id": "05",
+  "name": "Zero-transaction statement",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 99.0
+  },
+  "transactions": 0
+}

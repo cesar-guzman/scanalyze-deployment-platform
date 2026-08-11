@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_08",
+    "name": "Wrong-deployment access",
+    "setup": "Cross-deployment access",
+    "mimeType": "application/pdf",
+    "error": "ACCESS_DENIED"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

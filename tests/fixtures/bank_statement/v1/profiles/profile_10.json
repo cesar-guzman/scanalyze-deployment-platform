@@ -1,0 +1,10 @@
+{
+  "id": "10",
+  "name": "Period/currency/repeatability profile",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 99.0
+  },
+  "currency": "USD"
+}

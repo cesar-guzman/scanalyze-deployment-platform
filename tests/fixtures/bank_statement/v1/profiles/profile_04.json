@@ -1,0 +1,10 @@
+{
+  "id": "04",
+  "name": "Nullable and optional fields",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 92.0
+  },
+  "nulls": true
+}

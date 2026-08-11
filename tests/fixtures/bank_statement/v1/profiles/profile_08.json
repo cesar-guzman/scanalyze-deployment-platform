@@ -1,0 +1,13 @@
+{
+  "id": "08",
+  "name": "Low-confidence or incomplete extraction",
+  "pages": 1,
+  "warnings": [
+    {
+      "code": "LOW_CONFIDENCE"
+    }
+  ],
+  "quality": {
+    "overallConfidence": 65.0
+  }
+}

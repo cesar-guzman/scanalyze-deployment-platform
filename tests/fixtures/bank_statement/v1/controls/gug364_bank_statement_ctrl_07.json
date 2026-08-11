@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_07",
+    "name": "Wrong-user access",
+    "setup": "Cross-tenant access",
+    "mimeType": "application/pdf",
+    "error": "ACCESS_DENIED"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

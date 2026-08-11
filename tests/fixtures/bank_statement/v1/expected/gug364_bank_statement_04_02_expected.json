@@ -1,0 +1,47 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": null,
+      "currency": null,
+      "holder": null,
+      "numberMasked": null
+    },
+    "accountType": null,
+    "balances": {
+      "closing": null,
+      "opening": null,
+      "totalCredits": null,
+      "totalDebits": null
+    },
+    "bank": {
+      "name": null
+    },
+    "bankCountry": null,
+    "fees": null,
+    "interestCharged": null,
+    "interestEarned": null,
+    "statement": {
+      "periodEnd": null,
+      "periodStart": null
+    },
+    "summaryText": null,
+    "transactions": []
+  },
+  "documentId": "072314ff6b831d17135cceb1595b8426",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 92.0
+  },
+  "resultId": "result_072314ff6b831d17135cceb1595b8426_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": []
+}

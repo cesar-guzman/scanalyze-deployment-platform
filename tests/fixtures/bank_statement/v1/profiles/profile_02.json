@@ -1,0 +1,9 @@
+{
+  "id": "02",
+  "name": "Multi-page statement",
+  "pages": 3,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 95.0
+  }
+}

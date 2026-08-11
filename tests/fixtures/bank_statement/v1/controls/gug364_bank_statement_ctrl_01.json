@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_01",
+    "name": "Malformed PDF",
+    "setup": "Upload corrupted PDF bytes",
+    "mimeType": "application/pdf",
+    "error": "MALFORMED_DOCUMENT"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

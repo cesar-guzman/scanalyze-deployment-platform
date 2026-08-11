@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_04",
+    "name": "Oversized-file boundary",
+    "setup": "Generate >5MiB file at runtime",
+    "mimeType": "application/pdf",
+    "error": "FILE_TOO_LARGE"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

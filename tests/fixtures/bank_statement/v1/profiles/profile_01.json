@@ -1,0 +1,9 @@
+{
+  "id": "01",
+  "name": "Single-page happy path",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 98.0
+  }
+}

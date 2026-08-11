@@ -1,0 +1,47 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": "****0001",
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001"
+    },
+    "accountType": "cheques",
+    "balances": {
+      "closing": 1000.0,
+      "opening": 1000.0,
+      "totalCredits": 0.0,
+      "totalDebits": 0.0
+    },
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "bankCountry": "MX",
+    "fees": null,
+    "interestCharged": 0.0,
+    "interestEarned": 0.0,
+    "statement": {
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
+    },
+    "summaryText": "SYNTHETIC FIXTURE DATA",
+    "transactions": []
+  },
+  "documentId": "73da70711527e842fba0f22b334e60bb",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 99.0
+  },
+  "resultId": "result_73da70711527e842fba0f22b334e60bb_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": []
+}

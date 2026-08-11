@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_03",
+    "name": "Unsupported MIME",
+    "setup": "Upload text/plain file",
+    "mimeType": "text/plain",
+    "error": "UNSUPPORTED_MIME_TYPE"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "03",
+  "name": "Multiple transactions",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 95.0
+  },
+  "transactions": 10
+}

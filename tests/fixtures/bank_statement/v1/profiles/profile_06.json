@@ -1,0 +1,10 @@
+{
+  "id": "06",
+  "name": "Fees and interest",
+  "pages": 1,
+  "warnings": [],
+  "quality": {
+    "overallConfidence": 97.0
+  },
+  "fees": true
+}

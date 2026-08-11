@@ -1,0 +1,14 @@
+{
+  "id": "09",
+  "name": "Balance-reconciliation warning",
+  "pages": 1,
+  "warnings": [
+    {
+      "code": "BALANCE_RECONCILIATION_WARNING"
+    }
+  ],
+  "quality": {
+    "overallConfidence": 99.0
+  },
+  "reconciliation_failure": true
+}

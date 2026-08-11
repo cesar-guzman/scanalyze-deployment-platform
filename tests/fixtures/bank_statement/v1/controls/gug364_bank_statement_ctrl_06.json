@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_06",
+    "name": "Response-loss reconciliation",
+    "setup": "Retry after timeout",
+    "mimeType": "application/pdf",
+    "error": "NONE"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

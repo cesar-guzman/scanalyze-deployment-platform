@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_05",
+    "name": "Idempotency conflict",
+    "setup": "Upload diff doc with same key",
+    "mimeType": "application/pdf",
+    "error": "IDEMPOTENCY_CONFLICT"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}

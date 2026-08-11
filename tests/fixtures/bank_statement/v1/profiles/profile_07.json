@@ -1,0 +1,13 @@
+{
+  "id": "07",
+  "name": "Warning-producing result",
+  "pages": 1,
+  "warnings": [
+    {
+      "code": "INCOMPLETE_EXTRACTION"
+    }
+  ],
+  "quality": {
+    "overallConfidence": 98.0
+  }
+}

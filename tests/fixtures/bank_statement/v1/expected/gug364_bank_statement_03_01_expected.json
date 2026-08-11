@@ -1,0 +1,138 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": "****0001",
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001"
+    },
+    "accountType": "cheques",
+    "balances": {
+      "closing": 500.0,
+      "opening": 1000.0,
+      "totalCredits": 2500.0,
+      "totalDebits": 3000.0
+    },
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "bankCountry": "MX",
+    "fees": null,
+    "interestCharged": 0.0,
+    "interestEarned": 0.0,
+    "statement": {
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
+    },
+    "summaryText": "SYNTHETIC FIXTURE DATA",
+    "transactions": [
+      {
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "direction": "credit",
+        "reference": "REF001"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 900.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "direction": "debit",
+        "reference": "REF002"
+      },
+      {
+        "amount": 300.0,
+        "balanceAfter": 1200.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 003",
+        "direction": "credit",
+        "reference": "REF003"
+      },
+      {
+        "amount": 400.0,
+        "balanceAfter": 800.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 004",
+        "direction": "debit",
+        "reference": "REF004"
+      },
+      {
+        "amount": 500.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 005",
+        "direction": "credit",
+        "reference": "REF005"
+      },
+      {
+        "amount": 600.0,
+        "balanceAfter": 700.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 006",
+        "direction": "debit",
+        "reference": "REF006"
+      },
+      {
+        "amount": 700.0,
+        "balanceAfter": 1400.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 007",
+        "direction": "credit",
+        "reference": "REF007"
+      },
+      {
+        "amount": 800.0,
+        "balanceAfter": 600.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 008",
+        "direction": "debit",
+        "reference": "REF008"
+      },
+      {
+        "amount": 900.0,
+        "balanceAfter": 1500.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 009",
+        "direction": "credit",
+        "reference": "REF009"
+      },
+      {
+        "amount": 1000.0,
+        "balanceAfter": 500.0,
+        "category": "otro",
+        "date": "2026-01-01",
+        "description": "SYNTHETIC TEST TRANSACTION 010",
+        "direction": "debit",
+        "reference": "REF010"
+      }
+    ]
+  },
+  "documentId": "a5582798a40505d4c63ea840e7762042",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 95.0
+  },
+  "resultId": "result_a5582798a40505d4c63ea840e7762042_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": []
+}

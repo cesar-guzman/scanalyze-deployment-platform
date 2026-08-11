@@ -1,0 +1,10 @@
+{
+  "control": {
+    "id": "ctrl_02",
+    "name": "Blank or low-text PDF",
+    "setup": "Upload empty PDF",
+    "mimeType": "application/pdf",
+    "error": "LOW_TEXT_QUALITY"
+  },
+  "instruction": "Test runner parses this JSON to execute negative control."
+}
