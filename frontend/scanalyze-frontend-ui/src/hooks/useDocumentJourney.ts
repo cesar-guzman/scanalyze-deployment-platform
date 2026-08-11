@@ -8,7 +8,7 @@ interface PollingOptions {
   maxRetries?: number;
 }
 
-export const useDocumentPolling = ({
+export const useDocumentJourney = ({
   documentId,
   intervalMs = 3000,
   maxRetries = 3,
@@ -16,13 +16,14 @@ export const useDocumentPolling = ({
   const [data, setData] = useState<DocumentStatusResponse | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  
   const retryCount = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchStatus = useCallback(async function internalFetch() {
     if (!isPolling) return;
 
-    // Si la pestaña no está visible, programamos el reintento pero no lo llamamos a la API
+    // Pausar si la pestaña no está visible
     if (document.hidden) {
       timerRef.current = setTimeout(internalFetch, intervalMs);
       return;
@@ -31,17 +32,22 @@ export const useDocumentPolling = ({
     try {
       const response = await documentApi.getDocumentStatus(documentId);
       setData(response);
-      retryCount.current = 0; // Reset reintentos si hubo éxito
+      retryCount.current = 0;
       setError(null);
 
-      // Evaluar terminal states (COMPLETED / FAILED) para detener
-      const { overallStatus } = response.status;
-      if (overallStatus === 'COMPLETED' || overallStatus === 'FAILED') {
+      const { lifecycle, failureDisposition } = response;
+      
+      // Detener si es un estado terminal
+      if (lifecycle === 'COMPLETED' || lifecycle === 'FAILED') {
+        // En un escenario de error FAILED + RETRYABLE podríamos continuar o reintentar
+        // Pero típicamente aquí el backend detiene su proceso.
+        if (lifecycle === 'FAILED' && failureDisposition === 'RETRYABLE') {
+           // Aquí la UX podría permitir al usuario reenviar.
+        }
         setIsPolling(false);
-        return; // Detener chain de setTimeout
+        return;
       }
 
-      // Chain next call
       if (isPolling) {
         timerRef.current = setTimeout(internalFetch, intervalMs);
       }
@@ -52,7 +58,6 @@ export const useDocumentPolling = ({
         setError(new Error('DOCUMENT_STATUS_UNAVAILABLE'));
         setIsPolling(false);
       } else {
-        // Exponential backoff
         const backoffMs = intervalMs * Math.pow(2, retryCount.current);
         if (isPolling) {
           timerRef.current = setTimeout(internalFetch, backoffMs);
@@ -66,12 +71,6 @@ export const useDocumentPolling = ({
     setIsPolling(true);
   }, []);
 
-  useEffect(() => {
-    if (isPolling) {
-      fetchStatus();
-    }
-  }, [isPolling, fetchStatus]);
-
   const stopPolling = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -81,19 +80,21 @@ export const useDocumentPolling = ({
   }, []);
 
   useEffect(() => {
+    if (isPolling) {
+      fetchStatus();
+    }
+  }, [isPolling, fetchStatus]);
+
+  useEffect(() => {
     if (documentId) {
       startPolling();
     }
-    return () => {
-      stopPolling();
-    };
+    return () => stopPolling();
   }, [documentId, startPolling, stopPolling]);
 
-  // Manejo de Page Visibility para pausar el polling real (el interval sigue, pero esquiva fetch)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && isPolling) {
-        // Ejecuta uno inmediato al volver
         fetchStatus();
       }
     };

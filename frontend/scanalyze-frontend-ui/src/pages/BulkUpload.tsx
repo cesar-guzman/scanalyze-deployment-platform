@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { documentApi } from '../api/documentApi';
 import { batchApi } from '../api/batchApi';
@@ -92,8 +92,8 @@ export const BulkUpload: React.FC = () => {
       const idempotencyKey = crypto.randomUUID();
       const createRes = await documentApi.createDocument(task.file, idempotencyKey, currentBatchId);
 
-      const documentId = createRes.id;
-      const instruction = createRes.upload;
+      const documentId = createRes.durableResponse.documentId;
+      const instruction = createRes.uploadCapability;
       updateTask(task.id, { documentId });
 
       if (!instruction) {

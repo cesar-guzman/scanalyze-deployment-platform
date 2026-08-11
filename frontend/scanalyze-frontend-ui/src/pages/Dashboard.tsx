@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { getApiClient } from '../api/client';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { employeeProfilesApi } from '../api/employeeProfilesApi';
 
 interface IneDoc {

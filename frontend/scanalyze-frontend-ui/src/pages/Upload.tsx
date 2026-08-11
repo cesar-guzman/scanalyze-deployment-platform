@@ -1,243 +1,200 @@
-import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router';
-import axios from 'axios';
+import { useState, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { documentApi } from '../api/documentApi';
 import { uploadFileToPresignedUrl } from '../api/uploadApi';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import { DocumentIcon, ArrowUpTrayIcon, XCircleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import type { UiStage } from '../domain/documents';
 
-const steps = [
-  { id: 'create', label: 'Crear' },
-  { id: 'upload', label: 'Subir' },
-  { id: 'submit', label: 'Enviar' },
-  { id: 'process', label: 'Procesar' }
-];
-
-export const Upload: React.FC = () => {
-  const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<UiStage>('IDLE');
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Stepper logic
-  const currentStepIndex = () => {
-    switch (stage) {
-      case 'IDLE': return 0;
-      case 'WAITING_SERVER': return progress === 0 ? 0 : 2; // Create or Submit
-      case 'UPLOADING': return 1;
-      case 'PROCESSING_ACTIVE': return 3;
-      case 'SUCCESS': return 3;
-      default: return 0;
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
+  }, []);
 
-  const handleDragLeave = (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-  const ACCEPT_STRING = ALLOWED_TYPES.join(',');
-
-  const processFile = (selectedFile: File) => {
-    if (!ALLOWED_TYPES.includes(selectedFile.type)) {
-      setErrorMsg('Formato inválido. Se admiten: PDF, JPG, PNG, TIFF.');
-      setFile(null);
-      return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setFile(e.dataTransfer.files[0]);
     }
-    setFile(selectedFile);
-    setErrorMsg(null);
+  }, []);
+
+  const resetForm = () => {
+    setFile(null);
     setStage('IDLE');
     setProgress(0);
+    setErrorMsg(null);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0]);
-    }
-  };
-
-  const handleUploadClick = async () => {
+  const handleUpload = async () => {
     if (!file) return;
+
+    setStage('WAITING_SERVER');
+    setErrorMsg(null);
+    setProgress(0);
+    const idempotencyKey = uuidv4();
+
     try {
-      setStage('WAITING_SERVER');
-      setProgress(0);
-      setErrorMsg(null);
+      // 1. Create document (idempotent, gets durable result and upload capability)
+      const createResponse = await documentApi.createDocument(file, idempotencyKey);
+      
+      const { durableResponse, uploadCapability } = createResponse;
+      const documentId = durableResponse.documentId;
 
-      // 1. Create Document
-      const idempotencyKey = crypto.randomUUID();
-      const createRes = await documentApi.createDocument(file, idempotencyKey);
-
-      const documentId = createRes.id;
-      const instruction = createRes.upload;
-
-      if (!instruction) {
-        throw new Error('El backend no respondió con instrucciones de subida.');
+      if (!uploadCapability && durableResponse.status !== 'UPLOAD_PENDING') {
+         // It might have been an exact replay that already finished upload
+         // or it's a conflict state. Assuming normal flow.
+         if(durableResponse.status !== 'UPLOAD_PENDING') {
+             navigate(`/document/${documentId}`);
+             return;
+         }
       }
 
-      // 2. Upload to S3
-      setStage('UPLOADING');
-      await uploadFileToPresignedUrl(file, instruction, (percent) => {
-        setProgress(percent);
-      });
+      if (uploadCapability) {
+        setStage('UPLOADING');
+        
+        // 2. Upload the file to S3/Cloud Storage
+        await uploadFileToPresignedUrl(file, uploadCapability, (p) => {
+          setProgress(p);
+        });
+      }
 
-      // 3. Submit for Processing
-      setStage('WAITING_SERVER');
+      setStage('PROCESSING_ACTIVE');
+
+      // 3. Submit for processing
       await documentApi.submitDocument(documentId);
 
-      // 4. Navigate
+      // 4. Redirect to document tracking view
+      setStage('SUCCESS');
       navigate(`/document/${documentId}`);
 
     } catch (err: unknown) {
       setStage('ERROR');
       if (axios.isAxiosError(err)) {
-          setErrorMsg('Error de red S3 / API');
+        if (err.response?.data?.message) {
+          setErrorMsg(err.response.data.message);
+          return;
+        }
+      }
+      if (err instanceof Error) {
+        setErrorMsg(err.message || 'Se produjo un error durante la carga.');
       } else {
-          setErrorMsg('No fue posible procesar el documento.');
+        setErrorMsg('Se produjo un error durante la carga.');
       }
     }
   };
 
   return (
-    <div className="flex flex-col gap-10 w-full max-w-4xl mx-auto">
-      {/* Horizontal Stepper */}
-      <div className="flex justify-between mb-8 relative">
-        <div className="absolute top-3 inset-x-0 h-0.5 bg-slate-800 z-0"></div>
-        {steps.map((step, index) => {
-          const isActive = index === currentStepIndex();
-          const isCompleted = index < currentStepIndex();
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-2xl bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 p-8">
+        
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-blue-500">
+            Scanalyze Upload
+          </h1>
+          <p className="mt-2 text-slate-300 text-sm">
+            Sube tu estado de cuenta para extraer y validar los datos de forma segura.
+          </p>
+        </div>
 
-          return (
-            <div key={step.id} className="flex flex-col items-center z-10 relative">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shadow-sm transition-all duration-300
-                ${isActive ? 'bg-indigo-600 border-2 border-indigo-400 text-white shadow-[0_0_15px_rgba(79,70,229,0.4)]' :
-                  (isCompleted ? 'bg-emerald-500 border-2 border-emerald-400 text-white' : 'bg-slate-900 border-2 border-slate-700 text-slate-400')}`}>
-                {isCompleted ? '✓' : index + 1}
+        <div
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center transition-all ${
+            file ? 'border-teal-400 bg-teal-400/5' : 'border-white/30 hover:border-white/50 bg-white/5 hover:bg-white/10'
+          }`}
+        >
+          {file ? (
+            <div className="flex flex-col items-center space-y-4">
+              <DocumentIcon className="w-16 h-16 text-teal-400" />
+              <div className="text-center">
+                <p className="font-medium text-lg">{file.name}</p>
+                <p className="text-sm text-slate-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
               </div>
-              <span className={`mt-2 text-xs ${isActive ? 'font-semibold text-slate-50' : 'font-normal text-slate-500'}`}>
-                {step.label}
-              </span>
+              <button
+                onClick={resetForm}
+                className="text-xs text-red-400 hover:text-red-300 font-semibold"
+                disabled={stage !== 'IDLE' && stage !== 'ERROR'}
+              >
+                Cambiar archivo
+              </button>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Drag and Drop Zone */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`border-2 border-dashed p-12 text-center rounded-2xl transition-all duration-200 min-h-[280px] flex flex-col items-center justify-center
-          ${isDragging ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-700 bg-slate-900/50'}`}
-      >
-        {stage === 'IDLE' && !file && (
-          <>
-            <div className="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center mb-6 border border-slate-700 shadow-sm">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+          ) : (
+            <div className="flex flex-col items-center space-y-4 text-slate-300 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <ArrowUpTrayIcon className="w-16 h-16 opacity-75" />
+              <p className="font-medium text-lg">Arrastra tu archivo aquí</p>
+              <p className="text-sm opacity-75">PDF, PNG, JPEG o TIFF hasta 500MB</p>
+              <button className="mt-4 px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 font-semibold transition-colors">
+                Explorar archivos
+              </button>
             </div>
-            <h3 className="m-0 mb-2 text-xl font-semibold text-slate-50">Arrastra un documento</h3>
-            <p className="text-slate-400 text-sm mb-8">Soporta PDF, JPG, PNG y TIFF hasta 25MB.</p>
+          )}
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept="application/pdf,image/jpeg,image/png,image/tiff"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                setFile(e.target.files[0]);
+              }
+            }}
+          />
+        </div>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-outline"
-            >
-              Seleccionar Documento
-            </button>
-            <input type="file" ref={fileInputRef} className="hidden" accept={ACCEPT_STRING} onChange={handleFileChange} />
-          </>
-        )}
-
-        {/* Active File Card / Glassmorphism */}
-        {file && (
-          <div className={`w-full max-w-lg glass-card p-6 ${stage === 'ERROR' ? 'border-rose-500/50' : 'border-indigo-500/30'}`}>
-
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center text-left max-w-full overflow-hidden">
-                <div className={`w-10 h-10 min-w-10 shrink-0 rounded-lg flex items-center justify-center mr-4
-                  ${stage === 'ERROR' ? 'bg-rose-500/10 text-rose-500' : 'bg-indigo-500/10 text-indigo-400'}`}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h4 className="m-0 text-sm font-medium text-slate-50 truncate w-full">{file.name}</h4>
-                  <span className="text-xs text-slate-400">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
-                </div>
-              </div>
-
-              {stage === 'IDLE' && (
-                <button onClick={() => setFile(null)} className="ml-2 bg-transparent border-none text-slate-500 hover:text-slate-300 cursor-pointer p-1 transition-colors">
-                  ✕
-                </button>
-              )}
+        {stage === 'ERROR' && (
+          <div className="mt-6 p-4 rounded-lg bg-red-500/20 border border-red-500/50 flex items-start space-x-3">
+            <XCircleIcon className="w-6 h-6 text-red-400 shrink-0" />
+            <div>
+              <h3 className="font-semibold text-red-400">Error de carga</h3>
+              <p className="text-sm text-red-200 mt-1">{errorMsg}</p>
             </div>
-
-            {stage === 'UPLOADING' && (
-               <div className="mt-6">
-                 <div className="flex justify-between text-xs text-slate-400 mb-2">
-                   <span>Sincronizando...</span>
-                   <span className="font-semibold text-indigo-400">{progress}%</span>
-                 </div>
-                 <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                   <div className="bg-indigo-500 h-full transition-all duration-200" style={{ width: `${progress}%`, boxShadow: '0 0 8px #6366f1' }} />
-                 </div>
-               </div>
-            )}
-
-            {stage === 'WAITING_SERVER' && (
-              <div className="mt-4 flex items-center text-indigo-400 text-sm font-medium">
-                <div className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mr-3"></div>
-                Procesando el documento...
-              </div>
-            )}
-
-            {stage === 'ERROR' && (
-               <div className="mt-4 p-4 bg-rose-500/10 rounded-lg border border-rose-500/20 flex items-start text-left">
-                 <span className="text-rose-500 mr-3 text-lg leading-none mt-0.5">⚠️</span>
-                 <div className="flex-1">
-                   <span className="text-rose-400 text-sm font-semibold">La subida falló.</span>
-                   <p className="m-0 mt-1 text-rose-500 text-xs break-words"><strong>Error:</strong> {errorMsg}</p>
-                 </div>
-                 <button
-                   onClick={handleUploadClick}
-                   className="ml-3 self-center px-3 py-1.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-md cursor-pointer text-xs font-semibold hover:bg-rose-500/20 transition-colors whitespace-nowrap"
-                 >
-                   🔄 Reintentar Subida
-                 </button>
-               </div>
-            )}
-
           </div>
         )}
 
-        {stage === 'IDLE' && file && (
-          <button
-            onClick={handleUploadClick}
-            className="btn-primary mt-8 w-full max-w-lg py-3 text-lg"
-          >
-            🚀 Iniciar Subida
-          </button>
+        {['WAITING_SERVER', 'UPLOADING', 'PROCESSING_ACTIVE'].includes(stage) && (
+          <div className="mt-6">
+            <div className="flex justify-between text-sm mb-2 font-medium">
+              <span className="text-teal-300">
+                {stage === 'WAITING_SERVER' && 'Preparando subida...'}
+                {stage === 'UPLOADING' && 'Subiendo archivo seguro...'}
+                {stage === 'PROCESSING_ACTIVE' && 'Enviando a procesamiento...'}
+              </span>
+              <span className="text-teal-300">{progress}%</span>
+            </div>
+            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-teal-400 to-blue-500 transition-all duration-300 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
         )}
 
+        {stage === 'SUCCESS' && (
+          <div className="mt-6 p-4 rounded-lg bg-green-500/20 border border-green-500/50 flex items-center justify-center space-x-3 text-green-400">
+            <CheckCircleIcon className="w-6 h-6" />
+            <span className="font-semibold">¡Carga exitosa! Redirigiendo...</span>
+          </div>
+        )}
+
+        <div className="mt-8 flex justify-end">
+          <button
+            onClick={handleUpload}
+            disabled={!file || ['WAITING_SERVER', 'UPLOADING', 'PROCESSING_ACTIVE', 'SUCCESS'].includes(stage)}
+            className="px-8 py-3 rounded-full bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 font-bold text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            Subir Documento
+          </button>
+        </div>
       </div>
     </div>
   );
-};
+}

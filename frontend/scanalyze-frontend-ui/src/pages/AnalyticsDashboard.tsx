@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { analyticsApi, type DashboardResponse, type DashboardFilters } from '../api/analyticsApi';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { csvCell } from '../security/browserBoundaries.js';
 
 export const AnalyticsDashboard: React.FC = () => {

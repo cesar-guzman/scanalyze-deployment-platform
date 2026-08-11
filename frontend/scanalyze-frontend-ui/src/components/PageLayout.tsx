@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router-dom';
 import { getConfig } from '../config';
 import {
   AuthOperationTimeoutError,
