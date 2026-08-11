@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import inspect
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -12,12 +13,18 @@ from typing import Any, Mapping
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 
 from tooling.platform_authority_change_set_retirement_broker import (
     ALIAS_CLASSIFY,
     ALIAS_RECONCILE,
     ALIAS_RETIRE,
+    ALIAS_SINGLE_CLASSIFY,
+    ALIAS_SINGLE_RECONCILE,
+    ALIAS_SINGLE_RETIRE,
     APPROVER_INVOKER_POLICY_NAME,
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
+    BROKER_VERSION_BINDING_FIELDS,
     BROKER_FUNCTION_NAME,
     BROKER_POLICY_NAME,
     CLASSIFIER_INVOKER_POLICY_NAME,
@@ -27,13 +34,20 @@ from tooling.platform_authority_change_set_retirement_broker import (
     BrokerConfig,
     BrokerError,
     RetirementBroker,
+    broker_version_binding_digest,
     canonical_digest,
+    secret_digest,
+)
+from tooling.platform_authority_single_operator_retirement_exception import (
+    SingleOperatorExceptionError,
+    build_single_operator_retirement_exception,
 )
 from tooling.platform_authority_bootstrap import (
     BootstrapAuthorizationError,
     BootstrapBinding,
     render_bootstrap_iam_policy,
 )
+from tooling.validate_schema import _validate_gug215_ledger
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -171,9 +185,12 @@ APPLICATION_ACTOR_POLICY_SHA256 = _digest("application-actor-policy")
 CLASSIFIER_IDENTITY_PROOF_SHA256 = _digest("classifier-identity-proof")
 APPROVER_IDENTITY_PROOF_SHA256 = _digest("approver-identity-proof")
 RECONCILIATION_IDENTITY_PROOF_SHA256 = _digest("reconciliation-identity-proof")
+RUNTIME_VERSION_ARN = (
+    f"arn:aws:lambda:{REGION}::runtime:" + "a" * 64
+)
 
 
-def _config(**overrides: str) -> BrokerConfig:
+def _config_values(**overrides: str) -> dict[str, str]:
     values = {
         "authority_account_id": ACCOUNT,
         "region": REGION,
@@ -185,6 +202,7 @@ def _config(**overrides: str) -> BrokerConfig:
         "identity_store_arn": IDENTITY_STORE_ARN,
         "identity_center_instance_arn": INSTANCE_ARN,
         "identity_center_application_arn": APPLICATION_ARN,
+        "identity_center_redirect_uri": "http://127.0.0.1:43119/callback",
         "classifier_identity_store_user_id": CLASSIFIER_USER_ID,
         "approver_identity_store_user_id": APPROVER_USER_ID,
         "classifier_assignment_sha256": _digest("classifier-assignment"),
@@ -208,10 +226,143 @@ def _config(**overrides: str) -> BrokerConfig:
         "code_signing_config_arn": (
             f"arn:aws:lambda:{REGION}:{ACCOUNT}:code-signing-config:csc-1234567890abcdef"
         ),
+        "broker_runtime_version_arn": RUNTIME_VERSION_ARN,
         "retirement_id": RETIREMENT_ID,
+        "authorization_mode": "TWO_HUMAN",
+    }
+    binding_overridden = "broker_version_binding_sha256" in overrides
+    values.update(overrides)
+    if not binding_overridden:
+        values["broker_version_binding_sha256"] = broker_version_binding_digest(values)
+    return values
+
+
+def _config(**overrides: str) -> BrokerConfig:
+    return BrokerConfig(**_config_values(**overrides))
+
+
+def test_broker_version_binding_covers_every_published_configuration_input() -> None:
+    baseline = _config_values()
+    expected = baseline["broker_version_binding_sha256"]
+    for field in BROKER_VERSION_BINDING_FIELDS:
+        changed = dict(baseline)
+        changed[field] = f"{changed[field]}-changed"
+        assert broker_version_binding_digest(changed) != expected, field
+
+    drifted = dict(baseline)
+    drifted["identity_center_redirect_uri"] = "http://127.0.0.1:43120/callback"
+    with pytest.raises(BrokerError, match="BROKER_VERSION_BINDING_MISMATCH"):
+        BrokerConfig(**drifted)
+
+
+def _single_operator_config(**overrides: str) -> BrokerConfig:
+    values = {
+        "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        "approver_identity_store_user_id": CLASSIFIER_USER_ID,
+        "single_operator_owner_authorization_sha256": _digest(
+            "owner-authorized-gug215-exact-target"
+        ),
+        "single_operator_exception_created_at": "2029-12-31T23:40:00Z",
+        "single_operator_exception_not_before": "2030-01-01T00:00:00Z",
+        "single_operator_exception_expires_at": "2030-01-01T00:15:00Z",
     }
     values.update(overrides)
-    return BrokerConfig(**values)
+    merged = _config_values(**values)
+    reviewed_digest_overridden = (
+        "single_operator_expected_authorization_sha256" in overrides
+    )
+    if not reviewed_digest_overridden:
+        merged["single_operator_expected_authorization_sha256"] = (
+            "sha256:" + "0" * 64
+        )
+        identity_binding = {
+            "identity_store_arn_digest": secret_digest(
+                "identity_store_arn", merged["identity_store_arn"]
+            ),
+            "identity_center_instance_arn_digest": secret_digest(
+                "identity_center_instance_arn",
+                merged["identity_center_instance_arn"],
+            ),
+            "identity_center_application_arn_digest": secret_digest(
+                "identity_center_application_arn",
+                merged["identity_center_application_arn"],
+            ),
+            "classifier_identity_store_user_id_digest": secret_digest(
+                "identity_store_user_id",
+                merged["classifier_identity_store_user_id"].lower(),
+            ),
+            "approver_identity_store_user_id_digest": secret_digest(
+                "identity_store_user_id",
+                merged["approver_identity_store_user_id"].lower(),
+            ),
+            "classifier_assignment_sha256": merged[
+                "classifier_assignment_sha256"
+            ],
+            "approver_assignment_sha256": merged["approver_assignment_sha256"],
+            "classifier_invoker_policy_sha256": merged[
+                "classifier_invoker_policy_sha256"
+            ],
+            "approver_invoker_policy_sha256": merged[
+                "approver_invoker_policy_sha256"
+            ],
+            "classifier_proof_policy_sha256": merged[
+                "classifier_proof_policy_sha256"
+            ],
+            "approver_proof_policy_sha256": merged[
+                "approver_proof_policy_sha256"
+            ],
+            "identity_center_application_actor_policy_sha256": merged[
+                "identity_center_application_actor_policy_sha256"
+            ],
+            "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+            "two_human_status": "NOT_PROVEN",
+            "independent_approval_present": False,
+        }
+        try:
+            exception = build_single_operator_retirement_exception(
+                authority_account_id=merged["authority_account_id"],
+                region=merged["region"],
+                retirement_id=merged["retirement_id"],
+                change_set_name_digest=secret_digest(
+                    "change_set_name", merged["change_set_name"]
+                ),
+                template_sha256=merged["expected_template_sha256"],
+                resource_inventory_sha256=merged["expected_evidence_sha256"],
+                identity_binding_digest=canonical_digest(identity_binding),
+                broker_runtime_version_arn=merged["broker_runtime_version_arn"],
+                broker_version_binding_sha256=merged[
+                    "broker_version_binding_sha256"
+                ],
+                operator_identity_store_user_id=merged[
+                    "classifier_identity_store_user_id"
+                ],
+                owner_authorization_sha256=merged[
+                    "single_operator_owner_authorization_sha256"
+                ],
+                created_at=datetime.fromisoformat(
+                    merged["single_operator_exception_created_at"].replace(
+                        "Z", "+00:00"
+                    )
+                ),
+                not_before=datetime.fromisoformat(
+                    merged["single_operator_exception_not_before"].replace(
+                        "Z", "+00:00"
+                    )
+                ),
+                expires_at=datetime.fromisoformat(
+                    merged["single_operator_exception_expires_at"].replace(
+                        "Z", "+00:00"
+                    )
+                ),
+            )
+            merged["single_operator_expected_authorization_sha256"] = str(
+                exception["authorization_digest"]
+            )
+        except (SingleOperatorExceptionError, ValueError):
+            # Preserve invalid inputs so BrokerConfig proves the sanitized
+            # fail-closed error instead of the test helper selecting it.
+            pass
+    return BrokerConfig(**merged)
 
 
 def _load_script() -> ModuleType:
@@ -271,7 +422,11 @@ class FakeIam:
         }
 
     def _proof_trust(self, *, classifier: bool) -> dict[str, Any]:
-        user_id = CLASSIFIER_USER_ID if classifier else APPROVER_USER_ID
+        user_id = (
+            self.config.classifier_identity_store_user_id
+            if classifier
+            else self.config.approver_identity_store_user_id
+        )
         trust_sid = (
             "SetExactClassifierIdentityContext"
             if classifier
@@ -407,6 +562,8 @@ class FakeLambda:
         self.routing_config: dict[str, Any] | None = None
         self.concurrency = 1
         self.signing_arn = config.code_signing_config_arn
+        self.runtime_version_arn = config.broker_runtime_version_arn
+        self.runtime_update_mode = "Manual"
         self.resource_policy_qualifiers: set[str | None] = set()
 
     def get_function_url_config(
@@ -414,7 +571,14 @@ class FakeLambda:
     ) -> dict[str, Any]:
         self.log.append("lambda:get-function-url-config")
         assert FunctionName == BROKER_FUNCTION_NAME
-        assert Qualifier in {ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE}
+        assert Qualifier in {
+            ALIAS_CLASSIFY,
+            ALIAS_RETIRE,
+            ALIAS_RECONCILE,
+            ALIAS_SINGLE_CLASSIFY,
+            ALIAS_SINGLE_RETIRE,
+            ALIAS_SINGLE_RECONCILE,
+        }
         return {
             "FunctionUrl": (
                 f"https://synthetic-{Qualifier}.lambda-url.{REGION}.on.aws/"
@@ -432,6 +596,9 @@ class FakeLambda:
             "Version": self.version,
             "CodeSha256": self.code_sha256,
             "Role": self.role_arn,
+            "RuntimeVersionConfig": {
+                "RuntimeVersionArn": self.runtime_version_arn,
+            },
         }
 
     def get_function_concurrency(self, *, FunctionName: str) -> dict[str, Any]:
@@ -439,10 +606,32 @@ class FakeLambda:
         assert FunctionName == BROKER_FUNCTION_NAME
         return {"ReservedConcurrentExecutions": self.concurrency}
 
+    def get_runtime_management_config(
+        self,
+        *,
+        FunctionName: str,
+        Qualifier: str,
+    ) -> dict[str, Any]:
+        self.log.append("lambda:get-runtime-management-config")
+        assert FunctionName == BROKER_FUNCTION_NAME
+        assert Qualifier == self.version
+        return {
+            "FunctionArn": f"{self.config.function_arn}:{self.version}",
+            "UpdateRuntimeOn": self.runtime_update_mode,
+            "RuntimeVersionArn": self.runtime_version_arn,
+        }
+
     def get_alias(self, *, FunctionName: str, Name: str) -> dict[str, Any]:
         self.log.append("lambda:get-alias")
         assert FunctionName == BROKER_FUNCTION_NAME
-        assert Name in {ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE}
+        assert Name in {
+            ALIAS_CLASSIFY,
+            ALIAS_RETIRE,
+            ALIAS_RECONCILE,
+            ALIAS_SINGLE_CLASSIFY,
+            ALIAS_SINGLE_RETIRE,
+            ALIAS_SINGLE_RECONCILE,
+        }
         response: dict[str, Any] = {"FunctionVersion": self.alias_version}
         if self.routing_config is not None:
             response["RoutingConfig"] = self.routing_config
@@ -463,6 +652,9 @@ class FakeLambda:
             ALIAS_CLASSIFY,
             ALIAS_RETIRE,
             ALIAS_RECONCILE,
+            ALIAS_SINGLE_CLASSIFY,
+            ALIAS_SINGLE_RETIRE,
+            ALIAS_SINGLE_RECONCILE,
             self.version,
         }
         if Qualifier in self.resource_policy_qualifiers:
@@ -474,10 +666,17 @@ class FakeLambda:
                     }
                 )
             }
-        if Qualifier in {ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE}:
+        if Qualifier in {
+            ALIAS_CLASSIFY,
+            ALIAS_RETIRE,
+            ALIAS_RECONCILE,
+            ALIAS_SINGLE_CLASSIFY,
+            ALIAS_SINGLE_RETIRE,
+            ALIAS_SINGLE_RECONCILE,
+        }:
             invoker_role_arn = (
                 self.config.classifier_invoker_role_arn
-                if Qualifier == ALIAS_CLASSIFY
+                if Qualifier in {ALIAS_CLASSIFY, ALIAS_SINGLE_CLASSIFY}
                 else self.config.approver_invoker_role_arn
             )
             function_arn = f"{self.config.function_arn}:{Qualifier}"
@@ -845,6 +1044,9 @@ def _handle(
         ALIAS_CLASSIFY: CLASSIFIER_IDENTITY_PROOF_SHA256,
         ALIAS_RETIRE: APPROVER_IDENTITY_PROOF_SHA256,
         ALIAS_RECONCILE: RECONCILIATION_IDENTITY_PROOF_SHA256,
+        ALIAS_SINGLE_CLASSIFY: CLASSIFIER_IDENTITY_PROOF_SHA256,
+        ALIAS_SINGLE_RETIRE: APPROVER_IDENTITY_PROOF_SHA256,
+        ALIAS_SINGLE_RECONCILE: RECONCILIATION_IDENTITY_PROOF_SHA256,
     }
     return broker.handle(
         alias=alias,
@@ -889,6 +1091,136 @@ def test_config_requires_two_distinct_immutable_identity_store_users() -> None:
     assert config.identity_binding_digest.startswith("sha256:")
     assert CLASSIFIER_USER_ID not in json.dumps(config.identity_binding)
     assert APPROVER_USER_ID not in json.dumps(config.identity_binding)
+
+
+def test_single_operator_mode_is_additive_honest_and_exactly_bound() -> None:
+    config = _single_operator_config()
+
+    assert config.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert config.allowed_aliases == {
+        ALIAS_SINGLE_CLASSIFY,
+        ALIAS_SINGLE_RETIRE,
+        ALIAS_SINGLE_RECONCILE,
+    }
+    assert config.identity_binding[
+        "classifier_identity_store_user_id_digest"
+    ] == config.identity_binding["approver_identity_store_user_id_digest"]
+    exception = config.single_operator_exception
+    assert exception is not None
+    assert exception["two_human_status"] == "NOT_PROVEN"
+    assert exception["independent_approval_present"] is False
+    assert exception["authorization_digest"] == (
+        config.single_operator_authorization_sha256
+    )
+    assert CLASSIFIER_USER_ID not in json.dumps(exception)
+
+
+def test_cloudformation_alias_families_are_mutually_exclusive_by_condition() -> None:
+    source = PEP_TEMPLATE.read_text(encoding="utf-8")
+
+    def resource_block(name: str) -> str:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n.*?(?=^  [A-Za-z0-9].*?:\n|\Z)",
+            source,
+        )
+        assert match is not None, name
+        return match.group(0)
+
+    normal_resources = (
+        "RetirementBrokerClassifyAlias",
+        "RetirementBrokerRetireAlias",
+        "RetirementBrokerReconcileAlias",
+        "RetirementBrokerClassifyUrl",
+        "RetirementBrokerRetireUrl",
+        "RetirementBrokerReconcileUrl",
+        "ClassifierFunctionUrlInvokePermission",
+        "ClassifierFunctionUrlFunctionPermission",
+        "ApproverRetireFunctionUrlInvokePermission",
+        "ApproverRetireFunctionUrlFunctionPermission",
+        "ApproverReconcileFunctionUrlInvokePermission",
+        "ApproverReconcileFunctionUrlFunctionPermission",
+    )
+    single_resources = (
+        "RetirementBrokerSingleClassifyAlias",
+        "RetirementBrokerSingleRetireAlias",
+        "RetirementBrokerSingleReconcileAlias",
+        "RetirementBrokerSingleClassifyUrl",
+        "RetirementBrokerSingleRetireUrl",
+        "RetirementBrokerSingleReconcileUrl",
+        "SingleClassifierFunctionUrlInvokePermission",
+        "SingleClassifierFunctionUrlFunctionPermission",
+        "SingleApproverRetireFunctionUrlInvokePermission",
+        "SingleApproverRetireFunctionUrlFunctionPermission",
+        "SingleApproverReconcileFunctionUrlInvokePermission",
+        "SingleApproverReconcileFunctionUrlFunctionPermission",
+    )
+    for name in normal_resources:
+        block = resource_block(name)
+        assert "Condition: TwoHumanMode" in block
+        assert "Condition: SingleOperatorMode" not in block
+    for name in single_resources:
+        block = resource_block(name)
+        assert "Condition: SingleOperatorMode" in block
+        assert "Condition: TwoHumanMode" not in block
+
+    for role_name in ("ClassifierInvokerRole", "ApproverInvokerRole"):
+        block = resource_block(role_name)
+        assert "- SingleOperatorMode" in block
+        assert "single-" in block
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    (
+        (
+            {"approver_identity_store_user_id": APPROVER_USER_ID},
+            "SINGLE_OPERATOR_IDENTITY_REQUIRED",
+        ),
+        (
+            {"single_operator_expected_authorization_sha256": ""},
+            "CONFIGURATION_INCOMPLETE",
+        ),
+        ({"single_operator_owner_authorization_sha256": ""}, "CONFIGURATION_INCOMPLETE"),
+        (
+            {"single_operator_exception_expires_at": "2030-01-01T00:15:01Z"},
+            "EXCEPTION_WINDOW_INVALID",
+        ),
+    ),
+)
+def test_single_operator_mode_rejects_incomplete_or_dishonest_bindings(
+    overrides: dict[str, str],
+    code: str,
+) -> None:
+    with pytest.raises(BrokerError, match=rf"^{code}$"):
+        _single_operator_config(**overrides)
+
+
+def test_single_operator_configuration_must_match_independently_reviewed_digest() -> None:
+    reviewed = _single_operator_config()
+    assert reviewed.single_operator_authorization_sha256 is not None
+
+    with pytest.raises(
+        BrokerError, match="^REVIEWED_AUTHORIZATION_DIGEST_MISMATCH$"
+    ):
+        _single_operator_config(
+            expected_template_sha256=_digest("unreviewed-template"),
+            single_operator_expected_authorization_sha256=(
+                reviewed.single_operator_authorization_sha256
+            ),
+        )
+
+
+def test_normal_and_exception_alias_sets_cannot_cross() -> None:
+    normal, normal_clients = _broker()
+    with pytest.raises(BrokerError, match="ALIAS_NOT_AUTHORIZED"):
+        _handle(normal, alias=ALIAS_SINGLE_CLASSIFY)
+    assert normal_clients.dynamodb.write_count == 0
+
+    exception, exception_clients = _broker(config=_single_operator_config())
+    with pytest.raises(BrokerError, match="ALIAS_NOT_AUTHORIZED"):
+        _handle(exception, alias=ALIAS_CLASSIFY)
+    assert exception_clients.dynamodb.write_count == 0
+    assert exception_clients.cloudformation.delete_calls == 0
 
 
 def test_identity_store_user_id_contract_accepts_new_uuid_versions() -> None:
@@ -1022,11 +1354,11 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
     assert source.count("Type: AWS::DynamoDB::Table") == 1
     assert source.count("Type: AWS::Lambda::Function") == 1
     assert source.count("Type: AWS::Lambda::Version") == 1
-    assert source.count("Type: AWS::Lambda::Alias") == 3
-    assert source.count("Type: AWS::Lambda::Url") == 3
-    assert source.count("Type: AWS::Lambda::Permission") == 6
-    assert source.count("AuthType: AWS_IAM") >= 3
-    assert source.count("InvokeMode: BUFFERED") == 3
+    assert source.count("Type: AWS::Lambda::Alias") == 6
+    assert source.count("Type: AWS::Lambda::Url") == 6
+    assert source.count("Type: AWS::Lambda::Permission") == 12
+    assert source.count("AuthType: AWS_IAM") >= 6
+    assert source.count("InvokeMode: BUFFERED") == 6
     assert "CodeSha256: !Ref BrokerArtifactCodeSha256" in source
     assert "ReservedConcurrentExecutions: 1" in source
     assert "lambda:GetPolicy" in source
@@ -1044,6 +1376,24 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
     assert "dynamodb:ExecuteTransaction" not in source
     assert "!GetAtt ChangeSetRetirementLedger.Arn" not in source
     assert "IndependentOperatorsRequired" in source
+    assert "SingleOperatorExceptionMustBeExact" in source
+    assert "SINGLE_OPERATOR_NONPROD_EXCEPTION" in source
+    assert "Condition: SingleOperatorMode" in source
+    assert "Name: single-classify" in source
+    assert "Name: single-retire" in source
+    assert "Name: single-reconcile" in source
+    assert "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256" in source
+    assert "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256" in source
+    assert "RuntimeManagementConfig:" in source
+    assert "UpdateRuntimeOn: Manual" in source
+    assert "RuntimeVersionArn: !Ref BrokerRuntimeVersionArn" in source
+    assert "BROKER_RUNTIME_VERSION_ARN: !Ref BrokerRuntimeVersionArn" in source
+    assert (
+        "BROKER_VERSION_BINDING_SHA256: !Ref BrokerVersionBindingSha256" in source
+    )
+    assert "GUG-215 ${BrokerVersionBindingSha256}" in source
+    assert "${SingleOperatorExpectedAuthorizationSha256}" in source
+    assert "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT" in source
     execution_section = source[
         source.index("RetirementBrokerExecutionRole:") : source.index(
             "RetirementBrokerFunction:"
@@ -1089,6 +1439,216 @@ def test_classification_is_service_owned_create_only_and_sanitized() -> None:
     assert CHANGE_SET_NAME not in serialized
     assert CLASSIFIER_USER_ID not in serialized
     assert APPROVER_USER_ID not in serialized
+
+
+def test_single_operator_exception_is_honest_one_shot_and_reconciled() -> None:
+    broker, clients = _broker(config=_single_operator_config())
+
+    classified = _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    assert classified["status"] == "CLASSIFIED"
+    assert classified["next_required_control"] == (
+        "SINGLE_OPERATOR_FRESH_REAUTHENTICATION_REQUIRED"
+    )
+    assert clients.dynamodb.ledger is not None
+    ledger = clients.dynamodb.ledger
+    assert ledger["schema_version"] == "3"
+    assert ledger["authorization_mode"] == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert ledger["two_human_status"] == "NOT_PROVEN"
+    assert ledger["independent_approval_present"] is False
+    assert ledger["identity_separation"] == (
+        "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+    )
+    assert ledger["broker_runtime_version_arn_digest"] == canonical_digest(
+        {"broker_runtime_version_arn": RUNTIME_VERSION_ARN}
+    )
+    assert ledger["broker_version_binding_sha256"] == (
+        _single_operator_config().broker_version_binding_sha256
+    )
+    ledger_schema = json.loads(
+        (
+            REPO_ROOT
+            / "schemas/platform-authority-change-set-retirement-ledger.v3.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator(ledger_schema).validate(ledger)
+    assert _validate_gug215_ledger(ledger) == []
+
+    retired = _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert retired["status"] == "RETIREMENT_ATTEMPTED"
+    assert clients.cloudformation.delete_calls == 1
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+    assert clients.dynamodb.ledger["attempt_count"] == 1
+    assert clients.dynamodb.ledger["single_operator_authorization_sha256"] == (
+        _single_operator_config().single_operator_authorization_sha256
+    )
+
+    reconciled = _handle(broker, alias=ALIAS_SINGLE_RECONCILE)
+    assert reconciled["status"] == "RETIRED_RECONCILED"
+    assert reconciled["next_required_control"] == (
+        "SINGLE_OPERATOR_EXCEPTION_REVOCATION_REQUIRED"
+    )
+    assert clients.cloudformation.delete_calls == 1
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "RETIRED_RECONCILED"
+
+
+def test_single_operator_request_cannot_select_mode_digest_or_expiry() -> None:
+    broker, clients = _broker(config=_single_operator_config())
+    for payload in (
+        {"authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR},
+        {"single_operator_authorization_sha256": _digest("forged")},
+        {"expires_at": "2099-01-01T00:00:00Z"},
+    ):
+        with pytest.raises(BrokerError, match="REQUEST_AUTHORITY_FORBIDDEN"):
+            _handle(broker, alias=ALIAS_SINGLE_CLASSIFY, event=payload)
+    assert clients.dynamodb.write_count == 0
+    assert clients.cloudformation.delete_calls == 0
+
+
+def test_single_operator_effect_window_fails_before_aws_or_ledger() -> None:
+    config = _single_operator_config(
+        single_operator_exception_not_before="2030-01-01T00:05:00Z",
+        single_operator_exception_expires_at="2030-01-01T00:15:00Z",
+    )
+    clients = FakeClients(config)
+    broker = RetirementBroker(config=config, clients=clients, now=lambda: NOW)
+    with pytest.raises(BrokerError, match="EXCEPTION_NOT_ACTIVE"):
+        _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    assert clients.log == []
+    assert clients.dynamodb.write_count == 0
+    assert clients.cloudformation.delete_calls == 0
+
+
+def test_single_operator_requires_a_fresh_second_proof_before_attempt() -> None:
+    broker, clients = _broker(config=_single_operator_config())
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    with pytest.raises(BrokerError, match="FRESH_REAUTHENTICATION_REQUIRED"):
+        broker.handle(
+            alias=ALIAS_SINGLE_RETIRE,
+            event={},
+            identity_proof_sha256=CLASSIFIER_IDENTITY_PROOF_SHA256,
+        )
+    assert clients.cloudformation.delete_calls == 0
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "CLASSIFIED"
+
+
+def test_single_operator_replay_never_reissues_delete() -> None:
+    broker, clients = _broker(config=_single_operator_config())
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert clients.cloudformation.delete_calls == 1
+    response = _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert response["status"] == "RECONCILIATION_REQUIRED"
+    assert clients.cloudformation.delete_calls == 1
+
+
+def test_single_operator_expiry_after_claim_never_deletes_or_reopens() -> None:
+    config = _single_operator_config(
+        single_operator_exception_expires_at="2030-01-01T00:00:05Z"
+    )
+    broker, clients = _broker(config=config)
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+
+    with pytest.raises(BrokerError, match="EXCEPTION_NOT_ACTIVE"):
+        _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+    assert clients.dynamodb.ledger["attempt_count"] == 1
+    assert clients.cloudformation.delete_calls == 0
+    with pytest.raises(BrokerError, match="EXCEPTION_NOT_ACTIVE"):
+        _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert clients.cloudformation.delete_calls == 0
+
+
+def test_expired_single_operator_exception_allows_only_attempt_reconciliation() -> None:
+    config = _single_operator_config(
+        single_operator_exception_expires_at="2030-01-01T00:00:05Z"
+    )
+    broker, clients = _broker(config=config)
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    with pytest.raises(BrokerError, match="EXCEPTION_NOT_ACTIVE"):
+        _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+
+    # Simulate authoritative absence observed after the ambiguous/non-effect
+    # attempt; reconciliation may close the ledger but can never issue delete.
+    clients.cloudformation.target_present = False
+    response = _handle(broker, alias=ALIAS_SINGLE_RECONCILE)
+    assert response["status"] == "RETIRED_RECONCILED"
+    assert clients.cloudformation.delete_calls == 0
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "RETIRED_RECONCILED"
+
+
+def test_expired_single_operator_reconcile_with_target_present_stays_attempted() -> None:
+    config = _single_operator_config(
+        single_operator_exception_expires_at="2030-01-01T00:00:05Z"
+    )
+    broker, clients = _broker(config=config)
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    with pytest.raises(BrokerError, match="EXCEPTION_NOT_ACTIVE"):
+        _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+
+    response = _handle(broker, alias=ALIAS_SINGLE_RECONCILE)
+    assert response["status"] == "RECONCILIATION_REQUIRED"
+    assert clients.cloudformation.delete_calls == 0
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+
+
+def test_single_operator_ambiguous_delete_is_never_retried() -> None:
+    broker, clients = _broker(config=_single_operator_config())
+    _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    clients.cloudformation.delete_error = True
+
+    first = _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    second = _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert first["status"] == "RECONCILIATION_REQUIRED"
+    assert second["status"] == "RECONCILIATION_REQUIRED"
+    assert clients.cloudformation.delete_calls == 1
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+
+
+def test_single_operator_transition_response_loss_preserves_one_attempt() -> None:
+    config = _single_operator_config()
+    clients = FakeClients(config)
+    clients.dynamodb.raise_after_put_commit = True
+    clients.dynamodb.raise_after_update_states = {
+        "EXCEPTION_ACCEPTED",
+        "ATTEMPTED",
+    }
+    broker, _ = _broker(clients, config=config)
+
+    classified = _handle(broker, alias=ALIAS_SINGLE_CLASSIFY)
+    retired = _handle(broker, alias=ALIAS_SINGLE_RETIRE)
+    assert classified["status"] == "CLASSIFIED"
+    assert retired["status"] == "RETIREMENT_ATTEMPTED"
+    assert clients.cloudformation.delete_calls == 1
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "ATTEMPTED"
+
+
+def test_single_operator_ledger_rejects_exception_configuration_drift() -> None:
+    config_a = _single_operator_config()
+    broker_a, clients = _broker(config=config_a)
+    _handle(broker_a, alias=ALIAS_SINGLE_CLASSIFY)
+
+    config_b = _single_operator_config(
+        single_operator_owner_authorization_sha256=_digest(
+            "different-reviewed-owner-authorization"
+        )
+    )
+    broker_b = RetirementBroker(config=config_b, clients=clients, now=lambda: NOW)
+    with pytest.raises(BrokerError, match="LEDGER_BINDING_CHANGED"):
+        _handle(broker_b, alias=ALIAS_SINGLE_RETIRE)
+    assert clients.cloudformation.delete_calls == 0
+    assert clients.dynamodb.ledger is not None
+    assert clients.dynamodb.ledger["state"] == "CLASSIFIED"
 
 
 def test_classification_accepts_add_changes_with_omitted_replacement() -> None:
@@ -1520,6 +2080,8 @@ def test_reconciliation_revalidates_stack_continuity_before_terminal_cas() -> No
         ("trust", "BROKER_ROLE_BOUNDARY_CHANGED"),
         ("attached", "BROKER_ROLE_POLICY_INVENTORY_CHANGED"),
         ("code", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("runtime", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("runtime-mode", "BROKER_RUNTIME_MANAGEMENT_CHANGED"),
         ("concurrency", "BROKER_CONCURRENCY_CHANGED"),
         ("alias", "BROKER_ALIAS_CHANGED"),
         ("routing", "BROKER_ALIAS_CHANGED"),
@@ -1542,6 +2104,12 @@ def test_effective_broker_role_code_alias_and_signing_are_read_back(
         clients.iam.attached = [{"PolicyName": "Broad", "PolicyArn": "arn:synthetic"}]
     elif mutation == "code":
         clients.lambda_client.code_sha256 = "B" * 43 + "="
+    elif mutation == "runtime":
+        clients.lambda_client.runtime_version_arn = (
+            f"arn:aws:lambda:{REGION}::runtime:" + "b" * 64
+        )
+    elif mutation == "runtime-mode":
+        clients.lambda_client.runtime_update_mode = "Auto"
     elif mutation == "concurrency":
         clients.lambda_client.concurrency = 2
     elif mutation == "alias":

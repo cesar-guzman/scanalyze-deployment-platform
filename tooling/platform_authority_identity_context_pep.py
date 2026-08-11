@@ -31,8 +31,6 @@ from tooling.platform_authority_identity_context_compatibility import (
     evaluate_identity_context_policy,
     load_bundled_policy_snapshot,
 )
-
-
 PROOF_REQUIRED_ACTION = "sts:SetContext"
 COMPATIBLE_PROOF_ONLY_TRANSPORT = "COMPATIBLE_PROOF_ONLY_TRANSPORT"
 IDENTITY_CENTER_CONTEXT_PROVIDER_ARN = (
@@ -56,7 +54,13 @@ REQUEST_KEYS = frozenset(
         "code_verifier",
     }
 )
-ALLOWED_ALIASES = frozenset({"classify", "retire", "reconcile"})
+AUTHORIZATION_MODE_TWO_HUMAN = "TWO_HUMAN"
+AUTHORIZATION_MODE_SINGLE_OPERATOR = "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+NORMAL_ALIASES = frozenset({"classify", "retire", "reconcile"})
+SINGLE_OPERATOR_ALIASES = frozenset(
+    {"single-classify", "single-retire", "single-reconcile"}
+)
+ALLOWED_ALIASES = NORMAL_ALIASES | SINGLE_OPERATOR_ALIASES
 STS_CLOCK_SKEW_SECONDS = 30
 
 
@@ -188,6 +192,8 @@ class IdentityContextPepBinding:
     approver_proof_role_arn: str
     proof_duration_seconds: int = 900
     max_token_lifetime_seconds: int = 900
+    authorization_mode: str = AUTHORIZATION_MODE_TWO_HUMAN
+    single_operator_authorization_sha256: str = ""
 
     def __post_init__(self) -> None:
         if ACCOUNT_ID.fullmatch(self.authority_account_id) is None:
@@ -199,8 +205,24 @@ class IdentityContextPepBinding:
             or USER_ID.fullmatch(self.approver_user_id) is None
         ):
             raise ProofBoundaryError("IDENTITY_STORE_USER_INVALID")
-        if self.classifier_user_id.lower() == self.approver_user_id.lower():
-            raise ProofBoundaryError("INDEPENDENT_OPERATOR_REQUIRED")
+        users_equal = self.classifier_user_id.lower() == self.approver_user_id.lower()
+        if self.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN:
+            if users_equal:
+                raise ProofBoundaryError("INDEPENDENT_OPERATOR_REQUIRED")
+            if self.single_operator_authorization_sha256:
+                raise ProofBoundaryError("SINGLE_OPERATOR_CONFIGURATION_FORBIDDEN")
+        elif self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            if not users_equal:
+                raise ProofBoundaryError("SINGLE_OPERATOR_IDENTITY_REQUIRED")
+            if not self.single_operator_authorization_sha256:
+                raise ProofBoundaryError("CONFIGURATION_INCOMPLETE")
+            if re.fullmatch(
+                r"sha256:[a-f0-9]{64}",
+                self.single_operator_authorization_sha256,
+            ) is None:
+                raise ProofBoundaryError("AUTHORIZATION_DIGEST_INVALID")
+        else:
+            raise ProofBoundaryError("AUTHORIZATION_MODE_INVALID")
         if self.proof_duration_seconds != 900:
             raise ProofBoundaryError("PROOF_DURATION_INVALID")
         if not 60 <= self.max_token_lifetime_seconds <= 900:
@@ -259,8 +281,7 @@ class IdentityContextPepBinding:
 
     @property
     def binding_digest(self) -> str:
-        return canonical_digest(
-            {
+        value: dict[str, Any] = {
                 "authority_account_id": self.authority_account_id,
                 "region": self.region,
                 "identity_center_application_arn": self.identity_center_application_arn,
@@ -274,14 +295,29 @@ class IdentityContextPepBinding:
                 "approver_proof_role_arn": self.approver_proof_role_arn,
                 "proof_duration_seconds": self.proof_duration_seconds,
                 "max_token_lifetime_seconds": self.max_token_lifetime_seconds,
-            }
-        )
+        }
+        if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            value.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "single_operator_authorization_sha256": (
+                        self.single_operator_authorization_sha256
+                    ),
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                }
+            )
+        return canonical_digest(value)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the internal typed binding; callers must not publish it."""
 
-        return {
-            "schema_version": "1",
+        value: dict[str, Any] = {
+            "schema_version": (
+                "2"
+                if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+                else "1"
+            ),
             "record_type": "platform_authority_identity_context_pep_binding",
             "environment": "non-production",
             "production": False,
@@ -298,22 +334,65 @@ class IdentityContextPepBinding:
             "approver_proof_role_arn": self.approver_proof_role_arn,
             "proof_duration_seconds": self.proof_duration_seconds,
             "max_token_lifetime_seconds": self.max_token_lifetime_seconds,
-            "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+            "identity_separation": (
+                "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+                if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+                else "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+            ),
             "live_effect_authorized": False,
             "binding_digest": self.binding_digest,
         }
+        if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            value.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "single_operator_authorization_sha256": (
+                        self.single_operator_authorization_sha256
+                    ),
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                }
+            )
+        return value
 
     def proof_target(self, alias: str) -> tuple[str, str, str, str]:
-        if alias == "classify":
+        if alias == "classify" and self.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN:
             return (
                 "classifier",
                 self.classifier_user_id,
                 self.approver_user_id,
                 self.classifier_proof_role_arn,
             )
-        if alias in {"retire", "reconcile"}:
+        if (
+            alias in {"retire", "reconcile"}
+            and self.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN
+        ):
             return (
                 "independent_approver",
+                self.approver_user_id,
+                self.classifier_user_id,
+                self.approver_proof_role_arn,
+            )
+        if (
+            alias == "single-classify"
+            and self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        ):
+            return (
+                "single_operator_classifier",
+                self.classifier_user_id,
+                self.approver_user_id,
+                self.classifier_proof_role_arn,
+            )
+        if (
+            alias in {"single-retire", "single-reconcile"}
+            and self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        ):
+            return (
+                (
+                    "single_operator_reviewer"
+                    if alias == "single-retire"
+                    else "single_operator_reconciler"
+                ),
                 self.approver_user_id,
                 self.classifier_user_id,
                 self.approver_proof_role_arn,
@@ -430,10 +509,16 @@ class IdentityContextProofReceipt:
     proof_expires_at: str
     credentials_consumed: bool = False
     live_retirement_authorized: bool = False
+    authorization_mode: str = AUTHORIZATION_MODE_TWO_HUMAN
+    single_operator_authorization_sha256: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         value: dict[str, Any] = {
-            "schema_version": "1",
+            "schema_version": (
+                "2"
+                if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+                else "1"
+            ),
             "record_type": "platform_authority_identity_context_proof_receipt",
             "environment": "non-production",
             "production": False,
@@ -452,6 +537,17 @@ class IdentityContextProofReceipt:
             "credentials_consumed": self.credentials_consumed,
             "live_retirement_authorized": self.live_retirement_authorized,
         }
+        if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            value.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "single_operator_authorization_sha256": (
+                        self.single_operator_authorization_sha256
+                    ),
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                }
+            )
         value["receipt_digest"] = canonical_digest(value)
         return value
 
@@ -578,6 +674,10 @@ class IdentityContextProofVerifier:
                 "proof_session_arn", assumed_role_arn
             ),
             proof_expires_at=_timestamp(expiration),
+            authorization_mode=binding.authorization_mode,
+            single_operator_authorization_sha256=(
+                binding.single_operator_authorization_sha256
+            ),
         )
 
     @staticmethod

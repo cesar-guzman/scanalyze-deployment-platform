@@ -72,6 +72,12 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-change-set-retirement-ledger": (
             "platform-authority-change-set-retirement-ledger.v{version}.schema.json"
         ),
+        "platform-authority-change-set-retirement-package-manifest": (
+            "platform-authority-change-set-retirement-package-manifest.v{version}.schema.json"
+        ),
+        "platform-authority-change-set-retirement-single-operator-exception": (
+            "platform-authority-change-set-retirement-single-operator-exception.v{version}.schema.json"
+        ),
         "platform-authority-founder-bootstrap-exception": "platform-authority-founder-bootstrap-exception.v{version}.schema.json",
         "platform-authority-founder-execution-ledger": "platform-authority-founder-execution-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-intent": "platform-authority-founder-pep-intent.v{version}.schema.json",
@@ -390,14 +396,28 @@ def _gug221_initial_ledger_binding(instance: dict) -> dict:
 def _validate_gug215_ledger(instance: dict) -> list[str]:
     errors: list[str] = []
     state = instance.get("state")
-    if state not in {"CLASSIFIED", "APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}:
+    schema_version = instance.get("schema_version")
+    allowed_states = (
+        {"CLASSIFIED", "EXCEPTION_ACCEPTED", "ATTEMPTED", "RETIRED_RECONCILED"}
+        if schema_version == "3"
+        else {"CLASSIFIED", "APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}
+    )
+    if state not in allowed_states:
         errors.append("ledger must preserve one of the four durable states")
-    if (
+    users_equal = (
         instance.get("classifier_identity_store_user_id_digest")
         == instance.get("approver_identity_store_user_id_digest")
-    ):
+    )
+    if schema_version != "3" and users_equal:
         errors.append("ledger requires distinct immutable Identity Store users")
-    if instance.get("identity_separation") != "VERIFIED_DISTINCT_IDENTITYSTORE_USERS":
+    if schema_version == "3" and not users_equal:
+        errors.append("single-operator ledger must bind one immutable user")
+    expected_separation = (
+        "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+        if schema_version == "3"
+        else "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+    )
+    if instance.get("identity_separation") != expected_separation:
         errors.append("ledger identity separation must be Identity Store verified")
     identity_binding_fields = (
         "identity_store_arn_digest",
@@ -410,7 +430,7 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
         "classifier_invoker_policy_sha256",
         "approver_invoker_policy_sha256",
     )
-    if instance.get("schema_version") == "2":
+    if schema_version in {"2", "3"}:
         identity_binding_fields += (
             "classifier_proof_policy_sha256",
             "approver_proof_policy_sha256",
@@ -419,13 +439,28 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
     identity_binding = {
         field: instance.get(field) for field in identity_binding_fields
     }
+    if schema_version == "3":
+        identity_binding.update(
+            {
+                "authorization_mode": instance.get("authorization_mode"),
+                "two_human_status": instance.get("two_human_status"),
+                "independent_approval_present": instance.get(
+                    "independent_approval_present"
+                ),
+            }
+        )
     if instance.get("identity_binding_digest") != _gug215_canonical_digest(
         identity_binding
     ):
         errors.append("identity_binding_digest must cover every immutable identity binding")
 
     ordered_fields = ["classified_at"]
-    if state in {"APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}:
+    if state in {
+        "APPROVED",
+        "EXCEPTION_ACCEPTED",
+        "ATTEMPTED",
+        "RETIRED_RECONCILED",
+    }:
         ordered_fields.append("approved_at")
     if state in {"ATTEMPTED", "RETIRED_RECONCILED"}:
         ordered_fields.append("attempted_at")
@@ -446,7 +481,7 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
         ledger_without_digest
     ):
         errors.append("ledger_digest must cover the complete durable record")
-    if instance.get("schema_version") == "2":
+    if schema_version in {"2", "3"}:
         proofs = [
             instance.get(field)
             for field in (
@@ -458,6 +493,67 @@ def _validate_gug215_ledger(instance: dict) -> list[str]:
         ]
         if len(proofs) != len(set(proofs)):
             errors.append("each durable identity proof must be unique")
+    if schema_version == "3":
+        exception = {
+            "schema_version": "1",
+            "record_type": (
+                "platform_authority_change_set_retirement_single_operator_exception"
+            ),
+            "issue_id": "GUG-215",
+            "environment": "non-production",
+            "production": False,
+            "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+            "two_human_status": "NOT_PROVEN",
+            "independent_approval_present": False,
+            "single_execution": True,
+            "deployment_authorized": False,
+            "request_selectable": False,
+            "allowed_action": "cloudformation:DeleteChangeSet",
+            "broker_ledger_actions": ["dynamodb:PutItem", "dynamodb:UpdateItem"],
+            "forbidden_actions": [
+                "cloudformation:CreateChangeSet",
+                "cloudformation:DeleteStack",
+                "cloudformation:ExecuteChangeSet",
+                "cloudformation:UpdateStack",
+            ],
+            "aws_effect_principal": "BROKER_EXECUTION_ROLE",
+            "max_attempts": 1,
+            "authority_account_id_digest": instance.get(
+                "authority_account_id_digest"
+            ),
+            "region": instance.get("region"),
+            "stack_name": instance.get("stack_name"),
+            "retirement_id": instance.get("retirement_id"),
+            "change_set_name_digest": instance.get("change_set_name_digest"),
+            "template_sha256": instance.get("template_sha256"),
+            "resource_inventory_sha256": instance.get(
+                "resource_inventory_sha256"
+            ),
+            "identity_binding_digest": instance.get("identity_binding_digest"),
+            "broker_runtime_version_arn_digest": instance.get(
+                "broker_runtime_version_arn_digest"
+            ),
+            "broker_version_binding_sha256": instance.get(
+                "broker_version_binding_sha256"
+            ),
+            "operator_identity_store_user_id_digest": instance.get(
+                "classifier_identity_store_user_id_digest"
+            ),
+            "owner_authorization_sha256": instance.get(
+                "owner_authorization_sha256"
+            ),
+            "created_at": instance.get("exception_created_at"),
+            "not_before": instance.get("exception_not_before"),
+            "expires_at": instance.get("exception_expires_at"),
+            "reconciliation_after_expiry": True,
+            "revocation_required": True,
+        }
+        if instance.get("single_operator_authorization_sha256") != (
+            _gug215_canonical_digest(exception)
+        ):
+            errors.append(
+                "single_operator_authorization_sha256 must bind the exact exception"
+            )
     return errors
 
 
@@ -534,12 +630,15 @@ def _validate_gug217_binding(instance: dict) -> list[str]:
     errors: list[str] = []
     classifier = instance.get("classifier_user_id")
     approver = instance.get("approver_user_id")
-    if (
+    users_equal = (
         isinstance(classifier, str)
         and isinstance(approver, str)
         and classifier.lower() == approver.lower()
-    ):
+    )
+    if instance.get("schema_version") == "1" and users_equal:
         errors.append("identity-context PEP requires two distinct UserIds")
+    if instance.get("schema_version") == "2" and not users_equal:
+        errors.append("single-operator PEP requires one exact UserId")
 
     account = instance.get("authority_account_id")
     application = instance.get("identity_center_application_arn")
@@ -607,6 +706,19 @@ def _validate_gug217_binding(instance: dict) -> list[str]:
         )
         for field in digest_fields
     }
+    if instance.get("schema_version") == "2":
+        digest_input.update(
+            {
+                "authorization_mode": instance.get("authorization_mode"),
+                "single_operator_authorization_sha256": instance.get(
+                    "single_operator_authorization_sha256"
+                ),
+                "two_human_status": instance.get("two_human_status"),
+                "independent_approval_present": instance.get(
+                    "independent_approval_present"
+                ),
+            }
+        )
     if instance.get("binding_digest") != _gug215_canonical_digest(digest_input):
         errors.append("binding_digest must cover every immutable PEP binding")
     return errors
@@ -614,10 +726,40 @@ def _validate_gug217_binding(instance: dict) -> list[str]:
 
 def _validate_gug217_proof_receipt(instance: dict) -> list[str]:
     errors = _validate_gug216_receipt(instance)
-    if instance.get("expected_user_id_digest") == instance.get("peer_user_id_digest"):
+    users_equal = (
+        instance.get("expected_user_id_digest")
+        == instance.get("peer_user_id_digest")
+    )
+    if instance.get("schema_version") == "1" and users_equal:
         errors.append("proof receipt requires distinct expected and peer users")
+    if instance.get("schema_version") == "2" and not users_equal:
+        errors.append("single-operator proof must bind the same expected and peer user")
     if instance.get("proof_role_arn_digest") == instance.get("proof_session_arn_digest"):
         errors.append("proof role and proof session digests must be distinct")
+    return errors
+
+
+def _validate_gug215_single_operator_exception(instance: dict) -> list[str]:
+    errors: list[str] = []
+    without_digest = {
+        key: value for key, value in instance.items() if key != "authorization_digest"
+    }
+    if instance.get("authorization_digest") != _gug215_canonical_digest(
+        without_digest
+    ):
+        errors.append("authorization_digest must cover the complete exception")
+    created = _gug215_timestamp(instance.get("created_at"))
+    not_before = _gug215_timestamp(instance.get("not_before"))
+    expires = _gug215_timestamp(instance.get("expires_at"))
+    if all(value is not None for value in (created, not_before, expires)):
+        assert created is not None and not_before is not None and expires is not None
+        if (
+            not_before < created
+            or not_before - created > timedelta(hours=1)
+            or expires <= not_before
+            or expires - not_before > timedelta(minutes=15)
+        ):
+            errors.append("single-operator exception window must be closed and short")
     return errors
 
 
@@ -655,9 +797,24 @@ GUG218_COVERAGE_SURFACES = frozenset(
 GUG218_LAMBDA_CODE_SHA256_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 
 
-def _gug218_expected_authority_edges() -> frozenset[tuple[str, ...]]:
+def _gug218_expected_authority_edges(
+    *, single_operator: bool = False
+) -> frozenset[tuple[str, ...]]:
     expected: set[tuple[str, ...]] = set()
     aliases = (
+        (
+            "single_operator_classifier",
+            "EXACT_SINGLE_CLASSIFY_ALIAS",
+        ),
+        (
+            "single_operator_retirement",
+            "EXACT_SINGLE_RETIRE_ALIAS",
+        ),
+        (
+            "single_operator_retirement",
+            "EXACT_SINGLE_RECONCILE_ALIAS",
+        ),
+    ) if single_operator else (
         ("classifier", "EXACT_CLASSIFY_ALIAS"),
         ("independent_approver", "EXACT_RETIRE_ALIAS"),
         ("independent_approver", "EXACT_RECONCILE_ALIAS"),
@@ -693,7 +850,11 @@ def _gug218_expected_authority_edges() -> frozenset[tuple[str, ...]]:
             (
                 "TRUST",
                 "IAM_ROLE_TRUST_POLICY",
-                "classifier",
+                (
+                    "single_operator_classifier"
+                    if single_operator
+                    else "classifier"
+                ),
                 "CLASSIFIER_INVOKER_ROLE",
                 "sts:AssumeRole",
                 "EXACT_PERMISSION_SET_TRUST",
@@ -701,7 +862,11 @@ def _gug218_expected_authority_edges() -> frozenset[tuple[str, ...]]:
             (
                 "TRUST",
                 "IAM_ROLE_TRUST_POLICY",
-                "independent_approver",
+                (
+                    "single_operator_retirement"
+                    if single_operator
+                    else "independent_approver"
+                ),
                 "APPROVER_INVOKER_ROLE",
                 "sts:AssumeRole",
                 "EXACT_PERMISSION_SET_TRUST",
@@ -712,6 +877,9 @@ def _gug218_expected_authority_edges() -> frozenset[tuple[str, ...]]:
 
 
 GUG218_EXPECTED_AUTHORITY_EDGES = _gug218_expected_authority_edges()
+GUG218_SINGLE_OPERATOR_EXPECTED_AUTHORITY_EDGES = (
+    _gug218_expected_authority_edges(single_operator=True)
+)
 
 
 def _gug218_allowlist_edge_tuple(edge: object) -> tuple[str, ...] | None:
@@ -752,9 +920,9 @@ def _gug218_inventory_edge_tuple(edge: object) -> tuple[str, ...] | None:
 
 def _gug218_expected_principal_kind(edge: dict) -> str | None:
     duty = edge.get("duty")
-    if duty == "classifier":
+    if duty in {"classifier", "single_operator_classifier"}:
         suffix = "CLASSIFIER"
-    elif duty == "independent_approver":
+    elif duty in {"independent_approver", "single_operator_retirement"}:
         suffix = "APPROVER"
     else:
         return None
@@ -829,6 +997,32 @@ def _gug218_validate_evaluation_time(
 
 def _validate_gug218_allowlist(instance: dict) -> list[str]:
     errors: list[str] = []
+    single_operator = instance.get("schema_version") == "2"
+    expected_authority_edges = (
+        GUG218_SINGLE_OPERATOR_EXPECTED_AUTHORITY_EDGES
+        if single_operator
+        else GUG218_EXPECTED_AUTHORITY_EDGES
+    )
+    classifier_duty = (
+        "single_operator_classifier" if single_operator else "classifier"
+    )
+    retirement_duty = (
+        "single_operator_retirement"
+        if single_operator
+        else "independent_approver"
+    )
+    if single_operator:
+        if (
+            instance.get("authorization_mode")
+            != "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+            or instance.get("two_human_status") != "NOT_PROVEN"
+            or instance.get("independent_approval_present") is not False
+            or instance.get("active_aliases")
+            != ["single-classify", "single-reconcile", "single-retire"]
+        ):
+            errors.append(
+                "v2 allowlist must bind the exact non-independent single-operator mode"
+            )
     broker_artifact_code_sha256 = instance.get("broker_artifact_code_sha256")
     if (
         not isinstance(broker_artifact_code_sha256, str)
@@ -846,7 +1040,7 @@ def _validate_gug218_allowlist(instance: dict) -> list[str]:
         for edge in edge_list
         if (value := _gug218_allowlist_edge_tuple(edge)) is not None
     }
-    if len(edge_list) != 14 or edge_tuples != GUG218_EXPECTED_AUTHORITY_EDGES:
+    if len(edge_list) != 14 or edge_tuples != expected_authority_edges:
         errors.append("allowlist must contain the exact fourteen reviewed authority edges")
 
     forbidden = instance.get("forbidden_authority_classes")
@@ -858,14 +1052,14 @@ def _validate_gug218_allowlist(instance: dict) -> list[str]:
         for edge in edge_list
         if isinstance(edge, dict)
         and edge.get("authority_class") == "INVOCATION"
-        and edge.get("duty") == "classifier"
+        and edge.get("duty") == classifier_duty
     }
     approver_principals = {
         edge.get("principal_digest")
         for edge in edge_list
         if isinstance(edge, dict)
         and edge.get("authority_class") == "INVOCATION"
-        and edge.get("duty") == "independent_approver"
+        and edge.get("duty") == retirement_duty
     }
     if len(classifier_principals) != 1 or len(approver_principals) != 1:
         errors.append("each duty must bind exactly one invoker role digest")
@@ -883,9 +1077,9 @@ def _validate_gug218_allowlist(instance: dict) -> list[str]:
     }
     classifier_principal = next(iter(classifier_principals), None)
     approver_principal = next(iter(approver_principals), None)
-    if trust_targets.get("classifier") != classifier_principal:
+    if trust_targets.get(classifier_duty) != classifier_principal:
         errors.append("classifier trust must target the reviewed invoker role")
-    if trust_targets.get("independent_approver") != approver_principal:
+    if trust_targets.get(retirement_duty) != approver_principal:
         errors.append("approver trust must target the reviewed invoker role")
 
     without_digest = {
@@ -911,7 +1105,10 @@ def _validate_gug219_collector_contract(instance: dict) -> list[str]:
 
 
 def _validate_gug219_release(
-    instance: dict, *, expected_collector_contract: dict | None = None
+    instance: dict,
+    *,
+    expected_collector_contract: dict | None = None,
+    expected_allowlist: dict | None = None,
 ) -> list[str]:
     errors: list[str] = []
     without_digest = {
@@ -931,6 +1128,21 @@ def _validate_gug219_release(
         and (not created < expires or expires - created > timedelta(minutes=5))
     ):
         errors.append("release validity window must be positive and at most five minutes")
+    if instance.get("schema_version") == "2":
+        if not isinstance(expected_allowlist, dict):
+            errors.append("v2 release requires the reviewed v2 allowlist context")
+        else:
+            for field in (
+                "authorization_mode",
+                "two_human_status",
+                "independent_approval_present",
+                "single_operator_exception_digest",
+                "owner_authorization_sha256",
+                "active_aliases",
+                "allowlist_digest",
+            ):
+                if instance.get(field) != expected_allowlist.get(field):
+                    errors.append(f"v2 release {field} must match the reviewed allowlist")
     return errors
 
 
@@ -1319,6 +1531,23 @@ def _validate_gug218_inventory(
     evaluation_at: datetime | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    single_operator = instance.get("schema_version") == "2"
+    expected_authority_edges = (
+        GUG218_SINGLE_OPERATOR_EXPECTED_AUTHORITY_EDGES
+        if single_operator
+        else GUG218_EXPECTED_AUTHORITY_EDGES
+    )
+    if single_operator and (
+        instance.get("authorization_mode")
+        != "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+        or instance.get("two_human_status") != "NOT_PROVEN"
+        or instance.get("independent_approval_present") is not False
+        or instance.get("active_aliases")
+        != ["single-classify", "single-reconcile", "single-retire"]
+    ):
+        errors.append(
+            "v2 inventory must bind the exact non-independent single-operator mode"
+        )
     coverage = instance.get("coverage")
     coverage_map = coverage if isinstance(coverage, dict) else {}
     if set(coverage_map) != GUG218_COVERAGE_SURFACES:
@@ -1398,7 +1627,11 @@ def _validate_gug218_inventory(
         for edge in expected_edges
         if (value := _gug218_inventory_edge_binding_tuple(edge)) is not None
     }
-    allowlist_context_valid = isinstance(expected_allowlist, dict)
+    allowlist_context_valid = (
+        isinstance(expected_allowlist, dict)
+        and expected_allowlist.get("schema_version")
+        == instance.get("schema_version")
+    )
     if allowlist_context_valid:
         allowlist_edges = expected_allowlist.get("expected_authority_edges")
         if isinstance(allowlist_edges, list):
@@ -1419,10 +1652,21 @@ def _validate_gug218_inventory(
                 errors.append(
                     f"{inventory_field} must match the reviewed allowlist"
                 )
+        if single_operator:
+            for field in (
+                "authorization_mode",
+                "two_human_status",
+                "independent_approval_present",
+                "single_operator_exception_digest",
+                "owner_authorization_sha256",
+                "active_aliases",
+            ):
+                if instance.get(field) != expected_allowlist.get(field):
+                    errors.append(f"{field} must match the reviewed allowlist")
     authority_exact = (
         allowlist_context_valid
         and len(expected_edges) == 14
-        and expected_tuples == GUG218_EXPECTED_AUTHORITY_EDGES
+        and expected_tuples == expected_authority_edges
         and len(expected_bindings) == 14
         and observed_bindings == expected_bindings
         and not prohibited_edges
@@ -1503,6 +1747,18 @@ def _validate_gug218_guard_receipt(
     evaluation_at: datetime | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    single_operator = instance.get("schema_version") == "2"
+    if single_operator and (
+        instance.get("authorization_mode")
+        != "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+        or instance.get("two_human_status") != "NOT_PROVEN"
+        or instance.get("independent_approval_present") is not False
+        or instance.get("active_aliases")
+        != ["single-classify", "single-reconcile", "single-retire"]
+    ):
+        errors.append(
+            "v2 receipt must bind the exact non-independent single-operator mode"
+        )
     source_started = _gug215_timestamp(instance.get("source_snapshot_started_at"))
     source_completed = _gug215_timestamp(
         instance.get("source_snapshot_completed_at")
@@ -1590,6 +1846,13 @@ def _validate_gug218_guard_receipt(
         errors.append("offline evidence can never produce a preflight decision")
 
     if isinstance(expected_allowlist, dict) and isinstance(expected_inventory, dict):
+        if (
+            expected_allowlist.get("schema_version")
+            != instance.get("schema_version")
+            or expected_inventory.get("schema_version")
+            != instance.get("schema_version")
+        ):
+            errors.append("evidence bundle schema versions must match")
         common_bindings = (
             ("environment", "environment"),
             ("production", "production"),
@@ -1613,6 +1876,20 @@ def _validate_gug218_guard_receipt(
                 errors.append(
                     f"{receipt_field} must match the bound evidence bundle"
                 )
+        if single_operator:
+            for field in (
+                "authorization_mode",
+                "two_human_status",
+                "independent_approval_present",
+                "single_operator_exception_digest",
+                "owner_authorization_sha256",
+                "active_aliases",
+            ):
+                if (
+                    instance.get(field) != expected_allowlist.get(field)
+                    or instance.get(field) != expected_inventory.get(field)
+                ):
+                    errors.append(f"{field} must match the bound evidence bundle")
         inventory_completed = _gug215_timestamp(
             expected_inventory.get("scan_completed_at")
         )
@@ -1652,7 +1929,11 @@ def _validate_gug218_guard_receipt(
         if inventory_status == "REVIEW_SAFE_REPORT_ONLY":
             expected_status = "PREFLIGHT_PASSED_REVIEW_REQUIRED"
             expected_reason = "EXACT_AUTHORITY_REPORT_ONLY"
-            expected_next = "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+            expected_next = (
+                "OWNER_REVIEW_AND_FRESH_SINGLE_OPERATOR_EXECUTION_AUTHORIZATION"
+                if single_operator
+                else "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+            )
         elif inventory_status == "FOREIGN_AUTHORITY_PRESENT":
             expected_status = "BLOCKED_UNSAFE_AUTHORITY"
             expected_reason = "UNSAFE_AUTHORITY_PRESENT"
@@ -2384,8 +2665,14 @@ def validate_semantics(
     if schema_name in {
         "platform-authority-change-set-retirement-ledger.v1.schema.json",
         "platform-authority-change-set-retirement-ledger.v2.schema.json",
+        "platform-authority-change-set-retirement-ledger.v3.schema.json",
     }:
         errors.extend(_validate_gug215_ledger(instance))
+
+    if schema_name == (
+        "platform-authority-change-set-retirement-single-operator-exception.v1.schema.json"
+    ):
+        errors.extend(_validate_gug215_single_operator_exception(instance))
 
     if schema_name == "platform-authority-identity-enhanced-binding.v1.schema.json":
         errors.extend(_validate_gug216_binding(instance))
@@ -2397,23 +2684,36 @@ def validate_semantics(
     }:
         errors.extend(_validate_gug216_receipt(instance))
 
-    if schema_name == "platform-authority-identity-context-pep-binding.v1.schema.json":
+    if schema_name in {
+        "platform-authority-identity-context-pep-binding.v1.schema.json",
+        "platform-authority-identity-context-pep-binding.v2.schema.json",
+    }:
         errors.extend(_validate_gug217_binding(instance))
 
-    if schema_name == "platform-authority-identity-context-proof-receipt.v1.schema.json":
+    if schema_name in {
+        "platform-authority-identity-context-proof-receipt.v1.schema.json",
+        "platform-authority-identity-context-proof-receipt.v2.schema.json",
+    }:
         errors.extend(_validate_gug217_proof_receipt(instance))
 
-    if schema_name == "platform-authority-lambda-invocation-allowlist.v1.schema.json":
+    if schema_name in {
+        "platform-authority-lambda-invocation-allowlist.v1.schema.json",
+        "platform-authority-lambda-invocation-allowlist.v2.schema.json",
+    }:
         errors.extend(_validate_gug218_allowlist(instance))
 
     if schema_name == "platform-authority-lambda-invocation-collector-contract.v1.schema.json":
         errors.extend(_validate_gug219_collector_contract(instance))
 
-    if schema_name == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json":
+    if schema_name in {
+        "platform-authority-lambda-invocation-allowlist-release.v1.schema.json",
+        "platform-authority-lambda-invocation-allowlist-release.v2.schema.json",
+    }:
         errors.extend(
             _validate_gug219_release(
                 instance,
                 expected_collector_contract=gug219_collector_contract,
+                expected_allowlist=gug218_allowlist,
             )
         )
 
@@ -2452,7 +2752,10 @@ def validate_semantics(
             except SignedArtifactError as exc:
                 errors.append(f"GUG-221 signed-artifact receipt invalid: {exc}")
 
-    if schema_name == "platform-authority-lambda-invocation-inventory.v1.schema.json":
+    if schema_name in {
+        "platform-authority-lambda-invocation-inventory.v1.schema.json",
+        "platform-authority-lambda-invocation-inventory.v2.schema.json",
+    }:
         errors.extend(
             _validate_gug218_inventory(
                 instance,
@@ -2461,7 +2764,10 @@ def validate_semantics(
             )
         )
 
-    if schema_name == "platform-authority-lambda-invocation-guard-receipt.v1.schema.json":
+    if schema_name in {
+        "platform-authority-lambda-invocation-guard-receipt.v1.schema.json",
+        "platform-authority-lambda-invocation-guard-receipt.v2.schema.json",
+    }:
         errors.extend(
             _validate_gug218_guard_receipt(
                 instance,
@@ -2487,21 +2793,22 @@ def validate_gug218_evidence_bundle(
     if not HAS_JSONSCHEMA:
         return ["jsonschema dependency is required for GUG-218 bundle validation"]
     schema_dir = Path(__file__).resolve().parents[1] / "schemas"
+    version = "2" if allowlist.get("schema_version") == "2" else "1"
     records = (
         (
             "allowlist",
             allowlist,
-            "platform-authority-lambda-invocation-allowlist.v1.schema.json",
+            f"platform-authority-lambda-invocation-allowlist.v{version}.schema.json",
         ),
         (
             "inventory",
             inventory,
-            "platform-authority-lambda-invocation-inventory.v1.schema.json",
+            f"platform-authority-lambda-invocation-inventory.v{version}.schema.json",
         ),
         (
             "receipt",
             receipt,
-            "platform-authority-lambda-invocation-guard-receipt.v1.schema.json",
+            f"platform-authority-lambda-invocation-guard-receipt.v{version}.schema.json",
         ),
     )
     for label, record, schema_name in records:
@@ -2557,15 +2864,17 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
             if isinstance(metadata, dict)
             else None
         )
-        if (
-            evaluation_at is None
-            and fixture_path.name
-            in {
+        if evaluation_at is None:
+            if fixture_path.name in {
                 "platform-authority-lambda-invocation-inventory-v1-synthetic.json",
                 "platform-authority-lambda-invocation-guard-receipt-v1-synthetic.json",
-            }
-        ):
-            evaluation_at = datetime(2026, 7, 20, 10, 2, tzinfo=UTC)
+            }:
+                evaluation_at = datetime(2026, 7, 20, 10, 2, tzinfo=UTC)
+            elif fixture_path.name in {
+                "platform-authority-lambda-invocation-inventory-v2-single-operator-synthetic.json",
+                "platform-authority-lambda-invocation-guard-receipt-v2-single-operator-synthetic.json",
+            }:
+                evaluation_at = datetime(2030, 1, 1, 0, 26, tzinfo=UTC)
         if (
             schema_path.name
             == "platform-authority-bootstrap-approval.v2.schema.json"
@@ -2583,7 +2892,10 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
             )
         elif (
             schema_path.name
-            == "platform-authority-lambda-invocation-allowlist-release.v1.schema.json"
+            in {
+                "platform-authority-lambda-invocation-allowlist-release.v1.schema.json",
+                "platform-authority-lambda-invocation-allowlist-release.v2.schema.json",
+            }
         ):
             valid_dir = fixture_path.parent.parent / "valid"
             collector = load_json(
@@ -2591,21 +2903,38 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
                 / "platform-authority-lambda-invocation-collector-contract-v1-synthetic.json"
             )
             collector.pop("_test_metadata", None)
+            version = fixture_clean.get("schema_version", "1")
+            allowlist = None
+            if version == "2":
+                allowlist = load_json(
+                    valid_dir
+                    / "platform-authority-lambda-invocation-allowlist-v2-single-operator-synthetic.json"
+                )
+                allowlist.pop("_test_metadata", None)
             semantic_errors = validate_semantics(
                 fixture_clean,
                 schema_path,
                 gug219_collector_contract=collector,
+                gug218_allowlist=allowlist,
                 evaluation_at=evaluation_at,
             )
         elif (
             schema_path.name
-            == "platform-authority-lambda-invocation-inventory.v1.schema.json"
+            in {
+                "platform-authority-lambda-invocation-inventory.v1.schema.json",
+                "platform-authority-lambda-invocation-inventory.v2.schema.json",
+            }
             and fixture_clean.get("status") == "REVIEW_SAFE_REPORT_ONLY"
         ):
             gug218_valid_dir = fixture_path.parent.parent / "valid"
+            version = fixture_clean.get("schema_version", "1")
             allowlist = load_json(
                 gug218_valid_dir
-                / "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+                / (
+                    "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+                    if version == "1"
+                    else "platform-authority-lambda-invocation-allowlist-v2-single-operator-synthetic.json"
+                )
             )
             allowlist.pop("_test_metadata", None)
             semantic_errors = validate_semantics(
@@ -2616,18 +2945,30 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
             )
         elif (
             schema_path.name
-            == "platform-authority-lambda-invocation-guard-receipt.v1.schema.json"
+            in {
+                "platform-authority-lambda-invocation-guard-receipt.v1.schema.json",
+                "platform-authority-lambda-invocation-guard-receipt.v2.schema.json",
+            }
             and fixture_clean.get("status")
             == "PREFLIGHT_PASSED_REVIEW_REQUIRED"
         ):
             gug218_valid_dir = fixture_path.parent.parent / "valid"
+            version = fixture_clean.get("schema_version", "1")
             allowlist = load_json(
                 gug218_valid_dir
-                / "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+                / (
+                    "platform-authority-lambda-invocation-allowlist-v1-synthetic.json"
+                    if version == "1"
+                    else "platform-authority-lambda-invocation-allowlist-v2-single-operator-synthetic.json"
+                )
             )
             inventory = load_json(
                 gug218_valid_dir
-                / "platform-authority-lambda-invocation-inventory-v1-synthetic.json"
+                / (
+                    "platform-authority-lambda-invocation-inventory-v1-synthetic.json"
+                    if version == "1"
+                    else "platform-authority-lambda-invocation-inventory-v2-single-operator-synthetic.json"
+                )
             )
             allowlist.pop("_test_metadata", None)
             inventory.pop("_test_metadata", None)

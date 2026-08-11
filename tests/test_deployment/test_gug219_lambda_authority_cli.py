@@ -86,6 +86,67 @@ def _aws_args(
     )
 
 
+def _single_aws_args(
+    module: ModuleType,
+    tmp_path: Path,
+    *,
+    expected_release_digest: str,
+) -> Any:
+    support = _support()
+    contract, allowlist, release = support.single_materialized_bundle()
+    exception = support.single_operator_exception()
+    manifest = support.single_package_manifest()
+    return module._parser().parse_args(
+        [
+            "aws-readonly",
+            "--allowlist",
+            str(_write(tmp_path / "single-allowlist.json", allowlist, private=True)),
+            "--collector-contract",
+            str(_write(tmp_path / "single-collector.json", contract, private=True)),
+            "--release-manifest",
+            str(_write(tmp_path / "single-release.json", release, private=True)),
+            "--candidate-snapshot",
+            str(
+                _write(
+                    tmp_path / "single-candidate.json",
+                    support.single_candidate_snapshot(),
+                    private=True,
+                )
+            ),
+            "--authorization-mode",
+            "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+            "--single-operator-exception",
+            str(
+                _write(
+                    tmp_path / "single-exception.json",
+                    exception,
+                    private=True,
+                )
+            ),
+            "--broker-artifact-manifest",
+            str(
+                _write(
+                    tmp_path / "single-package-manifest.json",
+                    manifest,
+                    private=True,
+                )
+            ),
+            "--expected-broker-artifact-manifest-digest",
+            manifest["manifest_digest"],
+            "--expected-release-manifest-digest",
+            expected_release_digest,
+            "--profile",
+            "synthetic-profile-name",
+            "--authority-account-id",
+            support.ACCOUNT,
+            "--region",
+            support.REGION,
+            "--function-name",
+            support.FUNCTION,
+        ]
+    )
+
+
 def test_aws_cli_requires_release_anchor_instead_of_direct_allowlist_digest() -> None:
     module = _module(AUTHORITY_SCRIPT, "gug219_authority_cli_parser")
     parser = module._parser()
@@ -315,6 +376,81 @@ def test_materialize_cli_offline_success(
     )
 
 
+def test_materialize_cli_single_operator_binds_reviewed_package_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _module(MATERIALIZER_SCRIPT, "gug219_materializer_single_success")
+    support = _support()
+    candidate_path = _write(
+        tmp_path / "single-candidate.json",
+        support.single_candidate_snapshot(),
+        private=True,
+    )
+    contract_path = _write(
+        tmp_path / "single-contract.json",
+        support.single_collector_contract(),
+        private=True,
+    )
+    exception_path = _write(
+        tmp_path / "single-exception.json",
+        support.single_operator_exception(),
+        private=True,
+    )
+    manifest = support.single_package_manifest()
+    manifest_path = _write(
+        tmp_path / "single-package-manifest.json",
+        manifest,
+        private=True,
+    )
+    args = module._parser().parse_args(
+        [
+            "materialize",
+            "--candidate-snapshot",
+            str(candidate_path),
+            "--collector-contract",
+            str(contract_path),
+            "--source-commit",
+            support.SOURCE_COMMIT,
+            "--created-at",
+            support.RELEASE_CREATED,
+            "--expires-at",
+            support.RELEASE_EXPIRES,
+            "--output-dir",
+            str(tmp_path / "single-release-output"),
+            "--authority-account-id",
+            support.ACCOUNT,
+            "--region",
+            support.REGION,
+            "--function-name",
+            support.FUNCTION,
+            "--authorization-mode",
+            "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+            "--single-operator-exception",
+            str(exception_path),
+            "--broker-artifact-manifest",
+            str(manifest_path),
+            "--expected-broker-artifact-manifest-digest",
+            manifest["manifest_digest"],
+        ]
+    )
+    monkeypatch.setattr(module, "validate_source_commit_binding", lambda **_: None)
+
+    assert module._materialize(args) == 0
+    output = tmp_path / "single-release-output"
+    release = json.loads((output / "release-manifest.json").read_text())
+    allowlist = json.loads((output / "allowlist.json").read_text())
+    assert release["schema_version"] == "2"
+    assert release["broker_artifact_manifest_digest"] == manifest["manifest_digest"]
+    assert release["broker_artifact_code_sha256"] == manifest["lambda_code_sha256"]
+    assert release["two_human_status"] == "NOT_PROVEN"
+    assert allowlist["independent_approval_present"] is False
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["broker_artifact_manifest_digest"] == manifest["manifest_digest"]
+    assert receipt["aws_calls_performed"] is False
+
+
 def test_private_input_rejects_symlink_and_nonregular_file(tmp_path: Path) -> None:
     module = _module(MATERIALIZER_SCRIPT, "gug219_private_input_types")
     target = _write(tmp_path / "target.json", {"synthetic": True}, private=True)
@@ -360,4 +496,42 @@ def test_gug218_cli_mocked_fresh_b_success(
     assert module._run(args) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["inventory"]["status"] == "REVIEW_SAFE_REPORT_ONLY"
+    assert result["receipt"]["status"] == "PREFLIGHT_PASSED_REVIEW_REQUIRED"
+
+
+def test_gug218_cli_single_operator_consumes_reviewed_package_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _module(AUTHORITY_SCRIPT, "gug218_authority_single_success")
+    support = _support()
+    _, _, release = support.single_materialized_bundle()
+    args = _single_aws_args(
+        module,
+        tmp_path,
+        expected_release_digest=release["release_digest"],
+    )
+    args.snapshot_loader = lambda _: support.single_fresh_snapshot()
+    monkeypatch.setattr(
+        support.materializer(),
+        "validate_source_commit_binding",
+        lambda **_: None,
+    )
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:
+            return datetime(2030, 1, 1, 0, 3, 1, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(module, "datetime", FixedDateTime)
+
+    assert module._run(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["inventory"]["schema_version"] == "2"
+    assert result["inventory"]["authorization_mode"] == (
+        "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+    )
+    assert result["inventory"]["two_human_status"] == "NOT_PROVEN"
+    assert result["receipt"]["independent_approval_present"] is False
     assert result["receipt"]["status"] == "PREFLIGHT_PASSED_REVIEW_REQUIRED"

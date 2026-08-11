@@ -33,18 +33,34 @@ def binding_from_environment(
     env: Mapping[str, str] | None = None,
 ) -> IdentityContextPepBinding:
     source = os.environ if env is None else env
+    redirect_uri = _required(source, "IDENTITY_CENTER_REDIRECT_URI")
+    if redirect_uri != broker_config.identity_center_redirect_uri:
+        raise ProofBoundaryError("CONFIGURATION_BINDING_MISMATCH")
     return IdentityContextPepBinding(
         authority_account_id=broker_config.authority_account_id,
         region=broker_config.region,
         identity_center_application_arn=broker_config.identity_center_application_arn,
         identity_center_instance_arn=broker_config.identity_center_instance_arn,
         identity_store_arn=broker_config.identity_store_arn,
-        redirect_uri=_required(source, "IDENTITY_CENTER_REDIRECT_URI"),
+        redirect_uri=redirect_uri,
         broker_execution_role_arn=broker_config.execution_role_arn,
         classifier_user_id=broker_config.classifier_identity_store_user_id,
         approver_user_id=broker_config.approver_identity_store_user_id,
         classifier_proof_role_arn=broker_config.classifier_proof_role_arn,
         approver_proof_role_arn=broker_config.approver_proof_role_arn,
+        authorization_mode=getattr(
+            broker_config,
+            "authorization_mode",
+            "TWO_HUMAN",
+        ),
+        single_operator_authorization_sha256=(
+            getattr(
+                broker_config,
+                "single_operator_authorization_sha256",
+                None,
+            )
+            or ""
+        ),
     )
 
 

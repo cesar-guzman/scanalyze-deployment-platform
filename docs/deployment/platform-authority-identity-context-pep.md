@@ -11,6 +11,23 @@ decision. It does not deploy or invoke the path, mutate Identity Center,
 retire a Change Set, run Terraform Apply, touch customer infrastructure or
 authorize production. Production remains **NO-GO**.
 
+## ADR-050 transport mode
+
+ADR-050 reuses this proof-only transport for one explicitly bounded
+`SINGLE_OPERATOR_NONPROD_EXCEPTION`. In that deployment the aliases are
+`single-classify`, `single-retire` and `single-reconcile`; the same immutable
+Identity Store user must produce separate fresh proofs for all duties. Binding
+v2 and proof receipt v2 explicitly record `two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`.
+
+Normal aliases and v1 distinct-user proof remain unchanged. The authorization
+mode comes only from immutable function configuration and cannot be selected
+by request content. The exception artifact is validated against an
+owner-reviewed exact `authorization_digest` before token exchange and again
+before the one protected effect. The function must prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`.
+
 ## Architecture
 
 | Layer | Exact responsibility | Explicit non-authority |
@@ -23,12 +40,14 @@ authorize production. Production remains **NO-GO**.
 | Classifier/approver proof role | Let STS evaluate one exact immutable UserId and return a short-lived proof session | Explicit deny of every action; credentials are never used |
 | GUG-215 ledger | Persist proof digests, approval and one-attempt CAS state | No caller or human writer |
 
-The three public transport bindings are exact qualified aliases:
+The three public transport bindings are exact qualified aliases selected by
+immutable authorization mode:
 
 ```text
-classifier invoker -> Function URL :classify
-approver invoker   -> Function URL :retire
-approver invoker   -> Function URL :reconcile
+TWO_HUMAN                         SINGLE_OPERATOR_NONPROD_EXCEPTION
+classifier -> URL :classify       classifier -> URL :single-classify
+approver   -> URL :retire         retirement -> URL :single-retire
+approver   -> URL :reconcile      retirement -> URL :single-reconcile
 ```
 
 Each URL is `AWS_IAM`, `BUFFERED`, and qualified to the reviewed published
@@ -64,7 +83,9 @@ request is evaluated:
 - authority account and Region;
 - exact Identity Center Application, Instance and Identity Store;
 - exact loopback redirect URI;
-- two distinct immutable Identity Store UserIds;
+- two distinct immutable Identity Store UserIds in `TWO_HUMAN`, or the same one
+  exact immutable UserId plus the active ADR-050 exception digest in
+  `SINGLE_OPERATOR_NONPROD_EXCEPTION`;
 - exact classifier and approver source permission-set role ARNs;
 - exact ordinary invoker role names and policy digests;
 - exact classifier and approver proof role names and deny-all policy digests;
@@ -108,8 +129,11 @@ trusted computing base.
 
 ## Identity proof
 
-For `classify`, the broker targets `ScanalyzeGug217ClassifierProof`. For
-`retire` and `reconcile`, it targets `ScanalyzeGug217ApproverProof`.
+For the classifier operation (`classify` or `single-classify`), the broker
+targets `ScanalyzeGug217ClassifierProof`. For the retirement and reconciliation
+operations (`retire`/`reconcile` or `single-retire`/`single-reconcile`), it
+targets `ScanalyzeGug217ApproverProof`. In ADR-050 both proof roles bind the same
+one immutable UserId and remain explicitly non-independent.
 
 `CreateTokenWithIAM` must return a Bearer token with exact
 `sts:identity_context` scope, bounded lifetime, no refresh token and one opaque
@@ -141,8 +165,12 @@ ATTEMPTED        -> one exact DeleteChangeSet request
 reconcile proof  -> RETIRED_RECONCILED CAS after exact absence
 ```
 
-The independent approver proof is durable before the protected retirement
-effect. A missing, wrong-duty, conflicting or replayed digest cannot advance
+The preceding state machine and independent approver proof apply to
+`TWO_HUMAN`. ADR-050 instead uses
+`single-classify -> single-retire -> single-reconcile`, with ledger v3 states
+`CLASSIFIED -> EXCEPTION_ACCEPTED -> ATTEMPTED -> RETIRED_RECONCILED`; its
+owner-reviewed exact exception digest is durable before the protected effect.
+A missing, wrong-duty, conflicting or replayed digest cannot advance
 the state machine. An uncertain delete leaves `ATTEMPTED` and cannot be
 retried.
 
@@ -154,23 +182,24 @@ CloudFormation.
 
 Evidence must report both facts:
 
-- human authorization: proof-receipt digests bound to distinct UserIds;
+- human authorization: proof-receipt digests bound to distinct UserIds in
+  normal mode, or to the same UserId plus the reviewed ADR-050 exception digest;
 - AWS effect: `ScanalyzeGug215BrokerExecution` service principal.
 
 The current design explicitly records `native_on_behalf_of = false`. Do not
 claim CloudTrail native `onBehalfOf` attribution for the CloudFormation effect.
 
-## Required people
+## Required people in normal mode
 
 Live use requires two different real people:
 
 1. classifier with one immutable Identity Store UserId;
 2. independent approver with a different immutable Identity Store UserId.
 
-César is currently the sole operator. He may implement and run synthetic local
-tests, but he cannot perform both live duties. Two profiles, roles, browsers,
-sessions or time windows for César do not meet this control. Do not provision
-placeholder users and do not reuse the founder-bootstrap exception.
+César is currently the sole operator. He cannot perform both duties in normal
+mode. Two profiles, roles, browsers, sessions or time windows do not meet that
+control. ADR-050 supplies the only bounded same-human alternative; do not
+provision placeholder users or reuse the founder-bootstrap exception.
 
 ## Live-enablement gates
 
@@ -178,24 +207,30 @@ Before any token exchange or Function URL invocation, all of the following
 must be separately authorized and evidenced:
 
 1. exact commit reviewed, required CI green and main verification complete;
-2. two independent humans and distinct UserIds approved;
+2. either two independent humans with distinct UserIds for normal mode, or the
+   exact active ADR-050 exception and owner-reviewed exact
+   `authorization_digest` for single mode;
 3. exact Identity Center application, grant, actor policy, permission sets,
    assignments and provisioned roles read back;
 4. live `v12` version/document digest or a newly reviewed successor proved;
 5. code-signed published broker version and all exact Function URL/resource
-   policies read back with no foreign authority;
+   policies read back with no foreign authority, plus
+   `RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+   `RuntimeVersionArn`;
 6. proof-role trust and deny-all effective policies read back;
 7. GUG-215 ledger, resource policy, stack and exact retained target proved;
 8. non-production execution authorization, monitoring, no-retry response and
    revocation plan approved;
 9. GUG-218 produces a fresh, authenticated, collector-sealed
    `REVIEW_SAFE_REPORT_ONLY` account-wide inventory with no alternate invoker,
-   mutator, writer or deleter, and a separately reviewed preventive guardrail
-   is active; `OFFLINE_UNVERIFIED` evidence never satisfies this gate;
+   mutator, writer or deleter, and a mode-appropriate reviewed preventive
+   guardrail is active; `OFFLINE_UNVERIFIED` evidence never satisfies this gate;
 10. fresh recovery preflight remains fail-closed.
 
-The current one-person roster fails gate 2. Stop before live provisioning or
-invocation.
+The current one-person roster fails the normal-mode branch of gate 2. It may
+satisfy only the ADR-050 branch by presenting the exact active exception and
+its owner-reviewed exact `authorization_digest`. All remaining gates and the separate
+deployment/execution authorization still apply.
 
 ## Evidence classification
 
@@ -208,7 +243,7 @@ invocation.
 | Live Function URL / broker deployment | **Not performed** |
 | Live token or STS proof | **Not performed** |
 | Live broker invocation / retirement | **Blocked** |
-| Independent approver | **Blocked**; only one current human |
+| Independent approver | Normal mode blocked; ADR-050 records **NOT_PROVEN** |
 | Production | **NO-GO** |
 
 ## Related documents

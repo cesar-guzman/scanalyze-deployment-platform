@@ -20,6 +20,7 @@ VALID = REPO_ROOT / "fixtures" / "valid"
 INVALID = REPO_ROOT / "fixtures" / "invalid"
 
 BINDING_SCHEMA = SCHEMAS / "platform-authority-identity-context-pep-binding.v1.schema.json"
+BINDING_V2_SCHEMA = SCHEMAS / "platform-authority-identity-context-pep-binding.v2.schema.json"
 COMPATIBILITY_SCHEMA = (
     SCHEMAS
     / "platform-authority-identity-context-pep-compatibility-receipt.v1.schema.json"
@@ -27,12 +28,21 @@ COMPATIBILITY_SCHEMA = (
 PROOF_SCHEMA = (
     SCHEMAS / "platform-authority-identity-context-proof-receipt.v1.schema.json"
 )
+PROOF_V2_SCHEMA = (
+    SCHEMAS / "platform-authority-identity-context-proof-receipt.v2.schema.json"
+)
 LEDGER_SCHEMA = (
     SCHEMAS / "platform-authority-change-set-retirement-ledger.v2.schema.json"
+)
+LEDGER_V3_SCHEMA = (
+    SCHEMAS / "platform-authority-change-set-retirement-ledger.v3.schema.json"
 )
 
 BINDING_FIXTURE = (
     VALID / "platform-authority-identity-context-pep-binding-v1-synthetic.json"
+)
+BINDING_V2_FIXTURE = (
+    VALID / "platform-authority-identity-context-pep-binding-v2-single-operator-synthetic.json"
 )
 COMPATIBILITY_FIXTURE = (
     VALID
@@ -41,12 +51,24 @@ COMPATIBILITY_FIXTURE = (
 PROOF_FIXTURE = (
     VALID / "platform-authority-identity-context-proof-receipt-v1-synthetic.json"
 )
+PROOF_V2_FIXTURE = (
+    VALID
+    / "platform-authority-identity-context-proof-receipt-v2-single-operator-synthetic.json"
+)
 CLASSIFIED_FIXTURE = (
     VALID
     / "platform-authority-change-set-retirement-ledger-v2-classified-synthetic.json"
 )
 RETIRED_FIXTURE = (
     VALID / "platform-authority-change-set-retirement-ledger-v2-retired-synthetic.json"
+)
+SINGLE_CLASSIFIED_FIXTURE = (
+    VALID
+    / "platform-authority-change-set-retirement-ledger-v3-classified-single-operator-synthetic.json"
+)
+SINGLE_RETIRED_FIXTURE = (
+    VALID
+    / "platform-authority-change-set-retirement-ledger-v3-retired-single-operator-synthetic.json"
 )
 
 BINDING_DIGEST_FIELDS = (
@@ -102,7 +124,15 @@ def _validator(path: Path) -> Draft202012Validator:
 
 @pytest.mark.parametrize(
     "schema_path",
-    (BINDING_SCHEMA, COMPATIBILITY_SCHEMA, PROOF_SCHEMA, LEDGER_SCHEMA),
+    (
+        BINDING_SCHEMA,
+        BINDING_V2_SCHEMA,
+        COMPATIBILITY_SCHEMA,
+        PROOF_SCHEMA,
+        PROOF_V2_SCHEMA,
+        LEDGER_SCHEMA,
+        LEDGER_V3_SCHEMA,
+    ),
 )
 def test_gug217_schemas_are_valid_draft_2020_12(schema_path: Path) -> None:
     _validator(schema_path)
@@ -112,10 +142,14 @@ def test_gug217_schemas_are_valid_draft_2020_12(schema_path: Path) -> None:
     ("schema_path", "fixture_path"),
     (
         (BINDING_SCHEMA, BINDING_FIXTURE),
+        (BINDING_V2_SCHEMA, BINDING_V2_FIXTURE),
         (COMPATIBILITY_SCHEMA, COMPATIBILITY_FIXTURE),
         (PROOF_SCHEMA, PROOF_FIXTURE),
+        (PROOF_V2_SCHEMA, PROOF_V2_FIXTURE),
         (LEDGER_SCHEMA, CLASSIFIED_FIXTURE),
         (LEDGER_SCHEMA, RETIRED_FIXTURE),
+        (LEDGER_V3_SCHEMA, SINGLE_CLASSIFIED_FIXTURE),
+        (LEDGER_V3_SCHEMA, SINGLE_RETIRED_FIXTURE),
     ),
 )
 def test_synthetic_gug217_fixtures_validate(

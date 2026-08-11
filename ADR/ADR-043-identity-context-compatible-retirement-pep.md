@@ -4,11 +4,12 @@
 - **Date:** 2026-07-20
 - **Work package:** GUG-217
 - **Amends:** ADR-041 and ADR-042
+- **Amended by:** ADR-050 for `SINGLE_OPERATOR_NONPROD_EXCEPTION` only
 - **Production:** **NO-GO**
 
 ## Context
 
-ADR-041 requires two different immutable IAM Identity Center users to classify
+ADR-041 normally requires two different immutable IAM Identity Center users to classify
 and approve retirement of one exact retained CloudFormation Change Set. Its
 original design attempted to let an identity-enhanced session invoke the
 version-pinned Lambda broker directly.
@@ -28,7 +29,8 @@ authority over Lambda, CloudFormation or DynamoDB.
 The current organization has only one human operator. Repository
 implementation and synthetic tests may model both duties, but one person,
 multiple profiles or separate time windows do not provide independent
-approval.
+approval in `TWO_HUMAN`. ADR-050 defines a separate, explicitly non-independent
+`SINGLE_OPERATOR_NONPROD_EXCEPTION`; it does not reinterpret one person as two.
 
 ## Decision
 
@@ -61,10 +63,27 @@ exact classifier or approver permission-set session
   -> exact broker operation
 ```
 
-There are three Function URLs, each bound to one published alias:
+There are three Function URLs, each bound to one published alias. Normal mode
+uses `classify`, `retire` and `reconcile`; ADR-050 uses only
+`single-classify`, `single-retire` and `single-reconcile`. The two families are
+mutually exclusive and request content cannot select the mode.
+
+In `TWO_HUMAN`:
 
 - classifier role: `classify` only;
 - approver role: `retire` and `reconcile` only.
+
+In `SINGLE_OPERATOR_NONPROD_EXCEPTION`, the same immutable user supplies fresh
+proofs in this exact sequence:
+
+```text
+single-classify -> single-retire -> single-reconcile
+```
+
+The owner must review and pin the exact exception `authorization_digest`.
+Binding v2 and proof receipt v2 record `two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`; the normal two-human proof remains
+unchanged.
 
 Every URL uses `AWS_IAM` and synchronous `BUFFERED` invocation. The invoker
 policies require both `lambda:InvokeFunctionUrl` with
@@ -77,6 +96,10 @@ an account-wide authority inventory or an explicit organization/permissions
 boundary guardrail. The strict URL event shape and exact STS human proof remain
 mandatory defense in depth; this repository does not claim that a Lambda
 resource policy alone can deny every same-account identity grant.
+
+The published function is also fail-closed on
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`; automatic runtime updates or runtime-version drift block.
 
 The ordinary invoker roles never receive `CreateTokenWithIAM`, `sts:SetContext`,
 CloudFormation retirement or DynamoDB write authority. The broker execution
@@ -150,8 +173,11 @@ The ledger records:
   `DeleteChangeSet`;
 - reconciliation proof before the terminal CAS.
 
-The protected CloudFormation effect can occur only after the independent
-approver proof is durable and the one attempt has been consumed. Missing,
+In `TWO_HUMAN`, the protected CloudFormation effect can occur only after the
+independent approver proof is durable. In the ADR-050 exception it can occur
+only after the same bound user's fresh `single-retire` proof and the
+owner-reviewed exact exception `authorization_digest` are durable. In both
+modes, the one attempt must be consumed first. Missing,
 foreign, conflicting or replayed proof state fails closed. An uncertain delete
 remains `ATTEMPTED` and permits reconciliation only, never a second delete.
 
@@ -174,18 +200,19 @@ effect_attribution = BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF
 Documentation and evidence must never claim native downstream `onBehalfOf`
 attribution when the service event does not provide it.
 
-### 7. Independent approval remains a real-person control
+### 7. Independent approval remains a real-person control in `TWO_HUMAN`
 
-Live classification requires one actual classifier human and one immutable
+Normal live classification requires one actual classifier human and one immutable
 UserId. Live approval, retirement and reconciliation require a different
 actual human and a different immutable UserId. Equality is rejected in the
 typed binding and deployment rules.
 
 César is currently the only human operator. He may implement, review synthetic
 fixtures, run local tests and perform separately authorized read-only inventory.
-He cannot satisfy both live duties. A second profile, role, terminal, browser
-session or delayed self-approval is not a second person. The founder-bootstrap
-exception is out of scope and cannot authorize this retirement.
+He cannot satisfy both `TWO_HUMAN` duties. A second profile, role, terminal,
+browser session or delayed self-approval is not a second person. He may use the
+ADR-050 route only through its exact owner-reviewed, non-production exception;
+that evidence remains explicitly non-independent.
 
 ### 8. Repository implementation is not live authorization
 
@@ -194,10 +221,13 @@ Lambda or ledger deployment, token exchange, STS proof sessions, Function URL
 invocation, Change Set deletion, Terraform Apply, customer deployment or
 production.
 
-Live use remains blocked until two independent humans exist and all GUG-215,
-GUG-216 and GUG-217 provisioning, account-wide authority inventory, exact
-readback, CI, non-production execution authorization, revocation and recovery
-gates pass.
+Normal live use remains blocked until two independent humans exist. The
+ADR-050 route instead requires the exact owner-reviewed exception
+`authorization_digest`, the same immutable user, exclusive `single-*` aliases
+and `two_human_status = NOT_PROVEN`. Both routes remain blocked until all
+GUG-215, GUG-216 and GUG-217 provisioning, Manual runtime pin, account-wide
+authority inventory, exact readback, CI, non-production execution authorization,
+revocation and recovery gates pass.
 
 ADR-044/GUG-218 defines that inventory as a separate read-only capture and
 pure analyzer. Only collector-sealed authenticated evidence can produce
@@ -217,7 +247,8 @@ preventive guardrail.
 - Human proof is durable before the one protected retirement effect.
 - AWS effect attribution remains honest: service principal plus separately
   bound human proof, not native delegation.
-- The sole-operator organization remains blocked from live use.
+- The sole-operator organization remains blocked from `TWO_HUMAN`; ADR-050 is
+  the only bounded non-production alternative.
 
 ## Alternatives rejected
 
@@ -234,7 +265,8 @@ preventive guardrail.
 - **Use Lambda credentials returned by STS proof:** bypasses the broker-only
   mutation and attribution boundary.
 - **Treat one person in two sessions as independent approval:** violates the
-  governance and immutable-user model.
+  normal governance and immutable-user model. ADR-050 records the same person
+  honestly as `NOT_PROVEN`, never as independent.
 - **Log or persist request bodies for troubleshooting:** exposes bearer-like
   one-time secrets.
 
@@ -246,9 +278,10 @@ from the reviewed deployment package; it does not delete cloud resources.
 After a separately authorized deployment, rollback means disabling/revoking
 the exact human assignments and Function URL invoke authority, then performing
 read-only reconciliation. Never delete or reset the GUG-215 ledger to recreate
-an attempt. If the ledger is `ATTEMPTED`, only the original version-pinned
-`reconcile` path may determine terminal state. Destructive cloud cleanup
-requires a separate approved package.
+an attempt. If the ledger is `ATTEMPTED`, only the original version-pinned,
+mode-specific path may determine terminal state: `reconcile` for `TWO_HUMAN`
+or `single-reconcile` for ADR-050. Destructive cloud cleanup requires a
+separate approved package.
 
 ## Evidence classification
 
@@ -261,7 +294,8 @@ requires a separate approved package.
 | Live Function URL / broker deployment | **Not performed** |
 | Live `CreateTokenWithIAM` | **Not performed** |
 | Live STS `ProvidedContexts` proof | **Not performed** |
-| Independent approver | **Blocked**; only one current human |
+| Independent approver (`TWO_HUMAN`) | **Blocked**; only one current human |
+| ADR-050 owner checkpoint | Exact owner-reviewed `authorization_digest` required; `two_human_status = NOT_PROVEN` |
 | Live retirement | **Blocked** |
 | Production | **NO-GO** |
 

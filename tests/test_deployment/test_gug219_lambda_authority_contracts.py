@@ -95,6 +95,9 @@ def test_materializer_exports_the_reviewed_tests_first_api() -> None:
             "created_at",
             "expires_at",
             "repo_root",
+            "single_operator_exception",
+            "broker_artifact_manifest",
+            "expected_broker_artifact_manifest_digest",
         },
         "validate_release_bundle": {
             "allowlist",
@@ -103,6 +106,9 @@ def test_materializer_exports_the_reviewed_tests_first_api() -> None:
             "binding",
             "expected_release_digest",
             "evaluation_at",
+            "single_operator_exception",
+            "broker_artifact_manifest",
+            "expected_broker_artifact_manifest_digest",
         },
         "validate_fresh_capture": {
             "candidate_snapshot",
@@ -113,6 +119,9 @@ def test_materializer_exports_the_reviewed_tests_first_api() -> None:
                 "binding",
                 "expected_release_digest",
                 "evaluation_at",
+                "single_operator_exception",
+                "broker_artifact_manifest",
+                "expected_broker_artifact_manifest_digest",
             },
         "write_private_bundle": {"output_dir", "repo_root", "artifacts"},
     }

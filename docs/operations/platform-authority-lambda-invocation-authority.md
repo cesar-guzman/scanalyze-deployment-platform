@@ -8,7 +8,14 @@ Lambda invocation, Change Set operations, Terraform Apply, customer deployment
 or production.
 
 The current roster has one human. A clean report cannot replace the different
-classifier and approver required by GUG-215/GUG-217.
+classifier and approver required by normal `TWO_HUMAN`. ADR-050 is the only
+same-human non-production route; its evidence remains
+`two_human_status = NOT_PROVEN` and is not an independent approval.
+
+Before either mode can use this report, the separate GUG-215 runtime readback
+must prove `RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact
+reviewed `RuntimeVersionArn`; GUG-218 does not perform that runtime-management
+readback itself.
 
 An offline snapshot is never trusted evidence. The wrapper controls the source
 mode; request JSON cannot claim `AWS_READ_ONLY`. Only the authenticated
@@ -20,9 +27,10 @@ Before any AWS call:
 
 1. record issue, branch, commit, PR and evidence owner;
 2. record the explicitly authorized account, Region, profile and time window;
-3. verify the expected function name, aliases, role names and allowlist digest
-   come from a reviewed immutable deployment/release contract, and pass that
-   independently obtained digest as `--expected-allowlist-digest`;
+3. verify the expected function name, mode-specific aliases, role names and
+   allowlist digest come from a reviewed immutable deployment/release contract,
+   and pass its independently obtained digest in `TWO_HUMAN`, or its exact
+   owner-reviewed digest in ADR-050, as `--expected-allowlist-digest`;
 4. require the CLI to recompute the canonical allowlist digest and validate the
    complete account, Region, function, graph and artifact binding before the
    snapshot loader or any AWS client can start;
@@ -32,10 +40,20 @@ Before any AWS call:
    other same-account or foreign role stop before EC2, Lambda or IAM reads;
 6. prove the session contains no invocation or mutation authority;
 7. define private raw-evidence retention and deletion;
-8. identify an independent reviewer for any future rollout decision.
+8. identify an independent reviewer for a `TWO_HUMAN` rollout, or record the
+   owner checkpoint over the exact exception/release digests for ADR-050.
 
 Stop if account, Region, binding, profile or authorization is absent. Never use
 the default AWS profile.
+
+For ADR-050 candidate or AWS-readonly commands, pass both
+`--authorization-mode SINGLE_OPERATOR_NONPROD_EXCEPTION` and
+`--single-operator-exception <private-exception-artifact>`. The resulting v2
+chain must use only
+`single-classify -> single-retire -> single-reconcile`, duties
+`single_operator_classifier`/`single_operator_retirement`, and the matching
+`EXACT_SINGLE_*_ALIAS` scopes. Omit those flags for the backward-compatible v1
+`TWO_HUMAN` flow.
 
 Unset and reject custom AWS endpoint or CA-bundle configuration, including
 global/service endpoint overrides. The adapter must construct and read back
@@ -103,7 +121,7 @@ allowlist. Require:
 - exactly fourteen expected authority edges;
 - zero extra or missing invocation/trust edges;
 - zero authority-mutation edges;
-- three exact aliases on one reviewed numeric version, no weighted routing and
+- three exact mode-specific aliases on one reviewed numeric version, no weighted routing and
   exact broker `CodeSha256` plus published-configuration digest on the
   published version, `$LATEST` and base function;
 - no public, foreign, wildcard, unqualified, `$LATEST`, legacy-version,
@@ -161,14 +179,18 @@ rollout evidence.
 `REVIEW_SAFE_REPORT_ONLY` is evidence for review, not authorization. Before a
 future non-production rollout:
 
-1. have a different person review the exact binding, digest and reason counts;
+1. in `TWO_HUMAN`, have a different person review the exact binding, digest and
+   reason counts; in ADR-050, have the owner review and pin the exact v2
+   exception/release digest without claiming independence;
 2. repeat the read-only capture in a separately authorized window;
 3. require the second snapshot to produce the same closed graph;
-4. install or verify the separately reviewed preventive authority guardrail;
+4. install or verify the mode-appropriate reviewed preventive authority guardrail;
 5. rerun GUG-214 through GUG-217 gates;
 6. obtain explicit live execution authorization.
 
-The current one-person roster cannot complete step 1.
+The current one-person roster cannot complete the `TWO_HUMAN` branch of step 1.
+It may complete only the exact ADR-050 branch, which remains non-production and
+reports `two_human_status = NOT_PROVEN`.
 
 ## Stop conditions
 
@@ -194,7 +216,8 @@ Stop immediately for:
   channel instead of an immutable reviewed contract;
 - standalone receipt validation without the exact reviewed allowlist,
   inventory and trusted evaluation instant;
-- one operator being presented as independent approval;
+- one operator being presented as independent approval, or an ADR-050 bundle
+  missing its owner-reviewed exact digest and `NOT_PROVEN` status;
 - any claim of live or production authorization.
 
 ## Failure and reconciliation
@@ -218,6 +241,8 @@ Locally validated: <named gates>
 CI validated: <exact checks or not established>
 AWS read-only inventory: <not performed or sanitized timestamp/status>
 Live validated: no
-Independent approver: blocked while one human exists
+Authorization mode: <TWO_HUMAN or SINGLE_OPERATOR_NONPROD_EXCEPTION>
+Independent approver: <blocked while one human exists or NOT_PROVEN in ADR-050>
+Owner-reviewed exact digest: <required in ADR-050>
 Production: NO-GO
 ```

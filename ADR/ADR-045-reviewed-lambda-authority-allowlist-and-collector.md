@@ -4,6 +4,7 @@
 - **Date:** 2026-07-20
 - **Work package:** GUG-219
 - **Amends:** ADR-044
+- **Amended by:** ADR-050 for `SINGLE_OPERATOR_NONPROD_EXCEPTION` materialization only
 - **Depends on:** GUG-217 and GUG-218
 - **Production:** **NO-GO**
 
@@ -14,8 +15,9 @@ closed authority graph, but it deliberately does not manufacture the reviewed
 allowlist that establishes that graph. Its committed allowlist is synthetic
 test data. A caller that copied the embedded digest from that same file would
 prove only self-consistency, not that the allowlist came from reviewed
-GUG-217 source bytes and an exact live binding. Independent build-once
-artifact provenance and byte equality remain a separate rollout gate.
+GUG-217 source bytes and an exact live binding. ADR-050 v2 closes the
+build-once package boundary with a clean-commit deterministic manifest; v1
+retains its existing separate rollout gate.
 
 The generic account read-only permission set is also insufficient for the
 GUG-218 collector because the collector requires the complete account
@@ -26,11 +28,30 @@ reviewed principal.
 The current operating roster contains one human. That operator may implement
 the repository controls and, under separate authorization, perform report-only
 read operations. Multiple profiles or sessions belonging to that one person
-do not provide independent approval.
+do not provide independent approval in `TWO_HUMAN`. ADR-050 provides a separate
+owner-reviewed `SINGLE_OPERATOR_NONPROD_EXCEPTION` evidence mode and never
+relabels that owner review as independent.
 
 ## Decision
 
 ### 1. Use a two-capture materialization model
+
+GUG-219 is mode-aware and backward compatible. The existing v1
+allowlist/release chain remains `TWO_HUMAN`, using `classify`, `retire` and
+`reconcile`. V2 is exclusive to `SINGLE_OPERATOR_NONPROD_EXCEPTION`, using
+`single-classify`, `single-retire` and `single-reconcile`, duties
+`single_operator_classifier` and `single_operator_retirement`, and the exact
+`EXACT_SINGLE_*_ALIAS` scopes. Both modes require exactly fourteen edges; a
+mixed family is drift.
+
+The v2 allowlist and release bind `single_operator_exception_digest` and
+`owner_authorization_sha256`. The v2 release additionally binds the exact
+deterministic broker-package manifest digest and rejects candidate A unless its
+Lambda `CodeSha256` equals the digest derived from that archive. They state
+`two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`. The owner reviews and pins the exact
+exception `authorization_digest` and release digest. Normal independent review
+and its v1 schemas are unchanged.
 
 GUG-219 separates materialization from evaluation:
 
@@ -53,8 +74,9 @@ shapes are constrained by hard-coded reviewed invariants. The materializer
 constructs edges from the exact policies observed in candidate A and binds the
 current GUG-217 template and policy-file digests; it does not parse those
 source files to derive the graph independently. Candidate A cannot add an edge
-or legalize drift. GUG-219 also does not prove that an independently published
-build-once archive contains the bytes represented by Lambda `CodeSha256`.
+or legalize drift. In v2, GUG-219 validates the clean-commit package manifest,
+its source/runtime/version bindings and exact archive-derived `CodeSha256`.
+That owner-reviewed provenance is not described as independent approval.
 
 Candidate A uses a GUG-219 materialization-capture entry point built on the
 GUG-218 read-only adapter. It is authorized by the exact target and collector
@@ -66,10 +88,13 @@ The materializer binds:
 
 - the exact reviewed GUG-217 CloudFormation template digest;
 - the canonical digest of the complete ordered GUG-217 policy bundle;
-- the broker code digest observed in candidate A;
+- the deterministic broker-package manifest digest and its derived code digest
+  in v2;
+- the same broker code digest observed in candidate A;
 - the broker published-configuration digest observed in candidate A;
 - the exact authority account, partition, Region and function;
-- the three exact aliases `classify`, `retire` and `reconcile`;
+- the three exact mode-specific aliases: `classify`, `retire` and `reconcile`
+  for v1, or `single-classify`, `single-retire` and `single-reconcile` for v2;
 - the exact classifier and approver invocation/trust graph;
 - the dedicated collector contract and canonical principal digest; and
 - the canonical self-digest and collector binding of candidate A.
@@ -114,17 +139,21 @@ anchor binds that allowlist digest to the reviewed source-byte, observed
 runtime, target and
 collector-contract digests. Its own canonical digest is the value supplied to
 the GUG-218 `aws-readonly` boundary through a distinct input. A protected
-release channel and independent operator are operational requirements; the
-repository cannot establish either while the roster contains one person.
+release channel and independent operator are operational requirements in
+`TWO_HUMAN`. ADR-050 instead requires the owner's exact review of the v2
+exception/release binding and retains `NOT_PROVEN`; repository bytes alone
+establish neither branch.
 
 The allowlist and release anchor must be different record types, different
 files and different input arguments. The wrapper rejects the same path, inode
 or document being used for both. Reading the allowlist's own digest and passing
-it back on the same command line does not establish an independent anchor.
+it back on the same command line does not establish a reviewed anchor.
 
-When the current one-person roster materializes both records, the separation
-is cryptographic and procedural only. The evidence must explicitly state that
-independent human approval is absent; no approval status may be emitted.
+When the current one-person roster materializes both v1 records, the separation
+is cryptographic and procedural only and cannot satisfy normal approval. Under
+ADR-050, the same owner may materialize v2 only after reviewing the exact bound
+digests; every output must still state that independent human approval is
+absent and no approval status may be emitted.
 
 ### 3. Use one dedicated Identity Center collector contract
 
@@ -236,13 +265,20 @@ STS context creation, Change Set retirement, Terraform Apply, customer
 deployment or production.
 
 With one current human, the operator may materialize and collect report-only
-evidence but cannot satisfy independent approval. The missing reviewer is an
-explicit blocker, not a role that the same person may emulate with another
-profile.
+evidence but cannot satisfy normal independent approval. That blocks
+`TWO_HUMAN`; it does not block an exact ADR-050 v2 owner checkpoint. The owner
+must not emulate a second reviewer with another profile, and the v2 report must
+remain `two_human_status = NOT_PROVEN`.
+
+GUG-219 binds observed published configuration but does not itself certify the
+Lambda runtime-management API setting. The separate GUG-215 gate must prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn` before either evidence chain supports retirement.
 
 ## Consequences
 
-- GUG-218 receives a deterministic producer and an independent digest channel.
+- GUG-218 receives a deterministic producer and a mode-appropriate reviewed
+  digest channel: independent for v1, exact owner-reviewed for v2.
 - A committed synthetic fixture cannot be passed directly to the live path.
 - The collector obtains the minimum complete read surface without broadening a
   generic read-only role.
@@ -259,8 +295,8 @@ profile.
 
 - **Use the committed synthetic allowlist:** test data is not a reviewed live
   trust root.
-- **Copy the allowlist self-digest into the CLI:** this proves no independent
-  provenance.
+- **Copy the allowlist self-digest into the CLI:** this proves no independently
+  reviewed v1 provenance and no owner-reviewed v2 provenance.
 - **Use one capture to build and validate the allowlist:** the same observation
   would define its own expected result.
 - **Allow candidate A to define graph edges:** current drift could be silently
@@ -310,7 +346,8 @@ package and requires separately authorized rollback.
 | Candidate B | Fresh authenticated report-only evidence if the full GUG-218 bundle passes |
 | Identity Center provisioning | **Not performed / not authorized** |
 | Lambda, token, STS-context or Change Set effect | **Not performed / not authorized** |
-| Independent approval | **Blocked** while one human is on the roster |
+| Independent approval (`TWO_HUMAN`) | **Blocked** while one human is on the roster |
+| ADR-050 v2 owner checkpoint | Exact exception/release digest required; `two_human_status = NOT_PROVEN` |
 | Production | **NO-GO** |
 
 ## Post-merge sequence
@@ -323,12 +360,14 @@ package and requires separately authorized rollback.
 4. Obtain an explicit read-only window and perform candidate A.
 5. Within candidate A's five-minute validity, materialize the allowlist and
    release anchor privately, freeze their digests and begin B before expiry.
-6. Record that independent approval is absent while the roster has one human.
+6. Select the evidence mode: record absent independent approval for v1, or bind
+   the exact owner-reviewed exception/release digests and `NOT_PROVEN` for v2.
 7. Obtain a new read-only window and perform fresh capture B.
 8. Validate the complete GUG-218 evidence bundle and publish only sanitized
    status/count/digest evidence.
-9. Add a different human reviewer before any future rollout approval.
-10. Complete separately reviewed preventive guardrail, non-production rollout
+9. Add a different human reviewer before any `TWO_HUMAN` rollout approval; use
+   only the owner checkpoint for the bounded ADR-050 non-production route.
+10. Complete a mode-appropriate reviewed preventive guardrail, non-production rollout
     and production-readiness packages. Production remains **NO-GO**.
 
 ## References

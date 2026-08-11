@@ -128,7 +128,7 @@ def test_package_rejects_invalid_commit_missing_source_and_symlink(tmp_path: Pat
 def test_manifest_shape_is_strict_json_serializable() -> None:
     built = _build()
     decoded = json.loads(json.dumps(built.manifest))
-    assert len(decoded["entries"]) == len(PACKAGE_PATHS) == 25
+    assert len(decoded["entries"]) == len(PACKAGE_PATHS) == 27
     assert decoded["runtime_dependencies"] == {
         "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
         "runtime_lock_path": "gug221_runtime_lock.json",

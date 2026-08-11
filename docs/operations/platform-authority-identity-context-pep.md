@@ -10,7 +10,39 @@ It is **not executable authorization**. The repository implementation has not
 been deployed or invoked. No live token or STS proof was created. No Change Set
 was deleted or executed. Production is **NO-GO**.
 
-## Required people and current stop
+## Single-operator amendment
+
+ADR-050 permits the same actual human to complete this proof sequence only in
+an exact `SINGLE_OPERATOR_NONPROD_EXCEPTION` deployment. Use the `single-*`
+aliases, binding/receipt v2 and ledger v3. Every artifact must retain
+`two_human_status = NOT_PROVEN`; do not call the second proof independent
+approval.
+
+The operator still performs separate one-time authorization-code/PKCE flows.
+Reusing a code, verifier, proof receipt or request body fails closed. The
+maximum effect window is fifteen minutes and is checked immediately before the
+sole delete attempt. Reconciliation may continue after expiry but cannot
+delete. This amendment supplies no deployment authorization.
+
+Build the digest-only artifact from an owner-only input file outside the
+repository, then have the owner review and pin the exact `authorization_digest`
+supplied through the separate checkpoint:
+
+```bash
+python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py \
+  build --input '<private-0600-input.json>' \
+  --output '<new-private-0600-exception.json>'
+
+python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py \
+  verify --artifact '<private-0600-exception.json>' \
+  --expected-authorization-digest 'sha256:<reviewed-64-hex>'
+```
+
+The build command creates rather than overwrites the output and prints only
+the final digest and sanitized control status. Both commands are offline and
+leave `deployment_authorized = false` and `aws_mutations = NONE`.
+
+## Required people and current stop for normal mode
 
 The live procedure requires:
 
@@ -20,11 +52,10 @@ The live procedure requires:
 - one read-only reviewer for independent evidence;
 - the non-human broker execution role as the only mutation principal.
 
-César is currently the only human. He may complete repository work, synthetic
-tests and separately authorized read-only inventory. He must stop before live
-provisioning or invocation because he cannot be both classifier and independent
-approver. Multiple profiles, sessions, terminals or delayed self-approval do
-not change this result.
+César is currently the only human. He must stop this normal-mode procedure
+before live provisioning or invocation. Multiple profiles, sessions, terminals
+or delayed self-approval do not create independence. ADR-050 is the only
+same-human route and requires its separate exact deployment checkpoint.
 
 ## Phase 0 — Authorization and repository evidence
 
@@ -35,7 +66,8 @@ Before any AWS change or token exchange:
 3. verify the GUG-215, GUG-216 and GUG-217 ADRs and threat models are current;
 4. obtain explicit authorization for the exact non-production account, Region,
    Identity Center mutations, broker/ledger deployment and one execution;
-5. name two independent humans and verify their distinct immutable UserIds;
+5. name two independent humans and verify distinct UserIds for normal mode, or
+   bind the exact active ADR-050 artifact/final digest for single mode;
 6. define revocation, uncertain-outcome and rollback owners.
 
 Stop if any item is missing. Repository merge, admin access or an SSO login is
@@ -70,6 +102,8 @@ Prepare a reviewed change package that binds:
 - ordinary invoker roles for their exact aliases;
 - deny-all classifier and approver proof roles;
 - code-signed broker artifact, one published version and three aliases;
+- `RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+  `RuntimeVersionArn`;
 - three `AWS_IAM`, `BUFFERED` Function URLs on exact aliases;
 - resource policies requiring the exact invoker and
   `lambda:InvokedViaFunctionUrl = true`;
@@ -87,8 +121,9 @@ If deployment is authorized in a future change, read back and compare:
 2. source roles, invoker trust/policies and absence of extra policies;
 3. proof-role trust, deny-all inline policy, no attached policy and no boundary;
 4. broker execution trust, sole inline policy and canonical digest;
-5. function code digest, code signing, reserved concurrency and immutable
-   alias version;
+5. function code digest, code signing, reserved concurrency,
+   `RuntimeManagementConfig.UpdateRuntimeOn = Manual`, exact reviewed
+   `RuntimeVersionArn` and immutable alias version;
 6. each Function URL qualifier, `AWS_IAM`, `BUFFERED` mode and exact resource
    policy;
 7. ledger encryption, recovery, deletion protection and broker-only resource
@@ -97,11 +132,31 @@ If deployment is authorized in a future change, read back and compare:
 
 Use the GUG-218 capture/analyzer for item 8. A report-only receipt does not
 authorize deployment or invocation. Require authenticated collector provenance,
-a fresh repeat observation and a separately reviewed preventive control before
-any live window. `OFFLINE_UNVERIFIED` evidence always blocks.
+a fresh repeat observation and a mode-appropriate reviewed preventive control
+before any live window. `OFFLINE_UNVERIFIED` evidence always blocks.
 
 Drift or incomplete evidence stops the procedure. Do not repair in place from
 an execution session.
+
+### Single-operator substitution for phases 4–6
+
+When and only when the deployed immutable mode is
+`SINGLE_OPERATOR_NONPROD_EXCEPTION`, replace the normal sequence below with:
+
+1. a fresh proof to `single-classify`, producing ledger v3 `CLASSIFIED`;
+2. a different fresh proof by the same bound user to `single-retire`, producing
+   `EXCEPTION_ACCEPTED`, then `ATTEMPTED` before the sole delete call;
+3. never call `single-retire` again after `ATTEMPTED` or an ambiguous response;
+4. use a third fresh proof to `single-reconcile`, which may run after expiry but
+   cannot call delete and may only prove absence or retain `ATTEMPTED`.
+
+Every v2 proof and v3 ledger receipt must state `two_human_status = NOT_PROVEN`
+and `independent_approval_present = false`. `APPROVED` and
+`INDEPENDENT_APPROVAL_REQUIRED` are normal-mode states and must not appear in
+this sequence.
+
+Phases 4–6 below describe `TWO_HUMAN`; the substitution above is the complete
+single-operator sequence and must not inherit independent-approval wording.
 
 ## Phase 4 — Classifier proof and classification
 
@@ -173,7 +228,8 @@ the ledger to hide or replay an attempt.
 
 Stop immediately for:
 
-- only one actual human or equal/unknown UserIds;
+- only one actual human or equal/unknown UserIds unless the immutable active
+  ADR-050 exception and same-user binding are both exact;
 - ordinary-session proof presented as identity-enhanced proof;
 - managed-policy version/digest drift;
 - anything other than proof-only `sts:SetContext` compatibility;
@@ -182,7 +238,8 @@ Stop immediately for:
 - proof role with any effective allow;
 - secret, request-body, token, assertion or credential logging;
 - missing proof digest before ledger transition;
-- effect before `APPROVED` and `ATTEMPTED` CAS;
+- effect before `APPROVED` and `ATTEMPTED` CAS in `TWO_HUMAN`, or before
+  `EXCEPTION_ACCEPTED` and `ATTEMPTED` CAS in the ADR-050 mode;
 - retry after uncertain OIDC, STS or delete outcome;
 - attribution claiming native `onBehalfOf` for the broker effect;
 - incomplete inventory, foreign object or data-loss risk;
@@ -213,7 +270,8 @@ history, proxies or support bundles.
 | CI validation | Not established |
 | Live provisioning | **Not performed** |
 | Live token / STS proof | **Not performed** |
-| Two-person roster | **Blocked**; one current human |
+| Normal two-person roster | **Blocked**; one current human |
+| ADR-050 single-operator route | Repository-only; live deployment not authorized or performed |
 | Live retirement | **Blocked** |
 | Production | **NO-GO** |
 

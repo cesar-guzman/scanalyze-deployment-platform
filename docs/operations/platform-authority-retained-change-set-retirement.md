@@ -10,6 +10,99 @@ It never authorizes `ExecuteChangeSet`, `DeleteStack`, `CreateChangeSet`,
 Terraform Apply, seed, customer deployment, production, migration, destruction
 or redrive. The repository implementation did not deploy or invoke this path.
 
+## ADR-050 exception route for the current one-person team
+
+The normal procedure below remains authoritative for `TWO_HUMAN`. When César
+is the only available human, the only permitted alternative is the explicit
+`SINGLE_OPERATOR_NONPROD_EXCEPTION` from ADR-050. Do not simulate a second
+person, reuse a normal alias or change a distinct-user assertion to `true`.
+
+Before any AWS mutation, require a private canonical exception artifact whose
+exact `authorization_digest` is reviewed and pinned by the owner. It must bind the one full Change Set ID
+digest, template and inventory digests, immutable single-user digest, owner
+authorization digest, exact authority account/Region and a maximum
+fifteen-minute effect window. It must also bind the manually pinned Lambda
+runtime-version ARN digest and prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual`. The repository artifact deliberately states
+`deployment_authorized = false`.
+
+The exception deployment exposes only:
+
+```text
+single-classify -> single-retire -> single-reconcile
+```
+
+It uses ledger v3 states `CLASSIFIED`, `EXCEPTION_ACCEPTED`, `ATTEMPTED` and
+`RETIRED_RECONCILED`. Separate fresh proofs are required even though they name
+the same user. The broker rechecks expiry immediately before its sole delete.
+After `ATTEMPTED`, never invoke `single-retire` again; use only
+`single-reconcile`, including after expiry.
+
+The earlier owner authorization for `DeleteChangeSet` alone does not authorize
+deployment of the broker, ledger, IAM, Lambda or Identity Center bindings.
+Obtain a new exact deployment checkpoint before provisioning. Direct
+`aws cloudformation delete-change-set` remains prohibited.
+
+### Offline build chain required before that checkpoint
+
+From the exact clean reviewed commit, and with all raw identifiers confined to
+private owner-only JSON outside the repository:
+
+```bash
+umask 077
+
+export PRIVATE_BROKER_VERSION_BINDING_JSON='<existing-private-0600-binding-input.json>'
+export PRIVATE_EXCEPTION_INPUT_JSON='<existing-private-0600-exception-input.json>'
+export SINGLE_OPERATOR_EXCEPTION='<new-private-0600-exception.json>'
+export SOURCE_COMMIT="$(git rev-parse HEAD)"
+export BROKER_RUNTIME_VERSION_ARN='<owner-reviewed exact runtime-version ARN>'
+export PRIVATE_BROKER_PACKAGE_DIR='<new-private-package-directory>'
+
+BROKER_VERSION_BINDING_RECEIPT="$(
+  python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py \
+    broker-version-binding \
+    --input "$PRIVATE_BROKER_VERSION_BINDING_JSON"
+)"
+export BROKER_VERSION_BINDING_SHA256="$(
+  python3 -c \
+    'import json, sys; print(json.loads(sys.stdin.read())["BrokerVersionBindingSha256"])' \
+    <<< "$BROKER_VERSION_BINDING_RECEIPT"
+)"
+
+# The owner must place that exact digest in the already prepared private
+# exception input. This read-only check stops before build on any mismatch.
+python3 - "$PRIVATE_EXCEPTION_INPUT_JSON" "$BROKER_VERSION_BINDING_SHA256" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    exception_input = json.load(stream)
+if exception_input.get("broker_version_binding_sha256") != sys.argv[2]:
+    raise SystemExit("private exception input does not bind reviewed broker digest")
+PY
+
+python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py \
+  build \
+  --input "$PRIVATE_EXCEPTION_INPUT_JSON" \
+  --output "$SINGLE_OPERATOR_EXCEPTION"
+
+python3 scripts/deployment/platform-authority-change-set-retirement-package.py \
+  --source-commit "$SOURCE_COMMIT" \
+  --broker-runtime-version-arn "$BROKER_RUNTIME_VERSION_ARN" \
+  --broker-version-binding-sha256 "$BROKER_VERSION_BINDING_SHA256" \
+  --output-directory "$PRIVATE_BROKER_PACKAGE_DIR"
+```
+
+The first command calculates the canonical binding across all published
+function configuration and captures its exact digest without copying it from an
+untrusted file. The read-only Python check proves the owner-prepared exception
+input binds that same digest before build. The last command
+rejects a dirty/non-HEAD tree, reads every package member from the exact Git
+object, creates a fixed-metadata source-only ZIP, and emits a manifest whose
+`lambda_code_sha256` is derived from those exact bytes. Review and pin both the
+exception `authorization_digest` and package `manifest_digest` out of band.
+Neither output authorizes deployment or AWS use.
+
 ## Current transport and runbook
 
 The historical direct identity-enhanced invocation phases in this runbook
@@ -18,13 +111,15 @@ that transport with exact ordinary-session `AWS_IAM` Function URLs followed by
 an in-broker deny-all STS identity proof. Use the
 [GUG-217 runbook](platform-authority-identity-context-pep.md) for that future
 path. It does not change the two-independent-human requirement, one-attempt
-ledger or no-retry behavior.
+ledger or no-retry behavior in normal mode; ADR-050 replaces only the human
+separation claim in its isolated exception mode.
 
 No GUG-217 live deployment, token exchange, STS proof, Function URL invocation
-or retirement has occurred. César is the sole current operator, so the live
-procedure stops before provisioning or invocation.
+or retirement has occurred. César is the sole current operator, so normal mode
+stops before provisioning or invocation; ADR-050 may proceed only after its
+separate exact deployment and execution checkpoint.
 
-## Roles and separation
+## Roles and separation in `TWO_HUMAN`
 
 The workflow requires two genuinely independent IAM Identity Center users:
 
@@ -45,9 +140,11 @@ from asynchronous invocation for that action, so any alternate async invoke
 path is a live inventory blocker. Humans receive no direct Change Set deletion
 or retirement-ledger write permission.
 
-Profiles, terminals or timestamps do not establish independent operators. Stop
-unless two distinct live Identity Store UserIds, their assignments,
-provisioning and identity-enhanced contexts are read back.
+Profiles, terminals or timestamps do not establish independent operators in
+`TWO_HUMAN`. Stop that mode unless two distinct live Identity Store UserIds,
+their assignments, provisioning and identity-enhanced contexts are read back.
+In ADR-050 mode, require the one exact repeated UserId and never report it as
+independent approval.
 
 An ordinary SSO profile is insufficient. ADR-042 / GUG-216 implements an
 offline adapter contract for `CreateTokenWithIAM` and STS `ProvidedContexts`,
@@ -63,26 +160,32 @@ that identifies:
 - exact authority account and Region;
 - exact GUG-215 implementation commit and required green CI checks;
 - exact reviewed Change Set name and original-template/resource digests;
-- exact versioned broker artifact, code digest and code-signing configuration;
+- exact versioned broker artifact, code digest, code-signing configuration and
+  manually pinned runtime-version ARN;
+- exact clean-commit package manifest digest, archive-derived Lambda
+  `CodeSha256` and canonical `BrokerVersionBindingSha256`;
 - canonical effective broker execution-policy digest;
 - exact Identity Store, Identity Center Instance and Application;
-- two distinct immutable Identity Store UserIds;
+- two distinct immutable Identity Store UserIds in normal mode, or one exact
+  repeated UserId plus the active ADR-050 artifact digest in exception mode;
 - exact source permission-set role ARNs;
 - exact assignment and invoker-policy digests;
 - rollback, revocation and evidence owners.
 
-The CloudFormation stack
+For `TWO_HUMAN`, the CloudFormation stack
 `bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml` must be
 planned, independently reviewed, executed and read back through a separately
-authorized deployment process. This runbook contains no implicit authorization
-to deploy it.
+authorized deployment process. For ADR-050, that review checkpoint is the
+owner's review of the exact exception `authorization_digest`; it is not an
+independent approval. This runbook contains no implicit authorization to deploy
+either mode.
 
 Stop if any parameter comes from a request, naming inference, chat history or
 unreviewed live value.
 
 ## Phase 1 — Read back the deployed PEP boundary
 
-Before invocation, independently prove:
+Before invocation, read back and prove:
 
 1. one dedicated table named
    `scanalyze-platform-authority-change-set-retirements` is `ACTIVE`;
@@ -93,13 +196,16 @@ Before invocation, independently prove:
 4. the broker execution role has exactly one inline policy, no attached policy,
    no permissions boundary and Lambda-service-only trust;
 5. the live canonical broker policy digest matches the deployment binding;
-6. the function uses the reviewed versioned artifact, code SHA, execution role
-   and code-signing configuration;
+6. the function uses the reviewed versioned artifact, code SHA, execution role,
+   code-signing configuration, `RuntimeManagementConfig.UpdateRuntimeOn = Manual`
+   and exact reviewed `RuntimeVersionArn`;
 7. reserved concurrency equals one;
-8. aliases `classify`, `retire` and `reconcile` all point to the same reviewed
-   published version, never `$LATEST`, with no weighted routing;
-9. the classifier and approver permission-set assignments are each bound to
-   the reviewed distinct UserId and provisioned to the authority account;
+8. exactly the three mode-specific aliases (`classify`/`retire`/`reconcile` or
+   `single-classify`/`single-retire`/`single-reconcile`) point to the same
+   reviewed published version, never `$LATEST`, with no weighted routing;
+9. the classifier and approver permission-set assignments are bound to the two
+   reviewed distinct UserIds in normal mode, or both bind the one exact UserId
+   in ADR-050 mode, and are provisioned to the authority account;
 10. the invoker trusts and policies contain exact identity-enhanced conditions,
     no `IfExists`, and only the expected alias invocation;
 11. the Lambda function, invoked alias and resolved version have no
@@ -166,7 +272,7 @@ AWS_CHANGE: exact GUG-215 broker invocation only
 That output is not expected from the current CLI. Any future printed ledger
 digest would be evidence for review, not authority outside the durable item.
 
-## Phase 3 — Independent review
+## Phase 3A — Independent review (`TWO_HUMAN` only)
 
 The second operator must review the approved private change package and live
 readback without receiving direct target mutation authority. At minimum,
@@ -182,6 +288,17 @@ confirm:
 
 The approver's identity-enhanced invocation of `retire` is the only accepted
 approval action; caller-supplied identity or approval data is rejected.
+
+## Phase 3B — Owner checkpoint (ADR-050 only)
+
+Do not execute Phase 3A in the single-operator mode and do not invent a second
+person. Instead, the owner must compare the deployed readback to the exact
+clean-commit package `manifest_digest`, package-derived `CodeSha256`,
+`BrokerVersionBindingSha256`, exception `authorization_digest`, runtime pin,
+target/template/inventory digests and one immutable UserId. Record
+`two_human_status = NOT_PROVEN` and `independent_approval_present = false`.
+This checkpoint is evidence for a later exact execution authorization; it is
+not that authorization itself.
 
 ## Phase 4 — Historical approver command; currently blocked
 
@@ -270,12 +387,14 @@ repair it.
 
 ## Stop conditions
 
-Stop before any broker invocation, or continue only with `broker-reconcile`
+Stop before any broker invocation, or continue only with the active mode's
+reconciliation path (`reconcile` in `TWO_HUMAN`, `single-reconcile` in ADR-050)
 after an attempt, when any of these is true:
 
 - wrong account, Region, invoker role, UserId, Identity Store, Instance or
   Application;
-- fewer than two genuinely independent operators;
+- fewer than two genuinely independent operators in `TWO_HUMAN`, or any
+  different/missing operator binding in `SINGLE_OPERATOR_NONPROD_EXCEPTION`;
 - assignment, invoker policy, broker policy, code, alias, signing or concurrency
   digest/readback mismatch;
 - ledger missing, malformed, unprotected, not KMS encrypted, without PITR, or

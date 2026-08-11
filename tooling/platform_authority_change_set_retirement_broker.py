@@ -19,6 +19,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Protocol
 
+from tooling.platform_authority_single_operator_retirement_exception import (
+    EXCEPTION_MODE,
+    NORMAL_MODE,
+    SingleOperatorExceptionError,
+    build_single_operator_retirement_exception,
+    require_exception_effect_window,
+)
+
 
 CANONICAL_STACK_NAME = "scanalyze-platform-authority-state-backend"
 CANONICAL_STATE_KEY = "platform-authority/terraform.tfstate"
@@ -31,7 +39,16 @@ PROOF_POLICY_NAME = "Gug217ZeroAuthorityProof"
 ALIAS_CLASSIFY = "classify"
 ALIAS_RETIRE = "retire"
 ALIAS_RECONCILE = "reconcile"
-ALLOWED_ALIASES = frozenset({ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE})
+ALIAS_SINGLE_CLASSIFY = "single-classify"
+ALIAS_SINGLE_RETIRE = "single-retire"
+ALIAS_SINGLE_RECONCILE = "single-reconcile"
+AUTHORIZATION_MODE_TWO_HUMAN = NORMAL_MODE
+AUTHORIZATION_MODE_SINGLE_OPERATOR = EXCEPTION_MODE
+NORMAL_ALIASES = frozenset({ALIAS_CLASSIFY, ALIAS_RETIRE, ALIAS_RECONCILE})
+SINGLE_OPERATOR_ALIASES = frozenset(
+    {ALIAS_SINGLE_CLASSIFY, ALIAS_SINGLE_RETIRE, ALIAS_SINGLE_RECONCILE}
+)
+ALLOWED_ALIASES = NORMAL_ALIASES | SINGLE_OPERATOR_ALIASES
 ACCOUNT_ID = re.compile(r"^(?!000000000000$)[0-9]{12}$")
 REGION = re.compile(r"^[a-z]{2}(?:-[a-z]+)+-[0-9]+$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
@@ -72,10 +89,13 @@ PUBLIC_ACCESS_BLOCK_KEYS = frozenset(
         "RestrictPublicBuckets",
     }
 )
-LEDGER_STATES = frozenset(
+LEDGER_V2_STATES = frozenset(
     {"CLASSIFIED", "APPROVED", "ATTEMPTED", "RETIRED_RECONCILED"}
 )
-LEDGER_KEYS = frozenset(
+LEDGER_V3_STATES = frozenset(
+    {"CLASSIFIED", "EXCEPTION_ACCEPTED", "ATTEMPTED", "RETIRED_RECONCILED"}
+)
+LEDGER_V2_KEYS = frozenset(
     {
         "schema_version",
         "record_type",
@@ -126,6 +146,20 @@ LEDGER_KEYS = frozenset(
         "next_required_control",
         "updated_at",
         "ledger_digest",
+    }
+)
+LEDGER_V3_KEYS = LEDGER_V2_KEYS | frozenset(
+    {
+        "authorization_mode",
+        "two_human_status",
+        "independent_approval_present",
+        "single_operator_authorization_sha256",
+        "broker_runtime_version_arn_digest",
+        "broker_version_binding_sha256",
+        "owner_authorization_sha256",
+        "exception_created_at",
+        "exception_not_before",
+        "exception_expires_at",
     }
 )
 WRITE_ACTIONS = frozenset(
@@ -188,6 +222,70 @@ def secret_digest(label: str, value: str) -> str:
     return canonical_digest({label: value})
 
 
+BROKER_VERSION_BINDING_FIELDS = (
+    "authority_account_id",
+    "region",
+    "change_set_name",
+    "expected_template_sha256",
+    "expected_evidence_sha256",
+    "expected_code_sha256",
+    "expected_broker_policy_sha256",
+    "identity_store_arn",
+    "identity_center_instance_arn",
+    "identity_center_application_arn",
+    "identity_center_redirect_uri",
+    "classifier_identity_store_user_id",
+    "approver_identity_store_user_id",
+    "classifier_assignment_sha256",
+    "approver_assignment_sha256",
+    "classifier_invoker_policy_sha256",
+    "approver_invoker_policy_sha256",
+    "classifier_proof_policy_sha256",
+    "approver_proof_policy_sha256",
+    "identity_center_application_actor_policy_sha256",
+    "classifier_invoker_role_name",
+    "approver_invoker_role_name",
+    "classifier_proof_role_name",
+    "approver_proof_role_name",
+    "classifier_permission_set_role_arn",
+    "approver_permission_set_role_arn",
+    "broker_execution_role_name",
+    "code_signing_config_arn",
+    "broker_runtime_version_arn",
+    "retirement_id",
+    "authorization_mode",
+)
+
+
+def broker_version_binding_digest(values: Mapping[str, Any]) -> str:
+    """Bind every published-version property and environment input."""
+
+    missing = [field for field in BROKER_VERSION_BINDING_FIELDS if field not in values]
+    if missing:
+        raise BrokerError("BROKER_VERSION_BINDING_INCOMPLETE")
+    return canonical_digest(
+        {
+            "schema_version": "1",
+            "record_type": "platform_authority_gug215_broker_version_binding",
+            "lambda_version_properties": {
+                "architectures": ["x86_64"],
+                "handler": (
+                    "tooling.platform_authority_identity_context_pep_runtime.handler"
+                ),
+                "memory_size": 256,
+                "package_type": "Zip",
+                "reserved_concurrency": 1,
+                "runtime": "python3.12",
+                "runtime_update_mode": "Manual",
+                "timeout": 60,
+            },
+            "configuration": {
+                field: values[field] for field in BROKER_VERSION_BINDING_FIELDS
+            },
+        }
+    )
+
+
 def _require_digest(value: str, code: str) -> str:
     if DIGEST.fullmatch(value) is None:
         raise BrokerError(code)
@@ -232,6 +330,7 @@ class BrokerConfig:
     identity_store_arn: str
     identity_center_instance_arn: str
     identity_center_application_arn: str
+    identity_center_redirect_uri: str
     classifier_identity_store_user_id: str
     approver_identity_store_user_id: str
     classifier_assignment_sha256: str
@@ -249,7 +348,15 @@ class BrokerConfig:
     approver_permission_set_role_arn: str
     broker_execution_role_name: str
     code_signing_config_arn: str
+    broker_runtime_version_arn: str
+    broker_version_binding_sha256: str
     retirement_id: str
+    authorization_mode: str = AUTHORIZATION_MODE_TWO_HUMAN
+    single_operator_expected_authorization_sha256: str = ""
+    single_operator_owner_authorization_sha256: str = ""
+    single_operator_exception_created_at: str = ""
+    single_operator_exception_not_before: str = ""
+    single_operator_exception_expires_at: str = ""
     stack_name: str = CANONICAL_STACK_NAME
     ledger_table_name: str = RETIREMENT_LEDGER_TABLE
     function_name: str = BROKER_FUNCTION_NAME
@@ -297,11 +404,33 @@ class BrokerConfig:
             is None
         ):
             raise BrokerError("IDENTITY_STORE_USER_INVALID")
-        if (
+        users_equal = (
             self.classifier_identity_store_user_id.lower()
             == self.approver_identity_store_user_id.lower()
-        ):
-            raise BrokerError("INDEPENDENT_OPERATOR_REQUIRED")
+        )
+        exception_values = (
+            self.single_operator_expected_authorization_sha256,
+            self.single_operator_owner_authorization_sha256,
+            self.single_operator_exception_created_at,
+            self.single_operator_exception_not_before,
+            self.single_operator_exception_expires_at,
+        )
+        if self.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN:
+            if users_equal:
+                raise BrokerError("INDEPENDENT_OPERATOR_REQUIRED")
+            if any(exception_values):
+                raise BrokerError("SINGLE_OPERATOR_CONFIGURATION_FORBIDDEN")
+        elif self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            if not users_equal:
+                raise BrokerError("SINGLE_OPERATOR_IDENTITY_REQUIRED")
+            if any(not value for value in exception_values):
+                raise BrokerError("CONFIGURATION_INCOMPLETE")
+            _require_digest(
+                self.single_operator_expected_authorization_sha256,
+                "REVIEWED_AUTHORIZATION_DIGEST_INVALID",
+            )
+        else:
+            raise BrokerError("AUTHORIZATION_MODE_INVALID")
         partition = _partition(self.region)
         if not re.fullmatch(
             rf"arn:{partition}:identitystore::[0-9]{{12}}:identitystore/d-[a-z0-9]{{10,}}",
@@ -319,6 +448,11 @@ class BrokerConfig:
             self.identity_center_application_arn,
         ):
             raise BrokerError("IDENTITY_CENTER_APPLICATION_INVALID")
+        if re.fullmatch(
+            r"http://127\.0\.0\.1:[0-9]{4,5}/callback",
+            self.identity_center_redirect_uri,
+        ) is None:
+            raise BrokerError("IDENTITY_CENTER_REDIRECT_INVALID")
         for name in (
             self.classifier_invoker_role_name,
             self.approver_invoker_role_name,
@@ -358,6 +492,20 @@ class BrokerConfig:
             f"arn:{partition}:lambda:{self.region}:{self.authority_account_id}:code-signing-config:"
         ):
             raise BrokerError("CODE_SIGNING_BINDING_INVALID")
+        if re.fullmatch(
+            rf"arn:{partition}:lambda:{self.region}::runtime:[a-f0-9]{{64}}",
+            self.broker_runtime_version_arn,
+        ) is None:
+            raise BrokerError("RUNTIME_VERSION_BINDING_INVALID")
+        values = {
+            field: getattr(self, field) for field in BROKER_VERSION_BINDING_FIELDS
+        }
+        if self.broker_version_binding_sha256 != broker_version_binding_digest(values):
+            raise BrokerError("BROKER_VERSION_BINDING_MISMATCH")
+        if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            # Reconstructing the complete digest-only authorization here makes
+            # every versioned environment binding fail closed before AWS.
+            self.single_operator_exception
 
     @classmethod
     def from_environment(cls, env: Mapping[str, str] | None = None) -> "BrokerConfig":
@@ -380,6 +528,7 @@ class BrokerConfig:
             identity_store_arn=required("IDENTITY_STORE_ARN"),
             identity_center_instance_arn=required("IDENTITY_CENTER_INSTANCE_ARN"),
             identity_center_application_arn=required("IDENTITY_CENTER_APPLICATION_ARN"),
+            identity_center_redirect_uri=required("IDENTITY_CENTER_REDIRECT_URI"),
             classifier_identity_store_user_id=required("CLASSIFIER_IDENTITY_STORE_USER_ID"),
             approver_identity_store_user_id=required("APPROVER_IDENTITY_STORE_USER_ID"),
             classifier_assignment_sha256=required("CLASSIFIER_ASSIGNMENT_SHA256"),
@@ -403,8 +552,38 @@ class BrokerConfig:
             ),
             broker_execution_role_name=required("BROKER_EXECUTION_ROLE_NAME"),
             code_signing_config_arn=required("CODE_SIGNING_CONFIG_ARN"),
+            broker_runtime_version_arn=required("BROKER_RUNTIME_VERSION_ARN"),
+            broker_version_binding_sha256=required(
+                "BROKER_VERSION_BINDING_SHA256"
+            ),
             retirement_id=required("RETIREMENT_ID"),
+            authorization_mode=source.get(
+                "AUTHORIZATION_MODE", AUTHORIZATION_MODE_TWO_HUMAN
+            ),
+            single_operator_owner_authorization_sha256=source.get(
+                "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256", ""
+            ),
+            single_operator_expected_authorization_sha256=source.get(
+                "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256", ""
+            ),
+            single_operator_exception_created_at=source.get(
+                "SINGLE_OPERATOR_EXCEPTION_CREATED_AT", ""
+            ),
+            single_operator_exception_not_before=source.get(
+                "SINGLE_OPERATOR_EXCEPTION_NOT_BEFORE", ""
+            ),
+            single_operator_exception_expires_at=source.get(
+                "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT", ""
+            ),
         )
+
+    @property
+    def is_single_operator(self) -> bool:
+        return self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+
+    @property
+    def allowed_aliases(self) -> frozenset[str]:
+        return SINGLE_OPERATOR_ALIASES if self.is_single_operator else NORMAL_ALIASES
 
     @property
     def partition(self) -> str:
@@ -467,8 +646,8 @@ class BrokerConfig:
         )
 
     @property
-    def identity_binding(self) -> dict[str, str]:
-        return {
+    def identity_binding(self) -> dict[str, Any]:
+        binding = {
             "identity_store_arn_digest": secret_digest(
                 "identity_store_arn", self.identity_store_arn
             ),
@@ -494,10 +673,80 @@ class BrokerConfig:
                 self.identity_center_application_actor_policy_sha256
             ),
         }
+        if self.is_single_operator:
+            binding.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                }
+            )
+        return binding
 
     @property
     def identity_binding_digest(self) -> str:
         return canonical_digest(self.identity_binding)
+
+    @staticmethod
+    def _exception_datetime(value: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise BrokerError("EXCEPTION_TIME_INVALID") from None
+        if parsed.tzinfo is None or parsed.microsecond != 0:
+            raise BrokerError("EXCEPTION_TIME_INVALID")
+        return parsed.astimezone(UTC)
+
+    @property
+    def single_operator_exception(self) -> dict[str, object] | None:
+        if not self.is_single_operator:
+            return None
+        try:
+            exception = build_single_operator_retirement_exception(
+                authority_account_id=self.authority_account_id,
+                region=self.region,
+                retirement_id=self.retirement_id,
+                change_set_name_digest=secret_digest(
+                    "change_set_name", self.change_set_name
+                ),
+                template_sha256=self.expected_template_sha256,
+                resource_inventory_sha256=self.expected_evidence_sha256,
+                identity_binding_digest=self.identity_binding_digest,
+                broker_runtime_version_arn=self.broker_runtime_version_arn,
+                broker_version_binding_sha256=self.broker_version_binding_sha256,
+                operator_identity_store_user_id=(
+                    self.classifier_identity_store_user_id
+                ),
+                owner_authorization_sha256=(
+                    self.single_operator_owner_authorization_sha256
+                ),
+                created_at=self._exception_datetime(
+                    self.single_operator_exception_created_at
+                ),
+                not_before=self._exception_datetime(
+                    self.single_operator_exception_not_before
+                ),
+                expires_at=self._exception_datetime(
+                    self.single_operator_exception_expires_at
+                ),
+            )
+            if (
+                exception["authorization_digest"]
+                != self.single_operator_expected_authorization_sha256
+            ):
+                raise BrokerError("REVIEWED_AUTHORIZATION_DIGEST_MISMATCH")
+            return exception
+        except SingleOperatorExceptionError as exc:
+            raise BrokerError(exc.code) from None
+
+    @property
+    def single_operator_authorization_sha256(self) -> str | None:
+        exception = self.single_operator_exception
+        return (
+            str(exception["authorization_digest"])
+            if exception is not None
+            else None
+        )
 
 
 class AwsClients(Protocol):
@@ -592,23 +841,31 @@ class RetirementBroker:
         event: object,
         identity_proof_sha256: str,
     ) -> dict[str, Any]:
-        if alias not in ALLOWED_ALIASES:
+        if alias not in self.config.allowed_aliases:
             raise BrokerError("ALIAS_NOT_AUTHORIZED")
         if event != {}:
             raise BrokerError("REQUEST_AUTHORITY_FORBIDDEN")
         _require_digest(identity_proof_sha256, "IDENTITY_PROOF_DIGEST_INVALID")
         self.preflight(alias=alias)
-        if alias == ALIAS_CLASSIFY:
+        if alias in {ALIAS_CLASSIFY, ALIAS_SINGLE_CLASSIFY}:
             return self._classify(identity_proof_sha256)
-        if alias == ALIAS_RETIRE:
+        if alias in {ALIAS_RETIRE, ALIAS_SINGLE_RETIRE}:
             return self._retire(identity_proof_sha256)
         return self._reconcile(identity_proof_sha256)
 
     def preflight(self, *, alias: str) -> None:
         """Read back every mutable PEP boundary without issuing a proof."""
 
-        if alias not in ALLOWED_ALIASES:
+        if alias not in self.config.allowed_aliases:
             raise BrokerError("ALIAS_NOT_AUTHORIZED")
+        if self.config.is_single_operator and alias != ALIAS_SINGLE_RECONCILE:
+            exception = self.config.single_operator_exception
+            if exception is None:
+                raise BrokerError("CONFIGURATION_INCOMPLETE")
+            try:
+                require_exception_effect_window(exception, now=self.now())
+            except SingleOperatorExceptionError as exc:
+                raise BrokerError(exc.code) from None
         self._verify_runtime_boundary(alias)
         self._verify_table_controls()
 
@@ -905,8 +1162,23 @@ class RetirementBroker:
             != f"{self.config.function_arn}:{function.get('Version')}"
             or function.get("CodeSha256") != self.config.expected_code_sha256
             or function.get("Role") != self.config.execution_role_arn
+            or function.get("RuntimeVersionConfig")
+            != {"RuntimeVersionArn": self.config.broker_runtime_version_arn}
         ):
             raise BrokerError("BROKER_CODE_BOUNDARY_CHANGED")
+        runtime_management = (
+            self.clients.lambda_client.get_runtime_management_config(
+                FunctionName=self.config.function_name,
+                Qualifier=str(function["Version"]),
+            )
+        )
+        if (
+            runtime_management.get("FunctionArn") != function.get("FunctionArn")
+            or runtime_management.get("UpdateRuntimeOn") != "Manual"
+            or runtime_management.get("RuntimeVersionArn")
+            != self.config.broker_runtime_version_arn
+        ):
+            raise BrokerError("BROKER_RUNTIME_MANAGEMENT_CHANGED")
         concurrency = self.clients.lambda_client.get_function_concurrency(
             FunctionName=self.config.function_name
         )
@@ -946,7 +1218,7 @@ class RetirementBroker:
                 raise BrokerError("BROKER_RESOURCE_POLICY_CHANGED")
         invoker_role_arn = (
             self.config.classifier_invoker_role_arn
-            if alias == ALIAS_CLASSIFY
+            if alias in {ALIAS_CLASSIFY, ALIAS_SINGLE_CLASSIFY}
             else self.config.approver_invoker_role_arn
         )
         self._verify_function_url(alias=alias, invoker_role_arn=invoker_role_arn)
@@ -1278,8 +1550,9 @@ class RetirementBroker:
         identity_proof_sha256: str,
     ) -> dict[str, Any]:
         timestamp = _timestamp(self.now())
+        exception = self.config.single_operator_exception
         record: dict[str, Any] = {
-            "schema_version": "2",
+            "schema_version": "3" if exception is not None else "2",
             "record_type": "platform_authority_change_set_retirement_pep_ledger",
             "environment": "non-production",
             "production": False,
@@ -1298,7 +1571,11 @@ class RetirementBroker:
             **self.config.identity_binding,
             "broker_code_sha256": self.config.expected_code_sha256,
             "broker_policy_sha256": self.config.expected_broker_policy_sha256,
-            "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+            "identity_separation": (
+                "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+                if exception is not None
+                else "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+            ),
             "human_authentication_evidence": "STS_EVALUATED_IDENTITY_CONTEXT",
             "aws_effect_principal": "BROKER_EXECUTION_ROLE",
             "native_on_behalf_of": False,
@@ -1316,35 +1593,70 @@ class RetirementBroker:
             "attempted_at": None,
             "verified_at": None,
             "effect_attribution": None,
-            "next_required_control": "INDEPENDENT_APPROVAL_REQUIRED",
+            "next_required_control": (
+                "SINGLE_OPERATOR_FRESH_REAUTHENTICATION_REQUIRED"
+                if exception is not None
+                else "INDEPENDENT_APPROVAL_REQUIRED"
+            ),
             "updated_at": timestamp,
         }
+        if exception is not None:
+            record.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                    "single_operator_authorization_sha256": exception[
+                        "authorization_digest"
+                    ],
+                    "broker_runtime_version_arn_digest": exception[
+                        "broker_runtime_version_arn_digest"
+                    ],
+                    "broker_version_binding_sha256": exception[
+                        "broker_version_binding_sha256"
+                    ],
+                    "owner_authorization_sha256": exception[
+                        "owner_authorization_sha256"
+                    ],
+                    "exception_created_at": exception["created_at"],
+                    "exception_not_before": exception["not_before"],
+                    "exception_expires_at": exception["expires_at"],
+                }
+            )
         record["ledger_digest"] = canonical_digest(record)
         return record
 
     def _validate_ledger(self, value: Mapping[str, Any]) -> dict[str, Any]:
         record = dict(value)
-        if set(record) != set(LEDGER_KEYS):
+        expected_keys = (
+            LEDGER_V3_KEYS if self.config.is_single_operator else LEDGER_V2_KEYS
+        )
+        if set(record) != set(expected_keys):
             raise BrokerError("LEDGER_MALFORMED")
         digest = record.pop("ledger_digest", None)
         if not isinstance(digest, str) or canonical_digest(record) != digest:
             raise BrokerError("LEDGER_DIGEST_INVALID")
         record["ledger_digest"] = digest
         state = record.get("state")
-        if state not in LEDGER_STATES:
+        allowed_states = (
+            LEDGER_V3_STATES if self.config.is_single_operator else LEDGER_V2_STATES
+        )
+        if state not in allowed_states:
             raise BrokerError("LEDGER_STATE_INVALID")
         expected_version = {
             "CLASSIFIED": 1,
             "APPROVED": 2,
+            "EXCEPTION_ACCEPTED": 2,
             "ATTEMPTED": 3,
             "RETIRED_RECONCILED": 4,
         }[state]
         if record.get("version") != expected_version or record.get("attempt_count") != (
-            0 if state in {"CLASSIFIED", "APPROVED"} else 1
+            0 if state in {"CLASSIFIED", "APPROVED", "EXCEPTION_ACCEPTED"} else 1
         ):
             raise BrokerError("LEDGER_STATE_INVALID")
+        exception = self.config.single_operator_exception
         expected_bindings = {
-            "schema_version": "2",
+            "schema_version": "3" if exception is not None else "2",
             "record_type": "platform_authority_change_set_retirement_pep_ledger",
             "environment": "non-production",
             "production": False,
@@ -1363,25 +1675,54 @@ class RetirementBroker:
             **self.config.identity_binding,
             "broker_code_sha256": self.config.expected_code_sha256,
             "broker_policy_sha256": self.config.expected_broker_policy_sha256,
-            "identity_separation": "VERIFIED_DISTINCT_IDENTITYSTORE_USERS",
+            "identity_separation": (
+                "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+                if exception is not None
+                else "VERIFIED_DISTINCT_IDENTITYSTORE_USERS"
+            ),
             "human_authentication_evidence": "STS_EVALUATED_IDENTITY_CONTEXT",
             "aws_effect_principal": "BROKER_EXECUTION_ROLE",
             "native_on_behalf_of": False,
         }
+        if exception is not None:
+            expected_bindings.update(
+                {
+                    "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                    "two_human_status": "NOT_PROVEN",
+                    "independent_approval_present": False,
+                    "single_operator_authorization_sha256": exception[
+                        "authorization_digest"
+                    ],
+                    "broker_runtime_version_arn_digest": exception[
+                        "broker_runtime_version_arn_digest"
+                    ],
+                    "broker_version_binding_sha256": exception[
+                        "broker_version_binding_sha256"
+                    ],
+                    "owner_authorization_sha256": exception[
+                        "owner_authorization_sha256"
+                    ],
+                    "exception_created_at": exception["created_at"],
+                    "exception_not_before": exception["not_before"],
+                    "exception_expires_at": exception["expires_at"],
+                }
+            )
         if any(record.get(key) != expected for key, expected in expected_bindings.items()):
             raise BrokerError("LEDGER_BINDING_CHANGED")
         for field in ("stack_id_digest", "change_set_id_digest"):
             value_digest = record.get(field)
             if not isinstance(value_digest, str) or DIGEST.fullmatch(value_digest) is None:
                 raise BrokerError("LEDGER_BINDING_CHANGED")
-        if (
+        users_equal = (
             record.get("classifier_identity_store_user_id_digest")
             == record.get("approver_identity_store_user_id_digest")
-        ):
+        )
+        if users_equal != self.config.is_single_operator:
             raise BrokerError("LEDGER_BINDING_CHANGED")
         proof_presence: dict[str, tuple[bool, bool, bool]] = {
             "CLASSIFIED": (True, False, False),
             "APPROVED": (True, True, False),
+            "EXCEPTION_ACCEPTED": (True, True, False),
             "ATTEMPTED": (True, True, False),
             "RETIRED_RECONCILED": (True, True, True),
         }
@@ -1403,6 +1744,7 @@ class RetirementBroker:
         expected_fields: dict[str, tuple[bool, ...]] = {
             "CLASSIFIED": (False, False, False),
             "APPROVED": (True, False, False),
+            "EXCEPTION_ACCEPTED": (True, False, False),
             "ATTEMPTED": (True, True, False),
             "RETIRED_RECONCILED": (True, True, True),
         }
@@ -1433,18 +1775,31 @@ class RetirementBroker:
         if timestamps != sorted(timestamps) or updated_at < timestamps[-1]:
             raise BrokerError("LEDGER_STATE_INVALID")
         expected_next_controls: dict[str, set[str]] = {
-            "CLASSIFIED": {"INDEPENDENT_APPROVAL_REQUIRED"},
+            "CLASSIFIED": {
+                "SINGLE_OPERATOR_FRESH_REAUTHENTICATION_REQUIRED"
+                if self.config.is_single_operator
+                else "INDEPENDENT_APPROVAL_REQUIRED"
+            },
             "APPROVED": {"ONE_SHOT_ATTEMPT_REQUIRED"},
+            "EXCEPTION_ACCEPTED": {"ONE_SHOT_ATTEMPT_REQUIRED"},
             "ATTEMPTED": {"READ_ONLY_RECONCILIATION_REQUIRED"},
             "RETIRED_RECONCILED": {
-                "RETIREMENT_ROLE_REVOCATION_REQUIRED",
-                "PAB_AND_REVOCATION_REQUIRED",
+                "SINGLE_OPERATOR_EXCEPTION_REVOCATION_REQUIRED"
+                if self.config.is_single_operator
+                else "RETIREMENT_ROLE_REVOCATION_REQUIRED",
+                "SINGLE_OPERATOR_PAB_AND_REVOCATION_REQUIRED"
+                if self.config.is_single_operator
+                else "PAB_AND_REVOCATION_REQUIRED",
             },
         }
         if record.get("next_required_control") not in expected_next_controls[state]:
             raise BrokerError("LEDGER_STATE_INVALID")
         expected_attribution = (
-            "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
+            (
+                "BROKER_SERVICE_PRINCIPAL_AFTER_SINGLE_OPERATOR_STS_PROOF"
+                if self.config.is_single_operator
+                else "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
+            )
             if verification_present
             else None
         )
@@ -1499,8 +1854,13 @@ class RetirementBroker:
     ) -> dict[str, Any]:
         current = self._validate_ledger(before)
         expected_next = {
-            "CLASSIFIED": "APPROVED",
+            "CLASSIFIED": (
+                "EXCEPTION_ACCEPTED"
+                if self.config.is_single_operator
+                else "APPROVED"
+            ),
             "APPROVED": "ATTEMPTED",
+            "EXCEPTION_ACCEPTED": "ATTEMPTED",
             "ATTEMPTED": "RETIRED_RECONCILED",
         }.get(str(current["state"]))
         if state != expected_next:
@@ -1605,15 +1965,25 @@ class RetirementBroker:
                 "ledger_digest": current["ledger_digest"],
                 "next_required_control": "READ_ONLY_RECONCILIATION_REQUIRED",
             }
-        if current["state"] not in {"CLASSIFIED", "APPROVED"}:
+        allowed_states = (
+            {"CLASSIFIED", "EXCEPTION_ACCEPTED"}
+            if self.config.is_single_operator
+            else {"CLASSIFIED", "APPROVED"}
+        )
+        if current["state"] not in allowed_states:
             raise BrokerError("RETIREMENT_STATE_NOT_AUTHORIZED")
+        if (
+            self.config.is_single_operator
+            and identity_proof_sha256
+            == current.get("classifier_identity_proof_sha256")
+        ):
+            raise BrokerError("FRESH_REAUTHENTICATION_REQUIRED")
         evidence = self._target_evidence()
         self._require_evidence_matches_ledger(current, evidence)
         approved = current
         if current["state"] == "CLASSIFIED":
             approved_at = _timestamp(self.now())
-            approval_digest = canonical_digest(
-                {
+            approval_input = {
                     "retirement_id": current["retirement_id"],
                     "classification_ledger_digest": current["ledger_digest"],
                     "approver_identity_store_user_id_digest": current[
@@ -1624,11 +1994,28 @@ class RetirementBroker:
                     "decision": "RETIRE_EXACT_UNEXECUTED_CHANGE_SET",
                     "allowed_action": "scanalyze:RetireExactChangeSet",
                     "approved_at": approved_at,
-                }
-            )
+            }
+            if self.config.is_single_operator:
+                approval_input.update(
+                    {
+                        "authorization_mode": (
+                            AUTHORIZATION_MODE_SINGLE_OPERATOR
+                        ),
+                        "two_human_status": "NOT_PROVEN",
+                        "independent_approval_present": False,
+                        "single_operator_authorization_sha256": current[
+                            "single_operator_authorization_sha256"
+                        ],
+                    }
+                )
+            approval_digest = canonical_digest(approval_input)
             approved = self._transition(
                 current,
-                state="APPROVED",
+                state=(
+                    "EXCEPTION_ACCEPTED"
+                    if self.config.is_single_operator
+                    else "APPROVED"
+                ),
                 approval_digest=approval_digest,
                 approver_identity_proof_sha256=identity_proof_sha256,
                 approved_at=approved_at,
@@ -1660,6 +2047,16 @@ class RetirementBroker:
             exact_stack_id, str
         ):
             raise BrokerError("CHANGE_SET_IDENTITY_CHANGED")
+        if self.config.is_single_operator:
+            exception = self.config.single_operator_exception
+            if exception is None:
+                raise BrokerError("CONFIGURATION_INCOMPLETE")
+            try:
+                require_exception_effect_window(exception, now=self.now())
+            except SingleOperatorExceptionError as exc:
+                # ATTEMPTED is durable. An expired or ambiguous operation can
+                # only reconcile; it can never reopen or issue a second delete.
+                raise BrokerError(exc.code) from None
         try:
             self.clients.cloudformation.delete_change_set(
                 ChangeSetName=exact_change_set_id,
@@ -1728,18 +2125,29 @@ class RetirementBroker:
         final_stack_id = self._require_reconciliation_stack(current, final_stack)
         if self._change_set_inventory(final_stack_id) != []:
             raise BrokerError("RECONCILIATION_INVENTORY_AMBIGUOUS")
-        next_control = (
-            "RETIREMENT_ROLE_REVOCATION_REQUIRED"
-            if pab is not None and all(pab.values())
-            else "PAB_AND_REVOCATION_REQUIRED"
-        )
+        if self.config.is_single_operator:
+            next_control = (
+                "SINGLE_OPERATOR_EXCEPTION_REVOCATION_REQUIRED"
+                if pab is not None and all(pab.values())
+                else "SINGLE_OPERATOR_PAB_AND_REVOCATION_REQUIRED"
+            )
+        else:
+            next_control = (
+                "RETIREMENT_ROLE_REVOCATION_REQUIRED"
+                if pab is not None and all(pab.values())
+                else "PAB_AND_REVOCATION_REQUIRED"
+            )
         reconciled = self._transition(
             current,
             state="RETIRED_RECONCILED",
             verification_digest=verification_digest,
             reconciliation_identity_proof_sha256=identity_proof_sha256,
             verified_at=verified_at,
-            effect_attribution="BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF",
+            effect_attribution=(
+                "BROKER_SERVICE_PRINCIPAL_AFTER_SINGLE_OPERATOR_STS_PROOF"
+                if self.config.is_single_operator
+                else "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
+            ),
             next_required_control=next_control,
         )
         return {

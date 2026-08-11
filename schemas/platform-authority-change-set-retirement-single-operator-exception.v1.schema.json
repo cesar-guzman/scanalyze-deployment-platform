@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-change-set-retirement-single-operator-exception.v1.schema.json",
+  "title": "Platform Authority Change Set Retirement Single Operator Exception v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "issue_id",
+    "environment",
+    "production",
+    "authorization_mode",
+    "two_human_status",
+    "independent_approval_present",
+    "single_execution",
+    "deployment_authorized",
+    "request_selectable",
+    "allowed_action",
+    "broker_ledger_actions",
+    "forbidden_actions",
+    "aws_effect_principal",
+    "max_attempts",
+    "authority_account_id_digest",
+    "region",
+    "stack_name",
+    "retirement_id",
+    "change_set_name_digest",
+    "template_sha256",
+    "resource_inventory_sha256",
+    "identity_binding_digest",
+    "broker_runtime_version_arn_digest",
+    "broker_version_binding_sha256",
+    "operator_identity_store_user_id_digest",
+    "owner_authorization_sha256",
+    "created_at",
+    "not_before",
+    "expires_at",
+    "reconciliation_after_expiry",
+    "revocation_required",
+    "authorization_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_change_set_retirement_single_operator_exception"
+    },
+    "issue_id": { "const": "GUG-215" },
+    "environment": { "const": "non-production" },
+    "production": { "const": false },
+    "authorization_mode": { "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION" },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "single_execution": { "const": true },
+    "deployment_authorized": { "const": false },
+    "request_selectable": { "const": false },
+    "allowed_action": { "const": "cloudformation:DeleteChangeSet" },
+    "broker_ledger_actions": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "dynamodb:PutItem" },
+        { "const": "dynamodb:UpdateItem" }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "cloudformation:CreateChangeSet" },
+        { "const": "cloudformation:DeleteStack" },
+        { "const": "cloudformation:ExecuteChangeSet" },
+        { "const": "cloudformation:UpdateStack" }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "aws_effect_principal": { "const": "BROKER_EXECUTION_ROLE" },
+    "max_attempts": { "const": 1 },
+    "authority_account_id_digest": { "$ref": "#/$defs/digest" },
+    "region": { "$ref": "#/$defs/region" },
+    "stack_name": { "const": "scanalyze-platform-authority-state-backend" },
+    "retirement_id": {
+      "type": "string",
+      "pattern": "^gug215#sha256:[a-f0-9]{64}$"
+    },
+    "change_set_name_digest": { "$ref": "#/$defs/digest" },
+    "template_sha256": { "$ref": "#/$defs/digest" },
+    "resource_inventory_sha256": { "$ref": "#/$defs/digest" },
+    "identity_binding_digest": { "$ref": "#/$defs/digest" },
+    "broker_runtime_version_arn_digest": { "$ref": "#/$defs/digest" },
+    "broker_version_binding_sha256": { "$ref": "#/$defs/digest" },
+    "operator_identity_store_user_id_digest": { "$ref": "#/$defs/digest" },
+    "owner_authorization_sha256": { "$ref": "#/$defs/digest" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "not_before": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "reconciliation_after_expiry": { "const": true },
+    "revocation_required": { "const": true },
+    "authorization_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}
