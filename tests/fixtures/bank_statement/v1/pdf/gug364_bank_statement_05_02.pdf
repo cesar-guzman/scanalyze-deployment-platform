@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 222 >>
+<< /Length 584 >>
 stream
 BT
 /F1 12 Tf
@@ -19,11 +19,33 @@ BT
 0 -15 Td
 (NOT REAL CUSTOMER DATA) Tj
 0 -15 Td
-(PROFILE: Zero-transaction statement) Tj
+(FIXTURE_ID: gug364_bank_statement_05_02) Tj
 0 -15 Td
-(INSTANCE: 2) Tj
+(PAGE 1 OF 1) Tj
 0 -15 Td
-(DOC_ID: e30d3ed65712f9ee7f7b37a194e894c3) Tj
+(Bank: Example Meridian Bank) Tj
+0 -15 Td
+(Holder: TEST HOLDER 0001) Tj
+0 -15 Td
+(Account: ****0001) Tj
+0 -15 Td
+(CLABE: ****0001) Tj
+0 -15 Td
+(Currency: MXN) Tj
+0 -15 Td
+(Period: 2025-12-01 to 2025-12-31) Tj
+0 -15 Td
+(Opening Balance: 1000.0) Tj
+0 -15 Td
+(Closing Balance: 1000.0) Tj
+0 -15 Td
+(Total Credits: 0.0) Tj
+0 -15 Td
+(Total Debits: 0.0) Tj
+0 -15 Td
+(TRANSACTIONS:) Tj
+0 -15 Td
+(No activity) Tj
 ET
 endstream
 endobj
@@ -40,10 +62,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000000522 00000 n 
-0000000592 00000 n 
+0000000884 00000 n 
+0000000954 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-713
+1075
 %%EOF

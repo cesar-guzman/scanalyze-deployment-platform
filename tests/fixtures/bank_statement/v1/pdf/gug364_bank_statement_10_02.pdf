@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 233 >>
+<< /Length 644 >>
 stream
 BT
 /F1 12 Tf
@@ -19,11 +19,33 @@ BT
 0 -15 Td
 (NOT REAL CUSTOMER DATA) Tj
 0 -15 Td
-(PROFILE: Period/currency/repeatability profile) Tj
+(FIXTURE_ID: gug364_bank_statement_10_02) Tj
 0 -15 Td
-(INSTANCE: 2) Tj
+(PAGE 1 OF 1) Tj
 0 -15 Td
-(DOC_ID: d3266f4f75c7075833219decb0d7e99b) Tj
+(Bank: Example Meridian Bank) Tj
+0 -15 Td
+(Holder: TEST HOLDER 0001) Tj
+0 -15 Td
+(Account: ****0001) Tj
+0 -15 Td
+(CLABE: ****0001) Tj
+0 -15 Td
+(Currency: USD) Tj
+0 -15 Td
+(Period: 2026-02-01 to 2026-02-28) Tj
+0 -15 Td
+(Opening Balance: 1000.0) Tj
+0 -15 Td
+(Closing Balance: 1100.0) Tj
+0 -15 Td
+(Total Credits: 100.0) Tj
+0 -15 Td
+(Total Debits: 0.0) Tj
+0 -15 Td
+(TRANSACTIONS:) Tj
+0 -15 Td
+(2026-02-01 | SYNTHETIC TEST TRANSACTION 001 | credit | 100.0 | 1100.0) Tj
 ET
 endstream
 endobj
@@ -40,10 +62,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000000533 00000 n 
-0000000603 00000 n 
+0000000944 00000 n 
+0000001014 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-724
+1135
 %%EOF

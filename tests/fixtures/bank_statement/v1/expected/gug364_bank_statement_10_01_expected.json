@@ -3,7 +3,7 @@
   "data": {
     "account": {
       "clabeMasked": "****0001",
-      "currency": "USD",
+      "currency": "MXN",
       "holder": "TEST HOLDER 0001",
       "numberMasked": "****0001"
     },
@@ -22,8 +22,8 @@
     "interestCharged": 0.0,
     "interestEarned": 0.0,
     "statement": {
-      "periodEnd": "2025-12-31",
-      "periodStart": "2025-12-01"
+      "periodEnd": "2026-01-31",
+      "periodStart": "2026-01-01"
     },
     "summaryText": "SYNTHETIC FIXTURE DATA",
     "transactions": [

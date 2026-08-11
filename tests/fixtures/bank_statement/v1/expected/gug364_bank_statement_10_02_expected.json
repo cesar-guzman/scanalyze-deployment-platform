@@ -22,8 +22,8 @@
     "interestCharged": 0.0,
     "interestEarned": 0.0,
     "statement": {
-      "periodEnd": "2025-12-31",
-      "periodStart": "2025-12-01"
+      "periodEnd": "2026-02-28",
+      "periodStart": "2026-02-01"
     },
     "summaryText": "SYNTHETIC FIXTURE DATA",
     "transactions": [
@@ -31,7 +31,7 @@
         "amount": 100.0,
         "balanceAfter": 1100.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2026-02-01",
         "description": "SYNTHETIC TEST TRANSACTION 001",
         "direction": "credit",
         "reference": "REF001"

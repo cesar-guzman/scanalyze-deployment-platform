@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.fixture-catalog.v1.schema.json",
+  "title": "Scanalyze Fixture Catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixtures"],
+  "properties": {
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion", "fixtureId", "fixtureVersion", "profileId", "instanceId",
+          "scenarioType", "positiveOrNegative", "filePath", "mimeType",
+          "sensitivity", "sourceSpecPath", "sourceSpecSha256", "generatorPath",
+          "generatorVersion", "acceptedDocumentDenominator", "retentionClass",
+          "noRealDataAttestation", "tags"
+        ],
+        "properties": {
+          "schemaVersion": { "type": "string", "enum": ["scanalyze.fixture-catalog.v1"] },
+          "fixtureId": { "type": "string" },
+          "fixtureVersion": { "type": "string" },
+          "profileId": { "type": "string" },
+          "instanceId": { "type": "string" },
+          "scenarioType": { "type": "string" },
+          "positiveOrNegative": { "type": "string", "enum": ["POSITIVE", "NEGATIVE"] },
+          "filePath": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "sensitivity": { "type": "string", "enum": ["SYNTHETIC"] },
+          "sourceSpecPath": { "type": "string" },
+          "sourceSpecSha256": { "type": "string" },
+          "generatorPath": { "type": "string" },
+          "generatorSourceSha256": { "type": "string" },
+          "generatorVersion": { "type": "string" },
+          "pdfSha256": { "type": "string" },
+          "expectedResultPath": { "type": "string" },
+          "expectedResultSha256": { "type": "string" },
+          "byteSize": { "type": "integer" },
+          "pageCount": { "type": "integer" },
+          "expectedLifecycle": { "type": "string", "enum": ["UPLOAD_PENDING", "SUBMITTED", "PROCESSING", "COMPLETED", "FAILED"] },
+          "expectedCurrentStage": { "type": "string", "enum": ["TERMINAL"] },
+          "expectedStageState": { "type": "string", "enum": ["SUCCEEDED", "FAILED"] },
+          "expectedFailureDisposition": { "type": "string" },
+          "expectedSafeFailureCode": { "type": "string" },
+          "expectedHttpStatus": { "type": "integer" },
+          "expectedErrorCode": { "type": "string" },
+          "expectedRetryClass": { "type": "string" },
+          "sharedInputFixtureId": { "type": "string" },
+          "acceptedDocumentDenominator": { "type": "boolean" },
+          "manualReviewChecklist": { "type": "array", "items": { "type": "string" } },
+          "retentionClass": { "type": "string" },
+          "noRealDataAttestation": { "type": "boolean" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

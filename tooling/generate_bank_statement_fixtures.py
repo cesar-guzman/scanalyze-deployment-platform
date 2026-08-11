@@ -3,16 +3,18 @@ import json
 import hashlib
 import datetime
 import argparse
+import copy
+from typing import Dict, Any, List
 
 # Deterministic fixed date for provenance and generation
 FIXED_DATE = "2026-01-01T00:00:00Z"
 PRODUCER_VERSION = "1.0"
-GENERATOR_VERSION = "v1"
+GENERATOR_VERSION = "v2"
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def _deterministic_pdf_bytes(text: str, pages: int = 1) -> bytes:
+def _deterministic_pdf_bytes(text: str, pages: int = 1, page_contents: List[str] = None) -> bytes:
     objects = []
     
     def create_obj(num, content):
@@ -30,10 +32,18 @@ def _deterministic_pdf_bytes(text: str, pages: int = 1) -> bytes:
         content_obj = current_obj + 1
         objects.append(create_obj(current_obj, f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_obj} 0 R /Resources << /Font << /F1 {3 + pages*2} 0 R >> >> >>"))
         
-        text_lines = text.split("\n")
+        # Determine text for this page
+        if page_contents:
+            current_text = page_contents[p]
+        else:
+            current_text = text
+
+        text_lines = current_text.split("\n")
         pdf_text = f"BT\n/F1 12 Tf\n100 700 Td\n"
         for i, line in enumerate(text_lines):
-            pdf_text += f"({line}) Tj\n"
+            # Escape PDF text
+            safe_line = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            pdf_text += f"({safe_line}) Tj\n"
             if i < len(text_lines) - 1:
                 pdf_text += "0 -15 Td\n"
         pdf_text += "ET"
@@ -66,9 +76,41 @@ def _deterministic_pdf_bytes(text: str, pages: int = 1) -> bytes:
     
     return pdf_content
 
-def build_expected_result(doc_id: str, profile: dict, pdf_bytes: bytes) -> dict:
-    num_tx = profile.get("transactions", 1 if not profile.get("nulls") and not profile.get("transactions") == 0 else 0)
-    if profile.get("nulls"):
+def build_profile_10_variations(instance: int) -> dict:
+    # Instance 1: normal period, MXN
+    # Instance 2: different period, USD
+    if instance == 1:
+        return {"periodStart": "2026-01-01", "periodEnd": "2026-01-31", "currency": "MXN"}
+    else:
+        return {"periodStart": "2026-02-01", "periodEnd": "2026-02-28", "currency": "USD"}
+
+def build_expected_result(doc_id: str, profile: dict, instance: int) -> dict:
+    # Build exact ground truth from profile
+    is_nulls = profile.get("nulls", False)
+    has_fees = profile.get("fees", False)
+    is_recon_failure = profile.get("reconciliation_failure", False)
+    
+    bank_name = "Example Meridian Bank" if not is_nulls else None
+    holder = "TEST HOLDER 0001" if not is_nulls else None
+    account_mask = "****0001" if not is_nulls else None
+    clabe_mask = "****0001" if not is_nulls else None
+    currency = profile.get("currency", "MXN") if not is_nulls else None
+
+    # Handle Profile 10 variations
+    period_start = "2025-12-01"
+    period_end = "2025-12-31"
+    if profile.get("id") == "10" and not is_nulls:
+        var = build_profile_10_variations(instance)
+        period_start = var["periodStart"]
+        period_end = var["periodEnd"]
+        currency = var["currency"]
+        
+    if is_nulls:
+        period_start = None
+        period_end = None
+
+    num_tx = profile.get("transactions", 1)
+    if is_nulls or num_tx == 0:
         num_tx = 0
         
     txs = []
@@ -82,7 +124,7 @@ def build_expected_result(doc_id: str, profile: dict, pdf_bytes: bytes) -> dict:
         else:
             debits += amt
         txs.append({
-            "date": "2026-01-01",
+            "date": period_start if period_start else "2025-12-01",
             "description": f"SYNTHETIC TEST TRANSACTION {i+1:03d}",
             "reference": f"REF{i+1:03d}",
             "direction": direction,
@@ -91,29 +133,16 @@ def build_expected_result(doc_id: str, profile: dict, pdf_bytes: bytes) -> dict:
             "category": "otro"
         })
 
-    opening = 1000.0
-    closing = opening + credits - debits
+    opening = 1000.0 if not is_nulls else None
+    closing = 1000.0 + credits - debits if not is_nulls else None
     
-    if profile.get("reconciliation_failure"):
+    if is_recon_failure:
         closing = 99999.99
 
-    bank_name = "Example Meridian Bank"
-    holder = "TEST HOLDER 0001"
-    account_mask = "****0001"
-    clabe_mask = "****0001"
-    currency = profile.get("currency", "MXN")
-    
-    if profile.get("nulls"):
-        bank_name = None
-        holder = None
-        account_mask = None
-        clabe_mask = None
-        currency = None
-        opening = None
-        closing = None
-        credits = None
-        debits = None
-        
+    fees = {"totalFees": 50.0, "ivaOnFees": 8.0} if has_fees else None
+    interest_earned = 10.0 if has_fees else (0.0 if not is_nulls else None)
+    interest_charged = 0.0 if not is_nulls else None
+
     data = {
         "bank": {"name": bank_name},
         "account": {
@@ -123,25 +152,28 @@ def build_expected_result(doc_id: str, profile: dict, pdf_bytes: bytes) -> dict:
             "currency": currency
         },
         "statement": {
-            "periodStart": "2025-12-01" if not profile.get("nulls") else None,
-            "periodEnd": "2025-12-31" if not profile.get("nulls") else None
+            "periodStart": period_start,
+            "periodEnd": period_end
         },
         "balances": {
             "opening": opening,
             "closing": closing,
-            "totalCredits": credits,
-            "totalDebits": debits
+            "totalCredits": credits if not is_nulls else None,
+            "totalDebits": debits if not is_nulls else None
         },
         "transactions": txs,
-        "accountType": None if profile.get("nulls") else "cheques",
-        "bankCountry": None if profile.get("nulls") else "MX",
-        "fees": {"totalFees": 50.0, "ivaOnFees": 8.0} if profile.get("fees") else None,
-        "interestEarned": 10.0 if profile.get("fees") else (None if profile.get("nulls") else 0.0),
-        "interestCharged": 0.0 if not profile.get("nulls") else None,
-        "summaryText": "SYNTHETIC FIXTURE DATA" if not profile.get("nulls") else None
+        "accountType": "cheques" if not is_nulls else None,
+        "bankCountry": "MX" if not is_nulls else None,
+        "fees": fees,
+        "interestEarned": interest_earned,
+        "interestCharged": interest_charged,
+        "summaryText": "SYNTHETIC FIXTURE DATA" if not is_nulls else None
     }
     
-    return {
+    # The schema scanalyze-document-journey-result.v1.schema.json specifies them as optional or nullable.
+    cleaned_data = data
+
+    res = {
         "schemaVersion": "scanalyze.document-result.v1",
         "contractVersion": "scanalyze.document-journey.v1",
         "documentType": "bank_statement",
@@ -155,10 +187,69 @@ def build_expected_result(doc_id: str, profile: dict, pdf_bytes: bytes) -> dict:
             "promptVersion": "1.0.0",
             "generatedAt": FIXED_DATE
         },
-        "data": data,
+        "data": cleaned_data,
         "warnings": profile.get("warnings", []),
         "quality": profile.get("quality", {"overallConfidence": 98.0})
     }
+    return res
+
+def build_pdf_text_from_expected(expected: dict, fixture_id: str, instance: int, total_pages: int, page_num: int) -> str:
+    # Ensure PDF visually matches the ground truth for this page
+    data = expected.get("data", {})
+    bank = data.get("bank") or {}
+    account = data.get("account") or {}
+    statement = data.get("statement") or {}
+    balances = data.get("balances") or {}
+    txs = data.get("transactions") or []
+    
+    lines = [
+        "SYNTHETIC TEST FIXTURE",
+        "NOT REAL CUSTOMER DATA",
+        f"FIXTURE_ID: {fixture_id}",
+        f"PAGE {page_num+1} OF {total_pages}"
+    ]
+    
+    if bank.get("name"):
+        lines.append(f"Bank: {bank['name']}")
+    if account.get("holder"):
+        lines.append(f"Holder: {account['holder']}")
+    if account.get("numberMasked"):
+        lines.append(f"Account: {account['numberMasked']}")
+    if account.get("clabeMasked"):
+        lines.append(f"CLABE: {account['clabeMasked']}")
+    if account.get("currency"):
+        lines.append(f"Currency: {account['currency']}")
+    if statement.get("periodStart"):
+        lines.append(f"Period: {statement['periodStart']} to {statement.get('periodEnd', '')}")
+        
+    if page_num == 0:
+        if balances.get("opening") is not None:
+            lines.append(f"Opening Balance: {balances['opening']}")
+        if balances.get("closing") is not None:
+            lines.append(f"Closing Balance: {balances['closing']}")
+        if balances.get("totalCredits") is not None:
+            lines.append(f"Total Credits: {balances['totalCredits']}")
+        if balances.get("totalDebits") is not None:
+            lines.append(f"Total Debits: {balances['totalDebits']}")
+        
+        fees = data.get("fees", {})
+        if fees:
+            lines.append(f"Fees: {fees.get('totalFees')} IVA: {fees.get('ivaOnFees')}")
+            
+    lines.append("TRANSACTIONS:")
+    if len(txs) == 0 and page_num == 0:
+        lines.append("No activity")
+    
+    # Distribute txs across pages
+    txs_per_page = max(1, len(txs) // total_pages + (1 if len(txs) % total_pages > 0 else 0))
+    start_tx = page_num * txs_per_page
+    end_tx = start_tx + txs_per_page
+    
+    for tx in txs[start_tx:end_tx]:
+        lines.append(f"{tx['date']} | {tx['description']} | {tx['direction']} | {tx['amount']} | {tx['balanceAfter']}")
+        
+    return "\n".join(lines)
+
 
 def generate_fixtures(base_dir: str, check_only: bool = False):
     profiles_dir = os.path.join(base_dir, 'profiles')
@@ -169,11 +260,13 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
     for d in [pdf_dir, expected_dir, controls_dir]:
         os.makedirs(d, exist_ok=True)
         
-    catalog = []
+    catalog = {"fixtures": []}
     
     profiles = sorted([f for f in os.listdir(profiles_dir) if f.endswith('.json')])
     
-    # Process positive profiles (10 profiles * 2 instances)
+    # Generate profiles 1-10 if they don't exist yet, wait, we are modifying the existing repo.
+    # The prompt says we modify the fixture generator.
+
     for profile_file in profiles:
         with open(os.path.join(profiles_dir, profile_file), 'r') as f:
             profile_bytes = f.read().encode('utf-8')
@@ -181,21 +274,29 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
             
         for instance in [1, 2]:
             fixture_id = f"gug364_bank_statement_{profile['id']}_{instance:02d}"
-            # deterministic documentId
             doc_id = hashlib.md5(fixture_id.encode()).hexdigest()
             
             pages = profile.get("pages", 1)
-            text = f"SYNTHETIC TEST FIXTURE\nNOT REAL CUSTOMER DATA\nPROFILE: {profile['name']}\nINSTANCE: {instance}\nDOC_ID: {doc_id}"
-            pdf_bytes = _deterministic_pdf_bytes(text, pages=pages)
+            
+            expected_res = build_expected_result(doc_id, profile, instance)
+            
+            # Create page contents distributing txs
+            page_contents = []
+            for p in range(pages):
+                page_contents.append(build_pdf_text_from_expected(expected_res, fixture_id, instance, pages, p))
+                
+            pdf_bytes = _deterministic_pdf_bytes("", pages=pages, page_contents=page_contents)
             
             pdf_name = f"{fixture_id}.pdf"
             pdf_path = os.path.join(pdf_dir, pdf_name)
             
-            expected_res = build_expected_result(doc_id, profile, pdf_bytes)
+            # Write exactly and deterministically
+            expected_json_bytes = json.dumps(expected_res, indent=2, sort_keys=True).encode('utf-8')
             expected_name = f"{fixture_id}_expected.json"
             expected_path = os.path.join(expected_dir, expected_name)
             
-            # Catalog Entry
+            # Current public lifecycle values include: UPLOAD_PENDING, SUBMITTED, PROCESSING, COMPLETED, FAILED
+            # Current terminal representation includes: currentStage = TERMINAL, stageState = SUCCEEDED or FAILED
             entry = {
                 "schemaVersion": "scanalyze.fixture-catalog.v1",
                 "fixtureId": fixture_id,
@@ -203,7 +304,7 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
                 "profileId": profile['id'],
                 "instanceId": f"{instance:02d}",
                 "scenarioType": profile['name'],
-                "positiveOrNegative": "positive",
+                "positiveOrNegative": "POSITIVE",
                 "filePath": f"pdf/{pdf_name}",
                 "mimeType": "application/pdf",
                 "sensitivity": "SYNTHETIC",
@@ -213,47 +314,70 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
                 "generatorVersion": GENERATOR_VERSION,
                 "pdfSha256": sha256(pdf_bytes),
                 "expectedResultPath": f"expected/{expected_name}",
-                "expectedResultSha256": sha256(json.dumps(expected_res, sort_keys=True).encode()),
+                "expectedResultSha256": sha256(expected_json_bytes),
                 "byteSize": len(pdf_bytes),
                 "pageCount": pages,
-                "expectedLifecycle": "COMPLETE",
-                "expectedTerminalState": "EXTRACTED",
+                "expectedLifecycle": "COMPLETED",
+                "expectedCurrentStage": "TERMINAL",
+                "expectedStageState": "SUCCEEDED",
                 "acceptedDocumentDenominator": True,
-                "manualReviewChecklist": ["Verify synthetic banner", "Verify transaction counts"],
+                "manualReviewChecklist": ["Verify synthetic banner", "Verify transaction counts", "Verify expected ground truth presence"],
                 "retentionClass": "30_days",
                 "noRealDataAttestation": True,
                 "tags": ["positive", "synthetic", "bank_statement"]
             }
-            catalog.append(entry)
+            entry = {k: v for k, v in entry.items() if v is not None}
+            catalog["fixtures"].append(entry)
             
             if not check_only:
                 with open(pdf_path, 'wb') as f:
                     f.write(pdf_bytes)
-                with open(expected_path, 'w') as f:
-                    json.dump(expected_res, f, indent=2, sort_keys=True)
+                with open(expected_path, 'wb') as f:
+                    f.write(expected_json_bytes)
             else:
                 with open(pdf_path, 'rb') as f:
                     if f.read() != pdf_bytes:
                         raise ValueError(f"Mismatch in {pdf_name}")
-                with open(expected_path, 'r') as f:
-                    if json.dumps(json.load(f), sort_keys=True) != json.dumps(expected_res, sort_keys=True):
+                with open(expected_path, 'rb') as f:
+                    if f.read() != expected_json_bytes:
                         raise ValueError(f"Mismatch in {expected_name}")
                         
     # Process negative controls
     controls = [
-        {"id": "ctrl_01", "name": "Malformed PDF", "setup": "Upload corrupted PDF bytes", "mimeType": "application/pdf", "error": "MALFORMED_DOCUMENT"},
-        {"id": "ctrl_02", "name": "Blank or low-text PDF", "setup": "Upload empty PDF", "mimeType": "application/pdf", "error": "LOW_TEXT_QUALITY"},
-        {"id": "ctrl_03", "name": "Unsupported MIME", "setup": "Upload text/plain file", "mimeType": "text/plain", "error": "UNSUPPORTED_MIME_TYPE"},
-        {"id": "ctrl_04", "name": "Oversized-file boundary", "setup": "Generate >5MiB file at runtime", "mimeType": "application/pdf", "error": "FILE_TOO_LARGE"},
-        {"id": "ctrl_05", "name": "Idempotency conflict", "setup": "Upload diff doc with same key", "mimeType": "application/pdf", "error": "IDEMPOTENCY_CONFLICT"},
-        {"id": "ctrl_06", "name": "Response-loss reconciliation", "setup": "Retry after timeout", "mimeType": "application/pdf", "error": "NONE"},
-        {"id": "ctrl_07", "name": "Wrong-user access", "setup": "Cross-tenant access", "mimeType": "application/pdf", "error": "ACCESS_DENIED"},
-        {"id": "ctrl_08", "name": "Wrong-deployment access", "setup": "Cross-deployment access", "mimeType": "application/pdf", "error": "ACCESS_DENIED"}
+        {"id": "ctrl_01", "name": "Malformed PDF", "setup": "Upload corrupted PDF bytes", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 200, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_02", "name": "Blank or low-text PDF", "setup": "Upload empty PDF", "mimeType": "application/pdf", "error": "OCR_FAILED", "http": 200, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_03", "name": "Unsupported MIME", "setup": "Upload text/plain file", "mimeType": "text/plain", "error": "UNSUPPORTED_MIME_TYPE", "http": 400, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_04", "name": "Oversized-file boundary", "setup": "Generate >5MiB file at runtime", "mimeType": "application/pdf", "error": "FILE_TOO_LARGE", "http": 400, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_05", "name": "Idempotency conflict", "setup": "Upload diff doc with same key", "mimeType": "application/pdf", "error": "IDEMPOTENCY_CONFLICT", "http": 409, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_06", "name": "Response-loss reconciliation", "setup": "Retry after timeout", "mimeType": "application/pdf", "error": None, "http": 200, "retry": "RETRY_SAFE", "stageState": "SUCCEEDED"},
+        {"id": "ctrl_07", "name": "Wrong-user access", "setup": "Cross-tenant access", "mimeType": "application/pdf", "error": "AUTHORIZATION_DENIED", "http": 403, "retry": "NO_RETRY", "stageState": "FAILED"},
+        {"id": "ctrl_08", "name": "Wrong-deployment access", "setup": "Cross-deployment access", "mimeType": "application/pdf", "error": "AUTHORIZATION_DENIED", "http": 403, "retry": "NO_RETRY", "stageState": "FAILED"}
     ]
     
     for c in controls:
         ctrl_fixture_id = f"gug364_bank_statement_{c['id']}"
         ctrl_path = os.path.join(controls_dir, f"{ctrl_fixture_id}.json")
+        
+        c_spec = {
+            "control": {
+                "id": c['id'],
+                "name": c['name'],
+                "setup": c['setup'],
+                "mimeType": c['mimeType'],
+                "operation": "CREATE",
+                "fixtureReference": "gug364_bank_statement_01_01" if c['id'] in ("ctrl_05", "ctrl_06", "ctrl_07", "ctrl_08") else None,
+                "expectedHttpStatus": c['http'],
+                "expectedErrorCode": c['error'] if c['http'] >= 400 else None,
+                "expectedSafeFailureCode": c['error'] if c['http'] < 400 and c['error'] else None,
+                "expectedStageState": c['stageState'],
+                "retryClass": c['retry'],
+                "actor": "other_user" if c['id'] == "ctrl_07" else "valid_user",
+                "deployment": "other_deployment" if c['id'] == "ctrl_08" else "valid_deployment"
+            },
+            "instruction": "Test runner parses this JSON to execute negative control."
+        }
+        c_bytes = json.dumps(c_spec, indent=2).encode()
+        
         entry = {
             "schemaVersion": "scanalyze.fixture-catalog.v1",
             "fixtureId": ctrl_fixture_id,
@@ -261,15 +385,22 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
             "profileId": c['id'],
             "instanceId": "01",
             "scenarioType": c['name'],
-            "positiveOrNegative": "negative",
+            "positiveOrNegative": "NEGATIVE",
             "filePath": f"controls/{ctrl_fixture_id}.json",
-            "mimeType": "application/json", # The control spec itself is json
+            "mimeType": "application/json",
             "sensitivity": "SYNTHETIC",
             "sourceSpecPath": f"controls/{ctrl_fixture_id}.json",
-            "sourceSpecSha256": "", # Calculated later
+            "sourceSpecSha256": sha256(c_bytes),
             "generatorPath": "tooling/generate_bank_statement_fixtures.py",
             "generatorVersion": GENERATOR_VERSION,
-            "expectedErrorCode": c['error'],
+            "expectedLifecycle": "FAILED" if c['stageState'] == "FAILED" else "COMPLETED",
+            "expectedCurrentStage": "TERMINAL",
+            "expectedStageState": c['stageState'],
+            "expectedHttpStatus": c['http'],
+            "expectedErrorCode": c['error'] if c['http'] >= 400 else None,
+            "expectedSafeFailureCode": c['error'] if c['http'] < 400 and c['error'] else None,
+            "expectedRetryClass": c['retry'],
+            "sharedInputFixtureId": "gug364_bank_statement_01_01" if c['id'] in ("ctrl_05", "ctrl_06", "ctrl_07", "ctrl_08") else None,
             "acceptedDocumentDenominator": False,
             "manualReviewChecklist": [],
             "retentionClass": "30_days",
@@ -277,11 +408,8 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
             "tags": ["negative", "synthetic", "control"]
         }
         
-        c_spec = {"control": c, "instruction": "Test runner parses this JSON to execute negative control."}
-        c_bytes = json.dumps(c_spec, indent=2).encode()
-        entry['sourceSpecSha256'] = sha256(c_bytes)
-        
-        catalog.append(entry)
+        entry = {k: v for k, v in entry.items() if v is not None}
+        catalog["fixtures"].append(entry)
         
         if not check_only:
             with open(ctrl_path, 'wb') as f:
@@ -290,6 +418,12 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
             with open(ctrl_path, 'rb') as f:
                 if f.read() != c_bytes:
                     raise ValueError(f"Mismatch in {ctrl_fixture_id}")
+
+    # Write generator source hash to all entries
+    with open(__file__, 'rb') as f:
+        gen_sha = sha256(f.read())
+    for e in catalog["fixtures"]:
+        e["generatorSourceSha256"] = gen_sha
 
     catalog_path = os.path.join(base_dir, 'catalog.json')
     if not check_only:
@@ -300,7 +434,7 @@ def generate_fixtures(base_dir: str, check_only: bool = False):
             if json.dumps(json.load(f), indent=2) != json.dumps(catalog, indent=2):
                 raise ValueError("Catalog mismatch")
 
-    print(f"Generated {len(catalog)} catalog entries successfully.")
+    print(f"Generated {len(catalog['fixtures'])} catalog entries successfully.")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -34,7 +34,7 @@
         "amount": 100.0,
         "balanceAfter": 1100.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 001",
         "direction": "credit",
         "reference": "REF001"

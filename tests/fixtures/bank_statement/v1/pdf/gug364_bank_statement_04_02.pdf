@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 224 >>
+<< /Length 225 >>
 stream
 BT
 /F1 12 Tf
@@ -19,11 +19,13 @@ BT
 0 -15 Td
 (NOT REAL CUSTOMER DATA) Tj
 0 -15 Td
-(PROFILE: Nullable and optional fields) Tj
+(FIXTURE_ID: gug364_bank_statement_04_02) Tj
 0 -15 Td
-(INSTANCE: 2) Tj
+(PAGE 1 OF 1) Tj
 0 -15 Td
-(DOC_ID: 072314ff6b831d17135cceb1595b8426) Tj
+(TRANSACTIONS:) Tj
+0 -15 Td
+(No activity) Tj
 ET
 endstream
 endobj
@@ -40,10 +42,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000000524 00000 n 
-0000000594 00000 n 
+0000000525 00000 n 
+0000000595 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-715
+716
 %%EOF

@@ -31,7 +31,7 @@
         "amount": 100.0,
         "balanceAfter": 1100.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 001",
         "direction": "credit",
         "reference": "REF001"
@@ -40,7 +40,7 @@
         "amount": 200.0,
         "balanceAfter": 900.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 002",
         "direction": "debit",
         "reference": "REF002"
@@ -49,7 +49,7 @@
         "amount": 300.0,
         "balanceAfter": 1200.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 003",
         "direction": "credit",
         "reference": "REF003"
@@ -58,7 +58,7 @@
         "amount": 400.0,
         "balanceAfter": 800.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 004",
         "direction": "debit",
         "reference": "REF004"
@@ -67,7 +67,7 @@
         "amount": 500.0,
         "balanceAfter": 1300.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 005",
         "direction": "credit",
         "reference": "REF005"
@@ -76,7 +76,7 @@
         "amount": 600.0,
         "balanceAfter": 700.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 006",
         "direction": "debit",
         "reference": "REF006"
@@ -85,7 +85,7 @@
         "amount": 700.0,
         "balanceAfter": 1400.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 007",
         "direction": "credit",
         "reference": "REF007"
@@ -94,7 +94,7 @@
         "amount": 800.0,
         "balanceAfter": 600.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 008",
         "direction": "debit",
         "reference": "REF008"
@@ -103,7 +103,7 @@
         "amount": 900.0,
         "balanceAfter": 1500.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 009",
         "direction": "credit",
         "reference": "REF009"
@@ -112,7 +112,7 @@
         "amount": 1000.0,
         "balanceAfter": 500.0,
         "category": "otro",
-        "date": "2026-01-01",
+        "date": "2025-12-01",
         "description": "SYNTHETIC TEST TRANSACTION 010",
         "direction": "debit",
         "reference": "REF010"
