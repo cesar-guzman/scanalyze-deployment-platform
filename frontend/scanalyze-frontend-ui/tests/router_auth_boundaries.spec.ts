@@ -290,7 +290,7 @@ test('authenticated callback route returns to the protected upload path', async 
   await page.goto('/callback');
 
   await expect(page).toHaveURL('/upload');
-  await expect(page.getByRole('heading', { name: 'Arrastra un documento' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Scanalyze Upload' })).toBeVisible();
 });
 
 test('logout preserves the reviewed post-logout redirect', async ({ page }) => {
