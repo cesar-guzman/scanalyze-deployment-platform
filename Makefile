@@ -23,7 +23,7 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-274 platform-authority controls offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-357 platform-authority controls offline"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -433,9 +433,9 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-274, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-357, offline) ──
 platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
@@ -455,6 +455,7 @@ platform-authority-bootstrap-check:
 		$(TESTS_DIR)/test_deployment/test_gug219_lambda_authority_cli.py \
 		$(TESTS_DIR)/test_deployment/test_gug220_lambda_audit_permission_set.py \
 		$(TESTS_DIR)/test_deployment/test_gug220_lambda_audit_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug357_identity_center_audit_permission_set.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_broker_runtime.py \
 		$(TESTS_DIR)/test_deployment/test_gug221_lambda_audit_repair_change_set.py \
@@ -495,7 +496,7 @@ platform-authority-bootstrap-check:
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -951,6 +952,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/operations/platform-authority-lambda-invocation-materialization.md \
 			docs/operations/platform-authority-lambda-audit-permission-set.md \
 			docs/operations/platform-authority-lambda-audit-provisioning-repair.md \
+			docs/operations/platform-authority-gug357-identity-center-audit-permission-set.md \
 			docs/operations/platform-authority-retained-change-set-retirement.md \
 			docs/operations/platform-authority-identity-enhanced-session.md \
 			docs/security/gug-125-threat-model-delta.md \
@@ -962,6 +964,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/security/gug-219-lambda-authority-materialization-threat-model-delta.md \
 			docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md \
 			docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md \
+			docs/security/gug-357-identity-center-audit-permission-set-threat-model-delta.md \
 			docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \

@@ -1,0 +1,270 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmOnlyTheCurrentCaller",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DiscoverSingleIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "sso:ListInstances",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactInstanceAndRuntimePermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeInstance",
+        "sso:DescribePermissionSet",
+        "sso:GetInlinePolicyForPermissionSet",
+        "sso:GetPermissionsBoundaryForPermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+        "sso:ListManagedPoliciesInPermissionSet",
+        "sso:ListPermissionSets"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${runtime_classifier_permission_set_arn}",
+        "${runtime_approver_permission_set_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactResourceTags",
+      "Effect": "Allow",
+      "Action": "sso:ListTagsForResource",
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${runtime_classifier_permission_set_arn}",
+        "${runtime_approver_permission_set_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactAuthorityAccountAssignments",
+      "Effect": "Allow",
+      "Action": "sso:ListAccountAssignments",
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${runtime_classifier_permission_set_arn}",
+        "${runtime_approver_permission_set_arn}",
+        "arn:aws:sso:::account/${authority_account_id}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactPendingIdentityCenterOperations",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribePermissionSetProvisioningStatus",
+        "sso:ListAccountAssignmentCreationStatus",
+        "sso:ListAccountAssignmentDeletionStatus",
+        "sso:ListPermissionSetProvisioningStatus"
+      ],
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactIdentityContextApplication",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeApplication",
+        "sso:GetApplicationAccessScope",
+        "sso:GetApplicationAssignmentConfiguration",
+        "sso:GetApplicationAuthenticationMethod",
+        "sso:GetApplicationGrant",
+        "sso:ListApplicationAccessScopes",
+        "sso:ListApplicationAssignments",
+        "sso:ListApplicationAuthenticationMethods",
+        "sso:ListApplicationGrants"
+      ],
+      "Resource": "${identity_center_application_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1",
+          "sso:ApplicationAccount": "${management_account_id}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyTheTwoApprovedRuntimeUsers",
+      "Effect": "Allow",
+      "Action": "identitystore:DescribeUser",
+      "Resource": [
+        "${identity_store_arn}",
+        "${runtime_classifier_user_arn}",
+        "${runtime_approver_user_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "identitystore:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyIdentityReadsOutsideHomeRegion",
+      "Effect": "Deny",
+      "Action": [
+        "identitystore:*",
+        "sso-directory:*",
+        "sso:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsBeforeAbsoluteStart",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${audit_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsAtAbsoluteExpiry",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${audit_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryUnreviewedAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "identitystore:DescribeUser",
+        "sso-directory:DescribeUser",
+        "sso-directory:DescribeUsers",
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribeApplication",
+        "sso:DescribeInstance",
+        "sso:DescribePermissionSet",
+        "sso:DescribePermissionSetProvisioningStatus",
+        "sso:DescribePermissionsPolicies",
+        "sso:GetApplicationAccessScope",
+        "sso:GetApplicationAssignmentConfiguration",
+        "sso:GetApplicationAuthenticationMethod",
+        "sso:GetApplicationGrant",
+        "sso:GetInlinePolicyForPermissionSet",
+        "sso:GetApplicationInstance",
+        "sso:GetManagedApplicationInstance",
+        "sso:GetPermissionSet",
+        "sso:GetPermissionsBoundaryForPermissionSet",
+        "sso:GetPermissionsPolicy",
+        "sso:GetSharedSsoConfiguration",
+        "sso:ListAccountAssignmentCreationStatus",
+        "sso:ListAccountAssignmentDeletionStatus",
+        "sso:ListAccountAssignments",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListApplicationAccessScopes",
+        "sso:ListApplicationAssignments",
+        "sso:ListApplicationAuthenticationMethods",
+        "sso:ListApplicationGrants",
+        "sso:ListApplicationInstances",
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+        "sso:ListDirectoryAssociations",
+        "sso:ListInstances",
+        "sso:ListManagedPoliciesInPermissionSet",
+        "sso:ListPermissionSetProvisioningStatus",
+        "sso:ListPermissionSets",
+        "sso:ListProfileAssociations",
+        "sso:ListTagsForResource",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

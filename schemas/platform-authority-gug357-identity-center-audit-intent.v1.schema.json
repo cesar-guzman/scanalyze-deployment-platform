@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug357-identity-center-audit-intent.v1.schema.json",
+  "title": "Platform Authority GUG-357 Identity Center Audit Intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "issue_id",
+    "operation",
+    "environment",
+    "production",
+    "base_main_commit",
+    "management_account_id_digest",
+    "authority_account_id_digest",
+    "target_region",
+    "identity_center_instance_arn_digest",
+    "identity_store_arn_digest",
+    "identity_center_application_arn_digest",
+    "runtime_classifier_permission_set_arn_digest",
+    "runtime_approver_permission_set_arn_digest",
+    "runtime_classifier_user_arn_digest",
+    "runtime_approver_user_arn_digest",
+    "runtime_classifier_user_id_digest",
+    "runtime_approver_user_id_digest",
+    "auditor_user_id_digest",
+    "allowed_operator_set_digest",
+    "classifier_permission_set_name",
+    "approver_permission_set_name",
+    "permission_set_name",
+    "permission_set_description",
+    "session_duration",
+    "expected_tags",
+    "expected_tags_digest",
+    "policy_template_sha256",
+    "rendered_policy_digest",
+    "rendered_policy_non_whitespace_bytes",
+    "managed_policy_arns",
+    "customer_managed_policy_references",
+    "permissions_boundary_present",
+    "relay_state_present",
+    "session_source",
+    "identity_enhanced_session_authorized",
+    "provided_contexts_authorized",
+    "role_chaining_authorized",
+    "additional_identity_policies_authorized",
+    "exclusive_permission_set_policy_required",
+    "principal_type",
+    "direct_assignment_count",
+    "provisioned_account_count",
+    "assignment_target_account_id_digest",
+    "auditor_counts_as_gug357_approver",
+    "auditor_counts_as_gug357_executor",
+    "approver_executor_contract_status",
+    "two_human_separation",
+    "materialization_authorized",
+    "revocation_authorized",
+    "cloudformation_authorized",
+    "broker_invocation_authorized",
+    "production_authorized",
+    "aws_mutations",
+    "revocation_required_after_future_materialization",
+    "created_at",
+    "expires_at",
+    "audit_not_before",
+    "audit_not_after",
+    "intent_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "platform_authority_gug357_identity_center_audit_intent"
+    },
+    "issue_id": { "const": "GUG-357" },
+    "operation": {
+      "const": "PREPARE_IDENTITY_CENTER_READ_ONLY_AUDIT_PERMISSION_SET"
+    },
+    "environment": { "const": "management-control-plane" },
+    "production": { "const": false },
+    "base_main_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "management_account_id_digest": {
+      "const": "sha256:717e8c0d35281f6d8781b8fdb14210c0abd1c2d945f1f281dcd1f26dc44f4679"
+    },
+    "authority_account_id_digest": {
+      "const": "sha256:9eea494bbe2b8bfff5b8ec4fe55e95ed4dc0b956977a550a5b057be80cc0ec86"
+    },
+    "target_region": { "const": "us-east-1" },
+    "identity_center_instance_arn_digest": { "$ref": "#/$defs/digest" },
+    "identity_store_arn_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_application_arn_digest": { "$ref": "#/$defs/digest" },
+    "runtime_classifier_permission_set_arn_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "runtime_approver_permission_set_arn_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "runtime_classifier_user_arn_digest": { "$ref": "#/$defs/digest" },
+    "runtime_approver_user_arn_digest": { "$ref": "#/$defs/digest" },
+    "runtime_classifier_user_id_digest": { "$ref": "#/$defs/digest" },
+    "runtime_approver_user_id_digest": { "$ref": "#/$defs/digest" },
+    "auditor_user_id_digest": { "$ref": "#/$defs/digest" },
+    "allowed_operator_set_digest": { "$ref": "#/$defs/digest" },
+    "classifier_permission_set_name": {
+      "const": "ScanalyzeAuthorityRetireClass"
+    },
+    "approver_permission_set_name": {
+      "const": "ScanalyzeAuthorityRetireApprove"
+    },
+    "permission_set_name": { "const": "ScanalyzeGug357IdentityAudit" },
+    "permission_set_description": {
+      "const": "GUG-357 temporary read-only IAM Identity Center audit; no approval or execution duty"
+    },
+    "session_duration": { "const": "PT1H" },
+    "expected_tags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "managed_by",
+        "work_package",
+        "purpose",
+        "lifecycle",
+        "production",
+        "expires_at"
+      ],
+      "properties": {
+        "managed_by": { "const": "scanalyze" },
+        "work_package": { "const": "GUG-357" },
+        "purpose": { "const": "identity-center-read-only-audit" },
+        "lifecycle": { "const": "temporary" },
+        "production": { "const": "NO-GO" },
+        "expires_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "expected_tags_digest": { "$ref": "#/$defs/digest" },
+    "policy_template_sha256": { "$ref": "#/$defs/digest" },
+    "rendered_policy_digest": { "$ref": "#/$defs/digest" },
+    "rendered_policy_non_whitespace_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10240
+    },
+    "managed_policy_arns": {
+      "type": "array",
+      "maxItems": 0,
+      "items": false
+    },
+    "customer_managed_policy_references": {
+      "type": "array",
+      "maxItems": 0,
+      "items": false
+    },
+    "permissions_boundary_present": { "const": false },
+    "relay_state_present": { "const": false },
+    "session_source": { "const": "DIRECT_SSO_PERMISSION_SET" },
+    "identity_enhanced_session_authorized": { "const": false },
+    "provided_contexts_authorized": { "const": false },
+    "role_chaining_authorized": { "const": false },
+    "additional_identity_policies_authorized": { "const": false },
+    "exclusive_permission_set_policy_required": { "const": true },
+    "principal_type": { "const": "USER" },
+    "direct_assignment_count": { "const": 1 },
+    "provisioned_account_count": { "const": 1 },
+    "assignment_target_account_id_digest": {
+      "const": "sha256:717e8c0d35281f6d8781b8fdb14210c0abd1c2d945f1f281dcd1f26dc44f4679"
+    },
+    "auditor_counts_as_gug357_approver": { "const": false },
+    "auditor_counts_as_gug357_executor": { "const": false },
+    "approver_executor_contract_status": { "const": "NOT_DEFINED" },
+    "two_human_separation": { "const": "NOT_PROVEN" },
+    "materialization_authorized": { "const": false },
+    "revocation_authorized": { "const": false },
+    "cloudformation_authorized": { "const": false },
+    "broker_invocation_authorized": { "const": false },
+    "production_authorized": { "const": false },
+    "aws_mutations": {
+      "type": "array",
+      "maxItems": 0,
+      "items": false
+    },
+    "revocation_required_after_future_materialization": { "const": true },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "audit_not_before": { "$ref": "#/$defs/timestamp" },
+    "audit_not_after": { "$ref": "#/$defs/timestamp" },
+    "intent_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}
