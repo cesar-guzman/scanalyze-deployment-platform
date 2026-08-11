@@ -10,11 +10,29 @@ invocation, Change Set retirement, deployment or production.
 
 Production is **NO-GO**.
 
+## Authorization-mode boundary
+
+The v1 materialization contract preserves `TWO_HUMAN` and normal
+`classify -> retire -> reconcile`. V2 is exclusive to
+`SINGLE_OPERATOR_NONPROD_EXCEPTION` and uses only
+`single-classify -> single-retire -> single-reconcile`, the matching
+single-operator duties/scopes, and exactly fourteen edges. V2 binds the
+exception and owner-authorization digests and records
+`two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`.
+
+The owner reviews and pins the exact exception `authorization_digest` and
+release digest. This checkpoint is not independent approval and does not relax
+v1. The separate GUG-215 gate must also prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`; GUG-219 does not certify that live API state.
+
 ## Assets
 
 - reviewed GUG-217 template and ordered policy bundle;
-- candidate-A observed broker code/configuration digests; independent
-  build-once provenance remains a separate gate;
+- candidate-A observed broker code/configuration digests; ADR-050 v2 also binds
+  the deterministic clean-commit package manifest and its owner-reviewed exact
+  digest, while v1 retains a separate build-once provenance gate;
 - exact account, partition, Region, function, alias and role binding;
 - dedicated collector effective-policy and principal binding;
 - private candidate A and in-memory candidate B;
@@ -28,9 +46,12 @@ Production is **NO-GO**.
 
 Hard-coded reviewed invariants constrain the graph constructed from policies
 observed in A, and exact repository source-file digests are bound separately.
-The materializer does not derive the graph by parsing the template or prove
-archive byte equality. Missing source evidence is a blocker rather than
-permission to infer from the account.
+The materializer does not derive the graph by parsing the template. In ADR-050
+v2, it additionally validates the deterministic clean-commit package manifest
+and requires the manifest-derived `lambda_code_sha256` to equal candidate A;
+that closes archive-byte equality for the bound package. V1 retains its
+separate artifact-provenance gate. Missing source evidence is a blocker rather
+than permission to infer from the account.
 
 ### Identity Center collector boundary
 
@@ -52,8 +73,9 @@ The core materialization function and `materialize` subcommand have no AWS
 client; only `candidate-aws-readonly` uses the hardened adapter. They produce
 deterministic, create-only private files. The allowlist self-digest and release-
 anchor digest are separate checks. The expected release digest must be a
-distinct reviewed input; a current single-operator self-read proves only local
-integrity, not an independent protected channel.
+distinct reviewed input: independent for v1, exact owner-reviewed and bound to
+ADR-050 for v2. An unreviewed single-operator self-read proves only local
+integrity.
 
 ### Candidate B boundary
 
@@ -65,8 +87,9 @@ distinct nonce/snapshot and later chronology. A matching B remains report-only.
 ### Governance boundary
 
 The current one-person roster can produce evidence but cannot independently
-approve it. Technical role/session separation does not satisfy human duty
-separation.
+approve it. That blocks `TWO_HUMAN`; ADR-050 instead permits the exact
+owner-reviewed v2 path while retaining `NOT_PROVEN`. Technical role/session
+separation does not satisfy human duty separation.
 
 ## Threats and controls
 
@@ -75,10 +98,10 @@ separation.
 | Committed synthetic fixture is used for live collection | `aws-readonly` rejects repository-local inputs and requires distinct owner-only private records plus a separate release digest | Block before AWS inventory |
 | Candidate A defines its own expected graph | Hard-coded role/alias/action/condition/deny invariants constrain policies observed in A; exact source bytes are digest-bound | Materialization blocked |
 | Drift present in A is silently allowlisted | A may confirm only source-bound live facts; extra/missing edges remain drift | Materialization blocked |
-| Allowlist digest is copied from the same file | Separate record type, file/inode and independently supplied release-anchor digest | Collection blocked |
+| Allowlist digest is copied from the same file | Separate record type/file/inode and mode-appropriate release digest: independent in v1, exact owner-reviewed in v2 | Collection blocked |
 | Materializer output changes across runs | Canonical JSON, sorted relative paths, exact template bytes and immutable timestamps | Determinism test fails; no release anchor |
 | Filesystem/YAML order changes the policy bundle | Ordered manifest of relative path plus canonical document digest | Digest mismatch blocks |
-| Observed Lambda digest is presented as build-once provenance | GUG-219 labels it as observed only; independent archive provenance and byte equality remain a rollout blocker | No provenance claim |
+| Observed Lambda digest is presented as build-once provenance | Candidate A alone is observed only; ADR-050 v2 requires the deterministic package manifest and separately owner-reviewed manifest digest, while v1 retains its separate archive-provenance gate | No provenance claim from candidate A alone; missing mode-appropriate provenance blocks |
 | Current clock changes the allowlist digest | Timestamp comes from immutable source or sealed capture metadata | Nondeterministic input rejected |
 | Generic ReadOnly role gains account authorization reads | Dedicated permission set; generic role is explicitly rejected | Stop before IAM/Lambda reads |
 | Collector receives managed policy or permissions boundary | Effective-policy readback requires exact inline policy and empty attachments/boundary | Collector not eligible |
@@ -104,6 +127,7 @@ separation.
 | GUG-220 private input follows a symlink or changes after a path check | Descriptor-based `O_NOFOLLOW` and `fstat` enforce regular file, current owner and exact `0600` mode | Input rejected |
 | Live allowlist or raw snapshot enters Git/CI/Linear | Operational-path rejection, documentation boundary and security tests | Publication blocked; incident handling |
 | Unknown provider configuration field is omitted from digest | Pinned Lambda provider-field projection rejects unreviewed configuration fields; GUG-219 record containers use exact keys | Materialization or B blocked |
+| Candidate A substitutes signed but unreviewed broker bytes | ADR-050 v2 validates a deterministic clean-commit package manifest supplied with an owner-reviewed expected digest and requires its archive-derived `lambda_code_sha256` to equal candidate A | Materialization blocks before a release exists |
 | Incomplete/denied read is treated as absence | GUG-218 strict pagination and no denied-read fallback | `INVENTORY_INCOMPLETE` |
 | Same operator uses two profiles as independent review | Evidence binds human review status separately from cloud sessions | Approval remains false |
 | Clean B is presented as deployment authorization | All output effect/deployment/production flags remain false | Overclaim rejected |
@@ -113,13 +137,15 @@ separation.
 The intended path is:
 
 ```text
-reviewed source
+clean reviewed commit -> deterministic broker ZIP and manifest
+  -> owner-reviewed exact package manifest digest
+  -> reviewed source
   -> dedicated read-only A
   -> deterministic private allowlist + separate release anchor
   -> later dedicated read-only B
   -> exact GUG-218 comparison
   -> sanitized report-only evidence
-  -> different human review (currently blocked)
+  -> mode-specific review (different human in v1; exact owner checkpoint in v2)
   -> separately authorized future controls
 ```
 
@@ -143,10 +169,12 @@ clean report -> Lambda/Change Set/deployment/production effect
   credentials.
 - A new Identity Center provisioning can change the opaque role suffix and
   invalidate the frozen binding.
-- Build-once artifact publication, byte-equality proof and a protected release-
-  anchor channel require their own governance.
+- Live artifact publication and the protected release-anchor channel require
+  separate governance. ADR-050 v2 already proves byte equality for its bound
+  deterministic package; v1 retains a separate byte-equality/provenance gate.
 - A clean inventory is detective evidence, not a preventive control.
-- One current human cannot independently approve the result.
+- One current human cannot independently approve the result; ADR-050 records
+  the exact owner checkpoint as `NOT_PROVEN`, not as a second reviewer.
 - Candidate A/B remain blocked until GUG-221 repairs the exact partial state
   and verifies the collector session.
 
@@ -161,7 +189,8 @@ clean report -> Lambda/Change Set/deployment/production effect
 | Candidate B | Report-only observation only |
 | GUG-220 Identity Center mutation | Partial/uncertain; original ledger consumed |
 | GUG-221 repair | **Blocked** until separately authorized and verified |
-| Independent approval | **Blocked** with one human |
+| Independent approval (`TWO_HUMAN`) | **Blocked** with one human |
+| ADR-050 v2 owner checkpoint | Repository-only; exact digest required and `two_human_status = NOT_PROVEN` |
 | Deployment / production | **Blocked / NO-GO** |
 
 ## References

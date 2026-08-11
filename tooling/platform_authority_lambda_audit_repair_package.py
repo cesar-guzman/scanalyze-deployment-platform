@@ -61,6 +61,7 @@ SOURCE_PATHS = (
     ),
     Path("policies/iam/platform-authority-lambda-invocation-inventory-role.json"),
     Path("tooling/__init__.py"),
+    Path("tooling/platform_authority_change_set_retirement_package.py"),
     Path("tooling/platform_authority_lambda_audit_repair_broker.py"),
     Path("tooling/platform_authority_lambda_audit_repair_broker_runtime.py"),
     Path("tooling/platform_authority_lambda_audit_repair_iam_verifier.py"),
@@ -71,6 +72,7 @@ SOURCE_PATHS = (
     Path("tooling/platform_authority_identity_context_compatibility.py"),
     Path("tooling/platform_authority_lambda_invocation_authority.py"),
     Path("tooling/platform_authority_lambda_invocation_materializer.py"),
+    Path("tooling/platform_authority_single_operator_retirement_exception.py"),
 )
 PROVENANCE_TOOL_PATHS = (
     Path("scripts/deployment/platform-authority-lambda-audit-repair-package.py"),

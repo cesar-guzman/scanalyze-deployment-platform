@@ -23,9 +23,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tooling.platform_authority_lambda_invocation_authority import (  # noqa: E402
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
+    AUTHORIZATION_MODE_TWO_HUMAN,
     AuthorityInventoryError,
     AwsReadOnlyInventoryAdapter,
     TargetBinding,
+)
+from tooling.platform_authority_single_operator_retirement_exception import (  # noqa: E402
+    SingleOperatorExceptionError,
+    validate_single_operator_retirement_exception,
 )
 from tooling.platform_authority_lambda_invocation_materializer import (  # noqa: E402
     LambdaAuthorityMaterializationError,
@@ -108,12 +114,74 @@ def _private_input(path: Path) -> dict[str, Any]:
     return value
 
 
+def _single_operator_exception(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    cached = getattr(args, "_single_operator_exception_value", None)
+    if cached is not None:
+        return cached
+    path = getattr(args, "single_operator_exception", None)
+    mode = getattr(args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN)
+    if mode == AUTHORIZATION_MODE_TWO_HUMAN:
+        if path is not None:
+            raise LambdaAuthorityMaterializationError(
+                "SINGLE_OPERATOR_EXCEPTION_FORBIDDEN"
+            )
+        return None
+    if mode != AUTHORIZATION_MODE_SINGLE_OPERATOR or path is None:
+        raise LambdaAuthorityMaterializationError(
+            "SINGLE_OPERATOR_EXCEPTION_REQUIRED"
+        )
+    value = _private_input(path)
+    try:
+        validate_single_operator_retirement_exception(value)
+    except SingleOperatorExceptionError as exc:
+        raise LambdaAuthorityMaterializationError(
+            "SINGLE_OPERATOR_EXCEPTION_INVALID"
+        ) from exc
+    args._single_operator_exception_value = value
+    return value
+
+
+def _broker_artifact_manifest(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    cached = getattr(args, "_broker_artifact_manifest_value", None)
+    if cached is not None:
+        return cached
+    path = getattr(args, "broker_artifact_manifest", None)
+    expected = getattr(args, "expected_broker_artifact_manifest_digest", None)
+    mode = getattr(args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN)
+    if mode == AUTHORIZATION_MODE_TWO_HUMAN:
+        if path is not None or expected is not None:
+            raise LambdaAuthorityMaterializationError(
+                "BROKER_ARTIFACT_MANIFEST_FORBIDDEN"
+            )
+        return None
+    if mode != AUTHORIZATION_MODE_SINGLE_OPERATOR or path is None or expected is None:
+        raise LambdaAuthorityMaterializationError(
+            "BROKER_ARTIFACT_MANIFEST_REQUIRED"
+        )
+    value = _private_input(path)
+    args._broker_artifact_manifest_value = value
+    return value
+
+
 def _binding(args: argparse.Namespace) -> TargetBinding:
+    exception = _single_operator_exception(args)
     return TargetBinding(
         authority_account_id=args.authority_account_id,
         region=args.region,
         function_name=args.function_name,
         partition=args.partition,
+        authorization_mode=getattr(
+            args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN
+        ),
+        single_operator_exception_digest=(
+            str(exception["authorization_digest"])
+            if exception is not None
+            else None
+        ),
     )
 
 
@@ -226,6 +294,11 @@ def _materialize(args: argparse.Namespace) -> int:
         created_at=args.created_at,
         expires_at=args.expires_at,
         repo_root=REPO_ROOT,
+        single_operator_exception=_single_operator_exception(args),
+        broker_artifact_manifest=_broker_artifact_manifest(args),
+        expected_broker_artifact_manifest_digest=(
+            args.expected_broker_artifact_manifest_digest
+        ),
     )
     write_private_bundle(
         output_dir=args.output_dir,
@@ -246,6 +319,9 @@ def _materialize(args: argparse.Namespace) -> int:
                 "collector_contract_digest": contract["collector_contract_digest"],
                 "allowlist_digest": allowlist["allowlist_digest"],
                 "release_digest": release["release_digest"],
+                "broker_artifact_manifest_digest": release.get(
+                    "broker_artifact_manifest_digest"
+                ),
                 "aws_calls_performed": False,
                 "aws_mutation_performed": False,
                 "deployment_authorized": False,
@@ -287,6 +363,18 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--source-commit", required=True)
     materialize.add_argument("--created-at", required=True)
     materialize.add_argument("--expires-at", required=True)
+    materialize.add_argument(
+        "--broker-artifact-manifest",
+        type=Path,
+        help=(
+            "Private owner-only deterministic package manifest; required only "
+            "for SINGLE_OPERATOR_NONPROD_EXCEPTION"
+        ),
+    )
+    materialize.add_argument(
+        "--expected-broker-artifact-manifest-digest",
+        help="Owner-reviewed out-of-band exact package manifest digest",
+    )
     materialize.set_defaults(handler=_materialize)
 
     for command in (candidate, materialize):
@@ -296,6 +384,22 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--function-name", required=True)
         command.add_argument(
             "--partition", choices=("aws", "aws-us-gov", "aws-cn"), default="aws"
+        )
+        command.add_argument(
+            "--authorization-mode",
+            choices=(
+                AUTHORIZATION_MODE_TWO_HUMAN,
+                AUTHORIZATION_MODE_SINGLE_OPERATOR,
+            ),
+            default=AUTHORIZATION_MODE_TWO_HUMAN,
+        )
+        command.add_argument(
+            "--single-operator-exception",
+            type=Path,
+            help=(
+                "Private owner-only exception JSON; required only for "
+                "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+            ),
         )
     return parser
 

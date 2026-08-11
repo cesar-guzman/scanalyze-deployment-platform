@@ -1,5 +1,28 @@
 # GUG-215 threat-model delta: brokered retained Change Set retirement
 
+## ADR-050 single-operator delta
+
+The bounded non-production exception intentionally accepts the risk that one
+human supplies both authorization proofs. It never labels that condition
+independent: binding/receipt v2 and ledger v3 record
+`two_human_status = NOT_PROVEN` and `independent_approval_present = false`.
+
+Compensating controls are an exact digest-bound target, an owner-reviewed exact
+exception `authorization_digest`, an immutable mode, exclusive `single-*`
+aliases, a maximum fifteen-minute effect window, separate fresh proof receipts,
+durable attempt-before-effect ordering, one delete call, no retry after
+ambiguity, reconciliation-only recovery and explicit exception revocation.
+The request cannot select the mode or target. Normal distinct-user validation
+is untouched. The function must prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn` before the broker may continue.
+
+The exception does not cover deployment of the PEP itself. A separate exact
+authorization and readback are required for CloudFormation, IAM, Lambda,
+DynamoDB and Identity Center changes. Direct CloudFormation deletion,
+`ExecuteChangeSet`, `DeleteStack`, production and customer scope remain
+prohibited.
+
 ## Scope
 
 This delta covers the version-pinned Lambda PEP, identity-enhanced human
@@ -22,7 +45,9 @@ native downstream `onBehalfOf` is not claimed.
 The GUG-215 target, ledger, one-attempt and no-retry controls remain in force.
 See the [GUG-217 threat-model delta](gug-217-identity-context-pep-threat-model-delta.md)
 for the request-secret, Function URL, proof-role and attribution threats. The
-path is not live validated and still requires two independent humans.
+path is not live validated. `TWO_HUMAN` still requires two independent humans;
+ADR-050 instead requires the owner-reviewed exact exception digest and records
+that two-human proof is not established.
 
 ## Threats and controls
 
@@ -30,13 +55,13 @@ path is not live validated and still requires two independent humans.
 |---|---|---|
 | A human bypasses the PEP with direct CloudFormation authority | Human permission-set policies allow only assume/set-context into exact invoker roles; invokers allow `lambda:InvokeFunction` on qualified aliases only and explicitly deny direct `DeleteChangeSet`, `DeleteStack` and `ExecuteChangeSet`; the reviewed CLI forces `RequestResponse` | AWS denies direct mutation; CLI mutation adapters are hard disabled |
 | A human or alternate service writes the retirement ledger | Table resource policy denies supported DynamoDB writes unless `aws:PrincipalArn` is the exact broker execution role; human roles also explicitly deny writes | Resource-policy deny applies even if another identity policy grants an allow |
-| One operator is bound to both duties | CloudFormation and broker configuration require two different immutable Identity Store UserIds | Equal IDs fail deployment/configuration; live use remains blocked until assignments and operators are reviewed |
+| One operator is bound to both duties | `TWO_HUMAN` requires two different immutable Identity Store UserIds; ADR-050 requires the same exact UserId plus the owner-reviewed exception digest | Equality fails normal mode; inequality or exception drift fails single-operator mode; the exception remains explicitly non-independent |
 | Identity context is absent or fabricated | Exact `sts:SetContext`, Identity Center context provider, UserId, IdentityStoreArn, InstanceArn and ApplicationArn conditions; no `IfExists` fallback | Assume/invoke denied before Lambda |
 | A normal SSO profile is mistaken for identity-enhanced credentials | Live use requires a separately reviewed `CreateTokenWithIAM` plus STS `ProvidedContexts` adapter and immutable UserId readback | Live invocation remains blocked while the adapter is absent |
-| Classifier invokes approval or retirement | Classifier invoker can invoke only alias `classify`; approver invoker can invoke only `retire` and `reconcile` | Alias IAM deny and broker alias allowlist |
+| Classifier invokes approval or retirement | Mode-exclusive IAM allows only `classify` versus `retire`/`reconcile` in `TWO_HUMAN`, or `single-classify` versus `single-retire`/`single-reconcile` in ADR-050 | Alias IAM deny and broker alias allowlist |
 | A foreign same-account principal invokes a broker alias | Broker rejects function-, alias- and version-scoped Lambda resource policies; preflight must inventory all identity policies and prove no foreign invoke authority | Any foreign invoke path blocks live use; account control-plane administrators remain a reviewed trusted boundary |
 | Caller chooses target, identity or action in payload | Broker requires event exactly `{}`; aliases and immutable environment bindings select operation and target | `REQUEST_AUTHORITY_FORBIDDEN` before target or ledger write |
-| Mutable or foreign code becomes the PEP | Versioned S3 object, expected CodeSha256, code-signing config, published version and aliases; `$LATEST` rejected | Broker denies before effect |
+| Mutable or foreign code becomes the PEP | ADR-050 builds a fixed-metadata ZIP only from an exact clean commit; its strict manifest derives `CodeSha256` and binds the manually pinned runtime plus complete version configuration; versioned S3 object, code signing, published version and aliases remain required; `$LATEST` rejected | Package/materializer or broker denies before effect |
 | Alias is retargeted to different code or configuration | Broker compares alias/version, code digest, role, signing configuration, policy and concurrency against immutable deployment bindings | Drift denies before effect; a stable retarget with equivalent reviewed bytes/config is equivalent authority |
 | Broker execution role is broadened | Lambda-service-only trust, exactly one named inline policy, no attached policies/boundary, canonical live policy digest readback | Deny before effect |
 | Caller supplies an authorization artifact | Broker uses the live role policy digest and deployment-bound assignment/invoker-policy digests; human CLI accepts no policy input | Caller artifacts have no authorization effect |
@@ -48,11 +73,11 @@ path is not live validated and still requires two independent humans.
 | Omitted `Replacement` on a valid `Add` is confused with drift, or permissive coercion hides replacement authority | A pure response-boundary helper accepts only exact `Action: Add` with either an absent member or exact string `False`; absence becomes canonical `False`, while present null/falsy/case/whitespace/`True`/`Conditional` values and all non-`Add` actions deny | The exact four-resource tuple and inventory digest remain unchanged; every denial occurs before ledger mutation or `DeleteChangeSet` |
 | Same-name Change Set is substituted | Broker binds stack/name in IAM, compares the post-claim retirement key plus every ARN/UUID/content digest to the `ATTEMPTED` ledger and uses the final full Change Set ID for describe, template read and delete | Replacement cannot redirect the one delete by reusing only the name |
 | Stack gained resources, was recreated or inherited authority | Fresh checks require the classified full Stack ID digest, zero resources, `REVIEW_IN_PROGRESS`, no RoleARN, notifications, parent or root metadata | Deny |
-| Retire is replayed after attempt | `CLASSIFIED -> APPROVED -> ATTEMPTED` CAS occurs before delete; attempt count is fixed at one | Later retire returns reconciliation required without delete |
+| Retirement is replayed after attempt | `CLASSIFIED -> APPROVED -> ATTEMPTED` in `TWO_HUMAN`, or `CLASSIFIED -> EXCEPTION_ACCEPTED -> ATTEMPTED` in ADR-050, occurs before delete; attempt count is fixed at one | Later `retire` or `single-retire` returns reconciliation required without delete |
 | SDK or orchestrator repeats delete | Broker SDK has zero retries, reserved concurrency is one, source contains one delete call and durable attempt is consumed first | No second request; reconcile only |
 | Direct invocation requests asynchronous delivery | IAM cannot distinguish `Event` from `RequestResponse` for `lambda:InvokeFunction`; the reviewed CLI uses `RequestResponse`, account-wide invoke inventory is mandatory, and the durable attempt claim remains authoritative if a foreign principal bypasses that interface | Foreign/async invoke authority blocks live use; redelivery cannot consume a second delete attempt |
 | Lost response is interpreted as success or failure | Any exception around delete returns reconciliation required while ledger remains `ATTEMPTED` | No retry and no terminal claim |
-| Reconciliation deletes again | `reconcile` alias routes to a non-delete handler; target presence performs no ledger write | Observe again or deny; never delete |
+| Reconciliation deletes again | The active mode's `reconcile` or `single-reconcile` alias routes to a non-delete handler; target presence performs no ledger write | Observe again or deny; never delete |
 | Replacement/foreign object or recreated stack is hidden during reconciliation | Full Stack ID continuity and the complete paginated inventory are checked against the ledger and repeated immediately before terminal CAS | Leave `ATTEMPTED`; no cleanup shortcut |
 | Retirement is called recovery READY | Terminal control is revocation required or PAB plus revocation required; no READY value | GUG-214 remains blocked |
 | Sensitive identifiers leak through CLI/Lambda | Empty payload, sanitized status/reason codes and no application logging | Refuse/deny and keep raw provider evidence private |
@@ -64,11 +89,13 @@ path is not live validated and still requires two independent humans.
 
 The authoritative human binding is the identity-enhanced context attached to
 the exact account-local invoker role. Profile names, terminal separation, chat
-identity and caller-provided UserIds are not authority. Two different
-immutable Identity Store UserIds and their reviewed assignments are mandatory.
-The Lambda event itself does not carry caller identity. IAM trust and invoke
-authorization enforce that boundary before execution; the broker verifies the
-effective invoker-role definitions and absence of a Lambda resource policy.
+identity and caller-provided UserIds are not authority. `TWO_HUMAN` requires two
+different immutable Identity Store UserIds and reviewed assignments. ADR-050
+requires the same one exact immutable UserId, the owner-reviewed exception
+digest and explicit non-independent status. The Lambda event itself does not
+carry caller identity. IAM trust and invoke authorization enforce that boundary
+before execution; the broker verifies the effective invoker-role definitions
+and absence of a Lambda resource policy.
 
 ### Invocation boundary
 
@@ -87,11 +114,12 @@ the ledger controls before each operation.
 ### Durable ledger boundary
 
 The item key is
-`gug215#sha256:<64-hex-sha256-of-full-change-set-id>`. Create-only
-`CLASSIFIED`, CAS `APPROVED`, CAS `ATTEMPTED` and CAS
-`RETIRED_RECONCILED` are service-owned. The table resource policy prevents a
-human or alternate role from manufacturing state even if local evidence is
-copied.
+`gug215#sha256:<64-hex-sha256-of-full-change-set-id>`. In `TWO_HUMAN`,
+create-only `CLASSIFIED`, CAS `APPROVED`, CAS `ATTEMPTED` and CAS
+`RETIRED_RECONCILED` are service-owned. ADR-050 replaces only `APPROVED` with
+CAS `EXCEPTION_ACCEPTED` in ledger v3; every state remains service-owned and
+bound to the exact exception. The table resource policy prevents a human or
+alternate role from manufacturing state even if local evidence is copied.
 
 ### Target boundary
 
@@ -132,9 +160,10 @@ Control-plane administrators capable of rewriting IAM, Lambda configuration or
 deployment bindings are a residual trusted boundary. GUG-215 does not claim
 to defend against a compromised authority-account administrator.
 
-CloudFormation inventory can be eventually consistent. Repeated
-`broker-reconcile` invocations may perform read-only target observation while
-the object remains visible, but cannot retry delete or reset the ledger.
+CloudFormation inventory can be eventually consistent. Repeated mode-specific
+reconciliation invocations (`reconcile` in `TWO_HUMAN`, `single-reconcile` in
+ADR-050) may perform read-only target observation while the object remains
+visible, but cannot retry delete or reset the ledger.
 
 The dedicated ledger and Lambda are retained control-plane infrastructure.
 Repository rollback does not decommission them. Their future deletion or
@@ -165,7 +194,10 @@ Retiring unexecuted metadata neither creates resources nor repairs PAB.
   only; no live provider response or protected effect was exercised.
 - Live PEP deployment: **Not performed**.
 - Live alias invocation: **Not performed**.
-- Live retirement: **Blocked** pending two independently reviewed users,
+- Normal live retirement: **Blocked** pending two independently reviewed users,
   deployment, assignment/provisioning, identity-enhanced credential adapter,
   account-wide invoke inventory and exact readback.
+- ADR-050 exception retirement: **Blocked** pending exact owner-reviewed
+  `authorization_digest`, separately authorized deployment/invocation, Manual
+  runtime pin and exact readback; `two_human_status = NOT_PROVEN`.
 - Production: **NO-GO**.

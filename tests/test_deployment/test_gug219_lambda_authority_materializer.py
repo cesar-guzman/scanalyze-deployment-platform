@@ -10,6 +10,7 @@ import importlib
 import json
 import os
 import subprocess
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,12 +18,20 @@ from typing import Any
 import pytest
 
 from tooling.platform_authority_lambda_invocation_authority import (
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
     EXPECTED_AUTHORITY_EDGE_COUNT,
     RAW_SNAPSHOT_FORMAT,
     TargetBinding,
     _coverage as coverage_record,
     canonical_digest,
     digest_text,
+)
+from tooling.platform_authority_single_operator_retirement_exception import (
+    build_single_operator_retirement_exception,
+)
+from tooling.platform_authority_change_set_retirement_package import (
+    build_retirement_package,
+    canonical_digest as package_manifest_digest,
 )
 
 
@@ -121,6 +130,61 @@ def binding() -> TargetBinding:
     )
 
 
+def single_operator_exception() -> dict[str, object]:
+    return build_single_operator_retirement_exception(
+        authority_account_id=ACCOUNT,
+        region=REGION,
+        retirement_id="gug215#sha256:" + "1" * 64,
+        change_set_name_digest="sha256:" + "2" * 64,
+        template_sha256="sha256:" + "3" * 64,
+        resource_inventory_sha256="sha256:" + "4" * 64,
+        identity_binding_digest="sha256:" + "5" * 64,
+        broker_runtime_version_arn=(
+            f"arn:aws:lambda:{REGION}::runtime:" + "a" * 64
+        ),
+        broker_version_binding_sha256="sha256:" + "7" * 64,
+        operator_identity_store_user_id=(
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        owner_authorization_sha256="sha256:" + "6" * 64,
+        created_at=datetime(2029, 12, 31, 23, 50, tzinfo=UTC),
+        not_before=datetime(2030, 1, 1, 0, 1, tzinfo=UTC),
+        expires_at=datetime(2030, 1, 1, 0, 10, tzinfo=UTC),
+    )
+
+
+def single_binding() -> TargetBinding:
+    exception = single_operator_exception()
+    return TargetBinding(
+        authority_account_id=ACCOUNT,
+        region=REGION,
+        function_name=FUNCTION,
+        authorization_mode=AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        single_operator_exception_digest=str(exception["authorization_digest"]),
+    )
+
+
+@lru_cache(maxsize=1)
+def single_package_manifest() -> dict[str, Any]:
+    built = build_retirement_package(
+        source_root=REPO_ROOT,
+        source_commit=SOURCE_COMMIT,
+        broker_runtime_version_arn=(
+            f"arn:aws:lambda:{REGION}::runtime:" + "a" * 64
+        ),
+        broker_version_binding_sha256="sha256:" + "7" * 64,
+    )
+    return dict(built.manifest)
+
+
+def single_package_kwargs() -> dict[str, Any]:
+    manifest = single_package_manifest()
+    return {
+        "broker_artifact_manifest": manifest,
+        "expected_broker_artifact_manifest_digest": manifest["manifest_digest"],
+    }
+
+
 def _condition(action: str) -> dict[str, Any]:
     if action == "lambda:InvokeFunctionUrl":
         return {"StringEquals": {"lambda:FunctionUrlAuthType": "AWS_IAM"}}
@@ -128,7 +192,13 @@ def _condition(action: str) -> dict[str, Any]:
 
 
 def _resource_policy(role_arn: str, alias: str) -> dict[str, Any]:
-    resource = binding().alias_arn(alias)
+    return _resource_policy_for_binding(binding(), role_arn, alias)
+
+
+def _resource_policy_for_binding(
+    target: TargetBinding, role_arn: str, alias: str
+) -> dict[str, Any]:
+    resource = target.alias_arn(alias)
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -153,7 +223,13 @@ def _resource_policy(role_arn: str, alias: str) -> dict[str, Any]:
 
 
 def _identity_policy(aliases: list[str]) -> dict[str, Any]:
-    resources = [binding().alias_arn(alias) for alias in aliases]
+    return _identity_policy_for_binding(binding(), aliases)
+
+
+def _identity_policy_for_binding(
+    target: TargetBinding, aliases: list[str]
+) -> dict[str, Any]:
+    resources = [target.alias_arn(alias) for alias in aliases]
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -398,6 +474,61 @@ def candidate_snapshot() -> dict[str, Any]:
     return seal_snapshot(value)
 
 
+def single_candidate_snapshot() -> dict[str, Any]:
+    value = candidate_snapshot()
+    target = single_binding()
+    classifier_aliases = ["single-classify"]
+    retirement_aliases = ["single-retire", "single-reconcile"]
+    package_code_sha = single_package_manifest()["lambda_code_sha256"]
+    for function in value["lambda"]["functions"]:
+        function["CodeSha256"] = package_code_sha
+    for version in value["lambda"]["versions"]:
+        version["CodeSha256"] = package_code_sha
+    value["lambda"]["aliases"] = [
+        {
+            "Name": alias,
+            "FunctionVersion": "1",
+            "FunctionArn": target.alias_arn(alias),
+        }
+        for alias in sorted(target.active_aliases)
+    ]
+    value["lambda"]["function_urls"] = [
+        {
+            "FunctionArn": target.alias_arn(alias),
+            "AuthType": "AWS_IAM",
+            "InvokeMode": "BUFFERED",
+        }
+        for alias in sorted(target.active_aliases)
+    ]
+    value["lambda"]["resource_policies"] = [
+        *[
+            {
+                "resource_arn": target.alias_arn(alias),
+                "policy_document": _resource_policy_for_binding(
+                    target, CLASSIFIER_ROLE, alias
+                ),
+            }
+            for alias in classifier_aliases
+        ],
+        *[
+            {
+                "resource_arn": target.alias_arn(alias),
+                "policy_document": _resource_policy_for_binding(
+                    target, APPROVER_ROLE, alias
+                ),
+            }
+            for alias in retirement_aliases
+        ],
+    ]
+    value["iam"]["roles"][0]["RolePolicyList"][0]["PolicyDocument"] = (
+        _identity_policy_for_binding(target, classifier_aliases)
+    )
+    value["iam"]["roles"][1]["RolePolicyList"][0]["PolicyDocument"] = (
+        _identity_policy_for_binding(target, retirement_aliases)
+    )
+    return seal_snapshot(value)
+
+
 def fresh_snapshot() -> dict[str, Any]:
     value = copy.deepcopy(candidate_snapshot())
     value.update(
@@ -406,6 +537,19 @@ def fresh_snapshot() -> dict[str, Any]:
             "capture_completed_at": FRESH_COMPLETED,
             "capture_expires_at": FRESH_EXPIRES,
             "collector_nonce": "synthetic-gug219-fresh-0002",
+        }
+    )
+    return reseal_snapshot(value)
+
+
+def single_fresh_snapshot() -> dict[str, Any]:
+    value = copy.deepcopy(single_candidate_snapshot())
+    value.update(
+        {
+            "capture_started_at": FRESH_STARTED,
+            "capture_completed_at": FRESH_COMPLETED,
+            "capture_expires_at": FRESH_EXPIRES,
+            "collector_nonce": "synthetic-gug219-single-fresh-0002",
         }
     )
     return reseal_snapshot(value)
@@ -432,6 +576,17 @@ def candidate_collector_contract() -> dict[str, Any]:
     return collector_contract()
 
 
+def single_collector_contract() -> dict[str, Any]:
+    return materializer().build_collector_contract(
+        binding=single_binding(),
+        identity_center_region=IDENTITY_CENTER_REGION,
+        collector_iam_role_arn=COLLECTOR_IAM_ROLE_ARN,
+        collector_sts_session_arn=COLLECTOR_SESSION_ARN,
+        created_at="2029-12-31T23:59:59Z",
+        repo_root=REPO_ROOT,
+    )
+
+
 def materialized_bundle() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     module = materializer()
     contract = collector_contract()
@@ -443,6 +598,27 @@ def materialized_bundle() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any
         created_at=RELEASE_CREATED,
         expires_at=RELEASE_EXPIRES,
         repo_root=REPO_ROOT,
+    )
+    return contract, allowlist, release
+
+
+def single_materialized_bundle(
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    module = materializer()
+    contract = single_collector_contract()
+    allowlist, release = module.materialize_allowlist_release(
+        snapshot=single_candidate_snapshot(),
+        binding=single_binding(),
+        collector_contract=contract,
+        source_commit=SOURCE_COMMIT,
+        created_at=RELEASE_CREATED,
+        expires_at=RELEASE_EXPIRES,
+        repo_root=REPO_ROOT,
+        single_operator_exception=single_operator_exception(),
+        broker_artifact_manifest=single_package_manifest(),
+        expected_broker_artifact_manifest_digest=single_package_manifest()[
+            "manifest_digest"
+        ],
     )
     return contract, allowlist, release
 
@@ -539,7 +715,7 @@ def test_candidate_rejects_split_iam_and_sts_collector_suffixes() -> None:
     snapshot["collector_principal_arn_digest"] = digest_text(
         ROTATED_CANONICAL_COLLECTOR_STS_ARN
     )
-    reseal_snapshot(snapshot)
+    seal_snapshot(snapshot)
 
     with _assert_materialization_error("COLLECTOR_ROLE_BINDING_MISMATCH"):
         materializer().validate_candidate_capture(
@@ -736,6 +912,196 @@ def test_materialization_is_deterministic_and_has_exactly_fourteen_edges() -> No
     assert release["collector_contract_digest"] == contract[
         "collector_contract_digest"
     ]
+
+
+def test_single_operator_materialization_emits_v2_without_independence_claim() -> None:
+    _, allowlist, release = single_materialized_bundle()
+
+    assert allowlist["schema_version"] == "2"
+    assert allowlist["authorization_mode"] == (
+        AUTHORIZATION_MODE_SINGLE_OPERATOR
+    )
+    assert allowlist["two_human_status"] == "NOT_PROVEN"
+    assert allowlist["independent_approval_present"] is False
+    assert allowlist["single_operator_exception_digest"] == (
+        single_binding().single_operator_exception_digest
+    )
+    assert allowlist["active_aliases"] == [
+        "single-classify",
+        "single-reconcile",
+        "single-retire",
+    ]
+    assert len(allowlist["expected_authority_edges"]) == (
+        EXPECTED_AUTHORITY_EDGE_COUNT
+    )
+    serialized_edges = json.dumps(
+        allowlist["expected_authority_edges"], sort_keys=True
+    )
+    assert "independent_approver" not in serialized_edges
+    assert "single_operator_classifier" in serialized_edges
+    assert "single_operator_retirement" in serialized_edges
+    assert release["schema_version"] == "2"
+    assert release["two_human_status"] == "NOT_PROVEN"
+    assert release["independent_approval_present"] is False
+    assert release["broker_artifact_manifest_digest"] == (
+        single_package_manifest()["manifest_digest"]
+    )
+    assert release["broker_artifact_code_sha256"] == (
+        single_package_manifest()["lambda_code_sha256"]
+    )
+    assert release["live_effect_authorized"] is False
+    assert release["deployment_authorized"] is False
+
+
+def test_single_operator_materialization_requires_exact_active_exception() -> None:
+    module = materializer()
+    arguments = {
+        "snapshot": single_candidate_snapshot(),
+        "binding": single_binding(),
+        "collector_contract": single_collector_contract(),
+        "source_commit": SOURCE_COMMIT,
+        "created_at": RELEASE_CREATED,
+        "expires_at": RELEASE_EXPIRES,
+        "repo_root": REPO_ROOT,
+    }
+    with _assert_materialization_error("SINGLE_OPERATOR_EXCEPTION_REQUIRED"):
+        module.materialize_allowlist_release(**arguments)
+
+    drifted = copy.deepcopy(single_operator_exception())
+    drifted["authorization_digest"] = "sha256:" + "f" * 64
+    with _assert_materialization_error("SINGLE_OPERATOR_EXCEPTION_INVALID"):
+        module.materialize_allowlist_release(
+            **arguments,
+            single_operator_exception=drifted,
+        )
+
+    with _assert_materialization_error("SINGLE_OPERATOR_EXCEPTION_FORBIDDEN"):
+        module.materialize_allowlist_release(
+            snapshot=candidate_snapshot(),
+            binding=binding(),
+            collector_contract=collector_contract(),
+            source_commit=SOURCE_COMMIT,
+            created_at=RELEASE_CREATED,
+            expires_at=RELEASE_EXPIRES,
+            repo_root=REPO_ROOT,
+            single_operator_exception=single_operator_exception(),
+        )
+
+
+def test_single_operator_materialization_binds_reviewed_package_code_sha() -> None:
+    module = materializer()
+    arguments = {
+        "snapshot": single_candidate_snapshot(),
+        "binding": single_binding(),
+        "collector_contract": single_collector_contract(),
+        "source_commit": SOURCE_COMMIT,
+        "created_at": RELEASE_CREATED,
+        "expires_at": RELEASE_EXPIRES,
+        "repo_root": REPO_ROOT,
+        "single_operator_exception": single_operator_exception(),
+    }
+    with _assert_materialization_error("BROKER_ARTIFACT_MANIFEST_REQUIRED"):
+        module.materialize_allowlist_release(**arguments)
+
+    with _assert_materialization_error(
+        "BROKER_ARTIFACT_MANIFEST_BINDING_INVALID"
+    ):
+        module.materialize_allowlist_release(
+            **arguments,
+            broker_artifact_manifest=single_package_manifest(),
+            expected_broker_artifact_manifest_digest="sha256:" + "0" * 64,
+        )
+
+    snapshot = single_candidate_snapshot()
+    snapshot["lambda"]["functions"][0]["CodeSha256"] = "A" * 43 + "="
+    for version in snapshot["lambda"]["versions"]:
+        version["CodeSha256"] = "A" * 43 + "="
+    seal_snapshot(snapshot)
+    with _assert_materialization_error("BROKER_ARTIFACT_CODE_SHA256_MISMATCH"):
+        module.materialize_allowlist_release(
+            **{
+                **arguments,
+                "snapshot": snapshot,
+            },
+            **single_package_kwargs(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_commit", "f" * 40),
+        ("broker_runtime_version_arn_digest", "sha256:" + "e" * 64),
+        ("broker_version_binding_sha256", "sha256:" + "d" * 64),
+    ),
+)
+def test_single_operator_materialization_causally_binds_each_package_anchor(
+    field: str,
+    value: str,
+) -> None:
+    manifest = copy.deepcopy(single_package_manifest())
+    manifest[field] = value
+    manifest["manifest_digest"] = package_manifest_digest(
+        {key: item for key, item in manifest.items() if key != "manifest_digest"}
+    )
+
+    with _assert_materialization_error(
+        "BROKER_ARTIFACT_MANIFEST_BINDING_INVALID"
+    ):
+        materializer().materialize_allowlist_release(
+            snapshot=single_candidate_snapshot(),
+            binding=single_binding(),
+            collector_contract=single_collector_contract(),
+            source_commit=SOURCE_COMMIT,
+            created_at=RELEASE_CREATED,
+            expires_at=RELEASE_EXPIRES,
+            repo_root=REPO_ROOT,
+            single_operator_exception=single_operator_exception(),
+            broker_artifact_manifest=manifest,
+            expected_broker_artifact_manifest_digest=manifest["manifest_digest"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_commit", "f" * 40),
+        ("broker_runtime_version_arn_digest", "sha256:" + "e" * 64),
+        ("broker_version_binding_sha256", "sha256:" + "d" * 64),
+    ),
+)
+def test_single_operator_release_validation_rebinds_each_package_anchor(
+    field: str,
+    value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = materializer()
+    monkeypatch.setattr(module, "validate_source_commit_binding", lambda **_: None)
+    contract, allowlist, release = single_materialized_bundle()
+    manifest = copy.deepcopy(single_package_manifest())
+    manifest[field] = value
+    manifest["manifest_digest"] = package_manifest_digest(
+        {key: item for key, item in manifest.items() if key != "manifest_digest"}
+    )
+    release["broker_artifact_manifest_digest"] = manifest["manifest_digest"]
+    release["release_digest"] = canonical_digest(
+        {key: item for key, item in release.items() if key != "release_digest"}
+    )
+
+    with _assert_materialization_error(
+        "BROKER_ARTIFACT_MANIFEST_BINDING_INVALID"
+    ):
+        module.validate_release_bundle(
+            allowlist=allowlist,
+            release=release,
+            collector_contract=contract,
+            binding=single_binding(),
+            expected_release_digest=release["release_digest"],
+            evaluation_at=EVALUATION_AT,
+            single_operator_exception=single_operator_exception(),
+            broker_artifact_manifest=manifest,
+            expected_broker_artifact_manifest_digest=manifest["manifest_digest"],
+        )
 
 
 def test_candidate_capture_is_materialization_only_and_binds_exact_collector() -> None:
@@ -1049,6 +1415,56 @@ def test_release_bundle_validation_returns_the_exact_collector_sts_digest() -> N
     )
 
     assert result == contract["collector_role_sts_arn_digest"]
+
+
+def test_single_operator_release_and_fresh_capture_are_mode_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = materializer()
+    monkeypatch.setattr(
+        module,
+        "validate_source_commit_binding",
+        lambda **_: None,
+    )
+    contract, allowlist, release = single_materialized_bundle()
+    exception = single_operator_exception()
+
+    result = module.validate_release_bundle(
+        allowlist=allowlist,
+        release=release,
+        collector_contract=contract,
+        binding=single_binding(),
+        expected_release_digest=release["release_digest"],
+        evaluation_at=EVALUATION_AT,
+        single_operator_exception=exception,
+        **single_package_kwargs(),
+    )
+    assert result == contract["collector_role_sts_arn_digest"]
+    assert module.validate_fresh_capture(
+        candidate_snapshot=single_candidate_snapshot(),
+        fresh_snapshot=single_fresh_snapshot(),
+        allowlist=allowlist,
+        release=release,
+        collector_contract=contract,
+        binding=single_binding(),
+        expected_release_digest=release["release_digest"],
+        evaluation_at=EVALUATION_AT,
+        single_operator_exception=exception,
+        **single_package_kwargs(),
+    ) is True
+
+    drifted = copy.deepcopy(exception)
+    drifted["authorization_digest"] = "sha256:" + "f" * 64
+    with _assert_materialization_error("SINGLE_OPERATOR_EXCEPTION_INVALID"):
+        module.validate_release_bundle(
+            allowlist=allowlist,
+            release=release,
+            collector_contract=contract,
+            binding=single_binding(),
+            expected_release_digest=release["release_digest"],
+            evaluation_at=EVALUATION_AT,
+            single_operator_exception=drifted,
+        )
 
 
 def test_release_digest_mismatch_is_rejected_before_capture_validation() -> None:

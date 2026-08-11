@@ -58,7 +58,14 @@ COVERAGE_SURFACES = (
     "iam_account_authorization",
 )
 COVERAGE_STATUSES = frozenset({"COMPLETE", "ACCESS_DENIED", "INCOMPLETE", "AMBIGUOUS"})
-EXPECTED_ALIASES = frozenset({"classify", "retire", "reconcile"})
+AUTHORIZATION_MODE_TWO_HUMAN = "TWO_HUMAN"
+AUTHORIZATION_MODE_SINGLE_OPERATOR = "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+NORMAL_ALIASES = frozenset({"classify", "retire", "reconcile"})
+SINGLE_OPERATOR_ALIASES = frozenset(
+    {"single-classify", "single-retire", "single-reconcile"}
+)
+# Backward-compatible export for the established v1 normal-mode contract.
+EXPECTED_ALIASES = NORMAL_ALIASES
 PUBLISHED_CONFIGURATION_FIELDS = (
     "Architectures",
     "CapacityProviderConfig",
@@ -166,6 +173,58 @@ EXPECTED_ALLOWLIST_EDGE_SHAPES = frozenset(
         )
     }
 )
+
+
+def _allowlist_edge_shapes(
+    binding: "TargetBinding",
+) -> frozenset[tuple[str, str, str, str, str, str]]:
+    if binding.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN:
+        return EXPECTED_ALLOWLIST_EDGE_SHAPES
+    return frozenset(
+        {
+            (
+                "INVOCATION",
+                source_type,
+                duty,
+                f"EXACT_{alias.upper().replace('-', '_')}_ALIAS",
+                action,
+                condition_class,
+            )
+            for source_type in (
+                "LAMBDA_RESOURCE_POLICY",
+                "IAM_ROLE_INLINE_POLICY",
+            )
+            for duty, aliases in (
+                ("single_operator_classifier", ("single-classify",)),
+                (
+                    "single_operator_retirement",
+                    ("single-retire", "single-reconcile"),
+                ),
+            )
+            for alias in aliases
+            for action, condition_class in (
+                (
+                    "lambda:InvokeFunctionUrl",
+                    "FUNCTION_URL_AUTH_TYPE_AWS_IAM",
+                ),
+                ("lambda:InvokeFunction", "INVOKED_VIA_FUNCTION_URL_TRUE"),
+            )
+        }
+        | {
+            (
+                "TRUST",
+                "IAM_ROLE_TRUST_POLICY",
+                duty,
+                target_scope,
+                "sts:AssumeRole",
+                "EXACT_PERMISSION_SET_TRUST",
+            )
+            for duty, target_scope in (
+                ("single_operator_classifier", "CLASSIFIER_INVOKER_ROLE"),
+                ("single_operator_retirement", "APPROVER_INVOKER_ROLE"),
+            )
+        }
+    )
 
 INVOCATION_ACTIONS = (
     "lambda:InvokeFunctionUrl",
@@ -468,6 +527,8 @@ class TargetBinding:
     region: str
     function_name: str
     partition: str = "aws"
+    authorization_mode: str = AUTHORIZATION_MODE_TWO_HUMAN
+    single_operator_exception_digest: str | None = None
 
     def __post_init__(self) -> None:
         if ACCOUNT_ID.fullmatch(self.authority_account_id) is None:
@@ -478,6 +539,41 @@ class TargetBinding:
             raise AuthorityInventoryError("FUNCTION_NAME_INVALID")
         if self.partition not in {"aws", "aws-us-gov", "aws-cn"}:
             raise AuthorityInventoryError("AWS_PARTITION_INVALID")
+        if self.authorization_mode == AUTHORIZATION_MODE_TWO_HUMAN:
+            if self.single_operator_exception_digest is not None:
+                raise AuthorityInventoryError("SINGLE_OPERATOR_BINDING_FORBIDDEN")
+        elif self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+            if (
+                not isinstance(self.single_operator_exception_digest, str)
+                or DIGEST.fullmatch(self.single_operator_exception_digest) is None
+            ):
+                raise AuthorityInventoryError("SINGLE_OPERATOR_BINDING_REQUIRED")
+        else:
+            raise AuthorityInventoryError("AUTHORIZATION_MODE_INVALID")
+
+    @property
+    def active_aliases(self) -> frozenset[str]:
+        return (
+            SINGLE_OPERATOR_ALIASES
+            if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else NORMAL_ALIASES
+        )
+
+    @property
+    def classifier_duty(self) -> str:
+        return (
+            "single_operator_classifier"
+            if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "classifier"
+        )
+
+    @property
+    def retirement_duty(self) -> str:
+        return (
+            "single_operator_retirement"
+            if self.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "independent_approver"
+        )
 
     @property
     def function_arn(self) -> str:
@@ -487,7 +583,7 @@ class TargetBinding:
         )
 
     def alias_arn(self, alias: str) -> str:
-        if alias not in EXPECTED_ALIASES:
+        if alias not in self.active_aliases:
             raise AuthorityInventoryError("ALIAS_INVALID")
         return f"{self.function_arn}:{alias}"
 
@@ -1089,12 +1185,9 @@ def _action_class(action: str) -> str:
 def _target_scope(binding: TargetBinding, resource: str) -> str:
     if any(character in resource for character in "*?["):
         return "WILDCARD"
-    if resource == binding.alias_arn("classify"):
-        return "EXACT_CLASSIFY_ALIAS"
-    if resource == binding.alias_arn("retire"):
-        return "EXACT_RETIRE_ALIAS"
-    if resource == binding.alias_arn("reconcile"):
-        return "EXACT_RECONCILE_ALIAS"
+    for alias in binding.active_aliases:
+        if resource == binding.alias_arn(alias):
+            return f"EXACT_{alias.upper().replace('-', '_')}_ALIAS"
     if resource == binding.function_arn:
         return "UNQUALIFIED_FUNCTION"
     if resource == f"{binding.function_arn}:$LATEST":
@@ -1131,6 +1224,8 @@ def _expected_digest_sets(allowlist: Mapping[str, Any]) -> dict[str, set[str]]:
         "approver_permission_sets": set(),
         "classifier_resources": set(),
         "approver_resources": set(),
+        "classifier_duties": set(),
+        "approver_duties": set(),
     }
     edges = allowlist.get("expected_authority_edges")
     if not isinstance(edges, list) or len(edges) != EXPECTED_AUTHORITY_EDGE_COUNT:
@@ -1146,12 +1241,14 @@ def _expected_digest_sets(allowlist: Mapping[str, Any]) -> dict[str, set[str]]:
             raise AuthorityInventoryError("ALLOWLIST_EDGE_INVALID")
         duty = edge.get("duty")
         source_type = edge.get("source_type")
-        if duty == "classifier":
+        if duty in {"classifier", "single_operator_classifier"}:
             result["classifier_resources"].add(resource_digest)
+            result["classifier_duties"].add(str(duty))
             bucket = "classifier_permission_sets" if source_type == "IAM_ROLE_TRUST_POLICY" else "classifier_roles"
             result[bucket].add(principal_digest)
-        elif duty == "independent_approver":
+        elif duty in {"independent_approver", "single_operator_retirement"}:
             result["approver_resources"].add(resource_digest)
+            result["approver_duties"].add(str(duty))
             bucket = "approver_permission_sets" if source_type == "IAM_ROLE_TRUST_POLICY" else "approver_roles"
             result[bucket].add(principal_digest)
         else:
@@ -1166,14 +1263,16 @@ def _principal_kind(
     account_id: str,
 ) -> tuple[str, str, str]:
     principal_digest = digest_text(principal)
+    classifier_duty = next(iter(expected["classifier_duties"]), "none")
+    approver_duty = next(iter(expected["approver_duties"]), "none")
     if principal_digest in expected["classifier_roles"]:
-        return "EXACT_CLASSIFIER_ROLE", principal_digest, "classifier"
+        return "EXACT_CLASSIFIER_ROLE", principal_digest, classifier_duty
     if principal_digest in expected["approver_roles"]:
-        return "EXACT_APPROVER_ROLE", principal_digest, "independent_approver"
+        return "EXACT_APPROVER_ROLE", principal_digest, approver_duty
     if principal_digest in expected["classifier_permission_sets"]:
-        return "EXACT_CLASSIFIER_PERMISSION_SET", principal_digest, "classifier"
+        return "EXACT_CLASSIFIER_PERMISSION_SET", principal_digest, classifier_duty
     if principal_digest in expected["approver_permission_sets"]:
-        return "EXACT_APPROVER_PERMISSION_SET", principal_digest, "independent_approver"
+        return "EXACT_APPROVER_PERMISSION_SET", principal_digest, approver_duty
     if principal == "*":
         return "PUBLIC", principal_digest, "none"
     if principal_type == "Service":
@@ -1824,7 +1923,7 @@ def _surface_authority_edges(
 ) -> tuple[list[dict[str, Any]], bool]:
     edges: list[dict[str, Any]] = []
     drift = False
-    expected_url_arns = {binding.alias_arn(alias) for alias in EXPECTED_ALIASES}
+    expected_url_arns = {binding.alias_arn(alias) for alias in binding.active_aliases}
     for config in function_urls:
         if not isinstance(config, Mapping) or not isinstance(config.get("FunctionArn"), str):
             drift = True
@@ -1914,7 +2013,7 @@ def _runtime_artifact_drift(
     functions = lambda_inventory.get("functions", [])
     if not isinstance(aliases, list) or not isinstance(versions, list) or not isinstance(functions, list):
         raise AuthorityInventoryError("LAMBDA_RUNTIME_INVENTORY_MALFORMED")
-    if len(aliases) != len(EXPECTED_ALIASES):
+    if len(aliases) != len(binding.active_aliases):
         return True
     alias_versions: set[str] = set()
     for alias in aliases:
@@ -1924,7 +2023,7 @@ def _runtime_artifact_drift(
         version = alias.get("FunctionVersion")
         routing = alias.get("RoutingConfig")
         if (
-            name not in EXPECTED_ALIASES
+            name not in binding.active_aliases
             or not isinstance(version, str)
             or re.fullmatch(r"[1-9][0-9]*", version) is None
             or alias.get("FunctionArn") not in (
@@ -2015,11 +2114,29 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
         "created_at",
         "allowlist_digest",
     }
-    if not required.issubset(allowlist):
+    exception_required = {
+        "authorization_mode",
+        "two_human_status",
+        "independent_approval_present",
+        "single_operator_exception_digest",
+        "owner_authorization_sha256",
+        "active_aliases",
+    }
+    expected_fields = (
+        required | exception_required
+        if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        else required
+    )
+    if set(allowlist) != expected_fields:
         raise AuthorityInventoryError("ALLOWLIST_MALFORMED")
+    expected_schema_version = (
+        "2"
+        if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        else "1"
+    )
     if (
         allowlist.get("record_type") != "platform_authority_lambda_invocation_allowlist"
-        or allowlist.get("schema_version") != "1"
+        or allowlist.get("schema_version") != expected_schema_version
         or allowlist.get("environment") != "non-production"
         or allowlist.get("production") is not False
         or allowlist.get("inventory_scope") != INVENTORY_SCOPE
@@ -2028,6 +2145,27 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
         or allowlist.get("live_effect_authorized") is not False
     ):
         raise AuthorityInventoryError("ALLOWLIST_BINDING_INVALID")
+    if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+        if (
+            allowlist.get("authorization_mode")
+            != AUTHORIZATION_MODE_SINGLE_OPERATOR
+            or allowlist.get("two_human_status") != "NOT_PROVEN"
+            or allowlist.get("independent_approval_present") is not False
+            or allowlist.get("single_operator_exception_digest")
+            != binding.single_operator_exception_digest
+            or allowlist.get("active_aliases")
+            != sorted(binding.active_aliases)
+        ):
+            raise AuthorityInventoryError("SINGLE_OPERATOR_ALLOWLIST_INVALID")
+        for key in (
+            "single_operator_exception_digest",
+            "owner_authorization_sha256",
+        ):
+            if (
+                not isinstance(allowlist.get(key), str)
+                or DIGEST.fullmatch(str(allowlist[key])) is None
+            ):
+                raise AuthorityInventoryError("SINGLE_OPERATOR_ALLOWLIST_INVALID")
     for key in (
         "source_template_sha256",
         "source_policy_bundle_sha256",
@@ -2067,7 +2205,7 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
         for edge in edges
         if isinstance(edge, Mapping)
     }
-    if shapes != EXPECTED_ALLOWLIST_EDGE_SHAPES:
+    if shapes != _allowlist_edge_shapes(binding):
         raise AuthorityInventoryError("ALLOWLIST_EDGE_MATRIX_INVALID")
     forbidden = allowlist.get("forbidden_authority_classes")
     if (
@@ -2084,6 +2222,8 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
             "approver_roles",
             "classifier_permission_sets",
             "approver_permission_sets",
+            "classifier_duties",
+            "approver_duties",
         )
     ):
         raise AuthorityInventoryError("ALLOWLIST_PRINCIPAL_BINDING_INVALID")
@@ -2092,7 +2232,13 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
     ] == digests["approver_permission_sets"]:
         raise AuthorityInventoryError("ALLOWLIST_DUTY_SEPARATION_INVALID")
     collector_digest = allowlist["collector_role_principal_digest"]
-    if collector_digest in set().union(*digests.values()):
+    bound_principal_digests = set().union(
+        digests["classifier_roles"],
+        digests["approver_roles"],
+        digests["classifier_permission_sets"],
+        digests["approver_permission_sets"],
+    )
+    if collector_digest in bound_principal_digests:
         raise AuthorityInventoryError("ALLOWLIST_COLLECTOR_DUTY_SEPARATION_INVALID")
     classifier_role = next(iter(digests["classifier_roles"]))
     approver_role = next(iter(digests["approver_roles"]))
@@ -2102,8 +2248,8 @@ def _validate_allowlist(allowlist: Mapping[str, Any], binding: TargetBinding) ->
         if isinstance(edge, Mapping) and edge.get("authority_class") == "TRUST"
     }
     if trust_resources != {
-        "classifier": classifier_role,
-        "independent_approver": approver_role,
+        binding.classifier_duty: classifier_role,
+        binding.retirement_duty: approver_role,
     }:
         raise AuthorityInventoryError("ALLOWLIST_TRUST_BINDING_INVALID")
     calculated = canonical_digest({key: value for key, value in allowlist.items() if key != "allowlist_digest"})
@@ -2321,7 +2467,7 @@ def analyze_authority_inventory(
     ]
     structural_drift = (
         len(target_functions) != 1
-        or alias_names != EXPECTED_ALIASES
+        or alias_names != binding.active_aliases
         or surface_drift
         or _runtime_artifact_drift(binding, allowlist, lambda_inventory)
         or missing_expected != 0
@@ -2361,7 +2507,9 @@ def analyze_authority_inventory(
     if evidence_source_mode == EVIDENCE_SOURCE_OFFLINE_UNVERIFIED:
         status = INVENTORY_OFFLINE_UNVERIFIED
     inventory: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": (
+            "2" if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR else "1"
+        ),
         "record_type": "platform_authority_lambda_invocation_inventory",
         "environment": "non-production",
         "production": False,
@@ -2395,6 +2543,21 @@ def analyze_authority_inventory(
         "lambda_invocation_performed": False,
         "live_effect_authorized": False,
     }
+    if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+        inventory.update(
+            {
+                "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                "two_human_status": "NOT_PROVEN",
+                "independent_approval_present": False,
+                "single_operator_exception_digest": allowlist[
+                    "single_operator_exception_digest"
+                ],
+                "owner_authorization_sha256": allowlist[
+                    "owner_authorization_sha256"
+                ],
+                "active_aliases": sorted(binding.active_aliases),
+            }
+        )
     inventory["inventory_digest"] = canonical_digest(inventory)
 
     denied_surfaces = sum(
@@ -2406,7 +2569,11 @@ def analyze_authority_inventory(
         reason_code = "UNVERIFIED_EVIDENCE_SOURCE"
     elif status == INVENTORY_REVIEW_SAFE:
         receipt_status = RECEIPT_REVIEW_REQUIRED
-        next_control = "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+        next_control = (
+            "OWNER_REVIEW_AND_FRESH_SINGLE_OPERATOR_EXECUTION_AUTHORIZATION"
+            if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "INDEPENDENT_REVIEW_AND_FRESH_DEPLOYMENT_AUTHORIZATION"
+        )
         reason_code = "EXACT_AUTHORITY_REPORT_ONLY"
     elif denied_surfaces:
         receipt_status = RECEIPT_ACCESS_DENIED
@@ -2430,7 +2597,9 @@ def analyze_authority_inventory(
         reason_code = "INVENTORY_INCOMPLETE"
 
     receipt: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": (
+            "2" if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR else "1"
+        ),
         "record_type": "platform_authority_lambda_invocation_guard_receipt",
         "environment": "non-production",
         "production": False,
@@ -2473,6 +2642,21 @@ def analyze_authority_inventory(
         "deployment_authorized": False,
         "live_retirement_authorized": False,
     }
+    if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+        receipt.update(
+            {
+                "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+                "two_human_status": "NOT_PROVEN",
+                "independent_approval_present": False,
+                "single_operator_exception_digest": allowlist[
+                    "single_operator_exception_digest"
+                ],
+                "owner_authorization_sha256": allowlist[
+                    "owner_authorization_sha256"
+                ],
+                "active_aliases": sorted(binding.active_aliases),
+            }
+        )
     receipt["receipt_digest"] = canonical_digest(receipt)
     return inventory, receipt
 

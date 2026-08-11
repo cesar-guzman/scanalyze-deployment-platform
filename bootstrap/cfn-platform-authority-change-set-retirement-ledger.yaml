@@ -7,6 +7,12 @@ Description: >
   never receive DeleteChangeSet or DynamoDB write authority.
 
 Parameters:
+  AuthorizationMode:
+    Type: String
+    Default: TWO_HUMAN
+    AllowedValues:
+      - TWO_HUMAN
+      - SINGLE_OPERATOR_NONPROD_EXCEPTION
   AuthorityAccountId:
     Type: String
     AllowedPattern: '^(?!000000000000$)[0-9]{12}$'
@@ -43,6 +49,12 @@ Parameters:
   BrokerCodeSigningConfigArn:
     Type: String
     AllowedPattern: '^arn:aws[a-z-]*:lambda:[a-z0-9-]+:[0-9]{12}:code-signing-config:csc-[a-z0-9]+$'
+  BrokerRuntimeVersionArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:lambda:[a-z0-9-]+::runtime:[a-f0-9]{64}$'
+  BrokerVersionBindingSha256:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
   IdentityStoreArn:
     Type: String
     AllowedPattern: '^arn:aws[a-z-]*:identitystore::[0-9]{12}:identitystore/d-[a-z0-9]{10,}$'
@@ -96,6 +108,31 @@ Parameters:
     Type: String
     AllowedPattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-reserved/sso\.amazonaws\.com(/[a-z0-9-]+)?/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_[0-9a-fA-F]{16}$'
     NoEcho: true
+  SingleOperatorOwnerAuthorizationSha256:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^sha256:[a-f0-9]{64}$'
+    NoEcho: true
+  SingleOperatorExpectedAuthorizationSha256:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^sha256:[a-f0-9]{64}$'
+    NoEcho: true
+  SingleOperatorExceptionCreatedAt:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    NoEcho: true
+  SingleOperatorExceptionNotBefore:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    NoEcho: true
+  SingleOperatorExceptionExpiresAt:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    NoEcho: true
 
 Rules:
   AuthorityAccountMustMatch:
@@ -104,11 +141,42 @@ Rules:
         AssertDescription: AuthorityAccountId must equal the target AWS account.
   IndependentOperatorsRequired:
     Assertions:
-      - Assert: !Not
-          - !Equals
-            - !Ref ClassifierIdentityStoreUserId
-            - !Ref ApproverIdentityStoreUserId
-        AssertDescription: Classifier and approver must be distinct Identity Store users.
+      - Assert: !Or
+          - !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]
+          - !Not
+            - !Equals
+              - !Ref ClassifierIdentityStoreUserId
+              - !Ref ApproverIdentityStoreUserId
+        AssertDescription: The normal path requires distinct Identity Store users.
+  SingleOperatorExceptionMustBeExact:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref AuthorizationMode, TWO_HUMAN]
+          - !And
+            - !Equals
+              - !Ref ClassifierIdentityStoreUserId
+              - !Ref ApproverIdentityStoreUserId
+            - !Not [!Equals [!Ref SingleOperatorOwnerAuthorizationSha256, '']]
+            - !Not [!Equals [!Ref SingleOperatorExpectedAuthorizationSha256, '']]
+            - !Not [!Equals [!Ref SingleOperatorExceptionCreatedAt, '']]
+            - !Not [!Equals [!Ref SingleOperatorExceptionNotBefore, '']]
+            - !Not [!Equals [!Ref SingleOperatorExceptionExpiresAt, '']]
+        AssertDescription: The exception requires one exact user and complete immutable owner/window bindings.
+  NormalModeForbidsExceptionBindings:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]
+          - !And
+            - !Equals [!Ref SingleOperatorOwnerAuthorizationSha256, '']
+            - !Equals [!Ref SingleOperatorExpectedAuthorizationSha256, '']
+            - !Equals [!Ref SingleOperatorExceptionCreatedAt, '']
+            - !Equals [!Ref SingleOperatorExceptionNotBefore, '']
+            - !Equals [!Ref SingleOperatorExceptionExpiresAt, '']
+        AssertDescription: The normal path cannot carry single-operator exception authority.
+
+Conditions:
+  TwoHumanMode: !Equals [!Ref AuthorizationMode, TWO_HUMAN]
+  SingleOperatorMode: !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]
 
 Resources:
   ChangeSetRetirementLedger:
@@ -265,6 +333,7 @@ Resources:
                   - lambda:GetFunctionConfiguration
                   - lambda:GetFunctionUrlConfig
                   - lambda:GetPolicy
+                  - lambda:GetRuntimeManagementConfig
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:*
@@ -300,6 +369,9 @@ Resources:
       FunctionName: scanalyze-platform-authority-gug215-retirement
       Description: GUG-215 exact retained Change Set retirement PEP
       Runtime: python3.12
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Manual
+        RuntimeVersionArn: !Ref BrokerRuntimeVersionArn
       Handler: tooling.platform_authority_identity_context_pep_runtime.handler
       Architectures: [x86_64]
       MemorySize: 256
@@ -313,6 +385,7 @@ Resources:
         S3ObjectVersion: !Ref BrokerArtifactVersion
       Environment:
         Variables:
+          AUTHORIZATION_MODE: !Ref AuthorizationMode
           AUTHORITY_ACCOUNT_ID: !Ref AuthorityAccountId
           AUTHORITY_REGION: !Ref AWS::Region
           CHANGE_SET_NAME: !Ref ChangeSetName
@@ -342,6 +415,13 @@ Resources:
           APPROVER_PERMISSION_SET_ROLE_ARN: !Ref ApproverPermissionSetRoleArn
           BROKER_EXECUTION_ROLE_NAME: ScanalyzeGug215BrokerExecution
           CODE_SIGNING_CONFIG_ARN: !Ref BrokerCodeSigningConfigArn
+          BROKER_RUNTIME_VERSION_ARN: !Ref BrokerRuntimeVersionArn
+          BROKER_VERSION_BINDING_SHA256: !Ref BrokerVersionBindingSha256
+          SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256: !Ref SingleOperatorOwnerAuthorizationSha256
+          SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256: !Ref SingleOperatorExpectedAuthorizationSha256
+          SINGLE_OPERATOR_EXCEPTION_CREATED_AT: !Ref SingleOperatorExceptionCreatedAt
+          SINGLE_OPERATOR_EXCEPTION_NOT_BEFORE: !Ref SingleOperatorExceptionNotBefore
+          SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT: !Ref SingleOperatorExceptionExpiresAt
       Tags:
         - {Key: managed_by, Value: cloudformation}
         - {Key: service, Value: scanalyze-platform-authority}
@@ -353,10 +433,13 @@ Resources:
     Properties:
       FunctionName: !Ref RetirementBrokerFunction
       CodeSha256: !Ref BrokerArtifactCodeSha256
-      Description: GUG-215 reviewed immutable broker version
+      Description: !Sub >-
+        GUG-215 ${BrokerVersionBindingSha256}
+        ${SingleOperatorExpectedAuthorizationSha256}
 
   RetirementBrokerClassifyAlias:
     Type: AWS::Lambda::Alias
+    Condition: TwoHumanMode
     Properties:
       FunctionName: !Ref RetirementBrokerFunction
       FunctionVersion: !GetAtt RetirementBrokerVersion.Version
@@ -364,6 +447,7 @@ Resources:
 
   RetirementBrokerRetireAlias:
     Type: AWS::Lambda::Alias
+    Condition: TwoHumanMode
     Properties:
       FunctionName: !Ref RetirementBrokerFunction
       FunctionVersion: !GetAtt RetirementBrokerVersion.Version
@@ -371,6 +455,7 @@ Resources:
 
   RetirementBrokerReconcileAlias:
     Type: AWS::Lambda::Alias
+    Condition: TwoHumanMode
     Properties:
       FunctionName: !Ref RetirementBrokerFunction
       FunctionVersion: !GetAtt RetirementBrokerVersion.Version
@@ -378,6 +463,7 @@ Resources:
 
   RetirementBrokerClassifyUrl:
     Type: AWS::Lambda::Url
+    Condition: TwoHumanMode
     DependsOn: RetirementBrokerClassifyAlias
     Properties:
       AuthType: AWS_IAM
@@ -387,6 +473,7 @@ Resources:
 
   RetirementBrokerRetireUrl:
     Type: AWS::Lambda::Url
+    Condition: TwoHumanMode
     DependsOn: RetirementBrokerRetireAlias
     Properties:
       AuthType: AWS_IAM
@@ -396,11 +483,66 @@ Resources:
 
   RetirementBrokerReconcileUrl:
     Type: AWS::Lambda::Url
+    Condition: TwoHumanMode
     DependsOn: RetirementBrokerReconcileAlias
     Properties:
       AuthType: AWS_IAM
       InvokeMode: BUFFERED
       Qualifier: reconcile
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
+  RetirementBrokerSingleClassifyAlias:
+    Type: AWS::Lambda::Alias
+    Condition: SingleOperatorMode
+    Properties:
+      FunctionName: !Ref RetirementBrokerFunction
+      FunctionVersion: !GetAtt RetirementBrokerVersion.Version
+      Name: single-classify
+
+  RetirementBrokerSingleRetireAlias:
+    Type: AWS::Lambda::Alias
+    Condition: SingleOperatorMode
+    Properties:
+      FunctionName: !Ref RetirementBrokerFunction
+      FunctionVersion: !GetAtt RetirementBrokerVersion.Version
+      Name: single-retire
+
+  RetirementBrokerSingleReconcileAlias:
+    Type: AWS::Lambda::Alias
+    Condition: SingleOperatorMode
+    Properties:
+      FunctionName: !Ref RetirementBrokerFunction
+      FunctionVersion: !GetAtt RetirementBrokerVersion.Version
+      Name: single-reconcile
+
+  RetirementBrokerSingleClassifyUrl:
+    Type: AWS::Lambda::Url
+    Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleClassifyAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: single-classify
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
+  RetirementBrokerSingleRetireUrl:
+    Type: AWS::Lambda::Url
+    Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleRetireAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: single-retire
+      TargetFunctionArn: !Ref RetirementBrokerFunction
+
+  RetirementBrokerSingleReconcileUrl:
+    Type: AWS::Lambda::Url
+    Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleReconcileAlias
+    Properties:
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+      Qualifier: single-reconcile
       TargetFunctionArn: !Ref RetirementBrokerFunction
 
   ClassifierInvokerRole:
@@ -427,14 +569,20 @@ Resources:
               - Sid: InvokeExactClassifyFunctionUrl
                 Effect: Allow
                 Action: lambda:InvokeFunctionUrl
-                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
+                Resource: !If
+                  - SingleOperatorMode
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-classify
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
                 Condition:
                   StringEquals:
                     lambda:FunctionUrlAuthType: AWS_IAM
               - Sid: InvokeExactClassifyOnlyViaFunctionUrl
                 Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
+                Resource: !If
+                  - SingleOperatorMode
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-classify
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify
                 Condition:
                   Bool:
                     lambda:InvokedViaFunctionUrl: 'true'
@@ -479,8 +627,14 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunctionUrl
                 Resource:
-                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
-                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
+                  - !If
+                    - SingleOperatorMode
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-retire
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
+                  - !If
+                    - SingleOperatorMode
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-reconcile
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
                 Condition:
                   StringEquals:
                     lambda:FunctionUrlAuthType: AWS_IAM
@@ -488,8 +642,14 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource:
-                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
-                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
+                  - !If
+                    - SingleOperatorMode
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-retire
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire
+                  - !If
+                    - SingleOperatorMode
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-reconcile
+                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile
                 Condition:
                   Bool:
                     lambda:InvokedViaFunctionUrl: 'true'
@@ -617,6 +777,7 @@ Resources:
 
   ClassifierFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:classify
@@ -625,6 +786,7 @@ Resources:
 
   ClassifierFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:classify
@@ -633,6 +795,7 @@ Resources:
 
   ApproverRetireFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:retire
@@ -641,6 +804,7 @@ Resources:
 
   ApproverRetireFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:retire
@@ -649,6 +813,7 @@ Resources:
 
   ApproverReconcileFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:reconcile
@@ -657,9 +822,64 @@ Resources:
 
   ApproverReconcileFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
+    Condition: TwoHumanMode
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:reconcile
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  SingleClassifierFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-classify
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ClassifierInvokerRole.Arn
+
+  SingleClassifierFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-classify
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ClassifierInvokerRole.Arn
+
+  SingleApproverRetireFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-retire
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  SingleApproverRetireFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-retire
+      InvokedViaFunctionUrl: true
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  SingleApproverReconcileFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile
+      FunctionUrlAuthType: AWS_IAM
+      Principal: !GetAtt ApproverInvokerRole.Arn
+
+  SingleApproverReconcileFunctionUrlFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Condition: SingleOperatorMode
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile
       InvokedViaFunctionUrl: true
       Principal: !GetAtt ApproverInvokerRole.Arn
 
@@ -673,11 +893,27 @@ Outputs:
   ApproverInvokerRoleName:
     Value: !Ref ApproverInvokerRole
   ClassifierFunctionUrl:
+    Condition: TwoHumanMode
     Value: !GetAtt RetirementBrokerClassifyUrl.FunctionUrl
   RetireFunctionUrl:
+    Condition: TwoHumanMode
     Value: !GetAtt RetirementBrokerRetireUrl.FunctionUrl
   ReconcileFunctionUrl:
+    Condition: TwoHumanMode
     Value: !GetAtt RetirementBrokerReconcileUrl.FunctionUrl
+  SingleClassifierFunctionUrl:
+    Condition: SingleOperatorMode
+    Value: !GetAtt RetirementBrokerSingleClassifyUrl.FunctionUrl
+  SingleRetireFunctionUrl:
+    Condition: SingleOperatorMode
+    Value: !GetAtt RetirementBrokerSingleRetireUrl.FunctionUrl
+  SingleReconcileFunctionUrl:
+    Condition: SingleOperatorMode
+    Value: !GetAtt RetirementBrokerSingleReconcileUrl.FunctionUrl
+  AuthorizationMode:
+    Value: !Ref AuthorizationMode
+  TwoHumanStatus:
+    Value: !If [SingleOperatorMode, NOT_PROVEN, REQUIRED]
   IdentityContextProofRequired:
     Value: 'true'
   LiveRetirementAuthorized:

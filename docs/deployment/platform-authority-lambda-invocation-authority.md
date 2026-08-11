@@ -11,6 +11,25 @@ effect.
 
 Production remains **NO-GO**.
 
+## Authorization-mode evidence
+
+The existing schema-v1 chain remains the `TWO_HUMAN` contract and uses the
+normal `classify`, `retire` and `reconcile` aliases. Schema v2 is accepted only
+for `SINGLE_OPERATOR_NONPROD_EXCEPTION`; it uses exactly
+`single-classify`, `single-retire` and `single-reconcile`, binds the exception
+and owner-authorization digests, and records `two_human_status = NOT_PROVEN`
+and `independent_approval_present = false`. Mixing normal and `single-*`
+aliases, duties or scopes is drift.
+
+For v2, the owner reviews and pins the exact exception `authorization_digest`
+and release digest. That checkpoint is not independent approval. GUG-218 remains
+report-only in both modes and does not relax the normal two-human contract.
+
+Runtime management remains a separate GUG-215 live prerequisite: readback must
+prove `RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`. This GUG-218 analyzer does not independently certify that
+runtime-management API state.
+
 ## Architecture
 
 ```text
@@ -20,7 +39,7 @@ explicitly authorized read-only session
   -> centralized action-statement classifier
   -> pure deterministic analyzer
   -> sanitized report-only receipt
-  -> independent human review
+  -> mode-specific review (independent in TWO_HUMAN; exact owner review in ADR-050)
   -> separate future rollout decision
 ```
 
@@ -37,11 +56,11 @@ can never be evidence for rollout, regardless of its contents.
 
 ## Expected graph
 
-The allowlist contains exactly fourteen edges:
+The allowlist contains exactly fourteen edges in either mode:
 
 | Edge class | Count | Contract |
 |---|---:|---|
-| Identity policy | 6 | Two actions for each of `classify`, `retire` and `reconcile` |
+| Identity policy | 6 | Two actions for each mode-specific alias: normal `classify`/`retire`/`reconcile` or exclusive `single-classify`/`single-retire`/`single-reconcile` |
 | Lambda resource policy | 6 | Exact principal, qualified alias and URL-only conditions |
 | Role trust | 2 | Exact classifier and approver source-role trust |
 | Mutation authority | 0 | No path may create or broaden invocation authority |
@@ -184,8 +203,9 @@ Standalone schema or record validation is diagnostic only and cannot establish
 
 Before any snapshot load or AWS call, the wrapper requires
 `--expected-allowlist-digest`. The expected digest must be injected from a
-separately reviewed immutable manifest or protected configuration; copying it
-from the same allowlist does not create an independent trust anchor. The
+mode-appropriate immutable manifest or protected configuration: independently
+reviewed in `TWO_HUMAN`, or owner-reviewed and exact in ADR-050. Copying it
+from the same allowlist does not create a trust anchor. The
 wrapper recomputes the canonical allowlist digest and validates the complete
 account, Region, function, graph, artifact and collector binding before it
 loads even an offline snapshot. For an AWS capture, STS is the only call
@@ -234,6 +254,7 @@ Do not pass raw AWS output to stdout, CI artifacts, issue comments or PRs.
 | Required PR checks | CI validated only after GitHub completion |
 | AWS capture | Not performed unless separately authorized and recorded |
 | Lambda invocation / token / STS session | Not performed |
+| ADR-050 v2 mode | Owner-reviewed exact digest required; `two_human_status = NOT_PROVEN` |
 | Production | **NO-GO** |
 
 ## Related records

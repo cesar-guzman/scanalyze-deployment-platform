@@ -9,9 +9,35 @@ granting or exercising any mutation, invocation or deployment authority.
 
 Production remains **NO-GO**.
 
+## Authorization-mode materialization
+
+The v1 producer remains the `TWO_HUMAN` contract with normal
+`classify`, `retire` and `reconcile` aliases. The v2 producer accepts only
+`SINGLE_OPERATOR_NONPROD_EXCEPTION` and materializes exactly
+`single-classify`, `single-retire` and `single-reconcile`, the
+`single_operator_classifier`/`single_operator_retirement` duties and matching
+`EXACT_SINGLE_*_ALIAS` scopes. Both graphs contain fourteen edges; mixed mode
+content fails closed.
+
+Every v2 allowlist and release binds the single-operator exception and owner
+authorization digests. The release also binds the deterministic GUG-215 broker
+package-manifest digest whose `lambda_code_sha256` must equal the
+`CodeSha256` observed in candidate A. The records state
+`two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`. Its owner reviews and pins the exact
+exception `authorization_digest` and release digest. This does not change the
+independent review required by v1.
+
+The separate GUG-215 runtime readback must prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`; GUG-219 materialization does not independently certify that
+live API state.
+
 ## Architecture
 
 ```text
+clean reviewed commit -> deterministic broker ZIP and manifest
+              +
 reviewed repository source-byte digests
               +
 dedicated collector contract and target binding
@@ -23,7 +49,7 @@ offline `materialize` subcommand (no AWS client)
       |                         |
       v                         v
 private allowlist       private release anchor
-      |                 independently supplied digest
+      |                 mode-appropriate reviewed digest
       +-------------------------+
                                 |
                                 v
@@ -36,9 +62,11 @@ private allowlist       private release anchor
 The materializer constrains candidate A with hard-coded reviewed role, alias,
 action, condition and deny invariants. It builds the fourteen expected edges
 from the exact policies observed in A, then binds exact template and policy-
-file digests. It does not derive the graph by parsing the GUG-217 template and
-does not prove build-once archive provenance or byte equality. Candidate A
-cannot introduce an allowed edge or repair drift.
+file digests. It does not derive the graph by parsing the GUG-217 template.
+For v2 it validates the owner-reviewed package manifest, requires its source
+commit and runtime/version-binding digests to match the exception, and requires
+its derived Lambda code digest to equal candidate A. Candidate A cannot
+introduce an allowed edge, substitute package bytes or repair drift.
 
 ## Canonical source set
 
@@ -48,7 +76,8 @@ Materialization requires all of the following:
 |---|---|
 | GUG-217 CloudFormation template | Exact reviewed repository bytes and digest |
 | GUG-217 invocation/trust policies | Ordered repository-relative paths and canonical JSON digests |
-| Observed broker code | Lambda `CodeSha256` from candidate A; independent archive provenance is a later rollout gate |
+| Broker package | Deterministic clean-commit ZIP manifest, independently supplied expected manifest digest, and exact derived Lambda `CodeSha256` |
+| Observed broker code | Lambda `CodeSha256` from candidate A; v2 must equal the reviewed package manifest |
 | Observed published configuration | Canonical provider-projected configuration digest from candidate A |
 | Target binding | Exact partition, authority account, Region and canonical broker function |
 | Collector contract | Desired permission-set contract plus exact resulting IAM/STS role and inline-policy digests |
@@ -237,6 +266,11 @@ its self-digest is not a provider signature.
 The current operator may, under explicit read-only authorization, perform A,
 materialize the candidate records and perform B. The output must state that the
 same human performed those duties and that independent approval is absent.
+
+For ordinary v1 evidence, that absence blocks `TWO_HUMAN`. For ADR-050 v2, the
+owner instead reviews the exact exception/release digests, and all four records
+retain `two_human_status = NOT_PROVEN`; the sanctioned exception must never be
+reported as an independent review.
 
 Different profiles, permission sets, sessions or timestamps do not turn one
 person into an independent reviewer. No `APPROVED`, rollout-authorized or

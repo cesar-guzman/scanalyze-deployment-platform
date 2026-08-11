@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json",
+  "title": "GUG-215 deterministic single-operator broker package manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "authorization_mode",
+    "two_human_status",
+    "independent_approval_present",
+    "production",
+    "source_commit",
+    "archive_name",
+    "archive_format",
+    "archive_sha256",
+    "lambda_code_sha256",
+    "archive_size_bytes",
+    "handler",
+    "runtime",
+    "architecture",
+    "runtime_dependency_mode",
+    "broker_runtime_version_arn_digest",
+    "broker_version_binding_sha256",
+    "entries",
+    "deployment_authorized",
+    "production_status",
+    "manifest_digest"
+  ],
+  "properties": {
+    "artifact_type": {
+      "const": "scanalyze.platform_authority.change_set_retirement_package.v1"
+    },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-215" },
+    "authorization_mode": {
+      "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+    },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "production": { "const": false },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "archive_name": {
+      "const": "scanalyze-gug215-change-set-retirement-broker.zip"
+    },
+    "archive_format": { "const": "ZIP_STORED_FIXED_METADATA" },
+    "archive_sha256": { "$ref": "#/$defs/hex_digest" },
+    "lambda_code_sha256": { "$ref": "#/$defs/lambda_code_sha256" },
+    "archive_size_bytes": { "type": "integer", "minimum": 1 },
+    "handler": {
+      "const": "tooling.platform_authority_identity_context_pep_runtime.handler"
+    },
+    "runtime": { "const": "python3.12" },
+    "architecture": { "const": "x86_64" },
+    "runtime_dependency_mode": { "const": "AWS_MANAGED_RUNTIME_PINNED" },
+    "broker_runtime_version_arn_digest": { "$ref": "#/$defs/digest" },
+    "broker_version_binding_sha256": { "$ref": "#/$defs/digest" },
+    "entries": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": {
+            "enum": [
+              "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json",
+              "tooling/__init__.py",
+              "tooling/platform_authority_change_set_retirement_broker.py",
+              "tooling/platform_authority_identity_context_compatibility.py",
+              "tooling/platform_authority_identity_context_pep.py",
+              "tooling/platform_authority_identity_context_pep_runtime.py",
+              "tooling/platform_authority_single_operator_retirement_exception.py"
+            ]
+          },
+          "sha256": { "$ref": "#/$defs/hex_digest" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "allOf": [
+        {
+          "contains": { "properties": { "path": { "const": "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/__init__.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/platform_authority_change_set_retirement_broker.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/platform_authority_identity_context_compatibility.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/platform_authority_identity_context_pep.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/platform_authority_identity_context_pep_runtime.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "properties": { "path": { "const": "tooling/platform_authority_single_operator_retirement_exception.py" } }, "required": ["path"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "deployment_authorized": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "manifest_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "hex_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "lambda_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    }
+  }
+}

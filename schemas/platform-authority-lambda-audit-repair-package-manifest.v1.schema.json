@@ -44,8 +44,8 @@
     },
     "entries": {
       "type": "array",
-      "minItems": 25,
-      "maxItems": 25,
+      "minItems": 27,
+      "maxItems": 27,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -69,6 +69,7 @@
               "policies/iam/platform-authority-lambda-audit-repair-phase-b-proof-role.json",
               "policies/iam/platform-authority-lambda-invocation-inventory-role.json",
               "tooling/__init__.py",
+              "tooling/platform_authority_change_set_retirement_package.py",
               "tooling/platform_authority_lambda_audit_repair_broker.py",
               "tooling/platform_authority_lambda_audit_repair_broker_runtime.py",
               "tooling/platform_authority_lambda_audit_repair_iam_verifier.py",
@@ -78,7 +79,8 @@
               "tooling/platform_authority_lambda_audit_repair_phase_b_topology.py",
               "tooling/platform_authority_identity_context_compatibility.py",
               "tooling/platform_authority_lambda_invocation_authority.py",
-              "tooling/platform_authority_lambda_invocation_materializer.py"
+              "tooling/platform_authority_lambda_invocation_materializer.py",
+              "tooling/platform_authority_single_operator_retirement_exception.py"
             ]
           },
           "sha256": { "$ref": "#/$defs/digest" },
@@ -101,6 +103,7 @@
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-audit-repair-phase-b-proof-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "policies/iam/platform-authority-lambda-invocation-inventory-role.json" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/__init__.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_change_set_retirement_package.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_broker_runtime.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_iam_verifier.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
@@ -110,7 +113,8 @@
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_audit_repair_phase_b_topology.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_identity_context_compatibility.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
         { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_authority.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
-        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_materializer.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 }
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_lambda_invocation_materializer.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "path": { "const": "tooling/platform_authority_single_operator_retirement_exception.py" } }, "required": ["path"] }, "minContains": 1, "maxContains": 1 }
       ]
     },
     "production_status": { "const": "NO-GO" }

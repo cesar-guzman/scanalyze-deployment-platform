@@ -4,7 +4,7 @@
 - **Date:** 2026-07-19
 - **Work package:** GUG-215
 - **Amends:** ADR-034 and ADR-040
-- **Amended by:** ADR-042 / GUG-216 and ADR-043 / GUG-217
+- **Amended by:** ADR-042 / GUG-216, ADR-043 / GUG-217 and ADR-050
 - **Production:** **NO-GO**
 
 ## Context
@@ -14,8 +14,10 @@
 > ordinary exact Function URL invoker, then proves the immutable UserId inside
 > the broker through a deny-all STS identity-enhanced role. Where the transport,
 > request or invoker-role text below conflicts with ADR-043, ADR-043 controls.
-> The target, broker-only mutation, ledger CAS, one-attempt and independent-human
-> requirements in this ADR remain unchanged.
+> The target, broker-only mutation, ledger CAS and one-attempt requirements in
+> this ADR remain unchanged. Independent-human requirements remain unchanged
+> for `TWO_HUMAN`; ADR-050 defines the only bounded
+> `SINGLE_OPERATOR_NONPROD_EXCEPTION` amendment.
 
 The dedicated platform-authority account contains one retained, unexecuted
 CloudFormation Change Set on the canonical empty bootstrap shell. Sanitized
@@ -39,7 +41,7 @@ process-local PEP, and local files are not durable authority.
 
 ### 1. One version-pinned Lambda is the only mutation authority
 
-GUG-215 uses the stack defined by
+In `TWO_HUMAN`, GUG-215 uses the stack defined by
 `bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml`. It creates
 one dedicated DynamoDB ledger, one Lambda function, one immutable published
 version, three aliases and three IAM roles:
@@ -54,6 +56,10 @@ version, three aliases and three IAM roles:
 - `ScanalyzeGug215BrokerExecution` is the sole CloudFormation and DynamoDB
   mutation principal.
 
+ADR-050 preserves that broker boundary but selects the mutually exclusive
+`single-classify`, `single-retire` and `single-reconcile` alias family. The
+request cannot select the mode or cross between alias families.
+
 The Lambda alias, not a request field, chooses the operation. The invocation
 payload must be exactly `{}`. Customer IDs, deployment IDs, Change Set names,
 ARNs, ledger keys, identities and requested actions are rejected as payload
@@ -65,9 +71,9 @@ adapter; it validates the exact invoker role and synchronously invokes one
 pinned alias. The normal bootstrap CLI likewise has no reachable direct delete
 adapter; GUG-215 remains the sole retirement authority.
 
-### 2. Identity separation uses immutable Identity Store users
+### 2. Normal identity separation uses immutable Identity Store users
 
-The broker deployment binds two explicit, distinct IAM Identity Center
+In `TWO_HUMAN`, the broker deployment binds two explicit, distinct IAM Identity Center
 `IdentityStore UserId` values:
 
 - one classifier user;
@@ -87,8 +93,8 @@ can invoke only `classify`. The approver invoker can invoke only `retire` and
 `reconcile`. Both explicitly deny direct CloudFormation retirement effects and
 DynamoDB writes.
 
-Repository code does not prove that two live users or assignments exist. Live
-retirement remains blocked until two genuinely independent operators, their
+Repository code does not prove that two live users or assignments exist. Normal
+live retirement remains blocked until two genuinely independent operators, their
 immutable UserIds, permission-set assignments, provisioning and
 identity-enhanced sessions are reviewed and read back.
 
@@ -108,17 +114,22 @@ the exact action or a separate ADR establishes an equally strong compatible
 PEP.
 
 GUG-216 also records that César is the only current human operator. Repository
-implementation and read-only inventory do not satisfy this ADR's independent
-approval requirement. Live use still requires two different actual people and
-two different immutable Identity Store UserIds; placeholders, two profiles for
-one person and the founder bootstrap exception are not accepted.
+implementation and read-only inventory do not satisfy the normal mode's
+independent approval requirement. `TWO_HUMAN` still requires two different
+actual people and two different immutable Identity Store UserIds; placeholders
+and two profiles for one person are not accepted. ADR-050 separately permits
+the same one immutable user only when the exact owner-reviewed exception and
+its `authorization_digest` are bound, with `two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`.
 
 ### 3. Broker code and effective authority are deployment-bound
 
 The Lambda uses a versioned S3 object, a required code-signing configuration,
-an expected code SHA-256 and one published version. All three aliases point to
-that version; `$LATEST` is never accepted. Reserved concurrency is exactly one
-to reduce concurrent mutation races, and SDK mutation retries are disabled.
+an expected code SHA-256 and one published version. Runtime management is
+explicitly pinned with `RuntimeManagementConfig.UpdateRuntimeOn = Manual` and
+the exact reviewed `RuntimeVersionArn`. All three mode-specific aliases point
+to that version; `$LATEST` is never accepted. Reserved concurrency is exactly
+one to reduce concurrent mutation races, and SDK mutation retries are disabled.
 
 Before every operation, the broker reads back and validates:
 
@@ -164,7 +175,7 @@ human roles cannot override that resource-policy deny.
 Broker item permissions require the exact `dynamodb:LeadingKeys` value and
 `Null=false`, preventing absent multivalued context from satisfying the allow.
 
-The state machine is monotonic:
+The normal `TWO_HUMAN` state machine is monotonic:
 
 ```text
 CLASSIFIED v1, attempts=0
@@ -184,6 +195,20 @@ CLASSIFIED v1, attempts=0
   absence and preserved-shell proof.
 - An ambiguous delete leaves the ledger `ATTEMPTED`; no path resets it or
   permits a second delete.
+
+The ADR-050 exception uses the exclusive sequence
+`single-classify -> single-retire -> single-reconcile` and ledger v3:
+
+```text
+CLASSIFIED v1, attempts=0
+  -> EXCEPTION_ACCEPTED v2, attempts=0
+  -> ATTEMPTED v3, attempts=1
+  -> RETIRED_RECONCILED v4, attempts=1
+```
+
+Its same-user proofs bind the owner-reviewed exact exception
+`authorization_digest`; every receipt records `two_human_status = NOT_PROVEN`
+and `independent_approval_present = false`.
 
 The ledger binds target digests, both Identity Store user digests, assignment
 and invoker-policy digests, broker code and policy digests, state, version and
@@ -235,17 +260,19 @@ the ledger stores only its digest and IAM retains the exact name condition.
 The broker issues at most one `DeleteChangeSet` request with SDK retries
 disabled. A timeout, transport loss, ambiguous AWS response or process failure
 after `ATTEMPTED` returns `RECONCILIATION_REQUIRED` and does not retry.
-Re-invoking `retire` while the ledger is `ATTEMPTED` also returns reconciliation
-required without another delete.
+Re-invoking the active mode's retirement alias (`retire` in `TWO_HUMAN` or
+`single-retire` in ADR-050) while the ledger is `ATTEMPTED` also returns
+reconciliation required without another delete.
 
 The reviewed CLI invokes synchronously. Asynchronous direct invocation is an
 unsupported foreign-authority path that blocks live execution; the durable
 attempt claim still prevents a redelivery from obtaining a second delete.
 
-The `reconcile` alias can never call delete. It checks the original full
-`StackId` digest against the exact durable item and uses that full ID for every
-resource and Change Set page. Exact target absence, zero active Change Sets
-and the unchanged empty shell are checked again immediately before the
+The active mode's reconciliation alias (`reconcile` in `TWO_HUMAN` or
+`single-reconcile` in ADR-050) can never call delete. It checks the original
+full `StackId` digest against the exact durable item and uses that full ID for
+every resource and Change Set page. Exact target absence, zero active Change
+Sets and the unchanged empty shell are checked again immediately before the
 terminal CAS.
 Target presence, a foreign object or ambiguity leaves the ledger at
 `ATTEMPTED`.
@@ -281,8 +308,8 @@ readback and durable ledger are the authority boundary.
 
 - No human principal can directly delete the retained object or mutate the
   GUG-215 ledger.
-- Independent approval is bound to two different immutable Identity Store
-  users through identity-enhanced context.
+- In `TWO_HUMAN`, independent approval is bound to two different immutable
+  Identity Store users through identity-enhanced context.
 - A resource-policy deny protects the ledger even if a human identity later
   acquires an accidental IAM allow.
 - One immutable code version owns classification, approval, attempt,
@@ -293,8 +320,9 @@ readback and durable ledger are the authority boundary.
 - The GUG-216 adapter closes the repository modeling gap but intentionally
   stops before OAuth or STS while the reviewed managed policy excludes the
   exact Lambda action.
-- A sole current operator does not weaken the two-person classifier/approver
-  invariant.
+- A sole current operator does not weaken `TWO_HUMAN`; ADR-050 instead exposes
+  a separate non-production alias family and records that two-human proof is
+  not established.
 - Account-level PAB and role/session revocation remain separate recovery gates.
 
 ## Alternatives rejected
@@ -311,8 +339,9 @@ readback and durable ledger are the authority boundary.
   the immutable UserId boundary required by this ADR.
 - **Broaden IAM or add a Lambda resource policy:** an allow cannot override the
   STS-managed explicit deny and would add a bypass path.
-- **Let one operator use two profiles:** profile/session separation is not
-  independent human approval.
+- **Let one operator use two profiles in `TWO_HUMAN`:** profile/session
+  separation is not independent human approval. ADR-050 relies on an explicit
+  owner-reviewed exception, not on a false separation claim.
 - **Invoke `$LATEST` or an unqualified function:** mutable code cannot anchor a
   one-shot control.
 - **Use IAM alone for the ledger:** a resource-policy deny is required to
@@ -330,9 +359,9 @@ effect. A deployed ledger is retained; repository rollback does not delete or
 reset it.
 
 After a one-shot attempt, rollback is not object recreation. Revoke the human
-assignments/sessions and perform only broker `reconcile` invocations against
-the original deployment binding. A replacement Change Set requires a new
-reviewed bootstrap Plan.
+assignments/sessions and perform only the original deployment mode's
+reconciliation invocation: `reconcile` for `TWO_HUMAN` or `single-reconcile`
+for ADR-050. A replacement Change Set requires a new reviewed bootstrap Plan.
 
 ## Evidence classification
 
@@ -344,7 +373,8 @@ reviewed bootstrap Plan.
 | Live inventory | Sanitized read-only observation only |
 | Live broker deployment | **Not performed** |
 | Live broker invocation | **Not performed** |
-| Live retirement | **Blocked** pending reviewed deployment, two independent human operators with different immutable Identity Store UserIds, assignments, provisioning, downstream action compatibility, account-wide invoke inventory and exact readback |
+| Normal live retirement | **Blocked** pending reviewed deployment, two independent human operators with different immutable Identity Store UserIds, assignments, provisioning, downstream action compatibility, account-wide invoke inventory and exact readback |
+| ADR-050 exception retirement | **Blocked** pending exact owner-reviewed `authorization_digest`, separately authorized non-production deployment/invocation, Manual runtime pin, account-wide invoke inventory and exact readback; `two_human_status = NOT_PROVEN` |
 | Identity-enhanced credential adapter | Offline adapter and compatibility guard implemented by ADR-042; no live entrypoint and normal SSO profiles remain insufficient |
 | Identity-context downstream compatibility | **Blocked**; reviewed managed-policy `v12` excludes `lambda:InvokeFunction` |
 | Production | **NO-GO** |
@@ -367,5 +397,6 @@ and the
 for the compatible proof-only transport. It preserves the `v12` Lambda deny,
 uses exact `AWS_IAM` Function URLs for ordinary invocation, records human proof
 before effect and keeps the broker execution role as the AWS effect principal.
-It has not been deployed or invoked. Two independent humans remain mandatory;
-César alone may perform synthetic repository validation only.
+It has not been deployed or invoked. Two independent humans remain mandatory
+for `TWO_HUMAN`. ADR-050 is the only one-human non-production path; it preserves
+Production **NO-GO** and requires a fresh, exact owner-reviewed authorization.

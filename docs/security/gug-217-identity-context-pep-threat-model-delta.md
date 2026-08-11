@@ -11,6 +11,21 @@ The repository implementation did not provision or invoke any live resource,
 issue a token, create an identity-enhanced STS session or retire a Change Set.
 Production is **NO-GO**.
 
+## Authorization-mode boundary
+
+`TWO_HUMAN` retains two distinct people, the normal
+`classify -> retire -> reconcile` aliases and independent approval. The only
+one-person path is ADR-050 `SINGLE_OPERATOR_NONPROD_EXCEPTION`, using the exact
+`single-classify -> single-retire -> single-reconcile` sequence. Its owner
+reviews and pins the exact exception `authorization_digest`; every binding and
+receipt records `two_human_status = NOT_PROVEN` and
+`independent_approval_present = false`.
+
+Both modes fail closed unless
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn` are read back. The exception never authorizes production,
+`ExecuteChangeSet` or `DeleteStack`.
+
 ## Assets
 
 - immutable classifier and approver Identity Store UserIds;
@@ -26,9 +41,11 @@ Production is **NO-GO**.
 
 ### Human governance boundary
 
-Two different actual humans and immutable UserIds are required. César is the
-only current human and cannot provide live independent approval. Profiles,
-roles, terminals and time separation are not people.
+Two different actual humans and immutable UserIds are required in `TWO_HUMAN`.
+César is the only current human and cannot provide normal independent approval.
+Profiles, roles, terminals and time separation are not people. ADR-050 accepts
+the same exact UserId only with the owner-reviewed digest and never calls it
+independent.
 
 ### Ordinary Function URL boundary
 
@@ -89,10 +106,10 @@ separate; native downstream `onBehalfOf` is not claimed.
 | Multiple or foreign context providers are supplied | Code constructs exactly one Identity Center `ProvidedContexts` entry | STS proof denied/test regression |
 | Broker assumes foreign/useful or overlong role | Exact proof role ARN; fresh pre/post-`AssumeRole` expiry window; maximum 30-second clock skew; proof policy deny-all | Deny and clear response |
 | Proof credentials are reused | Broker never instantiates a downstream client from them and clears credential map best-effort | Any use is a P0 regression |
-| One person supplies both duties | Binding rejects equal UserIds and governance requires two different humans | `INDEPENDENT_OPERATOR_REQUIRED`; live blocked |
+| One person supplies both duties | Normal binding rejects equal UserIds; ADR-050 requires equality, the owner-reviewed exact exception digest and exclusive `single-*` aliases | `INDEPENDENT_OPERATOR_REQUIRED` in normal mode; exception mismatch blocks and valid exception remains `NOT_PROVEN` |
 | Same code/session is treated as approval for multiple duties | Alias maps to one exact proof role/UserId; receipt binds role kind and alias | Digest mismatch/CAS denial |
-| Proof exists only in transient response | Canonical proof digest enters `CLASSIFIED`, `APPROVED` or reconciliation CAS state | No protected effect without durable proof |
-| Delete occurs before approval is durable | State machine requires approver proof in `APPROVED`, then one `ATTEMPTED` claim | CAS failure; no delete |
+| Proof exists only in transient response | Canonical proof digest enters `CLASSIFIED`, mode-specific `APPROVED` or `EXCEPTION_ACCEPTED`, and reconciliation CAS state | No protected effect without durable proof |
+| Delete occurs before authorization is durable | `TWO_HUMAN` requires approver proof in `APPROVED`; ADR-050 requires the same-user exception proof in `EXCEPTION_ACCEPTED`; both require one `ATTEMPTED` claim before effect | CAS failure; no delete |
 | Ambiguous delete is retried | SDK mutation retries disabled; `ATTEMPTED` is terminal for delete and allows reconciliation only | `RECONCILIATION_REQUIRED` |
 | Human proof is misreported as CloudFormation caller | Ledger separates proof digests from broker effect principal and fixes `native_on_behalf_of=false` | Evidence rejected as overclaim |
 | Function URL data event is assumed automatically audited | Runbook requires explicit audit design/readback and does not use default logging as proof | Missing evidence blocks live use |
@@ -116,12 +133,14 @@ ordinary exact human session
 The split prevents the identity-enhanced session from reaching Lambda and
 therefore preserves the reviewed `v12` explicit deny. The proof role cannot
 perform the effect. The ordinary invoker cannot manufacture proof. The broker
-cannot perform the protected retirement effect until the independent approver
-proof is durable and the one attempt has been claimed.
+cannot perform the protected retirement effect until the normal independent
+approver proof, or the ADR-050 owner-reviewed same-user exception proof, is
+durable and the one attempt has been claimed.
 
-The current attack path stops at the human-governance boundary because only
-one actual operator exists. That safe denial applies even if all repository
-tests pass.
+The current normal attack path stops at the human-governance boundary because
+only one actual operator exists. ADR-050 opens only its bounded non-production
+path after the exact owner checkpoint; passing repository tests alone opens
+neither mode.
 
 ## Residual risks
 
@@ -171,7 +190,8 @@ Function URLs, CloudTrail, ledger documents, Change Set IDs or AWS responses.
 | Live identity/runtime deployment | **Not performed** |
 | Live OAuth / STS proof | **Not performed** |
 | Live broker effect | **Blocked** |
-| Two-person approval | **Blocked**; only one current human |
+| Two-person approval (`TWO_HUMAN`) | **Blocked**; only one current human |
+| ADR-050 exception | Repository-only; exact owner-reviewed digest required and `two_human_status = NOT_PROVEN` |
 | Production | **NO-GO** |
 
 ## Authoritative references

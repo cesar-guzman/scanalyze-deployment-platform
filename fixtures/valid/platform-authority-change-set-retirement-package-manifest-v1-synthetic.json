@@ -1,0 +1,62 @@
+{
+  "_test_metadata": { "synthetic": true, "contains_live_data": false },
+  "artifact_type": "scanalyze.platform_authority.change_set_retirement_package.v1",
+  "schema_version": 1,
+  "work_package": "GUG-215",
+  "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+  "two_human_status": "NOT_PROVEN",
+  "independent_approval_present": false,
+  "production": false,
+  "source_commit": "1111111111111111111111111111111111111111",
+  "archive_name": "scanalyze-gug215-change-set-retirement-broker.zip",
+  "archive_format": "ZIP_STORED_FIXED_METADATA",
+  "archive_sha256": "1f1838982ffeb7823f1441a8351ed38a6cd16951ac75c32ec0cd40777d8f7767",
+  "lambda_code_sha256": "Hxg4mC/+t4I/FEGoNR7TimzRaVGsdcMuwM1Ad32Pd2c=",
+  "archive_size_bytes": 154339,
+  "handler": "tooling.platform_authority_identity_context_pep_runtime.handler",
+  "runtime": "python3.12",
+  "architecture": "x86_64",
+  "runtime_dependency_mode": "AWS_MANAGED_RUNTIME_PINNED",
+  "broker_runtime_version_arn_digest": "sha256:b73e8d9d3e735625e2d3f574f4af6026b385a0beaf96cd1a9969693b9302c099",
+  "broker_version_binding_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "entries": [
+    {
+      "path": "policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json",
+      "sha256": "36e4db6a5362ef541fa23b9666074fbdec5df6cc5f20fb398a441bb75165d8d2",
+      "size_bytes": 4429
+    },
+    {
+      "path": "tooling/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "path": "tooling/platform_authority_change_set_retirement_broker.py",
+      "sha256": "7f9314f73c737e3d7c60fdde54f2086c6b8a964a320cc0d8e44035b6c06513ab",
+      "size_bytes": 92786
+    },
+    {
+      "path": "tooling/platform_authority_identity_context_compatibility.py",
+      "sha256": "e0fae697e38a0b39a6b2b4eb185f357a554a9dd135e4685966382afc3c691311",
+      "size_bytes": 7630
+    },
+    {
+      "path": "tooling/platform_authority_identity_context_pep.py",
+      "sha256": "10e5661bf13977baa45eb76dcb2c2a08eccbd8b974237caeb1974fc5e52f9e5c",
+      "size_bytes": 32077
+    },
+    {
+      "path": "tooling/platform_authority_identity_context_pep_runtime.py",
+      "sha256": "77756da237b33263fe4f04f14b2e14415bcc98efd161f76894d7b5d5ad39c50e",
+      "size_bytes": 3922
+    },
+    {
+      "path": "tooling/platform_authority_single_operator_retirement_exception.py",
+      "sha256": "4222ea0f8a1ecad0ff4714be8918e0bd68583290de1b6f4e889bfd766f23cde1",
+      "size_bytes": 12181
+    }
+  ],
+  "deployment_authorized": false,
+  "production_status": "NO-GO",
+  "manifest_digest": "sha256:7574ff96fd79f190b1f796ff2f0d053974ce2650f9a2980ee3131b49bfc51c8e"
+}

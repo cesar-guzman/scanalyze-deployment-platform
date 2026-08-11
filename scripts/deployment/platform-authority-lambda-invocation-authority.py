@@ -25,6 +25,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tooling.platform_authority_lambda_invocation_authority import (  # noqa: E402
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
+    AUTHORIZATION_MODE_TWO_HUMAN,
     EVIDENCE_SOURCE_AWS_READ_ONLY,
     EVIDENCE_SOURCE_OFFLINE_UNVERIFIED,
     RECEIPT_REVIEW_REQUIRED,
@@ -33,6 +35,10 @@ from tooling.platform_authority_lambda_invocation_authority import (  # noqa: E4
     TargetBinding,
     analyze_authority_inventory,
     validate_reviewed_allowlist,
+)
+from tooling.platform_authority_single_operator_retirement_exception import (  # noqa: E402
+    SingleOperatorExceptionError,
+    validate_single_operator_retirement_exception,
 )
 from tooling.platform_authority_lambda_invocation_materializer import (  # noqa: E402
     LambdaAuthorityMaterializationError,
@@ -140,12 +146,64 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _single_operator_exception(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    cached = getattr(args, "_single_operator_exception_value", None)
+    if cached is not None:
+        return cached
+    path = getattr(args, "single_operator_exception", None)
+    mode = getattr(args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN)
+    if mode == AUTHORIZATION_MODE_TWO_HUMAN:
+        if path is not None:
+            raise AuthorityInventoryError("SINGLE_OPERATOR_EXCEPTION_FORBIDDEN")
+        return None
+    if mode != AUTHORIZATION_MODE_SINGLE_OPERATOR or path is None:
+        raise AuthorityInventoryError("SINGLE_OPERATOR_EXCEPTION_REQUIRED")
+    value = _read_private_object(path)
+    try:
+        validate_single_operator_retirement_exception(value)
+    except SingleOperatorExceptionError as exc:
+        raise AuthorityInventoryError("SINGLE_OPERATOR_EXCEPTION_INVALID") from exc
+    args._single_operator_exception_value = value
+    return value
+
+
+def _broker_artifact_manifest(
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    cached = getattr(args, "_broker_artifact_manifest_value", None)
+    if cached is not None:
+        return cached
+    path = getattr(args, "broker_artifact_manifest", None)
+    expected = getattr(args, "expected_broker_artifact_manifest_digest", None)
+    mode = getattr(args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN)
+    if mode == AUTHORIZATION_MODE_TWO_HUMAN:
+        if path is not None or expected is not None:
+            raise AuthorityInventoryError("BROKER_ARTIFACT_MANIFEST_FORBIDDEN")
+        return None
+    if mode != AUTHORIZATION_MODE_SINGLE_OPERATOR or path is None or expected is None:
+        raise AuthorityInventoryError("BROKER_ARTIFACT_MANIFEST_REQUIRED")
+    value = _read_private_object(path)
+    args._broker_artifact_manifest_value = value
+    return value
+
+
 def _binding(args: argparse.Namespace) -> TargetBinding:
+    exception = _single_operator_exception(args)
     return TargetBinding(
         authority_account_id=args.authority_account_id,
         region=args.region,
         function_name=args.function_name,
         partition=args.partition,
+        authorization_mode=getattr(
+            args, "authorization_mode", AUTHORIZATION_MODE_TWO_HUMAN
+        ),
+        single_operator_exception_digest=(
+            str(exception["authorization_digest"])
+            if exception is not None
+            else None
+        ),
     )
 
 
@@ -186,14 +244,17 @@ def _aws_snapshot(args: argparse.Namespace) -> dict[str, Any]:
 
 def _run(args: argparse.Namespace) -> int:
     if args.command == "aws-readonly":
-        _require_distinct_private_inputs(
-            [
-                args.allowlist,
-                args.collector_contract,
-                args.release_manifest,
-                args.candidate_snapshot,
-            ]
-        )
+        private_inputs = [
+            args.allowlist,
+            args.collector_contract,
+            args.release_manifest,
+            args.candidate_snapshot,
+        ]
+        if args.single_operator_exception is not None:
+            private_inputs.append(args.single_operator_exception)
+        if args.broker_artifact_manifest is not None:
+            private_inputs.append(args.broker_artifact_manifest)
+        _require_distinct_private_inputs(private_inputs)
         allowlist = _read_private_object(args.allowlist)
         collector_contract = _read_private_object(args.collector_contract)
         release = _read_private_object(args.release_manifest)
@@ -205,6 +266,11 @@ def _run(args: argparse.Namespace) -> int:
             binding=_binding(args),
             expected_release_digest=args.expected_release_manifest_digest,
             evaluation_at=_timestamp(datetime.now(tz=UTC).replace(microsecond=0)),
+            single_operator_exception=_single_operator_exception(args),
+            broker_artifact_manifest=_broker_artifact_manifest(args),
+            expected_broker_artifact_manifest_digest=(
+                args.expected_broker_artifact_manifest_digest
+            ),
         )
     else:
         allowlist = _read_object(args.allowlist)
@@ -231,6 +297,11 @@ def _run(args: argparse.Namespace) -> int:
             binding=_binding(args),
             expected_release_digest=args.expected_release_manifest_digest,
             evaluation_at=_timestamp(decision),
+            single_operator_exception=_single_operator_exception(args),
+            broker_artifact_manifest=_broker_artifact_manifest(args),
+            expected_broker_artifact_manifest_digest=(
+                args.expected_broker_artifact_manifest_digest
+            ),
         )
     inventory, receipt = analyze_authority_inventory(
         allowlist=allowlist,
@@ -259,6 +330,22 @@ def _common(parser: argparse.ArgumentParser) -> None:
         "--partition",
         choices=("aws", "aws-us-gov", "aws-cn"),
         default="aws",
+    )
+    parser.add_argument(
+        "--authorization-mode",
+        choices=(
+            AUTHORIZATION_MODE_TWO_HUMAN,
+            AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        ),
+        default=AUTHORIZATION_MODE_TWO_HUMAN,
+    )
+    parser.add_argument(
+        "--single-operator-exception",
+        type=Path,
+        help=(
+            "Private owner-only exception JSON; required only for "
+            "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+        ),
     )
 
 
@@ -298,6 +385,18 @@ def _parser() -> argparse.ArgumentParser:
     aws_readonly.add_argument("--collector-contract", type=Path, required=True)
     aws_readonly.add_argument("--release-manifest", type=Path, required=True)
     aws_readonly.add_argument("--candidate-snapshot", type=Path, required=True)
+    aws_readonly.add_argument(
+        "--broker-artifact-manifest",
+        type=Path,
+        help=(
+            "Private deterministic package manifest; required only for "
+            "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+        ),
+    )
+    aws_readonly.add_argument(
+        "--expected-broker-artifact-manifest-digest",
+        help="Owner-reviewed out-of-band exact package manifest digest",
+    )
     aws_readonly.add_argument(
         "--expected-release-manifest-digest",
         required=True,

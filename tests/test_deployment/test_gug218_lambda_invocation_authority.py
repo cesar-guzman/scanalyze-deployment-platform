@@ -13,6 +13,7 @@ from urllib.parse import quote
 import pytest
 
 from tooling.platform_authority_lambda_invocation_authority import (
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
     EXPECTED_AUTHORITY_EDGE_COUNT,
     EXPECTED_FORBIDDEN_AUTHORITY_CLASSES,
     EVIDENCE_SOURCE_AWS_READ_ONLY,
@@ -104,6 +105,20 @@ def _binding() -> TargetBinding:
     )
 
 
+SINGLE_OPERATOR_EXCEPTION_DIGEST = "sha256:" + "d" * 64
+SINGLE_OPERATOR_OWNER_DIGEST = "sha256:" + "e" * 64
+
+
+def _single_binding() -> TargetBinding:
+    return TargetBinding(
+        authority_account_id=ACCOUNT,
+        region=REGION,
+        function_name=FUNCTION,
+        authorization_mode=AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        single_operator_exception_digest=SINGLE_OPERATOR_EXCEPTION_DIGEST,
+    )
+
+
 def _condition(action: str) -> dict[str, Any]:
     if action == "lambda:InvokeFunctionUrl":
         return {"StringEquals": {"lambda:FunctionUrlAuthType": "AWS_IAM"}}
@@ -111,7 +126,13 @@ def _condition(action: str) -> dict[str, Any]:
 
 
 def _resource_policy(role: str, alias: str) -> dict[str, Any]:
-    resource = _binding().alias_arn(alias)
+    return _resource_policy_for_binding(_binding(), role, alias)
+
+
+def _resource_policy_for_binding(
+    binding: TargetBinding, role: str, alias: str
+) -> dict[str, Any]:
+    resource = binding.alias_arn(alias)
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -136,8 +157,14 @@ def _resource_policy(role: str, alias: str) -> dict[str, Any]:
 
 
 def _identity_policy(role: str, aliases: list[str]) -> dict[str, Any]:
+    return _identity_policy_for_binding(_binding(), role, aliases)
+
+
+def _identity_policy_for_binding(
+    binding: TargetBinding, role: str, aliases: list[str]
+) -> dict[str, Any]:
     del role
-    resources = [_binding().alias_arn(alias) for alias in aliases]
+    resources = [binding.alias_arn(alias) for alias in aliases]
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -243,6 +270,86 @@ def _expected_edges() -> list[dict[str, Any]]:
     return edges
 
 
+def _expected_single_operator_edges() -> list[dict[str, Any]]:
+    binding = _single_binding()
+    classifier_document = _identity_policy_for_binding(
+        binding, CLASSIFIER_ROLE, ["single-classify"]
+    )
+    retirement_document = _identity_policy_for_binding(
+        binding,
+        APPROVER_ROLE,
+        ["single-retire", "single-reconcile"],
+    )
+    edges: list[dict[str, Any]] = []
+    bindings = (
+        (
+            "single_operator_classifier",
+            CLASSIFIER_ROLE,
+            CLASSIFIER_PERMISSION_SET,
+            ["single-classify"],
+            classifier_document,
+        ),
+        (
+            "single_operator_retirement",
+            APPROVER_ROLE,
+            APPROVER_PERMISSION_SET,
+            ["single-retire", "single-reconcile"],
+            retirement_document,
+        ),
+    )
+    for duty, role, permission_set, aliases, identity_document in bindings:
+        for alias in aliases:
+            resource = binding.alias_arn(alias)
+            target_scope = f"EXACT_{alias.upper().replace('-', '_')}_ALIAS"
+            resource_document = _resource_policy_for_binding(
+                binding, role, alias
+            )
+            for action, condition_class in (
+                ("lambda:InvokeFunctionUrl", "FUNCTION_URL_AUTH_TYPE_AWS_IAM"),
+                ("lambda:InvokeFunction", "INVOKED_VIA_FUNCTION_URL_TRUE"),
+            ):
+                for source_type, source_document in (
+                    ("LAMBDA_RESOURCE_POLICY", resource_document),
+                    ("IAM_ROLE_INLINE_POLICY", identity_document),
+                ):
+                    edges.append(
+                        {
+                            "authority_class": "INVOCATION",
+                            "source_type": source_type,
+                            "duty": duty,
+                            "target_scope": target_scope,
+                            "action": action,
+                            "condition_class": condition_class,
+                            "principal_digest": digest_text(role),
+                            "resource_digest": digest_text(resource),
+                            "source_document_digest": canonical_digest(
+                                source_document
+                            ),
+                        }
+                    )
+        edges.append(
+            {
+                "authority_class": "TRUST",
+                "source_type": "IAM_ROLE_TRUST_POLICY",
+                "duty": duty,
+                "target_scope": (
+                    "CLASSIFIER_INVOKER_ROLE"
+                    if duty == "single_operator_classifier"
+                    else "APPROVER_INVOKER_ROLE"
+                ),
+                "action": "sts:AssumeRole",
+                "condition_class": "EXACT_PERMISSION_SET_TRUST",
+                "principal_digest": digest_text(permission_set),
+                "resource_digest": digest_text(role),
+                "source_document_digest": canonical_digest(
+                    _trust(permission_set)
+                ),
+            }
+        )
+    assert len(edges) == EXPECTED_AUTHORITY_EDGE_COUNT
+    return edges
+
+
 def _allowlist() -> dict[str, Any]:
     value: dict[str, Any] = {
         "schema_version": "1",
@@ -266,6 +373,31 @@ def _allowlist() -> dict[str, Any]:
         "live_effect_authorized": False,
         "created_at": STARTED,
     }
+    value["allowlist_digest"] = canonical_digest(value)
+    return value
+
+
+def _single_operator_allowlist() -> dict[str, Any]:
+    value = _allowlist()
+    value.pop("allowlist_digest")
+    value.update(
+        {
+            "schema_version": "2",
+            "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+            "two_human_status": "NOT_PROVEN",
+            "independent_approval_present": False,
+            "single_operator_exception_digest": (
+                SINGLE_OPERATOR_EXCEPTION_DIGEST
+            ),
+            "owner_authorization_sha256": SINGLE_OPERATOR_OWNER_DIGEST,
+            "active_aliases": [
+                "single-classify",
+                "single-reconcile",
+                "single-retire",
+            ],
+            "expected_authority_edges": _expected_single_operator_edges(),
+        }
+    )
     value["allowlist_digest"] = canonical_digest(value)
     return value
 
@@ -489,6 +621,60 @@ def _snapshot() -> dict[str, Any]:
     return _seal_snapshot(value)
 
 
+def _single_operator_snapshot() -> dict[str, Any]:
+    value = _snapshot()
+    binding = _single_binding()
+    classifier_aliases = ["single-classify"]
+    retirement_aliases = ["single-retire", "single-reconcile"]
+    value["lambda"]["aliases"] = [
+        {
+            "Name": alias,
+            "FunctionVersion": "1",
+            "FunctionArn": binding.alias_arn(alias),
+        }
+        for alias in sorted(binding.active_aliases)
+    ]
+    value["lambda"]["function_urls"] = [
+        {
+            "FunctionArn": binding.alias_arn(alias),
+            "AuthType": "AWS_IAM",
+            "InvokeMode": "BUFFERED",
+        }
+        for alias in sorted(binding.active_aliases)
+    ]
+    value["lambda"]["resource_policies"] = [
+        *[
+            {
+                "resource_arn": binding.alias_arn(alias),
+                "policy_document": _resource_policy_for_binding(
+                    binding, CLASSIFIER_ROLE, alias
+                ),
+            }
+            for alias in classifier_aliases
+        ],
+        *[
+            {
+                "resource_arn": binding.alias_arn(alias),
+                "policy_document": _resource_policy_for_binding(
+                    binding, APPROVER_ROLE, alias
+                ),
+            }
+            for alias in retirement_aliases
+        ],
+    ]
+    value["iam"]["roles"][0]["RolePolicyList"][0]["PolicyDocument"] = (
+        _identity_policy_for_binding(
+            binding, CLASSIFIER_ROLE, classifier_aliases
+        )
+    )
+    value["iam"]["roles"][1]["RolePolicyList"][0]["PolicyDocument"] = (
+        _identity_policy_for_binding(
+            binding, APPROVER_ROLE, retirement_aliases
+        )
+    )
+    return _seal_snapshot(value)
+
+
 def _analyze(
     snapshot: dict[str, Any],
     *,
@@ -498,6 +684,20 @@ def _analyze(
         allowlist=_allowlist(),
         snapshot=snapshot,
         binding=_binding(),
+        evidence_source_mode=evidence_source_mode,
+        decision_at=DECISION,
+    )
+
+
+def _single_operator_analyze(
+    snapshot: dict[str, Any],
+    *,
+    evidence_source_mode: str = EVIDENCE_SOURCE_AWS_READ_ONLY,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    return analyze_authority_inventory(
+        allowlist=_single_operator_allowlist(),
+        snapshot=snapshot,
+        binding=_single_binding(),
         evidence_source_mode=evidence_source_mode,
         decision_at=DECISION,
     )
@@ -555,6 +755,79 @@ def test_exact_fourteen_edges_are_report_only_and_sanitized() -> None:
         "FunctionUrl",
     ):
         assert forbidden not in serialized
+
+
+def test_single_operator_v2_exact_graph_is_report_only_and_non_independent() -> None:
+    inventory, receipt = _single_operator_analyze(
+        _single_operator_snapshot()
+    )
+
+    assert inventory["schema_version"] == "2"
+    assert inventory["status"] == INVENTORY_REVIEW_SAFE
+    assert inventory["authorization_mode"] == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert inventory["two_human_status"] == "NOT_PROVEN"
+    assert inventory["independent_approval_present"] is False
+    assert inventory["expected_edge_count"] == EXPECTED_AUTHORITY_EDGE_COUNT
+    assert receipt["schema_version"] == "2"
+    assert receipt["status"] == RECEIPT_REVIEW_REQUIRED
+    assert receipt["two_human_status"] == "NOT_PROVEN"
+    assert receipt["independent_approval_present"] is False
+    assert receipt["next_required_control"] == (
+        "OWNER_REVIEW_AND_FRESH_SINGLE_OPERATOR_EXECUTION_AUTHORIZATION"
+    )
+    serialized = json.dumps(
+        {"inventory": inventory, "receipt": receipt}, sort_keys=True
+    )
+    assert "independent_approver" not in serialized
+    assert "EXACT_SINGLE_CLASSIFY_ALIAS" in serialized
+    assert "EXACT_SINGLE_RETIRE_ALIAS" in serialized
+    assert "EXACT_SINGLE_RECONCILE_ALIAS" in serialized
+
+
+def test_authority_modes_and_alias_families_cannot_cross() -> None:
+    with pytest.raises(AuthorityInventoryError, match="ALLOWLIST_MALFORMED"):
+        analyze_authority_inventory(
+            allowlist=_single_operator_allowlist(),
+            snapshot=_single_operator_snapshot(),
+            binding=_binding(),
+            evidence_source_mode=EVIDENCE_SOURCE_AWS_READ_ONLY,
+            decision_at=DECISION,
+        )
+    with pytest.raises(AuthorityInventoryError, match="ALLOWLIST_MALFORMED"):
+        analyze_authority_inventory(
+            allowlist=_allowlist(),
+            snapshot=_snapshot(),
+            binding=_single_binding(),
+            evidence_source_mode=EVIDENCE_SOURCE_AWS_READ_ONLY,
+            decision_at=DECISION,
+        )
+
+    mixed = _single_operator_snapshot()
+    mixed["lambda"]["aliases"][0] = {
+        "Name": "single-classify",
+        "FunctionVersion": "1",
+        "FunctionArn": _single_binding().alias_arn("single-classify"),
+    }
+    mixed["lambda"]["aliases"][1]["Name"] = "retire"
+    mixed["lambda"]["aliases"][1]["FunctionArn"] = (
+        f"{_single_binding().function_arn}:retire"
+    )
+    mixed = _seal_snapshot(mixed)
+    inventory, receipt = _single_operator_analyze(mixed)
+    assert inventory["status"] == INVENTORY_DRIFT
+    assert receipt["status"] == RECEIPT_DRIFT
+
+
+def test_single_operator_binding_requires_reviewed_exception_digest() -> None:
+    with pytest.raises(
+        AuthorityInventoryError, match="SINGLE_OPERATOR_BINDING_REQUIRED"
+    ):
+        TargetBinding(
+            authority_account_id=ACCOUNT,
+            region=REGION,
+            function_name=FUNCTION,
+            authorization_mode=AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        )
 
 
 def test_offline_snapshot_never_emits_the_authenticated_preflight_status() -> None:

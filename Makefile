@@ -24,6 +24,8 @@ help:
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
 	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-357 platform-authority controls offline"
+	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
+	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -444,6 +446,8 @@ platform-authority-bootstrap-check:
 		$(TESTS_DIR)/test_deployment/test_gug211_founder_bootstrap_pep.py \
 		$(TESTS_DIR)/test_deployment/test_gug214_authority_recovery_preflight.py \
 		$(TESTS_DIR)/test_deployment/test_gug215_retained_change_set_retirement.py \
+		$(TESTS_DIR)/test_deployment/test_gug215_change_set_retirement_package.py \
+		$(TESTS_DIR)/test_deployment/test_gug215_single_operator_retirement_exception.py \
 		$(TESTS_DIR)/test_deployment/test_gug216_identity_context_compatibility.py \
 		$(TESTS_DIR)/test_deployment/test_gug216_identity_enhanced_session.py \
 		$(TESTS_DIR)/test_deployment/test_gug217_identity_context_compatible_pep.py \
@@ -482,6 +486,9 @@ platform-authority-bootstrap-check:
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-bootstrap-artifact-package.py --help >/dev/null
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-bootstrap-signed-artifact.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-change-set-retirement-package.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-single-operator-retirement-exception.py --help >/dev/null
+	@$(PYTHON) scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/platform-authority-identity-enhanced-session.py compatibility-check
 	@$(PYTHON) scripts/deployment/platform-authority-identity-context-pep.py --help >/dev/null

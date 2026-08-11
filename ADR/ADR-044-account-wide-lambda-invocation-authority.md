@@ -4,6 +4,7 @@
 - **Date:** 2026-07-20
 - **Work package:** GUG-218
 - **Amends:** ADR-041 and ADR-043
+- **Amended by:** ADR-050 for `SINGLE_OPERATOR_NONPROD_EXCEPTION` evidence only
 - **Production:** **NO-GO**
 
 ## Context
@@ -23,8 +24,10 @@ function, version or alias. A safe rollout therefore needs a complete,
 account-wide graph instead of an allowlist-only spot check.
 
 The organization currently has one human operator. Repository work and
-read-only inventory do not satisfy GUG-215's independent classifier and
-approver requirement.
+read-only inventory do not satisfy the normal `TWO_HUMAN` classifier and
+independent-approver requirement. ADR-050 defines the only bounded
+`SINGLE_OPERATOR_NONPROD_EXCEPTION`; the inventory must preserve, not erase,
+that mode distinction.
 
 ## Decision
 
@@ -40,6 +43,21 @@ sanitized receipt containing only bounded status values, counts, reason codes
 and canonical digests. The receipt contains no account ID, ARN, user, email,
 policy document, Function URL, profile name or provider response.
 
+GUG-218 is mode-aware and backward compatible. Schema v1 represents
+`TWO_HUMAN` with `classify`, `retire` and `reconcile`. Schema v2 represents only
+`SINGLE_OPERATOR_NONPROD_EXCEPTION`, with exact active aliases
+`single-classify`, `single-retire` and `single-reconcile`, duties
+`single_operator_classifier` and `single_operator_retirement`, and scopes
+`EXACT_SINGLE_CLASSIFY_ALIAS`, `EXACT_SINGLE_RETIRE_ALIAS` and
+`EXACT_SINGLE_RECONCILE_ALIAS`. A mixed alias/duty/scope family is drift.
+
+Every v2 allowlist, release, inventory and receipt binds the
+`single_operator_exception_digest` and `owner_authorization_sha256`, and states
+`two_human_status = NOT_PROVEN` plus
+`independent_approval_present = false`. The owner reviews and pins the exact
+exception `authorization_digest` and release digest; this is not independent
+approval and does not relax v1 `TWO_HUMAN`.
+
 The collector, rather than an input file, owns the evidence provenance. An
 authenticated read-only capture binds collector-origin start/completion times,
 the canonical assumed-role digest, an opaque scan nonce and the digest of the
@@ -48,7 +66,8 @@ users, account root and a different assumed role are rejected. The analyzer
 recomputes and verifies those bindings within a five-minute decision window.
 Before any snapshot loader runs, the CLI also recomputes the complete allowlist
 digest and validates its account, Region, function, graph, artifact and
-collector bindings against an independently supplied reviewed digest. During
+collector bindings against a mode-appropriate reviewed digest: independently
+supplied for `TWO_HUMAN`, or owner-reviewed and exact for ADR-050. During
 AWS collection, STS identity is the sole call permitted before the collector
 principal comparison; a different same-account role cannot reach EC2, Lambda
 or IAM inventory APIs.
@@ -59,10 +78,13 @@ JSON cannot promote itself to authenticated AWS evidence.
 
 ### 2. The expected graph is exact and closed
 
-The reviewed GUG-217 topology permits exactly fourteen authority edges:
+Each authorization mode permits exactly fourteen authority edges. In v1 the
+qualified aliases are `classify`, `retire` and `reconcile`; in v2 they are
+`single-classify`, `single-retire` and `single-reconcile`:
 
-- six identity-policy edges: classifier to `classify`, approver to `retire`
-  and `reconcile`, each requiring the Function URL and function invoke actions;
+- six identity-policy edges: the mode-specific classifier duty to its classify
+  alias and retirement duty to its retire and reconcile aliases, each requiring
+  the Function URL and function invoke actions;
 - six qualified Lambda resource-policy edges for those same duties; and
 - two exact role-trust edges for the classifier and approver source roles.
 
@@ -123,6 +145,12 @@ must be empty, and that version, `$LATEST` and the base function must carry
 both exact reviewed digests. Alias-name or code-digest equality alone is not
 sufficient.
 
+GUG-218 binds the published configuration digest but does not itself read or
+certify Lambda runtime-management mode. Before either inventory can be used by
+a retirement gate, the separate GUG-215 runtime readback must prove
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn`.
+
 The allowlist, inventory and guard receipt form one evidence bundle. A safe
 status is valid only when the bundle validator proves their complete binding,
 canonical digests, terminal-state mapping and chronology against a trusted,
@@ -131,9 +159,11 @@ establish a rollout-candidate result. Future-dated evidence, expired evidence
 and a receipt detached from its inventory or reviewed allowlist fail closed.
 
 Before any snapshot load or AWS call, the CLI requires the expected allowlist
-digest. That value must come from an independently reviewed, immutable release
-or deployment contract. Supplying a digest from the same file or invocation is
-only self-consistency and does not establish provenance.
+digest. In `TWO_HUMAN`, that value must come from an independently reviewed,
+immutable release or deployment contract. In ADR-050 it must come from the
+owner-reviewed exact v2 release bound to the exception. Supplying a digest from
+the same file or invocation is only self-consistency and does not establish
+provenance in either mode.
 
 ### 5. Every output is report-only
 
@@ -160,9 +190,10 @@ The companion inventory also fixes `live_effect_authorized = false`.
 A missing target is `DRIFT_DETECTED` or `INVENTORY_INCOMPLETE` and blocks
 rollout. Drift produces an explicit `BLOCKED_DRIFT` receipt rather than being
 collapsed into incomplete evidence. A future live gate must require a fresh
-inventory, an independent repeat observation and a separately approved
-preventive authority package. Time-of-check/time-of-use is not solved by an
-inventory receipt.
+inventory and a separately approved preventive authority package. Normal mode
+also requires an independent repeat observation; ADR-050 requires a fresh
+owner-reviewed v2 bundle and still records two-human proof as `NOT_PROVEN`.
+Time-of-check/time-of-use is not solved by an inventory receipt.
 
 ### 6. Live and production controls remain separate packages
 
@@ -184,7 +215,8 @@ external principals.
 - Sanitized evidence can be shared without exposing live identifiers.
 - Administrators, external principals and post-capture drift remain explicit
   residual risks.
-- One current human still cannot perform the live two-person workflow.
+- One current human still cannot perform the normal two-person workflow; only
+  the exact ADR-050 non-production path can use the v2 evidence chain.
 
 ## Alternatives rejected
 
@@ -200,7 +232,8 @@ external principals.
 - **Assume an SCP or permissions boundary covers every path:** these controls
   have principal and policy-type limitations and require separate rollout.
 - **Treat one operator with multiple profiles as independent approval:** roles
-  and sessions are not different people.
+  and sessions are not different people. ADR-050 records owner review and
+  `NOT_PROVEN`, never a fabricated second approver.
 
 ## Rollback
 
@@ -222,7 +255,8 @@ must never be used to bypass a fresh inventory.
 | AWS read-only inventory | Not performed by repository implementation |
 | Preventive guardrail | **Not implemented** |
 | Live Lambda / token / STS use | **Not performed** |
-| Independent approver | **Blocked**; one current human |
+| Independent approver (`TWO_HUMAN`) | **Blocked**; one current human |
+| ADR-050 v2 evidence | Owner-reviewed exact digest required; `two_human_status = NOT_PROVEN` |
 | Production | **NO-GO** |
 
 ## Authoritative references

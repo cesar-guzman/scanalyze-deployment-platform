@@ -13,6 +13,7 @@ import yaml
 
 from tooling.platform_authority_identity_context_pep import (
     ALLOWED_ALIASES,
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
     COMPATIBLE_PROOF_ONLY_TRANSPORT,
     IDENTITY_CENTER_CONTEXT_PROVIDER_ARN,
     PROOF_REQUIRED_ACTION,
@@ -90,6 +91,16 @@ def _binding(**overrides: Any) -> IdentityContextPepBinding:
     }
     values.update(overrides)
     return IdentityContextPepBinding(**values)
+
+
+def _single_operator_binding(**overrides: Any) -> IdentityContextPepBinding:
+    values = {
+        "approver_user_id": CLASSIFIER_USER,
+        "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+        "single_operator_authorization_sha256": "sha256:" + "a" * 64,
+    }
+    values.update(overrides)
+    return _binding(**values)
 
 
 def _verifier(
@@ -230,6 +241,89 @@ def test_v12_supports_only_the_zero_authority_sts_proof_step() -> None:
 def test_binding_fails_closed(overrides: dict[str, Any], reason: str) -> None:
     with pytest.raises(ProofBoundaryError, match=reason):
         _binding(**overrides)
+
+
+def test_single_operator_binding_is_additive_and_never_claims_independence() -> None:
+    binding = _single_operator_binding()
+    document = binding.to_dict()
+
+    assert document["schema_version"] == "2"
+    assert document["authorization_mode"] == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert document["two_human_status"] == "NOT_PROVEN"
+    assert document["independent_approval_present"] is False
+    assert document["identity_separation"] == (
+        "SINGLE_OPERATOR_DECLARED_NOT_INDEPENDENT"
+    )
+    assert document["live_effect_authorized"] is False
+    assert document["classifier_user_id"] == document["approver_user_id"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    (
+        ({"approver_user_id": APPROVER_USER}, "SINGLE_OPERATOR_IDENTITY_REQUIRED"),
+        ({"single_operator_authorization_sha256": ""}, "CONFIGURATION_INCOMPLETE"),
+        ({"single_operator_authorization_sha256": "sha256:bad"}, "AUTHORIZATION_DIGEST_INVALID"),
+    ),
+)
+def test_single_operator_binding_rejects_incomplete_or_dishonest_scope(
+    overrides: dict[str, Any],
+    code: str,
+) -> None:
+    with pytest.raises(ProofBoundaryError, match=rf"^{code}$"):
+        _single_operator_binding(**overrides)
+
+
+def test_normal_and_single_operator_proof_aliases_cannot_cross() -> None:
+    oidc, sts = FakeOidc(), FakeSts()
+    with pytest.raises(ProofBoundaryError, match="ALIAS_NOT_AUTHORIZED"):
+        _verifier(oidc, sts).verify(
+            alias="single-classify",
+            event=_event(),
+            binding=_binding(),
+            now=NOW,
+        )
+    assert oidc.calls == []
+    assert sts.calls == []
+
+    with pytest.raises(ProofBoundaryError, match="ALIAS_NOT_AUTHORIZED"):
+        _verifier(oidc, sts).verify(
+            alias="classify",
+            event=_event(),
+            binding=_single_operator_binding(),
+            now=NOW,
+        )
+    assert oidc.calls == []
+    assert sts.calls == []
+
+
+@pytest.mark.parametrize(
+    ("alias", "role_name", "role_kind"),
+    (
+        ("single-classify", "ScanalyzeGug217ClassifierProof", "single_operator_classifier"),
+        ("single-retire", "ScanalyzeGug217ApproverProof", "single_operator_reviewer"),
+        ("single-reconcile", "ScanalyzeGug217ApproverProof", "single_operator_reconciler"),
+    ),
+)
+def test_single_operator_aliases_produce_explicit_non_independent_proof(
+    alias: str,
+    role_name: str,
+    role_kind: str,
+) -> None:
+    oidc, sts = FakeOidc(), FakeSts(role_name)
+    receipt = _verifier(oidc, sts).verify(
+        alias=alias,
+        event=_event(),
+        binding=_single_operator_binding(),
+        now=NOW,
+    )
+    document = receipt.to_dict()
+    assert receipt.role_kind == role_kind
+    assert document["schema_version"] == "2"
+    assert document["authorization_mode"] == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert document["two_human_status"] == "NOT_PROVEN"
+    assert document["independent_approval_present"] is False
+    assert document["expected_user_id_digest"] == document["peer_user_id_digest"]
 
 
 def test_typed_binding_matches_the_versioned_internal_contract() -> None:
@@ -492,8 +586,8 @@ def test_policy_validator_accepts_only_deny_all_not_allow_all() -> None:
 def test_template_uses_synchronous_function_urls_and_zero_authority_proof_roles() -> None:
     source = TEMPLATE.read_text(encoding="utf-8")
     assert "AWS::Lambda::Url" in source
-    assert source.count("InvokeMode: BUFFERED") == 3
-    assert source.count("FunctionUrlAuthType: AWS_IAM") >= 3
+    assert source.count("InvokeMode: BUFFERED") == 6
+    assert source.count("FunctionUrlAuthType: AWS_IAM") >= 6
     assert "ScanalyzeGug217ClassifierProof" in source
     assert "ScanalyzeGug217ApproverProof" in source
     assert "Gug217ZeroAuthorityProof" in source
@@ -532,7 +626,7 @@ def test_cloudformation_function_url_resources_are_parseable_and_closed() -> Non
         for resource in resources.values()
         if resource.get("Type") == "AWS::Lambda::Url"
     ]
-    assert len(urls) == 3
+    assert len(urls) == 6
     for url in urls:
         assert set(url["Properties"]) == {
             "AuthType",
@@ -548,7 +642,7 @@ def test_cloudformation_function_url_resources_are_parseable_and_closed() -> Non
         for resource in resources.values()
         if resource.get("Type") == "AWS::Lambda::Permission"
     ]
-    assert len(permissions) == 6
+    assert len(permissions) == 12
     assert {permission["Properties"]["Action"] for permission in permissions} == {
         "lambda:InvokeFunction",
         "lambda:InvokeFunctionUrl",
@@ -561,6 +655,7 @@ def _runtime_config() -> SimpleNamespace:
         authority_account_id=AUTHORITY_ACCOUNT,
         region=REGION,
         identity_center_application_arn=APPLICATION_ARN,
+        identity_center_redirect_uri="http://127.0.0.1:43119/callback",
         identity_center_instance_arn=f"arn:aws:sso:::instance/{INSTANCE_ID}",
         identity_store_arn=IDENTITY_STORE_ARN,
         execution_role_arn=BROKER_ROLE_ARN,
@@ -569,6 +664,14 @@ def _runtime_config() -> SimpleNamespace:
         classifier_proof_role_arn=CLASSIFIER_PROOF_ROLE_ARN,
         approver_proof_role_arn=APPROVER_PROOF_ROLE_ARN,
     )
+
+
+def _single_runtime_config() -> SimpleNamespace:
+    config = _runtime_config()
+    config.approver_identity_store_user_id = CLASSIFIER_USER
+    config.authorization_mode = AUTHORIZATION_MODE_SINGLE_OPERATOR
+    config.single_operator_authorization_sha256 = "sha256:" + "a" * 64
+    return config
 
 
 def test_runtime_handler_uses_the_exact_alias_and_returns_only_sanitized_evidence(
@@ -626,6 +729,85 @@ def test_runtime_handler_uses_the_exact_alias_and_returns_only_sanitized_evidenc
         APPROVER_USER,
     ):
         assert secret not in serialized
+
+
+@pytest.mark.parametrize(
+    ("alias", "role_name", "role_kind"),
+    (
+        (
+            "single-classify",
+            "ScanalyzeGug217ClassifierProof",
+            "single_operator_classifier",
+        ),
+        (
+            "single-retire",
+            "ScanalyzeGug217ApproverProof",
+            "single_operator_reviewer",
+        ),
+        (
+            "single-reconcile",
+            "ScanalyzeGug217ApproverProof",
+            "single_operator_reconciler",
+        ),
+    ),
+)
+def test_runtime_handler_executes_only_the_mode_bound_single_operator_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    alias: str,
+    role_name: str,
+    role_kind: str,
+) -> None:
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            del tz
+            return NOW
+
+    oidc, sts, broker = FakeOidc(), FakeSts(role_name), FakeBroker()
+    monkeypatch.setenv(
+        "IDENTITY_CENTER_REDIRECT_URI", "http://127.0.0.1:43119/callback"
+    )
+    monkeypatch.setattr(
+        runtime.BrokerConfig,
+        "from_environment",
+        staticmethod(_single_runtime_config),
+    )
+    monkeypatch.setattr(
+        runtime.BotoClients,
+        "create",
+        lambda region: SimpleNamespace(sso_oidc=oidc, sts=sts),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "RetirementBroker",
+        lambda *, config, clients: broker,
+    )
+    monkeypatch.setattr(runtime, "datetime", FixedDatetime)
+
+    response = runtime.handler(
+        _event(),
+        SimpleNamespace(
+            invoked_function_arn=(
+                f"arn:aws:lambda:{REGION}:{AUTHORITY_ACCOUNT}:function:"
+                f"scanalyze-platform-authority-gug215-retirement:{alias}"
+            )
+        ),
+    )
+
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    proof = body["identity_proof"]
+    assert proof["schema_version"] == "2"
+    assert proof["role_kind"] == role_kind
+    assert proof["broker_alias"] == alias
+    assert proof["authorization_mode"] == AUTHORIZATION_MODE_SINGLE_OPERATOR
+    assert proof["two_human_status"] == "NOT_PROVEN"
+    assert proof["independent_approval_present"] is False
+    assert broker.preflight_calls == [alias]
+    assert [call["alias"] for call in broker.calls] == [alias]
+    serialized = json.dumps(response, sort_keys=True)
+    assert CLASSIFIER_USER not in serialized
+    assert APPROVER_USER not in serialized
 
 
 def test_runtime_handler_sanitizes_proof_and_internal_failures(

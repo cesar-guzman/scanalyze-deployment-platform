@@ -9,6 +9,21 @@ live GUG-217 execution.
 
 Production is **NO-GO**.
 
+## Authorization-mode boundary
+
+Schema v1 preserves `TWO_HUMAN` and the normal
+`classify -> retire -> reconcile` graph. Schema v2 is exclusive to
+`SINGLE_OPERATOR_NONPROD_EXCEPTION` and requires the exact
+`single-classify -> single-retire -> single-reconcile` graph, owner-reviewed
+exception and release digests, `two_human_status = NOT_PROVEN`, and
+`independent_approval_present = false`. Mixed alias/duty/scope families fail
+closed; both graphs contain exactly fourteen authority edges.
+
+GUG-218 does not certify Lambda runtime-management API state. The separate
+GUG-215 gate must read back
+`RuntimeManagementConfig.UpdateRuntimeOn = Manual` and the exact reviewed
+`RuntimeVersionArn` before either report can support a retirement decision.
+
 ## Assets
 
 - exact authority account, Region, function, alias and role bindings;
@@ -47,7 +62,8 @@ approval-candidate receipt.
 ### Governance boundary
 
 A report is an observation, not a preventive control or live approval. Two
-different humans remain required for GUG-215/GUG-217.
+different humans remain required for normal `TWO_HUMAN`; ADR-050 instead uses
+the exact owner-reviewed v2 exception and remains explicitly non-independent.
 
 ## Threats and controls
 
@@ -57,7 +73,7 @@ different humans remain required for GUG-215/GUG-217.
 | Resource policy grants public, service or cross-account access | Policies from function, version and alias are evaluated | Foreign principal blocks |
 | Function URL needs two actions but only one is checked | Exact pair is required for every allowed URL edge | Missing/extra action is drift |
 | Old version or `$LATEST` remains invocable | Every version and qualifier is inventoried | Any unexpected version path blocks |
-| Exact alias routes to foreign code/version or altered runtime configuration | Allowlist binds `CodeSha256`, AWS `ConfigSha256` and the complete reviewed configuration digest; botocore-model drift blocks | Artifact/configuration/alias drift blocks |
+| Exact alias routes to foreign code/version or altered runtime configuration | Allowlist binds `CodeSha256`, AWS `ConfigSha256` and the complete reviewed configuration digest; ADR-050 v2 additionally requires equality with the deterministic clean-commit package manifest; botocore-model drift blocks | Artifact/configuration/alias drift blocks |
 | Extra alias or Function URL bypasses duty split | All aliases and URL configs are enumerated | Additional surface blocks |
 | Event source or async configuration invokes function | Event mappings and event-invoke configs are inventoried | Any unexpected route blocks |
 | Admin can manufacture a new path after capture | Mutation authority is a separate graph; report is report-only | Mutator blocks; TOCTOU remains residual |
@@ -81,11 +97,11 @@ different humans remain required for GUG-215/GUG-217.
 | Slow capture mixes observations across an unsafe interval | Capture duration and decision age are independently capped at five minutes | Stale/incoherent evidence blocks |
 | Caller supplies a trusted account/function | Binding comes from reviewed configuration and is compared exactly | `DRIFT_DETECTED` |
 | Caller alters an allowlist while preserving its embedded digest or CLI binding | CLI recomputes the canonical digest and validates the full target/artifact binding before invoking the loader | Collection blocks before snapshot/AWS access |
-| Caller substitutes an internally consistent allowlist | CLI requires an independently sourced expected allowlist digest before capture | Collection blocks before snapshot/AWS access |
+| Caller substitutes an internally consistent allowlist | CLI requires a mode-appropriate expected digest: independent release in `TWO_HUMAN`, exact owner-reviewed v2 release in ADR-050 | Collection blocks before snapshot/AWS access |
 | Same-account but unreviewed role starts collection | Adapter compares the canonical STS principal digest immediately after STS | No EC2, Lambda or IAM inventory call occurs |
 | Raw IAM graph leaks through receipt/log | Explicit field allowlist, canonical sanitizer and negative tests | Receipt rejected; incident handling |
 | Clean report is presented as live authorization | Effect and production flags are constant false | Evidence overclaim rejected |
-| One operator uses two profiles as two approvers | Governance records immutable human identities, not sessions | Live rollout blocked |
+| One operator uses two profiles as two approvers | Governance records immutable human identities, not sessions | `TWO_HUMAN` rollout blocks; ADR-050 remains single-owner `NOT_PROVEN` rather than independent |
 
 ## Attack-path result
 
@@ -95,7 +111,7 @@ The intended gate is:
 complete private AWS snapshot
   -> exact closed-graph comparison
   -> sanitized report-only receipt
-  -> independent repeat review
+  -> mode-specific repeat review
   -> separately authorized preventive rollout
 ```
 
@@ -115,7 +131,8 @@ snapshot. Therefore no Lambda, token, STS or retirement effect is authorized.
 - AWS list/read APIs can be eventually consistent.
 - Evidence validation requires a trusted clock and the complete reviewed
   bundle; standalone records are never authorization evidence.
-- A sole human cannot independently approve the result.
+- A sole human cannot independently approve the result; ADR-050 records the
+  owner's exact review as `NOT_PROVEN`, never as a second approver.
 
 ## Evidence classification
 
@@ -126,6 +143,7 @@ snapshot. Therefore no Lambda, token, STS or retirement effect is authorized.
 | CI validated | Pending required PR checks |
 | AWS inventory | Not performed by implementation |
 | Preventive enforcement | Not implemented |
+| ADR-050 v2 evidence | Repository-only; owner-reviewed exact digest required and two-human proof `NOT_PROVEN` |
 | Live / production | **Blocked / NO-GO** |
 
 ## References

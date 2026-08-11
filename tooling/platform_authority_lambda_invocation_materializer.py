@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from tooling.platform_authority_lambda_invocation_authority import (
+    AUTHORIZATION_MODE_SINGLE_OPERATOR,
+    AUTHORIZATION_MODE_TWO_HUMAN,
     COVERAGE_SURFACES,
     EVIDENCE_SOURCE_AWS_READ_ONLY,
-    EXPECTED_ALIASES,
     EXPECTED_AUTHORITY_EDGE_COUNT,
     EXPECTED_FORBIDDEN_AUTHORITY_CLASSES,
     INVENTORY_REVIEW_SAFE,
@@ -34,6 +35,15 @@ from tooling.platform_authority_lambda_invocation_authority import (
     canonical_digest,
     digest_text,
     validate_reviewed_allowlist,
+)
+from tooling.platform_authority_single_operator_retirement_exception import (
+    SingleOperatorExceptionError,
+    require_exception_effect_window,
+    validate_single_operator_retirement_exception,
+)
+from tooling.platform_authority_change_set_retirement_package import (
+    RetirementPackageError,
+    validate_retirement_package_manifest,
 )
 
 
@@ -58,10 +68,20 @@ SOURCE_POLICY_PATHS = (
     COLLECTOR_POLICY_PATH,
 )
 RUNTIME_SOURCE_PATHS = (
+    Path("policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json"),
+    Path("tooling/__init__.py"),
+    Path("tooling/platform_authority_change_set_retirement_broker.py"),
+    Path("tooling/platform_authority_change_set_retirement_package.py"),
+    Path("tooling/platform_authority_identity_context_compatibility.py"),
+    Path("tooling/platform_authority_identity_context_pep.py"),
+    Path("tooling/platform_authority_identity_context_pep_runtime.py"),
     Path("tooling/platform_authority_lambda_invocation_authority.py"),
     Path("tooling/platform_authority_lambda_invocation_materializer.py"),
+    Path("tooling/platform_authority_single_operator_retirement_exception.py"),
     Path("scripts/deployment/platform-authority-lambda-invocation-authority.py"),
     Path("scripts/deployment/platform-authority-lambda-invocation-materializer.py"),
+    Path("scripts/deployment/platform-authority-change-set-retirement-package.py"),
+    Path("schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json"),
 )
 EXPECTED_DIRECT_EFFECT_DENY_ACTIONS = frozenset(
     {
@@ -729,9 +749,35 @@ def _expected_edges(
     approver_ps, approver_trust_digest = _trust_binding(
         approver, binding, APPROVER_PERMISSION_SET_NAME, identity_center_region
     )
+    classifier_aliases = (
+        ("single-classify",)
+        if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        else ("classify",)
+    )
+    retirement_aliases = (
+        ("single-retire", "single-reconcile")
+        if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        else ("retire", "reconcile")
+    )
     role_specs = (
-        (classifier, classifier_arn, classifier_ps, "classifier", ("classify",), classifier_trust_digest, "CLASSIFIER_INVOKER_ROLE"),
-        (approver, approver_arn, approver_ps, "independent_approver", ("retire", "reconcile"), approver_trust_digest, "APPROVER_INVOKER_ROLE"),
+        (
+            classifier,
+            classifier_arn,
+            classifier_ps,
+            binding.classifier_duty,
+            classifier_aliases,
+            classifier_trust_digest,
+            "CLASSIFIER_INVOKER_ROLE",
+        ),
+        (
+            approver,
+            approver_arn,
+            approver_ps,
+            binding.retirement_duty,
+            retirement_aliases,
+            approver_trust_digest,
+            "APPROVER_INVOKER_ROLE",
+        ),
     )
     edges: list[dict[str, Any]] = []
     for role, role_arn, permission_set, duty, aliases, trust_digest, role_scope in role_specs:
@@ -769,7 +815,9 @@ def _expected_edges(
                         "authority_class": "INVOCATION",
                         "source_type": "IAM_ROLE_INLINE_POLICY",
                         "duty": duty,
-                        "target_scope": f"EXACT_{alias.upper()}_ALIAS",
+                        "target_scope": (
+                            f"EXACT_{alias.upper().replace('-', '_')}_ALIAS"
+                        ),
                         "action": action,
                         "condition_class": (
                             "FUNCTION_URL_AUTH_TYPE_AWS_IAM"
@@ -804,9 +852,14 @@ def _expected_edges(
     if not isinstance(policies, list):
         _fail("CANDIDATE_POLICY_INVALID")
     expected_resources = {
-        binding.alias_arn("classify"): (classifier_arn, "classifier"),
-        binding.alias_arn("retire"): (approver_arn, "independent_approver"),
-        binding.alias_arn("reconcile"): (approver_arn, "independent_approver"),
+        **{
+            binding.alias_arn(alias): (classifier_arn, binding.classifier_duty)
+            for alias in classifier_aliases
+        },
+        **{
+            binding.alias_arn(alias): (approver_arn, binding.retirement_duty)
+            for alias in retirement_aliases
+        },
     }
     target_policies = {
         item.get("resource_arn"): item.get("policy_document")
@@ -845,7 +898,9 @@ def _expected_edges(
                     "authority_class": "INVOCATION",
                     "source_type": "LAMBDA_RESOURCE_POLICY",
                     "duty": duty,
-                    "target_scope": f"EXACT_{alias.upper()}_ALIAS",
+                    "target_scope": (
+                        f"EXACT_{alias.upper().replace('-', '_')}_ALIAS"
+                    ),
                     "action": action,
                     "condition_class": (
                         "FUNCTION_URL_AUTH_TYPE_AWS_IAM"
@@ -877,10 +932,13 @@ def _runtime_artifact(snapshot: Mapping[str, Any], binding: TargetBinding) -> tu
         item.get("Name"): item.get("FunctionVersion")
         for item in aliases
         if isinstance(item, Mapping) and item.get("FunctionArn") in {
-            binding.alias_arn(alias) for alias in EXPECTED_ALIASES
+            binding.alias_arn(alias) for alias in binding.active_aliases
         }
     }
-    if set(target_aliases) != set(EXPECTED_ALIASES) or len(set(target_aliases.values())) != 1:
+    if (
+        set(target_aliases) != set(binding.active_aliases)
+        or len(set(target_aliases.values())) != 1
+    ):
         _fail("CANDIDATE_RUNTIME_ARTIFACT_INVALID")
     version = next(iter(target_aliases.values()))
     if not isinstance(version, str) or not version.isdigit():
@@ -974,6 +1032,9 @@ def materialize_allowlist_release(
     created_at: str,
     expires_at: str,
     repo_root: Path,
+    single_operator_exception: Mapping[str, Any] | None = None,
+    broker_artifact_manifest: Mapping[str, Any] | None = None,
+    expected_broker_artifact_manifest_digest: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Create a deterministic allowlist and short-lived review anchor."""
 
@@ -993,6 +1054,67 @@ def materialize_allowlist_release(
     candidate_expires = _parse_time(snapshot.get("capture_expires_at"), "CANDIDATE_CAPTURE_TIME_INVALID")
     if not (candidate_completed < created < expires < candidate_expires) or expires - created > timedelta(minutes=5):
         _fail("RELEASE_WINDOW_INVALID")
+    exception_fields: dict[str, Any] = {}
+    package_fields: dict[str, Any] = {}
+    if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+        if not isinstance(single_operator_exception, Mapping):
+            _fail("SINGLE_OPERATOR_EXCEPTION_REQUIRED")
+        try:
+            validate_single_operator_retirement_exception(single_operator_exception)
+            require_exception_effect_window(
+                single_operator_exception,
+                now=created,
+            )
+        except SingleOperatorExceptionError:
+            _fail("SINGLE_OPERATOR_EXCEPTION_INVALID")
+        if (
+            single_operator_exception.get("authorization_digest")
+            != binding.single_operator_exception_digest
+            or single_operator_exception.get("region") != binding.region
+            or single_operator_exception.get("authority_account_id_digest")
+            != canonical_digest(
+                {"authority_account_id": binding.authority_account_id}
+            )
+        ):
+            _fail("SINGLE_OPERATOR_EXCEPTION_BINDING_INVALID")
+        if not isinstance(broker_artifact_manifest, Mapping):
+            _fail("BROKER_ARTIFACT_MANIFEST_REQUIRED")
+        try:
+            validate_retirement_package_manifest(broker_artifact_manifest)
+        except RetirementPackageError:
+            _fail("BROKER_ARTIFACT_MANIFEST_INVALID")
+        manifest_digest = broker_artifact_manifest.get("manifest_digest")
+        if (
+            not isinstance(expected_broker_artifact_manifest_digest, str)
+            or _DIGEST.fullmatch(expected_broker_artifact_manifest_digest) is None
+            or manifest_digest != expected_broker_artifact_manifest_digest
+            or broker_artifact_manifest.get("source_commit") != source_commit
+            or broker_artifact_manifest.get("broker_runtime_version_arn_digest")
+            != single_operator_exception.get("broker_runtime_version_arn_digest")
+            or broker_artifact_manifest.get("broker_version_binding_sha256")
+            != single_operator_exception.get("broker_version_binding_sha256")
+        ):
+            _fail("BROKER_ARTIFACT_MANIFEST_BINDING_INVALID")
+        package_fields = {
+            "broker_artifact_manifest_digest": manifest_digest,
+        }
+        exception_fields = {
+            "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+            "two_human_status": "NOT_PROVEN",
+            "independent_approval_present": False,
+            "single_operator_exception_digest": binding.single_operator_exception_digest,
+            "owner_authorization_sha256": single_operator_exception[
+                "owner_authorization_sha256"
+            ],
+            "active_aliases": sorted(binding.active_aliases),
+        }
+    elif (
+        binding.authorization_mode != AUTHORIZATION_MODE_TWO_HUMAN
+        or single_operator_exception is not None
+        or broker_artifact_manifest is not None
+        or expected_broker_artifact_manifest_digest is not None
+    ):
+        _fail("SINGLE_OPERATOR_EXCEPTION_FORBIDDEN")
     rendered_policy = render_collector_inline_policy(binding=binding, repo_root=repo_root)
     iam = snapshot.get("iam")
     if not isinstance(iam, Mapping):
@@ -1002,9 +1124,18 @@ def materialize_allowlist_release(
         snapshot, binding, str(collector_contract["identity_center_region"])
     )
     code_sha, configuration_sha = _runtime_artifact(snapshot, binding)
+    if (
+        broker_artifact_manifest is not None
+        and code_sha != broker_artifact_manifest.get("lambda_code_sha256")
+    ):
+        _fail("BROKER_ARTIFACT_CODE_SHA256_MISMATCH")
     template_sha, policy_bundle_sha = _source_digests(Path(repo_root))
     allowlist: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": (
+            "2"
+            if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "1"
+        ),
         "record_type": "platform_authority_lambda_invocation_allowlist",
         "environment": "non-production",
         "production": False,
@@ -1020,6 +1151,7 @@ def materialize_allowlist_release(
         "forbidden_authority_classes": sorted(EXPECTED_FORBIDDEN_AUTHORITY_CLASSES),
         "live_effect_authorized": False,
         "created_at": created_at,
+        **exception_fields,
     }
     allowlist["allowlist_digest"] = canonical_digest(allowlist)
     try:
@@ -1040,7 +1172,11 @@ def materialize_allowlist_release(
     if inventory.get("status") != INVENTORY_REVIEW_SAFE or receipt.get("status") != RECEIPT_REVIEW_REQUIRED:
         _fail("CANDIDATE_AUTHORITY_NOT_EXACT")
     release: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": (
+            "2"
+            if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "1"
+        ),
         "record_type": "platform_authority_lambda_invocation_allowlist_release",
         "environment": "non-production",
         "production": False,
@@ -1062,6 +1198,8 @@ def materialize_allowlist_release(
         "aws_readonly_inventory_eligible": True,
         "live_effect_authorized": False,
         "deployment_authorized": False,
+        **exception_fields,
+        **package_fields,
     }
     release["release_digest"] = canonical_digest(release)
     return allowlist, release
@@ -1075,8 +1213,11 @@ def validate_release_bundle(
     binding: TargetBinding,
     expected_release_digest: str,
     evaluation_at: str,
+    single_operator_exception: Mapping[str, Any] | None = None,
+    broker_artifact_manifest: Mapping[str, Any] | None = None,
+    expected_broker_artifact_manifest_digest: str | None = None,
 ) -> str:
-    """Validate the independent release anchor before any AWS client exists."""
+    """Validate the reviewed release anchor before any AWS client exists."""
 
     root = Path(__file__).resolve().parents[1]
     _validate_collector_contract(collector_contract, binding=binding, repo_root=root)
@@ -1090,7 +1231,21 @@ def validate_release_bundle(
         "aws_readonly_inventory_eligible", "live_effect_authorized", "deployment_authorized",
         "release_digest",
     }
-    if set(release) != required:
+    exception_required = {
+        "authorization_mode",
+        "two_human_status",
+        "independent_approval_present",
+        "single_operator_exception_digest",
+        "owner_authorization_sha256",
+        "active_aliases",
+        "broker_artifact_manifest_digest",
+    }
+    expected_fields = (
+        required | exception_required
+        if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+        else required
+    )
+    if set(release) != expected_fields:
         _fail("RELEASE_FIELDS_INVALID")
     if not isinstance(release.get("source_commit"), str) or _COMMIT.fullmatch(
         str(release["source_commit"])
@@ -1121,7 +1276,12 @@ def validate_release_bundle(
     if release.get("allowlist_digest") != allowlist.get("allowlist_digest"):
         _fail("RELEASE_ALLOWLIST_DIGEST_MISMATCH")
     if (
-        release.get("schema_version") != "1"
+        release.get("schema_version")
+        != (
+            "2"
+            if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR
+            else "1"
+        )
         or release.get("record_type") != "platform_authority_lambda_invocation_allowlist_release"
         or release.get("environment") != "non-production"
         or release.get("production") is not False
@@ -1133,6 +1293,71 @@ def validate_release_bundle(
         or release.get("deployment_authorized") is not False
     ):
         _fail("RELEASE_BINDING_INVALID")
+    if binding.authorization_mode == AUTHORIZATION_MODE_SINGLE_OPERATOR:
+        if not isinstance(single_operator_exception, Mapping):
+            _fail("SINGLE_OPERATOR_EXCEPTION_REQUIRED")
+        try:
+            validate_single_operator_retirement_exception(single_operator_exception)
+            require_exception_effect_window(
+                single_operator_exception,
+                now=_parse_time(evaluation_at, "RELEASE_TIMESTAMP_INVALID"),
+            )
+        except SingleOperatorExceptionError:
+            _fail("SINGLE_OPERATOR_EXCEPTION_INVALID")
+        expected_exception_fields = {
+            "authorization_mode": AUTHORIZATION_MODE_SINGLE_OPERATOR,
+            "two_human_status": "NOT_PROVEN",
+            "independent_approval_present": False,
+            "single_operator_exception_digest": binding.single_operator_exception_digest,
+            "owner_authorization_sha256": single_operator_exception.get(
+                "owner_authorization_sha256"
+            ),
+            "active_aliases": sorted(binding.active_aliases),
+        }
+        if (
+            any(
+                release.get(key) != value
+                or allowlist.get(key) != value
+                for key, value in expected_exception_fields.items()
+            )
+            or single_operator_exception.get("authorization_digest")
+            != binding.single_operator_exception_digest
+            or single_operator_exception.get("region") != binding.region
+            or single_operator_exception.get("authority_account_id_digest")
+            != canonical_digest(
+                {"authority_account_id": binding.authority_account_id}
+            )
+        ):
+            _fail("SINGLE_OPERATOR_EXCEPTION_BINDING_INVALID")
+        if not isinstance(broker_artifact_manifest, Mapping):
+            _fail("BROKER_ARTIFACT_MANIFEST_REQUIRED")
+        try:
+            validate_retirement_package_manifest(broker_artifact_manifest)
+        except RetirementPackageError:
+            _fail("BROKER_ARTIFACT_MANIFEST_INVALID")
+        if (
+            not isinstance(expected_broker_artifact_manifest_digest, str)
+            or _DIGEST.fullmatch(expected_broker_artifact_manifest_digest) is None
+            or broker_artifact_manifest.get("manifest_digest")
+            != expected_broker_artifact_manifest_digest
+            or release.get("broker_artifact_manifest_digest")
+            != expected_broker_artifact_manifest_digest
+            or broker_artifact_manifest.get("source_commit")
+            != release.get("source_commit")
+            or broker_artifact_manifest.get("lambda_code_sha256")
+            != release.get("broker_artifact_code_sha256")
+            or broker_artifact_manifest.get("broker_runtime_version_arn_digest")
+            != single_operator_exception.get("broker_runtime_version_arn_digest")
+            or broker_artifact_manifest.get("broker_version_binding_sha256")
+            != single_operator_exception.get("broker_version_binding_sha256")
+        ):
+            _fail("BROKER_ARTIFACT_MANIFEST_BINDING_INVALID")
+    elif (
+        single_operator_exception is not None
+        or broker_artifact_manifest is not None
+        or expected_broker_artifact_manifest_digest is not None
+    ):
+        _fail("SINGLE_OPERATOR_EXCEPTION_FORBIDDEN")
     if (
         release.get("collector_contract_digest")
         != collector_contract.get("collector_contract_digest")
@@ -1191,6 +1416,9 @@ def validate_fresh_capture(
     binding: TargetBinding,
     expected_release_digest: str,
     evaluation_at: str,
+    single_operator_exception: Mapping[str, Any] | None = None,
+    broker_artifact_manifest: Mapping[str, Any] | None = None,
+    expected_broker_artifact_manifest_digest: str | None = None,
 ) -> bool:
     """Prove a separate, later AWS capture still has the exact closed graph."""
 
@@ -1201,6 +1429,11 @@ def validate_fresh_capture(
         binding=binding,
         expected_release_digest=expected_release_digest,
         evaluation_at=evaluation_at,
+        single_operator_exception=single_operator_exception,
+        broker_artifact_manifest=broker_artifact_manifest,
+        expected_broker_artifact_manifest_digest=(
+            expected_broker_artifact_manifest_digest
+        ),
     )
     root = Path(__file__).resolve().parents[1]
     _validate_capture_provenance(
