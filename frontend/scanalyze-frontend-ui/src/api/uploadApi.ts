@@ -1,14 +1,14 @@
 import axios, { type AxiosProgressEvent } from 'axios';
-import type { UploadInstruction } from '../domain/documents';
 import { requireHttpsUrl } from '../security/browserBoundaries.js';
+import type { DocumentCreateResponse } from '../domain/documents';
 
 /**
  * Se utiliza una instancia limpia de axios,
- * evitando el interceptor global de de auth que inyecta JWT.
+ * evitando el interceptor global de auth que inyecta JWT.
  */
 export const uploadFileToPresignedUrl = async (
   file: File,
-  instruction: UploadInstruction,
+  instruction: NonNullable<DocumentCreateResponse['uploadCapability']>,
   onProgress?: (progress: number) => void
 ): Promise<void> => {
   const cleanClient = axios.create();
@@ -21,8 +21,8 @@ export const uploadFileToPresignedUrl = async (
     headers: {
       // Necesitamos asegurar que el Content-Type coincida
       // exactamente con lo que firmó el Backend
-      ...(instruction.headers || {}),
-      'Content-Type': instruction.headers?.['Content-Type'] || file.type || 'application/pdf',
+      ...(instruction.requiredHeaders || {}),
+      'Content-Type': instruction.requiredHeaders?.['Content-Type'] || file.type || 'application/pdf',
     },
     onUploadProgress: (progressEvent: AxiosProgressEvent) => {
       if (progressEvent.total && onProgress) {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
-import { Navigate } from 'react-router';
+import { Navigate } from 'react-router-dom';
 import { loginErrorCode, useOperationTimeout } from '../auth/bootstrap';
 
 export const Login: React.FC = () => {

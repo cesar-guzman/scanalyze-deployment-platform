@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { documentApi } from '../api/documentApi';
 import { batchApi } from '../api/batchApi';
@@ -103,12 +103,13 @@ export const BankStatements: React.FC = () => {
     try {
       const ik = crypto.randomUUID();
       const res = await documentApi.createDocument(task.file, ik, batchId);
-      updateTask(task.id, { documentId: res.id });
-      if (!res.upload) throw new Error('Sin instrucciones de subida.');
+      const documentId = res.durableResponse.documentId;
+      updateTask(task.id, { documentId });
+      if (!res.uploadCapability) throw new Error('Sin instrucciones de subida.');
       updateTask(task.id, { status: 'UPLOADING' });
-      await uploadFileToPresignedUrl(task.file, res.upload, p => updateTask(task.id, { progress: p }));
+      await uploadFileToPresignedUrl(task.file, res.uploadCapability, p => updateTask(task.id, { progress: p }));
       updateTask(task.id, { status: 'WAITING_SERVER' });
-      await documentApi.submitDocument(res.id);
+      await documentApi.submitDocument(documentId);
       updateTask(task.id, { status: 'SUCCESS', progress: 100 });
     } catch (err: unknown) {
       const errorMsg = axios.isAxiosError(err)

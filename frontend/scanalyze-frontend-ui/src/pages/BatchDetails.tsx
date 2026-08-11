@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { batchApi, type BatchDocumentResponse, type BatchResponse } from '../api/batchApi';
 import { createEmployeeProfilesApi } from '../api/employeeProfilesApi';
