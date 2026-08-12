@@ -78,6 +78,21 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-change-set-retirement-single-operator-exception": (
             "platform-authority-change-set-retirement-single-operator-exception.v{version}.schema.json"
         ),
+        "platform-authority-retirement-entrypoint-execution-authorization": (
+            "platform-authority-retirement-entrypoint-execution-authorization.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-entrypoint-execution-ledger": (
+            "platform-authority-retirement-entrypoint-execution-ledger.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-entrypoint-intent": (
+            "platform-authority-retirement-entrypoint-intent.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-entrypoint-materialization-receipt": (
+            "platform-authority-retirement-entrypoint-materialization-receipt.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-entrypoint-plan": (
+            "platform-authority-retirement-entrypoint-plan.v{version}.schema.json"
+        ),
         "platform-authority-founder-bootstrap-exception": "platform-authority-founder-bootstrap-exception.v{version}.schema.json",
         "platform-authority-founder-execution-ledger": "platform-authority-founder-execution-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-intent": "platform-authority-founder-pep-intent.v{version}.schema.json",
@@ -2483,6 +2498,10 @@ def validate_semantics(
     gug218_allowlist: dict | None = None,
     gug218_inventory: dict | None = None,
     gug219_collector_contract: dict | None = None,
+    gug363_intent: dict | None = None,
+    gug363_plan: dict | None = None,
+    gug363_authorization: dict | None = None,
+    gug363_ledger: dict | None = None,
     evaluation_at: datetime | None = None,
 ) -> list[str]:
     """Validate cross-field invariants not expressible in Draft 2020-12.
@@ -2673,6 +2692,169 @@ def validate_semantics(
         "platform-authority-change-set-retirement-single-operator-exception.v1.schema.json"
     ):
         errors.extend(_validate_gug215_single_operator_exception(instance))
+
+    if schema_name.startswith("platform-authority-retirement-entrypoint-"):
+        try:
+            from tooling.platform_authority_retirement_entrypoint_materializer import (
+                RetirementEntrypointMaterializationError,
+                POST_WRITE_READBACK_OPERATIONS,
+                PREFLIGHT_OPERATIONS,
+                RECONCILE_OPERATIONS,
+                validate_execution_authorization,
+                validate_execution_ledger,
+                validate_materialization_intent,
+                validate_materialization_plan,
+                validate_materialization_receipt,
+                private_parameter_projection_digest,
+            )
+        except ImportError as exc:
+            errors.append(f"GUG-363 validator unavailable: {exc}")
+        else:
+            try:
+                if schema_name == (
+                    "platform-authority-retirement-entrypoint-intent.v1.schema.json"
+                ):
+                    validate_materialization_intent(instance)
+                elif schema_name == (
+                    "platform-authority-retirement-entrypoint-plan.v1.schema.json"
+                ):
+                    validate_materialization_plan(instance)
+                    if gug363_intent is None:
+                        raise RetirementEntrypointMaterializationError(
+                            "INTENT_CONTEXT_REQUIRED"
+                        )
+                    validate_materialization_intent(gug363_intent)
+                    if (
+                        instance.get("intent_digest")
+                        != gug363_intent.get("intent_digest")
+                        or instance.get("owner_authorization_sha256")
+                        != gug363_intent.get("owner_authorization_sha256")
+                        or instance.get("single_operator_exception_digest")
+                        != gug363_intent.get("single_operator_exception_digest")
+                        or instance.get("source") != gug363_intent.get("source")
+                        or instance.get("target") != gug363_intent.get("target")
+                        or instance.get("artifact_signing_contract")
+                        != gug363_intent.get("artifact_signing_contract")
+                        or instance.get("artifact_signing_contract_digest")
+                        != gug363_intent.get("artifact_signing_contract_digest")
+                        or instance.get("artifact_signing_evidence_digest")
+                        != gug363_intent.get("artifact_signing_evidence_digest")
+                    ):
+                        raise RetirementEntrypointMaterializationError(
+                            "PLAN_INTENT_BINDING_INVALID"
+                        )
+                    projection = instance.get("parameter_projection")
+                    intent_parameters = gug363_intent.get("parameters")
+                    projection_parameters = {
+                        item.get("ParameterKey"): item.get("ParameterValue")
+                        for item in projection
+                        if isinstance(item, dict)
+                    } if isinstance(projection, list) else None
+                    if (
+                        not isinstance(intent_parameters, dict)
+                        or intent_parameters.get(
+                            "PrivateParameterProjectionSha256"
+                        )
+                        != private_parameter_projection_digest(intent_parameters)
+                        or projection_parameters != intent_parameters
+                    ):
+                        raise RetirementEntrypointMaterializationError(
+                            "PLAN_INTENT_PARAMETER_BINDING_INVALID"
+                        )
+                elif schema_name == (
+                    "platform-authority-retirement-entrypoint-execution-authorization.v1.schema.json"
+                ):
+                    if gug363_plan is None:
+                        raise RetirementEntrypointMaterializationError(
+                            "PLAN_CONTEXT_REQUIRED"
+                        )
+                    validate_execution_authorization(
+                        instance,
+                        plan=gug363_plan,
+                        now=evaluation_at or datetime.now(UTC),
+                        require_active=evaluation_at is not None,
+                    )
+                elif schema_name == (
+                    "platform-authority-retirement-entrypoint-execution-ledger.v1.schema.json"
+                ):
+                    if gug363_plan is None or gug363_authorization is None:
+                        raise RetirementEntrypointMaterializationError(
+                            "AUTHORIZATION_CONTEXT_REQUIRED"
+                        )
+                    validate_execution_authorization(
+                        gug363_authorization,
+                        plan=gug363_plan,
+                        now=evaluation_at or datetime.now(UTC),
+                        require_active=evaluation_at is not None,
+                    )
+                    validate_execution_ledger(
+                        instance,
+                        plan=gug363_plan,
+                        authorization=gug363_authorization,
+                    )
+                elif schema_name == (
+                    "platform-authority-retirement-entrypoint-materialization-receipt.v1.schema.json"
+                ):
+                    if gug363_plan is None or gug363_authorization is None:
+                        raise RetirementEntrypointMaterializationError(
+                            "AUTHORIZATION_CONTEXT_REQUIRED"
+                        )
+                    if instance.get("status") == "TARGET_PRESENT_NO_TOUCH":
+                        raise RetirementEntrypointMaterializationError(
+                            "RECEIPT_PREEXISTING_COMPLETE_STATUS_FORBIDDEN"
+                        )
+                    validate_execution_authorization(
+                        gug363_authorization,
+                        plan=gug363_plan,
+                        now=evaluation_at or datetime.now(UTC),
+                        require_active=evaluation_at is not None,
+                    )
+                    if gug363_ledger is not None:
+                        validate_execution_ledger(
+                            gug363_ledger,
+                            plan=gug363_plan,
+                            authorization=gug363_authorization,
+                        )
+                    validate_materialization_receipt(
+                        instance,
+                        plan=gug363_plan,
+                        authorization=gug363_authorization,
+                    )
+                    if (
+                        instance.get("readback_complete") is True
+                        or instance.get("target_state") == "COMPLETE"
+                    ):
+                        if instance.get("execution_mode") == "RECONCILE":
+                            expected_complete_operations = list(
+                                RECONCILE_OPERATIONS
+                            )
+                        elif instance.get("aws_mutation_attempted") is True:
+                            expected_complete_operations = [
+                                *PREFLIGHT_OPERATIONS,
+                                "cloudformation:CreateStack",
+                                *POST_WRITE_READBACK_OPERATIONS,
+                            ]
+                        else:
+                            raise RetirementEntrypointMaterializationError(
+                                "RECEIPT_APPLY_NO_TOUCH_COMPLETE_OVERCLAIM"
+                            )
+                        if (
+                            instance.get("aws_operations")
+                            != expected_complete_operations
+                        ):
+                            raise RetirementEntrypointMaterializationError(
+                                "RECEIPT_COMPLETE_OPERATION_SEQUENCE_INVALID"
+                            )
+                    ledger_digest = instance.get("execution_ledger_digest")
+                    if ledger_digest is not None and (
+                        gug363_ledger is None
+                        or ledger_digest != gug363_ledger.get("ledger_digest")
+                    ):
+                        raise RetirementEntrypointMaterializationError(
+                            "RECEIPT_LEDGER_BINDING_INVALID"
+                        )
+            except RetirementEntrypointMaterializationError as exc:
+                errors.append(f"GUG-363 contract invalid: {exc}")
 
     if schema_name == "platform-authority-identity-enhanced-binding.v1.schema.json":
         errors.extend(_validate_gug216_binding(instance))
@@ -2875,7 +3057,57 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
                 "platform-authority-lambda-invocation-guard-receipt-v2-single-operator-synthetic.json",
             }:
                 evaluation_at = datetime(2030, 1, 1, 0, 26, tzinfo=UTC)
-        if (
+        if schema_path.name.startswith(
+            "platform-authority-retirement-entrypoint-"
+        ):
+            valid_dir = fixture_path.parent.parent / "valid"
+
+            def load_gug363_context(name: str) -> dict:
+                context = load_json(valid_dir / name)
+                context.pop("_test_metadata", None)
+                return context
+
+            semantic_context: dict[str, dict] = {}
+            if schema_path.name == (
+                "platform-authority-retirement-entrypoint-plan.v1.schema.json"
+            ):
+                semantic_context["gug363_intent"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-intent-v1-synthetic.json"
+                )
+            elif schema_path.name == (
+                "platform-authority-retirement-entrypoint-execution-authorization.v1.schema.json"
+            ):
+                semantic_context["gug363_plan"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-plan-v1-synthetic.json"
+                )
+            elif schema_path.name == (
+                "platform-authority-retirement-entrypoint-execution-ledger.v1.schema.json"
+            ):
+                semantic_context["gug363_plan"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-plan-v1-synthetic.json"
+                )
+                semantic_context["gug363_authorization"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-execution-authorization-v1-synthetic.json"
+                )
+            elif schema_path.name == (
+                "platform-authority-retirement-entrypoint-materialization-receipt.v1.schema.json"
+            ):
+                semantic_context["gug363_plan"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-plan-v1-synthetic.json"
+                )
+                semantic_context["gug363_authorization"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-execution-authorization-v1-synthetic.json"
+                )
+                semantic_context["gug363_ledger"] = load_gug363_context(
+                    "platform-authority-retirement-entrypoint-execution-ledger-v1-synthetic.json"
+                )
+            semantic_errors = validate_semantics(
+                fixture_clean,
+                schema_path,
+                evaluation_at=evaluation_at,
+                **semantic_context,
+            )
+        elif (
             schema_path.name
             == "platform-authority-bootstrap-approval.v2.schema.json"
         ):

@@ -4,6 +4,7 @@
 - **Date:** 2026-08-11
 - **Issue:** GUG-215
 - **Amends:** ADR-041, ADR-043, ADR-044 and ADR-045 only for the bounded mode below
+- **Amended by:** ADR-051 / GUG-363 only for the separate PEP entrypoint materialization mechanism
 
 ## Decision
 
@@ -124,6 +125,16 @@ use, the owner must separately authorize the exact reviewed commit and:
 3. one broker invocation sequence against the one full Change Set ID digest;
 4. mandatory readback, post-attempt reconciliation and exception revocation.
 
+[ADR-051](ADR-051-direct-retirement-entrypoint-materialization.md) defines a
+repository mechanism for the first item only: one direct, one-attempt
+`CreateStack` of a dedicated GUG-357 entrypoint stack. It does not turn this ADR
+or the exception artifact into deployment authorization. The request must carry
+the exact pre-existing authority-account role
+`scanalyze-platform-authority-gug363-cfn-materializer`. GUG-363 does not create
+that role or grant `iam:PassRole`; before the checkpoint, GUG-357 must separately
+prove the role's exact trust/effective policies and the operator's one-role-only
+PassRole edge. Missing or stale proof keeps deployment blocked.
+
 Direct `aws cloudformation delete-change-set` remains prohibited. The only
 effect principal is the version-pinned broker execution role, and its policy
 continues to deny `ExecuteChangeSet` and `DeleteStack`.
@@ -159,3 +170,5 @@ artifact, owner-reviewed digest and separately authorized live checkpoint.
 - Production remains **NO-GO**.
 - Current status remains **repository-only / AWS mutations none** until the
   separate live checkpoint is approved and read back.
+- GUG-363 supplies no evidence that the external CloudFormation service role,
+  operator PassRole grant or dedicated stack exists in AWS.

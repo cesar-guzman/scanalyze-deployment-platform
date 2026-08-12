@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-retirement-entrypoint-plan.v1.schema.json",
+  "title": "GUG-363 Retirement Entrypoint Direct CreateStack Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type", "schema_version", "implementation_issue", "live_issue",
+    "environment", "production", "deployment_authorized", "authorization_mode",
+    "two_human_status", "independent_approval_present", "intent_digest",
+    "owner_authorization_sha256", "single_operator_exception_digest", "source",
+    "target", "artifact_signing_contract", "artifact_signing_contract_digest",
+    "artifact_signing_evidence_digest", "parameter_projection", "parameter_projection_digest",
+    "expected_resources", "expected_resource_count", "expected_resource_set_digest",
+    "active_aliases", "normal_aliases_present", "log_group", "preflight_operations",
+    "allowed_mutations", "prohibited_operations", "post_write_readback_operations",
+    "materialization_operations", "operation_list_digest",
+    "ambiguous_outcome_mode", "mutation_retry_permitted",
+    "materialization_binding_digest", "create_stack_request",
+    "create_stack_request_digest", "client_request_token", "plan_digest"
+  ],
+  "properties": {
+    "record_type": { "const": "scanalyze.platform_authority.retirement_entrypoint_plan.v1" },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-363" },
+    "live_issue": { "const": "GUG-357" },
+    "environment": { "const": "synthetic-non-production" },
+    "production": { "const": false },
+    "deployment_authorized": { "const": false },
+    "authorization_mode": { "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION" },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "intent_digest": { "$ref": "#/$defs/digest" },
+    "owner_authorization_sha256": { "$ref": "#/$defs/digest" },
+    "single_operator_exception_digest": { "$ref": "#/$defs/digest" },
+    "source": { "$ref": "#/$defs/source" },
+    "target": { "$ref": "#/$defs/target" },
+    "artifact_signing_contract": { "$ref": "#/$defs/artifact_signing_contract" },
+    "artifact_signing_contract_digest": { "$ref": "#/$defs/digest" },
+    "artifact_signing_evidence_digest": {
+      "description": "Digest of the normalized Signer, versioned S3, and Lambda CSC provider-fact projection implied by the contract and refreshed read-only before use; it never authorizes signing or upload mutations.",
+      "$ref": "#/$defs/digest"
+    },
+    "parameter_projection": { "$ref": "#/$defs/parameter_projection" },
+    "parameter_projection_digest": { "$ref": "#/$defs/digest" },
+    "expected_resources": {
+      "type": "array",
+      "minItems": 21,
+      "maxItems": 21,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "expected_resource_count": { "const": 21 },
+    "expected_resource_set_digest": { "$ref": "#/$defs/digest" },
+    "active_aliases": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "single-classify" },
+        { "const": "single-reconcile" },
+        { "const": "single-retire" }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "normal_aliases_present": { "const": false },
+    "log_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "retention_days", "encryption_mode"],
+      "properties": {
+        "name": { "const": "/aws/lambda/scanalyze-platform-authority-gug215-retirement" },
+        "retention_days": { "const": 365 },
+        "encryption_mode": { "const": "AWS_OWNED_AT_REST" }
+      }
+    },
+    "preflight_operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "sts:GetCallerIdentity" },
+        { "const": "cloudformation:DescribeStacks" },
+        { "const": "signer:DescribeSigningJob" },
+        { "const": "signer:GetSigningProfile" },
+        { "const": "s3:GetBucketVersioning" },
+        { "const": "s3:HeadObject" },
+        { "const": "s3:GetObject" },
+        { "const": "s3:ListObjectVersions" },
+        { "const": "s3:HeadObject" },
+        { "const": "s3:GetObject" },
+        { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "cloudformation:DescribeStacks" }
+      ],
+      "items": false,
+      "minItems": 12,
+      "maxItems": 12
+    },
+    "allowed_mutations": {
+      "type": "array",
+      "prefixItems": [{ "const": "cloudformation:CreateStack" }],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "prohibited_operations": { "$ref": "#/$defs/prohibited_operations" },
+    "post_write_readback_operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "cloudformation:DescribeStacks" },
+        { "const": "cloudformation:GetTemplate" },
+        { "const": "cloudformation:ListStackResources" },
+        { "const": "cloudformation:DescribeStackEvents" }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "materialization_operations": {
+      "type": "array",
+      "prefixItems": [{ "$ref": "#/$defs/materialization_operation" }],
+      "items": false,
+      "minItems": 1,
+      "maxItems": 1
+    },
+    "operation_list_digest": { "$ref": "#/$defs/digest" },
+    "ambiguous_outcome_mode": { "const": "RECONCILE_ONLY" },
+    "mutation_retry_permitted": { "const": false },
+    "materialization_binding_digest": { "$ref": "#/$defs/digest" },
+    "create_stack_request": { "$ref": "#/$defs/create_stack_request" },
+    "create_stack_request_digest": { "$ref": "#/$defs/digest" },
+    "client_request_token": { "type": "string", "pattern": "^gug363-[0-9a-f]{48}$" },
+    "plan_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "raw_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "code_sha256": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_account_id", "region", "stack_name",
+        "cloudformation_service_role_arn"
+      ],
+      "properties": {
+        "authority_account_id": { "const": "042360977644" },
+        "region": { "const": "us-east-1" },
+        "stack_name": { "const": "scanalyze-platform-authority-gug357-retirement-entrypoint" },
+        "cloudformation_service_role_arn": {
+          "const": "arn:aws:iam::042360977644:role/scanalyze-platform-authority-gug363-cfn-materializer"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree", "template_path", "template_sha256"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "template_path": { "const": "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml" },
+        "template_sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "artifact_signing_contract": {
+      "description": "Binds the unsigned GUG-215 source ZIP to a distinct pre-existing AWS Signer destination. CloudFormation may consume only signed_destination.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version", "unsigned_source", "signer", "signed_destination",
+        "code_signing_config"
+      ],
+      "properties": {
+        "contract_version": { "const": 1 },
+        "unsigned_source": { "$ref": "#/$defs/unsigned_source" },
+        "signer": { "$ref": "#/$defs/signer" },
+        "signed_destination": { "$ref": "#/$defs/signed_destination" },
+        "code_signing_config": { "$ref": "#/$defs/code_signing_config" }
+      }
+    },
+    "unsigned_source": {
+      "description": "Unsigned GUG-215 package manifest/archive provenance and exact versioned S3 signing source only. This object is never a CloudFormation BrokerArtifact parameter source.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type", "work_package", "manifest_digest", "archive_sha256",
+        "lambda_code_sha256", "archive_size_bytes", "bucket", "key",
+        "version_id", "sse_algorithm", "sse_kms_key_arn"
+      ],
+      "properties": {
+        "artifact_type": { "const": "scanalyze.platform_authority.change_set_retirement_package.v1" },
+        "work_package": { "const": "GUG-215" },
+        "manifest_digest": { "$ref": "#/$defs/digest" },
+        "archive_sha256": { "$ref": "#/$defs/raw_digest" },
+        "lambda_code_sha256": { "$ref": "#/$defs/code_sha256" },
+        "archive_size_bytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "key": { "$ref": "#/$defs/unsigned_key" },
+        "version_id": { "$ref": "#/$defs/s3_version" },
+        "sse_algorithm": { "const": "aws:kms" },
+        "sse_kms_key_arn": { "$ref": "#/$defs/kms_key_arn" }
+      }
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id", "status", "job_owner", "job_invoker", "platform_id",
+        "profile_name", "profile_version_id", "profile_version_arn",
+        "signature_expires_at"
+      ],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "status": { "const": "Succeeded" },
+        "job_owner": { "const": "042360977644" },
+        "job_invoker": { "const": "042360977644" },
+        "platform_id": { "const": "AWSLambda-SHA384-ECDSA" },
+        "profile_name": { "$ref": "#/$defs/profile_name" },
+        "profile_version_id": { "$ref": "#/$defs/profile_version_id" },
+        "profile_version_arn": { "$ref": "#/$defs/profile_version_arn" },
+        "signature_expires_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "signed_destination": {
+      "description": "Distinct AWS Signer destination whose bytes, version, and digests are the only values eligible for CloudFormation BrokerArtifact parameters.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket", "key", "version_id", "archive_sha256", "lambda_code_sha256",
+        "archive_size_bytes", "sse_algorithm", "sse_kms_key_arn"
+      ],
+      "properties": {
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "key": { "$ref": "#/$defs/signed_key" },
+        "version_id": { "$ref": "#/$defs/s3_version" },
+        "archive_sha256": { "$ref": "#/$defs/raw_digest" },
+        "lambda_code_sha256": { "$ref": "#/$defs/code_sha256" },
+        "archive_size_bytes": { "type": "integer", "minimum": 1, "maximum": 67108864 },
+        "sse_algorithm": { "const": "aws:kms" },
+        "sse_kms_key_arn": { "$ref": "#/$defs/kms_key_arn" }
+      }
+    },
+    "code_signing_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arn", "allowed_signing_profile_version_arns",
+        "untrusted_artifact_on_deployment"
+      ],
+      "properties": {
+        "arn": { "$ref": "#/$defs/code_signing_config_arn" },
+        "allowed_signing_profile_version_arns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/profile_version_arn" }
+        },
+        "untrusted_artifact_on_deployment": { "const": "Enforce" }
+      }
+    },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "s3_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\u0000-\\u0020\\u007f]+$"
+    },
+    "unsigned_key": {
+      "type": "string",
+      "pattern": "^scanalyze/platform-authority/gug-215/unsigned/[0-9a-f]{40}/scanalyze-gug215-change-set-retirement-broker\\.zip$"
+    },
+    "signed_key": {
+      "type": "string",
+      "pattern": "^scanalyze/platform-authority/gug-215/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.zip$"
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "profile_name": { "type": "string", "pattern": "^[A-Za-z0-9_]{2,64}$" },
+    "profile_version_id": { "type": "string", "pattern": "^[A-Za-z0-9]{10}$" },
+    "profile_version_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$"
+    },
+    "kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:kms:us-east-1:042360977644:key/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "code_signing_config_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[A-Za-z0-9]+$"
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ParameterKey", "ParameterValue"],
+      "properties": {
+        "ParameterKey": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ParameterValue": { "type": "string", "maxLength": 4096 }
+      }
+    },
+    "parameter_projection": {
+      "description": "Exact ordered CloudFormation parameter projection including PrivateParameterProjectionSha256.",
+      "type": "array",
+      "minItems": 35,
+      "maxItems": 35,
+      "prefixItems": [
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "AuthorizationMode" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "AuthorityAccountId" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ChangeSetName" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "RetirementId" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ExpectedTemplateSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ExpectedEvidenceSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ExpectedBrokerPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "PrivateParameterProjectionSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerArtifactBucket" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerArtifactKey" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerArtifactVersion" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerArtifactCodeSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerCodeSigningConfigArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerRuntimeVersionArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "BrokerVersionBindingSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "IdentityStoreArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "IdentityCenterInstanceArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "IdentityCenterApplicationArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "IdentityCenterRedirectUri" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ClassifierIdentityStoreUserId" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ApproverIdentityStoreUserId" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ClassifierAssignmentSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ApproverAssignmentSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ClassifierInvokerPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ApproverInvokerPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ClassifierProofPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ApproverProofPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "IdentityCenterApplicationActorPolicySha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ClassifierPermissionSetRoleArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "ApproverPermissionSetRoleArn" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "SingleOperatorOwnerAuthorizationSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "SingleOperatorExpectedAuthorizationSha256" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "SingleOperatorExceptionCreatedAt" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "SingleOperatorExceptionNotBefore" } } },
+        { "$ref": "#/$defs/parameter", "properties": { "ParameterKey": { "const": "SingleOperatorExceptionExpiresAt" } } }
+      ],
+      "items": false
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logical_resource_id", "resource_type"],
+      "properties": {
+        "logical_resource_id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]+$" },
+        "resource_type": { "type": "string", "pattern": "^AWS::[A-Za-z0-9]+::[A-Za-z0-9]+$" }
+      }
+    },
+    "prohibited_operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "cloudformation:CreateChangeSet" },
+        { "const": "cloudformation:DeleteChangeSet" },
+        { "const": "cloudformation:DeleteStack" },
+        { "const": "cloudformation:ExecuteChangeSet" },
+        { "const": "cloudformation:UpdateStack" },
+        { "const": "lambda:InvokeFunction" },
+        { "const": "lambda:InvokeFunctionUrl" },
+        { "const": "lambda:CreateCodeSigningConfig" },
+        { "const": "lambda:DeleteCodeSigningConfig" },
+        { "const": "lambda:DeleteFunctionCodeSigningConfig" },
+        { "const": "lambda:PutFunctionCodeSigningConfig" },
+        { "const": "lambda:UpdateCodeSigningConfig" },
+        { "const": "signer:StartSigningJob" },
+        { "const": "s3:CopyObject" },
+        { "const": "s3:PutObject" },
+        { "const": "terraform:apply" },
+        { "const": "terraform:import" }
+      ],
+      "items": false,
+      "minItems": 17,
+      "maxItems": 17
+    },
+    "readback_operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "cloudformation:DescribeStacks" },
+        { "const": "cloudformation:GetTemplate" },
+        { "const": "cloudformation:ListStackResources" },
+        { "const": "cloudformation:DescribeStackEvents" }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "reconcile_operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "sts:GetCallerIdentity" },
+        { "const": "cloudformation:DescribeStacks" },
+        { "const": "signer:DescribeSigningJob" },
+        { "const": "signer:GetSigningProfile" },
+        { "const": "s3:GetBucketVersioning" },
+        { "const": "s3:HeadObject" },
+        { "const": "s3:GetObject" },
+        { "const": "s3:ListObjectVersions" },
+        { "const": "s3:HeadObject" },
+        { "const": "s3:GetObject" },
+        { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "cloudformation:DescribeStacks" },
+        { "const": "cloudformation:GetTemplate" },
+        { "const": "cloudformation:ListStackResources" },
+        { "const": "cloudformation:DescribeStackEvents" }
+      ],
+      "items": false,
+      "minItems": 15,
+      "maxItems": 15
+    },
+    "materialization_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence", "service", "api_action", "effect", "target_digest",
+        "request_projection_digest", "conditional_behavior",
+        "client_request_token_sha256", "attempt_limit", "retry_permitted",
+        "expected_response_class", "immediate_readback",
+        "unknown_outcome_reconciliation", "rollback"
+      ],
+      "properties": {
+        "sequence": { "const": 1 },
+        "service": { "const": "cloudformation" },
+        "api_action": { "const": "CreateStack" },
+        "effect": { "const": "CREATE_DEDICATED_ENTRYPOINT_STACK_ONLY" },
+        "target_digest": { "$ref": "#/$defs/digest" },
+        "request_projection_digest": { "$ref": "#/$defs/digest" },
+        "conditional_behavior": { "const": "TARGET_ABSENT_AFTER_TWO_EXACT_DESCRIBES" },
+        "client_request_token_sha256": { "$ref": "#/$defs/digest" },
+        "attempt_limit": { "const": 1 },
+        "retry_permitted": { "const": false },
+        "expected_response_class": { "const": "CreateStackOutput.StackId" },
+        "immediate_readback": { "$ref": "#/$defs/readback_operations" },
+        "unknown_outcome_reconciliation": { "$ref": "#/$defs/reconcile_operations" },
+        "rollback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["automatic", "delete_stack_authorized", "mode"],
+          "properties": {
+            "automatic": { "const": false },
+            "delete_stack_authorized": { "const": false },
+            "mode": { "const": "SEPARATE_OWNER_CHECKPOINT_REQUIRED" }
+          }
+        }
+      }
+    },
+    "create_stack_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "StackName", "TemplateBody", "Parameters", "Capabilities", "RoleARN",
+        "OnFailure", "EnableTerminationProtection", "ClientRequestToken"
+      ],
+      "properties": {
+        "StackName": { "const": "scanalyze-platform-authority-gug357-retirement-entrypoint" },
+        "TemplateBody": { "type": "string", "minLength": 1, "maxLength": 51200 },
+        "Parameters": { "$ref": "#/$defs/parameter_projection" },
+        "Capabilities": {
+          "type": "array",
+          "prefixItems": [{ "const": "CAPABILITY_NAMED_IAM" }],
+          "items": false,
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "RoleARN": {
+          "const": "arn:aws:iam::042360977644:role/scanalyze-platform-authority-gug363-cfn-materializer"
+        },
+        "OnFailure": { "const": "DO_NOTHING" },
+        "EnableTerminationProtection": { "const": true },
+        "ClientRequestToken": { "type": "string", "pattern": "^gug363-[0-9a-f]{48}$" }
+      }
+    }
+  }
+}

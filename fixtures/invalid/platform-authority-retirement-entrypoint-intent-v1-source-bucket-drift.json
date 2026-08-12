@@ -1,0 +1,115 @@
+{
+  "record_type": "scanalyze.platform_authority.retirement_entrypoint_intent.v1",
+  "schema_version": 1,
+  "implementation_issue": "GUG-363",
+  "live_issue": "GUG-357",
+  "environment": "synthetic-non-production",
+  "production": false,
+  "deployment_authorized": false,
+  "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+  "two_human_status": "NOT_PROVEN",
+  "independent_approval_present": false,
+  "target": {
+    "authority_account_id": "042360977644",
+    "region": "us-east-1",
+    "stack_name": "scanalyze-platform-authority-gug357-retirement-entrypoint",
+    "cloudformation_service_role_arn": "arn:aws:iam::042360977644:role/scanalyze-platform-authority-gug363-cfn-materializer"
+  },
+  "source": {
+    "commit": "1111111111111111111111111111111111111111",
+    "tree": "2222222222222222222222222222222222222222",
+    "template_path": "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml",
+    "template_sha256": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc"
+  },
+  "parameters": {
+    "AuthorizationMode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+    "AuthorityAccountId": "042360977644",
+    "ChangeSetName": "scanalyze-platform-authority-bootstrap-20300101000000",
+    "RetirementId": "gug215#sha256:16cfbdf6c850128310ac4d8bf3a2be95e09b6dfaf9aa30351d11fbb9f41ed6a5",
+    "ExpectedTemplateSha256": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc",
+    "ExpectedEvidenceSha256": "sha256:3c5763d016c26246a8b8906f3eacf399cb980b20b7efd076acc4435ffd307789",
+    "ExpectedBrokerPolicySha256": "sha256:89ff58982cd0ae5dd3f4caf5f13f36e890773b55eebf6daf97bad43030cff536",
+    "BrokerArtifactBucket": "scanalyze-gug363-synthetic-artifacts",
+    "BrokerArtifactKey": "scanalyze/platform-authority/gug-215/signed/12345678-1234-4234-8234-1234567890ab.zip",
+    "BrokerArtifactVersion": "synthetic-signed-version-1",
+    "BrokerArtifactCodeSha256": "uujHZ5H/eAih2qVcUWVhqLaVIDJo5ElvdESWTK2YDW0=",
+    "BrokerCodeSigningConfigArn": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-synthetic123",
+    "BrokerRuntimeVersionArn": "arn:aws:lambda:us-east-1::runtime:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "BrokerVersionBindingSha256": "sha256:ecc4e674941dea3e0e55c573ba91926f387d54cab444f8b4a939425ca6c41bb2",
+    "IdentityStoreArn": "arn:aws:identitystore::042360977644:identitystore/d-1234567890",
+    "IdentityCenterInstanceArn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+    "IdentityCenterApplicationArn": "arn:aws:sso::042360977644:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+    "IdentityCenterRedirectUri": "http://127.0.0.1:18443/callback",
+    "ClassifierIdentityStoreUserId": "00000000-0000-4000-8000-000000000001",
+    "ApproverIdentityStoreUserId": "00000000-0000-4000-8000-000000000001",
+    "ClassifierAssignmentSha256": "sha256:25d8a329994bde4b5e8e35ce4ed9ea552fc7d5cb80b2e0cd18f6896d213d866d",
+    "ApproverAssignmentSha256": "sha256:59b767c0568fbe53eb51156545184d7907c06cebd84f3bb4b11fe31cb64b9cdc",
+    "ClassifierInvokerPolicySha256": "sha256:b5a2e723e6e4c66cc07829eae2d0bd7aa78492a12353de745cae0510a1a05ddc",
+    "ApproverInvokerPolicySha256": "sha256:e419c589f9acbce0d0789856d60e03443d41be12d9db1ff18e3b0072800f4980",
+    "ClassifierProofPolicySha256": "sha256:2bcce6d10502c6a29c38c8307fbeb76726258f0efc1e5cbb1450ddce7927a908",
+    "ApproverProofPolicySha256": "sha256:4cf956a34cb8484b1db22f636b28e441f7528f32c05074030a47ce204a18fe6f",
+    "IdentityCenterApplicationActorPolicySha256": "sha256:bf1d31c28f54c5bb86b6cfc933785d6d2a0ad10762c2608e8415c83544e6ce65",
+    "ClassifierPermissionSetRoleArn": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireClass_0123456789abcdef",
+    "ApproverPermissionSetRoleArn": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_fedcba9876543210",
+    "SingleOperatorOwnerAuthorizationSha256": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1",
+    "SingleOperatorExpectedAuthorizationSha256": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566",
+    "SingleOperatorExceptionCreatedAt": "2030-01-01T00:00:00Z",
+    "SingleOperatorExceptionNotBefore": "2030-01-01T00:01:00Z",
+    "SingleOperatorExceptionExpiresAt": "2030-01-01T00:12:00Z",
+    "PrivateParameterProjectionSha256": "sha256:30d8c78e8d544ba2f75139f8d0b7d678f7a3fdbdb0f4cfa6a2acd5438d6755c2"
+  },
+  "owner_authorization_sha256": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1",
+  "single_operator_exception_digest": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566",
+  "intent_digest": "sha256:1c47b7b8db61d207f1e0a2d61b288944ebfec256c7b734000c505e7ce12ffc46",
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false,
+    "trusted_evaluation_at": "2030-01-01T00:05:00Z"
+  },
+  "artifact_signing_contract": {
+    "contract_version": 1,
+    "unsigned_source": {
+      "artifact_type": "scanalyze.platform_authority.change_set_retirement_package.v1",
+      "work_package": "GUG-215",
+      "manifest_digest": "sha256:7574ff96fd79f190b1f796ff2f0d053974ce2650f9a2980ee3131b49bfc51c8e",
+      "archive_sha256": "1f1838982ffeb7823f1441a8351ed38a6cd16951ac75c32ec0cd40777d8f7767",
+      "lambda_code_sha256": "Hxg4mC/+t4I/FEGoNR7TimzRaVGsdcMuwM1Ad32Pd2c=",
+      "archive_size_bytes": 154339,
+      "bucket": "scanalyze-gug363-synthetic-source-drift",
+      "key": "scanalyze/platform-authority/gug-215/unsigned/1111111111111111111111111111111111111111/scanalyze-gug215-change-set-retirement-broker.zip",
+      "version_id": "synthetic-unsigned-version-1",
+      "sse_algorithm": "aws:kms",
+      "sse_kms_key_arn": "arn:aws:kms:us-east-1:042360977644:key/00000000-0000-4000-8000-000000000001"
+    },
+    "signer": {
+      "job_id": "12345678-1234-4234-8234-1234567890ab",
+      "status": "Succeeded",
+      "job_owner": "042360977644",
+      "job_invoker": "042360977644",
+      "platform_id": "AWSLambda-SHA384-ECDSA",
+      "profile_name": "ScanalyzeGug363",
+      "profile_version_id": "ABCDEFGHIJ",
+      "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug363/ABCDEFGHIJ",
+      "signature_expires_at": "2030-01-02T00:00:00Z"
+    },
+    "signed_destination": {
+      "bucket": "scanalyze-gug363-synthetic-artifacts",
+      "key": "scanalyze/platform-authority/gug-215/signed/12345678-1234-4234-8234-1234567890ab.zip",
+      "version_id": "synthetic-signed-version-1",
+      "archive_sha256": "bae8c76791ff7808a1daa55c516561a8b695203268e4496f7444964cad980d6d",
+      "lambda_code_sha256": "uujHZ5H/eAih2qVcUWVhqLaVIDJo5ElvdESWTK2YDW0=",
+      "archive_size_bytes": 4608,
+      "sse_algorithm": "aws:kms",
+      "sse_kms_key_arn": "arn:aws:kms:us-east-1:042360977644:key/00000000-0000-4000-8000-000000000001"
+    },
+    "code_signing_config": {
+      "arn": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-synthetic123",
+      "allowed_signing_profile_version_arns": [
+        "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug363/ABCDEFGHIJ"
+      ],
+      "untrusted_artifact_on_deployment": "Enforce"
+    }
+  },
+  "artifact_signing_contract_digest": "sha256:e7035c0a964d255158d8d23cb5cb21b09804ac191bfc6f5a1a681f3f40daa014",
+  "artifact_signing_evidence_digest": "sha256:5fc982d48e99b8b6dab0fbf05664e568d688f99fc72f76ad0ff58f50a8426f18"
+}

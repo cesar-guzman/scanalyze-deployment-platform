@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-retirement-entrypoint-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -23,9 +23,11 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-357 platform-authority controls offline"
+	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-363 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
+	@echo "  GUG-363 entrypoint: python3 scripts/deployment/platform-authority-retirement-entrypoint-materializer.py --help"
 	@echo "  make git-safety           Check staged/worktree Git safety"
 	@echo "  make test                 Run platform tests (fail closed)"
 	@echo "  make enterprise-authorization-check Validate portable GUG-92 policy"
@@ -435,9 +437,23 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-357, offline) ──
-platform-authority-bootstrap-check:
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357 Platform-Authority Bootstrap Check ==="
+# ── Dedicated Retirement Entrypoint Check (GUG-363, offline) ─────────
+platform-authority-retirement-entrypoint-check:
+	@echo "=== GUG-363 Retirement Entrypoint Materialization Check ==="
+	@env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+		-u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE \
+		-u AWS_ROLE_ARN -u AWS_ENDPOINT_URL -u AWS_ENDPOINT_URL_STS \
+		-u AWS_ENDPOINT_URL_S3 -u AWS_ENDPOINT_URL_SIGNER \
+		-u AWS_ENDPOINT_URL_LAMBDA -u AWS_ENDPOINT_URL_CLOUDFORMATION \
+		$(PYTHON) -m pytest -q \
+			$(TESTS_DIR)/test_deployment/test_gug363_retirement_entrypoint_materializer.py \
+			$(TESTS_DIR)/test_deployment/test_gug215_retained_change_set_retirement.py::test_broker_logging_boundary_and_sdk_has_zero_retries_are_exact
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S scripts/deployment/platform-authority-retirement-entrypoint-materializer.py --help >/dev/null
+	@echo "GUG-363 retirement entrypoint check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-363, offline) ──
+platform-authority-bootstrap-check: platform-authority-retirement-entrypoint-check
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
@@ -503,7 +519,7 @@ platform-authority-bootstrap-check:
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -930,12 +946,15 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-046-lambda-audit-permission-set-provisioning.md \
 			ADR/ADR-047-lambda-audit-provisioning-repair.md \
 			ADR/ADR-048-platform-authority-bootstrap-artifact-authentication.md \
+			ADR/ADR-050-single-operator-nonprod-change-set-retirement.md \
+			ADR/ADR-051-direct-retirement-entrypoint-materialization.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
 			docs/deployment/platform-authority-account-bootstrap.md \
 			docs/deployment/durable-founder-bootstrap-pep.md \
 			docs/deployment/platform-authority-change-set-retirement.md \
+			docs/deployment/platform-authority-retirement-entrypoint-materialization.md \
 			docs/deployment/platform-authority-identity-context-pep.md \
 			docs/deployment/platform-authority-lambda-invocation-authority.md \
 			docs/deployment/platform-authority-lambda-invocation-materialization.md \
@@ -961,6 +980,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/operations/platform-authority-lambda-audit-provisioning-repair.md \
 			docs/operations/platform-authority-gug357-identity-center-audit-permission-set.md \
 			docs/operations/platform-authority-retained-change-set-retirement.md \
+			docs/operations/platform-authority-retirement-entrypoint-materialization.md \
 			docs/operations/platform-authority-identity-enhanced-session.md \
 			docs/security/gug-125-threat-model-delta.md \
 			docs/security/gug-206-threat-model-delta.md \
@@ -972,6 +992,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/security/gug-220-lambda-audit-permission-set-threat-model-delta.md \
 			docs/security/gug-221-lambda-audit-provisioning-repair-threat-model-delta.md \
 			docs/security/gug-357-identity-center-audit-permission-set-threat-model-delta.md \
+			docs/security/gug-363-retirement-entrypoint-materialization-threat-model-delta.md \
 			docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \

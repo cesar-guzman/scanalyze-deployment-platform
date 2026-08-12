@@ -53,6 +53,9 @@ from tooling.validate_schema import _validate_gug215_ledger
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts/deployment/platform-authority-change-set-retirement.py"
 BROKER_MODULE = REPO_ROOT / "tooling/platform_authority_change_set_retirement_broker.py"
+PACKAGE_MODULE = (
+    REPO_ROOT / "tooling/platform_authority_change_set_retirement_package.py"
+)
 PLAN_POLICY = REPO_ROOT / "policies/iam/platform-authority-bootstrap-plan-role.json"
 CLASSIFIER_POLICY = (
     REPO_ROOT
@@ -564,6 +567,12 @@ class FakeLambda:
         self.signing_arn = config.code_signing_config_arn
         self.runtime_version_arn = config.broker_runtime_version_arn
         self.runtime_update_mode = "Manual"
+        self.logging_config: dict[str, Any] = {
+            "LogFormat": "JSON",
+            "ApplicationLogLevel": "ERROR",
+            "SystemLogLevel": "WARN",
+            "LogGroup": "/aws/lambda/scanalyze-platform-authority-gug215-retirement",
+        }
         self.resource_policy_qualifiers: set[str | None] = set()
 
     def get_function_url_config(
@@ -599,6 +608,7 @@ class FakeLambda:
             "RuntimeVersionConfig": {
                 "RuntimeVersionArn": self.runtime_version_arn,
             },
+            "LoggingConfig": self.logging_config,
         }
 
     def get_function_concurrency(self, *, FunctionName: str) -> dict[str, Any]:
@@ -1167,6 +1177,75 @@ def test_cloudformation_alias_families_are_mutually_exclusive_by_condition() -> 
         block = resource_block(role_name)
         assert "- SingleOperatorMode" in block
         assert "single-" in block
+
+
+@pytest.mark.parametrize(
+    ("alias", "permissions"),
+    (
+        (
+            "RetirementBrokerSingleClassifyAlias",
+            (
+                "SingleClassifierFunctionUrlInvokePermission",
+                "SingleClassifierFunctionUrlFunctionPermission",
+            ),
+        ),
+        (
+            "RetirementBrokerSingleRetireAlias",
+            (
+                "SingleApproverRetireFunctionUrlInvokePermission",
+                "SingleApproverRetireFunctionUrlFunctionPermission",
+            ),
+        ),
+        (
+            "RetirementBrokerSingleReconcileAlias",
+            (
+                "SingleApproverReconcileFunctionUrlInvokePermission",
+                "SingleApproverReconcileFunctionUrlFunctionPermission",
+            ),
+        ),
+    ),
+)
+def test_single_operator_permissions_depend_on_their_exact_alias(
+    alias: str,
+    permissions: tuple[str, str],
+) -> None:
+    source = PEP_TEMPLATE.read_text(encoding="utf-8")
+
+    for permission in permissions:
+        match = re.search(
+            rf"(?ms)^  {re.escape(permission)}:\n.*?(?=^  [A-Za-z0-9].*?:\n|\Z)",
+            source,
+        )
+        assert match is not None, permission
+        block = match.group(0)
+        assert re.findall(
+            r"^    DependsOn: ([A-Za-z0-9]+)$", block, re.MULTILINE
+        ) == [alias]
+
+
+def test_gug215_package_is_unsigned_signer_source_not_a_deployment_artifact() -> None:
+    source = PACKAGE_MODULE.read_text(encoding="utf-8")
+
+    assert (
+        "Build the deterministic unsigned GUG-215 AWS Signer source package" in source
+    )
+    assert "not a Lambda-deployable artifact" in source
+    assert "lambda_code_sha256`` describe the unsigned source bytes only" in source
+    assert "signed destination\nobject is the only object eligible" in source
+    assert "archive_digest = sha256(archive_bytes).digest()" in source
+    assert (
+        '"lambda_code_sha256": base64.b64encode(archive_digest).decode("ascii")'
+        in source
+    )
+    assert '"deployment_authorized": False' in source
+    for prohibited_operation in (
+        "boto3.client(",
+        "start_signing_job(",
+        "put_object(",
+        "copy_object(",
+        "create_function(",
+    ):
+        assert prohibited_operation not in source
 
 
 @pytest.mark.parametrize(
@@ -2081,6 +2160,7 @@ def test_reconciliation_revalidates_stack_continuity_before_terminal_cas() -> No
         ("attached", "BROKER_ROLE_POLICY_INVENTORY_CHANGED"),
         ("code", "BROKER_CODE_BOUNDARY_CHANGED"),
         ("runtime", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("logging", "BROKER_CODE_BOUNDARY_CHANGED"),
         ("runtime-mode", "BROKER_RUNTIME_MANAGEMENT_CHANGED"),
         ("concurrency", "BROKER_CONCURRENCY_CHANGED"),
         ("alias", "BROKER_ALIAS_CHANGED"),
@@ -2108,6 +2188,8 @@ def test_effective_broker_role_code_alias_and_signing_are_read_back(
         clients.lambda_client.runtime_version_arn = (
             f"arn:aws:lambda:{REGION}::runtime:" + "b" * 64
         )
+    elif mutation == "logging":
+        clients.lambda_client.logging_config["ApplicationLogLevel"] = "INFO"
     elif mutation == "runtime-mode":
         clients.lambda_client.runtime_update_mode = "Auto"
     elif mutation == "concurrency":
@@ -2240,13 +2322,98 @@ def test_direct_cli_mutation_adapters_are_hard_disabled() -> None:
         reconcile.handler(reconcile)
 
 
-def test_broker_source_has_no_logging_and_sdk_has_zero_retries() -> None:
-    source = BROKER_MODULE.read_text(encoding="utf-8")
-    assert "print(" not in source
-    assert "logging." not in source
-    assert '"max_attempts": 0' in source
-    assert "delete_change_set(" in source
-    assert source.count("delete_change_set(") == 1
+def test_broker_logging_boundary_and_sdk_has_zero_retries_are_exact() -> None:
+    broker_source = BROKER_MODULE.read_text(encoding="utf-8")
+    template_source = PEP_TEMPLATE.read_text(encoding="utf-8")
+
+    def resource_block(name: str) -> str:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n.*?(?=^  [A-Za-z0-9].*?:\n|\Z)",
+            template_source,
+        )
+        assert match is not None, name
+        return match.group(0)
+
+    def statement_block(role: str, sid: str) -> str:
+        match = re.search(
+            rf"(?ms)^              - Sid: {re.escape(sid)}\n"
+            r".*?(?=^              - Sid: |\Z)",
+            role,
+        )
+        assert match is not None, sid
+        return match.group(0)
+
+    log_group = resource_block("RetirementBrokerLogGroup")
+    assert "    Type: AWS::Logs::LogGroup\n" in log_group
+    assert "    DeletionPolicy: Retain\n" in log_group
+    assert "    UpdateReplacePolicy: Retain\n" in log_group
+    assert (
+        "      LogGroupName: "
+        "/aws/lambda/scanalyze-platform-authority-gug215-retirement\n"
+    ) in log_group
+    assert "      RetentionInDays: 365\n" in log_group
+    assert "KmsKeyId:" not in log_group
+    assert re.findall(
+        r"^        - \{Key: ([a-z_]+), Value: (.+)\}$", log_group, re.MULTILINE
+    ) == [
+        ("managed_by", "cloudformation"),
+        ("service", "scanalyze-platform-authority"),
+        ("work_package", "GUG-215"),
+        ("environment", "non-production"),
+        ("production", "'false'"),
+    ]
+
+    role = resource_block("RetirementBrokerExecutionRole")
+    write_logs = statement_block(role, "WriteExactBrokerLogStreams")
+    assert re.findall(
+        r"^                  - (logs:[A-Za-z]+)$", write_logs, re.MULTILINE
+    ) == ["logs:CreateLogStream", "logs:PutLogEvents"]
+    assert (
+        "                Resource: !Sub "
+        "arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:"
+        "log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:"
+        "log-stream:*\n"
+    ) in write_logs
+
+    deny = statement_block(role, "DenyRetirementPrivilegeEscalation")
+    assert {
+        action
+        for action in re.findall(
+            r"^                  - (logs:[A-Za-z]+)$", deny, re.MULTILINE
+        )
+    } == {
+        "logs:AssociateKmsKey",
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DeleteRetentionPolicy",
+        "logs:DisassociateKmsKey",
+        "logs:PutResourcePolicy",
+        "logs:PutRetentionPolicy",
+    }
+    assert "logs:*" not in role
+
+    function = resource_block("RetirementBrokerFunction")
+    assert (
+        "    DependsOn:\n"
+        "      - ChangeSetRetirementLedger\n"
+        "      - RetirementBrokerLogGroup\n"
+    ) in function
+    assert (
+        "      LoggingConfig:\n"
+        "        ApplicationLogLevel: ERROR\n"
+        "        LogFormat: JSON\n"
+        "        LogGroup: !Ref RetirementBrokerLogGroup\n"
+        "        SystemLogLevel: WARN\n"
+    ) in function
+    assert (
+        "  BrokerLogGroupName:\n"
+        "    Value: !Ref RetirementBrokerLogGroup\n"
+    ) in template_source
+
+    assert "print(" not in broker_source
+    assert "logging." not in broker_source
+    assert '"max_attempts": 0' in broker_source
+    assert broker_source.count("delete_change_set(") == 1
 
 
 def test_direct_handler_is_permanently_fail_closed() -> None:

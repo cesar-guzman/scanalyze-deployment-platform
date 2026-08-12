@@ -295,9 +295,12 @@ preflight can decide recovery readiness.
 ### 8. Evidence is sanitized and durable state remains authoritative
 
 The human CLI prints only sanitized status, ledger digest and next-required
-control. The Lambda emits no logs from application code, has no CloudWatch Logs
-permissions and converts failures to non-sensitive denial codes. Raw Identity Store values, account/principal
-identifiers, ARNs, Change Set names/UUIDs, templates, AWS responses and ledger
+control. The Lambda emits no logs from application code and converts failures
+to non-sensitive denial codes. Its execution role may write Lambda platform
+events only to the exact retained log group created by the reviewed template;
+it cannot create/delete the group or change retention, KMS association or its
+resource policy. Raw Identity Store values, account/principal identifiers,
+ARNs, Change Set names/UUIDs, templates, AWS responses, logs and ledger
 documents must remain outside Git, PRs, Linear and NotebookLM.
 
 No local classification, approval, policy, attempt or verification file is
