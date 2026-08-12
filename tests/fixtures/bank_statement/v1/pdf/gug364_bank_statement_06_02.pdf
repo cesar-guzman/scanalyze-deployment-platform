@@ -10,58 +10,13 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 1014 >>
+<< /Length 586 >>
 stream
 BT
 /F1 12 Tf
+0 0 0 rg
 100 700 Td
-(SYNTHETIC TEST FIXTURE) Tj
-0 -15 Td
-(NOT REAL CUSTOMER DATA) Tj
-0 -15 Td
-(FIXTURE_ID: gug364_bank_statement_06_02) Tj
-0 -15 Td
-(PAGE 1 OF 1) Tj
-0 -15 Td
-(Bank: Example Meridian Bank) Tj
-0 -15 Td
-(Holder: TEST HOLDER 0001) Tj
-0 -15 Td
-(Account: ****0001) Tj
-0 -15 Td
-(CLABE: ****0001) Tj
-0 -15 Td
-(Currency: MXN) Tj
-0 -15 Td
-(Period Start: 2025-12-01) Tj
-0 -15 Td
-(Period End: 2025-12-31) Tj
-0 -15 Td
-(Account Type: cheques) Tj
-0 -15 Td
-(Bank Country: MX) Tj
-0 -15 Td
-(Summary Text: SYNTHETIC FIXTURE DATA) Tj
-0 -15 Td
-(Opening Balance: 1000.0) Tj
-0 -15 Td
-(Closing Balance: 1100.0) Tj
-0 -15 Td
-(Total Credits: 300.0) Tj
-0 -15 Td
-(Total Debits: 200.0) Tj
-0 -15 Td
-(Fees: 50.0 IVA: 8.0) Tj
-0 -15 Td
-(Interest Earned: 10.0) Tj
-0 -15 Td
-(Interest Charged: 0.0) Tj
-0 -15 Td
-(TRANSACTIONS:) Tj
-0 -15 Td
-(2025-12-05 | SYNTHETIC TEST TRANSACTION 001 | REF001 | credit | 300.0 | 1300.0 | otro) Tj
-0 -15 Td
-(2025-12-10 | SYNTHETIC TEST TRANSACTION 002 | REF002 | debit | 200.0 | 1100.0 | otro) Tj
+(SYNTHETIC TEST FIXTURE\\nNOT REAL CUSTOMER DATA\\nFIXTURE_ID: gug364_bank_statement_06_02\\nPAGE 1 OF 1\\nBank: Example Meridian Bank\\nHolder: TEST HOLDER 0001\\nAccount: ****0001\\nCLABE: ****0001\\nCurrency: MXN\\nPeriod Start: 2025-12-01\\nPeriod End: 2025-12-31\\nAccount Type: cheques\\nBank Country: MX\\nSummary Text: SYNTHETIC FIXTURE DATA\\nOpening Balance: 1000.0\\nClosing Balance: 1100.0\\nTotal Credits: 300.0\\nTotal Debits: 200.0\\nFees: 50.0 IVA: 8.0\\nInterest Earned: 10.0\\nInterest Charged: 0.0\\nTRANSACTIONS:\\nNo activity) Tj
 ET
 endstream
 endobj
@@ -78,10 +33,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000001315 00000 n 
-0000001385 00000 n 
+0000000886 00000 n 
+0000000956 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-1506
+1077
 %%EOF

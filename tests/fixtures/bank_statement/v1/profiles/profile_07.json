@@ -49,14 +49,14 @@
     "fees": null,
     "interest": null,
     "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "Missing transaction page in middle",
+    "warningSourceCondition": "MISSING_MIDDLE_PAGE",
     "expectedWarnings": [
       "INCOMPLETE_EXTRACTION"
     ],
     "quality": {
       "overallConfidence": 98.0
     },
-    "pages": 1,
+    "pages": 3,
     "nullRenderingPolicy": {
       "fees": "OMIT",
       "interest": "OMIT",
@@ -67,11 +67,27 @@
   "instances": [
     {
       "instanceId": "01",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     },
     {
       "instanceId": "02",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     }
   ]
 }

@@ -4,172 +4,1307 @@
   "title": "Scanalyze Fixture Catalog Schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["fixtures"],
+  "required": [
+    "fixtures"
+  ],
   "properties": {
     "fixtures": {
       "type": "array",
       "items": {
-        "anyOf": [
-          { "$ref": "#/$defs/positiveFixture" },
-          { "$ref": "#/$defs/physicalNegativeFixture" },
-          { "$ref": "#/$defs/runtimeGeneratedControl" },
-          { "$ref": "#/$defs/requestConflictControl" },
-          { "$ref": "#/$defs/reconciliationControl" },
-          { "$ref": "#/$defs/authorizationControl" }
+        "oneOf": [
+          {
+            "$ref": "#/$defs/positiveFixture"
+          },
+          {
+            "$ref": "#/$defs/physicalPayloadControl"
+          },
+          {
+            "$ref": "#/$defs/localDemoPolicyControl"
+          },
+          {
+            "$ref": "#/$defs/documentTerminalFailureControl"
+          },
+          {
+            "$ref": "#/$defs/requestConflictControl"
+          },
+          {
+            "$ref": "#/$defs/reconciliationControl"
+          },
+          {
+            "$ref": "#/$defs/authorizationControl"
+          }
         ]
       }
     }
   },
   "$defs": {
-    "baseFixture": {
+    "positiveFixture": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "schemaVersion", "fixtureId", "fixtureVersion", "profileId", "instanceId",
-        "scenarioType", "positiveOrNegative", "mimeType", "sensitivity",
-        "sourceSpecPath", "sourceSpecSha256", "generatorPath", "generatorVersion",
-        "generatorSourceSha256", "acceptedDocumentDenominator", "retentionClass",
-        "noRealDataAttestation", "tags"
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "filePath",
+        "pdfSha256",
+        "expectedResultPath",
+        "expectedResultSha256",
+        "byteSize",
+        "pageCount",
+        "expectedLifecycle",
+        "expectedCurrentStage",
+        "expectedStageState",
+        "manualReviewChecklist"
       ],
       "properties": {
-        "schemaVersion": { "type": "string", "enum": ["scanalyze.fixture-catalog.v1"] },
-        "fixtureId": { "type": "string" },
-        "fixtureVersion": { "type": "string" },
-        "profileId": { "type": "string" },
-        "instanceId": { "type": "string" },
-        "scenarioType": { "type": "string" },
-        "positiveOrNegative": { "type": "string", "enum": ["POSITIVE", "NEGATIVE"] },
-        "mimeType": { "type": "string" },
-        "sensitivity": { "type": "string", "enum": ["SYNTHETIC"] },
-        "sourceSpecPath": { "type": "string" },
-        "sourceSpecSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "generatorPath": { "type": "string" },
-        "generatorVersion": { "type": "string" },
-        "generatorSourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "acceptedDocumentDenominator": { "type": "boolean" },
-        "retentionClass": { "type": "string" },
-        "noRealDataAttestation": { "type": "boolean", "enum": [true] },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "filePath": { "type": "string" },
-        "expectedResultPath": { "type": "string" },
-        "expectedLifecycle": { "type": "string" },
-        "expectedCurrentStage": { "type": "string" },
-        "expectedStageState": { "type": "string" },
-        "expectedHttpStatus": { "type": "integer" },
-        "expectedErrorCode": { "type": "string" },
-        "expectedSafeFailureCode": { "type": "string" },
-        "expectedRetryClass": { "type": "string" },
-        "sharedInputFixtureId": { "type": "string" },
-        "expectedLedgerState": { "type": "string" },
-        "pdfSha256": { "type": "string" },
-        "expectedResultSha256": { "type": "string" },
-        "byteSize": { "type": "integer" },
-        "pageCount": { "type": "integer" },
-        "manualReviewChecklist": { "type": "array" }
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "POSITIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": true
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "positiveFixture"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer"
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
-    "positiveFixture": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": [
-            "filePath", "pdfSha256", "expectedResultPath", "expectedResultSha256",
-            "byteSize", "pageCount", "expectedLifecycle", "expectedCurrentStage",
-            "expectedStageState", "manualReviewChecklist"
+    "physicalPayloadControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "expectedLifecycle",
+        "expectedCurrentStage",
+        "expectedStageState",
+        "expectedRetryClass",
+        "expectedHttpStatus",
+        "expectedErrorCode",
+        "filePath"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "physicalPayloadControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
           ],
-          "properties": {
-            "positiveOrNegative": { "const": "POSITIVE" },
-            "pdfSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            "expectedResultSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            "byteSize": { "type": "integer" },
-            "pageCount": { "type": "integer" },
-            "expectedLifecycle": { "type": "string", "enum": ["UPLOAD_PENDING", "SUBMITTED", "PROCESSING", "COMPLETED", "FAILED"] },
-            "expectedCurrentStage": { "type": "string", "enum": ["TERMINAL"] },
-            "expectedStageState": { "type": "string", "enum": ["SUCCEEDED", "FAILED"] },
-            "manualReviewChecklist": { "type": "array", "items": { "type": "string" } },
-            "acceptedDocumentDenominator": { "const": true }
+          "const": "FAILED"
+        },
+        "expectedHttpStatus": {
+          "type": "integer"
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
-    "physicalNegativeFixture": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": ["expectedLifecycle", "expectedCurrentStage", "expectedStageState", "expectedRetryClass", "expectedHttpStatus", "filePath"],
-          "properties": {
-            "positiveOrNegative": { "const": "NEGATIVE" },
-            "expectedLifecycle": { "type": "string", "enum": ["UPLOAD_PENDING", "SUBMITTED", "PROCESSING", "COMPLETED", "FAILED"] },
-            "expectedCurrentStage": { "type": "string", "enum": ["TERMINAL"] },
-            "expectedStageState": { "type": "string", "enum": ["FAILED"] },
-            "expectedHttpStatus": { "type": "integer" },
-            "expectedErrorCode": { "type": "string" },
-            "expectedSafeFailureCode": { "type": "string" },
-            "expectedRetryClass": { "type": "string", "enum": ["NOT_RETRYABLE", "RETRYABLE_WITH_BACKOFF", "RETRY_ONLY_AFTER_RECONCILIATION", "TERMINAL", "UNKNOWN_OR_QUARANTINED"] },
-            "acceptedDocumentDenominator": { "const": false }
+    "localDemoPolicyControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "expectedHttpStatus",
+        "expectedErrorCode"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "localDemoPolicyControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer"
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
-    "runtimeGeneratedControl": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": ["expectedHttpStatus", "expectedErrorCode"],
-          "properties": {
-            "positiveOrNegative": { "const": "NEGATIVE" },
-            "expectedHttpStatus": { "type": "integer" },
-            "expectedErrorCode": { "type": "string" },
-            "acceptedDocumentDenominator": { "const": false }
+    "documentTerminalFailureControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "expectedHttpStatus",
+        "expectedErrorCode",
+        "filePath"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "documentTerminalFailureControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer"
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "requestConflictControl": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": ["sharedInputFixtureId", "expectedHttpStatus", "expectedErrorCode"],
-          "properties": {
-            "positiveOrNegative": { "const": "NEGATIVE" },
-            "sharedInputFixtureId": { "type": "string" },
-            "expectedHttpStatus": { "type": "integer", "const": 409 },
-            "expectedErrorCode": { "type": "string" },
-            "expectedRetryClass": { "type": "string", "enum": ["TERMINAL"] },
-            "acceptedDocumentDenominator": { "const": false }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "sharedInputFixtureId",
+        "expectedHttpStatus",
+        "expectedErrorCode",
+        "expectedRetryClass"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "requestConflictControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer",
+          "const": 409
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "reconciliationControl": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": ["sharedInputFixtureId", "expectedLedgerState"],
-          "properties": {
-            "positiveOrNegative": { "const": "NEGATIVE" },
-            "sharedInputFixtureId": { "type": "string" },
-            "expectedLedgerState": { "type": "string", "enum": ["SUCCEEDED"] },
-            "acceptedDocumentDenominator": { "const": false }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "sharedInputFixtureId",
+        "expectedLedgerState"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "reconciliationControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer"
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string",
+          "const": "SUCCEEDED"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "authorizationControl": {
-      "allOf": [
-        { "$ref": "#/$defs/baseFixture" },
-        {
-          "required": ["sharedInputFixtureId", "expectedHttpStatus", "expectedErrorCode", "expectedRetryClass"],
-          "properties": {
-            "positiveOrNegative": { "const": "NEGATIVE" },
-            "sharedInputFixtureId": { "type": "string" },
-            "expectedHttpStatus": { "type": "integer", "const": 403 },
-            "expectedErrorCode": { "type": "string" },
-            "expectedRetryClass": { "type": "string", "enum": ["TERMINAL"] },
-            "acceptedDocumentDenominator": { "const": false }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant",
+        "sharedInputFixtureId",
+        "expectedHttpStatus",
+        "expectedErrorCode",
+        "expectedRetryClass"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "scanalyze.fixture-catalog.v1"
+          ]
+        },
+        "fixtureId": {
+          "type": "string"
+        },
+        "fixtureVersion": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "scenarioType": {
+          "type": "string"
+        },
+        "positiveOrNegative": {
+          "const": "NEGATIVE"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC"
+          ]
+        },
+        "sourceSpecPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "sourceSpecSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "generatorPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "generatorVersion": {
+          "type": "string"
+        },
+        "generatorSourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "acceptedDocumentDenominator": {
+          "const": false
+        },
+        "retentionClass": {
+          "type": "string"
+        },
+        "noRealDataAttestation": {
+          "type": "boolean",
+          "enum": [
+            true
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variant": {
+          "const": "authorizationControl"
+        },
+        "filePath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedResultPath": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.).*$"
+        },
+        "expectedLifecycle": {
+          "type": "string",
+          "enum": [
+            "UPLOAD_PENDING",
+            "SUBMITTED",
+            "PROCESSING",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "expectedCurrentStage": {
+          "type": "string",
+          "enum": [
+            "TERMINAL"
+          ]
+        },
+        "expectedStageState": {
+          "type": "string",
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ]
+        },
+        "expectedHttpStatus": {
+          "type": "integer",
+          "const": 403
+        },
+        "expectedErrorCode": {
+          "type": "string"
+        },
+        "expectedSafeFailureCode": {
+          "type": "string"
+        },
+        "expectedRetryClass": {
+          "type": "string",
+          "enum": [
+            "NOT_RETRYABLE",
+            "RETRYABLE_WITH_BACKOFF",
+            "RETRY_ONLY_AFTER_RECONCILIATION",
+            "TERMINAL",
+            "UNKNOWN_OR_QUARANTINED"
+          ]
+        },
+        "sharedInputFixtureId": {
+          "type": "string"
+        },
+        "expectedLedgerState": {
+          "type": "string"
+        },
+        "pdfSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expectedResultSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer"
+        },
+        "pageCount": {
+          "type": "integer"
+        },
+        "manualReviewChecklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     }
   }
 }

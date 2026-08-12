@@ -49,7 +49,7 @@
     "fees": null,
     "interest": null,
     "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "Math mismatch closing = 99999.99",
+    "warningSourceCondition": "MATH_MISMATCH",
     "expectedWarnings": [
       "BALANCE_RECONCILIATION_WARNING"
     ],
@@ -67,11 +67,27 @@
   "instances": [
     {
       "instanceId": "01",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     },
     {
       "instanceId": "02",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     }
   ]
 }

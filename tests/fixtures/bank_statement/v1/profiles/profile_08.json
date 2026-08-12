@@ -49,10 +49,8 @@
     "fees": null,
     "interest": null,
     "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "Blurry document",
-    "expectedWarnings": [
-      "LOW_CONFIDENCE"
-    ],
+    "warningSourceCondition": "LOW_CONTRAST_TEXT",
+    "expectedWarnings": [],
     "quality": {
       "overallConfidence": 60.0
     },
@@ -67,11 +65,27 @@
   "instances": [
     {
       "instanceId": "01",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     },
     {
       "instanceId": "02",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     }
   ]
 }

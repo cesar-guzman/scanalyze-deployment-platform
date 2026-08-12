@@ -2,6 +2,7 @@
   "fixtures": [
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_01_01",
       "fixtureVersion": "1.0",
       "profileId": "01",
@@ -12,13 +13,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_01.json",
-      "sourceSpecSha256": "026bfc72ae6a65f3e1bc4ebb2d5a9140a2f472951b712d1a4348c34b3aa7ae0c",
+      "sourceSpecSha256": "4303d55dfbcf24c719b123b38f6f1d71c587ebcbdce16549b15f7b2ccfaaa017",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "1e99b72b735cbae6751da48089dd2e33cc7aeda27103f856f32cc5aa08f10cb5",
+      "pdfSha256": "965e719ea3b616e1114db0955928f735311278dfe75860ea6eb1385b5e071cb0",
       "expectedResultPath": "expected/gug364_bank_statement_01_01_expected.json",
-      "expectedResultSha256": "23f39e052f2e40923e463a229b7280714ce328596062f12df677f84a3e8d56f5",
-      "byteSize": 1615,
+      "expectedResultSha256": "b59fe8a6725d0676ec08db0bfbb3e5f6f0c33bc52db644a0ee75148f5542adb1",
+      "byteSize": 1223,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -36,10 +37,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_01_02",
       "fixtureVersion": "1.0",
       "profileId": "01",
@@ -50,13 +52,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_01.json",
-      "sourceSpecSha256": "026bfc72ae6a65f3e1bc4ebb2d5a9140a2f472951b712d1a4348c34b3aa7ae0c",
+      "sourceSpecSha256": "4303d55dfbcf24c719b123b38f6f1d71c587ebcbdce16549b15f7b2ccfaaa017",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "37ecd60c8e002ffe3e9d252b90b9096f6eb6127b892a20aeccfc5346052605e6",
+      "pdfSha256": "82216d29a9ae46df5e9c9068a1d1dd0429e43592ff3c188da8137b0e1ab4989b",
       "expectedResultPath": "expected/gug364_bank_statement_01_02_expected.json",
-      "expectedResultSha256": "4df44d86b766e9d15475ac7909eac0438188e5f28edc26fcddedbb12bf9b9f68",
-      "byteSize": 1615,
+      "expectedResultSha256": "5edd0d7b872d6c79114e7cda4ab15136a5791ab229fb69d4eec684a0d69604f1",
+      "byteSize": 1223,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -74,10 +76,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_02_01",
       "fixtureVersion": "1.0",
       "profileId": "02",
@@ -88,14 +91,14 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_02.json",
-      "sourceSpecSha256": "57e9de8793092f3a4e6935aa087fde386d828efc943927efb618602e186d5ed1",
+      "sourceSpecSha256": "c948c9733ca67a4d1df55c6de10b1ea783ee3c7b12309100d923d4356b31ad97",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "1a672915f4ba60d1cf8f3db2434e1fdb6e89634345d6855e28d8cb69dd5928f6",
+      "pdfSha256": "a127618a2b8b25070f46c7af9aa61e9089d41f0a20ccc68e99381d001a53ea06",
       "expectedResultPath": "expected/gug364_bank_statement_02_01_expected.json",
-      "expectedResultSha256": "73b62e49c90e697dde207d5142f5e90a830f819eb18e377e880f012b8d3eef32",
-      "byteSize": 4483,
-      "pageCount": 3,
+      "expectedResultSha256": "de09f592ba059f122a2c0a45c9d53cca3e9bbe9eab22cda68323024a7a8c4a07",
+      "byteSize": 1223,
+      "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
       "expectedStageState": "SUCCEEDED",
@@ -112,10 +115,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_02_02",
       "fixtureVersion": "1.0",
       "profileId": "02",
@@ -126,14 +130,14 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_02.json",
-      "sourceSpecSha256": "57e9de8793092f3a4e6935aa087fde386d828efc943927efb618602e186d5ed1",
+      "sourceSpecSha256": "c948c9733ca67a4d1df55c6de10b1ea783ee3c7b12309100d923d4356b31ad97",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "18ba2326ab9093bba438d30fcaf99cc71d8bdd6e8fa41525a6cb87ff1b32cf25",
+      "pdfSha256": "f13ccede5deaf6f65cda35d809cf7f9d807d3a2e5bcb65caeb3995819e665f42",
       "expectedResultPath": "expected/gug364_bank_statement_02_02_expected.json",
-      "expectedResultSha256": "0fad1e66971548a37c2c8f5f24cf0de7c2fa52a8bee1ed932bee592dcfa11190",
-      "byteSize": 4483,
-      "pageCount": 3,
+      "expectedResultSha256": "860fbd9f2515de2f264dbe8925bcd8af9f584dbc4213f977d3d40b77c8051d00",
+      "byteSize": 1223,
+      "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
       "expectedStageState": "SUCCEEDED",
@@ -150,10 +154,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_03_01",
       "fixtureVersion": "1.0",
       "profileId": "03",
@@ -164,13 +169,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_03.json",
-      "sourceSpecSha256": "879517a0416cf99d3bdec4a282e8212ce0db430cee770692c2aea683e72151e3",
+      "sourceSpecSha256": "5d8888daba821f77892157e7606c8cb12a344f9774be231722d7035ab3e74377",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "72bf27996391b96858fdcc16bed6233f1421f7c46eeb86eb31e81233eb9161b8",
+      "pdfSha256": "870bfdd7bdf8c77bcc5c9bcf0e0ab027c2b9149d6283959293be4a3d67bb5048",
       "expectedResultPath": "expected/gug364_bank_statement_03_01_expected.json",
-      "expectedResultSha256": "f69ececeffb13b9f34dea1c31ca4ebfe1a14908b1ee50f9b27783d642839ae8e",
-      "byteSize": 1576,
+      "expectedResultSha256": "0852af658033b1192d0bdbc0d46b67fb88d357e99094edbd1131d17c817c4777",
+      "byteSize": 1195,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -188,10 +193,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_03_02",
       "fixtureVersion": "1.0",
       "profileId": "03",
@@ -202,13 +208,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_03.json",
-      "sourceSpecSha256": "879517a0416cf99d3bdec4a282e8212ce0db430cee770692c2aea683e72151e3",
+      "sourceSpecSha256": "5d8888daba821f77892157e7606c8cb12a344f9774be231722d7035ab3e74377",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "1a8649a5263c96f39faf25ac8fff232dcd7110edfbaa50f2a067490f1f36e005",
+      "pdfSha256": "ae8d8d514d70a429e786402051bd2eee99a00a5e94a8ff02a2539174bcf6889d",
       "expectedResultPath": "expected/gug364_bank_statement_03_02_expected.json",
-      "expectedResultSha256": "75c449e7a373fa37017e9d55316b784261a611616556d72c64588b629e706bfe",
-      "byteSize": 1576,
+      "expectedResultSha256": "da66392cd15e40a5cde1829733c4ac3eff4b0490bfab48bf9d2a3eb57875cf9c",
+      "byteSize": 1195,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -226,10 +232,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_04_01",
       "fixtureVersion": "1.0",
       "profileId": "04",
@@ -240,13 +247,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_04.json",
-      "sourceSpecSha256": "c779b2528328be495eacf17fc11127e3133e2e7ddd9d43e6cc221ab890cfc2f7",
+      "sourceSpecSha256": "600c64c7505859c8030c52dc677573abd211b2064d93fc69a6f065e75d37920f",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "07ded77eaa741b85b45231aa3f80a194a3e64352e7fe4d74ae94dc7f7af0e43b",
+      "pdfSha256": "5e740ca534e8f413ae0212f33d5464285a01d7ed4ddcfbf56836cfadd85137e1",
       "expectedResultPath": "expected/gug364_bank_statement_04_01_expected.json",
       "expectedResultSha256": "8efd6364c28affd7a30291ee29b089aa33ddb96b536bebd6016b5ccb863dee1e",
-      "byteSize": 1529,
+      "byteSize": 1298,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -264,10 +271,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_04_02",
       "fixtureVersion": "1.0",
       "profileId": "04",
@@ -278,13 +286,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_04.json",
-      "sourceSpecSha256": "c779b2528328be495eacf17fc11127e3133e2e7ddd9d43e6cc221ab890cfc2f7",
+      "sourceSpecSha256": "600c64c7505859c8030c52dc677573abd211b2064d93fc69a6f065e75d37920f",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "be35af3c06af536e55bbbf652d006efac340b59c469c51f2bb1382c1e921a85c",
+      "pdfSha256": "6ba05c5bfa0b514da2f3f0df14c4fb3c3d6f8156fa7bd45bcb32a5a052b19ea3",
       "expectedResultPath": "expected/gug364_bank_statement_04_02_expected.json",
       "expectedResultSha256": "dd7bf5dae627415cdc6dd528f9695fb1565a79942283de4bfdb03761ab6ae2ce",
-      "byteSize": 1529,
+      "byteSize": 1298,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -302,10 +310,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_05_01",
       "fixtureVersion": "1.0",
       "profileId": "05",
@@ -316,13 +325,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_05.json",
-      "sourceSpecSha256": "29ec1a8173c0ded6ec1da58e6d5aed4fdff344d4cfa27d35882f2c7cbfa0c9ea",
+      "sourceSpecSha256": "a430a327182a6a62098c4cda0bf8658baf8a71c2d52af0213861252b8eaa9727",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "973e0fd73953b4c8b91371f30a2347f235c70b91b24f41a8deef79a1d2b9b023",
+      "pdfSha256": "f974db2b99c02892afecf1273248220c63c9ac594e6b8060f96563afd0150d93",
       "expectedResultPath": "expected/gug364_bank_statement_05_01_expected.json",
       "expectedResultSha256": "c58eab1d845decfd66d4a726bd2a347b8ba0493190ac54ae036ff41ccd93c5e4",
-      "byteSize": 1438,
+      "byteSize": 1219,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -340,10 +349,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_05_02",
       "fixtureVersion": "1.0",
       "profileId": "05",
@@ -354,13 +364,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_05.json",
-      "sourceSpecSha256": "29ec1a8173c0ded6ec1da58e6d5aed4fdff344d4cfa27d35882f2c7cbfa0c9ea",
+      "sourceSpecSha256": "a430a327182a6a62098c4cda0bf8658baf8a71c2d52af0213861252b8eaa9727",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "f328b8dfee8e08b4219bda723d08e1a40730893663ef7549c3ec50efdbb65210",
+      "pdfSha256": "0e9b4c93bb44ec13d762c548afe30082a0adba3a7fc9412d2c7345d9bf35dbdf",
       "expectedResultPath": "expected/gug364_bank_statement_05_02_expected.json",
       "expectedResultSha256": "2513e3928a33ffc41c3491619bc97a7c7103a6bcef83f80324e061cc594ea1a2",
-      "byteSize": 1438,
+      "byteSize": 1219,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -378,10 +388,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_06_01",
       "fixtureVersion": "1.0",
       "profileId": "06",
@@ -392,13 +403,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_06.json",
-      "sourceSpecSha256": "126f085e964a4c7f16c7e884bd2780c77d10df240cc812b10524e6df96bf0a23",
+      "sourceSpecSha256": "2a9f6ca6fb2da027a6b6858809c439eaa05c0b4f22d7ec8b2d952b0ef1949437",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "ce56ae0a2dd08ca825feba0c4748bd7410c03ea7b39d6c6e71d58b5d93b90db3",
+      "pdfSha256": "01f759d9a81666e77b8fa118d60a0cbb235568baf5a2d501e808cef38e8a4338",
       "expectedResultPath": "expected/gug364_bank_statement_06_01_expected.json",
-      "expectedResultSha256": "f01babfc62106de109c82f496cad6c68e927bb1669b0378972ede43b4c8f767f",
-      "byteSize": 1722,
+      "expectedResultSha256": "e4e794583752d5f7eadd710ae4dbbf5e7a75d669559f2ca63b9dce8c8c4e209f",
+      "byteSize": 1293,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -416,10 +427,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_06_02",
       "fixtureVersion": "1.0",
       "profileId": "06",
@@ -430,13 +442,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_06.json",
-      "sourceSpecSha256": "126f085e964a4c7f16c7e884bd2780c77d10df240cc812b10524e6df96bf0a23",
+      "sourceSpecSha256": "2a9f6ca6fb2da027a6b6858809c439eaa05c0b4f22d7ec8b2d952b0ef1949437",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "e59562f0bb0e5e30cd33cd462869e063becc7cbb950b1724f7008676f06af4bd",
+      "pdfSha256": "c69c335262d0fcec4bf0626cf4243c3f2baac75d75565758a7607fc6d1f928ef",
       "expectedResultPath": "expected/gug364_bank_statement_06_02_expected.json",
-      "expectedResultSha256": "0d8b7c2f49a33e0bebfb428d5d9ce3253208481553853b2b14b081d066f94769",
-      "byteSize": 1722,
+      "expectedResultSha256": "74e7bb02006ac9b23dde1c732dc0b0442845b0bead8072ae1f705b1c7034bcca",
+      "byteSize": 1293,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -454,10 +466,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_07_01",
       "fixtureVersion": "1.0",
       "profileId": "07",
@@ -468,13 +481,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_07.json",
-      "sourceSpecSha256": "43783afcd28fc9d84fdad4ab3ecd8f98bed19eb0d4d0914d78a7c5df320ba628",
+      "sourceSpecSha256": "9cf5912bd5c61d8e6b463db43e3e9e0130f3d89711cde0043ba1ad2692557549",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "60e7a3870664f6c3814c68e006f6b1f2eb2137a287fbbb7a19be1360653b7659",
+      "pdfSha256": "544d727de1b988fe5e7b55b03976467f2cc8be802a39bf9a38e26d6a36a1af4c",
       "expectedResultPath": "expected/gug364_bank_statement_07_01_expected.json",
-      "expectedResultSha256": "2ef514f6752e892c8cd63695302c12beb32951bce8044295aeb4d44b6bb5db03",
-      "byteSize": 1690,
+      "expectedResultSha256": "7e7b10ec06370f1047284dc699773a5ec7233fc053feac350cdbdb09c94f8b56",
+      "byteSize": 1271,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -492,10 +505,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_07_02",
       "fixtureVersion": "1.0",
       "profileId": "07",
@@ -506,13 +520,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_07.json",
-      "sourceSpecSha256": "43783afcd28fc9d84fdad4ab3ecd8f98bed19eb0d4d0914d78a7c5df320ba628",
+      "sourceSpecSha256": "9cf5912bd5c61d8e6b463db43e3e9e0130f3d89711cde0043ba1ad2692557549",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "0098fc178c7bca0b6dafb45ca403d491d8cd2c7ab21843545adb26af1e3e84e0",
+      "pdfSha256": "3449fc5a815b4f951578add11be001dc5fcf554afab617e2a1959e4d80fd8c30",
       "expectedResultPath": "expected/gug364_bank_statement_07_02_expected.json",
-      "expectedResultSha256": "7f3685aee0335b12c8a67288e4c7c0a226756c782c5ba9fedf59d86897855374",
-      "byteSize": 1690,
+      "expectedResultSha256": "222e6498a8017d697d4a17e5de693543109efb62f6d948651701d1a2d75e44da",
+      "byteSize": 1271,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -530,10 +544,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_08_01",
       "fixtureVersion": "1.0",
       "profileId": "08",
@@ -544,13 +559,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_08.json",
-      "sourceSpecSha256": "041add65f2229de1ff7fb3d9dd9a561284d0e8663e2435c8c42e717fc1267111",
+      "sourceSpecSha256": "8702cfd86f0aad524b86b1af24924114672016df27dafcae20d6fa0e7641b48c",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "59da618961fb87c8ef884ee0fcbd16ebd729ce36c8c7d5152c6dfc4cb7b9a298",
+      "pdfSha256": "38ab2fd39b22b318adbe90a575b615c376c901041baec3e65a562b1ddc01df8e",
       "expectedResultPath": "expected/gug364_bank_statement_08_01_expected.json",
-      "expectedResultSha256": "ec8a8dec06c792963f7c681adaf8c364048150665a2e53f6ee1d480526b4fb7e",
-      "byteSize": 1671,
+      "expectedResultSha256": "cfd4853a115fec48686b9f0508bd1d35dfcae523f0ac5cfe8bf6b04703239d48",
+      "byteSize": 1278,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -568,10 +583,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_08_02",
       "fixtureVersion": "1.0",
       "profileId": "08",
@@ -582,13 +598,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_08.json",
-      "sourceSpecSha256": "041add65f2229de1ff7fb3d9dd9a561284d0e8663e2435c8c42e717fc1267111",
+      "sourceSpecSha256": "8702cfd86f0aad524b86b1af24924114672016df27dafcae20d6fa0e7641b48c",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "3f216c1b132c9519ac1f63e67ef7111cc4252b982fabd5b95001018f2b0ead3c",
+      "pdfSha256": "97cb81fd58443ddef9e4cc8f4db44d4320488cce99687ec0e77046c004893a15",
       "expectedResultPath": "expected/gug364_bank_statement_08_02_expected.json",
-      "expectedResultSha256": "9e6ffc64002e3a8858927a1f5e768780cdf6db9ea672a36057a198ac7a3d8b87",
-      "byteSize": 1671,
+      "expectedResultSha256": "5bff55a2ced97961c0f04a2b249a0243a740770ba829ed440df38b8c2703c092",
+      "byteSize": 1278,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -606,10 +622,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_09_01",
       "fixtureVersion": "1.0",
       "profileId": "09",
@@ -620,13 +637,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_09.json",
-      "sourceSpecSha256": "a4bda7e27203599932f0dc7a290572048200508cee5a4b76488a160a4dff8db8",
+      "sourceSpecSha256": "ac3ece20702d5b93c3d1c5b55cddc8bac3927f04669939a8db8cd5ac31ed9e66",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "332c8791eb63376b1a5145842ad4519eab1bbf5c0e2caef8652691a6602b7f34",
+      "pdfSha256": "3e15114e07e7e8059a308cd4d28aacb288b9b2719feac984b3737f2dfe7afd41",
       "expectedResultPath": "expected/gug364_bank_statement_09_01_expected.json",
-      "expectedResultSha256": "c19c8283cb195a7ac1f79e36ddcfc9877ecd2a4ed9a91f65731e72de0e53f9ce",
-      "byteSize": 1690,
+      "expectedResultSha256": "3bdf64eab8bd8c9cd29ea9484c5f1229fea93d4e4c736db4bd079b1d24e63a8d",
+      "byteSize": 1267,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -644,10 +661,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_09_02",
       "fixtureVersion": "1.0",
       "profileId": "09",
@@ -658,13 +676,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_09.json",
-      "sourceSpecSha256": "a4bda7e27203599932f0dc7a290572048200508cee5a4b76488a160a4dff8db8",
+      "sourceSpecSha256": "ac3ece20702d5b93c3d1c5b55cddc8bac3927f04669939a8db8cd5ac31ed9e66",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "ce22e7e51ce920a02a14c01975d417036ccfb41f3ab0878ec22da378def40fd2",
+      "pdfSha256": "1062575520a939a88a4ab8e5418b45bc7c95881b77be1a3aa4549864afbee37f",
       "expectedResultPath": "expected/gug364_bank_statement_09_02_expected.json",
-      "expectedResultSha256": "3d886d42e52bc8627137e090c4095e3d67c9d8257c3d58b9bc97e90c58f11a5e",
-      "byteSize": 1690,
+      "expectedResultSha256": "4cdbca7ea55db45fa844ecb337e467e64843f69307828ea5bcf0d64b4cc5f5c2",
+      "byteSize": 1267,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -682,10 +700,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_10_01",
       "fixtureVersion": "1.0",
       "profileId": "10",
@@ -696,13 +715,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_10.json",
-      "sourceSpecSha256": "067718748211b52593c8a7c46e2290669c0c3fbcecbbb322a6984b51577841f9",
+      "sourceSpecSha256": "2e9b5492e4f9d13f042c787deb2fc558ded85df797de51c2b7920b41fddf4f1d",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "c80e5dfc89c240e0c7b027e80290a395aacab51ac33e214fcd5f6e276e17d2df",
+      "pdfSha256": "fa7b462e573846f9ab34ef2a0055cacb95c604f95adffe8830c303cb655c7bce",
       "expectedResultPath": "expected/gug364_bank_statement_10_01_expected.json",
-      "expectedResultSha256": "5e12b36011f24ce59a7e03231183a6f4b95f039bbd171c20296df4e026800fbe",
-      "byteSize": 1615,
+      "expectedResultSha256": "d1ce6b286685cb5ece98395f733bd331efa85c8083fb435c38f7932fb7d8b724",
+      "byteSize": 1223,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -720,10 +739,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "positiveFixture",
       "fixtureId": "gug364_bank_statement_10_02",
       "fixtureVersion": "1.0",
       "profileId": "10",
@@ -734,13 +754,13 @@
       "mimeType": "application/pdf",
       "sensitivity": "SYNTHETIC",
       "sourceSpecPath": "profiles/profile_10.json",
-      "sourceSpecSha256": "067718748211b52593c8a7c46e2290669c0c3fbcecbbb322a6984b51577841f9",
+      "sourceSpecSha256": "2e9b5492e4f9d13f042c787deb2fc558ded85df797de51c2b7920b41fddf4f1d",
       "generatorPath": "tooling/generate_bank_statement_fixtures.py",
       "generatorVersion": "v3",
-      "pdfSha256": "f2e2c39dd9f85a1b2f71137c0fe5ddc54c474b5ee05c27c33bacc1f0f455914c",
+      "pdfSha256": "03ccecca158124acbaf8d676c3f9b1fbe60771fdff9c9951585f32431b4f8545",
       "expectedResultPath": "expected/gug364_bank_statement_10_02_expected.json",
-      "expectedResultSha256": "d38b835544d3e54740705df002bff584afbc44cabf17445d8a4f543a62dda99c",
-      "byteSize": 1615,
+      "expectedResultSha256": "06aecf11b0a42dd5e3f9873a9a52a666acc23a10853482c3764a3a4a71f4ad9e",
+      "byteSize": 1223,
       "pageCount": 1,
       "expectedLifecycle": "COMPLETED",
       "expectedCurrentStage": "TERMINAL",
@@ -758,10 +778,11 @@
         "synthetic",
         "bank_statement"
       ],
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "physicalPayloadControl",
       "fixtureId": "gug364_bank_statement_ctrl_01",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_01",
@@ -789,10 +810,11 @@
       "expectedHttpStatus": 400,
       "expectedErrorCode": "DOCUMENT_PROCESSING_FAILED",
       "expectedRetryClass": "NOT_RETRYABLE",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "physicalPayloadControl",
       "fixtureId": "gug364_bank_statement_ctrl_02",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_02",
@@ -820,10 +842,11 @@
       "expectedHttpStatus": 400,
       "expectedErrorCode": "DOCUMENT_PROCESSING_FAILED",
       "expectedRetryClass": "NOT_RETRYABLE",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "physicalPayloadControl",
       "fixtureId": "gug364_bank_statement_ctrl_03",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_03",
@@ -851,10 +874,11 @@
       "expectedHttpStatus": 415,
       "expectedErrorCode": "DOCUMENT_PROCESSING_FAILED",
       "expectedRetryClass": "NOT_RETRYABLE",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "localDemoPolicyControl",
       "fixtureId": "gug364_bank_statement_ctrl_04",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_04",
@@ -878,10 +902,11 @@
       "acceptedDocumentDenominator": false,
       "expectedHttpStatus": 413,
       "expectedErrorCode": "DOCUMENT_PROCESSING_FAILED",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "requestConflictControl",
       "fixtureId": "gug364_bank_statement_ctrl_05",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_05",
@@ -907,10 +932,11 @@
       "expectedHttpStatus": 409,
       "expectedErrorCode": "IDEMPOTENCY_CONFLICT",
       "expectedRetryClass": "TERMINAL",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "reconciliationControl",
       "fixtureId": "gug364_bank_statement_ctrl_06",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_06",
@@ -934,10 +960,11 @@
       "acceptedDocumentDenominator": false,
       "sharedInputFixtureId": "gug364_bank_statement_01_01",
       "expectedLedgerState": "SUCCEEDED",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "authorizationControl",
       "fixtureId": "gug364_bank_statement_ctrl_07",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_07",
@@ -963,10 +990,11 @@
       "expectedHttpStatus": 403,
       "expectedErrorCode": "AUTHORIZATION_DENIED",
       "expectedRetryClass": "TERMINAL",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     },
     {
       "schemaVersion": "scanalyze.fixture-catalog.v1",
+      "variant": "authorizationControl",
       "fixtureId": "gug364_bank_statement_ctrl_08",
       "fixtureVersion": "1.0",
       "profileId": "ctrl_08",
@@ -992,7 +1020,7 @@
       "expectedHttpStatus": 403,
       "expectedErrorCode": "AUTHORIZATION_DENIED",
       "expectedRetryClass": "TERMINAL",
-      "generatorSourceSha256": "ab7fe5df8666d0282452ce59cc0dc3bbb6a27993c414d8ccdd15afda2b764276"
+      "generatorSourceSha256": "97a2b8e3f77fcff3c913ebbc30b8976e9580eac6d230131d170203605b39bff7"
     }
   ]
 }

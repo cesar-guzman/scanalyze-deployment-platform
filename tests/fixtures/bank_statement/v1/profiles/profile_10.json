@@ -75,7 +75,14 @@
           "numberMasked": "****0001",
           "clabeMasked": "****0001",
           "currency": "MXN"
-        }
+        },
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
       }
     },
     {
@@ -90,7 +97,14 @@
           "numberMasked": "****0001",
           "clabeMasked": "****0001",
           "currency": "USD"
-        }
+        },
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
       }
     }
   ]

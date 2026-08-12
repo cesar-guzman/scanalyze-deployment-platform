@@ -13,7 +13,7 @@ GENERATOR_VERSION = "v3"
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def _deterministic_pdf_bytes(text: str, pages: int = 1, page_contents: List[str] = None) -> bytes:
+def _deterministic_pdf_bytes(text: str, pages: int = 1, page_contents: List[str] = None, warning_cond: str = None) -> bytes:
     objects = []
     
     def create_obj(num, content):
@@ -38,7 +38,11 @@ def _deterministic_pdf_bytes(text: str, pages: int = 1, page_contents: List[str]
             current_text = text
 
         text_lines = current_text.split("\n")
-        pdf_text = f"BT\n/F1 12 Tf\n100 700 Td\n"
+        if warning_cond == "LOW_CONTRAST_TEXT":
+            pdf_text = f"BT\n/F1 12 Tf\n0.85 0.85 0.85 rg\n100 700 Td\n"
+        else:
+            pdf_text = f"BT\n/F1 12 Tf\n0 0 0 rg\n100 700 Td\n"
+            
         for i, line in enumerate(text_lines):
             # Escape PDF text
             safe_line = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
@@ -134,7 +138,7 @@ def build_expected_result(doc_id: str, profile: dict, instance_override: dict) -
         },
         "data": data,
         "warnings": [{"code": w} for w in ground_truth.get("expectedWarnings", [])],
-        "quality": ground_truth.get("quality", {"overallConfidence": 98.0})
+        "quality": ground_truth.get("quality")
     }
     return res, ground_truth
 
@@ -215,17 +219,27 @@ def build_pdf_text_from_ground_truth(ground_truth: dict, fixture_id: str, total_
             lines.append(f"Interest Earned: {interest.get('earned')}")
         if interest.get("charged") is not None:
             lines.append(f"Interest Charged: {interest.get('charged')}")
-
     lines.append("TRANSACTIONS:")
     txs = ground_truth.get("transactions") or []
     if len(txs) == 0 and page_num == 0:
         lines.append("No activity")
     
-    txs_per_page = max(1, len(txs) // total_pages + (1 if len(txs) % total_pages > 0 else 0))
-    start_tx = page_num * txs_per_page
-    end_tx = start_tx + txs_per_page
+    warning_cond = ground_truth.get("warningSourceCondition")
     
-    for tx in txs[start_tx:end_tx]:
+    if warning_cond == "MISSING_MIDDLE_PAGE":
+        if page_num == 1:
+            txs_to_render = []
+        elif page_num == 0:
+            txs_to_render = txs[:len(txs)//2]
+        else:
+            txs_to_render = txs[len(txs)//2:]
+    else:
+        txs_per_page = max(1, len(txs) // total_pages + (1 if len(txs) % total_pages > 0 else 0))
+        start_tx = page_num * txs_per_page
+        end_tx = start_tx + txs_per_page
+        txs_to_render = txs[start_tx:end_tx]
+    
+    for tx in txs_to_render:
         tx_line = []
         for k in ["date", "description", "reference", "direction", "amount", "balanceAfter", "category"]:
             val = tx.get(k)
@@ -239,7 +253,7 @@ def build_pdf_text_from_ground_truth(ground_truth: dict, fixture_id: str, total_
         if tx_line:
             lines.append(" | ".join(tx_line))
             
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 
 def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = False):
@@ -276,7 +290,7 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
             for p in range(pages):
                 page_contents.append(build_pdf_text_from_ground_truth(ground_truth, fixture_id, pages, p))
                 
-            pdf_bytes = _deterministic_pdf_bytes("", pages=pages, page_contents=page_contents)
+            pdf_bytes = _deterministic_pdf_bytes("", pages=pages, page_contents=page_contents, warning_cond=ground_truth.get("warningSourceCondition"))
             
             pdf_name = f"{fixture_id}.pdf"
             pdf_path = os.path.join(pdf_dir, pdf_name)
@@ -287,6 +301,7 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
             
             entry = {
                 "schemaVersion": "scanalyze.fixture-catalog.v1",
+                "variant": "positiveFixture",
                 "fixtureId": fixture_id,
                 "fixtureVersion": "1.0",
                 "profileId": profile['id'],
@@ -332,11 +347,11 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
     # Process negative controls using discriminated variants
     controls = [
         # physicalNegativeFixture
-        {"id": "ctrl_01", "name": "Malformed PDF", "setup": "Upload corrupted PDF bytes", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 400, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalNegativeFixture"},
-        {"id": "ctrl_02", "name": "Blank or low-text PDF", "setup": "Upload empty PDF", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 400, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalNegativeFixture"},
-        {"id": "ctrl_03", "name": "Unsupported MIME", "setup": "Upload text/plain file", "mimeType": "text/plain", "error": "DOCUMENT_PROCESSING_FAILED", "http": 415, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalNegativeFixture"},
+        {"id": "ctrl_01", "name": "Malformed PDF", "setup": "Upload corrupted PDF bytes", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 400, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalPayloadControl"},
+        {"id": "ctrl_02", "name": "Blank or low-text PDF", "setup": "Upload empty PDF", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 400, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalPayloadControl"},
+        {"id": "ctrl_03", "name": "Unsupported MIME", "setup": "Upload text/plain file", "mimeType": "text/plain", "error": "DOCUMENT_PROCESSING_FAILED", "http": 415, "retry": "NOT_RETRYABLE", "stageState": "FAILED", "lifecycle": "FAILED", "variant": "physicalPayloadControl"},
         # local demo-policy rejection -> HTTP 400 with a custom demo error or HTTP 413
-        {"id": "ctrl_04", "name": "Oversized-file boundary", "setup": "Generate >5MiB file at runtime", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 413, "retry": "NOT_RETRYABLE", "variant": "runtimeGeneratedControl"},
+        {"id": "ctrl_04", "name": "Oversized-file boundary", "setup": "Generate >5MiB file at runtime", "mimeType": "application/pdf", "error": "DOCUMENT_PROCESSING_FAILED", "http": 413, "retry": "NOT_RETRYABLE", "variant": "localDemoPolicyControl"},
         # request conflict
         {"id": "ctrl_05", "name": "Idempotency conflict", "setup": "Upload diff doc with same key", "mimeType": "application/pdf", "error": "IDEMPOTENCY_CONFLICT", "http": 409, "retry": "TERMINAL", "variant": "requestConflictControl"},
         # reconciliation
@@ -363,6 +378,7 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
         
         entry = {
             "schemaVersion": "scanalyze.fixture-catalog.v1",
+            "variant": c["variant"],
             "fixtureId": ctrl_fixture_id,
             "fixtureVersion": "1.0",
             "profileId": c['id'],
@@ -382,7 +398,7 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
             "acceptedDocumentDenominator": False
         }
 
-        if c['variant'] == "physicalNegativeFixture":
+        if c['variant'] == "physicalPayloadControl":
             entry.update({
                 "expectedLifecycle": c['lifecycle'],
                 "expectedCurrentStage": "TERMINAL",
@@ -392,7 +408,7 @@ def generate_fixtures(base_dir: str, out_dir: str = None, check_only: bool = Fal
                 "expectedSafeFailureCode": c['error'] if c['http'] < 400 and c['error'] else None,
                 "expectedRetryClass": c['retry'],
             })
-        elif c['variant'] == "runtimeGeneratedControl":
+        elif c['variant'] == "localDemoPolicyControl":
             entry.update({
                 "expectedHttpStatus": c['http'],
                 "expectedErrorCode": c['error']

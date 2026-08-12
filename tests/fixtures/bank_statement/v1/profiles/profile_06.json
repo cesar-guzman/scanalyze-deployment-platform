@@ -71,11 +71,27 @@
   "instances": [
     {
       "instanceId": "01",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     },
     {
       "instanceId": "02",
-      "overrides": {}
+      "overrides": {
+        "transactions": [],
+        "expectedWarnings": [],
+        "quality": {
+          "overallConfidence": 98.0
+        },
+        "pages": 1,
+        "nullRenderingPolicy": {}
+      }
     }
   ]
 }

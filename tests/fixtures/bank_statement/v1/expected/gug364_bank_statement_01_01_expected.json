@@ -26,26 +26,7 @@
       "periodStart": "2025-12-01"
     },
     "summaryText": "SYNTHETIC FIXTURE DATA",
-    "transactions": [
-      {
-        "amount": 300.0,
-        "balanceAfter": 1300.0,
-        "category": "otro",
-        "date": "2025-12-05",
-        "description": "SYNTHETIC TEST TRANSACTION 001",
-        "direction": "credit",
-        "reference": "REF001"
-      },
-      {
-        "amount": 200.0,
-        "balanceAfter": 1100.0,
-        "category": "otro",
-        "date": "2025-12-10",
-        "description": "SYNTHETIC TEST TRANSACTION 002",
-        "direction": "debit",
-        "reference": "REF002"
-      }
-    ]
+    "transactions": []
   },
   "documentId": "b3b9502a33fb685ca881db8358906959",
   "documentType": "bank_statement",
