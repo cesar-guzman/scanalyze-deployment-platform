@@ -38,9 +38,11 @@ bindings, and their attestations remain `NOT_DEFINED` / `NOT_PROVEN`.
 - `tests/test_deployment/test_gug357_identity_center_audit_permission_set.py`
   proves action equality, scoping, expiry, sanitization, and negative cases.
 
-No CloudFormation or Terraform materializer is included. Adding one would be a
-separate provider and mutation decision, not a continuation of this offline
-preparation authorization.
+No CloudFormation or Terraform materializer for this audit permission set is
+included. Adding one would be a separate provider and mutation decision, not a
+continuation of this offline preparation authorization. GUG-363 adds a separate
+materializer for the ADR-050/GUG-215 retirement PEP entrypoint; it does not
+create, assign, provision or revoke `ScanalyzeGug357IdentityAudit`.
 
 ## Private bindings required before review
 
@@ -126,12 +128,45 @@ python3 tooling/validate_schema.py \
   --schemas-dir schemas \
   --fixtures-dir fixtures \
   --filter platform-authority
-make PYTHON=python3 platform-authority-bootstrap-check
+make platform-authority-bootstrap-check
 ```
 
 These commands do not contact AWS. A passing result proves repository
 contracts only; it does not prove live permissions, assignments, human
 independence, deployment, revocation, staging, customer, or production state.
+
+## Relationship to the GUG-363 retirement entrypoint
+
+[ADR-051](../../ADR/ADR-051-direct-retirement-entrypoint-materialization.md)
+and the
+[GUG-363 deployment contract](../deployment/platform-authority-retirement-entrypoint-materialization.md)
+define a separate, direct, one-attempt `CreateStack` mechanism for the dedicated
+non-production retirement PEP stack. The GUG-363 plan is offline and states
+`deployment_authorized=false`; this GUG-357 package does not authorize its
+`apply` command.
+
+Before GUG-357 could issue the fresh execution authorization required by that
+mechanism, read-only evidence must prove:
+
+1. the dedicated stack is absent or already exact and therefore no-touch;
+2. the pre-existing authority-account role
+   `scanalyze-platform-authority-gug363-cfn-materializer` has the exact reviewed
+   trust, effective policies, permissions boundary and tags;
+3. the execution operator has no direct IAM/Lambda/DynamoDB/Logs provider
+   writes and may pass only that one role for the dedicated stack;
+4. the role ARN is bound to the exact plan and maximum-fifteen-minute
+   authorization, which also binds `service_role_evidence_digest`,
+   `operator_authority_evidence_digest`, `live_before_state_digest` and the
+   overall `live_checkpoint_digest`; and
+5. the resulting stack readback returns the same exact `RoleARN` and closed
+   twenty-one-resource single-operator graph.
+
+The current temporary audit policy intentionally exposes Identity Center and
+Identity Store reads only. It does not expose `iam:GetRole`, policy inventory or
+caller-policy/PassRole inspection, so it cannot prove items 2–4. That is a live
+blocker requiring a separate explicitly reviewed read-only evidence path. Do
+not broaden the auditor, use administrator access or treat the execution
+operator as an independent auditor.
 
 ## Separate future creation gate
 
@@ -193,3 +228,6 @@ clean.
 - select independent security/design reviewers;
 - authorize, later and separately, the exact creation and exact revocation
   mutations.
+- authorize, separately from this audit-permission package, any GUG-363
+  service-role/PassRole evidence collection and the one exact execution
+  checkpoint; neither is currently proved.

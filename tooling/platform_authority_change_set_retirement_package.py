@@ -1,9 +1,17 @@
-"""Build the deterministic GUG-215 single-operator broker package.
+"""Build the deterministic unsigned GUG-215 AWS Signer source package.
 
 The package is source-only and deliberately relies on an AWS-managed Python
 SDK.  That exception is bounded by the separately reviewed, manually pinned
-Lambda runtime version.  This module performs no AWS, network, signing,
-upload, deployment, or retirement operation.
+Lambda runtime version.
+
+The ZIP and its manifest describe only the exact unsigned input to an external
+AWS Signer job.  They are not a Lambda-deployable artifact and their archive
+digest and ``lambda_code_sha256`` describe the unsigned source bytes only.  A
+separate, externally produced and independently evidenced signed destination
+object is the only object eligible for projection into CloudFormation.
+
+This module performs no AWS, network, upload, signing, deployment, or
+retirement operation.
 """
 
 from __future__ import annotations

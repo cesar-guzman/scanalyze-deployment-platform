@@ -180,6 +180,14 @@ owner's review of the exact exception `authorization_digest`; it is not an
 independent approval. This runbook contains no implicit authorization to deploy
 either mode.
 
+ADR-051 / GUG-363 defines the repository mechanism for a future exact
+single-operator deployment: one direct `CreateStack` of the dedicated GUG-357
+entrypoint through a fixed, pre-existing CloudFormation service role. Follow the
+[GUG-363 runbook](platform-authority-retirement-entrypoint-materialization.md).
+GUG-363 does not create the role or grant `iam:PassRole`; GUG-357 must first
+prove both contracts through a separate read-only checkpoint. That mechanism
+does not authorize this runbook's broker invocation or `DeleteChangeSet` effect.
+
 Stop if any parameter comes from a request, naming inference, chat history or
 unreviewed live value.
 
@@ -199,20 +207,24 @@ Before invocation, read back and prove:
 6. the function uses the reviewed versioned artifact, code SHA, execution role,
    code-signing configuration, `RuntimeManagementConfig.UpdateRuntimeOn = Manual`
    and exact reviewed `RuntimeVersionArn`;
-7. reserved concurrency equals one;
-8. exactly the three mode-specific aliases (`classify`/`retire`/`reconcile` or
+7. the exact retained log group has 365-day retention and the function fixes
+   JSON `LoggingConfig` with application `ERROR` and system `WARN`; the execution
+   role has only exact stream-write permissions and no log-group control-plane
+   authority;
+8. reserved concurrency equals one;
+9. exactly the three mode-specific aliases (`classify`/`retire`/`reconcile` or
    `single-classify`/`single-retire`/`single-reconcile`) point to the same
    reviewed published version, never `$LATEST`, with no weighted routing;
-9. the classifier and approver permission-set assignments are bound to the two
+10. the classifier and approver permission-set assignments are bound to the two
    reviewed distinct UserIds in normal mode, or both bind the one exact UserId
    in ADR-050 mode, and are provisioned to the authority account;
-10. the invoker trusts and policies contain exact identity-enhanced conditions,
+11. the invoker trusts and policies contain exact identity-enhanced conditions,
     no `IfExists`, and only the expected alias invocation;
-11. the Lambda function, invoked alias and resolved version have no
+12. the Lambda function, invoked alias and resolved version have no
     resource-based policy;
-12. an account-wide IAM inventory proves no foreign principal can invoke the
+13. an account-wide IAM inventory proves no foreign principal can invoke the
     function or its aliases;
-13. no human role has an allow for `DeleteChangeSet` or DynamoDB writes.
+14. no human role has an allow for `DeleteChangeSet` or DynamoDB writes.
 
 Any missing, denied, partial or ambiguous readback blocks the workflow. Do not
 add a broad managed policy as a shortcut.

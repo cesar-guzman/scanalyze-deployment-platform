@@ -29,6 +29,9 @@ Parameters:
   ExpectedEvidenceSha256:
     Type: String
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  PrivateParameterProjectionSha256:
+    Type: String
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
   ExpectedBrokerPolicySha256:
     Type: String
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
@@ -231,6 +234,20 @@ Resources:
         - {Key: account_id, Value: !Ref AuthorityAccountId}
         - {Key: region, Value: !Ref AWS::Region}
 
+  RetirementBrokerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug215-retirement
+      RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-215}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
   RetirementBrokerExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -337,6 +354,12 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement
                   - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:*
+              - Sid: WriteExactBrokerLogStreams
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:log-stream:*
               - Sid: DenyRetirementPrivilegeEscalation
                 Effect: Deny
                 Action:
@@ -355,6 +378,13 @@ Resources:
                   - lambda:InvokeAsync
                   - lambda:InvokeFunction
                   - lambda:InvokeFunctionUrl
+                  - logs:AssociateKmsKey
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:DeleteRetentionPolicy
+                  - logs:DisassociateKmsKey
+                  - logs:PutResourcePolicy
+                  - logs:PutRetentionPolicy
                 Resource: '*'
       Tags:
         - {Key: managed_by, Value: cloudformation}
@@ -364,7 +394,9 @@ Resources:
 
   RetirementBrokerFunction:
     Type: AWS::Lambda::Function
-    DependsOn: ChangeSetRetirementLedger
+    DependsOn:
+      - ChangeSetRetirementLedger
+      - RetirementBrokerLogGroup
     Properties:
       FunctionName: scanalyze-platform-authority-gug215-retirement
       Description: GUG-215 exact retained Change Set retirement PEP
@@ -383,6 +415,11 @@ Resources:
         S3Bucket: !Ref BrokerArtifactBucket
         S3Key: !Ref BrokerArtifactKey
         S3ObjectVersion: !Ref BrokerArtifactVersion
+      LoggingConfig:
+        ApplicationLogLevel: ERROR
+        LogFormat: JSON
+        LogGroup: !Ref RetirementBrokerLogGroup
+        SystemLogLevel: WARN
       Environment:
         Variables:
           AUTHORIZATION_MODE: !Ref AuthorizationMode
@@ -832,6 +869,7 @@ Resources:
   SingleClassifierFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleClassifyAlias
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:single-classify
@@ -841,6 +879,7 @@ Resources:
   SingleClassifierFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleClassifyAlias
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:single-classify
@@ -850,6 +889,7 @@ Resources:
   SingleApproverRetireFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleRetireAlias
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:single-retire
@@ -859,6 +899,7 @@ Resources:
   SingleApproverRetireFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleRetireAlias
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:single-retire
@@ -868,6 +909,7 @@ Resources:
   SingleApproverReconcileFunctionUrlInvokePermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleReconcileAlias
     Properties:
       Action: lambda:InvokeFunctionUrl
       FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile
@@ -877,6 +919,7 @@ Resources:
   SingleApproverReconcileFunctionUrlFunctionPermission:
     Type: AWS::Lambda::Permission
     Condition: SingleOperatorMode
+    DependsOn: RetirementBrokerSingleReconcileAlias
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile
@@ -886,6 +929,8 @@ Resources:
 Outputs:
   ChangeSetRetirementLedgerName:
     Value: !Ref ChangeSetRetirementLedger
+  BrokerLogGroupName:
+    Value: !Ref RetirementBrokerLogGroup
   BrokerFunctionName:
     Value: !Ref RetirementBrokerFunction
   ClassifierInvokerRoleName:

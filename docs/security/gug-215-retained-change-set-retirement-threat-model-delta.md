@@ -80,7 +80,7 @@ that two-human proof is not established.
 | Reconciliation deletes again | The active mode's `reconcile` or `single-reconcile` alias routes to a non-delete handler; target presence performs no ledger write | Observe again or deny; never delete |
 | Replacement/foreign object or recreated stack is hidden during reconciliation | Full Stack ID continuity and the complete paginated inventory are checked against the ledger and repeated immediately before terminal CAS | Leave `ATTEMPTED`; no cleanup shortcut |
 | Retirement is called recovery READY | Terminal control is revocation required or PAB plus revocation required; no READY value | GUG-214 remains blocked |
-| Sensitive identifiers leak through CLI/Lambda | Empty payload, sanitized status/reason codes and no application logging | Refuse/deny and keep raw provider evidence private |
+| Sensitive identifiers leak through CLI/Lambda | Empty payload, sanitized status/reason codes and no application logging; Lambda platform events use the exact retained 365-day JSON log group, while the execution role can only create streams/put events there and cannot mutate group/KMS/retention/policy controls | Refuse/deny, treat unexpected log content as an incident and keep raw provider evidence private |
 | Temporary invocation access becomes standing authority | Short-lived exact assignments, post-operation removal, session revocation and readback are mandatory | Recovery remains blocked until absence is proved |
 
 ## Trust boundaries

@@ -408,11 +408,14 @@ remove Identity Center assignments, revoke sessions or run GUG-214.
 ## Evidence and logging boundary
 
 The CLI prints only sanitized status, ledger digest and next required control.
-The broker accepts no local evidence files, emits no application logs and its
-execution role intentionally has no CloudWatch Logs permissions. It returns
-only sanitized denial reason codes synchronously; the durable ledger and
-CloudTrail are the authoritative service-side evidence boundaries. Raw AWS
-responses remain governed private evidence.
+The broker accepts no local evidence files and emits no application logs. The
+reviewed template supplies one retained 365-day CloudWatch Logs group and JSON
+Lambda platform logging at application `ERROR` / system `WARN`; the execution
+role can create streams and put events only in that exact group and is denied
+log-group, retention, KMS-association and resource-policy mutation. The broker
+returns only sanitized denial reason codes synchronously; the durable ledger,
+CloudTrail and exact provider readback remain the authoritative evidence
+boundaries. Raw AWS responses and logs remain governed private evidence.
 
 Never commit or publish account/principal identifiers, Identity Store UserIds,
 assignments, role ARNs, Lambda artifact locators, code-signing configuration,

@@ -1,0 +1,32 @@
+{
+  "record_type": "scanalyze.platform_authority.retirement_entrypoint_execution_ledger.v1",
+  "schema_version": 1,
+  "issue_id": "GUG-363",
+  "live_issue": "GUG-357",
+  "environment": "synthetic-non-production",
+  "production": false,
+  "status": "MUTATION_WINDOW_CONSUMED",
+  "plan_digest": "sha256:a253f53a612fc7bb95bfc7d9e8d25cf78ea02acd58879714f4225f55cb6c5907",
+  "authorization_digest": "sha256:36b273b581135c2d818c09ce34999d84b3e106a8fa2c7c41f42e497eb8568d86",
+  "create_stack_request_digest": "sha256:1dd5de6d3b62f91a4b0c927b152db3fa70d7667252e969e255331fd34d00a1e3",
+  "operation_list_digest": "sha256:e62302c7ae1ef0d889ea9b88107ac0e575351d6a7e3b3f3c1258e0bfd51a7e35",
+  "artifact_signing_contract_digest": "sha256:b03155371ec31c49d9d5acb4b223996f31da8d226e1fb82268ee2bf46df5c7be",
+  "client_request_token_sha256": "sha256:35f4a26d683f1b7dbc7c86eba285d3e0287fb14e0d379256637742f9115c708d",
+  "caller_arn_sha256": "sha256:e1d7c66a8c55ff11506677fb76e770a4e42085a049d642814aae4d546a009865",
+  "caller_user_id_sha256": "sha256:12282ac5805ae318aefe4a17e1b538389fec26dc990a8445eb5747185235186f",
+  "target_digest": "sha256:c0e9d34c25a0d890bb73e5596c88a5daf7da72df2521407a10b5cccc5bcd881c",
+  "allowed_action": "cloudformation:CreateStack",
+  "attempt_limit": 1,
+  "attempts": 1,
+  "execution_gate_consumed": true,
+  "mutation_retry_authorized": false,
+  "broker_invocations": 0,
+  "retirement_effects_attempted": 0,
+  "claimed_at": "2030-01-01T00:05:00Z",
+  "ledger_digest": "sha256:c5328595a5bf5c8465b4c6276f2fc28f2eb3786b6f91711b0f0af48237ad5fef",
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false,
+    "trusted_evaluation_at": "2030-01-01T00:05:00Z"
+  }
+}
