@@ -1,0 +1,733 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.fixture-catalog.v1.schema.json",
+  "title": "Scanalyze Synthetic Bank Statement Fixture Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fixtures"
+  ],
+  "properties": {
+    "fixtures": {
+      "type": "array",
+      "minItems": 28,
+      "maxItems": 28,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/positiveFixture"
+          },
+          {
+            "$ref": "#/$defs/physicalPayloadControl"
+          },
+          {
+            "$ref": "#/$defs/artifactAssertionControl"
+          },
+          {
+            "$ref": "#/$defs/requestValidationControl"
+          },
+          {
+            "$ref": "#/$defs/requestConflictControl"
+          },
+          {
+            "$ref": "#/$defs/reconciliationControl"
+          },
+          {
+            "$ref": "#/$defs/authorizationControl"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "inputArtifact": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sharedInputArtifact"
+        },
+        {
+          "$ref": "#/$defs/embeddedInputArtifact"
+        }
+      ]
+    },
+    "sharedInputArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingType",
+        "fixtureId",
+        "stepIds",
+        "mimeType",
+        "pdfSha256",
+        "byteSize",
+        "pageCount"
+      ],
+      "properties": {
+        "bindingType": {
+          "const": "SHARED_POSITIVE_FIXTURE"
+        },
+        "fixtureId": {
+          "type": "string",
+          "pattern": "^gug364_bank_statement_[0-9]{2}_[0-9]{2}$"
+        },
+        "stepIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          }
+        },
+        "mimeType": {
+          "const": "application/pdf"
+        },
+        "pdfSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5242880
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      }
+    },
+    "embeddedInputArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingType",
+        "stepIds",
+        "mimeType",
+        "pdfSha256",
+        "byteSize",
+        "pageCount"
+      ],
+      "properties": {
+        "bindingType": {
+          "const": "EMBEDDED_CONTROL_ARTIFACT"
+        },
+        "stepIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          }
+        },
+        "mimeType": {
+          "const": "application/pdf"
+        },
+        "pdfSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5242880
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      }
+    },
+    "fixtureId": {
+      "type": "string",
+      "pattern": "^gug364_bank_statement_(?:[0-9]{2}_[0-9]{2}|ctrl_[0-9]{2})$"
+    },
+    "baseFixture": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "fixtureId",
+        "fixtureVersion",
+        "profileId",
+        "instanceId",
+        "scenarioType",
+        "positiveOrNegative",
+        "mimeType",
+        "sensitivity",
+        "sourceSpecPath",
+        "sourceSpecSha256",
+        "generatorPath",
+        "generatorVersion",
+        "generatorSourceSha256",
+        "lifecycleApplicability",
+        "acceptedDocumentDenominator",
+        "retentionClass",
+        "noRealDataAttestation",
+        "tags",
+        "variant"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "scanalyze.fixture-catalog.v1"
+        },
+        "fixtureId": {
+          "$ref": "#/$defs/fixtureId"
+        },
+        "fixtureVersion": {
+          "const": "1.0"
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^(?:[0-9]{2}|ctrl_[0-9]{2})$"
+        },
+        "instanceId": {
+          "type": "string",
+          "pattern": "^[0-9]{2}$"
+        },
+        "scenarioType": {
+          "type": "string",
+          "minLength": 3
+        },
+        "positiveOrNegative": {
+          "enum": [
+            "POSITIVE",
+            "NEGATIVE"
+          ]
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sensitivity": {
+          "const": "SYNTHETIC"
+        },
+        "sourceSpecPath": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "sourceSpecSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "generatorPath": {
+          "const": "tooling/generate_bank_statement_fixtures.py"
+        },
+        "generatorVersion": {
+          "const": "v4"
+        },
+        "generatorSourceSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "lifecycleApplicability": {
+          "enum": [
+            "APPLICABLE",
+            "NOT_APPLICABLE",
+            "UNDEFINED_BY_CURRENT_CONTRACT"
+          ]
+        },
+        "acceptedDocumentDenominator": {
+          "type": "boolean"
+        },
+        "retentionClass": {
+          "const": "30_days"
+        },
+        "noRealDataAttestation": {
+          "const": true
+        },
+        "tags": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "variant": {
+          "type": "string"
+        }
+      }
+    },
+    "positiveFixture": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/baseFixture"
+        },
+        {
+          "type": "object",
+          "required": [
+            "filePath",
+            "pdfSha256",
+            "expectedResultPath",
+            "expectedResultSha256",
+            "byteSize",
+            "pageCount",
+            "expectedLifecycle",
+            "expectedCurrentStage",
+            "expectedStageState",
+            "manualReviewChecklist"
+          ],
+          "properties": {
+            "positiveOrNegative": {
+              "const": "POSITIVE"
+            },
+            "variant": {
+              "const": "positiveFixture"
+            },
+            "mimeType": {
+              "const": "application/pdf"
+            },
+            "acceptedDocumentDenominator": {
+              "const": true
+            },
+            "lifecycleApplicability": {
+              "const": "APPLICABLE"
+            },
+            "instanceId": {
+              "type": "string",
+              "pattern": "^[0-9]{2}$"
+            },
+            "filePath": {
+              "type": "string",
+              "pattern": "^pdf/gug364_bank_statement_[0-9]{2}_[0-9]{2}\\.pdf$"
+            },
+            "pdfSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "expectedResultPath": {
+              "type": "string",
+              "pattern": "^expected/gug364_bank_statement_[0-9]{2}_[0-9]{2}_expected\\.json$"
+            },
+            "expectedResultSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "byteSize": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "pageCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "expectedLifecycle": {
+              "const": "COMPLETED"
+            },
+            "expectedCurrentStage": {
+              "const": "TERMINAL"
+            },
+            "expectedStageState": {
+              "const": "SUCCEEDED"
+            },
+            "manualReviewChecklist": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 3
+              }
+            },
+            "replayGroupId": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"
+            },
+            "replayOrdinal": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "negativeBase": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/baseFixture"
+        },
+        {
+          "type": "object",
+          "required": [
+            "filePath",
+            "controlSpecSha256",
+            "controlSpecByteSize",
+            "evidenceState",
+            "inputFixtureIds",
+            "inputArtifacts"
+          ],
+          "properties": {
+            "positiveOrNegative": {
+              "const": "NEGATIVE"
+            },
+            "fixtureId": {
+              "type": "string",
+              "pattern": "^gug364_bank_statement_ctrl_0[1-8]$"
+            },
+            "profileId": {
+              "enum": [
+                "ctrl_01",
+                "ctrl_02",
+                "ctrl_03",
+                "ctrl_04",
+                "ctrl_05",
+                "ctrl_06",
+                "ctrl_07",
+                "ctrl_08"
+              ]
+            },
+            "mimeType": {
+              "const": "application/json"
+            },
+            "acceptedDocumentDenominator": {
+              "const": false
+            },
+            "instanceId": {
+              "const": "01"
+            },
+            "filePath": {
+              "type": "string",
+              "pattern": "^controls/gug364_bank_statement_ctrl_[0-9]{2}\\.json$"
+            },
+            "controlSpecSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "controlSpecByteSize": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "evidenceState": {
+              "enum": [
+                "PROVEN_LOCAL",
+                "NONPROD_REQUIRED",
+                "NOT_PROVEN"
+              ]
+            },
+            "inputFixtureIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^gug364_bank_statement_[0-9]{2}_[0-9]{2}$"
+              }
+            },
+            "inputArtifacts": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/inputArtifact"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "physicalPayloadControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "expectedLifecycle",
+            "expectedCurrentStage",
+            "expectedStageState",
+            "expectedHttpStatus",
+            "expectedSafeFailureCode",
+            "expectedFailureDisposition"
+          ],
+          "properties": {
+            "variant": {
+              "const": "physicalPayloadControl"
+            },
+            "inputFixtureIds": {
+              "maxItems": 0
+            },
+            "inputArtifacts": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/embeddedInputArtifact"
+              }
+            },
+            "lifecycleApplicability": {
+              "const": "APPLICABLE"
+            },
+            "expectedLifecycle": {
+              "const": "FAILED"
+            },
+            "expectedCurrentStage": {
+              "const": "TERMINAL"
+            },
+            "expectedStageState": {
+              "const": "FAILED"
+            },
+            "expectedHttpStatus": {
+              "const": 200
+            },
+            "expectedSafeFailureCode": {
+              "enum": [
+                "DOCUMENT_PROCESSING_FAILED",
+                "OCR_FAILED"
+              ]
+            },
+            "expectedFailureDisposition": {
+              "const": "TERMINAL"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "artifactAssertionControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "expectedAssertion"
+          ],
+          "properties": {
+            "variant": {
+              "const": "artifactAssertionControl"
+            },
+            "inputFixtureIds": {
+              "maxItems": 0
+            },
+            "inputArtifacts": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/embeddedInputArtifact"
+              }
+            },
+            "expectedAssertion": {
+              "const": "EMPTY_EXTRACTED_TEXT"
+            },
+            "evidenceState": {
+              "const": "NOT_PROVEN"
+            },
+            "lifecycleApplicability": {
+              "const": "UNDEFINED_BY_CURRENT_CONTRACT"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "requestValidationControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "$ref": "#/$defs/errorExpectationFields"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "variant": {
+              "const": "requestValidationControl"
+            },
+            "lifecycleApplicability": {
+              "const": "NOT_APPLICABLE"
+            },
+            "inputFixtureIds": {
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "inputArtifacts": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/sharedInputArtifact"
+              }
+            },
+            "expectedHttpStatus": {
+              "const": 422
+            },
+            "expectedErrorCode": {
+              "const": "SEMANTIC_VALIDATION_FAILED"
+            },
+            "expectedRetryClass": {
+              "const": "NOT_RETRYABLE"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "errorExpectationFields": {
+      "type": "object",
+      "required": [
+        "expectedHttpStatus",
+        "expectedErrorCode",
+        "expectedRetryClass"
+      ],
+      "properties": {
+        "expectedHttpStatus": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "expectedErrorCode": {
+          "enum": [
+            "SEMANTIC_VALIDATION_FAILED",
+            "IDEMPOTENCY_CONFLICT",
+            "NOT_FOUND"
+          ]
+        },
+        "expectedRetryClass": {
+          "enum": [
+            "NOT_RETRYABLE",
+            "TERMINAL"
+          ]
+        }
+      }
+    },
+    "requestConflictControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "$ref": "#/$defs/errorExpectationFields"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "variant": {
+              "const": "requestConflictControl"
+            },
+            "lifecycleApplicability": {
+              "const": "NOT_APPLICABLE"
+            },
+            "expectedHttpStatus": {
+              "const": 409
+            },
+            "expectedErrorCode": {
+              "const": "IDEMPOTENCY_CONFLICT"
+            },
+            "expectedRetryClass": {
+              "const": "TERMINAL"
+            },
+            "inputFixtureIds": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^gug364_bank_statement_[0-9]{2}_[0-9]{2}$"
+              }
+            },
+            "inputArtifacts": {
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#/$defs/sharedInputArtifact"
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "reconciliationControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "expectedHttpStatus",
+            "expectedLedgerState"
+          ],
+          "properties": {
+            "variant": {
+              "const": "reconciliationControl"
+            },
+            "lifecycleApplicability": {
+              "const": "NOT_APPLICABLE"
+            },
+            "inputFixtureIds": {
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "inputArtifacts": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/sharedInputArtifact"
+              }
+            },
+            "expectedHttpStatus": {
+              "const": 200
+            },
+            "expectedLedgerState": {
+              "const": "SUCCEEDED"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "authorizationControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/negativeBase"
+        },
+        {
+          "$ref": "#/$defs/errorExpectationFields"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "variant": {
+              "const": "authorizationControl"
+            },
+            "lifecycleApplicability": {
+              "const": "NOT_APPLICABLE"
+            },
+            "inputFixtureIds": {
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "inputArtifacts": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/sharedInputArtifact"
+              }
+            },
+            "expectedHttpStatus": {
+              "const": 404
+            },
+            "expectedErrorCode": {
+              "const": "NOT_FOUND"
+            },
+            "expectedRetryClass": {
+              "const": "TERMINAL"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

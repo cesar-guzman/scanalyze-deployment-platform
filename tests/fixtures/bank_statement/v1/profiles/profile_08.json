@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "08",
+  "name": "Balance-reconciliation warning",
+  "description": "Declared closing balances disagree with reconciled transaction balances",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0008",
+      "numberMasked": "****0008",
+      "clabeMasked": "****0008",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 999.99,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 081",
+        "reference": "REF081",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 082",
+        "reference": "REF082",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC BALANCE MISMATCH",
+    "warningSourceCondition": "MATH_MISMATCH",
+    "expectedWarnings": [
+      "BALANCE_RECONCILIATION_WARNING"
+    ],
+    "quality": {
+      "overallConfidence": 95.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {
+        "summary": "SYNTHETIC BALANCE MISMATCH INSTANCE 01"
+      }
+    },
+    {
+      "instanceId": "02",
+      "overrides": {
+        "balances": {
+          "closing": 1200.0
+        },
+        "summary": "SYNTHETIC BALANCE MISMATCH INSTANCE 02"
+      }
+    }
+  ]
+}

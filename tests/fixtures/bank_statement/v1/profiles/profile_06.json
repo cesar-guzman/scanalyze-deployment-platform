@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "06",
+  "name": "Warning-producing result",
+  "description": "Two visible missing-core-field conditions produce INCOMPLETE_EXTRACTION",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0006",
+      "numberMasked": "****0006",
+      "clabeMasked": "****0006",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 061",
+        "reference": "REF061",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 062",
+        "reference": "REF062",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC WARNING FIXTURE",
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
+    "quality": {
+      "overallConfidence": 94.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {
+        "account": {
+          "holder": null
+        },
+        "warningSourceCondition": "MISSING_ACCOUNT_HOLDER",
+        "expectedWarnings": [
+          "INCOMPLETE_EXTRACTION"
+        ]
+      }
+    },
+    {
+      "instanceId": "02",
+      "overrides": {
+        "statementPeriod": {
+          "end": null
+        },
+        "warningSourceCondition": "MISSING_STATEMENT_END",
+        "expectedWarnings": [
+          "INCOMPLETE_EXTRACTION"
+        ]
+      }
+    }
+  ]
+}

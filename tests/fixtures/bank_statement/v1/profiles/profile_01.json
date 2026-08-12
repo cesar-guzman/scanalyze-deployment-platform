@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "01",
+  "name": "Single-page happy path",
+  "description": "A simple single-page valid statement",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001",
+      "clabeMasked": "****0001",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "reference": "REF001",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "reference": "REF002",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC FIXTURE DATA",
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      "warningSourceCondition": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {
+        "summary": "SYNTHETIC HAPPY PATH INSTANCE 01"
+      }
+    },
+    {
+      "instanceId": "02",
+      "overrides": {
+        "summary": "SYNTHETIC HAPPY PATH INSTANCE 02"
+      }
+    }
+  ]
+}

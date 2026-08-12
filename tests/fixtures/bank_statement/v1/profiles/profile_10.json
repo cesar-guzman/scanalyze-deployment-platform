@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "10",
+  "name": "Repeated deterministic replay",
+  "description": "Two catalog instances intentionally render byte-identical source content",
+  "replayGroupId": "gug364-replay-group-10",
+  "renderFixtureId": "gug364_bank_statement_replay_10",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0010",
+      "numberMasked": "****0010",
+      "clabeMasked": "****0010",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2026-03-01",
+      "end": "2026-03-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2026-03-05",
+        "description": "SYNTHETIC TEST TRANSACTION 101",
+        "reference": "REF101",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2026-03-10",
+        "description": "SYNTHETIC TEST TRANSACTION 102",
+        "reference": "REF102",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC DETERMINISTIC REPLAY",
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "replayOrdinal": 1,
+      "overrides": {}
+    },
+    {
+      "instanceId": "02",
+      "replayOrdinal": 2,
+      "overrides": {}
+    }
+  ]
+}

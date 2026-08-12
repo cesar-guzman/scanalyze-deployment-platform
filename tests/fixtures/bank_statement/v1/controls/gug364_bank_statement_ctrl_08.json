@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_08",
+  "name": "Wrong-deployment access",
+  "executionBoundary": "journey-v2-local-contract",
+  "setup": "Read an owner-bound document from a different deployment",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
+  },
+  "inputFixtureIds": [
+    "gug364_bank_statement_01_01"
+  ],
+  "evidenceState": "PROVEN_LOCAL",
+  "steps": [
+    {
+      "stepId": "create-owned-document",
+      "operation": "documents.create",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000008",
+      "inputFixtureId": "gug364_bank_statement_01_01",
+      "request": {
+        "filename": "owned.pdf",
+        "contentType": "application/pdf",
+        "contentLength": 1663
+      },
+      "expect": {
+        "kind": "documentCreateResponse",
+        "httpStatus": 201,
+        "replayed": false
+      }
+    },
+    {
+      "stepId": "hide-foreign-document",
+      "operation": "documents.get_status",
+      "principal": "otherDeployment",
+      "documentIdFromStep": "create-owned-document",
+      "expect": {
+        "kind": "errorEnvelope",
+        "httpStatus": 404,
+        "code": "NOT_FOUND",
+        "retryClass": "TERMINAL"
+      }
+    }
+  ],
+  "invariants": {
+    "documentCreateEffects": 1,
+    "existenceHidden": true
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "05",
+  "name": "Zero-transaction statement",
+  "description": "No activity on account",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001",
+      "clabeMasked": "****0001",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1000.0,
+      "totalCredits": 0.0,
+      "totalDebits": 0.0
+    },
+    "transactions": [],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC FIXTURE DATA",
+    "warningSourceCondition": null,
+    "expectedWarnings": [
+      "INCOMPLETE_EXTRACTION"
+    ],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      "warningSourceCondition": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {
+        "summary": "SYNTHETIC ZERO ACTIVITY INSTANCE 01"
+      }
+    },
+    {
+      "instanceId": "02",
+      "overrides": {
+        "summary": "SYNTHETIC ZERO ACTIVITY INSTANCE 02"
+      }
+    }
+  ]
+}

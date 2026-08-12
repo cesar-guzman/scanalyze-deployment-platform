@@ -1,0 +1,66 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": "****0001",
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001"
+    },
+    "accountType": "cheques",
+    "balances": {
+      "closing": 1100.0,
+      "opening": 1000.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "bankCountry": "MX",
+    "fees": null,
+    "interestCharged": null,
+    "interestEarned": null,
+    "statement": {
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
+    },
+    "summaryText": "SYNTHETIC HAPPY PATH INSTANCE 01",
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "direction": "credit",
+        "reference": "REF001"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "direction": "debit",
+        "reference": "REF002"
+      }
+    ]
+  },
+  "documentId": "b3b9502a33fb685ca881db8358906959",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 98.0
+  },
+  "resultId": "result_b3b9502a33fb685ca881db8358906959_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": []
+}

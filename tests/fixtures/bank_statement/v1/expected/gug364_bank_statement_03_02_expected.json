@@ -1,0 +1,87 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": "****0001",
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0003",
+      "numberMasked": "****0001"
+    },
+    "accountType": "cheques",
+    "balances": {
+      "closing": 1100.0,
+      "opening": 1000.0,
+      "totalCredits": 400.0,
+      "totalDebits": 300.0
+    },
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "bankCountry": "MX",
+    "fees": {
+      "ivaOnFees": 8.0,
+      "totalFees": 50.0
+    },
+    "interestCharged": 0.0,
+    "interestEarned": 10.0,
+    "statement": {
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
+    },
+    "summaryText": "SYNTHETIC MULTIPLE TRANSACTIONS INSTANCE 02",
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "direction": "credit",
+        "reference": "REF001"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "direction": "debit",
+        "reference": "REF002"
+      },
+      {
+        "amount": 100.0,
+        "balanceAfter": 1200.0,
+        "category": "otro",
+        "date": "2025-12-15",
+        "description": "SYNTHETIC TEST TRANSACTION 003",
+        "direction": "credit",
+        "reference": "REF003"
+      },
+      {
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2025-12-20",
+        "description": "SYNTHETIC TEST TRANSACTION 004",
+        "direction": "debit",
+        "reference": "REF004"
+      }
+    ]
+  },
+  "documentId": "a04da47cd0cbe7ff813625886fedd8a0",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 98.0
+  },
+  "resultId": "result_a04da47cd0cbe7ff813625886fedd8a0_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": []
+}

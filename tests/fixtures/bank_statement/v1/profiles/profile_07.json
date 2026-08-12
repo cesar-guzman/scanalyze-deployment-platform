@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
+  "id": "07",
+  "name": "Low-confidence or incomplete extraction",
+  "description": "Low-contrast statements exercise LOW_CONFIDENCE with and without incomplete core data",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0007",
+      "numberMasked": "****0007",
+      "clabeMasked": "****0007",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 071",
+        "reference": "REF071",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 072",
+        "reference": "REF072",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC LOW CONTRAST FIXTURE",
+    "warningSourceCondition": "LOW_CONTRAST_TEXT",
+    "expectedWarnings": [
+      "LOW_CONFIDENCE"
+    ],
+    "quality": {
+      "overallConfidence": 60.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {
+        "summary": "SYNTHETIC LOW CONFIDENCE INSTANCE 01"
+      }
+    },
+    {
+      "instanceId": "02",
+      "overrides": {
+        "account": {
+          "holder": null
+        },
+        "summary": "SYNTHETIC LOW CONFIDENCE INCOMPLETE INSTANCE 02",
+        "expectedWarnings": [
+          "LOW_CONFIDENCE",
+          "INCOMPLETE_EXTRACTION"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "contractVersion": "scanalyze.document-journey.v1",
+  "data": {
+    "account": {
+      "clabeMasked": "****0007",
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0007",
+      "numberMasked": "****0007"
+    },
+    "accountType": "cheques",
+    "balances": {
+      "closing": 1100.0,
+      "opening": 1000.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "bankCountry": "MX",
+    "fees": null,
+    "interestCharged": null,
+    "interestEarned": null,
+    "statement": {
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
+    },
+    "summaryText": "SYNTHETIC LOW CONFIDENCE INSTANCE 01",
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 071",
+        "direction": "credit",
+        "reference": "REF071"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 072",
+        "direction": "debit",
+        "reference": "REF072"
+      }
+    ]
+  },
+  "documentId": "f1bc32a8c5d777b11f663c7cfa7d5d2a",
+  "documentType": "bank_statement",
+  "provenance": {
+    "generatedAt": "2026-01-01T00:00:00Z",
+    "processor": "bank-extract",
+    "producerSchemaVersion": "1.0",
+    "promptVersion": "1.0.0"
+  },
+  "quality": {
+    "overallConfidence": 60.0
+  },
+  "resultId": "result_f1bc32a8c5d777b11f663c7cfa7d5d2a_v1",
+  "resultType": "bank_statement",
+  "resultVersion": "1.0",
+  "schemaVersion": "scanalyze.document-result.v1",
+  "warnings": [
+    {
+      "code": "LOW_CONFIDENCE"
+    }
+  ]
+}
