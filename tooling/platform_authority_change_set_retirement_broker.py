@@ -32,6 +32,7 @@ CANONICAL_STACK_NAME = "scanalyze-platform-authority-state-backend"
 CANONICAL_STATE_KEY = "platform-authority/terraform.tfstate"
 RETIREMENT_LEDGER_TABLE = "scanalyze-platform-authority-change-set-retirements"
 BROKER_FUNCTION_NAME = "scanalyze-platform-authority-gug215-retirement"
+BROKER_LOG_GROUP_NAME = f"/aws/lambda/{BROKER_FUNCTION_NAME}"
 BROKER_POLICY_NAME = "Gug215ExactRetirement"
 CLASSIFIER_INVOKER_POLICY_NAME = "Gug215ClassifierInvokeOnly"
 APPROVER_INVOKER_POLICY_NAME = "Gug215ApproverInvokeOnly"
@@ -278,6 +279,13 @@ def broker_version_binding_digest(values: Mapping[str, Any]) -> str:
                 "runtime": "python3.12",
                 "runtime_update_mode": "Manual",
                 "timeout": 60,
+                "logging": {
+                    "application_log_level": "ERROR",
+                    "log_format": "JSON",
+                    "log_group": BROKER_LOG_GROUP_NAME,
+                    "retention_days": 365,
+                    "system_log_level": "WARN",
+                },
             },
             "configuration": {
                 field: values[field] for field in BROKER_VERSION_BINDING_FIELDS
@@ -1164,6 +1172,13 @@ class RetirementBroker:
             or function.get("Role") != self.config.execution_role_arn
             or function.get("RuntimeVersionConfig")
             != {"RuntimeVersionArn": self.config.broker_runtime_version_arn}
+            or function.get("LoggingConfig")
+            != {
+                "LogFormat": "JSON",
+                "ApplicationLogLevel": "ERROR",
+                "SystemLogLevel": "WARN",
+                "LogGroup": BROKER_LOG_GROUP_NAME,
+            }
         ):
             raise BrokerError("BROKER_CODE_BOUNDARY_CHANGED")
         runtime_management = (

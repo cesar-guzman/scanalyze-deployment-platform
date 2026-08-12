@@ -1,0 +1,565 @@
+{
+  "record_type": "scanalyze.platform_authority.retirement_entrypoint_plan.v1",
+  "schema_version": 1,
+  "implementation_issue": "GUG-363",
+  "live_issue": "GUG-357",
+  "environment": "synthetic-non-production",
+  "production": false,
+  "deployment_authorized": false,
+  "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+  "two_human_status": "NOT_PROVEN",
+  "independent_approval_present": false,
+  "intent_digest": "sha256:ee3b981900871a2d399af138a3cf791eeb17dadad3ae15a399fdc9ab332cb1c1",
+  "owner_authorization_sha256": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1",
+  "single_operator_exception_digest": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566",
+  "source": {
+    "commit": "1111111111111111111111111111111111111111",
+    "tree": "2222222222222222222222222222222222222222",
+    "template_path": "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml",
+    "template_sha256": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc"
+  },
+  "target": {
+    "authority_account_id": "042360977644",
+    "region": "us-east-1",
+    "stack_name": "scanalyze-platform-authority-gug357-retirement-entrypoint",
+    "cloudformation_service_role_arn": "arn:aws:iam::042360977644:role/scanalyze-platform-authority-gug363-cfn-materializer"
+  },
+  "parameter_projection": [
+    {
+      "ParameterKey": "AuthorizationMode",
+      "ParameterValue": "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+    },
+    {
+      "ParameterKey": "AuthorityAccountId",
+      "ParameterValue": "042360977644"
+    },
+    {
+      "ParameterKey": "ChangeSetName",
+      "ParameterValue": "scanalyze-platform-authority-bootstrap-20300101000000"
+    },
+    {
+      "ParameterKey": "RetirementId",
+      "ParameterValue": "gug215#sha256:16cfbdf6c850128310ac4d8bf3a2be95e09b6dfaf9aa30351d11fbb9f41ed6a5"
+    },
+    {
+      "ParameterKey": "ExpectedTemplateSha256",
+      "ParameterValue": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc"
+    },
+    {
+      "ParameterKey": "ExpectedEvidenceSha256",
+      "ParameterValue": "sha256:3c5763d016c26246a8b8906f3eacf399cb980b20b7efd076acc4435ffd307789"
+    },
+    {
+      "ParameterKey": "ExpectedBrokerPolicySha256",
+      "ParameterValue": "sha256:89ff58982cd0ae5dd3f4caf5f13f36e890773b55eebf6daf97bad43030cff536"
+    },
+    {
+      "ParameterKey": "PrivateParameterProjectionSha256",
+      "ParameterValue": "sha256:30d8c78e8d544ba2f75139f8d0b7d678f7a3fdbdb0f4cfa6a2acd5438d6755c2"
+    },
+    {
+      "ParameterKey": "BrokerArtifactBucket",
+      "ParameterValue": "scanalyze-gug363-synthetic-artifacts"
+    },
+    {
+      "ParameterKey": "BrokerArtifactKey",
+      "ParameterValue": "scanalyze/platform-authority/gug-215/signed/12345678-1234-4234-8234-1234567890ab.zip"
+    },
+    {
+      "ParameterKey": "BrokerArtifactVersion",
+      "ParameterValue": "synthetic-signed-version-1"
+    },
+    {
+      "ParameterKey": "BrokerArtifactCodeSha256",
+      "ParameterValue": "uujHZ5H/eAih2qVcUWVhqLaVIDJo5ElvdESWTK2YDW0="
+    },
+    {
+      "ParameterKey": "BrokerCodeSigningConfigArn",
+      "ParameterValue": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-synthetic123"
+    },
+    {
+      "ParameterKey": "BrokerRuntimeVersionArn",
+      "ParameterValue": "arn:aws:lambda:us-east-1::runtime:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "ParameterKey": "BrokerVersionBindingSha256",
+      "ParameterValue": "sha256:ecc4e674941dea3e0e55c573ba91926f387d54cab444f8b4a939425ca6c41bb2"
+    },
+    {
+      "ParameterKey": "IdentityStoreArn",
+      "ParameterValue": "arn:aws:identitystore::042360977644:identitystore/d-1234567890"
+    },
+    {
+      "ParameterKey": "IdentityCenterInstanceArn",
+      "ParameterValue": "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    },
+    {
+      "ParameterKey": "IdentityCenterApplicationArn",
+      "ParameterValue": "arn:aws:sso::042360977644:application/ssoins-1234567890abcdef/apl-1234567890abcdef"
+    },
+    {
+      "ParameterKey": "IdentityCenterRedirectUri",
+      "ParameterValue": "http://127.0.0.1:18443/callback"
+    },
+    {
+      "ParameterKey": "ClassifierIdentityStoreUserId",
+      "ParameterValue": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "ParameterKey": "ApproverIdentityStoreUserId",
+      "ParameterValue": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "ParameterKey": "ClassifierAssignmentSha256",
+      "ParameterValue": "sha256:25d8a329994bde4b5e8e35ce4ed9ea552fc7d5cb80b2e0cd18f6896d213d866d"
+    },
+    {
+      "ParameterKey": "ApproverAssignmentSha256",
+      "ParameterValue": "sha256:59b767c0568fbe53eb51156545184d7907c06cebd84f3bb4b11fe31cb64b9cdc"
+    },
+    {
+      "ParameterKey": "ClassifierInvokerPolicySha256",
+      "ParameterValue": "sha256:b5a2e723e6e4c66cc07829eae2d0bd7aa78492a12353de745cae0510a1a05ddc"
+    },
+    {
+      "ParameterKey": "ApproverInvokerPolicySha256",
+      "ParameterValue": "sha256:e419c589f9acbce0d0789856d60e03443d41be12d9db1ff18e3b0072800f4980"
+    },
+    {
+      "ParameterKey": "ClassifierProofPolicySha256",
+      "ParameterValue": "sha256:2bcce6d10502c6a29c38c8307fbeb76726258f0efc1e5cbb1450ddce7927a908"
+    },
+    {
+      "ParameterKey": "ApproverProofPolicySha256",
+      "ParameterValue": "sha256:4cf956a34cb8484b1db22f636b28e441f7528f32c05074030a47ce204a18fe6f"
+    },
+    {
+      "ParameterKey": "IdentityCenterApplicationActorPolicySha256",
+      "ParameterValue": "sha256:bf1d31c28f54c5bb86b6cfc933785d6d2a0ad10762c2608e8415c83544e6ce65"
+    },
+    {
+      "ParameterKey": "ClassifierPermissionSetRoleArn",
+      "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireClass_0123456789abcdef"
+    },
+    {
+      "ParameterKey": "ApproverPermissionSetRoleArn",
+      "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_fedcba9876543210"
+    },
+    {
+      "ParameterKey": "SingleOperatorOwnerAuthorizationSha256",
+      "ParameterValue": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1"
+    },
+    {
+      "ParameterKey": "SingleOperatorExpectedAuthorizationSha256",
+      "ParameterValue": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566"
+    },
+    {
+      "ParameterKey": "SingleOperatorExceptionCreatedAt",
+      "ParameterValue": "2030-01-01T00:00:00Z"
+    },
+    {
+      "ParameterKey": "SingleOperatorExceptionNotBefore",
+      "ParameterValue": "2030-01-01T00:01:00Z"
+    },
+    {
+      "ParameterKey": "SingleOperatorExceptionExpiresAt",
+      "ParameterValue": "2030-01-01T00:12:00Z"
+    }
+  ],
+  "parameter_projection_digest": "sha256:c555bdcb1608886ccdeeb9d4ee532cd5a9ccd80f5571af59714665c47024c715",
+  "expected_resources": [
+    {
+      "logical_resource_id": "ApproverInvokerRole",
+      "resource_type": "AWS::IAM::Role"
+    },
+    {
+      "logical_resource_id": "ApproverProofRole",
+      "resource_type": "AWS::IAM::Role"
+    },
+    {
+      "logical_resource_id": "ChangeSetRetirementLedger",
+      "resource_type": "AWS::DynamoDB::Table"
+    },
+    {
+      "logical_resource_id": "ClassifierInvokerRole",
+      "resource_type": "AWS::IAM::Role"
+    },
+    {
+      "logical_resource_id": "ClassifierProofRole",
+      "resource_type": "AWS::IAM::Role"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerExecutionRole",
+      "resource_type": "AWS::IAM::Role"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerFunction",
+      "resource_type": "AWS::Lambda::Function"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerLogGroup",
+      "resource_type": "AWS::Logs::LogGroup"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleClassifyAlias",
+      "resource_type": "AWS::Lambda::Alias"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleClassifyUrl",
+      "resource_type": "AWS::Lambda::Url"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleReconcileAlias",
+      "resource_type": "AWS::Lambda::Alias"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleReconcileUrl",
+      "resource_type": "AWS::Lambda::Url"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleRetireAlias",
+      "resource_type": "AWS::Lambda::Alias"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerSingleRetireUrl",
+      "resource_type": "AWS::Lambda::Url"
+    },
+    {
+      "logical_resource_id": "RetirementBrokerVersion",
+      "resource_type": "AWS::Lambda::Version"
+    },
+    {
+      "logical_resource_id": "SingleApproverReconcileFunctionUrlFunctionPermission",
+      "resource_type": "AWS::Lambda::Permission"
+    },
+    {
+      "logical_resource_id": "SingleApproverReconcileFunctionUrlInvokePermission",
+      "resource_type": "AWS::Lambda::Permission"
+    },
+    {
+      "logical_resource_id": "SingleApproverRetireFunctionUrlFunctionPermission",
+      "resource_type": "AWS::Lambda::Permission"
+    },
+    {
+      "logical_resource_id": "SingleApproverRetireFunctionUrlInvokePermission",
+      "resource_type": "AWS::Lambda::Permission"
+    },
+    {
+      "logical_resource_id": "SingleClassifierFunctionUrlFunctionPermission",
+      "resource_type": "AWS::Lambda::Permission"
+    },
+    {
+      "logical_resource_id": "SingleClassifierFunctionUrlInvokePermission",
+      "resource_type": "AWS::Lambda::Permission"
+    }
+  ],
+  "expected_resource_count": 21,
+  "expected_resource_set_digest": "sha256:f3ffc8aa6efb81ba2c1e36ef131b57c378c2c36f56b2483b53f85cf6d0035ee1",
+  "active_aliases": [
+    "single-classify",
+    "single-reconcile",
+    "single-retire"
+  ],
+  "normal_aliases_present": false,
+  "log_group": {
+    "name": "/aws/lambda/scanalyze-platform-authority-gug215-retirement",
+    "retention_days": 365,
+    "encryption_mode": "AWS_OWNED_AT_REST"
+  },
+  "preflight_operations": [
+    "sts:GetCallerIdentity",
+    "cloudformation:DescribeStacks",
+    "signer:DescribeSigningJob",
+    "signer:GetSigningProfile",
+    "s3:GetBucketVersioning",
+    "s3:HeadObject",
+    "s3:GetObject",
+    "s3:ListObjectVersions",
+    "s3:HeadObject",
+    "s3:GetObject",
+    "lambda:GetCodeSigningConfig",
+    "cloudformation:DescribeStacks"
+  ],
+  "allowed_mutations": [
+    "cloudformation:CreateStack"
+  ],
+  "prohibited_operations": [
+    "cloudformation:CreateChangeSet",
+    "cloudformation:DeleteChangeSet",
+    "cloudformation:DeleteStack",
+    "cloudformation:ExecuteChangeSet",
+    "cloudformation:UpdateStack",
+    "lambda:InvokeFunction",
+    "lambda:InvokeFunctionUrl",
+    "lambda:CreateCodeSigningConfig",
+    "lambda:DeleteCodeSigningConfig",
+    "lambda:DeleteFunctionCodeSigningConfig",
+    "lambda:PutFunctionCodeSigningConfig",
+    "lambda:UpdateCodeSigningConfig",
+    "signer:StartSigningJob",
+    "s3:CopyObject",
+    "s3:PutObject",
+    "terraform:apply",
+    "terraform:import"
+  ],
+  "post_write_readback_operations": [
+    "cloudformation:DescribeStacks",
+    "cloudformation:GetTemplate",
+    "cloudformation:ListStackResources",
+    "cloudformation:DescribeStackEvents"
+  ],
+  "materialization_operations": [
+    {
+      "sequence": 1,
+      "service": "cloudformation",
+      "api_action": "CreateStack",
+      "effect": "CREATE_DEDICATED_ENTRYPOINT_STACK_ONLY",
+      "target_digest": "sha256:c0e9d34c25a0d890bb73e5596c88a5daf7da72df2521407a10b5cccc5bcd881c",
+      "request_projection_digest": "sha256:3153497fb7f87617b61d019ce305cb0b788083b7b1dcff57f83d7d8e73ab4051",
+      "conditional_behavior": "TARGET_ABSENT_AFTER_TWO_EXACT_DESCRIBES",
+      "client_request_token_sha256": "sha256:35f4a26d683f1b7dbc7c86eba285d3e0287fb14e0d379256637742f9115c708d",
+      "attempt_limit": 1,
+      "retry_permitted": false,
+      "expected_response_class": "CreateStackOutput.StackId",
+      "immediate_readback": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListStackResources",
+        "cloudformation:DescribeStackEvents"
+      ],
+      "unknown_outcome_reconciliation": [
+        "sts:GetCallerIdentity",
+        "cloudformation:DescribeStacks",
+        "signer:DescribeSigningJob",
+        "signer:GetSigningProfile",
+        "s3:GetBucketVersioning",
+        "s3:HeadObject",
+        "s3:GetObject",
+        "s3:ListObjectVersions",
+        "s3:HeadObject",
+        "s3:GetObject",
+        "lambda:GetCodeSigningConfig",
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListStackResources",
+        "cloudformation:DescribeStackEvents"
+      ],
+      "rollback": {
+        "automatic": false,
+        "delete_stack_authorized": false,
+        "mode": "SEPARATE_OWNER_CHECKPOINT_REQUIRED"
+      }
+    }
+  ],
+  "operation_list_digest": "sha256:8584aa260c398a524f99b722541add952a7ff2a06df6b93d589edf1f772d1c69",
+  "ambiguous_outcome_mode": "RECONCILE_ONLY",
+  "mutation_retry_permitted": false,
+  "materialization_binding_digest": "sha256:751a173042b0475f2e417185101f4870b008d25bdb70383baff6c909331cd7be",
+  "create_stack_request": {
+    "StackName": "scanalyze-platform-authority-gug357-retirement-entrypoint",
+    "TemplateBody": "AWSTemplateFormatVersion: '2010-09-09'\nDescription: >\n  Scanalyze GUG-215/GUG-217 retained Change Set retirement PEP. The stack\n  creates one retained DynamoDB ledger, one version-pinned Lambda broker,\n  three synchronous IAM-authenticated Function URLs, two ordinary invocation\n  roles, and two deny-all Identity Center proof roles. Human and proof roles\n  never receive DeleteChangeSet or DynamoDB write authority.\n\nParameters:\n  AuthorizationMode:\n    Type: String\n    Default: TWO_HUMAN\n    AllowedValues:\n      - TWO_HUMAN\n      - SINGLE_OPERATOR_NONPROD_EXCEPTION\n  AuthorityAccountId:\n    Type: String\n    AllowedPattern: '^(?!000000000000$)[0-9]{12}$'\n  ChangeSetName:\n    Type: String\n    AllowedPattern: '^scanalyze-platform-authority-bootstrap-[0-9]{14}$'\n  RetirementId:\n    Type: String\n    AllowedPattern: '^gug215#sha256:[a-f0-9]{64}$'\n    NoEcho: true\n  ExpectedTemplateSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ExpectedEvidenceSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  PrivateParameterProjectionSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ExpectedBrokerPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  BrokerArtifactBucket:\n    Type: String\n    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'\n  BrokerArtifactKey:\n    Type: String\n    AllowedPattern: '^scanalyze/platform-authority/gug-215/[A-Za-z0-9._/-]+\\.zip$'\n  BrokerArtifactVersion:\n    Type: String\n    MinLength: 1\n    MaxLength: 1024\n    NoEcho: true\n  BrokerArtifactCodeSha256:\n    Type: String\n    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'\n  BrokerCodeSigningConfigArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:lambda:[a-z0-9-]+:[0-9]{12}:code-signing-config:csc-[a-z0-9]+$'\n  BrokerRuntimeVersionArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:lambda:[a-z0-9-]+::runtime:[a-f0-9]{64}$'\n  BrokerVersionBindingSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  IdentityStoreArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:identitystore::[0-9]{12}:identitystore/d-[a-z0-9]{10,}$'\n    NoEcho: true\n  IdentityCenterInstanceArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'\n    NoEcho: true\n  IdentityCenterApplicationArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:sso::[0-9]{12}:application/ssoins-[A-Za-z0-9]{16}/apl-[A-Za-z0-9]{16}$'\n    NoEcho: true\n  IdentityCenterRedirectUri:\n    Type: String\n    AllowedPattern: '^http://127\\.0\\.0\\.1:[0-9]{4,5}/callback$'\n    NoEcho: true\n  ClassifierIdentityStoreUserId:\n    Type: String\n    AllowedPattern: '^([0-9a-f]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'\n    NoEcho: true\n  ApproverIdentityStoreUserId:\n    Type: String\n    AllowedPattern: '^([0-9a-f]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'\n    NoEcho: true\n  ClassifierAssignmentSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ApproverAssignmentSha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ClassifierInvokerPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ApproverInvokerPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ClassifierProofPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ApproverProofPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  IdentityCenterApplicationActorPolicySha256:\n    Type: String\n    AllowedPattern: '^sha256:[a-f0-9]{64}$'\n  ClassifierPermissionSetRoleArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-reserved/sso\\.amazonaws\\.com(/[a-z0-9-]+)?/AWSReservedSSO_ScanalyzeAuthorityRetireClass_[0-9a-fA-F]{16}$'\n    NoEcho: true\n  ApproverPermissionSetRoleArn:\n    Type: String\n    AllowedPattern: '^arn:aws[a-z-]*:iam::[0-9]{12}:role/aws-reserved/sso\\.amazonaws\\.com(/[a-z0-9-]+)?/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_[0-9a-fA-F]{16}$'\n    NoEcho: true\n  SingleOperatorOwnerAuthorizationSha256:\n    Type: String\n    Default: ''\n    AllowedPattern: '^$|^sha256:[a-f0-9]{64}$'\n    NoEcho: true\n  SingleOperatorExpectedAuthorizationSha256:\n    Type: String\n    Default: ''\n    AllowedPattern: '^$|^sha256:[a-f0-9]{64}$'\n    NoEcho: true\n  SingleOperatorExceptionCreatedAt:\n    Type: String\n    Default: ''\n    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'\n    NoEcho: true\n  SingleOperatorExceptionNotBefore:\n    Type: String\n    Default: ''\n    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'\n    NoEcho: true\n  SingleOperatorExceptionExpiresAt:\n    Type: String\n    Default: ''\n    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'\n    NoEcho: true\n\nRules:\n  AuthorityAccountMustMatch:\n    Assertions:\n      - Assert: !Equals [!Ref AuthorityAccountId, !Ref AWS::AccountId]\n        AssertDescription: AuthorityAccountId must equal the target AWS account.\n  IndependentOperatorsRequired:\n    Assertions:\n      - Assert: !Or\n          - !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]\n          - !Not\n            - !Equals\n              - !Ref ClassifierIdentityStoreUserId\n              - !Ref ApproverIdentityStoreUserId\n        AssertDescription: The normal path requires distinct Identity Store users.\n  SingleOperatorExceptionMustBeExact:\n    Assertions:\n      - Assert: !Or\n          - !Equals [!Ref AuthorizationMode, TWO_HUMAN]\n          - !And\n            - !Equals\n              - !Ref ClassifierIdentityStoreUserId\n              - !Ref ApproverIdentityStoreUserId\n            - !Not [!Equals [!Ref SingleOperatorOwnerAuthorizationSha256, '']]\n            - !Not [!Equals [!Ref SingleOperatorExpectedAuthorizationSha256, '']]\n            - !Not [!Equals [!Ref SingleOperatorExceptionCreatedAt, '']]\n            - !Not [!Equals [!Ref SingleOperatorExceptionNotBefore, '']]\n            - !Not [!Equals [!Ref SingleOperatorExceptionExpiresAt, '']]\n        AssertDescription: The exception requires one exact user and complete immutable owner/window bindings.\n  NormalModeForbidsExceptionBindings:\n    Assertions:\n      - Assert: !Or\n          - !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]\n          - !And\n            - !Equals [!Ref SingleOperatorOwnerAuthorizationSha256, '']\n            - !Equals [!Ref SingleOperatorExpectedAuthorizationSha256, '']\n            - !Equals [!Ref SingleOperatorExceptionCreatedAt, '']\n            - !Equals [!Ref SingleOperatorExceptionNotBefore, '']\n            - !Equals [!Ref SingleOperatorExceptionExpiresAt, '']\n        AssertDescription: The normal path cannot carry single-operator exception authority.\n\nConditions:\n  TwoHumanMode: !Equals [!Ref AuthorizationMode, TWO_HUMAN]\n  SingleOperatorMode: !Equals [!Ref AuthorizationMode, SINGLE_OPERATOR_NONPROD_EXCEPTION]\n\nResources:\n  ChangeSetRetirementLedger:\n    Type: AWS::DynamoDB::Table\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain\n    Properties:\n      TableName: scanalyze-platform-authority-change-set-retirements\n      BillingMode: PAY_PER_REQUEST\n      AttributeDefinitions:\n        - AttributeName: retirement_id\n          AttributeType: S\n      KeySchema:\n        - AttributeName: retirement_id\n          KeyType: HASH\n      DeletionProtectionEnabled: true\n      PointInTimeRecoverySpecification:\n        PointInTimeRecoveryEnabled: true\n        RecoveryPeriodInDays: 35\n      SSESpecification:\n        SSEEnabled: true\n        SSEType: KMS\n      TableClass: STANDARD\n      ResourcePolicy:\n        PolicyDocument:\n          Version: '2012-10-17'\n          Statement:\n            - Sid: DenyWritesOutsideRetirementBroker\n              Effect: Deny\n              Principal:\n                AWS: '*'\n              Action:\n                - dynamodb:BatchWriteItem\n                - dynamodb:DeleteItem\n                - dynamodb:PartiQLDelete\n                - dynamodb:PartiQLInsert\n                - dynamodb:PartiQLUpdate\n                - dynamodb:PutItem\n                - dynamodb:TransactWriteItems\n                - dynamodb:UpdateItem\n              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-change-set-retirements\n              Condition:\n                ArnNotEquals:\n                  aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215BrokerExecution\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: data_class, Value: control-metadata}\n        - {Key: work_package, Value: GUG-215}\n        - {Key: environment, Value: non-production}\n        - {Key: production, Value: 'false'}\n        - {Key: account_id, Value: !Ref AuthorityAccountId}\n        - {Key: region, Value: !Ref AWS::Region}\n\n  RetirementBrokerLogGroup:\n    Type: AWS::Logs::LogGroup\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain\n    Properties:\n      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug215-retirement\n      RetentionInDays: 365\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: work_package, Value: GUG-215}\n        - {Key: environment, Value: non-production}\n        - {Key: production, Value: 'false'}\n\n  RetirementBrokerExecutionRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: ScanalyzeGug215BrokerExecution\n      MaxSessionDuration: 3600\n      AssumeRolePolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Effect: Allow\n            Principal:\n              Service: lambda.amazonaws.com\n            Action: sts:AssumeRole\n      Policies:\n        - PolicyName: Gug215ExactRetirement\n          PolicyDocument:\n            Version: '2012-10-17'\n            Statement:\n              - Sid: ReadExactRecoveryStack\n                Effect: Allow\n                Action:\n                  - cloudformation:DescribeStacks\n                  - cloudformation:GetTemplate\n                  - cloudformation:ListChangeSets\n                  - cloudformation:ListStackResources\n                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-state-backend/*\n              - Sid: DescribeExactRecoveryChangeSet\n                Effect: Allow\n                Action: cloudformation:DescribeChangeSet\n                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-state-backend/*\n                Condition:\n                  StringEquals:\n                    cloudformation:ChangeSetName: !Ref ChangeSetName\n              - Sid: DeleteExactRecoveryChangeSet\n                Effect: Allow\n                Action: cloudformation:DeleteChangeSet\n                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AuthorityAccountId}:stack/scanalyze-platform-authority-state-backend/*\n                Condition:\n                  StringEquals:\n                    cloudformation:ChangeSetName: !Ref ChangeSetName\n              - Sid: ReadAccountPublicAccessBlock\n                Effect: Allow\n                Action: s3:GetAccountPublicAccessBlock\n                Resource: '*'\n              - Sid: ReadExactLedgerControls\n                Effect: Allow\n                Action:\n                  - dynamodb:DescribeContinuousBackups\n                  - dynamodb:DescribeTable\n                  - dynamodb:GetResourcePolicy\n                  - dynamodb:ListTagsOfResource\n                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-change-set-retirements\n              - Sid: ReadLedgerAwsOwnedKmsKey\n                Effect: Allow\n                Action: kms:DescribeKey\n                Resource: '*'\n              - Sid: UseExactLedgerItem\n                Effect: Allow\n                Action:\n                  - dynamodb:GetItem\n                  - dynamodb:PutItem\n                  - dynamodb:UpdateItem\n                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AuthorityAccountId}:table/scanalyze-platform-authority-change-set-retirements\n                Condition:\n                  ForAllValues:StringEquals:\n                    dynamodb:LeadingKeys:\n                      - !Ref RetirementId\n                  'Null':\n                    dynamodb:LeadingKeys: 'false'\n              - Sid: ExchangeExactIdentityContextCode\n                Effect: Allow\n                Action: sso-oauth:CreateTokenWithIAM\n                Resource: !Ref IdentityCenterApplicationArn\n              - Sid: EstablishExactDenyAllIdentityProof\n                Effect: Allow\n                Action:\n                  - sts:AssumeRole\n                  - sts:SetContext\n                Resource:\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ClassifierProof\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ApproverProof\n              - Sid: ReadExactBrokerRolePolicies\n                Effect: Allow\n                Action:\n                  - iam:GetRole\n                  - iam:GetRolePolicy\n                  - iam:ListAttachedRolePolicies\n                  - iam:ListRolePolicies\n                Resource:\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215BrokerExecution\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215ClassifierInvoker\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215ApproverInvoker\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ClassifierProof\n                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug217ApproverProof\n              - Sid: ReadExactBrokerConfiguration\n                Effect: Allow\n                Action:\n                  - lambda:GetAlias\n                  - lambda:GetFunctionCodeSigningConfig\n                  - lambda:GetFunctionConcurrency\n                  - lambda:GetFunctionConfiguration\n                  - lambda:GetFunctionUrlConfig\n                  - lambda:GetPolicy\n                  - lambda:GetRuntimeManagementConfig\n                Resource:\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:*\n              - Sid: WriteExactBrokerLogStreams\n                Effect: Allow\n                Action:\n                  - logs:CreateLogStream\n                  - logs:PutLogEvents\n                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:log-stream:*\n              - Sid: DenyRetirementPrivilegeEscalation\n                Effect: Deny\n                Action:\n                  - cloudformation:CreateChangeSet\n                  - cloudformation:CreateStack\n                  - cloudformation:DeleteStack\n                  - cloudformation:ExecuteChangeSet\n                  - cloudformation:UpdateStack\n                  - cloudformation:UpdateTerminationProtection\n                  - dynamodb:BatchWriteItem\n                  - dynamodb:DeleteItem\n                  - dynamodb:PartiQLDelete\n                  - dynamodb:PartiQLInsert\n                  - dynamodb:PartiQLUpdate\n                  - dynamodb:TransactWriteItems\n                  - lambda:InvokeAsync\n                  - lambda:InvokeFunction\n                  - lambda:InvokeFunctionUrl\n                  - logs:AssociateKmsKey\n                  - logs:CreateLogGroup\n                  - logs:DeleteLogGroup\n                  - logs:DeleteRetentionPolicy\n                  - logs:DisassociateKmsKey\n                  - logs:PutResourcePolicy\n                  - logs:PutRetentionPolicy\n                Resource: '*'\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: work_package, Value: GUG-215}\n        - {Key: environment, Value: non-production}\n\n  RetirementBrokerFunction:\n    Type: AWS::Lambda::Function\n    DependsOn:\n      - ChangeSetRetirementLedger\n      - RetirementBrokerLogGroup\n    Properties:\n      FunctionName: scanalyze-platform-authority-gug215-retirement\n      Description: GUG-215 exact retained Change Set retirement PEP\n      Runtime: python3.12\n      RuntimeManagementConfig:\n        UpdateRuntimeOn: Manual\n        RuntimeVersionArn: !Ref BrokerRuntimeVersionArn\n      Handler: tooling.platform_authority_identity_context_pep_runtime.handler\n      Architectures: [x86_64]\n      MemorySize: 256\n      Timeout: 60\n      ReservedConcurrentExecutions: 1\n      Role: !GetAtt RetirementBrokerExecutionRole.Arn\n      CodeSigningConfigArn: !Ref BrokerCodeSigningConfigArn\n      Code:\n        S3Bucket: !Ref BrokerArtifactBucket\n        S3Key: !Ref BrokerArtifactKey\n        S3ObjectVersion: !Ref BrokerArtifactVersion\n      LoggingConfig:\n        ApplicationLogLevel: ERROR\n        LogFormat: JSON\n        LogGroup: !Ref RetirementBrokerLogGroup\n        SystemLogLevel: WARN\n      Environment:\n        Variables:\n          AUTHORIZATION_MODE: !Ref AuthorizationMode\n          AUTHORITY_ACCOUNT_ID: !Ref AuthorityAccountId\n          AUTHORITY_REGION: !Ref AWS::Region\n          CHANGE_SET_NAME: !Ref ChangeSetName\n          RETIREMENT_ID: !Ref RetirementId\n          EXPECTED_TEMPLATE_SHA256: !Ref ExpectedTemplateSha256\n          EXPECTED_EVIDENCE_SHA256: !Ref ExpectedEvidenceSha256\n          EXPECTED_CODE_SHA256: !Ref BrokerArtifactCodeSha256\n          EXPECTED_BROKER_POLICY_SHA256: !Ref ExpectedBrokerPolicySha256\n          IDENTITY_STORE_ARN: !Ref IdentityStoreArn\n          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn\n          IDENTITY_CENTER_APPLICATION_ARN: !Ref IdentityCenterApplicationArn\n          IDENTITY_CENTER_REDIRECT_URI: !Ref IdentityCenterRedirectUri\n          CLASSIFIER_IDENTITY_STORE_USER_ID: !Ref ClassifierIdentityStoreUserId\n          APPROVER_IDENTITY_STORE_USER_ID: !Ref ApproverIdentityStoreUserId\n          CLASSIFIER_ASSIGNMENT_SHA256: !Ref ClassifierAssignmentSha256\n          APPROVER_ASSIGNMENT_SHA256: !Ref ApproverAssignmentSha256\n          CLASSIFIER_INVOKER_POLICY_SHA256: !Ref ClassifierInvokerPolicySha256\n          APPROVER_INVOKER_POLICY_SHA256: !Ref ApproverInvokerPolicySha256\n          CLASSIFIER_PROOF_POLICY_SHA256: !Ref ClassifierProofPolicySha256\n          APPROVER_PROOF_POLICY_SHA256: !Ref ApproverProofPolicySha256\n          IDENTITY_CENTER_APPLICATION_ACTOR_POLICY_SHA256: !Ref IdentityCenterApplicationActorPolicySha256\n          CLASSIFIER_INVOKER_ROLE_NAME: ScanalyzeGug215ClassifierInvoker\n          APPROVER_INVOKER_ROLE_NAME: ScanalyzeGug215ApproverInvoker\n          CLASSIFIER_PROOF_ROLE_NAME: ScanalyzeGug217ClassifierProof\n          APPROVER_PROOF_ROLE_NAME: ScanalyzeGug217ApproverProof\n          CLASSIFIER_PERMISSION_SET_ROLE_ARN: !Ref ClassifierPermissionSetRoleArn\n          APPROVER_PERMISSION_SET_ROLE_ARN: !Ref ApproverPermissionSetRoleArn\n          BROKER_EXECUTION_ROLE_NAME: ScanalyzeGug215BrokerExecution\n          CODE_SIGNING_CONFIG_ARN: !Ref BrokerCodeSigningConfigArn\n          BROKER_RUNTIME_VERSION_ARN: !Ref BrokerRuntimeVersionArn\n          BROKER_VERSION_BINDING_SHA256: !Ref BrokerVersionBindingSha256\n          SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256: !Ref SingleOperatorOwnerAuthorizationSha256\n          SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256: !Ref SingleOperatorExpectedAuthorizationSha256\n          SINGLE_OPERATOR_EXCEPTION_CREATED_AT: !Ref SingleOperatorExceptionCreatedAt\n          SINGLE_OPERATOR_EXCEPTION_NOT_BEFORE: !Ref SingleOperatorExceptionNotBefore\n          SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT: !Ref SingleOperatorExceptionExpiresAt\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: work_package, Value: GUG-215}\n        - {Key: environment, Value: non-production}\n\n  RetirementBrokerVersion:\n    Type: AWS::Lambda::Version\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      CodeSha256: !Ref BrokerArtifactCodeSha256\n      Description: !Sub >-\n        GUG-215 ${BrokerVersionBindingSha256}\n        ${SingleOperatorExpectedAuthorizationSha256}\n\n  RetirementBrokerClassifyAlias:\n    Type: AWS::Lambda::Alias\n    Condition: TwoHumanMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: classify\n\n  RetirementBrokerRetireAlias:\n    Type: AWS::Lambda::Alias\n    Condition: TwoHumanMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: retire\n\n  RetirementBrokerReconcileAlias:\n    Type: AWS::Lambda::Alias\n    Condition: TwoHumanMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: reconcile\n\n  RetirementBrokerClassifyUrl:\n    Type: AWS::Lambda::Url\n    Condition: TwoHumanMode\n    DependsOn: RetirementBrokerClassifyAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: classify\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  RetirementBrokerRetireUrl:\n    Type: AWS::Lambda::Url\n    Condition: TwoHumanMode\n    DependsOn: RetirementBrokerRetireAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: retire\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  RetirementBrokerReconcileUrl:\n    Type: AWS::Lambda::Url\n    Condition: TwoHumanMode\n    DependsOn: RetirementBrokerReconcileAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: reconcile\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  RetirementBrokerSingleClassifyAlias:\n    Type: AWS::Lambda::Alias\n    Condition: SingleOperatorMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: single-classify\n\n  RetirementBrokerSingleRetireAlias:\n    Type: AWS::Lambda::Alias\n    Condition: SingleOperatorMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: single-retire\n\n  RetirementBrokerSingleReconcileAlias:\n    Type: AWS::Lambda::Alias\n    Condition: SingleOperatorMode\n    Properties:\n      FunctionName: !Ref RetirementBrokerFunction\n      FunctionVersion: !GetAtt RetirementBrokerVersion.Version\n      Name: single-reconcile\n\n  RetirementBrokerSingleClassifyUrl:\n    Type: AWS::Lambda::Url\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleClassifyAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: single-classify\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  RetirementBrokerSingleRetireUrl:\n    Type: AWS::Lambda::Url\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleRetireAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: single-retire\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  RetirementBrokerSingleReconcileUrl:\n    Type: AWS::Lambda::Url\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleReconcileAlias\n    Properties:\n      AuthType: AWS_IAM\n      InvokeMode: BUFFERED\n      Qualifier: single-reconcile\n      TargetFunctionArn: !Ref RetirementBrokerFunction\n\n  ClassifierInvokerRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: ScanalyzeGug215ClassifierInvoker\n      MaxSessionDuration: 3600\n      AssumeRolePolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Sid: AssumeFromExactPermissionSet\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:AssumeRole\n            Condition:\n              ArnEquals:\n                aws:PrincipalArn: !Ref ClassifierPermissionSetRoleArn\n      Policies:\n        - PolicyName: Gug215ClassifierInvokeOnly\n          PolicyDocument:\n            Version: '2012-10-17'\n            Statement:\n              - Sid: InvokeExactClassifyFunctionUrl\n                Effect: Allow\n                Action: lambda:InvokeFunctionUrl\n                Resource: !If\n                  - SingleOperatorMode\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-classify\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify\n                Condition:\n                  StringEquals:\n                    lambda:FunctionUrlAuthType: AWS_IAM\n              - Sid: InvokeExactClassifyOnlyViaFunctionUrl\n                Effect: Allow\n                Action: lambda:InvokeFunction\n                Resource: !If\n                  - SingleOperatorMode\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-classify\n                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:classify\n                Condition:\n                  Bool:\n                    lambda:InvokedViaFunctionUrl: 'true'\n              - Sid: DenyDirectRetirementEffects\n                Effect: Deny\n                Action:\n                  - cloudformation:DeleteChangeSet\n                  - cloudformation:DeleteStack\n                  - cloudformation:ExecuteChangeSet\n                  - dynamodb:BatchWriteItem\n                  - dynamodb:DeleteItem\n                  - dynamodb:PartiQLDelete\n                  - dynamodb:PartiQLInsert\n                  - dynamodb:PartiQLUpdate\n                  - dynamodb:PutItem\n                  - dynamodb:TransactWriteItems\n                  - dynamodb:UpdateItem\n                Resource: '*'\n\n  ApproverInvokerRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: ScanalyzeGug215ApproverInvoker\n      MaxSessionDuration: 3600\n      AssumeRolePolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Sid: AssumeFromExactPermissionSet\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:AssumeRole\n            Condition:\n              ArnEquals:\n                aws:PrincipalArn: !Ref ApproverPermissionSetRoleArn\n      Policies:\n        - PolicyName: Gug215ApproverInvokeOnly\n          PolicyDocument:\n            Version: '2012-10-17'\n            Statement:\n              - Sid: InvokeExactRetirementFunctionUrls\n                Effect: Allow\n                Action: lambda:InvokeFunctionUrl\n                Resource:\n                  - !If\n                    - SingleOperatorMode\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-retire\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire\n                  - !If\n                    - SingleOperatorMode\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-reconcile\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile\n                Condition:\n                  StringEquals:\n                    lambda:FunctionUrlAuthType: AWS_IAM\n              - Sid: InvokeExactRetirementOnlyViaFunctionUrls\n                Effect: Allow\n                Action: lambda:InvokeFunction\n                Resource:\n                  - !If\n                    - SingleOperatorMode\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-retire\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:retire\n                  - !If\n                    - SingleOperatorMode\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:single-reconcile\n                    - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:function:scanalyze-platform-authority-gug215-retirement:reconcile\n                Condition:\n                  Bool:\n                    lambda:InvokedViaFunctionUrl: 'true'\n              - Sid: DenyDirectRetirementEffects\n                Effect: Deny\n                Action:\n                  - cloudformation:DeleteChangeSet\n                  - cloudformation:DeleteStack\n                  - cloudformation:ExecuteChangeSet\n                  - dynamodb:BatchWriteItem\n                  - dynamodb:DeleteItem\n                  - dynamodb:PartiQLDelete\n                  - dynamodb:PartiQLInsert\n                  - dynamodb:PartiQLUpdate\n                  - dynamodb:PutItem\n                  - dynamodb:TransactWriteItems\n                  - dynamodb:UpdateItem\n                Resource: '*'\n\n  ClassifierProofRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: ScanalyzeGug217ClassifierProof\n      MaxSessionDuration: 3600\n      AssumeRolePolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Sid: AssumeFromExactBroker\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:AssumeRole\n            Condition:\n              ArnEquals:\n                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn\n          - Sid: SetExactClassifierIdentityContext\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:SetContext\n            Condition:\n              ForAllValues:ArnEquals:\n                sts:RequestContextProviders:\n                  - arn:aws:iam::aws:contextProvider/IdentityCenter\n              StringEquals:\n                sts:RequestContext/identitystore:UserId: !Ref ClassifierIdentityStoreUserId\n              ArnEquals:\n                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn\n                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn\n                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn\n                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn\n              'Null':\n                sts:RequestContextProviders: 'false'\n                sts:RequestContext/identitystore:UserId: 'false'\n                sts:RequestContext/identitystore:IdentityStoreArn: 'false'\n                sts:RequestContext/identitycenter:InstanceArn: 'false'\n                sts:RequestContext/identitycenter:ApplicationArn: 'false'\n      Policies:\n        - PolicyName: Gug217ZeroAuthorityProof\n          PolicyDocument:\n            Version: '2012-10-17'\n            Statement:\n              - Sid: DenyEveryProofSessionAction\n                Effect: Deny\n                Action: '*'\n                Resource: '*'\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: work_package, Value: GUG-217}\n        - {Key: environment, Value: non-production}\n\n  ApproverProofRole:\n    Type: AWS::IAM::Role\n    Properties:\n      RoleName: ScanalyzeGug217ApproverProof\n      MaxSessionDuration: 3600\n      AssumeRolePolicyDocument:\n        Version: '2012-10-17'\n        Statement:\n          - Sid: AssumeFromExactBroker\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:AssumeRole\n            Condition:\n              ArnEquals:\n                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn\n          - Sid: SetExactApproverIdentityContext\n            Effect: Allow\n            Principal:\n              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root\n            Action: sts:SetContext\n            Condition:\n              ForAllValues:ArnEquals:\n                sts:RequestContextProviders:\n                  - arn:aws:iam::aws:contextProvider/IdentityCenter\n              StringEquals:\n                sts:RequestContext/identitystore:UserId: !Ref ApproverIdentityStoreUserId\n              ArnEquals:\n                aws:PrincipalArn: !GetAtt RetirementBrokerExecutionRole.Arn\n                sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn\n                sts:RequestContext/identitycenter:InstanceArn: !Ref IdentityCenterInstanceArn\n                sts:RequestContext/identitycenter:ApplicationArn: !Ref IdentityCenterApplicationArn\n              'Null':\n                sts:RequestContextProviders: 'false'\n                sts:RequestContext/identitystore:UserId: 'false'\n                sts:RequestContext/identitystore:IdentityStoreArn: 'false'\n                sts:RequestContext/identitycenter:InstanceArn: 'false'\n                sts:RequestContext/identitycenter:ApplicationArn: 'false'\n      Policies:\n        - PolicyName: Gug217ZeroAuthorityProof\n          PolicyDocument:\n            Version: '2012-10-17'\n            Statement:\n              - Sid: DenyEveryProofSessionAction\n                Effect: Deny\n                Action: '*'\n                Resource: '*'\n      Tags:\n        - {Key: managed_by, Value: cloudformation}\n        - {Key: service, Value: scanalyze-platform-authority}\n        - {Key: work_package, Value: GUG-217}\n        - {Key: environment, Value: non-production}\n\n  ClassifierFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:classify\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ClassifierInvokerRole.Arn\n\n  ClassifierFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:classify\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ClassifierInvokerRole.Arn\n\n  ApproverRetireFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:retire\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  ApproverRetireFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:retire\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  ApproverReconcileFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:reconcile\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  ApproverReconcileFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: TwoHumanMode\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:reconcile\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  SingleClassifierFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleClassifyAlias\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-classify\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ClassifierInvokerRole.Arn\n\n  SingleClassifierFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleClassifyAlias\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-classify\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ClassifierInvokerRole.Arn\n\n  SingleApproverRetireFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleRetireAlias\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-retire\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  SingleApproverRetireFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleRetireAlias\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-retire\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  SingleApproverReconcileFunctionUrlInvokePermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleReconcileAlias\n    Properties:\n      Action: lambda:InvokeFunctionUrl\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile\n      FunctionUrlAuthType: AWS_IAM\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\n  SingleApproverReconcileFunctionUrlFunctionPermission:\n    Type: AWS::Lambda::Permission\n    Condition: SingleOperatorMode\n    DependsOn: RetirementBrokerSingleReconcileAlias\n    Properties:\n      Action: lambda:InvokeFunction\n      FunctionName: !Sub ${RetirementBrokerFunction}:single-reconcile\n      InvokedViaFunctionUrl: true\n      Principal: !GetAtt ApproverInvokerRole.Arn\n\nOutputs:\n  ChangeSetRetirementLedgerName:\n    Value: !Ref ChangeSetRetirementLedger\n  BrokerLogGroupName:\n    Value: !Ref RetirementBrokerLogGroup\n  BrokerFunctionName:\n    Value: !Ref RetirementBrokerFunction\n  ClassifierInvokerRoleName:\n    Value: !Ref ClassifierInvokerRole\n  ApproverInvokerRoleName:\n    Value: !Ref ApproverInvokerRole\n  ClassifierFunctionUrl:\n    Condition: TwoHumanMode\n    Value: !GetAtt RetirementBrokerClassifyUrl.FunctionUrl\n  RetireFunctionUrl:\n    Condition: TwoHumanMode\n    Value: !GetAtt RetirementBrokerRetireUrl.FunctionUrl\n  ReconcileFunctionUrl:\n    Condition: TwoHumanMode\n    Value: !GetAtt RetirementBrokerReconcileUrl.FunctionUrl\n  SingleClassifierFunctionUrl:\n    Condition: SingleOperatorMode\n    Value: !GetAtt RetirementBrokerSingleClassifyUrl.FunctionUrl\n  SingleRetireFunctionUrl:\n    Condition: SingleOperatorMode\n    Value: !GetAtt RetirementBrokerSingleRetireUrl.FunctionUrl\n  SingleReconcileFunctionUrl:\n    Condition: SingleOperatorMode\n    Value: !GetAtt RetirementBrokerSingleReconcileUrl.FunctionUrl\n  AuthorizationMode:\n    Value: !Ref AuthorizationMode\n  TwoHumanStatus:\n    Value: !If [SingleOperatorMode, NOT_PROVEN, REQUIRED]\n  IdentityContextProofRequired:\n    Value: 'true'\n  LiveRetirementAuthorized:\n    Description: Template implementation does not itself authorize deployment or invocation.\n    Value: 'false'\n",
+    "Parameters": [
+      {
+        "ParameterKey": "AuthorizationMode",
+        "ParameterValue": "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+      },
+      {
+        "ParameterKey": "AuthorityAccountId",
+        "ParameterValue": "042360977644"
+      },
+      {
+        "ParameterKey": "ChangeSetName",
+        "ParameterValue": "scanalyze-platform-authority-bootstrap-20300101000000"
+      },
+      {
+        "ParameterKey": "RetirementId",
+        "ParameterValue": "gug215#sha256:16cfbdf6c850128310ac4d8bf3a2be95e09b6dfaf9aa30351d11fbb9f41ed6a5"
+      },
+      {
+        "ParameterKey": "ExpectedTemplateSha256",
+        "ParameterValue": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc"
+      },
+      {
+        "ParameterKey": "ExpectedEvidenceSha256",
+        "ParameterValue": "sha256:3c5763d016c26246a8b8906f3eacf399cb980b20b7efd076acc4435ffd307789"
+      },
+      {
+        "ParameterKey": "ExpectedBrokerPolicySha256",
+        "ParameterValue": "sha256:89ff58982cd0ae5dd3f4caf5f13f36e890773b55eebf6daf97bad43030cff536"
+      },
+      {
+        "ParameterKey": "PrivateParameterProjectionSha256",
+        "ParameterValue": "sha256:30d8c78e8d544ba2f75139f8d0b7d678f7a3fdbdb0f4cfa6a2acd5438d6755c2"
+      },
+      {
+        "ParameterKey": "BrokerArtifactBucket",
+        "ParameterValue": "scanalyze-gug363-synthetic-artifacts"
+      },
+      {
+        "ParameterKey": "BrokerArtifactKey",
+        "ParameterValue": "scanalyze/platform-authority/gug-215/signed/12345678-1234-4234-8234-1234567890ab.zip"
+      },
+      {
+        "ParameterKey": "BrokerArtifactVersion",
+        "ParameterValue": "synthetic-signed-version-1"
+      },
+      {
+        "ParameterKey": "BrokerArtifactCodeSha256",
+        "ParameterValue": "uujHZ5H/eAih2qVcUWVhqLaVIDJo5ElvdESWTK2YDW0="
+      },
+      {
+        "ParameterKey": "BrokerCodeSigningConfigArn",
+        "ParameterValue": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-synthetic123"
+      },
+      {
+        "ParameterKey": "BrokerRuntimeVersionArn",
+        "ParameterValue": "arn:aws:lambda:us-east-1::runtime:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "ParameterKey": "BrokerVersionBindingSha256",
+        "ParameterValue": "sha256:ecc4e674941dea3e0e55c573ba91926f387d54cab444f8b4a939425ca6c41bb2"
+      },
+      {
+        "ParameterKey": "IdentityStoreArn",
+        "ParameterValue": "arn:aws:identitystore::042360977644:identitystore/d-1234567890"
+      },
+      {
+        "ParameterKey": "IdentityCenterInstanceArn",
+        "ParameterValue": "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+      },
+      {
+        "ParameterKey": "IdentityCenterApplicationArn",
+        "ParameterValue": "arn:aws:sso::042360977644:application/ssoins-1234567890abcdef/apl-1234567890abcdef"
+      },
+      {
+        "ParameterKey": "IdentityCenterRedirectUri",
+        "ParameterValue": "http://127.0.0.1:18443/callback"
+      },
+      {
+        "ParameterKey": "ClassifierIdentityStoreUserId",
+        "ParameterValue": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "ParameterKey": "ApproverIdentityStoreUserId",
+        "ParameterValue": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "ParameterKey": "ClassifierAssignmentSha256",
+        "ParameterValue": "sha256:25d8a329994bde4b5e8e35ce4ed9ea552fc7d5cb80b2e0cd18f6896d213d866d"
+      },
+      {
+        "ParameterKey": "ApproverAssignmentSha256",
+        "ParameterValue": "sha256:59b767c0568fbe53eb51156545184d7907c06cebd84f3bb4b11fe31cb64b9cdc"
+      },
+      {
+        "ParameterKey": "ClassifierInvokerPolicySha256",
+        "ParameterValue": "sha256:b5a2e723e6e4c66cc07829eae2d0bd7aa78492a12353de745cae0510a1a05ddc"
+      },
+      {
+        "ParameterKey": "ApproverInvokerPolicySha256",
+        "ParameterValue": "sha256:e419c589f9acbce0d0789856d60e03443d41be12d9db1ff18e3b0072800f4980"
+      },
+      {
+        "ParameterKey": "ClassifierProofPolicySha256",
+        "ParameterValue": "sha256:2bcce6d10502c6a29c38c8307fbeb76726258f0efc1e5cbb1450ddce7927a908"
+      },
+      {
+        "ParameterKey": "ApproverProofPolicySha256",
+        "ParameterValue": "sha256:4cf956a34cb8484b1db22f636b28e441f7528f32c05074030a47ce204a18fe6f"
+      },
+      {
+        "ParameterKey": "IdentityCenterApplicationActorPolicySha256",
+        "ParameterValue": "sha256:bf1d31c28f54c5bb86b6cfc933785d6d2a0ad10762c2608e8415c83544e6ce65"
+      },
+      {
+        "ParameterKey": "ClassifierPermissionSetRoleArn",
+        "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireClass_0123456789abcdef"
+      },
+      {
+        "ParameterKey": "ApproverPermissionSetRoleArn",
+        "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/us-east-1/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_fedcba9876543210"
+      },
+      {
+        "ParameterKey": "SingleOperatorOwnerAuthorizationSha256",
+        "ParameterValue": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1"
+      },
+      {
+        "ParameterKey": "SingleOperatorExpectedAuthorizationSha256",
+        "ParameterValue": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566"
+      },
+      {
+        "ParameterKey": "SingleOperatorExceptionCreatedAt",
+        "ParameterValue": "2030-01-01T00:00:00Z"
+      },
+      {
+        "ParameterKey": "SingleOperatorExceptionNotBefore",
+        "ParameterValue": "2030-01-01T00:01:00Z"
+      },
+      {
+        "ParameterKey": "SingleOperatorExceptionExpiresAt",
+        "ParameterValue": "2030-01-01T00:12:00Z"
+      }
+    ],
+    "Capabilities": [
+      "CAPABILITY_NAMED_IAM"
+    ],
+    "RoleARN": "arn:aws:iam::042360977644:role/unapproved-cloudformation-role",
+    "OnFailure": "DO_NOTHING",
+    "EnableTerminationProtection": true,
+    "ClientRequestToken": "gug363-751a173042b0475f2e417185101f4870b008d25bdb70383b"
+  },
+  "create_stack_request_digest": "sha256:3153497fb7f87617b61d019ce305cb0b788083b7b1dcff57f83d7d8e73ab4051",
+  "client_request_token": "gug363-751a173042b0475f2e417185101f4870b008d25bdb70383b",
+  "plan_digest": "sha256:c78845358be315b03d3e19ceb1ae960c7907891f58baae8777038e4bab4d7f7c",
+  "artifact_signing_contract": {
+    "contract_version": 1,
+    "unsigned_source": {
+      "artifact_type": "scanalyze.platform_authority.change_set_retirement_package.v1",
+      "work_package": "GUG-215",
+      "manifest_digest": "sha256:7574ff96fd79f190b1f796ff2f0d053974ce2650f9a2980ee3131b49bfc51c8e",
+      "archive_sha256": "1f1838982ffeb7823f1441a8351ed38a6cd16951ac75c32ec0cd40777d8f7767",
+      "lambda_code_sha256": "Hxg4mC/+t4I/FEGoNR7TimzRaVGsdcMuwM1Ad32Pd2c=",
+      "archive_size_bytes": 154339,
+      "bucket": "scanalyze-gug363-synthetic-artifacts",
+      "key": "scanalyze/platform-authority/gug-215/unsigned/1111111111111111111111111111111111111111/scanalyze-gug215-change-set-retirement-broker.zip",
+      "version_id": "synthetic-unsigned-version-1",
+      "sse_algorithm": "aws:kms",
+      "sse_kms_key_arn": "arn:aws:kms:us-east-1:042360977644:key/00000000-0000-4000-8000-000000000001"
+    },
+    "signer": {
+      "job_id": "12345678-1234-4234-8234-1234567890ab",
+      "status": "Succeeded",
+      "job_owner": "042360977644",
+      "job_invoker": "042360977644",
+      "platform_id": "AWSLambda-SHA384-ECDSA",
+      "profile_name": "ScanalyzeGug363",
+      "profile_version_id": "ABCDEFGHIJ",
+      "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug363/ABCDEFGHIJ",
+      "signature_expires_at": "2030-01-02T00:00:00Z"
+    },
+    "signed_destination": {
+      "bucket": "scanalyze-gug363-synthetic-artifacts",
+      "key": "scanalyze/platform-authority/gug-215/signed/12345678-1234-4234-8234-1234567890ab.zip",
+      "version_id": "synthetic-signed-version-1",
+      "archive_sha256": "bae8c76791ff7808a1daa55c516561a8b695203268e4496f7444964cad980d6d",
+      "lambda_code_sha256": "uujHZ5H/eAih2qVcUWVhqLaVIDJo5ElvdESWTK2YDW0=",
+      "archive_size_bytes": 4608,
+      "sse_algorithm": "aws:kms",
+      "sse_kms_key_arn": "arn:aws:kms:us-east-1:042360977644:key/00000000-0000-4000-8000-000000000001"
+    },
+    "code_signing_config": {
+      "arn": "arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-synthetic123",
+      "allowed_signing_profile_version_arns": [
+        "arn:aws:signer:us-east-1:042360977644:/signing-profiles/ScanalyzeGug363/ABCDEFGHIJ"
+      ],
+      "untrusted_artifact_on_deployment": "Enforce"
+    }
+  },
+  "artifact_signing_contract_digest": "sha256:b03155371ec31c49d9d5acb4b223996f31da8d226e1fb82268ee2bf46df5c7be",
+  "artifact_signing_evidence_digest": "sha256:978f9a750b4830f974603fb0cb76fcd3430be11cada68fe91ea774f3f292c87b",
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false,
+    "trusted_evaluation_at": "2030-01-01T00:05:00Z"
+  }
+}
