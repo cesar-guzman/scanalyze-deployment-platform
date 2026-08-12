@@ -2,14 +2,14 @@
   "contractVersion": "scanalyze.document-journey.v1",
   "data": {
     "account": {
-      "clabeMasked": "****0001",
+      "clabeMasked": "****0009",
       "currency": "MXN",
-      "holder": "TEST HOLDER 0001",
-      "numberMasked": "****0001"
+      "holder": "TEST HOLDER 0009",
+      "numberMasked": "****0009"
     },
     "accountType": "cheques",
     "balances": {
-      "closing": 99999.99,
+      "closing": 1100.0,
       "opening": 1000.0,
       "totalCredits": 300.0,
       "totalDebits": 200.0
@@ -22,11 +22,30 @@
     "interestCharged": null,
     "interestEarned": null,
     "statement": {
-      "periodEnd": "2025-12-31",
-      "periodStart": "2025-12-01"
+      "periodEnd": "2026-01-31",
+      "periodStart": "2026-01-01"
     },
-    "summaryText": "SYNTHETIC FIXTURE DATA",
-    "transactions": []
+    "summaryText": "SYNTHETIC JANUARY MXN STATEMENT",
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2026-01-05",
+        "description": "SYNTHETIC TEST TRANSACTION 091",
+        "direction": "credit",
+        "reference": "REF091"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2026-01-10",
+        "description": "SYNTHETIC TEST TRANSACTION 092",
+        "direction": "debit",
+        "reference": "REF092"
+      }
+    ]
   },
   "documentId": "82807b1ec26749c7142e8634658267d9",
   "documentType": "bank_statement",
@@ -37,7 +56,7 @@
     "promptVersion": "1.0.0"
   },
   "quality": {
-    "overallConfidence": 98.0
+    "overallConfidence": 97.0
   },
   "resultId": "result_82807b1ec26749c7142e8634658267d9_v1",
   "resultType": "bank_statement",

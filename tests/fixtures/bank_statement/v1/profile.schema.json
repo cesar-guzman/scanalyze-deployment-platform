@@ -31,6 +31,14 @@
     "description": {
       "type": "string"
     },
+    "replayGroupId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"
+    },
+    "renderFixtureId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{3,96}$"
+    },
     "commonDefaults": {
       "type": "object",
       "additionalProperties": false,
@@ -132,6 +140,10 @@
           "instanceId": {
             "type": "string"
           },
+          "replayOrdinal": {
+            "type": "integer",
+            "minimum": 1
+          },
           "overrides": {
             "type": "object",
             "additionalProperties": false,
@@ -205,6 +217,41 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "replayGroupId"
+        ]
+      },
+      "then": {
+        "required": [
+          "renderFixtureId"
+        ],
+        "properties": {
+          "instances": {
+            "items": {
+              "required": [
+                "replayOrdinal"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "renderFixtureId"
+        ]
+      },
+      "then": {
+        "required": [
+          "replayGroupId"
+        ]
+      }
+    }
+  ],
   "$defs": {
     "bank": {
       "type": [

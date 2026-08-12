@@ -3,30 +3,49 @@
   "data": {
     "account": {
       "clabeMasked": null,
-      "currency": null,
-      "holder": null,
+      "currency": "MXN",
+      "holder": "TEST HOLDER 0004",
       "numberMasked": null
     },
     "accountType": null,
     "balances": {
-      "closing": null,
-      "opening": null,
-      "totalCredits": null,
-      "totalDebits": null
+      "closing": 1100.0,
+      "opening": 1000.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
     },
     "bank": {
-      "name": null
+      "name": "Example Meridian Bank"
     },
     "bankCountry": null,
     "fees": null,
     "interestCharged": null,
     "interestEarned": null,
     "statement": {
-      "periodEnd": null,
-      "periodStart": null
+      "periodEnd": "2025-12-31",
+      "periodStart": "2025-12-01"
     },
     "summaryText": null,
-    "transactions": []
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": null,
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 041",
+        "direction": "credit",
+        "reference": null
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": null,
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 042",
+        "direction": "debit",
+        "reference": null
+      }
+    ]
   },
   "documentId": "072314ff6b831d17135cceb1595b8426",
   "documentType": "bank_statement",
@@ -37,7 +56,7 @@
     "promptVersion": "1.0.0"
   },
   "quality": {
-    "overallConfidence": 98.0
+    "overallConfidence": 96.0
   },
   "resultId": "result_072314ff6b831d17135cceb1595b8426_v1",
   "resultType": "bank_statement",

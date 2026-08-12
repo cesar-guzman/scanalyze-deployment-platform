@@ -2,14 +2,14 @@
   "contractVersion": "scanalyze.document-journey.v1",
   "data": {
     "account": {
-      "clabeMasked": "****0001",
-      "currency": "MXN",
-      "holder": "TEST HOLDER 0001",
-      "numberMasked": "****0001"
+      "clabeMasked": "****0009",
+      "currency": "USD",
+      "holder": "TEST HOLDER 0009",
+      "numberMasked": "****0009"
     },
     "accountType": "cheques",
     "balances": {
-      "closing": 99999.99,
+      "closing": 1100.0,
       "opening": 1000.0,
       "totalCredits": 300.0,
       "totalDebits": 200.0
@@ -17,16 +17,35 @@
     "bank": {
       "name": "Example Meridian Bank"
     },
-    "bankCountry": "MX",
+    "bankCountry": "US",
     "fees": null,
     "interestCharged": null,
     "interestEarned": null,
     "statement": {
-      "periodEnd": "2025-12-31",
-      "periodStart": "2025-12-01"
+      "periodEnd": "2026-02-28",
+      "periodStart": "2026-02-01"
     },
-    "summaryText": "SYNTHETIC FIXTURE DATA",
-    "transactions": []
+    "summaryText": "SYNTHETIC FEBRUARY USD STATEMENT",
+    "transactions": [
+      {
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro",
+        "date": "2026-02-05",
+        "description": "SYNTHETIC TEST TRANSACTION 093",
+        "direction": "credit",
+        "reference": "REF093"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2026-02-10",
+        "description": "SYNTHETIC TEST TRANSACTION 094",
+        "direction": "debit",
+        "reference": "REF094"
+      }
+    ]
   },
   "documentId": "1ff1f59cd259cc70f0813755ba918b0f",
   "documentType": "bank_statement",
@@ -37,7 +56,7 @@
     "promptVersion": "1.0.0"
   },
   "quality": {
-    "overallConfidence": 98.0
+    "overallConfidence": 97.0
   },
   "resultId": "result_1ff1f59cd259cc70f0813755ba918b0f_v1",
   "resultType": "bank_statement",

@@ -1,9 +1,55 @@
 {
-  "control": {
-    "id": "ctrl_04",
-    "name": "Oversized-file boundary",
-    "setup": "Generate >5MiB file at runtime",
-    "mimeType": "application/pdf"
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_04",
+  "name": "Oversized-file boundary",
+  "executionBoundary": "journey-v2-local-contract",
+  "setup": "Validate contentLength=536870913 against the 536870912-byte contract maximum",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
   },
-  "instruction": "Test runner parses this JSON to execute negative control."
+  "inputFixtureIds": [
+    "gug364_bank_statement_01_01"
+  ],
+  "evidenceState": "PROVEN_LOCAL",
+  "steps": [
+    {
+      "stepId": "reject-oversized-metadata",
+      "operation": "documents.create",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000004",
+      "inputFixtureId": "gug364_bank_statement_01_01",
+      "request": {
+        "filename": "synthetic.pdf",
+        "contentType": "application/pdf",
+        "contentLength": 536870913
+      },
+      "expect": {
+        "kind": "errorEnvelope",
+        "httpStatus": 422,
+        "code": "SEMANTIC_VALIDATION_FAILED",
+        "retryClass": "NOT_RETRYABLE"
+      }
+    }
+  ],
+  "invariants": {
+    "maximumAcceptedDocumentBytes": 536870912,
+    "documentCreateEffects": 0
+  }
 }

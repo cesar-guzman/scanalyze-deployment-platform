@@ -1,9 +1,54 @@
 {
-  "control": {
-    "id": "ctrl_03",
-    "name": "Unsupported MIME",
-    "setup": "Upload text/plain file",
-    "mimeType": "text/plain"
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_03",
+  "name": "Unsupported MIME",
+  "executionBoundary": "journey-v2-local-contract",
+  "setup": "Validate text/plain through DocumentCreateRequest",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
   },
-  "instruction": "Test runner parses this JSON to execute negative control."
+  "inputFixtureIds": [
+    "gug364_bank_statement_01_01"
+  ],
+  "evidenceState": "PROVEN_LOCAL",
+  "steps": [
+    {
+      "stepId": "reject-document-mime",
+      "operation": "documents.create",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000003",
+      "inputFixtureId": "gug364_bank_statement_01_01",
+      "request": {
+        "filename": "synthetic.txt",
+        "contentType": "text/plain",
+        "contentLength": 1663
+      },
+      "expect": {
+        "kind": "errorEnvelope",
+        "httpStatus": 422,
+        "code": "SEMANTIC_VALIDATION_FAILED",
+        "retryClass": "NOT_RETRYABLE"
+      }
+    }
+  ],
+  "invariants": {
+    "documentCreateEffects": 0
+  }
 }

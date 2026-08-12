@@ -2,16 +2,16 @@
   "schemaVersion": "scanalyze.fixture-profile.v1",
   "profileVersion": "1.0",
   "id": "07",
-  "name": "Warning-producing result",
-  "description": "Visible condition producing INCOMPLETE_EXTRACTION",
+  "name": "Low-confidence or incomplete extraction",
+  "description": "Low-contrast statements exercise LOW_CONFIDENCE with and without incomplete core data",
   "commonDefaults": {
     "bank": {
       "name": "Example Meridian Bank"
     },
     "account": {
-      "holder": "TEST HOLDER 0001",
-      "numberMasked": "****0001",
-      "clabeMasked": "****0001",
+      "holder": "TEST HOLDER 0007",
+      "numberMasked": "****0007",
+      "clabeMasked": "****0007",
       "currency": "MXN"
     },
     "statementPeriod": {
@@ -27,8 +27,8 @@
     "transactions": [
       {
         "date": "2025-12-05",
-        "description": "SYNTHETIC TEST TRANSACTION 001",
-        "reference": "REF001",
+        "description": "SYNTHETIC TEST TRANSACTION 071",
+        "reference": "REF071",
         "direction": "credit",
         "amount": 300.0,
         "balanceAfter": 1300.0,
@@ -36,8 +36,8 @@
       },
       {
         "date": "2025-12-10",
-        "description": "SYNTHETIC TEST TRANSACTION 002",
-        "reference": "REF002",
+        "description": "SYNTHETIC TEST TRANSACTION 072",
+        "reference": "REF072",
         "direction": "debit",
         "amount": 200.0,
         "balanceAfter": 1100.0,
@@ -48,19 +48,18 @@
     "country": "MX",
     "fees": null,
     "interest": null,
-    "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "MISSING_MIDDLE_PAGE",
+    "summary": "SYNTHETIC LOW CONTRAST FIXTURE",
+    "warningSourceCondition": "LOW_CONTRAST_TEXT",
     "expectedWarnings": [
-      "INCOMPLETE_EXTRACTION"
+      "LOW_CONFIDENCE"
     ],
     "quality": {
-      "overallConfidence": 98.0
+      "overallConfidence": 60.0
     },
-    "pages": 3,
+    "pages": 1,
     "nullRenderingPolicy": {
       "fees": "OMIT",
       "interest": "OMIT",
-      "warningSourceCondition": "OMIT",
       ".*": "RENDER_NOT_AVAILABLE"
     }
   },
@@ -68,25 +67,20 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC LOW CONFIDENCE INSTANCE 01"
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
+        "account": {
+          "holder": null
         },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC LOW CONFIDENCE INCOMPLETE INSTANCE 02",
+        "expectedWarnings": [
+          "LOW_CONFIDENCE",
+          "INCOMPLETE_EXTRACTION"
+        ]
       }
     }
   ]

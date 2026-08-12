@@ -21,8 +21,8 @@
     "balances": {
       "opening": 1000.0,
       "closing": 1100.0,
-      "totalCredits": 300.0,
-      "totalDebits": 200.0
+      "totalCredits": 800.0,
+      "totalDebits": 700.0
     },
     "transactions": [
       {
@@ -40,7 +40,7 @@
         "reference": "REF002",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -58,7 +58,7 @@
         "reference": "REF004",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -76,7 +76,7 @@
         "reference": "REF006",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -94,7 +94,7 @@
         "reference": "REF008",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -112,7 +112,7 @@
         "reference": "REF010",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -130,7 +130,7 @@
         "reference": "REF012",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -148,7 +148,7 @@
         "reference": "REF014",
         "direction": "debit",
         "amount": 100.0,
-        "balanceAfter": 900.0,
+        "balanceAfter": 1000.0,
         "category": "otro"
       },
       {
@@ -183,25 +183,15 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "pages": 3,
+        "summary": "SYNTHETIC THREE PAGE STATEMENT"
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "pages": 2,
+        "summary": "SYNTHETIC TWO PAGE STATEMENT"
       }
     }
   ]

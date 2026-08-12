@@ -25,7 +25,7 @@
       "periodEnd": "2025-12-31",
       "periodStart": "2025-12-01"
     },
-    "summaryText": "SYNTHETIC FIXTURE DATA",
+    "summaryText": "SYNTHETIC ZERO ACTIVITY INSTANCE 02",
     "transactions": []
   },
   "documentId": "e30d3ed65712f9ee7f7b37a194e894c3",
@@ -43,5 +43,9 @@
   "resultType": "bank_statement",
   "resultVersion": "1.0",
   "schemaVersion": "scanalyze.document-result.v1",
-  "warnings": []
+  "warnings": [
+    {
+      "code": "INCOMPLETE_EXTRACTION"
+    }
+  ]
 }

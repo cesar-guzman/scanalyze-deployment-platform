@@ -3,28 +3,47 @@
   "profileVersion": "1.0",
   "id": "04",
   "name": "Nullable and optional fields",
-  "description": "Empty statement where all optionals are missing but rendered as NOT AVAILABLE",
+  "description": "Valid core statement with nullable optional fields and two rendering policies",
   "commonDefaults": {
     "bank": {
-      "name": null
+      "name": "Example Meridian Bank"
     },
     "account": {
-      "holder": null,
+      "holder": "TEST HOLDER 0004",
       "numberMasked": null,
       "clabeMasked": null,
-      "currency": null
+      "currency": "MXN"
     },
     "statementPeriod": {
-      "start": null,
-      "end": null
+      "start": "2025-12-01",
+      "end": "2025-12-31"
     },
     "balances": {
-      "opening": null,
-      "closing": null,
-      "totalCredits": null,
-      "totalDebits": null
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
     },
-    "transactions": [],
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 041",
+        "reference": null,
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": null
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 042",
+        "reference": null,
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": null
+      }
+    ],
     "accountType": null,
     "country": null,
     "fees": null,
@@ -33,7 +52,7 @@
     "warningSourceCondition": null,
     "expectedWarnings": [],
     "quality": {
-      "overallConfidence": 98.0
+      "overallConfidence": 96.0
     },
     "pages": 1,
     "nullRenderingPolicy": {
@@ -44,25 +63,17 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "nullRenderingPolicy": {
+          ".*": "RENDER_NOT_AVAILABLE"
+        }
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "nullRenderingPolicy": {
+          ".*": "OMIT"
+        }
       }
     }
   ]

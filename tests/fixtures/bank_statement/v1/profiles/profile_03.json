@@ -3,13 +3,13 @@
   "profileVersion": "1.0",
   "id": "03",
   "name": "Multiple transactions",
-  "description": "Multiple transactions, testing missing holder rendering omitted",
+  "description": "Four balanced transactions with fees and interest",
   "commonDefaults": {
     "bank": {
       "name": "Example Meridian Bank"
     },
     "account": {
-      "holder": null,
+      "holder": "TEST HOLDER 0003",
       "numberMasked": "****0001",
       "clabeMasked": "****0001",
       "currency": "MXN"
@@ -21,8 +21,8 @@
     "balances": {
       "opening": 1000.0,
       "closing": 1100.0,
-      "totalCredits": 300.0,
-      "totalDebits": 200.0
+      "totalCredits": 400.0,
+      "totalDebits": 300.0
     },
     "transactions": [
       {
@@ -42,12 +42,36 @@
         "amount": 200.0,
         "balanceAfter": 1100.0,
         "category": "otro"
+      },
+      {
+        "date": "2025-12-15",
+        "description": "SYNTHETIC TEST TRANSACTION 003",
+        "reference": "REF003",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1200.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-20",
+        "description": "SYNTHETIC TEST TRANSACTION 004",
+        "reference": "REF004",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
       }
     ],
     "accountType": "cheques",
     "country": "MX",
-    "fees": null,
-    "interest": null,
+    "fees": {
+      "totalFees": 50.0,
+      "ivaOnFees": 8.0
+    },
+    "interest": {
+      "earned": 10.0,
+      "charged": 0.0
+    },
     "summary": "SYNTHETIC FIXTURE DATA",
     "warningSourceCondition": null,
     "expectedWarnings": [],
@@ -67,25 +91,13 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC MULTIPLE TRANSACTIONS INSTANCE 01"
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC MULTIPLE TRANSACTIONS INSTANCE 02"
       }
     }
   ]

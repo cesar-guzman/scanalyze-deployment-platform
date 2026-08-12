@@ -31,7 +31,9 @@
     "interest": null,
     "summary": "SYNTHETIC FIXTURE DATA",
     "warningSourceCondition": null,
-    "expectedWarnings": [],
+    "expectedWarnings": [
+      "INCOMPLETE_EXTRACTION"
+    ],
     "quality": {
       "overallConfidence": 98.0
     },
@@ -47,25 +49,13 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC ZERO ACTIVITY INSTANCE 01"
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC ZERO ACTIVITY INSTANCE 02"
       }
     }
   ]

@@ -23,36 +23,43 @@ python tooling/generate_bank_statement_fixtures.py --check
 - `profiles/`: Source specifications for positive fixtures.
 - `pdf/`: The generated synthetic PDF documents.
 - `expected/`: The expected ground-truth extraction results in the scanalyze.document-result.v1 schema format.
-- `controls/`: Negative control recipes for simulating error conditions.
+- `controls/`: Closed, executable negative-control recipes bound to the journey-v2 contract.
 - `catalog.json`: The central manifest mapping all fixtures and their checksums.
 - `catalog.schema.json`: JSON Schema for validating `catalog.json`.
+- `control.schema.json`: JSON Schema for the executable negative-control recipes.
 
 ## Profiles
 
-There are 10 positive profiles, each instantiated 2 times (20 positive documents total).
-- 01: Standard basic statement
-- 02: Multi-page statement
-- 03: Missing account holder
-- 04: Missing statement period
-- 05: Missing opening balance
-- 06: Missing closing balance
-- 07: No transactions
-- 08: All nulls / empty fields
-- 09: Fees and interest inclusion
-- 10: Mutating variant (Instance 1: MXN, Instance 2: USD)
+There are 10 positive profiles, each instantiated twice (20 positive documents total).
+
+- 01: Single-page happy path.
+- 02: Two- and three-page statements with transactions on every page.
+- 03: Multiple balanced transactions, including fees and interest.
+- 04: Nullable optional fields under `RENDER_NOT_AVAILABLE` and `OMIT` policies.
+- 05: Valid zero-transaction statement with the contract-derived incomplete warning.
+- 06: Warning-producing results with one visible missing core field per instance.
+- 07: Low-confidence results, including one incomplete instance.
+- 08: Balance-reconciliation warning.
+- 09: Distinct periods, countries, and MXN/USD currencies.
+- 10: Two byte-identical deterministic replay inputs in one explicit replay group.
 
 ## Negative Controls
 
-There are 8 negative controls, generating predictable error conditions:
-- ctrl_01: Malformed PDF (DOCUMENT_PROCESSING_FAILED)
-- ctrl_02: Blank or low-text PDF (OCR_FAILED)
-- ctrl_03: Unsupported MIME (UNSUPPORTED_MIME_TYPE)
-- ctrl_04: Oversized-file boundary (FILE_TOO_LARGE)
-- ctrl_05: Idempotency conflict (IDEMPOTENCY_CONFLICT)
-- ctrl_06: Response-loss reconciliation (Success after safe retry)
-- ctrl_07: Wrong-user access (AUTHORIZATION_DENIED)
-- ctrl_08: Wrong-deployment access (AUTHORIZATION_DENIED)
+There are 8 negative controls. Recipes contain an operation-discriminated sequence of contract operations, exact principals/requests/input bindings, expected public responses, and effect-count invariants. Catalog entries snapshot each shared or embedded input artifact's PDF SHA-256, byte size, page count, and consuming step IDs; the recipe itself has a separate hash and byte size.
+
+The catalog records lifecycle applicability explicitly. `APPLICABLE` requires a lifecycle and terminal state, `NOT_APPLICABLE` identifies request/identity controls whose outcome occurs before or outside document completion, and `UNDEFINED_BY_CURRENT_CONTRACT` prevents an unproven terminal outcome from being invented. Every negative control is excluded from the accepted-document denominator.
+
+- ctrl_01: Malformed PDF structure plus the `OCR_FAILED` status projection. The artifact and status policy are locally proven; the causal asynchronous runtime outcome remains `NONPROD_REQUIRED`.
+- ctrl_02: Valid blank PDF with zero extracted text. No terminal outcome is claimed because the current production contract does not define one; evidence is `NOT_PROVEN` pending a product decision or non-production execution.
+- ctrl_03: Unsupported document MIME, rejected as HTTP 422 `SEMANTIC_VALIDATION_FAILED`.
+- ctrl_04: `contentLength` one byte above the 512 MiB contract maximum, rejected as HTTP 422 `SEMANTIC_VALIDATION_FAILED` without allocating a large file.
+- ctrl_05: Same owner/idempotency key with different semantic requests, returning HTTP 409 `IDEMPOTENCY_CONFLICT` after exactly one create effect.
+- ctrl_06: Lost create response followed by reconciliation and safe replay, preserving one document ID and one create effect.
+- ctrl_07: Wrong-actor access hidden as HTTP 404 `NOT_FOUND`.
+- ctrl_08: Wrong-deployment access hidden as HTTP 404 `NOT_FOUND`.
+
+`DOCUMENT_PROCESSING_FAILED` and `OCR_FAILED` are safe failure codes on a successful status response, not HTTP error codes. The 5 MiB structured-result read limit is not an upload-size limit.
 
 ## Validation
 
-The test suite in `tests/test_fixtures/test_gug364_bank_statement_corpus.py` provides comprehensive validation of the corpus, including schema compliance, deterministic checksums, privacy requirements (no PII leak), PDF structural limits, and orphan file detection.
+The test suite in `tests/test_fixtures/test_gug364_bank_statement_corpus.py` validates the effective profile matrix and transaction arithmetic, full expected-result projection through the production contract, executable input-bound control recipes, strict schemas, deterministic checksums, privacy mutations, indirect PDF object traversal, rendered text, replay identity, and orphan-file drift.

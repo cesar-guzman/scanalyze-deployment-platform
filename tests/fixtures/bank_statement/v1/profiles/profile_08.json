@@ -2,16 +2,16 @@
   "schemaVersion": "scanalyze.fixture-profile.v1",
   "profileVersion": "1.0",
   "id": "08",
-  "name": "Low-confidence or incomplete extraction",
-  "description": "Blurry document producing LOW_CONFIDENCE",
+  "name": "Balance-reconciliation warning",
+  "description": "Declared closing balances disagree with reconciled transaction balances",
   "commonDefaults": {
     "bank": {
       "name": "Example Meridian Bank"
     },
     "account": {
-      "holder": "TEST HOLDER 0001",
-      "numberMasked": "****0001",
-      "clabeMasked": "****0001",
+      "holder": "TEST HOLDER 0008",
+      "numberMasked": "****0008",
+      "clabeMasked": "****0008",
       "currency": "MXN"
     },
     "statementPeriod": {
@@ -20,15 +20,15 @@
     },
     "balances": {
       "opening": 1000.0,
-      "closing": 1100.0,
+      "closing": 999.99,
       "totalCredits": 300.0,
       "totalDebits": 200.0
     },
     "transactions": [
       {
         "date": "2025-12-05",
-        "description": "SYNTHETIC TEST TRANSACTION 001",
-        "reference": "REF001",
+        "description": "SYNTHETIC TEST TRANSACTION 081",
+        "reference": "REF081",
         "direction": "credit",
         "amount": 300.0,
         "balanceAfter": 1300.0,
@@ -36,8 +36,8 @@
       },
       {
         "date": "2025-12-10",
-        "description": "SYNTHETIC TEST TRANSACTION 002",
-        "reference": "REF002",
+        "description": "SYNTHETIC TEST TRANSACTION 082",
+        "reference": "REF082",
         "direction": "debit",
         "amount": 200.0,
         "balanceAfter": 1100.0,
@@ -48,17 +48,18 @@
     "country": "MX",
     "fees": null,
     "interest": null,
-    "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "LOW_CONTRAST_TEXT",
-    "expectedWarnings": [],
+    "summary": "SYNTHETIC BALANCE MISMATCH",
+    "warningSourceCondition": "MATH_MISMATCH",
+    "expectedWarnings": [
+      "BALANCE_RECONCILIATION_WARNING"
+    ],
     "quality": {
-      "overallConfidence": 60.0
+      "overallConfidence": 95.0
     },
     "pages": 1,
     "nullRenderingPolicy": {
       "fees": "OMIT",
       "interest": "OMIT",
-      "warningSourceCondition": "OMIT",
       ".*": "RENDER_NOT_AVAILABLE"
     }
   },
@@ -66,25 +67,16 @@
     {
       "instanceId": "01",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC BALANCE MISMATCH INSTANCE 01"
       }
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
+        "balances": {
+          "closing": 1200.0
         },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "summary": "SYNTHETIC BALANCE MISMATCH INSTANCE 02"
       }
     }
   ]

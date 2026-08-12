@@ -1,0 +1,1401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.bank-statement-control.v1.schema.json",
+  "title": "Executable synthetic bank statement control recipe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "controlId",
+    "name",
+    "executionBoundary",
+    "setup",
+    "principals",
+    "inputFixtureIds",
+    "evidenceState",
+    "steps",
+    "invariants"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "scanalyze.bank-statement-control.v1"
+    },
+    "controlId": {
+      "type": "string",
+      "enum": [
+        "ctrl_01",
+        "ctrl_02",
+        "ctrl_03",
+        "ctrl_04",
+        "ctrl_05",
+        "ctrl_06",
+        "ctrl_07",
+        "ctrl_08"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 3
+    },
+    "executionBoundary": {
+      "enum": [
+        "journey-v2-local-contract",
+        "artifact-structure",
+        "artifact-structure-plus-status-contract"
+      ]
+    },
+    "setup": {
+      "type": "string",
+      "minLength": 12
+    },
+    "principals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "otherActor",
+        "otherDeployment"
+      ],
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/principal"
+        },
+        "otherActor": {
+          "$ref": "#/$defs/principal"
+        },
+        "otherDeployment": {
+          "$ref": "#/$defs/principal"
+        }
+      }
+    },
+    "inputFixtureIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^gug364_bank_statement_[0-9]{2}_[0-9]{2}$"
+      }
+    },
+    "evidenceState": {
+      "enum": [
+        "PROVEN_LOCAL",
+        "NONPROD_REQUIRED",
+        "NOT_PROVEN"
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "invariants": {
+      "$ref": "#/$defs/invariants"
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/$defs/control01"
+    },
+    {
+      "$ref": "#/$defs/control02"
+    },
+    {
+      "$ref": "#/$defs/control03"
+    },
+    {
+      "$ref": "#/$defs/control04"
+    },
+    {
+      "$ref": "#/$defs/control05"
+    },
+    {
+      "$ref": "#/$defs/control06"
+    },
+    {
+      "$ref": "#/$defs/control07"
+    },
+    {
+      "$ref": "#/$defs/control08"
+    }
+  ],
+  "$defs": {
+    "control01": {
+      "if": {
+        "properties": {
+          "controlId": {
+            "const": "ctrl_01"
+          }
+        },
+        "required": [
+          "controlId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "executionBoundary": {
+            "const": "artifact-structure-plus-status-contract"
+          },
+          "inputFixtureIds": {
+            "const": []
+          },
+          "evidenceState": {
+            "const": "NONPROD_REQUIRED"
+          },
+          "steps": {
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/rejectMalformedArtifactStep"
+              },
+              {
+                "$ref": "#/$defs/verifyStatusPolicyStep"
+              }
+            ]
+          },
+          "invariants": {
+            "const": {
+              "causalRuntimeOutcomeProven": false
+            }
+          }
+        }
+      }
+    },
+    "control02": {
+      "if": {
+        "properties": {
+          "controlId": {
+            "const": "ctrl_02"
+          }
+        },
+        "required": [
+          "controlId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "executionBoundary": {
+            "const": "artifact-structure"
+          },
+          "inputFixtureIds": {
+            "const": []
+          },
+          "evidenceState": {
+            "const": "NOT_PROVEN"
+          },
+          "steps": {
+            "minItems": 1,
+            "maxItems": 1,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/verifyEmptyTextStep"
+              }
+            ]
+          },
+          "invariants": {
+            "const": {
+              "terminalRuntimeOutcomeClaimed": false
+            }
+          }
+        }
+      }
+    },
+    "control03": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_03"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputFixtureIds": {
+                "const": [
+                  "gug364_bank_statement_01_01"
+                ]
+              },
+              "steps": {
+                "minItems": 1,
+                "maxItems": 1,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/rejectDocumentMimeStep"
+                  }
+                ]
+              },
+              "invariants": {
+                "const": {
+                  "documentCreateEffects": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control04": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_04"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputFixtureIds": {
+                "const": [
+                  "gug364_bank_statement_01_01"
+                ]
+              },
+              "steps": {
+                "minItems": 1,
+                "maxItems": 1,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/rejectOversizedMetadataStep"
+                  }
+                ]
+              },
+              "invariants": {
+                "const": {
+                  "maximumAcceptedDocumentBytes": 536870912,
+                  "documentCreateEffects": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control05": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_05"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputFixtureIds": {
+                "const": [
+                  "gug364_bank_statement_01_01",
+                  "gug364_bank_statement_01_02"
+                ]
+              },
+              "steps": {
+                "minItems": 2,
+                "maxItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/firstCreateStep"
+                  },
+                  {
+                    "$ref": "#/$defs/conflictingCreateStep"
+                  }
+                ]
+              },
+              "invariants": {
+                "const": {
+                  "documentCreateEffects": 1
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control06": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_06"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputFixtureIds": {
+                "const": [
+                  "gug364_bank_statement_01_01"
+                ]
+              },
+              "steps": {
+                "minItems": 3,
+                "maxItems": 3,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/createAndDiscardStep"
+                  },
+                  {
+                    "$ref": "#/$defs/reconcileStep"
+                  },
+                  {
+                    "$ref": "#/$defs/safeReplayStep"
+                  }
+                ]
+              },
+              "invariants": {
+                "const": {
+                  "documentCreateEffects": 1,
+                  "sameDocumentId": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control07": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "$ref": "#/$defs/authorizationControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_07"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/createOwnedDocumentStep07"
+                  },
+                  {
+                    "$ref": "#/$defs/hideOtherActorStep"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control08": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/localControlCondition"
+        },
+        {
+          "$ref": "#/$defs/authorizationControlCondition"
+        },
+        {
+          "if": {
+            "properties": {
+              "controlId": {
+                "const": "ctrl_08"
+              }
+            },
+            "required": [
+              "controlId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/createOwnedDocumentStep08"
+                  },
+                  {
+                    "$ref": "#/$defs/hideOtherDeploymentStep"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "localControlCondition": {
+      "if": {
+        "properties": {
+          "controlId": {
+            "enum": [
+              "ctrl_03",
+              "ctrl_04",
+              "ctrl_05",
+              "ctrl_06",
+              "ctrl_07",
+              "ctrl_08"
+            ]
+          }
+        },
+        "required": [
+          "controlId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "executionBoundary": {
+            "const": "journey-v2-local-contract"
+          },
+          "evidenceState": {
+            "const": "PROVEN_LOCAL"
+          },
+          "inputFixtureIds": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "authorizationControlCondition": {
+      "if": {
+        "properties": {
+          "controlId": {
+            "enum": [
+              "ctrl_07",
+              "ctrl_08"
+            ]
+          }
+        },
+        "required": [
+          "controlId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "steps": {
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "inputFixtureIds": {
+            "const": [
+              "gug364_bank_statement_01_01"
+            ]
+          },
+          "invariants": {
+            "const": {
+              "documentCreateEffects": 1,
+              "existenceHidden": true
+            }
+          }
+        }
+      }
+    },
+    "rejectMalformedArtifactStep": {
+      "properties": {
+        "stepId": {
+          "const": "reject-malformed-artifact"
+        },
+        "operation": {
+          "const": "artifact.pdf_parse"
+        },
+        "expect": {
+          "const": {
+            "kind": "artifactAssertion",
+            "parseable": false
+          }
+        }
+      }
+    },
+    "verifyStatusPolicyStep": {
+      "properties": {
+        "stepId": {
+          "const": "verify-status-policy"
+        },
+        "operation": {
+          "const": "documents.status_policy"
+        },
+        "expect": {
+          "const": {
+            "kind": "documentStatus",
+            "httpStatus": 200,
+            "lifecycle": "FAILED",
+            "safeFailureCode": "OCR_FAILED",
+            "failureDisposition": "TERMINAL"
+          }
+        }
+      }
+    },
+    "verifyEmptyTextStep": {
+      "properties": {
+        "stepId": {
+          "const": "verify-empty-extracted-text"
+        },
+        "operation": {
+          "const": "artifact.pdf_text"
+        },
+        "expect": {
+          "const": {
+            "kind": "artifactAssertion",
+            "maximumTextCharacters": 0
+          }
+        }
+      }
+    },
+    "rejectDocumentMimeStep": {
+      "properties": {
+        "stepId": {
+          "const": "reject-document-mime"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000003"
+        },
+        "request": {
+          "properties": {
+            "filename": {
+              "const": "synthetic.txt"
+            },
+            "contentType": {
+              "const": "text/plain"
+            }
+          }
+        },
+        "expect": {
+          "$ref": "#/$defs/semanticValidationExpectation"
+        }
+      }
+    },
+    "rejectOversizedMetadataStep": {
+      "properties": {
+        "stepId": {
+          "const": "reject-oversized-metadata"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000004"
+        },
+        "request": {
+          "properties": {
+            "filename": {
+              "const": "synthetic.pdf"
+            },
+            "contentType": {
+              "const": "application/pdf"
+            },
+            "contentLength": {
+              "const": 536870913
+            }
+          }
+        },
+        "expect": {
+          "$ref": "#/$defs/semanticValidationExpectation"
+        }
+      }
+    },
+    "firstCreateStep": {
+      "properties": {
+        "stepId": {
+          "const": "first-create"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000005"
+        },
+        "expect": {
+          "$ref": "#/$defs/firstCreateExpectation"
+        }
+      }
+    },
+    "conflictingCreateStep": {
+      "properties": {
+        "stepId": {
+          "const": "conflicting-create"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_02"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000005"
+        },
+        "expect": {
+          "$ref": "#/$defs/idempotencyConflictExpectation"
+        }
+      }
+    },
+    "createAndDiscardStep": {
+      "required": [
+        "discardResponse"
+      ],
+      "properties": {
+        "stepId": {
+          "const": "create-and-discard-response"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000006"
+        },
+        "discardResponse": {
+          "const": true
+        },
+        "expect": {
+          "$ref": "#/$defs/firstCreateExpectation"
+        }
+      }
+    },
+    "reconcileStep": {
+      "properties": {
+        "stepId": {
+          "const": "reconcile"
+        },
+        "operation": {
+          "const": "operations.reconcile"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "targetOperation": {
+          "const": "DOCUMENT_CREATE"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000006"
+        },
+        "expect": {
+          "const": {
+            "kind": "reconciliationResponse",
+            "httpStatus": 200,
+            "ledgerState": "SUCCEEDED"
+          }
+        }
+      }
+    },
+    "safeReplayStep": {
+      "properties": {
+        "stepId": {
+          "const": "safe-replay"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "idempotencyKey": {
+          "const": "00000000-0000-4000-8000-000000000006"
+        },
+        "expect": {
+          "const": {
+            "kind": "documentCreateResponse",
+            "httpStatus": 201,
+            "replayed": true
+          }
+        }
+      }
+    },
+    "createOwnedDocumentStep": {
+      "properties": {
+        "stepId": {
+          "const": "create-owned-document"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "const": "owner"
+        },
+        "inputFixtureId": {
+          "const": "gug364_bank_statement_01_01"
+        },
+        "expect": {
+          "$ref": "#/$defs/firstCreateExpectation"
+        }
+      }
+    },
+    "createOwnedDocumentStep07": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/createOwnedDocumentStep"
+        },
+        {
+          "properties": {
+            "idempotencyKey": {
+              "const": "00000000-0000-4000-8000-000000000007"
+            }
+          }
+        }
+      ]
+    },
+    "createOwnedDocumentStep08": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/createOwnedDocumentStep"
+        },
+        {
+          "properties": {
+            "idempotencyKey": {
+              "const": "00000000-0000-4000-8000-000000000008"
+            }
+          }
+        }
+      ]
+    },
+    "hideOtherActorStep": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/hideForeignDocumentStep"
+        },
+        {
+          "properties": {
+            "principal": {
+              "const": "otherActor"
+            }
+          }
+        }
+      ]
+    },
+    "hideOtherDeploymentStep": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/hideForeignDocumentStep"
+        },
+        {
+          "properties": {
+            "principal": {
+              "const": "otherDeployment"
+            }
+          }
+        }
+      ]
+    },
+    "hideForeignDocumentStep": {
+      "properties": {
+        "stepId": {
+          "const": "hide-foreign-document"
+        },
+        "operation": {
+          "const": "documents.get_status"
+        },
+        "documentIdFromStep": {
+          "const": "create-owned-document"
+        },
+        "expect": {
+          "const": {
+            "kind": "errorEnvelope",
+            "httpStatus": 404,
+            "code": "NOT_FOUND",
+            "retryClass": "TERMINAL"
+          }
+        }
+      }
+    },
+    "semanticValidationExpectation": {
+      "const": {
+        "kind": "errorEnvelope",
+        "httpStatus": 422,
+        "code": "SEMANTIC_VALIDATION_FAILED",
+        "retryClass": "NOT_RETRYABLE"
+      }
+    },
+    "idempotencyConflictExpectation": {
+      "const": {
+        "kind": "errorEnvelope",
+        "httpStatus": 409,
+        "code": "IDEMPOTENCY_CONFLICT",
+        "retryClass": "TERMINAL"
+      }
+    },
+    "firstCreateExpectation": {
+      "const": {
+        "kind": "documentCreateResponse",
+        "httpStatus": 201,
+        "replayed": false
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principalType",
+        "subject",
+        "customerId",
+        "deploymentId"
+      ],
+      "properties": {
+        "principalType": {
+          "const": "user"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 3
+        },
+        "customerId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{1,127}$"
+        },
+        "deploymentId": {
+          "type": "string",
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filename",
+        "contentLength",
+        "contentType"
+      ],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "contentLength": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "value",
+        "sha256",
+        "byteSize"
+      ],
+      "properties": {
+        "encoding": {
+          "const": "base64"
+        },
+        "value": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "byteSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/documentCreateStep"
+        },
+        {
+          "$ref": "#/$defs/documentGetStatusStep"
+        },
+        {
+          "$ref": "#/$defs/documentStatusPolicyStep"
+        },
+        {
+          "$ref": "#/$defs/reconciliationStep"
+        },
+        {
+          "$ref": "#/$defs/artifactParseStep"
+        },
+        {
+          "$ref": "#/$defs/artifactTextStep"
+        }
+      ]
+    },
+    "stepId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "principalName": {
+      "enum": [
+        "owner",
+        "otherActor",
+        "otherDeployment"
+      ]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "inputFixtureId": {
+      "type": "string",
+      "pattern": "^gug364_bank_statement_[0-9]{2}_[0-9]{2}$"
+    },
+    "documentCreateStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "principal",
+        "idempotencyKey",
+        "inputFixtureId",
+        "request",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "documents.create"
+        },
+        "principal": {
+          "$ref": "#/$defs/principalName"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/idempotencyKey"
+        },
+        "inputFixtureId": {
+          "$ref": "#/$defs/inputFixtureId"
+        },
+        "request": {
+          "$ref": "#/$defs/request"
+        },
+        "discardResponse": {
+          "const": true
+        },
+        "expect": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/errorEnvelope"
+            },
+            {
+              "$ref": "#/$defs/documentCreateResponse"
+            }
+          ]
+        }
+      }
+    },
+    "documentGetStatusStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "principal",
+        "documentIdFromStep",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "documents.get_status"
+        },
+        "principal": {
+          "$ref": "#/$defs/principalName"
+        },
+        "documentIdFromStep": {
+          "$ref": "#/$defs/stepId"
+        },
+        "expect": {
+          "$ref": "#/$defs/errorEnvelope"
+        }
+      }
+    },
+    "documentStatusPolicyStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "internalStatus",
+        "evaluationTime",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "documents.status_policy"
+        },
+        "internalStatus": {
+          "$ref": "#/$defs/internalStatus"
+        },
+        "evaluationTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expect": {
+          "$ref": "#/$defs/documentStatus"
+        }
+      }
+    },
+    "reconciliationStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "principal",
+        "idempotencyKey",
+        "targetOperation",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "operations.reconcile"
+        },
+        "principal": {
+          "$ref": "#/$defs/principalName"
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/idempotencyKey"
+        },
+        "targetOperation": {
+          "const": "DOCUMENT_CREATE"
+        },
+        "expect": {
+          "$ref": "#/$defs/reconciliationResponse"
+        }
+      }
+    },
+    "artifactParseStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "artifact",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "artifact.pdf_parse"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "expect": {
+          "$ref": "#/$defs/parseAssertion"
+        }
+      }
+    },
+    "artifactTextStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stepId",
+        "operation",
+        "artifact",
+        "expect"
+      ],
+      "properties": {
+        "stepId": {
+          "$ref": "#/$defs/stepId"
+        },
+        "operation": {
+          "const": "artifact.pdf_text"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "expect": {
+          "$ref": "#/$defs/textAssertion"
+        }
+      }
+    },
+    "internalStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentId",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "stages"
+      ],
+      "properties": {
+        "documentId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "status": {
+          "const": "OCR_FAILED"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ocr"
+          ],
+          "properties": {
+            "ocr": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "const": "IN_PROGRESS"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "httpStatus",
+        "code",
+        "retryClass"
+      ],
+      "properties": {
+        "kind": {
+          "const": "errorEnvelope"
+        },
+        "httpStatus": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "code": {
+          "enum": [
+            "SEMANTIC_VALIDATION_FAILED",
+            "IDEMPOTENCY_CONFLICT",
+            "NOT_FOUND"
+          ]
+        },
+        "retryClass": {
+          "enum": [
+            "NOT_RETRYABLE",
+            "TERMINAL"
+          ]
+        }
+      }
+    },
+    "documentCreateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "httpStatus",
+        "replayed"
+      ],
+      "properties": {
+        "kind": {
+          "const": "documentCreateResponse"
+        },
+        "httpStatus": {
+          "const": 201
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reconciliationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "httpStatus",
+        "ledgerState"
+      ],
+      "properties": {
+        "kind": {
+          "const": "reconciliationResponse"
+        },
+        "httpStatus": {
+          "const": 200
+        },
+        "ledgerState": {
+          "const": "SUCCEEDED"
+        }
+      }
+    },
+    "documentStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "httpStatus",
+        "lifecycle",
+        "safeFailureCode",
+        "failureDisposition"
+      ],
+      "properties": {
+        "kind": {
+          "const": "documentStatus"
+        },
+        "httpStatus": {
+          "const": 200
+        },
+        "lifecycle": {
+          "const": "FAILED"
+        },
+        "safeFailureCode": {
+          "enum": [
+            "DOCUMENT_PROCESSING_FAILED",
+            "OCR_FAILED"
+          ]
+        },
+        "failureDisposition": {
+          "const": "TERMINAL"
+        }
+      }
+    },
+    "parseAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "parseable"
+      ],
+      "properties": {
+        "kind": {
+          "const": "artifactAssertion"
+        },
+        "parseable": {
+          "const": false
+        }
+      }
+    },
+    "textAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "maximumTextCharacters"
+      ],
+      "properties": {
+        "kind": {
+          "const": "artifactAssertion"
+        },
+        "maximumTextCharacters": {
+          "const": 0
+        }
+      }
+    },
+    "invariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "causalRuntimeOutcomeProven": {
+          "type": "boolean"
+        },
+        "terminalRuntimeOutcomeClaimed": {
+          "type": "boolean"
+        },
+        "documentCreateEffects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximumAcceptedDocumentBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sameDocumentId": {
+          "type": "boolean"
+        },
+        "existenceHidden": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -2,42 +2,42 @@
   "schemaVersion": "scanalyze.fixture-profile.v1",
   "profileVersion": "1.0",
   "id": "09",
-  "name": "Balance-reconciliation warning",
-  "description": "Reconciliation mismatch in balances",
+  "name": "Varied periods and currencies",
+  "description": "Two valid statements cover distinct periods, countries, and currencies",
   "commonDefaults": {
     "bank": {
       "name": "Example Meridian Bank"
     },
     "account": {
-      "holder": "TEST HOLDER 0001",
-      "numberMasked": "****0001",
-      "clabeMasked": "****0001",
+      "holder": "TEST HOLDER 0009",
+      "numberMasked": "****0009",
+      "clabeMasked": "****0009",
       "currency": "MXN"
     },
     "statementPeriod": {
-      "start": "2025-12-01",
-      "end": "2025-12-31"
+      "start": "2026-01-01",
+      "end": "2026-01-31"
     },
     "balances": {
       "opening": 1000.0,
-      "closing": 99999.99,
+      "closing": 1100.0,
       "totalCredits": 300.0,
       "totalDebits": 200.0
     },
     "transactions": [
       {
-        "date": "2025-12-05",
-        "description": "SYNTHETIC TEST TRANSACTION 001",
-        "reference": "REF001",
+        "date": "2026-01-05",
+        "description": "SYNTHETIC TEST TRANSACTION 091",
+        "reference": "REF091",
         "direction": "credit",
         "amount": 300.0,
         "balanceAfter": 1300.0,
         "category": "otro"
       },
       {
-        "date": "2025-12-10",
-        "description": "SYNTHETIC TEST TRANSACTION 002",
-        "reference": "REF002",
+        "date": "2026-01-10",
+        "description": "SYNTHETIC TEST TRANSACTION 092",
+        "reference": "REF092",
         "direction": "debit",
         "amount": 200.0,
         "balanceAfter": 1100.0,
@@ -48,45 +48,56 @@
     "country": "MX",
     "fees": null,
     "interest": null,
-    "summary": "SYNTHETIC FIXTURE DATA",
-    "warningSourceCondition": "MATH_MISMATCH",
-    "expectedWarnings": [
-      "BALANCE_RECONCILIATION_WARNING"
-    ],
+    "summary": "SYNTHETIC JANUARY MXN STATEMENT",
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
     "quality": {
-      "overallConfidence": 98.0
+      "overallConfidence": 97.0
     },
     "pages": 1,
     "nullRenderingPolicy": {
       "fees": "OMIT",
       "interest": "OMIT",
-      "warningSourceCondition": "OMIT",
       ".*": "RENDER_NOT_AVAILABLE"
     }
   },
   "instances": [
     {
       "instanceId": "01",
-      "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
-        },
-        "pages": 1,
-        "nullRenderingPolicy": {}
-      }
+      "overrides": {}
     },
     {
       "instanceId": "02",
       "overrides": {
-        "transactions": [],
-        "expectedWarnings": [],
-        "quality": {
-          "overallConfidence": 98.0
+        "account": {
+          "currency": "USD"
         },
-        "pages": 1,
-        "nullRenderingPolicy": {}
+        "statementPeriod": {
+          "start": "2026-02-01",
+          "end": "2026-02-28"
+        },
+        "transactions": [
+          {
+            "date": "2026-02-05",
+            "description": "SYNTHETIC TEST TRANSACTION 093",
+            "reference": "REF093",
+            "direction": "credit",
+            "amount": 300.0,
+            "balanceAfter": 1300.0,
+            "category": "otro"
+          },
+          {
+            "date": "2026-02-10",
+            "description": "SYNTHETIC TEST TRANSACTION 094",
+            "reference": "REF094",
+            "direction": "debit",
+            "amount": 200.0,
+            "balanceAfter": 1100.0,
+            "category": "otro"
+          }
+        ],
+        "country": "US",
+        "summary": "SYNTHETIC FEBRUARY USD STATEMENT"
       }
     }
   ]

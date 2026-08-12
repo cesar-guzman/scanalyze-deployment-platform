@@ -1,9 +1,71 @@
 {
-  "control": {
-    "id": "ctrl_01",
-    "name": "Malformed PDF",
-    "setup": "Upload corrupted PDF bytes",
-    "mimeType": "application/pdf"
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_01",
+  "name": "Malformed PDF",
+  "executionBoundary": "artifact-structure-plus-status-contract",
+  "setup": "Verify malformed bytes locally; asynchronous OCR status requires non-production evidence",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
   },
-  "instruction": "Test runner parses this JSON to execute negative control."
+  "inputFixtureIds": [],
+  "evidenceState": "NONPROD_REQUIRED",
+  "steps": [
+    {
+      "stepId": "reject-malformed-artifact",
+      "operation": "artifact.pdf_parse",
+      "artifact": {
+        "encoding": "base64",
+        "value": "JVBERi0xLjQKVEhJU19JU19OT1RfQV9WQUxJRF9QREY=",
+        "sha256": "f87af4ca4c2e872cf915aca9a2016dc88f6712cbe64ee314de9d4521c76390e2",
+        "byteSize": 32
+      },
+      "expect": {
+        "kind": "artifactAssertion",
+        "parseable": false
+      }
+    },
+    {
+      "stepId": "verify-status-policy",
+      "operation": "documents.status_policy",
+      "internalStatus": {
+        "documentId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "OCR_FAILED",
+        "createdAt": "2026-01-01T00:00:00+00:00",
+        "updatedAt": "2026-01-01T00:01:00+00:00",
+        "stages": {
+          "ocr": {
+            "status": "IN_PROGRESS"
+          }
+        }
+      },
+      "evaluationTime": "2026-01-01T00:02:00+00:00",
+      "expect": {
+        "kind": "documentStatus",
+        "httpStatus": 200,
+        "lifecycle": "FAILED",
+        "safeFailureCode": "OCR_FAILED",
+        "failureDisposition": "TERMINAL"
+      }
+    }
+  ],
+  "invariants": {
+    "causalRuntimeOutcomeProven": false
+  }
 }

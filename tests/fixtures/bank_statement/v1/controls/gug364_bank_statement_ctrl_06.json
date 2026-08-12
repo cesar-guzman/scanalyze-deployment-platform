@@ -1,9 +1,84 @@
 {
-  "control": {
-    "id": "ctrl_06",
-    "name": "Response-loss reconciliation",
-    "setup": "Retry after timeout",
-    "mimeType": "application/pdf"
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_06",
+  "name": "Response-loss reconciliation",
+  "executionBoundary": "journey-v2-local-contract",
+  "setup": "Retry after timeout",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
   },
-  "instruction": "Test runner parses this JSON to execute negative control."
+  "inputFixtureIds": [
+    "gug364_bank_statement_01_01"
+  ],
+  "evidenceState": "PROVEN_LOCAL",
+  "steps": [
+    {
+      "stepId": "create-and-discard-response",
+      "operation": "documents.create",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000006",
+      "inputFixtureId": "gug364_bank_statement_01_01",
+      "request": {
+        "filename": "reconcile.pdf",
+        "contentType": "application/pdf",
+        "contentLength": 1663
+      },
+      "discardResponse": true,
+      "expect": {
+        "kind": "documentCreateResponse",
+        "httpStatus": 201,
+        "replayed": false
+      }
+    },
+    {
+      "stepId": "reconcile",
+      "operation": "operations.reconcile",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000006",
+      "targetOperation": "DOCUMENT_CREATE",
+      "expect": {
+        "kind": "reconciliationResponse",
+        "httpStatus": 200,
+        "ledgerState": "SUCCEEDED"
+      }
+    },
+    {
+      "stepId": "safe-replay",
+      "operation": "documents.create",
+      "principal": "owner",
+      "idempotencyKey": "00000000-0000-4000-8000-000000000006",
+      "inputFixtureId": "gug364_bank_statement_01_01",
+      "request": {
+        "filename": "reconcile.pdf",
+        "contentType": "application/pdf",
+        "contentLength": 1663
+      },
+      "expect": {
+        "kind": "documentCreateResponse",
+        "httpStatus": 201,
+        "replayed": true
+      }
+    }
+  ],
+  "invariants": {
+    "documentCreateEffects": 1,
+    "sameDocumentId": true
+  }
 }

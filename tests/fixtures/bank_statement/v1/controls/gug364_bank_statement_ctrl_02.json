@@ -1,9 +1,49 @@
 {
-  "control": {
-    "id": "ctrl_02",
-    "name": "Blank or low-text PDF",
-    "setup": "Upload empty PDF",
-    "mimeType": "application/pdf"
+  "schemaVersion": "scanalyze.bank-statement-control.v1",
+  "controlId": "ctrl_02",
+  "name": "Blank or low-text PDF",
+  "executionBoundary": "artifact-structure",
+  "setup": "Verify blank text locally; terminal runtime outcome is not proven by the current contract",
+  "principals": {
+    "owner": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherActor": {
+      "principalType": "user",
+      "subject": "gug364-other-actor",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    },
+    "otherDeployment": {
+      "principalType": "user",
+      "subject": "gug364-owner",
+      "customerId": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "deploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    }
   },
-  "instruction": "Test runner parses this JSON to execute negative control."
+  "inputFixtureIds": [],
+  "evidenceState": "NOT_PROVEN",
+  "steps": [
+    {
+      "stepId": "verify-empty-extracted-text",
+      "operation": "artifact.pdf_text",
+      "artifact": {
+        "encoding": "base64",
+        "value": "JVBERi0xLjQKJeLjz9MACjEgMCBvYmoKPDwgL1R5cGUgL0NhdGFsb2cgL1BhZ2VzIDIgMCBSID4+CmVuZG9iagoyIDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvS2lkcyBbIDMgMCBSIF0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA0MSA+PgpzdHJlYW0KQlQKL0YxIDEyIFRmCjAgMCAwIHJnCjEwMCA3MDAgVGQKKCkgVGoKRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKNiAwIG9iago8PCAvUHJvZHVjZXIgKFNjYW5hbHl6ZSBUZXN0IEdlbmVyYXRvcikgL0NyZWF0aW9uRGF0ZSAoRDoyMDI2MDEwMTAwMDAwMFopIC9Nb2REYXRlIChEOjIwMjYwMTAxMDAwMDAwWikgPj4KZW5kb2JqCnhyZWYKMCA3CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxNiAwMDAwMCBuIAowMDAwMDAwMDY1IDAwMDAwIG4gCjAwMDAwMDAxMjQgMDAwMDAgbiAKMDAwMDAwMDI1MCAwMDAwMCBuIAowMDAwMDAwMzQxIDAwMDAwIG4gCjAwMDAwMDA0MTEgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA3IC9Sb290IDEgMCBSIC9JbmZvIDYgMCBSID4+CnN0YXJ0eHJlZgo1MzIKJSVFT0YK",
+        "sha256": "591c724e1a5316fdedb5d351589a3fce1b025ff15bb60bcc8461ba80552bb3a9",
+        "byteSize": 747,
+        "pageCount": 1
+      },
+      "expect": {
+        "kind": "artifactAssertion",
+        "maximumTextCharacters": 0
+      }
+    }
+  ],
+  "invariants": {
+    "terminalRuntimeOutcomeClaimed": false
+  }
 }
