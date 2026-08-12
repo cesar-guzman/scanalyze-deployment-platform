@@ -9,7 +9,11 @@ from gug125_offline_validator import OfflinePacketValidator
 
 class TestGUG366OfflineExecutionPacket(unittest.TestCase):
     def setUp(self):
-        self.validator = OfflinePacketValidator()
+        self.validator_ctx = OfflinePacketValidator()
+        self.validator = self.validator_ctx.__enter__()
+
+    def tearDown(self):
+        self.validator_ctx.__exit__(None, None, None)
 
     def test_aws_zero_metrics(self):
         metrics = self.validator.get_metrics()
