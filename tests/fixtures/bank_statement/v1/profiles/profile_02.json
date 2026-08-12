@@ -1,9 +1,192 @@
 {
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
   "id": "02",
   "name": "Multi-page statement",
-  "pages": 3,
-  "warnings": [],
-  "quality": {
-    "overallConfidence": 95.0
-  }
+  "description": "Transactions spill over to populate all pages naturally",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001",
+      "clabeMasked": "****0001",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 1100.0,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-01",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "reference": "REF001",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-02",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "reference": "REF002",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-03",
+        "description": "SYNTHETIC TEST TRANSACTION 003",
+        "reference": "REF003",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-04",
+        "description": "SYNTHETIC TEST TRANSACTION 004",
+        "reference": "REF004",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 005",
+        "reference": "REF005",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-06",
+        "description": "SYNTHETIC TEST TRANSACTION 006",
+        "reference": "REF006",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-07",
+        "description": "SYNTHETIC TEST TRANSACTION 007",
+        "reference": "REF007",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-08",
+        "description": "SYNTHETIC TEST TRANSACTION 008",
+        "reference": "REF008",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-09",
+        "description": "SYNTHETIC TEST TRANSACTION 009",
+        "reference": "REF009",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 010",
+        "reference": "REF010",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-11",
+        "description": "SYNTHETIC TEST TRANSACTION 011",
+        "reference": "REF011",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-12",
+        "description": "SYNTHETIC TEST TRANSACTION 012",
+        "reference": "REF012",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-13",
+        "description": "SYNTHETIC TEST TRANSACTION 013",
+        "reference": "REF013",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-14",
+        "description": "SYNTHETIC TEST TRANSACTION 014",
+        "reference": "REF014",
+        "direction": "debit",
+        "amount": 100.0,
+        "balanceAfter": 900.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-15",
+        "description": "SYNTHETIC TEST TRANSACTION 015",
+        "reference": "REF015",
+        "direction": "credit",
+        "amount": 100.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC FIXTURE DATA",
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 3,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      "warningSourceCondition": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
+  },
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {}
+    },
+    {
+      "instanceId": "02",
+      "overrides": {}
+    }
+  ]
 }

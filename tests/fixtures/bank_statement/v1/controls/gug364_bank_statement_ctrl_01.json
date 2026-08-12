@@ -3,16 +3,7 @@
     "id": "ctrl_01",
     "name": "Malformed PDF",
     "setup": "Upload corrupted PDF bytes",
-    "mimeType": "application/pdf",
-    "operation": "CREATE",
-    "fixtureReference": null,
-    "expectedHttpStatus": 200,
-    "expectedErrorCode": null,
-    "expectedSafeFailureCode": "DOCUMENT_PROCESSING_FAILED",
-    "expectedStageState": "FAILED",
-    "retryClass": "NO_RETRY",
-    "actor": "valid_user",
-    "deployment": "valid_deployment"
+    "mimeType": "application/pdf"
   },
   "instruction": "Test runner parses this JSON to execute negative control."
 }

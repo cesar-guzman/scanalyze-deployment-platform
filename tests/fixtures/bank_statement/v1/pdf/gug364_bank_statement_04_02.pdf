@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 225 >>
+<< /Length 822 >>
 stream
 BT
 /F1 12 Tf
@@ -22,6 +22,36 @@ BT
 (FIXTURE_ID: gug364_bank_statement_04_02) Tj
 0 -15 Td
 (PAGE 1 OF 1) Tj
+0 -15 Td
+(Bank: NOT AVAILABLE) Tj
+0 -15 Td
+(Holder: NOT AVAILABLE) Tj
+0 -15 Td
+(Account: NOT AVAILABLE) Tj
+0 -15 Td
+(CLABE: NOT AVAILABLE) Tj
+0 -15 Td
+(Currency: NOT AVAILABLE) Tj
+0 -15 Td
+(Period Start: NOT AVAILABLE) Tj
+0 -15 Td
+(Period End: NOT AVAILABLE) Tj
+0 -15 Td
+(Account Type: NOT AVAILABLE) Tj
+0 -15 Td
+(Bank Country: NOT AVAILABLE) Tj
+0 -15 Td
+(Summary Text: NOT AVAILABLE) Tj
+0 -15 Td
+(Opening Balance: NOT AVAILABLE) Tj
+0 -15 Td
+(Closing Balance: NOT AVAILABLE) Tj
+0 -15 Td
+(Total Credits: NOT AVAILABLE) Tj
+0 -15 Td
+(Total Debits: NOT AVAILABLE) Tj
+0 -15 Td
+(Fees: NOT AVAILABLE) Tj
 0 -15 Td
 (TRANSACTIONS:) Tj
 0 -15 Td
@@ -42,10 +72,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000000525 00000 n 
-0000000595 00000 n 
+0000001122 00000 n 
+0000001192 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-716
+1313
 %%EOF

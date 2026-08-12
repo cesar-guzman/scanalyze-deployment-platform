@@ -19,8 +19,8 @@
     },
     "bankCountry": "MX",
     "fees": null,
-    "interestCharged": 0.0,
-    "interestEarned": 0.0,
+    "interestCharged": null,
+    "interestEarned": null,
     "statement": {
       "periodEnd": "2025-12-31",
       "periodStart": "2025-12-01"
@@ -37,7 +37,7 @@
     "promptVersion": "1.0.0"
   },
   "quality": {
-    "overallConfidence": 99.0
+    "overallConfidence": 98.0
   },
   "resultId": "result_73da70711527e842fba0f22b334e60bb_v1",
   "resultType": "bank_statement",

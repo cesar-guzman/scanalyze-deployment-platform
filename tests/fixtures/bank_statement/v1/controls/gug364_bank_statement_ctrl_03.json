@@ -3,16 +3,7 @@
     "id": "ctrl_03",
     "name": "Unsupported MIME",
     "setup": "Upload text/plain file",
-    "mimeType": "text/plain",
-    "operation": "CREATE",
-    "fixtureReference": null,
-    "expectedHttpStatus": 400,
-    "expectedErrorCode": "UNSUPPORTED_MIME_TYPE",
-    "expectedSafeFailureCode": null,
-    "expectedStageState": "FAILED",
-    "retryClass": "NO_RETRY",
-    "actor": "valid_user",
-    "deployment": "valid_deployment"
+    "mimeType": "text/plain"
   },
   "instruction": "Test runner parses this JSON to execute negative control."
 }

@@ -3,16 +3,7 @@
     "id": "ctrl_06",
     "name": "Response-loss reconciliation",
     "setup": "Retry after timeout",
-    "mimeType": "application/pdf",
-    "operation": "CREATE",
-    "fixtureReference": "gug364_bank_statement_01_01",
-    "expectedHttpStatus": 200,
-    "expectedErrorCode": null,
-    "expectedSafeFailureCode": null,
-    "expectedStageState": "SUCCEEDED",
-    "retryClass": "RETRY_SAFE",
-    "actor": "valid_user",
-    "deployment": "valid_deployment"
+    "mimeType": "application/pdf"
   },
   "instruction": "Test runner parses this JSON to execute negative control."
 }

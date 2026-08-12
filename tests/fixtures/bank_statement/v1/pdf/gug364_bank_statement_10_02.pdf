@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 644 >>
+<< /Length 908 >>
 stream
 BT
 /F1 12 Tf
@@ -33,19 +33,29 @@ BT
 0 -15 Td
 (Currency: USD) Tj
 0 -15 Td
-(Period: 2026-02-01 to 2026-02-28) Tj
+(Period Start: 2026-02-01) Tj
+0 -15 Td
+(Period End: 2026-02-28) Tj
+0 -15 Td
+(Account Type: cheques) Tj
+0 -15 Td
+(Bank Country: MX) Tj
+0 -15 Td
+(Summary Text: SYNTHETIC FIXTURE DATA) Tj
 0 -15 Td
 (Opening Balance: 1000.0) Tj
 0 -15 Td
 (Closing Balance: 1100.0) Tj
 0 -15 Td
-(Total Credits: 100.0) Tj
+(Total Credits: 300.0) Tj
 0 -15 Td
-(Total Debits: 0.0) Tj
+(Total Debits: 200.0) Tj
 0 -15 Td
 (TRANSACTIONS:) Tj
 0 -15 Td
-(2026-02-01 | SYNTHETIC TEST TRANSACTION 001 | credit | 100.0 | 1100.0) Tj
+(2025-12-05 | SYNTHETIC TEST TRANSACTION 001 | REF001 | credit | 300.0 | 1300.0 | otro) Tj
+0 -15 Td
+(2025-12-10 | SYNTHETIC TEST TRANSACTION 002 | REF002 | debit | 200.0 | 1100.0 | otro) Tj
 ET
 endstream
 endobj
@@ -62,10 +72,10 @@ xref
 0000000064 00000 n 
 0000000123 00000 n 
 0000000249 00000 n 
-0000000944 00000 n 
-0000001014 00000 n 
+0000001208 00000 n 
+0000001278 00000 n 
 trailer
 << /Size 7 /Root 1 0 R /Info 6 0 R >>
 startxref
-1135
+1399
 %%EOF

@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scanalyze.fixture-profile.v1.schema.json",
+  "title": "Scanalyze Fixture Profile Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profileVersion", "id", "name", "description", "instances"],
+  "properties": {
+    "schemaVersion": { "type": "string", "enum": ["scanalyze.fixture-profile.v1"] },
+    "profileVersion": { "type": "string" },
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "commonDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bank": { "$ref": "#/$defs/bank" },
+        "account": { "$ref": "#/$defs/account" },
+        "statementPeriod": { "$ref": "#/$defs/statementPeriod" },
+        "balances": { "$ref": "#/$defs/balances" },
+        "transactions": { "type": "array", "items": { "$ref": "#/$defs/transaction" } },
+        "accountType": { "type": ["string", "null"] },
+        "country": { "type": ["string", "null"] },
+        "fees": { "$ref": "#/$defs/fees" },
+        "interest": { "$ref": "#/$defs/interest" },
+        "summary": { "type": ["string", "null"] },
+        "warningSourceCondition": { "type": ["string", "null"] },
+        "expectedWarnings": { "type": "array", "items": { "type": "string" } },
+        "quality": { "$ref": "#/$defs/quality" },
+        "pages": { "type": "integer" },
+        "nullRenderingPolicy": { "$ref": "#/$defs/nullRenderingPolicy" }
+      }
+    },
+    "instances": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["instanceId", "overrides"],
+        "properties": {
+          "instanceId": { "type": "string" },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "bank": { "$ref": "#/$defs/bank" },
+              "account": { "$ref": "#/$defs/account" },
+              "statementPeriod": { "$ref": "#/$defs/statementPeriod" },
+              "balances": { "$ref": "#/$defs/balances" },
+              "transactions": { "type": "array", "items": { "$ref": "#/$defs/transaction" } },
+              "accountType": { "type": ["string", "null"] },
+              "country": { "type": ["string", "null"] },
+              "fees": { "$ref": "#/$defs/fees" },
+              "interest": { "$ref": "#/$defs/interest" },
+              "summary": { "type": ["string", "null"] },
+              "warningSourceCondition": { "type": ["string", "null"] },
+              "expectedWarnings": { "type": "array", "items": { "type": "string" } },
+              "quality": { "$ref": "#/$defs/quality" },
+              "pages": { "type": "integer" },
+              "nullRenderingPolicy": { "$ref": "#/$defs/nullRenderingPolicy" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "bank": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "account": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "holder": { "type": ["string", "null"] },
+        "numberMasked": { "type": ["string", "null"] },
+        "clabeMasked": { "type": ["string", "null"] },
+        "currency": { "type": ["string", "null"] }
+      }
+    },
+    "statementPeriod": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": ["string", "null"] },
+        "end": { "type": ["string", "null"] }
+      }
+    },
+    "balances": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "opening": { "type": ["number", "null"] },
+        "closing": { "type": ["number", "null"] },
+        "totalCredits": { "type": ["number", "null"] },
+        "totalDebits": { "type": ["number", "null"] }
+      }
+    },
+    "transaction": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "date": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "reference": { "type": ["string", "null"] },
+        "direction": { "type": ["string", "null"], "enum": ["credit", "debit", null] },
+        "amount": { "type": ["number", "null"] },
+        "balanceAfter": { "type": ["number", "null"] },
+        "category": { "type": ["string", "null"] }
+      }
+    },
+    "fees": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "totalFees": { "type": ["number", "null"] },
+        "ivaOnFees": { "type": ["number", "null"] }
+      }
+    },
+    "interest": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "earned": { "type": ["number", "null"] },
+        "charged": { "type": ["number", "null"] }
+      }
+    },
+    "quality": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "overallConfidence": { "type": ["number", "null"] }
+      }
+    },
+    "nullRenderingPolicy": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^.*$": { "type": "string", "enum": ["OMIT", "RENDER_NOT_AVAILABLE", "RENDER_EMPTY_SECTION"] }
+      }
+    }
+  }
+}

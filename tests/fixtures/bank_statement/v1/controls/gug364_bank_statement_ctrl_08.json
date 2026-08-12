@@ -3,16 +3,7 @@
     "id": "ctrl_08",
     "name": "Wrong-deployment access",
     "setup": "Cross-deployment access",
-    "mimeType": "application/pdf",
-    "operation": "CREATE",
-    "fixtureReference": "gug364_bank_statement_01_01",
-    "expectedHttpStatus": 403,
-    "expectedErrorCode": "AUTHORIZATION_DENIED",
-    "expectedSafeFailureCode": null,
-    "expectedStageState": "FAILED",
-    "retryClass": "NO_RETRY",
-    "actor": "valid_user",
-    "deployment": "other_deployment"
+    "mimeType": "application/pdf"
   },
   "instruction": "Test runner parses this JSON to execute negative control."
 }

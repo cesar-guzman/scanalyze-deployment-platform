@@ -11,8 +11,8 @@
     "balances": {
       "closing": 1100.0,
       "opening": 1000.0,
-      "totalCredits": 100.0,
-      "totalDebits": 0.0
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
     },
     "bank": {
       "name": "Example Meridian Bank"
@@ -31,13 +31,22 @@
     "summaryText": "SYNTHETIC FIXTURE DATA",
     "transactions": [
       {
-        "amount": 100.0,
-        "balanceAfter": 1100.0,
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
         "category": "otro",
-        "date": "2025-12-01",
+        "date": "2025-12-05",
         "description": "SYNTHETIC TEST TRANSACTION 001",
         "direction": "credit",
         "reference": "REF001"
+      },
+      {
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro",
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "direction": "debit",
+        "reference": "REF002"
       }
     ]
   },
@@ -50,7 +59,7 @@
     "promptVersion": "1.0.0"
   },
   "quality": {
-    "overallConfidence": 97.0
+    "overallConfidence": 98.0
   },
   "resultId": "result_568d5f183e7d2f3b5acd68132e59b708_v1",
   "resultType": "bank_statement",

@@ -1,10 +1,53 @@
 {
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
   "id": "04",
   "name": "Nullable and optional fields",
-  "pages": 1,
-  "warnings": [],
-  "quality": {
-    "overallConfidence": 92.0
+  "description": "Empty statement where all optionals are missing but rendered as NOT AVAILABLE",
+  "commonDefaults": {
+    "bank": {
+      "name": null
+    },
+    "account": {
+      "holder": null,
+      "numberMasked": null,
+      "clabeMasked": null,
+      "currency": null
+    },
+    "statementPeriod": {
+      "start": null,
+      "end": null
+    },
+    "balances": {
+      "opening": null,
+      "closing": null,
+      "totalCredits": null,
+      "totalDebits": null
+    },
+    "transactions": [],
+    "accountType": null,
+    "country": null,
+    "fees": null,
+    "interest": null,
+    "summary": null,
+    "warningSourceCondition": null,
+    "expectedWarnings": [],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      ".*": "RENDER_NOT_AVAILABLE"
+    }
   },
-  "nulls": true
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {}
+    },
+    {
+      "instanceId": "02",
+      "overrides": {}
+    }
+  ]
 }

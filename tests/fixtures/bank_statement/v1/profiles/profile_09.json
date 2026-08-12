@@ -1,14 +1,77 @@
 {
+  "schemaVersion": "scanalyze.fixture-profile.v1",
+  "profileVersion": "1.0",
   "id": "09",
   "name": "Balance-reconciliation warning",
-  "pages": 1,
-  "warnings": [
-    {
-      "code": "BALANCE_RECONCILIATION_WARNING"
+  "description": "Reconciliation mismatch in balances",
+  "commonDefaults": {
+    "bank": {
+      "name": "Example Meridian Bank"
+    },
+    "account": {
+      "holder": "TEST HOLDER 0001",
+      "numberMasked": "****0001",
+      "clabeMasked": "****0001",
+      "currency": "MXN"
+    },
+    "statementPeriod": {
+      "start": "2025-12-01",
+      "end": "2025-12-31"
+    },
+    "balances": {
+      "opening": 1000.0,
+      "closing": 99999.99,
+      "totalCredits": 300.0,
+      "totalDebits": 200.0
+    },
+    "transactions": [
+      {
+        "date": "2025-12-05",
+        "description": "SYNTHETIC TEST TRANSACTION 001",
+        "reference": "REF001",
+        "direction": "credit",
+        "amount": 300.0,
+        "balanceAfter": 1300.0,
+        "category": "otro"
+      },
+      {
+        "date": "2025-12-10",
+        "description": "SYNTHETIC TEST TRANSACTION 002",
+        "reference": "REF002",
+        "direction": "debit",
+        "amount": 200.0,
+        "balanceAfter": 1100.0,
+        "category": "otro"
+      }
+    ],
+    "accountType": "cheques",
+    "country": "MX",
+    "fees": null,
+    "interest": null,
+    "summary": "SYNTHETIC FIXTURE DATA",
+    "warningSourceCondition": "Math mismatch closing = 99999.99",
+    "expectedWarnings": [
+      "BALANCE_RECONCILIATION_WARNING"
+    ],
+    "quality": {
+      "overallConfidence": 98.0
+    },
+    "pages": 1,
+    "nullRenderingPolicy": {
+      "fees": "OMIT",
+      "interest": "OMIT",
+      "warningSourceCondition": "OMIT",
+      ".*": "RENDER_NOT_AVAILABLE"
     }
-  ],
-  "quality": {
-    "overallConfidence": 99.0
   },
-  "reconciliation_failure": true
+  "instances": [
+    {
+      "instanceId": "01",
+      "overrides": {}
+    },
+    {
+      "instanceId": "02",
+      "overrides": {}
+    }
+  ]
 }
