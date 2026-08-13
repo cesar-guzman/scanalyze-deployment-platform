@@ -46,7 +46,8 @@
         "FAILED_HEALTH",
         "FAILED",
         "REJECTED",
-        "EXPIRED"
+        "EXPIRED",
+        "QUARANTINED"
       ]
     },
     "ledger_version": { "type": "integer", "minimum": 1 },

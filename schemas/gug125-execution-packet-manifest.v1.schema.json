@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/gug125-execution-packet-manifest.v1.schema.json",
+  "title": "GUG-125 Execution Packet Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "issue",
+    "source_sha",
+    "source_tree_sha",
+    "release_manifest_digest",
+    "deployment_contract_digest",
+    "target_environment_class",
+    "target_region_reference",
+    "target_deployment_reference",
+    "plan_manifest_references",
+    "artifact_manifest_digest",
+    "operator_reference",
+    "authorization_reference",
+    "requested_at",
+    "expires_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "issue": { "const": "GUG-125" },
+    "source_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "source_tree_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "release_manifest_digest": { "$ref": "#/$defs/digest" },
+    "deployment_contract_digest": { "$ref": "#/$defs/digest" },
+    "target_environment_class": { "enum": ["sandbox", "dev"] },
+    "target_region_reference": { "type": "string" },
+    "target_deployment_reference": { "type": "string" },
+    "plan_manifest_references": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/digest" },
+      "minItems": 1
+    },
+    "artifact_manifest_digest": { "$ref": "#/$defs/digest" },
+    "operator_reference": { "type": "string" },
+    "authorization_reference": { "$ref": "#/$defs/digest" },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

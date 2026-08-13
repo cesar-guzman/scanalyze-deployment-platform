@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/gug125-evidence-hygiene.v1.schema.json",
+  "title": "GUG-125 Evidence Hygiene Envelope",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "issue",
+    "source_sha",
+    "tree_sha",
+    "workflow_id",
+    "operator_reference",
+    "status_classification",
+    "test_counts",
+    "timestamp",
+    "safe_logical_names",
+    "digests"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "issue": { "type": "string", "pattern": "^GUG-[0-9]+$" },
+    "source_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "tree_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "workflow_id": { "type": "string" },
+    "operator_reference": { "type": "string" },
+    "status_classification": { "type": "string" },
+    "test_counts": {
+      "type": "object",
+      "required": ["passed", "failed", "skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "safe_logical_names": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-zA-Z0-9_.-]+$" }
+    },
+    "digests": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    }
+  }
+}
