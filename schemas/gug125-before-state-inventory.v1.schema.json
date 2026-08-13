@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/gug125-before-state-inventory.v1.schema.json",
+  "title": "GUG-125 Before-State Inventory",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "caller_proof_digest",
+    "target_environment_reference",
+    "backend_ownership",
+    "lock_state",
+    "deployment_existence",
+    "terraform_workspace_lineage",
+    "release_state",
+    "health_baseline",
+    "rollback_prerequisite",
+    "cost_guard_status",
+    "active_execution_ledger_state",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "caller_proof_digest": { "$ref": "#/$defs/digest" },
+    "target_environment_reference": { "type": "string" },
+    "backend_ownership": { "$ref": "#/$defs/classification" },
+    "lock_state": { "$ref": "#/$defs/classification" },
+    "deployment_existence": { "$ref": "#/$defs/classification" },
+    "terraform_workspace_lineage": { "type": "string" },
+    "release_state": { "$ref": "#/$defs/classification" },
+    "health_baseline": { "$ref": "#/$defs/classification" },
+    "rollback_prerequisite": { "$ref": "#/$defs/classification" },
+    "cost_guard_status": {
+      "enum": [
+        "COST_NOT_OBSERVED",
+        "COST_WITHIN_BOUND",
+        "COST_HARD_STOP",
+        "COST_UNKNOWN"
+      ]
+    },
+    "active_execution_ledger_state": { "$ref": "#/$defs/classification" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "classification": {
+      "enum": [
+        "ABSENT_EXPECTED",
+        "PRESENT_EXPECTED",
+        "PRESENT_MANAGED",
+        "DRIFT_DETECTED",
+        "AMBIGUOUS",
+        "BLOCKED"
+      ]
+    },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

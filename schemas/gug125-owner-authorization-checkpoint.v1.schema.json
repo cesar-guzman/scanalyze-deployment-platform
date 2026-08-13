@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/gug125-owner-authorization-checkpoint.v1.schema.json",
+  "title": "GUG-125 Owner Authorization Checkpoint",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "issue",
+    "source_sha",
+    "source_tree_sha",
+    "release_manifest_digest",
+    "deployment_contract_digest",
+    "saved_plan_manifest_digests",
+    "artifact_manifest_digest",
+    "target_account_private_reference",
+    "region",
+    "logical_environment",
+    "future_role_reference",
+    "operation_list",
+    "maximum_execution_window_seconds",
+    "maximum_cost_usd",
+    "rollback_digest",
+    "authorization_timestamp",
+    "authorization_expiry",
+    "owner",
+    "decision"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "issue": { "const": "GUG-125" },
+    "source_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "source_tree_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "release_manifest_digest": { "$ref": "#/$defs/digest" },
+    "deployment_contract_digest": { "$ref": "#/$defs/digest" },
+    "saved_plan_manifest_digests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/digest" },
+      "minItems": 1
+    },
+    "artifact_manifest_digest": { "$ref": "#/$defs/digest" },
+    "target_account_private_reference": { "type": "string" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "logical_environment": { "type": "string" },
+    "future_role_reference": { "type": "string" },
+    "operation_list": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "maximum_execution_window_seconds": { "type": "integer", "minimum": 1 },
+    "maximum_cost_usd": { "const": 50 },
+    "rollback_digest": { "$ref": "#/$defs/digest" },
+    "authorization_timestamp": { "type": "string", "format": "date-time" },
+    "authorization_expiry": { "type": "string", "format": "date-time" },
+    "owner": { "type": "string" },
+    "decision": { "enum": ["APPROVE", "REJECT"] }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}
