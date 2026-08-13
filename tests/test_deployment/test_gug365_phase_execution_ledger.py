@@ -2053,8 +2053,10 @@ def test_darwin_fullfsync_is_required_and_failure_blocks_publish(
     monkeypatch.setattr(ledger.fcntl, "fcntl", traced_fcntl)
     monkeypatch.setattr(ledger, "_reject_cloud_xattrs", lambda _path: None)
     monkeypatch.setattr(ledger, "_reject_extended_acl", lambda _path, _code: None)
+    monkeypatch.setattr(ledger, "_reject_fd_cloud_xattrs", lambda _fd: None)
     monkeypatch.setattr(ledger, "_reject_fd_acl", lambda _fd, _code: None)
     monkeypatch.setattr(ledger, "_require_local_filesystem", lambda _path: None)
+    monkeypatch.setattr(ledger, "_require_local_filesystem_fd", lambda _fd: None)
     store.create(prepared)
     assert len(calls) >= 4
 
