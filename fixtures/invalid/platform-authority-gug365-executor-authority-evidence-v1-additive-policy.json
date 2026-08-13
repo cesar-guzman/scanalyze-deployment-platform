@@ -1,0 +1,28 @@
+{
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false
+  },
+  "record_type": "scanalyze.platform_authority.gug365_executor_authority_evidence.v1",
+  "phase": "POLICY_FACTORY",
+  "caller_account_id": "042360977644",
+  "region": "us-east-1",
+  "caller_arn_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "session_identifier_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "session_issued_at": "2035-01-02T03:03:05Z",
+  "session_expires_at": "2035-01-02T03:18:05Z",
+  "evidence_collected_at": "2035-01-02T03:03:35Z",
+  "session_lifetime_seconds": 900,
+  "session_remaining_seconds": 840,
+  "session_chain_depth": 0,
+  "evidence_collected_after_sts": true,
+  "effective_policy_inventory_complete": true,
+  "sole_identity_policy_document_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "additional_inline_policy_count": 0,
+  "additional_attached_policy_count": 1,
+  "group_policy_count": 0,
+  "maximum_authority_source": "DEDICATED_ROLE_PERMISSIONS_BOUNDARY",
+  "maximum_authority_document_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "raw_caller_arn_persisted": false,
+  "evidence_digest": "sha256:d7bf4562eaf4319b81ead165faa89c2f803f0b75acc7f50c89b6becdfb67f219"
+}

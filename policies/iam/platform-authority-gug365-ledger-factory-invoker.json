@@ -1,0 +1,96 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmInvokerCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactQualifiedFactoryFunction",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetRuntimeManagementConfig"
+      ],
+      "Resource": "${ledger_factory_function_version_arn}"
+    },
+    {
+      "Sid": "InvokeOnlyExactQualifiedFactoryVersion",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "${ledger_factory_function_version_arn}"
+    },
+    {
+      "Sid": "ReadOnlyExactLedgerCertification",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "${ledger_table_arn}"
+    },
+    {
+      "Sid": "CountOnlyExactLedgerCertification",
+      "Effect": "Allow",
+      "Action": "dynamodb:Scan",
+      "Resource": "${ledger_table_arn}",
+      "Condition": {
+        "StringEquals": {
+          "dynamodb:Select": "COUNT"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyAwsManagedDynamoDbKeyMetadata",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFactoryRoleActivationState",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": "${ledger_factory_role_arn}"
+    },
+    {
+      "Sid": "DenyEveryMutationAndUnqualifiedInvocation",
+      "Effect": "Deny",
+      "NotAction": [
+        "sts:GetCallerIdentity",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:InvokeFunction",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:Scan",
+        "kms:DescribeKey",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDynamoDbOutsideExactLedger",
+      "Effect": "Deny",
+      "Action": "dynamodb:*",
+      "NotResource": "${ledger_table_arn}"
+    }
+  ]
+}

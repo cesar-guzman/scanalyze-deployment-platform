@@ -1,0 +1,212 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassOnlyProofBoundBrokerRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "${broker_role_arn}",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        },
+        "ArnEquals": {
+          "iam:AssociatedResourceArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "VerifyProofBoundary",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": "${proof_boundary_arn}"
+    },
+    {
+      "Sid": "VerifyProofBoundBrokerRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": "${broker_role_arn}"
+    },
+    {
+      "Sid": "ReadOnlyExactSignedArtifactVersion",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": "${signed_object_arn}",
+      "Condition": {
+        "StringEquals": {
+          "s3:VersionId": "${signed_version_id}",
+          "s3:ResourceAccount": "${authority_account_id}"
+        }
+      }
+    },
+    {
+      "Sid": "DecryptOnlyExactSignedArtifact",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${signed_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:CallerAccount": "${authority_account_id}",
+          "kms:ViaService": "s3.${region}.amazonaws.com",
+          "kms:EncryptionContext:aws:s3:arn": [
+            "${signed_object_arn}",
+            "${signed_bucket_arn}"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateOnlyExactSignedBroker",
+      "Effect": "Allow",
+      "Action": "lambda:CreateFunction",
+      "Resource": "${broker_function_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:CodeSigningConfigArn": "${code_signing_config_arn}"
+        },
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "reviewed-direct-lambda",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-365",
+          "aws:RequestTag/environment": "non-production",
+          "aws:RequestTag/production": "false",
+          "aws:RequestTag/source_commit": "${source_commit}",
+          "aws:RequestTag/gug363_pre_function_binding_sha256": "${gug363_pre_function_binding_sha256}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package",
+            "environment",
+            "production",
+            "source_commit",
+            "gug363_pre_function_binding_sha256"
+          ]
+        },
+        "Null": {
+          "lambda:Layer": "true",
+          "lambda:VpcIds": "true",
+          "lambda:SubnetIds": "true",
+          "lambda:SecurityGroupIds": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ConfigureOnlyExactInertBroker",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:PutFunctionConcurrency",
+        "lambda:PutRuntimeManagementConfig"
+      ],
+      "Resource": "${broker_function_arn}"
+    },
+    {
+      "Sid": "TagOnlyExactCreatedBroker",
+      "Effect": "Allow",
+      "Action": "lambda:TagResource",
+      "Resource": "${broker_function_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "reviewed-direct-lambda",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-365",
+          "aws:RequestTag/environment": "non-production",
+          "aws:RequestTag/production": "false",
+          "aws:RequestTag/source_commit": "${source_commit}",
+          "aws:RequestTag/gug363_pre_function_binding_sha256": "${gug363_pre_function_binding_sha256}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package",
+            "environment",
+            "production",
+            "source_commit",
+            "gug363_pre_function_binding_sha256"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactBroker",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:ListAliases",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": [
+        "${broker_function_arn}",
+        "${broker_function_arn}:*"
+      ]
+    },
+    {
+      "Sid": "ReadOnlyExactCodeSigningConfig",
+      "Effect": "Allow",
+      "Action": "lambda:GetCodeSigningConfig",
+      "Resource": "${code_signing_config_arn}"
+    },
+    {
+      "Sid": "DenyEveryActivationUpdateAndRelayCapability",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:CreateRole",
+        "iam:DeletePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutRolePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagPolicy",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "lambda:AddPermission",
+        "lambda:CreateAlias",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:DeleteFunction",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:PublishVersion",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "signer:StartSigningJob",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

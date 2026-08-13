@@ -1,0 +1,103 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateExactRolesUnderProofBoundary",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:TagRole"
+      ],
+      "Resource": [
+        "${service_role_arn}",
+        "${broker_role_arn}",
+        "${classifier_role_arn}",
+        "${approver_role_arn}",
+        "${classifier_proof_role_arn}",
+        "${approver_proof_role_arn}",
+        "${ledger_factory_role_arn}"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}"
+        },
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "reviewed-direct-iam",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-365",
+          "aws:RequestTag/environment": "non-production",
+          "aws:RequestTag/production": "false",
+          "aws:RequestTag/purpose": "gug365-direct-iam-materialized-role",
+          "aws:RequestTag/source_commit": "${source_commit}",
+          "aws:RequestTag/gug363_pre_function_binding_sha256": "${gug363_pre_function_binding_sha256}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package",
+            "environment",
+            "production",
+            "purpose",
+            "source_commit",
+            "gug363_pre_function_binding_sha256"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "${service_role_arn}",
+        "${broker_role_arn}",
+        "${classifier_role_arn}",
+        "${approver_role_arn}",
+        "${classifier_proof_role_arn}",
+        "${approver_proof_role_arn}",
+        "${ledger_factory_role_arn}"
+      ]
+    },
+    {
+      "Sid": "DenyEveryActivationAndRelayCapability",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutRolePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagPolicy",
+        "iam:UpdateAssumeRolePolicy",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "signer:StartSigningJob",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

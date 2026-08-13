@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-executor-authority-evidence.v1.schema.json",
+  "title": "GUG-365 closed executor effective-authority evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type", "phase", "caller_account_id", "region",
+    "caller_arn_digest", "session_identifier_digest", "session_issued_at",
+    "session_expires_at", "evidence_collected_at",
+    "session_lifetime_seconds", "session_remaining_seconds",
+    "session_chain_depth", "evidence_collected_after_sts",
+    "effective_policy_inventory_complete", "sole_identity_policy_document_digest",
+    "additional_inline_policy_count", "additional_attached_policy_count",
+    "group_policy_count", "maximum_authority_source",
+    "maximum_authority_document_digest", "raw_caller_arn_persisted",
+    "evidence_digest"
+  ],
+  "properties": {
+    "record_type": {"const": "scanalyze.platform_authority.gug365_executor_authority_evidence.v1"},
+    "phase": {"enum": ["POLICY_FACTORY", "FOUNDATION_FACTORY", "FUNCTION_FACTORY", "LEDGER_FACTORY_FUNCTION_FACTORY", "LEDGER_FACTORY_ACTIVATOR", "LEDGER_FACTORY_INVOKER", "LEDGER_FACTORY_REVOKER", "ACTIVATOR", "REVOCATOR"]},
+    "caller_account_id": {"const": "042360977644"},
+    "region": {"const": "us-east-1"},
+    "caller_arn_digest": {"$ref": "#/$defs/digest"},
+    "session_identifier_digest": {"$ref": "#/$defs/digest"},
+    "session_issued_at": {"$ref": "#/$defs/timestamp"},
+    "session_expires_at": {"$ref": "#/$defs/timestamp"},
+    "evidence_collected_at": {"$ref": "#/$defs/timestamp"},
+    "session_lifetime_seconds": {"type": "integer", "minimum": 1, "maximum": 900},
+    "session_remaining_seconds": {"type": "integer", "minimum": 1, "maximum": 900},
+    "session_chain_depth": {"const": 0},
+    "evidence_collected_after_sts": {"const": true},
+    "effective_policy_inventory_complete": {"const": true},
+    "sole_identity_policy_document_digest": {"$ref": "#/$defs/digest"},
+    "additional_inline_policy_count": {"const": 0},
+    "additional_attached_policy_count": {"const": 0},
+    "group_policy_count": {"const": 0},
+    "maximum_authority_source": {"enum": ["DEDICATED_ROLE_PERMISSIONS_BOUNDARY", "IDENTITY_CENTER_PERMISSION_BOUNDARY", "TRUSTED_BROKER_ENFORCED_SESSION_CAP"]},
+    "maximum_authority_document_digest": {"$ref": "#/$defs/digest"},
+    "raw_caller_arn_persisted": {"const": false},
+    "evidence_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}

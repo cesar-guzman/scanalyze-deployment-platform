@@ -1,0 +1,168 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Caller",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "Read",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyTags",
+        "iam:ListPolicyVersions",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "${service_role_boundary_arn}",
+        "${broker_boundary_arn}",
+        "${classifier_boundary_arn}",
+        "${approver_boundary_arn}",
+        "${proof_boundary_arn}",
+        "${service_role_arn}",
+        "${broker_role_arn}",
+        "${classifier_role_arn}",
+        "${approver_role_arn}",
+        "${classifier_proof_role_arn}",
+        "${approver_proof_role_arn}"
+      ]
+    },
+    {
+      "Sid": "AttachService",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${service_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${service_role_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "AttachBroker",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${broker_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${broker_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "AttachClassifier",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${classifier_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${classifier_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "AttachApprover",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${approver_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${approver_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "AttachClassifierProof",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${classifier_proof_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${proof_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "AttachApproverProof",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "${approver_proof_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${proof_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ActivateBroker",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": "${broker_role_arn}",
+      "Condition": {"ArnEquals": {"iam:PermissionsBoundary": "${broker_boundary_arn}"}}
+    },
+    {
+      "Sid": "ActivateClassifier",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": "${classifier_role_arn}",
+      "Condition": {"ArnEquals": {"iam:PermissionsBoundary": "${classifier_boundary_arn}"}}
+    },
+    {
+      "Sid": "ActivateApprover",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": "${approver_role_arn}",
+      "Condition": {"ArnEquals": {"iam:PermissionsBoundary": "${approver_boundary_arn}"}}
+    },
+    {
+      "Sid": "ActivateServiceLast",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": "${service_role_arn}",
+      "Condition": {"ArnEquals": {"iam:PermissionsBoundary": "${service_role_boundary_arn}"}}
+    },
+    {
+      "Sid": "DenyFactoriesAndRelay",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:CreateRole",
+        "iam:DeletePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagPolicy",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "signer:StartSigningJob",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

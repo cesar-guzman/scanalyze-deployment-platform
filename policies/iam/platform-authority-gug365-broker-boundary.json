@@ -1,0 +1,205 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyExactRecoveryStack",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources"
+      ],
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "DescribeOnlyExactRecoveryChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DescribeChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        },
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyExactRecoveryChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DeleteChangeSet",
+      "Resource": "arn:${aws_partition}:cloudformation:${region}:${authority_account_id}:stack/scanalyze-platform-authority-state-backend/*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        },
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPublicAccessBlockOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetAccountPublicAccessBlock",
+      "Resource": "*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactLedgerControls",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${authority_account_id}:table/scanalyze-platform-authority-change-set-retirements",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyLedgerAwsOwnedKmsKey",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "UseOnlyExactLedgerItem",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:${aws_partition}:dynamodb:${region}:${authority_account_id}:table/scanalyze-platform-authority-change-set-retirements",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        },
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": [
+            "${retirement_id}"
+          ]
+        },
+        "Null": {
+          "dynamodb:LeadingKeys": "false"
+        }
+      }
+    },
+    {
+      "Sid": "ExchangeOnlyExactIdentityContextCode",
+      "Effect": "Allow",
+      "Action": "sso-oauth:CreateTokenWithIAM",
+      "Resource": "${identity_center_application_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "EstablishOnlyExactDenyAllIdentityProof",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetContext"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug217ClassifierProof",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug217ApproverProof"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactBrokerRolePolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug215BrokerExecution",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug215ClassifierInvoker",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug215ApproverInvoker",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug217ClassifierProof",
+        "arn:${aws_partition}:iam::${authority_account_id}:role/ScanalyzeGug217ApproverProof",
+        "arn:${aws_partition}:iam::${authority_account_id}:policy/scanalyze/platform-authority/scanalyze-platform-authority-gug365-broker-boundary",
+        "arn:${aws_partition}:iam::${authority_account_id}:policy/scanalyze/platform-authority/scanalyze-platform-authority-gug365-classifier-invoker-boundary",
+        "arn:${aws_partition}:iam::${authority_account_id}:policy/scanalyze/platform-authority/scanalyze-platform-authority-gug365-approver-invoker-boundary",
+        "arn:${aws_partition}:iam::${authority_account_id}:policy/scanalyze/platform-authority/scanalyze-platform-authority-gug365-proof-boundary"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactBrokerConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetAlias",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionUrlConfig",
+        "lambda:GetPolicy",
+        "lambda:GetRuntimeManagementConfig"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug215-retirement",
+        "arn:${aws_partition}:lambda:${region}:${authority_account_id}:function:scanalyze-platform-authority-gug215-retirement:*"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "WriteOnlyExactBrokerLogStreams",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:${aws_partition}:logs:${region}:${authority_account_id}:log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:log-stream:*",
+      "Condition": {
+        "ArnEquals": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      }
+    }
+  ]
+}

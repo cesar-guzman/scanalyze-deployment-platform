@@ -19,14 +19,14 @@
     "commit": "1111111111111111111111111111111111111111",
     "tree": "2222222222222222222222222222222222222222",
     "template_path": "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml",
-    "template_sha256": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc"
+    "template_sha256": "sha256:b8ac00c5de0ce24dc327adc9b027d503b4b405f47230eb3ca1773a2acb212571"
   },
   "parameters": {
     "AuthorizationMode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
     "AuthorityAccountId": "042360977644",
     "ChangeSetName": "scanalyze-platform-authority-bootstrap-20300101000000",
     "RetirementId": "gug215#sha256:16cfbdf6c850128310ac4d8bf3a2be95e09b6dfaf9aa30351d11fbb9f41ed6a5",
-    "ExpectedTemplateSha256": "sha256:9cdef06c808f477a2bf8e15e37c049d558c9879d2e4cc52da6b62cca973bdbbc",
+    "ExpectedTemplateSha256": "sha256:b8ac00c5de0ce24dc327adc9b027d503b4b405f47230eb3ca1773a2acb212571",
     "ExpectedEvidenceSha256": "sha256:3c5763d016c26246a8b8906f3eacf399cb980b20b7efd076acc4435ffd307789",
     "ExpectedBrokerPolicySha256": "sha256:89ff58982cd0ae5dd3f4caf5f13f36e890773b55eebf6daf97bad43030cff536",
     "BrokerArtifactBucket": "scanalyze-gug363-synthetic-artifacts",
@@ -56,16 +56,11 @@
     "SingleOperatorExceptionCreatedAt": "2030-01-01T00:00:00Z",
     "SingleOperatorExceptionNotBefore": "2030-01-01T00:01:00Z",
     "SingleOperatorExceptionExpiresAt": "2030-01-01T00:12:00Z",
-    "PrivateParameterProjectionSha256": "sha256:a5404da7df734976bd1f27ee91f5d4907d2aa4f69b32c685e2f8bb5db0c0a24f"
+    "PrivateParameterProjectionSha256": "sha256:cfa948eb64e1dd3c6af3e72e1b5255b2de7847b797fa57fa96e88caee9c94a30"
   },
   "owner_authorization_sha256": "sha256:3e1ac74ab2fd7684aa33e44de9c313a8f6f4f11c9ff37828f94e7ba14956e5b1",
   "single_operator_exception_digest": "sha256:6057ca8d7f9de921585da5d800239cae7038f90235fe754a9d5e21ee17ef1566",
-  "intent_digest": "sha256:36d292d39c03fd0f3eb87ccd8a383421c5183ec85bbce08b8f0b4d84aab55285",
-  "_test_metadata": {
-    "synthetic": true,
-    "contains_live_data": false,
-    "trusted_evaluation_at": "2030-01-01T00:05:00Z"
-  },
+  "intent_digest": "sha256:eefc76d60529c375b3d85cd7a845d620c9be44a4d0b733b4e027526ce316672d",
   "artifact_signing_contract": {
     "contract_version": 1,
     "unsigned_source": {
@@ -111,5 +106,11 @@
     }
   },
   "artifact_signing_contract_digest": "sha256:b03155371ec31c49d9d5acb4b223996f31da8d226e1fb82268ee2bf46df5c7be",
-  "artifact_signing_evidence_digest": "sha256:978f9a750b4830f974603fb0cb76fcd3430be11cada68fe91ea774f3f292c87b"
+  "artifact_signing_evidence_digest": "sha256:978f9a750b4830f974603fb0cb76fcd3430be11cada68fe91ea774f3f292c87b",
+  "gug363_pre_function_binding_sha256": "sha256:10e905dc38d9ce41494f066f800a547d57b5eb98f2bbd45ad06e7ba6bf4642e2",
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false,
+    "trusted_evaluation_at": "2030-01-01T00:05:00Z"
+  }
 }

@@ -1,0 +1,97 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmDedicatedFactoryCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateConfigureAndReadExactLedger",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateContinuousBackups"
+      ],
+      "Resource": "${ledger_table_arn}"
+    },
+    {
+      "Sid": "ReadOnlyAwsManagedDynamoDbKeyMetadata",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CountOnlyExactEmptyLedger",
+      "Effect": "Allow",
+      "Action": "dynamodb:Scan",
+      "Resource": "${ledger_table_arn}",
+      "Condition": {
+        "StringEquals": {
+          "dynamodb:Select": "COUNT"
+        }
+      }
+    },
+    {
+      "Sid": "WriteOnlyDedicatedFactoryLogStreams",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${ledger_factory_log_stream_arn}"
+    },
+    {
+      "Sid": "DenyDynamoDbOutsideExactLedger",
+      "Effect": "Deny",
+      "Action": "dynamodb:*",
+      "NotResource": "${ledger_table_arn}"
+    },
+    {
+      "Sid": "DenyUnsupportedActionsOnExactLedger",
+      "Effect": "Deny",
+      "NotAction": [
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:Scan",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateContinuousBackups"
+      ],
+      "Resource": "${ledger_table_arn}"
+    },
+    {
+      "Sid": "DenyEverythingOutsideDedicatedRuntimeContract",
+      "Effect": "Deny",
+      "NotAction": [
+        "sts:GetCallerIdentity",
+        "kms:DescribeKey",
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:Scan",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateContinuousBackups",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

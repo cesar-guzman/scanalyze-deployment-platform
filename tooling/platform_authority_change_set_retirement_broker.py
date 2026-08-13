@@ -37,6 +37,20 @@ BROKER_POLICY_NAME = "Gug215ExactRetirement"
 CLASSIFIER_INVOKER_POLICY_NAME = "Gug215ClassifierInvokeOnly"
 APPROVER_INVOKER_POLICY_NAME = "Gug215ApproverInvokeOnly"
 PROOF_POLICY_NAME = "Gug217ZeroAuthorityProof"
+PERMISSIONS_BOUNDARY_POLICY_PATH = "/scanalyze/platform-authority/"
+BROKER_BOUNDARY_POLICY_NAME = (
+    "scanalyze-platform-authority-gug365-broker-boundary"
+)
+CLASSIFIER_INVOKER_BOUNDARY_POLICY_NAME = (
+    "scanalyze-platform-authority-gug365-classifier-invoker-boundary"
+)
+APPROVER_INVOKER_BOUNDARY_POLICY_NAME = (
+    "scanalyze-platform-authority-gug365-approver-invoker-boundary"
+)
+PROOF_BOUNDARY_POLICY_NAME = (
+    "scanalyze-platform-authority-gug365-proof-boundary"
+)
+LEDGER_FACTORY_ROLE_NAME = "ScanalyzeGug365LedgerFactory"
 ALIAS_CLASSIFY = "classify"
 ALIAS_RETIRE = "retire"
 ALIAS_RECONCILE = "reconcile"
@@ -69,7 +83,7 @@ EXPECTED_TAGS = {
     "work_package": "GUG-206",
 }
 EXPECTED_LEDGER_TAGS = {
-    "managed_by": "cloudformation",
+    "managed_by": "reviewed-direct-dynamodb",
     "service": "scanalyze-platform-authority",
     "data_class": "control-metadata",
     "work_package": "GUG-215",
@@ -270,15 +284,30 @@ def broker_version_binding_digest(values: Mapping[str, Any]) -> str:
             "record_type": "platform_authority_gug215_broker_version_binding",
             "lambda_version_properties": {
                 "architectures": ["x86_64"],
+                "dead_letter_config": {},
+                "ephemeral_storage": {"Size": 512},
+                "file_system_configs": [],
                 "handler": (
                     "tooling.platform_authority_identity_context_pep_runtime.handler"
                 ),
+                "kms_key_arn": None,
+                "layers": [],
                 "memory_size": 256,
                 "package_type": "Zip",
                 "reserved_concurrency": 1,
                 "runtime": "python3.12",
                 "runtime_update_mode": "Manual",
+                "snap_start": {
+                    "ApplyOn": "None",
+                    "OptimizationStatus": "Off",
+                },
                 "timeout": 60,
+                "tracing_config": {"Mode": "PassThrough"},
+                "vpc_config": {
+                    "SecurityGroupIds": [],
+                    "SubnetIds": [],
+                    "VpcId": "",
+                },
                 "logging": {
                     "application_log_level": "ERROR",
                     "log_format": "JSON",
@@ -593,6 +622,55 @@ class BrokerConfig:
     def allowed_aliases(self) -> frozenset[str]:
         return SINGLE_OPERATOR_ALIASES if self.is_single_operator else NORMAL_ALIASES
 
+    def normalized_runtime_environment(self) -> dict[str, str]:
+        """Return every environment value expected on the immutable version."""
+
+        values = {
+            "AUTHORIZATION_MODE": self.authorization_mode,
+            "AUTHORITY_ACCOUNT_ID": self.authority_account_id,
+            "AUTHORITY_REGION": self.region,
+            "CHANGE_SET_NAME": self.change_set_name,
+            "RETIREMENT_ID": self.retirement_id,
+            "EXPECTED_TEMPLATE_SHA256": self.expected_template_sha256,
+            "EXPECTED_EVIDENCE_SHA256": self.expected_evidence_sha256,
+            "EXPECTED_CODE_SHA256": self.expected_code_sha256,
+            "EXPECTED_BROKER_POLICY_SHA256": self.expected_broker_policy_sha256,
+            "IDENTITY_STORE_ARN": self.identity_store_arn,
+            "IDENTITY_CENTER_INSTANCE_ARN": self.identity_center_instance_arn,
+            "IDENTITY_CENTER_APPLICATION_ARN": self.identity_center_application_arn,
+            "IDENTITY_CENTER_REDIRECT_URI": self.identity_center_redirect_uri,
+            "CLASSIFIER_IDENTITY_STORE_USER_ID": self.classifier_identity_store_user_id,
+            "APPROVER_IDENTITY_STORE_USER_ID": self.approver_identity_store_user_id,
+            "CLASSIFIER_ASSIGNMENT_SHA256": self.classifier_assignment_sha256,
+            "APPROVER_ASSIGNMENT_SHA256": self.approver_assignment_sha256,
+            "CLASSIFIER_INVOKER_POLICY_SHA256": self.classifier_invoker_policy_sha256,
+            "APPROVER_INVOKER_POLICY_SHA256": self.approver_invoker_policy_sha256,
+            "CLASSIFIER_PROOF_POLICY_SHA256": self.classifier_proof_policy_sha256,
+            "APPROVER_PROOF_POLICY_SHA256": self.approver_proof_policy_sha256,
+            "IDENTITY_CENTER_APPLICATION_ACTOR_POLICY_SHA256": self.identity_center_application_actor_policy_sha256,
+            "CLASSIFIER_INVOKER_ROLE_NAME": self.classifier_invoker_role_name,
+            "APPROVER_INVOKER_ROLE_NAME": self.approver_invoker_role_name,
+            "CLASSIFIER_PROOF_ROLE_NAME": self.classifier_proof_role_name,
+            "APPROVER_PROOF_ROLE_NAME": self.approver_proof_role_name,
+            "CLASSIFIER_PERMISSION_SET_ROLE_ARN": self.classifier_permission_set_role_arn,
+            "APPROVER_PERMISSION_SET_ROLE_ARN": self.approver_permission_set_role_arn,
+            "BROKER_EXECUTION_ROLE_NAME": self.broker_execution_role_name,
+            "CODE_SIGNING_CONFIG_ARN": self.code_signing_config_arn,
+            "BROKER_RUNTIME_VERSION_ARN": self.broker_runtime_version_arn,
+            "BROKER_VERSION_BINDING_SHA256": self.broker_version_binding_sha256,
+        }
+        if self.is_single_operator:
+            values.update(
+                {
+                    "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256": self.single_operator_owner_authorization_sha256,
+                    "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256": self.single_operator_expected_authorization_sha256,
+                    "SINGLE_OPERATOR_EXCEPTION_CREATED_AT": self.single_operator_exception_created_at,
+                    "SINGLE_OPERATOR_EXCEPTION_NOT_BEFORE": self.single_operator_exception_not_before,
+                    "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT": self.single_operator_exception_expires_at,
+                }
+            )
+        return values
+
     @property
     def partition(self) -> str:
         return _partition(self.region)
@@ -652,6 +730,32 @@ class BrokerConfig:
             f"arn:{self.partition}:iam::{self.authority_account_id}:"
             f"role/{self.approver_proof_role_name}"
         )
+
+    def _permissions_boundary_arn(self, policy_name: str) -> str:
+        return (
+            f"arn:{self.partition}:iam::{self.authority_account_id}:policy"
+            f"{PERMISSIONS_BOUNDARY_POLICY_PATH}{policy_name}"
+        )
+
+    @property
+    def broker_permissions_boundary_arn(self) -> str:
+        return self._permissions_boundary_arn(BROKER_BOUNDARY_POLICY_NAME)
+
+    @property
+    def classifier_invoker_permissions_boundary_arn(self) -> str:
+        return self._permissions_boundary_arn(
+            CLASSIFIER_INVOKER_BOUNDARY_POLICY_NAME
+        )
+
+    @property
+    def approver_invoker_permissions_boundary_arn(self) -> str:
+        return self._permissions_boundary_arn(
+            APPROVER_INVOKER_BOUNDARY_POLICY_NAME
+        )
+
+    @property
+    def proof_permissions_boundary_arn(self) -> str:
+        return self._permissions_boundary_arn(PROOF_BOUNDARY_POLICY_NAME)
 
     @property
     def identity_binding(self) -> dict[str, Any]:
@@ -883,8 +987,8 @@ class RetirementBroker:
         role_name: str,
         role_arn: str,
         permission_set_role_arn: str,
-        policy_name: str,
         expected_policy_sha256: str,
+        expected_permissions_boundary_arn: str,
     ) -> None:
         role = self.clients.iam.get_role(RoleName=role_name).get("Role")
         if not isinstance(role, Mapping) or role.get("Arn") != role_arn:
@@ -910,23 +1014,128 @@ class RetirementBroker:
         }
         if (
             role.get("AssumeRolePolicyDocument") != expected_trust
-            or role.get("PermissionsBoundary") is not None
+            or role.get("PermissionsBoundary")
+            != {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": expected_permissions_boundary_arn,
+            }
         ):
             raise BrokerError("INVOKER_ROLE_BOUNDARY_CHANGED")
-        inline = self.clients.iam.list_role_policies(RoleName=role_name).get(
-            "PolicyNames"
+        inline, attached = self._role_policy_inventory(
+            role_name=role_name,
+            failure_code="INVOKER_ROLE_POLICY_INVENTORY_CHANGED",
         )
-        attached = self.clients.iam.list_attached_role_policies(
-            RoleName=role_name
-        ).get("AttachedPolicies")
-        if inline != [policy_name] or attached not in ([], None):
+        if inline != [] or attached != [
+            {
+                "PolicyName": expected_permissions_boundary_arn.rsplit("/", 1)[-1],
+                "PolicyArn": expected_permissions_boundary_arn,
+            }
+        ]:
             raise BrokerError("INVOKER_ROLE_POLICY_INVENTORY_CHANGED")
-        policy = self.clients.iam.get_role_policy(
-            RoleName=role_name,
-            PolicyName=policy_name,
+        self._verify_managed_policy_document(
+            policy_arn=expected_permissions_boundary_arn,
+            expected_policy_sha256=expected_policy_sha256,
+            expected_identity_role_names=[role_name],
+            expected_boundary_role_names=[role_name],
+            failure_code="INVOKER_ROLE_POLICY_CHANGED",
         )
-        if _policy_document_digest(policy.get("PolicyDocument")) != expected_policy_sha256:
-            raise BrokerError("INVOKER_ROLE_POLICY_CHANGED")
+
+    def _role_policy_inventory(
+        self, *, role_name: str, failure_code: str
+    ) -> tuple[object, object]:
+        inline_response = self.clients.iam.list_role_policies(
+            RoleName=role_name
+        )
+        attached_response = self.clients.iam.list_attached_role_policies(
+            RoleName=role_name
+        )
+        if (
+            not isinstance(inline_response, Mapping)
+            or inline_response.get("IsTruncated") is not False
+            or "Marker" in inline_response
+            or not isinstance(attached_response, Mapping)
+            or attached_response.get("IsTruncated") is not False
+            or "Marker" in attached_response
+        ):
+            raise BrokerError(failure_code)
+        return (
+            inline_response.get("PolicyNames"),
+            attached_response.get("AttachedPolicies"),
+        )
+
+    def _verify_managed_policy_document(
+        self,
+        *,
+        policy_arn: str,
+        expected_policy_sha256: str,
+        expected_identity_role_names: list[str],
+        expected_boundary_role_names: list[str],
+        failure_code: str,
+    ) -> None:
+        policy = self.clients.iam.get_policy(PolicyArn=policy_arn).get("Policy")
+        if not isinstance(policy, Mapping):
+            raise BrokerError(failure_code)
+        version_id = policy.get("DefaultVersionId")
+        if (
+            policy.get("Arn") != policy_arn
+            or not isinstance(version_id, str)
+            or policy.get("AttachmentCount")
+            != len(expected_identity_role_names)
+            or policy.get("PermissionsBoundaryUsageCount")
+            != len(expected_boundary_role_names)
+            or policy.get("IsAttachable") is not True
+        ):
+            raise BrokerError(failure_code)
+        versions = self.clients.iam.list_policy_versions(PolicyArn=policy_arn)
+        if (
+            not isinstance(versions, Mapping)
+            or versions.get("IsTruncated") is not False
+            or "Marker" in versions
+            or versions.get("Versions")
+            != [{"VersionId": "v1", "IsDefaultVersion": True}]
+        ):
+            raise BrokerError(failure_code)
+        for usage, expected_role_names in (
+            ("PermissionsPolicy", expected_identity_role_names),
+            ("PermissionsBoundary", expected_boundary_role_names),
+        ):
+            expected_entities = [
+                {"RoleName": item} for item in sorted(expected_role_names)
+            ]
+            entities = self.clients.iam.list_entities_for_policy(
+                PolicyArn=policy_arn,
+                EntityFilter="Role",
+                PolicyUsageFilter=usage,
+            )
+            roles = entities.get("PolicyRoles") if isinstance(entities, Mapping) else None
+            if (
+                not isinstance(entities, Mapping)
+                or entities.get("IsTruncated") is not False
+                or "Marker" in entities
+                or entities.get("PolicyGroups") != []
+                or entities.get("PolicyUsers") != []
+                or not isinstance(roles, list)
+                or sorted(
+                    roles,
+                    key=lambda item: str(item.get("RoleName"))
+                    if isinstance(item, Mapping)
+                    else "",
+                )
+                != expected_entities
+            ):
+                raise BrokerError(failure_code)
+        version = self.clients.iam.get_policy_version(
+            PolicyArn=policy_arn,
+            VersionId=version_id,
+        ).get("PolicyVersion")
+        if (
+            not isinstance(version, Mapping)
+            or version.get("VersionId") != version_id
+            or version.get("IsDefaultVersion") is not True
+            or _policy_document_digest(version.get("Document"))
+            != expected_policy_sha256
+        ):
+            raise BrokerError(failure_code)
 
     def _verify_proof_role(
         self,
@@ -936,6 +1145,7 @@ class RetirementBroker:
         identity_store_user_id: str,
         expected_policy_sha256: str,
         trust_sid: str,
+        expected_permissions_boundary_arn: str,
     ) -> None:
         role = self.clients.iam.get_role(RoleName=role_name).get("Role")
         if not isinstance(role, Mapping) or role.get("Arn") != role_arn:
@@ -991,43 +1201,39 @@ class RetirementBroker:
         }
         if (
             role.get("AssumeRolePolicyDocument") != expected_trust
-            or role.get("PermissionsBoundary") is not None
+            or role.get("PermissionsBoundary")
+            != {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": expected_permissions_boundary_arn,
+            }
             or role.get("MaxSessionDuration") != 3600
         ):
             raise BrokerError("PROOF_ROLE_BOUNDARY_CHANGED")
-        inline = self.clients.iam.list_role_policies(RoleName=role_name).get(
-            "PolicyNames"
+        inline, attached = self._role_policy_inventory(
+            role_name=role_name,
+            failure_code="PROOF_ROLE_POLICY_INVENTORY_CHANGED",
         )
-        attached = self.clients.iam.list_attached_role_policies(
-            RoleName=role_name
-        ).get("AttachedPolicies")
-        if inline != [PROOF_POLICY_NAME] or attached not in ([], None):
-            raise BrokerError("PROOF_ROLE_POLICY_INVENTORY_CHANGED")
-        policy = self.clients.iam.get_role_policy(
-            RoleName=role_name,
-            PolicyName=PROOF_POLICY_NAME,
-        )
-        document = policy.get("PolicyDocument")
-        if (
-            _policy_document_digest(document) != expected_policy_sha256
-            or (
-                _strict_json_object(document, "PROOF_POLICY_INVALID")
-                if isinstance(document, str)
-                else document
-            )
-            != {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Sid": "DenyEveryProofSessionAction",
-                        "Effect": "Deny",
-                        "Action": "*",
-                        "Resource": "*",
-                    }
-                ],
+        if inline != [] or attached != [
+            {
+                "PolicyName": expected_permissions_boundary_arn.rsplit("/", 1)[-1],
+                "PolicyArn": expected_permissions_boundary_arn,
             }
-        ):
-            raise BrokerError("PROOF_ROLE_POLICY_CHANGED")
+        ]:
+            raise BrokerError("PROOF_ROLE_POLICY_INVENTORY_CHANGED")
+        self._verify_managed_policy_document(
+            policy_arn=expected_permissions_boundary_arn,
+            expected_policy_sha256=expected_policy_sha256,
+            expected_identity_role_names=[
+                self.config.classifier_proof_role_name,
+                self.config.approver_proof_role_name,
+            ],
+            expected_boundary_role_names=[
+                self.config.classifier_proof_role_name,
+                self.config.approver_proof_role_name,
+                LEDGER_FACTORY_ROLE_NAME,
+            ],
+            failure_code="PROOF_ROLE_POLICY_CHANGED",
+        )
 
     def _verify_function_url(self, *, alias: str, invoker_role_arn: str) -> None:
         config = self.clients.lambda_client.get_function_url_config(
@@ -1099,7 +1305,9 @@ class RetirementBroker:
             raise BrokerError("FUNCTION_URL_POLICY_CHANGED")
 
     def _verify_runtime_boundary(self, alias: str) -> None:
-        role = self.clients.iam.get_role(RoleName=self.config.broker_execution_role_name)
+        role = self.clients.iam.get_role(
+            RoleName=self.config.broker_execution_role_name
+        )
         value = role.get("Role")
         if not isinstance(value, Mapping):
             raise BrokerError("BROKER_ROLE_READBACK_INVALID")
@@ -1114,38 +1322,57 @@ class RetirementBroker:
                 }
             ],
         }
-        if trust != expected_trust or value.get("PermissionsBoundary") is not None:
-            raise BrokerError("BROKER_ROLE_BOUNDARY_CHANGED")
-        inline = self.clients.iam.list_role_policies(
-            RoleName=self.config.broker_execution_role_name
-        ).get("PolicyNames")
-        attached = self.clients.iam.list_attached_role_policies(
-            RoleName=self.config.broker_execution_role_name
-        ).get("AttachedPolicies")
-        if inline != [BROKER_POLICY_NAME] or attached not in ([], None):
-            raise BrokerError("BROKER_ROLE_POLICY_INVENTORY_CHANGED")
-        policy = self.clients.iam.get_role_policy(
-            RoleName=self.config.broker_execution_role_name,
-            PolicyName=BROKER_POLICY_NAME,
-        )
         if (
-            _policy_document_digest(policy.get("PolicyDocument"))
-            != self.config.expected_broker_policy_sha256
+            trust != expected_trust
+            or value.get("PermissionsBoundary")
+            != {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": (
+                    self.config.broker_permissions_boundary_arn
+                ),
+            }
         ):
-            raise BrokerError("BROKER_ROLE_POLICY_CHANGED")
+            raise BrokerError("BROKER_ROLE_BOUNDARY_CHANGED")
+        inline, attached = self._role_policy_inventory(
+            role_name=self.config.broker_execution_role_name,
+            failure_code="BROKER_ROLE_POLICY_INVENTORY_CHANGED",
+        )
+        boundary_arn = self.config.broker_permissions_boundary_arn
+        if inline != [] or attached != [
+            {
+                "PolicyName": boundary_arn.rsplit("/", 1)[-1],
+                "PolicyArn": boundary_arn,
+            }
+        ]:
+            raise BrokerError("BROKER_ROLE_POLICY_INVENTORY_CHANGED")
+        self._verify_managed_policy_document(
+            policy_arn=boundary_arn,
+            expected_policy_sha256=self.config.expected_broker_policy_sha256,
+            expected_identity_role_names=[
+                self.config.broker_execution_role_name
+            ],
+            expected_boundary_role_names=[
+                self.config.broker_execution_role_name
+            ],
+            failure_code="BROKER_ROLE_POLICY_CHANGED",
+        )
         self._verify_invoker_role(
             role_name=self.config.classifier_invoker_role_name,
             role_arn=self.config.classifier_invoker_role_arn,
             permission_set_role_arn=self.config.classifier_permission_set_role_arn,
-            policy_name=CLASSIFIER_INVOKER_POLICY_NAME,
             expected_policy_sha256=self.config.classifier_invoker_policy_sha256,
+            expected_permissions_boundary_arn=(
+                self.config.classifier_invoker_permissions_boundary_arn
+            ),
         )
         self._verify_invoker_role(
             role_name=self.config.approver_invoker_role_name,
             role_arn=self.config.approver_invoker_role_arn,
             permission_set_role_arn=self.config.approver_permission_set_role_arn,
-            policy_name=APPROVER_INVOKER_POLICY_NAME,
             expected_policy_sha256=self.config.approver_invoker_policy_sha256,
+            expected_permissions_boundary_arn=(
+                self.config.approver_invoker_permissions_boundary_arn
+            ),
         )
         self._verify_proof_role(
             role_name=self.config.classifier_proof_role_name,
@@ -1153,6 +1380,9 @@ class RetirementBroker:
             identity_store_user_id=self.config.classifier_identity_store_user_id,
             expected_policy_sha256=self.config.classifier_proof_policy_sha256,
             trust_sid="SetExactClassifierIdentityContext",
+            expected_permissions_boundary_arn=(
+                self.config.proof_permissions_boundary_arn
+            ),
         )
         self._verify_proof_role(
             role_name=self.config.approver_proof_role_name,
@@ -1160,6 +1390,9 @@ class RetirementBroker:
             identity_store_user_id=self.config.approver_identity_store_user_id,
             expected_policy_sha256=self.config.approver_proof_policy_sha256,
             trust_sid="SetExactApproverIdentityContext",
+            expected_permissions_boundary_arn=(
+                self.config.proof_permissions_boundary_arn
+            ),
         )
         function = self.clients.lambda_client.get_function_configuration(
             FunctionName=f"{self.config.function_name}:{alias}"
@@ -1179,6 +1412,29 @@ class RetirementBroker:
                 "SystemLogLevel": "WARN",
                 "LogGroup": BROKER_LOG_GROUP_NAME,
             }
+            or function.get("Architectures") != ["x86_64"]
+            or function.get("DeadLetterConfig") not in (None, {})
+            or function.get("EphemeralStorage") != {"Size": 512}
+            or function.get("FileSystemConfigs") not in (None, [])
+            or function.get("Handler")
+            != "tooling.platform_authority_identity_context_pep_runtime.handler"
+            or function.get("KMSKeyArn") not in (None, "")
+            or function.get("Layers") not in (None, [])
+            or function.get("MemorySize") != 256
+            or function.get("PackageType") != "Zip"
+            or function.get("Runtime") != "python3.12"
+            or function.get("SnapStart")
+            not in (
+                None,
+                {},
+                {"ApplyOn": "None", "OptimizationStatus": "Off"},
+            )
+            or function.get("Timeout") != 60
+            or function.get("TracingConfig") != {"Mode": "PassThrough"}
+            or function.get("VpcConfig")
+            != {"SubnetIds": [], "SecurityGroupIds": [], "VpcId": ""}
+            or function.get("Environment", {}).get("Variables")
+            != self.config.normalized_runtime_environment()
         ):
             raise BrokerError("BROKER_CODE_BOUNDARY_CHANGED")
         runtime_management = (
@@ -1246,6 +1502,8 @@ class RetirementBroker:
         if not isinstance(table, Mapping):
             raise BrokerError("LEDGER_TABLE_INVALID")
         sse = table.get("SSEDescription")
+        billing = table.get("BillingModeSummary")
+        table_class = table.get("TableClassSummary")
         key_arn = sse.get("KMSMasterKeyArn") if isinstance(sse, Mapping) else None
         key_arn_pattern = re.compile(
             rf"^arn:{self.config.partition}:kms:{self.config.region}:"
@@ -1254,18 +1512,28 @@ class RetirementBroker:
         )
         if (
             table.get("TableStatus") != "ACTIVE"
+            or table.get("TableName") != self.config.ledger_table_name
             or table.get("TableArn") != self.config.table_arn
             or table.get("KeySchema")
             != [{"AttributeName": "retirement_id", "KeyType": "HASH"}]
+            or table.get("AttributeDefinitions")
+            != [{"AttributeName": "retirement_id", "AttributeType": "S"}]
             or table.get("DeletionProtectionEnabled") is not True
             or not isinstance(sse, Mapping)
             or sse.get("Status") != "ENABLED"
             or sse.get("SSEType") != "KMS"
             or not isinstance(key_arn, str)
             or key_arn_pattern.fullmatch(key_arn) is None
-            or table.get("BillingModeSummary", {}).get("BillingMode") != "PAY_PER_REQUEST"
+            or not isinstance(billing, Mapping)
+            or billing.get("BillingMode") != "PAY_PER_REQUEST"
             or table.get("LatestStreamArn") not in (None, "")
+            or table.get("LatestStreamLabel") not in (None, "")
+            or table.get("LocalSecondaryIndexes") not in (None, [])
+            or table.get("GlobalSecondaryIndexes") not in (None, [])
             or table.get("Replicas") not in (None, [])
+            or table.get("GlobalTableWitnesses") not in (None, [])
+            or not isinstance(table_class, Mapping)
+            or table_class.get("TableClass") != "STANDARD"
         ):
             raise BrokerError("LEDGER_TABLE_CONTROLS_CHANGED")
         key_metadata = self.clients.kms.describe_key(KeyId=key_arn).get("KeyMetadata")
@@ -1281,6 +1549,20 @@ class RetirementBroker:
             or key_metadata.get("MultiRegion") is not False
         ):
             raise BrokerError("LEDGER_KMS_CONTROLS_CHANGED")
+        ttl_response = self.clients.dynamodb.describe_time_to_live(
+            TableName=self.config.ledger_table_name
+        )
+        ttl = (
+            ttl_response.get("TimeToLiveDescription")
+            if isinstance(ttl_response, Mapping)
+            else None
+        )
+        if (
+            not isinstance(ttl, Mapping)
+            or ttl.get("TimeToLiveStatus") != "DISABLED"
+            or ttl.get("AttributeName") not in (None, "")
+        ):
+            raise BrokerError("LEDGER_TTL_CONTROLS_CHANGED")
         backups = self.clients.dynamodb.describe_continuous_backups(
             TableName=self.config.ledger_table_name
         ).get("ContinuousBackupsDescription")
@@ -1297,22 +1579,31 @@ class RetirementBroker:
             or pitr.get("RecoveryPeriodInDays") != 35
         ):
             raise BrokerError("LEDGER_RECOVERY_CONTROLS_CHANGED")
-        tags = self.clients.dynamodb.list_tags_of_resource(
+        tag_response = self.clients.dynamodb.list_tags_of_resource(
             ResourceArn=self.config.table_arn
-        ).get("Tags")
-        if not isinstance(tags, list):
+        )
+        tags = tag_response.get("Tags") if isinstance(tag_response, Mapping) else None
+        if (
+            not isinstance(tags, list)
+            or tag_response.get("NextToken") not in (None, "")
+            or any(
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("Key"), str)
+                or not isinstance(item.get("Value"), str)
+                for item in tags
+            )
+        ):
             raise BrokerError("LEDGER_TAGS_CHANGED")
         normalized_tags = {
-            item.get("Key"): item.get("Value")
+            item["Key"]: item["Value"]
             for item in tags
-            if isinstance(item, Mapping)
         }
         expected_tags = {
             **EXPECTED_LEDGER_TAGS,
             "account_id": self.config.authority_account_id,
             "region": self.config.region,
         }
-        if normalized_tags != expected_tags:
+        if len(normalized_tags) != len(tags) or normalized_tags != expected_tags:
             raise BrokerError("LEDGER_TAGS_CHANGED")
         policy = self.clients.dynamodb.get_resource_policy(
             ResourceArn=self.config.table_arn

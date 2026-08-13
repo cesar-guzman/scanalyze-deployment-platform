@@ -93,6 +93,21 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-retirement-entrypoint-plan": (
             "platform-authority-retirement-entrypoint-plan.v{version}.schema.json"
         ),
+        "platform-authority-retirement-entrypoint-service-role-plan": (
+            "platform-authority-retirement-entrypoint-service-role-plan.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-ledger-factory-package": (
+            "platform-authority-retirement-ledger-factory-package.v{version}.schema.json"
+        ),
+        "platform-authority-retirement-ledger-factory-receipt": (
+            "platform-authority-retirement-ledger-factory-receipt.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-executor-authority-evidence": (
+            "platform-authority-gug365-executor-authority-evidence.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-phase-execution-ledger": (
+            "platform-authority-gug365-phase-execution-ledger.v{version}.schema.json"
+        ),
         "platform-authority-founder-bootstrap-exception": "platform-authority-founder-bootstrap-exception.v{version}.schema.json",
         "platform-authority-founder-execution-ledger": "platform-authority-founder-execution-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-intent": "platform-authority-founder-pep-intent.v{version}.schema.json",
@@ -370,6 +385,1078 @@ def _gug221_canonical_digest(value: dict) -> str:
         ensure_ascii=False,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _gug365_repository_template(
+    path: Path, *, replacements: dict[str, str]
+) -> tuple[dict, str]:
+    """Render one exact GUG-365 repository policy without contacting Git/AWS."""
+
+    absolute = ROOT / path
+    if absolute.is_symlink() or not absolute.is_file():
+        raise ValueError("repository policy is unavailable")
+    raw_bytes = absolute.read_bytes()
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("repository policy is not UTF-8") from exc
+    placeholders = frozenset(re.findall(r"\$\{[^}]+\}", raw))
+    expected = frozenset(f"${{{key}}}" for key in replacements)
+    if placeholders != expected:
+        raise ValueError("repository policy placeholders are not exact")
+    for key, value in replacements.items():
+        raw = raw.replace(f"${{{key}}}", value)
+    if "${" in raw:
+        raise ValueError("repository policy has unresolved placeholders")
+
+    def unique_pairs(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("repository policy has duplicate keys")
+            result[key] = value
+        return result
+
+    try:
+        document = json.loads(raw, object_pairs_hook=unique_pairs)
+    except json.JSONDecodeError as exc:
+        raise ValueError("repository policy is not valid JSON") from exc
+    if not isinstance(document, dict):
+        raise ValueError("repository policy is not an object")
+    return document, "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+
+
+def _gug365_statement(document: object, sid: str) -> dict:
+    if not isinstance(document, dict):
+        raise ValueError("policy document is not an object")
+    statements = document.get("Statement")
+    if not isinstance(statements, list):
+        raise ValueError("policy statements are unavailable")
+    matches = [
+        item
+        for item in statements
+        if isinstance(item, dict) and item.get("Sid") == sid
+    ]
+    if len(matches) != 1:
+        raise ValueError("policy statement is not exact")
+    return matches[0]
+
+
+def _gug365_exact_plan_contract_errors(instance: dict) -> list[str]:
+    """Compare every executable policy/request/operation with repo contracts.
+
+    Digest closure alone is not authority closure: an attacker can alter an IAM
+    document and recompute every enclosing digest.  This validator therefore
+    independently renders the checked-in policy templates, rebuilds all 36
+    planned writes and all phase operation graphs, and compares exact values.
+    """
+
+    errors: list[str] = []
+    try:
+        from tooling import (
+            platform_authority_retirement_entrypoint_service_role_materializer as gug365,
+        )
+
+        binding_digest = instance["gug363_pre_function_binding_sha256"]
+        broker_function = instance["broker_function"]
+        factory_function = instance["ledger_factory_function"]
+        factory_log_group = instance["ledger_factory_log_group"]
+        source_commit = broker_function["tags"]["source_commit"]
+        if (
+            not isinstance(source_commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+            or broker_function["tags"].get(
+                "gug363_pre_function_binding_sha256"
+            )
+            != binding_digest
+        ):
+            raise ValueError("source binding is not exact")
+
+        policy_tags = [
+            {"Key": "managed_by", "Value": "reviewed-direct-iam"},
+            {"Key": "service", "Value": "scanalyze-platform-authority"},
+            {"Key": "work_package", "Value": "GUG-365"},
+            {"Key": "environment", "Value": "non-production"},
+            {"Key": "production", "Value": "false"},
+            {"Key": "source_commit", "Value": source_commit},
+            {
+                "Key": "gug363_pre_function_binding_sha256",
+                "Value": binding_digest,
+            },
+        ]
+        role_tags = [
+            *policy_tags[:5],
+            {
+                "Key": "purpose",
+                "Value": "gug365-direct-iam-materialized-role",
+            },
+            *policy_tags[5:],
+        ]
+        function_tags = {
+            "managed_by": "reviewed-direct-lambda",
+            "service": "scanalyze-platform-authority",
+            "work_package": "GUG-365",
+            "environment": "non-production",
+            "production": "false",
+            "source_commit": source_commit,
+            "gug363_pre_function_binding_sha256": binding_digest,
+        }
+        if broker_function.get("tags") != function_tags:
+            errors.append("GUG-365 broker function tags are not exact")
+        if factory_function.get("tags") != function_tags:
+            errors.append("GUG-365 ledger factory function tags are not exact")
+        if factory_log_group.get("tags") != {
+            **function_tags,
+            "managed_by": "reviewed-direct-logs",
+        }:
+            errors.append("GUG-365 ledger factory log tags are not exact")
+
+        signed_binding = instance["signed_artifact_binding"]
+        if signed_binding.get("binding_digest") != _canonical_sha256(
+            {
+                key: value
+                for key, value in signed_binding.items()
+                if key != "binding_digest"
+            }
+        ):
+            errors.append("GUG-365 signed artifact binding is not digest closed")
+
+        boundary_by_key = {
+            item["key"]: item for item in instance["boundaries"]
+        }
+        if list(boundary_by_key) != list(gug365.BOUNDARY_ORDER):
+            raise ValueError("boundary order is not exact")
+        broker_document = boundary_by_key["broker"]["document"]
+        change_set_name = _gug365_statement(
+            broker_document, "DescribeOnlyExactRecoveryChangeSet"
+        )["Condition"]["StringEquals"]["cloudformation:ChangeSetName"]
+        retirement_id = _gug365_statement(
+            broker_document, "UseOnlyExactLedgerItem"
+        )["Condition"]["ForAllValues:StringEquals"][
+            "dynamodb:LeadingKeys"
+        ][0]
+        identity_center_application_arn = _gug365_statement(
+            broker_document, "ExchangeOnlyExactIdentityContextCode"
+        )["Resource"]
+        if (
+            not isinstance(change_set_name, str)
+            or re.fullmatch(
+                r"scanalyze-platform-authority-bootstrap-[0-9]{14}",
+                change_set_name,
+            )
+            is None
+            or not isinstance(retirement_id, str)
+            or re.fullmatch(r"gug215#sha256:[0-9a-f]{64}", retirement_id)
+            is None
+            or not isinstance(identity_center_application_arn, str)
+            or re.fullmatch(
+                rf"arn:aws:sso::{gug365.AUTHORITY_ACCOUNT_ID}:application/"
+                r"ssoins-[A-Za-z0-9-]+/apl-[A-Za-z0-9-]+",
+                identity_center_application_arn,
+            )
+            is None
+        ):
+            raise ValueError("GUG-363 policy substitutions are not exact")
+
+        boundary_arns = {
+            key: gug365._policy_arn(gug365.BOUNDARY_NAMES[key])
+            for key in gug365.BOUNDARY_ORDER
+        }
+        broker_arn = gug365._function_arn()
+        render_bindings = {
+            "aws_partition": gug365.PARTITION,
+            "region": gug365.REGION,
+            "authority_account_id": gug365.AUTHORITY_ACCOUNT_ID,
+            "change_set_name": change_set_name,
+            "retirement_id": retirement_id,
+            "identity_center_application_arn": identity_center_application_arn,
+            "broker_function_arn": broker_arn,
+            "classifier_function_arn": f"{broker_arn}:single-classify",
+            "approver_retire_function_arn": f"{broker_arn}:single-retire",
+            "approver_reconcile_function_arn": (
+                f"{broker_arn}:single-reconcile"
+            ),
+        }
+        boundary_replacements = {
+            "broker": {
+                key: render_bindings[key]
+                for key in (
+                    "aws_partition",
+                    "region",
+                    "authority_account_id",
+                    "change_set_name",
+                    "retirement_id",
+                    "identity_center_application_arn",
+                    "broker_function_arn",
+                )
+            },
+            "classifier_invoker": {
+                "classifier_function_arn": render_bindings[
+                    "classifier_function_arn"
+                ]
+            },
+            "approver_invoker": {
+                "approver_retire_function_arn": render_bindings[
+                    "approver_retire_function_arn"
+                ],
+                "approver_reconcile_function_arn": render_bindings[
+                    "approver_reconcile_function_arn"
+                ],
+            },
+            "proof": {},
+            "ledger_factory": {
+                "ledger_table_arn": gug365._table_arn(),
+                "ledger_factory_log_stream_arn": (
+                    gug365._ledger_factory_log_stream_arn()
+                ),
+            },
+        }
+        expected_boundaries: list[dict] = []
+        for key in gug365.BOUNDARY_ORDER:
+            if key == "service_role":
+                document = gug365._service_role_permissions_policy(
+                    bindings={
+                        **render_bindings,
+                        "signed_bucket": signed_binding["bucket"],
+                        "signed_key": signed_binding["key"],
+                        "signed_version_id": signed_binding["version_id"],
+                        "signed_kms_key_arn": signed_binding[
+                            "sse_kms_key_arn"
+                        ],
+                        "code_signing_config_arn": signed_binding[
+                            "code_signing_config_arn"
+                        ],
+                    },
+                    boundary_arns=boundary_arns,
+                )
+                template_path = None
+                template_digest = None
+            else:
+                template_path = gug365.BOUNDARY_TEMPLATE_PATHS[key]
+                document, template_digest = _gug365_repository_template(
+                    template_path,
+                    replacements=boundary_replacements[key],
+                )
+            expected_boundaries.append(
+                {
+                    "key": key,
+                    "policy_name": gug365.BOUNDARY_NAMES[key],
+                    "path": gug365.MANAGED_POLICY_PATH,
+                    "arn": boundary_arns[key],
+                    "description": (
+                        "GUG-365 exact "
+                        f"{key.replace('_', ' ')} permissions boundary"
+                    ),
+                    "tags": policy_tags,
+                    "document": document,
+                    "document_digest": _canonical_sha256(document),
+                    "template_path": (
+                        None if template_path is None else template_path.as_posix()
+                    ),
+                    "template_sha256": template_digest,
+                }
+            )
+        if instance["boundaries"] != expected_boundaries:
+            errors.append(
+                "GUG-365 boundary documents do not match exact repo contracts"
+            )
+
+        roles = [instance["service_role"], *instance["child_roles"]]
+        if [role.get("role_name") for role in roles] != list(gug365.ROLE_ORDER):
+            raise ValueError("role order is not exact")
+        role_boundary_keys = {
+            gug365.SERVICE_ROLE_NAME: "service_role",
+            **gug365.CHILD_ROLE_BOUNDARY_KEYS,
+        }
+        for role in roles:
+            role_name = role["role_name"]
+            boundary_key = role_boundary_keys[role_name]
+            if (
+                role.get("arn") != gug365._role_arn(role_name)
+                or role.get("boundary_key") != boundary_key
+                or role.get("permissions_boundary_arn")
+                != boundary_arns[boundary_key]
+                or role.get("tags") != role_tags
+                or role.get("trust_policy_digest")
+                != _canonical_sha256(role.get("trust_policy"))
+            ):
+                errors.append("GUG-365 role contract is not exact")
+                break
+
+        expected_writes: list[dict] = []
+        sequence = 1
+        for boundary in expected_boundaries:
+            request = {
+                "PolicyName": boundary["policy_name"],
+                "Path": boundary["path"],
+                "PolicyDocument": gug365.canonical_json(
+                    boundary["document"]
+                ),
+                "Description": boundary["description"],
+                "Tags": policy_tags,
+            }
+            expected_writes.append(
+                gug365._operation(
+                    sequence=sequence,
+                    action="iam:CreatePolicy",
+                    target_arn=boundary["arn"],
+                    request=request,
+                )
+            )
+            sequence += 1
+        proof_arn = boundary_arns["proof"]
+        for role in roles:
+            request = {
+                "RoleName": role["role_name"],
+                "Path": role["path"],
+                "AssumeRolePolicyDocument": gug365.canonical_json(
+                    role["trust_policy"]
+                ),
+                "Description": (
+                    "GUG-357 dedicated CloudFormation service role"
+                    if role["role_name"] == gug365.SERVICE_ROLE_NAME
+                    else f"GUG-365 pre-created {role['role_name']} role"
+                ),
+                "MaxSessionDuration": role["max_session_duration"],
+                "PermissionsBoundary": proof_arn,
+                "Tags": role_tags,
+            }
+            expected_writes.append(
+                gug365._operation(
+                    sequence=sequence,
+                    action="iam:CreateRole",
+                    target_arn=role["arn"],
+                    request=request,
+                )
+            )
+            sequence += 1
+
+        broker_writes = gug365._function_write_requests(
+            broker_function, first_sequence=sequence
+        )
+        expected_writes.extend(broker_writes)
+        sequence += len(broker_writes)
+        log_writes = gug365._ledger_factory_log_group_write_requests(
+            factory_log_group, first_sequence=sequence
+        )
+        expected_writes.extend(log_writes)
+        sequence += len(log_writes)
+        factory_writes = gug365._function_write_requests(
+            factory_function, first_sequence=sequence
+        )
+        expected_writes.extend(factory_writes)
+        sequence += len(factory_writes)
+
+        role_by_name = {role["role_name"]: role for role in roles}
+        factory_role = role_by_name[gug365.LEDGER_FACTORY_ROLE_NAME]
+        factory_activator_writes = [
+            gug365._operation(
+                sequence=sequence,
+                action="iam:AttachRolePolicy",
+                target_arn=factory_role["arn"],
+                request={
+                    "RoleName": gug365.LEDGER_FACTORY_ROLE_NAME,
+                    "PolicyArn": boundary_arns["ledger_factory"],
+                },
+            ),
+            gug365._operation(
+                sequence=sequence + 1,
+                action="iam:PutRolePermissionsBoundary",
+                target_arn=factory_role["arn"],
+                request={
+                    "RoleName": gug365.LEDGER_FACTORY_ROLE_NAME,
+                    "PermissionsBoundary": boundary_arns["ledger_factory"],
+                },
+            ),
+        ]
+        expected_writes.extend(factory_activator_writes)
+        sequence += 2
+        factory_invoker_writes = [
+            gug365._operation(
+                sequence=sequence,
+                action="lambda:InvokeFunction",
+                target_arn=factory_function["immutable_version_arn"],
+                request={
+                    "FunctionName": factory_function[
+                        "immutable_version_arn"
+                    ],
+                    "InvocationType": "RequestResponse",
+                    "Payload": "{}",
+                },
+            )
+        ]
+        expected_writes.extend(factory_invoker_writes)
+        sequence += 1
+        factory_revoker_writes = [
+            gug365._operation(
+                sequence=sequence,
+                action="iam:PutRolePermissionsBoundary",
+                target_arn=factory_role["arn"],
+                request={
+                    "RoleName": gug365.LEDGER_FACTORY_ROLE_NAME,
+                    "PermissionsBoundary": proof_arn,
+                },
+            ),
+            gug365._operation(
+                sequence=sequence + 1,
+                action="iam:DetachRolePolicy",
+                target_arn=factory_role["arn"],
+                request={
+                    "RoleName": gug365.LEDGER_FACTORY_ROLE_NAME,
+                    "PolicyArn": boundary_arns["ledger_factory"],
+                },
+            ),
+        ]
+        expected_writes.extend(factory_revoker_writes)
+        sequence += 2
+        activator_writes: list[dict] = []
+        for role_name in (
+            gug365.BROKER_ROLE_NAME,
+            gug365.CLASSIFIER_ROLE_NAME,
+            gug365.APPROVER_ROLE_NAME,
+            gug365.CLASSIFIER_PROOF_ROLE_NAME,
+            gug365.APPROVER_PROOF_ROLE_NAME,
+        ):
+            role = role_by_name[role_name]
+            activator_writes.append(
+                gug365._operation(
+                    sequence=sequence,
+                    action="iam:AttachRolePolicy",
+                    target_arn=role["arn"],
+                    request={
+                        "RoleName": role_name,
+                        "PolicyArn": role["permissions_boundary_arn"],
+                    },
+                )
+            )
+            sequence += 1
+        for role_name in (
+            gug365.BROKER_ROLE_NAME,
+            gug365.CLASSIFIER_ROLE_NAME,
+            gug365.APPROVER_ROLE_NAME,
+        ):
+            role = role_by_name[role_name]
+            activator_writes.append(
+                gug365._operation(
+                    sequence=sequence,
+                    action="iam:PutRolePermissionsBoundary",
+                    target_arn=role["arn"],
+                    request={
+                        "RoleName": role_name,
+                        "PermissionsBoundary": role[
+                            "permissions_boundary_arn"
+                        ],
+                    },
+                )
+            )
+            sequence += 1
+        service_role = role_by_name[gug365.SERVICE_ROLE_NAME]
+        activator_writes.append(
+            gug365._operation(
+                sequence=sequence,
+                action="iam:AttachRolePolicy",
+                target_arn=service_role["arn"],
+                request={
+                    "RoleName": gug365.SERVICE_ROLE_NAME,
+                    "PolicyArn": boundary_arns["service_role"],
+                },
+            )
+        )
+        sequence += 1
+        activator_writes.append(
+            gug365._operation(
+                sequence=sequence,
+                action="iam:PutRolePermissionsBoundary",
+                target_arn=service_role["arn"],
+                request={
+                    "RoleName": gug365.SERVICE_ROLE_NAME,
+                    "PermissionsBoundary": boundary_arns["service_role"],
+                },
+            )
+        )
+        expected_writes.extend(activator_writes)
+        if instance["planned_iam_writes"] != expected_writes:
+            errors.append(
+                "GUG-365 planned IAM/Lambda/log requests are not exact"
+            )
+
+        all_policy_replacements = {
+            "service_role_boundary_arn": boundary_arns["service_role"],
+            "broker_boundary_arn": boundary_arns["broker"],
+            "classifier_boundary_arn": boundary_arns[
+                "classifier_invoker"
+            ],
+            "approver_boundary_arn": boundary_arns["approver_invoker"],
+            "proof_boundary_arn": proof_arn,
+            "ledger_factory_boundary_arn": boundary_arns[
+                "ledger_factory"
+            ],
+            "service_role_arn": gug365.SERVICE_ROLE_ARN,
+            "broker_role_arn": gug365._role_arn(gug365.BROKER_ROLE_NAME),
+            "classifier_role_arn": gug365._role_arn(
+                gug365.CLASSIFIER_ROLE_NAME
+            ),
+            "approver_role_arn": gug365._role_arn(
+                gug365.APPROVER_ROLE_NAME
+            ),
+            "classifier_proof_role_arn": gug365._role_arn(
+                gug365.CLASSIFIER_PROOF_ROLE_NAME
+            ),
+            "approver_proof_role_arn": gug365._role_arn(
+                gug365.APPROVER_PROOF_ROLE_NAME
+            ),
+            "ledger_factory_role_arn": gug365._role_arn(
+                gug365.LEDGER_FACTORY_ROLE_NAME
+            ),
+            "ledger_table_arn": gug365._table_arn(),
+            "broker_function_arn": gug365._function_arn(),
+            "ledger_factory_function_arn": (
+                gug365._ledger_factory_function_arn()
+            ),
+            "ledger_factory_function_version_arn": (
+                gug365._ledger_factory_function_arn(version="1")
+            ),
+            "ledger_factory_log_group_arn": (
+                gug365._ledger_factory_log_group_arn()
+            ),
+            "signed_object_arn": (
+                f"arn:aws:s3:::{signed_binding['bucket']}/"
+                f"{signed_binding['key']}"
+            ),
+            "signed_bucket_arn": f"arn:aws:s3:::{signed_binding['bucket']}",
+            "signed_version_id": signed_binding["version_id"],
+            "signed_kms_key_arn": signed_binding["sse_kms_key_arn"],
+            "code_signing_config_arn": signed_binding[
+                "code_signing_config_arn"
+            ],
+            "ledger_factory_signed_object_arn": (
+                f"arn:aws:s3:::{factory_function['signed_code']['s3_bucket']}/"
+                f"{factory_function['signed_code']['s3_key']}"
+            ),
+            "ledger_factory_signed_bucket_arn": (
+                "arn:aws:s3:::"
+                f"{factory_function['signed_code']['s3_bucket']}"
+            ),
+            "ledger_factory_signed_version_id": factory_function[
+                "signed_code"
+            ]["s3_object_version"],
+            "ledger_factory_signed_kms_key_arn": factory_function[
+                "artifact_sse_kms_key_arn"
+            ],
+            "ledger_factory_code_signing_config_arn": factory_function[
+                "code_signing_config_arn"
+            ],
+            "authority_account_id": gug365.AUTHORITY_ACCOUNT_ID,
+            "region": gug365.REGION,
+            "source_commit": source_commit,
+            "gug363_pre_function_binding_sha256": binding_digest,
+        }
+        policy_paths = {
+            "POLICY_FACTORY": gug365.POLICY_FACTORY_POLICY_PATH,
+            "FOUNDATION_FACTORY": gug365.FOUNDATION_FACTORY_POLICY_PATH,
+            "FUNCTION_FACTORY": gug365.FUNCTION_FACTORY_POLICY_PATH,
+            "LEDGER_FACTORY_FUNCTION_FACTORY": (
+                gug365.LEDGER_FACTORY_FUNCTION_FACTORY_POLICY_PATH
+            ),
+            "LEDGER_FACTORY_ACTIVATOR": (
+                gug365.LEDGER_FACTORY_ACTIVATOR_POLICY_PATH
+            ),
+            "LEDGER_FACTORY_INVOKER": (
+                gug365.LEDGER_FACTORY_INVOKER_POLICY_PATH
+            ),
+            "LEDGER_FACTORY_REVOKER": (
+                gug365.LEDGER_FACTORY_REVOKER_POLICY_PATH
+            ),
+            "ACTIVATOR": gug365.ACTIVATOR_POLICY_PATH,
+            "REVOCATOR": gug365.REVOCATOR_POLICY_PATH,
+        }
+        replacement_keys = {
+            phase: frozenset(
+                match[2:-1]
+                for match in re.findall(
+                    r"\$\{[^}]+\}",
+                    (ROOT / path).read_text(encoding="utf-8"),
+                )
+            )
+            for phase, path in policy_paths.items()
+        }
+
+        def expected_executor_policy(phase: str) -> dict:
+            path = policy_paths[phase]
+            document, template_digest = _gug365_repository_template(
+                path,
+                replacements={
+                    key: str(all_policy_replacements[key])
+                    for key in replacement_keys[phase]
+                },
+            )
+            return {
+                "phase": phase,
+                "template_path": path.as_posix(),
+                "template_sha256": template_digest,
+                "document": document,
+                "document_digest": _canonical_sha256(document),
+                "projection_only": True,
+                "created_by_this_plan": False,
+            }
+
+        phase_writes = {
+            "POLICY_FACTORY": expected_writes[0:6],
+            "FOUNDATION_FACTORY": expected_writes[6:13],
+            "FUNCTION_FACTORY": expected_writes[13:16],
+            "LEDGER_FACTORY_FUNCTION_FACTORY": expected_writes[16:21],
+            "LEDGER_FACTORY_ACTIVATOR": expected_writes[21:23],
+            "LEDGER_FACTORY_INVOKER": expected_writes[23:24],
+            "LEDGER_FACTORY_REVOKER": expected_writes[24:26],
+            "ACTIVATOR": expected_writes[26:36],
+        }
+        proof_boundary = next(
+            item for item in expected_boundaries if item["key"] == "proof"
+        )
+        broker_role = role_by_name[gug365.BROKER_ROLE_NAME]
+        for phase_contract in instance["authorization_phases"]:
+            phase = phase_contract["phase"]
+            expected_policy = expected_executor_policy(phase)
+            if phase_contract.get("executor_policy") != expected_policy:
+                errors.append(
+                    f"GUG-365 {phase} executor policy is not the exact repo contract"
+                )
+            writes = phase_writes[phase]
+            if phase_contract.get("mutations") != writes:
+                errors.append(f"GUG-365 {phase} mutations are not exact")
+            expected_operations = gug365._phase_operation_contract(
+                phase=phase,
+                writes=writes,
+                proof_boundary=(
+                    proof_boundary
+                    if phase
+                    in {
+                        "FUNCTION_FACTORY",
+                        "LEDGER_FACTORY_FUNCTION_FACTORY",
+                        "LEDGER_FACTORY_REVOKER",
+                    }
+                    else None
+                ),
+                function=(
+                    broker_function
+                    if phase
+                    in {
+                        "FUNCTION_FACTORY",
+                        "LEDGER_FACTORY_FUNCTION_FACTORY",
+                    }
+                    else None
+                ),
+                broker_role=(
+                    broker_role
+                    if phase
+                    in {
+                        "FUNCTION_FACTORY",
+                        "LEDGER_FACTORY_FUNCTION_FACTORY",
+                    }
+                    else None
+                ),
+                factory_function=(
+                    factory_function
+                    if phase == "LEDGER_FACTORY_FUNCTION_FACTORY"
+                    else None
+                ),
+                factory_role=(
+                    factory_role
+                    if phase == "LEDGER_FACTORY_FUNCTION_FACTORY"
+                    else None
+                ),
+                factory_log_group=(
+                    factory_log_group
+                    if phase == "LEDGER_FACTORY_FUNCTION_FACTORY"
+                    else None
+                ),
+            )
+            if phase_contract.get("operations") != expected_operations:
+                errors.append(f"GUG-365 {phase} operation graph is not exact")
+
+        revocation_writes = [
+            gug365._operation(
+                sequence=index,
+                action="iam:PutRolePermissionsBoundary",
+                target_arn=role_by_name[role_name]["arn"],
+                request={
+                    "RoleName": role_name,
+                    "PermissionsBoundary": proof_arn,
+                },
+            )
+            for index, role_name in enumerate(
+                (
+                    gug365.BROKER_ROLE_NAME,
+                    gug365.CLASSIFIER_ROLE_NAME,
+                    gug365.APPROVER_ROLE_NAME,
+                    gug365.SERVICE_ROLE_NAME,
+                ),
+                start=1,
+            )
+        ]
+        revocation = instance["revocation"]
+        if revocation.get("executor_policy") != expected_executor_policy(
+            "REVOCATOR"
+        ):
+            errors.append(
+                "GUG-365 REVOCATOR executor policy is not the exact repo contract"
+            )
+        if revocation.get("mutations") != revocation_writes:
+            errors.append("GUG-365 REVOCATOR mutations are not exact")
+        expected_revocation_operations = gug365._phase_operation_contract(
+            phase="REVOCATOR",
+            writes=revocation_writes,
+            proof_boundary=proof_boundary,
+        )
+        if revocation.get("operations") != expected_revocation_operations:
+            errors.append("GUG-365 REVOCATOR operation graph is not exact")
+
+        expected_readbacks = gug365._readback_contracts(
+            expected_boundaries,
+            roles,
+            (broker_function, factory_function),
+            instance["ledger_table"],
+            factory_log_group,
+        )
+        if instance["planned_readbacks"] != expected_readbacks:
+            errors.append("GUG-365 planned readback requests are not exact")
+    except (
+        AttributeError,
+        IndexError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        errors.append("GUG-365 exact repository contract validation failed closed")
+    return errors
+
+
+def _validate_gug365_cross_boundary_artifact(
+    instance: dict, *, schema_name: str
+) -> list[str]:
+    """Close canonical digests and causal structure beyond JSON shape checks."""
+
+    errors: list[str] = []
+    if schema_name == (
+        "platform-authority-gug365-phase-execution-ledger.v1.schema.json"
+    ):
+        try:
+            from tooling.platform_authority_gug365_phase_execution_ledger import (
+                validate_consumed_causal_record,
+                validate_ledger,
+            )
+
+            validate_ledger(
+                instance,
+                expected_plan_digest=instance.get("plan_digest"),
+                expected_bundle_digest=instance.get("bundle_digest"),
+                expected_phase=instance.get("phase"),
+            )
+            serialized = json.dumps(instance, sort_keys=True).casefold()
+            if "arn:" in serialized:
+                errors.append("GUG-365 phase ledger must not persist raw ARNs")
+            outcomes = instance.get("operation_outcomes", [])
+            causally_accepted = (
+                instance.get("status") == "CONSUMED"
+                and len(outcomes) == instance.get("operation_count")
+                and all(item.get("result") == "SUCCEEDED" for item in outcomes)
+            )
+            if causally_accepted:
+                claim = instance.get("claim", {})
+                receipts = instance.get("receipt_chain", [])
+                validate_consumed_causal_record(
+                    instance,
+                    expected_plan_digest=instance["plan_digest"],
+                    expected_bundle_digest=instance["bundle_digest"],
+                    expected_phase=instance["phase"],
+                    expected_ledger_id=instance["ledger_id"],
+                    expected_initial_ledger_digest=instance[
+                        "initial_ledger_digest"
+                    ],
+                    expected_claim_nonce_digest=claim.get(
+                        "claim_nonce_digest"
+                    ),
+                    expected_terminal_receipt_digest=receipts[-1].get(
+                        "receipt_digest"
+                    ),
+                )
+        except (ImportError, KeyError, ValueError) as exc:
+            errors.append(f"GUG-365 phase execution ledger invalid: {exc}")
+        return errors
+
+    if schema_name == (
+        "platform-authority-retirement-ledger-factory-package.v1.schema.json"
+    ):
+        try:
+            from tooling.platform_authority_retirement_ledger_factory_package import (
+                LedgerFactoryPackageError,
+                validate_ledger_factory_package_manifest,
+            )
+
+            validate_ledger_factory_package_manifest(instance)
+        except (ImportError, LedgerFactoryPackageError) as exc:
+            errors.append(f"GUG-365 package manifest invalid: {exc}")
+        return errors
+
+    digest_field = {
+        "platform-authority-retirement-ledger-factory-receipt.v1.schema.json": (
+            "receipt_sha256"
+        ),
+        "platform-authority-gug365-executor-authority-evidence.v1.schema.json": (
+            "evidence_digest"
+        ),
+    }.get(schema_name)
+    if digest_field is not None:
+        projection = {
+            key: value for key, value in instance.items() if key != digest_field
+        }
+        if instance.get(digest_field) != _canonical_sha256(projection):
+            errors.append(f"GUG-365 {digest_field} must seal the exact record")
+        if schema_name.endswith("executor-authority-evidence.v1.schema.json") and (
+            instance.get("session_remaining_seconds", 0)
+            > instance.get("session_lifetime_seconds", 0)
+        ):
+            errors.append("GUG-365 session remaining time exceeds lifetime")
+        if schema_name.endswith("executor-authority-evidence.v1.schema.json"):
+            try:
+                issued = datetime.fromisoformat(
+                    instance["session_issued_at"].replace("Z", "+00:00")
+                )
+                collected = datetime.fromisoformat(
+                    instance["evidence_collected_at"].replace("Z", "+00:00")
+                )
+                expires = datetime.fromisoformat(
+                    instance["session_expires_at"].replace("Z", "+00:00")
+                )
+                lifetime = int((expires - issued).total_seconds())
+                if (
+                    not issued <= collected < expires
+                    or lifetime != instance.get("session_lifetime_seconds")
+                    or not 1 <= lifetime <= 900
+                ):
+                    errors.append(
+                        "GUG-365 authority evidence session window is stale or inconsistent"
+                    )
+            except (KeyError, TypeError, ValueError):
+                errors.append(
+                    "GUG-365 authority evidence session window is invalid"
+                )
+        return errors
+
+    if schema_name != (
+        "platform-authority-retirement-entrypoint-service-role-plan.v1.schema.json"
+    ):
+        return errors
+
+    section_digests = {
+        "boundaries": "boundary_set_digest",
+        "child_role_boundary_assignments": (
+            "child_role_boundary_assignment_digest"
+        ),
+        "service_role": "service_role_digest",
+        "child_roles": "child_role_set_digest",
+        "ledger_table": "ledger_table_digest",
+        "broker_function": "broker_function_digest",
+        "ledger_factory_function": "ledger_factory_function_digest",
+        "ledger_factory_log_group": "ledger_factory_log_group_digest",
+        "authorization_phases": "authorization_phase_digest",
+        "revocation": "revocation_digest",
+        "planned_iam_writes": "planned_iam_write_digest",
+        "planned_readbacks": "planned_readback_digest",
+    }
+    for section, digest in section_digests.items():
+        if instance.get(digest) != _canonical_sha256(instance.get(section)):
+            errors.append(f"GUG-365 {digest} does not seal {section}")
+    projection = {
+        key: value for key, value in instance.items() if key != "plan_digest"
+    }
+    if instance.get("plan_digest") != _canonical_sha256(projection):
+        errors.append("GUG-365 plan_digest does not seal the complete plan")
+
+    phases = instance.get("authorization_phases", [])
+    expected_phases = [
+        "POLICY_FACTORY",
+        "FOUNDATION_FACTORY",
+        "FUNCTION_FACTORY",
+        "LEDGER_FACTORY_FUNCTION_FACTORY",
+        "LEDGER_FACTORY_ACTIVATOR",
+        "LEDGER_FACTORY_INVOKER",
+        "LEDGER_FACTORY_REVOKER",
+        "ACTIVATOR",
+    ]
+    if [item.get("phase") for item in phases] != expected_phases or [
+        item.get("sequence") for item in phases
+    ] != list(range(1, 9)):
+        errors.append("GUG-365 authorization phase order is not exact")
+
+    writes = instance.get("planned_iam_writes", [])
+    if [item.get("sequence") for item in writes] != list(range(1, 37)):
+        errors.append("GUG-365 write sequence is not exact")
+    action_counts = Counter(item.get("allowed_action") for item in writes)
+    expected_counts = Counter(
+        {
+            "iam:CreatePolicy": 6,
+            "iam:CreateRole": 7,
+            "iam:AttachRolePolicy": 7,
+            "iam:PutRolePermissionsBoundary": 6,
+            "iam:DetachRolePolicy": 1,
+            "lambda:CreateFunction": 2,
+            "lambda:PutRuntimeManagementConfig": 2,
+            "lambda:PutFunctionConcurrency": 2,
+            "lambda:InvokeFunction": 1,
+            "logs:CreateLogGroup": 1,
+            "logs:PutRetentionPolicy": 1,
+        }
+    )
+    if action_counts != expected_counts:
+        errors.append("GUG-365 write action multiset is not exact")
+    for write in writes:
+        if write.get("request_digest") != _canonical_sha256(
+            write.get("request")
+        ):
+            errors.append("GUG-365 write request digest mismatch")
+            break
+
+    readbacks = instance.get("planned_readbacks", [])
+    if [item.get("sequence") for item in readbacks] != list(range(1, 127)):
+        errors.append("GUG-365 readback sequence is not exact")
+
+    boundaries = {
+        item.get("key"): item.get("arn") for item in instance.get("boundaries", [])
+    }
+    assignments = instance.get("child_role_boundary_assignments", [])
+    if set(boundaries) != {
+        "service_role",
+        "broker",
+        "classifier_invoker",
+        "approver_invoker",
+        "proof",
+        "ledger_factory",
+    } or any(
+        boundaries.get(item.get("boundary_key")) != item.get("boundary_arn")
+        for item in assignments
+    ):
+        errors.append("GUG-365 role-to-boundary assignment is not closed")
+
+    target = instance.get("target", {})
+    service_role = instance.get("service_role", {})
+    factory = instance.get("ledger_factory_function", {})
+    gate = instance.get("ledger_factory_causal_receipt_gate", {})
+    if target.get("service_role_arn") != service_role.get("arn"):
+        errors.append("GUG-365 target service role does not match role contract")
+    if gate.get("qualified_function_arn") != factory.get(
+        "immutable_version_arn"
+    ):
+        errors.append("GUG-365 receipt gate is not bound to immutable factory v1")
+
+    try:
+        from tooling import (
+            platform_authority_retirement_entrypoint_service_role_materializer as gug365,
+        )
+
+        expected_table = {
+            "arn": gug365._table_arn(),
+            "table_name": gug365.LEDGER_TABLE_NAME,
+            "key_schema": [
+                {"AttributeName": "retirement_id", "KeyType": "HASH"}
+            ],
+            "attribute_definitions": [
+                {"AttributeName": "retirement_id", "AttributeType": "S"}
+            ],
+            "billing_mode": "PAY_PER_REQUEST",
+            "deletion_protection_enabled": True,
+            "sse_specification": {
+                "Enabled": True,
+                "SSEType": "KMS",
+                "KMSMasterKeyId": "alias/aws/dynamodb",
+            },
+            "table_class": "STANDARD",
+            "point_in_time_recovery": {
+                "PointInTimeRecoveryEnabled": True,
+                "RecoveryPeriodInDays": 35,
+            },
+            "time_to_live": {
+                "TimeToLiveStatus": "DISABLED",
+                "AttributeName": None,
+            },
+            "global_secondary_indexes": [],
+            "local_secondary_indexes": [],
+            "replicas": [],
+            "latest_stream_label": None,
+            "tags": gug365._table_tags({}),
+            "resource_policy": gug365._ledger_resource_policy(),
+        }
+        for key, value in expected_table.items():
+            if instance.get("ledger_table", {}).get(key) != value:
+                errors.append(f"GUG-365 ledger table {key} is not exact")
+        kms_contract = instance.get("ledger_table", {}).get("kms_key_contract")
+        if (
+            not isinstance(kms_contract, dict)
+            or kms_contract.get("alias") != "alias/aws/dynamodb"
+            or kms_contract.get("metadata_projection", {}).get("KeyManager")
+            != "AWS"
+            or kms_contract.get("metadata_projection", {}).get("Origin")
+            != "AWS_KMS"
+            or kms_contract.get("raw_key_identifiers_persistence_permitted")
+            is not False
+        ):
+            errors.append("GUG-365 AWS-managed DynamoDB KMS contract is not exact")
+        if target.get("authority_account_id") != gug365.AUTHORITY_ACCOUNT_ID:
+            errors.append("GUG-365 target account is not the authority account")
+    except (ImportError, AttributeError) as exc:
+        errors.append(f"GUG-365 semantic validator unavailable: {exc}")
+
+    kms_reads = [
+        item
+        for item in readbacks
+        if item.get("service") == "kms"
+        and item.get("api_action") == "DescribeKey"
+    ]
+    if len(kms_reads) != 2:
+        errors.append("GUG-365 requires two terminal KMS DescribeKey readbacks")
+    tag_reads = [
+        item
+        for item in readbacks
+        if item.get("service") == "dynamodb"
+        and item.get("api_action") == "ListTagsOfResource"
+    ]
+    if len(tag_reads) != 2 or any(
+        item.get("complete_pagination_required") is not True
+        for item in tag_reads
+    ):
+        errors.append("GUG-365 DynamoDB tag readbacks must close pagination twice")
+    factory_version_arn = factory.get("immutable_version_arn")
+    qualified_reads = [
+        item
+        for item in readbacks
+        if item.get("service") == "lambda"
+        and item.get("api_action")
+        in {
+            "GetFunction",
+            "GetFunctionConfiguration",
+            "GetRuntimeManagementConfig",
+            "GetPolicy",
+        }
+        and item.get("target_arn") == factory_version_arn
+    ]
+    if len(qualified_reads) < 4 or any(
+        item.get("request", {}).get("Qualifier") != "1"
+        for item in qualified_reads
+    ):
+        errors.append("GUG-365 factory v1 readbacks are not fully qualified")
+    errors.extend(_gug365_exact_plan_contract_errors(instance))
+    return errors
 
 
 def _gug221_initial_ledger_binding(instance: dict) -> dict:
@@ -2739,6 +3826,10 @@ def validate_semantics(
                         != gug363_intent.get("artifact_signing_contract_digest")
                         or instance.get("artifact_signing_evidence_digest")
                         != gug363_intent.get("artifact_signing_evidence_digest")
+                        or instance.get("gug363_pre_function_binding_sha256")
+                        != gug363_intent.get(
+                            "gug363_pre_function_binding_sha256"
+                        )
                     ):
                         raise RetirementEntrypointMaterializationError(
                             "PLAN_INTENT_BINDING_INVALID"
@@ -2956,6 +4047,19 @@ def validate_semantics(
                 expected_allowlist=gug218_allowlist,
                 expected_inventory=gug218_inventory,
                 evaluation_at=evaluation_at,
+            )
+        )
+
+    if schema_name in {
+        "platform-authority-retirement-entrypoint-service-role-plan.v1.schema.json",
+        "platform-authority-retirement-ledger-factory-package.v1.schema.json",
+        "platform-authority-retirement-ledger-factory-receipt.v1.schema.json",
+        "platform-authority-gug365-executor-authority-evidence.v1.schema.json",
+        "platform-authority-gug365-phase-execution-ledger.v1.schema.json",
+    }:
+        errors.extend(
+            _validate_gug365_cross_boundary_artifact(
+                instance, schema_name=schema_name
             )
         )
 

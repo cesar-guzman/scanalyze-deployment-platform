@@ -1,0 +1,37 @@
+{
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false
+  },
+  "artifact_type": "scanalyze.platform_authority.retirement_ledger_factory_package.v1",
+  "schema_version": 1,
+  "work_package": "GUG-365",
+  "production": false,
+  "source_commit": "1111111111111111111111111111111111111111",
+  "archive_name": "scanalyze-gug365-retirement-ledger-factory.zip",
+  "archive_format": "ZIP_STORED_FIXED_METADATA",
+  "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "lambda_code_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "archive_size_bytes": 1234,
+  "handler": "tooling.platform_authority_retirement_ledger_factory.handler",
+  "runtime": "python3.12",
+  "architecture": "x86_64",
+  "runtime_dependency_mode": "AWS_MANAGED_RUNTIME_PINNED",
+  "runtime_version_arn_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "environment": {},
+  "entries": [
+    {
+      "path": "tooling/__init__.py",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "size_bytes": 0
+    },
+    {
+      "path": "tooling/platform_authority_retirement_ledger_factory.py",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "size_bytes": 999
+    }
+  ],
+  "deployment_authorized": true,
+  "production_status": "NO-GO",
+  "manifest_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

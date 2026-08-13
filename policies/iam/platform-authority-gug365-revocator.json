@@ -1,0 +1,84 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "VerifyExactProofBoundary",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": "${proof_boundary_arn}"
+    },
+    {
+      "Sid": "RevokeOnlyExactActiveRolesToProofBoundary",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": [
+        "${service_role_arn}",
+        "${broker_role_arn}",
+        "${classifier_role_arn}",
+        "${approver_role_arn}"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactRevocationTargets",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "${service_role_arn}",
+        "${broker_role_arn}",
+        "${classifier_role_arn}",
+        "${approver_role_arn}"
+      ]
+    },
+    {
+      "Sid": "DenyEveryForwardOrFactoryCapability",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:CreateRole",
+        "iam:DeletePolicy",
+        "iam:DeleteRole",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagPolicy",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "signer:StartSigningJob",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

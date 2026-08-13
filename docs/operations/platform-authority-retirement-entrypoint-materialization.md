@@ -23,7 +23,7 @@ readback is asserted here. Production is **NO-GO** and two-human approval is
 | Retained shell | `scanalyze-platform-authority-state-backend`; never the target |
 | Region | `us-east-1` |
 | Mode | `SINGLE_OPERATOR_NONPROD_EXCEPTION` |
-| CloudFormation authority | Pre-existing role `scanalyze-platform-authority-gug363-cfn-materializer` in the authority account |
+| CloudFormation authority | GUG-365-certified role `scanalyze-platform-authority-gug363-cfn-materializer` and its exact managed boundary bundle |
 | Allowed mutation | One `cloudformation:CreateStack` attempt |
 | Signer source | Exact version of the deterministic unsigned GUG-215 ZIP; never deployed |
 | Signed destination | Separate exact version produced externally; only object projected to CloudFormation |
@@ -57,7 +57,9 @@ Required inputs are:
   artifact, template, target and ADR-050 digest;
 - separately reviewed expected plan and artifact-signing-contract digests;
 - fresh GUG-357 read-only evidence for the fixed CloudFormation service role,
-  operator policy and exact `iam:PassRole` edge;
+  all six GUG-365 managed policies, all seven role terminal states, both
+  functions, operator policy and exact
+  `iam:PassRole` edge;
 - a fresh closed GUG-357 execution authorization, no longer than fifteen
   minutes, bound to the exact plan, caller, service role, complete artifact
   signing contract/evidence and sole allowed action; and
@@ -117,10 +119,13 @@ The checkpoint must prove:
    publisher set contains only that signing-profile-version ARN;
 8. `scanalyze-platform-authority-gug363-cfn-materializer` exists in the exact
    authority account;
-9. its trust policy names only the CloudFormation service principal under the
-   reviewed boundary;
-10. inline policies, attached policies, permissions boundary and tags exactly
-   match the reviewed least-privilege digest and twenty-one-resource graph;
+9. its trust policy names only the CloudFormation service principal and its
+   boundary is the exact GUG-365 service-role boundary;
+10. all seven roles have zero inline policies and exact reviewed tags; the six
+    main roles have exactly one attached managed policy identical to their
+    boundary, while the factory role is proof-bound with zero attachments;
+    every managed-policy default version matches its plan-bound document
+    digest and the two proof roles share only the deny-all proof policy;
 11. the operator has no direct IAM, Lambda, DynamoDB, Logs, S3 or Signer writes;
 12. the operator's CloudFormation create/read authority is restricted to the
    dedicated stack and its `iam:PassRole` grant names only the fixed service
@@ -196,7 +201,7 @@ GUG-357 service-role evidence and ADR-050 exception. Record separately:
   pin;
 - all ordered CloudFormation parameters and the exact visible
   `PrivateParameterProjectionSha256` commitment over every other parameter;
-- the exact twenty-one expected resources and log-group contract;
+- the exact fourteen expected resources and log-group contract;
 - `OnFailure=DO_NOTHING`, termination protection and the deterministic request
   token; and
 - `production=false`, `two_human_status=NOT_PROVEN` and
@@ -345,11 +350,12 @@ Completion requires exact private evidence for:
 1. full dedicated stack ID and `CREATE_COMPLETE`;
 2. the fixed stack `RoleARN`, template body/digest, parameters and termination
    protection;
-3. exactly twenty-one expected resources with no normal-mode aliases;
-4. exact retained log group, 365-day retention and Lambda `LoggingConfig`;
-5. exact Lambda role, signed-destination version and signed code SHA, completed
-   Signer source/destination/profile binding, Code Signing Config `Enforce` and
-   exact `AllowedPublishers`, and manual runtime pin;
+3. exactly fourteen expected resources with no normal-mode aliases;
+4. exact retained log group and 365-day retention;
+5. separate GUG-365 certification of the exact precreated Lambda function,
+   role, signed-destination version and signed code SHA, completed Signer
+   source/destination/profile binding, Code Signing Config `Enforce`, exact
+   `AllowedPublishers`, manual runtime pin and `LoggingConfig`;
 6. exact alias targets, `AWS_IAM` Function URLs and invoke permissions; and
 7. sanitized receipt digests bound to the plan, authorization and observed
    resource set.

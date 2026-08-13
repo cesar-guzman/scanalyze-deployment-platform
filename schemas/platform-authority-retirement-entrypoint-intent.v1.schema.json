@@ -9,7 +9,8 @@
     "environment", "production", "deployment_authorized", "authorization_mode",
     "two_human_status", "independent_approval_present", "target", "source",
     "artifact_signing_contract", "artifact_signing_contract_digest",
-    "artifact_signing_evidence_digest", "parameters", "owner_authorization_sha256",
+    "artifact_signing_evidence_digest", "gug363_pre_function_binding_sha256",
+    "parameters", "owner_authorization_sha256",
     "single_operator_exception_digest", "intent_digest"
   ],
   "properties": {
@@ -29,6 +30,10 @@
     "artifact_signing_contract_digest": { "$ref": "#/$defs/digest" },
     "artifact_signing_evidence_digest": {
       "description": "Digest of the normalized Signer, versioned S3, and Lambda CSC provider-fact projection implied by the contract and refreshed read-only before use; it never authorizes signing or upload mutations.",
+      "$ref": "#/$defs/digest"
+    },
+    "gug363_pre_function_binding_sha256": {
+      "description": "Domain-separated binding of the full source record, signing-contract digest, and durable function inputs only; excludes every exception-window and private-projection value.",
       "$ref": "#/$defs/digest"
     },
     "parameters": { "$ref": "#/$defs/parameters" },

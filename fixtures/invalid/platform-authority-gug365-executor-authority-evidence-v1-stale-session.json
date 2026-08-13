@@ -1,0 +1,28 @@
+{
+  "_test_metadata": {
+    "contains_live_data": false,
+    "synthetic": true
+  },
+  "additional_attached_policy_count": 0,
+  "additional_inline_policy_count": 0,
+  "caller_account_id": "042360977644",
+  "caller_arn_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "effective_policy_inventory_complete": true,
+  "evidence_collected_after_sts": true,
+  "evidence_collected_at": "2035-01-02T03:19:05Z",
+  "evidence_digest": "sha256:22400f6040a864232d652cbb6c3e185feff689ad7ff9b6d940334d53ba87521b",
+  "group_policy_count": 0,
+  "maximum_authority_document_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "maximum_authority_source": "DEDICATED_ROLE_PERMISSIONS_BOUNDARY",
+  "phase": "POLICY_FACTORY",
+  "raw_caller_arn_persisted": false,
+  "record_type": "scanalyze.platform_authority.gug365_executor_authority_evidence.v1",
+  "region": "us-east-1",
+  "session_chain_depth": 0,
+  "session_expires_at": "2035-01-02T03:18:05Z",
+  "session_identifier_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "session_issued_at": "2035-01-02T03:03:05Z",
+  "session_lifetime_seconds": 900,
+  "session_remaining_seconds": 840,
+  "sole_identity_policy_document_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+}

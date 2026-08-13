@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-retirement-entrypoint-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -24,6 +24,7 @@ help:
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
 	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
+	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
 	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-363 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
@@ -437,6 +438,39 @@ nonprod-live-engine-check:
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "GUG-125 live-engine offline check complete."
 
+# ── Dedicated Retirement Service-Role Check (GUG-365, offline) ───────
+platform-authority-retirement-service-role-check:
+	@echo "=== GUG-365 Retirement Service-Role Prerequisite Check ==="
+	@env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+		-u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE \
+		-u AWS_ROLE_ARN -u AWS_ENDPOINT_URL \
+		$(PYTHON) -m pytest -q \
+			$(TESTS_DIR)/test_deployment/test_gug365_child_role_boundaries.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_phase_execution_ledger.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_retirement_entrypoint_service_role_materializer.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_retirement_entrypoint_service_role_cli.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_schema_contracts.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_retirement_ledger_factory.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_retirement_ledger_factory_iam.py \
+			$(TESTS_DIR)/test_deployment/test_gug365_retirement_ledger_factory_package.py
+	@$(PYTHON) -m py_compile \
+		scripts/deployment/platform-authority-retirement-entrypoint-service-role.py \
+		tooling/platform_authority_gug365_phase_execution_ledger.py \
+		tooling/platform_authority_retirement_entrypoint_service_role_materializer.py \
+		tooling/platform_authority_retirement_ledger_factory.py \
+		tooling/platform_authority_retirement_ledger_factory_package.py
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-retirement-entrypoint-service-role.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-retirement-entrypoint-service-role.py package --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-retirement-entrypoint-service-role.py plan --help >/dev/null
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-retirement-entrypoint-service-role-plan
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-retirement-ledger-factory
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug365-executor-authority-evidence
+	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug365-phase-execution-ledger
+	@echo "GUG-365 service-role check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+
 # ── Dedicated Retirement Entrypoint Check (GUG-363, offline) ─────────
 platform-authority-retirement-entrypoint-check:
 	@echo "=== GUG-363 Retirement Entrypoint Materialization Check ==="
@@ -452,8 +486,8 @@ platform-authority-retirement-entrypoint-check:
 	@echo "GUG-363 retirement entrypoint check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-363, offline) ──
-platform-authority-bootstrap-check: platform-authority-retirement-entrypoint-check
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363 Platform-Authority Bootstrap Check ==="
+platform-authority-bootstrap-check: platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
@@ -519,7 +553,7 @@ platform-authority-bootstrap-check: platform-authority-retirement-entrypoint-che
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -948,6 +982,10 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-048-platform-authority-bootstrap-artifact-authentication.md \
 			ADR/ADR-050-single-operator-nonprod-change-set-retirement.md \
 			ADR/ADR-051-direct-retirement-entrypoint-materialization.md \
+			ADR/ADR-052-gug357-cloudformation-service-role-boundaries.md \
+			docs/deployment/platform-authority-retirement-entrypoint-service-role.md \
+			docs/operations/platform-authority-retirement-entrypoint-service-role.md \
+			docs/security/gug365-retirement-entrypoint-service-role-threat-model.md \
 			docs/deployment/build-once-supply-chain.md \
 			docs/deployment/nonproduction-live-engine.md \
 			docs/deployment/platform-authority-bootstrap.md \
