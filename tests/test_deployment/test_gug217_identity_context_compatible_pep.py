@@ -29,6 +29,9 @@ from tooling.validate_policy import validate_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = REPO_ROOT / "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml"
+PROOF_BOUNDARY = (
+    REPO_ROOT / "policies/iam/platform-authority-gug365-proof-boundary.json"
+)
 ACTOR_POLICY = (
     REPO_ROOT
     / "policies/iam/platform-authority-identity-context-pep-application-actor-policy.json"
@@ -583,18 +586,28 @@ def test_policy_validator_accepts_only_deny_all_not_allow_all() -> None:
     )
 
 
-def test_template_uses_synchronous_function_urls_and_zero_authority_proof_roles() -> None:
+def test_template_uses_synchronous_urls_and_external_precreated_prerequisites() -> None:
     source = TEMPLATE.read_text(encoding="utf-8")
     assert "AWS::Lambda::Url" in source
     assert source.count("InvokeMode: BUFFERED") == 6
     assert source.count("FunctionUrlAuthType: AWS_IAM") >= 6
-    assert "ScanalyzeGug217ClassifierProof" in source
-    assert "ScanalyzeGug217ApproverProof" in source
-    assert "Gug217ZeroAuthorityProof" in source
-    assert "Action: '*'" in source
-    assert "Effect: Deny" in source
-    assert "sts:RequestContext/identitystore:UserId" in source
-    assert "sso-oauth:CreateTokenWithIAM" in source
+    assert "ScanalyzeGug217ClassifierProof" not in source
+    assert "ScanalyzeGug217ApproverProof" not in source
+    assert "Type: AWS::Lambda::Function" not in source
+    proof_boundary = json.loads(PROOF_BOUNDARY.read_text(encoding="utf-8"))
+    assert proof_boundary == {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "DenyEveryProofSessionAction",
+                "Effect": "Deny",
+                "Action": "*",
+                "Resource": "*",
+            }
+        ],
+    }
+    assert "AWS::IAM::Role" not in source
+    assert "AWS::IAM::Policy" not in source
     assert "opensearch" not in source.lower()
     assert "athena" not in source.lower()
 
@@ -621,6 +634,31 @@ def test_cloudformation_function_url_resources_are_parseable_and_closed() -> Non
         TEMPLATE.read_text(encoding="utf-8"), Loader=CloudFormationLoader
     )
     resources = template["Resources"]
+    assert len(resources) == 26
+    assert all(
+        resource.get("Type") != "AWS::Lambda::Function"
+        for resource in resources.values()
+    )
+    assert "RetirementBrokerFunction" not in resources
+    broker_function_arn = (
+        "arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:"
+        "function:scanalyze-platform-authority-gug215-retirement"
+    )
+    version = resources["RetirementBrokerVersion"]
+    assert version["Properties"]["FunctionName"] == (
+        "scanalyze-platform-authority-gug215-retirement"
+    )
+    aliases = [
+        resource
+        for resource in resources.values()
+        if resource.get("Type") == "AWS::Lambda::Alias"
+    ]
+    assert len(aliases) == 6
+    assert all(
+        alias["Properties"]["FunctionName"]
+        == "scanalyze-platform-authority-gug215-retirement"
+        for alias in aliases
+    )
     urls = [
         resource
         for resource in resources.values()
@@ -637,6 +675,9 @@ def test_cloudformation_function_url_resources_are_parseable_and_closed() -> Non
         assert url["Properties"]["AuthType"] == "AWS_IAM"
         assert url["Properties"]["InvokeMode"] == "BUFFERED"
         assert url["Properties"]["Qualifier"] in ALLOWED_ALIASES
+        assert url["Properties"]["TargetFunctionArn"] == {
+            "Sub": broker_function_arn
+        }
     permissions = [
         resource
         for resource in resources.values()
@@ -647,6 +688,12 @@ def test_cloudformation_function_url_resources_are_parseable_and_closed() -> Non
         "lambda:InvokeFunction",
         "lambda:InvokeFunctionUrl",
     }
+    assert all(
+        permission["Properties"]["FunctionName"]["Sub"].startswith(
+            broker_function_arn + ":"
+        )
+        for permission in permissions
+    )
     assert all("Qualifier" not in permission["Properties"] for permission in permissions)
 
 

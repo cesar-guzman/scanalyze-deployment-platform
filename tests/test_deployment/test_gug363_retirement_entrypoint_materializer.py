@@ -68,6 +68,9 @@ CODE_SIGNING_CONFIG_ARN = (
     "code-signing-config:csc-0123456789abcdef"
 )
 ARTIFACT_PAYLOADS: dict[str, bytes] = {}
+BROKER_REVISION_ID = "11111111-aaaa-4444-8888-222222222222"
+FUNCTION_CONFIGURATOR_CHECKPOINT = "sha256:" + "b" * 64
+ACTIVATOR_CHECKPOINT = "sha256:" + "a" * 64
 
 
 def _run_git(root: Path, *arguments: str) -> str:
@@ -88,10 +91,22 @@ def _synthetic_source(tmp_path: Path) -> tuple[Path, str, str, str]:
     template = source / materializer.TEMPLATE_PATH
     template.parent.mkdir(parents=True)
     shutil.copyfile(REPO_ROOT / materializer.TEMPLATE_PATH, template)
+    configurator_policy = source / materializer.FUNCTION_CONFIGURATOR_POLICY_PATH
+    configurator_policy.parent.mkdir(parents=True)
+    shutil.copyfile(
+        REPO_ROOT / materializer.FUNCTION_CONFIGURATOR_POLICY_PATH,
+        configurator_policy,
+    )
     _run_git(source, "init", "-q")
     _run_git(source, "config", "user.email", "synthetic@example.invalid")
     _run_git(source, "config", "user.name", "Synthetic Test")
-    _run_git(source, "add", "--", materializer.TEMPLATE_PATH.as_posix())
+    _run_git(
+        source,
+        "add",
+        "--",
+        materializer.TEMPLATE_PATH.as_posix(),
+        materializer.FUNCTION_CONFIGURATOR_POLICY_PATH.as_posix(),
+    )
     _run_git(source, "commit", "-q", "-m", "synthetic GUG-363 source")
     commit = _run_git(source, "rev-parse", "HEAD")
     tree = _run_git(source, "rev-parse", "HEAD^{tree}")
@@ -225,6 +240,20 @@ def _intent(
     parameters[materializer.PRIVATE_PARAMETER_PROJECTION_KEY] = (
         materializer.private_parameter_projection_digest(parameters)
     )
+    pre_function_binding = materializer.gug363_pre_function_binding_sha256(
+        source={
+            "commit": commit,
+            "tree": tree,
+            "template_path": materializer.TEMPLATE_PATH.as_posix(),
+            "template_sha256": template_digest,
+        },
+        artifact_signing_contract_digest_value=(
+            materializer.artifact_signing_contract_digest(
+                artifact_signing_contract
+            )
+        ),
+        parameters=parameters,
+    )
     intent: dict[str, Any] = {
         "record_type": materializer.INTENT_TYPE,
         "schema_version": 1,
@@ -261,6 +290,7 @@ def _intent(
                 artifact_signing_contract
             )
         ),
+        "gug363_pre_function_binding_sha256": pre_function_binding,
         "parameters": parameters,
         "owner_authorization_sha256": OWNER_AUTHORIZATION,
         "single_operator_exception_digest": EXCEPTION_DIGEST,
@@ -305,10 +335,23 @@ def bundle(tmp_path: Path) -> dict[str, Any]:
             ),
         }
     )
-    plan = materializer.build_materialization_plan(
+    pre_function_plan = materializer.build_materialization_plan(
         intent=intent,
         package_manifest=built.manifest,
         package_archive=built.archive,
+        repo_root=source,
+    )
+    plan = materializer.finalize_materialization_plan(
+        pre_function_plan=pre_function_plan,
+        broker_function_evidence_digest=(
+            materializer.broker_function_evidence_digest(
+                plan=pre_function_plan,
+                revision_id=BROKER_REVISION_ID,
+            )
+        ),
+        function_configurator_checkpoint_digest=(
+            FUNCTION_CONFIGURATOR_CHECKPOINT
+        ),
         repo_root=source,
     )
     return {
@@ -317,6 +360,7 @@ def bundle(tmp_path: Path) -> dict[str, Any]:
         "manifest": built.manifest,
         "archive": built.archive,
         "signed_archive": signed_archive,
+        "pre_function_plan": pre_function_plan,
         "plan": plan,
     }
 
@@ -332,10 +376,23 @@ def _plan_for_signed_archive(
         package_manifest=bundle["manifest"],
         signed_archive=signed_archive,
     )
-    plan = materializer.build_materialization_plan(
+    pre_function_plan = materializer.build_materialization_plan(
         intent=intent,
         package_manifest=bundle["manifest"],
         package_archive=bundle["archive"],
+        repo_root=bundle["repo"],
+    )
+    plan = materializer.finalize_materialization_plan(
+        pre_function_plan=pre_function_plan,
+        broker_function_evidence_digest=(
+            materializer.broker_function_evidence_digest(
+                plan=pre_function_plan,
+                revision_id=BROKER_REVISION_ID,
+            )
+        ),
+        function_configurator_checkpoint_digest=(
+            FUNCTION_CONFIGURATOR_CHECKPOINT
+        ),
         repo_root=bundle["repo"],
     )
     ARTIFACT_PAYLOADS.clear()
@@ -400,12 +457,35 @@ def _authorization(
         "artifact_signing_evidence_digest": plan[
             "artifact_signing_evidence_digest"
         ],
+        "gug363_pre_function_binding_sha256": plan[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": plan[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_request_projection_digest": plan[
+            "function_configurator"
+        ]["update_request_projection_digest"],
+        "broker_function_evidence_digest": plan[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": plan[
+            "function_configurator_checkpoint_digest"
+        ],
+        "function_configurator_authority_status": "EXPIRED_OR_REVOKED",
+        "function_configurator_authority_ended_at": "2030-01-01T00:03:00Z",
+        "activator_checkpoint_digest": ACTIVATOR_CHECKPOINT,
+        "activator_authority_status": "EXPIRED_OR_REVOKED",
+        "activator_authority_ended_at": "2030-01-01T00:03:30Z",
         "owner_authorization_sha256": plan["owner_authorization_sha256"],
         "caller_arn_sha256": materializer.digest_text(caller_arn),
         "caller_user_id_sha256": materializer.digest_text(CALLER_USER_ID),
         "live_checkpoint_digest": "sha256:" + "e" * 64,
         "live_before_state_digest": "sha256:" + "f" * 64,
         "service_role_evidence_digest": "sha256:" + "0" * 64,
+        "service_role_evidence_scope": "POST_ACTIVATOR_FULL_BUNDLE_READBACK",
+        "service_role_evidence_collected_at": "2030-01-01T00:03:45Z",
+        "post_activator_bundle_readback_complete": True,
         "operator_authority_evidence_digest": "sha256:" + "1" * 64,
         "allowed_action": "cloudformation:CreateStack",
         "forbidden_actions": list(materializer.PROHIBITED_OPERATIONS),
@@ -686,6 +766,71 @@ class FakeLambda:
         self.plan = plan
         self.mutation = mutation
 
+    def _mutate(self, action: str, response: dict[str, Any]) -> dict[str, Any]:
+        mutation = self.mutation
+        if isinstance(mutation, Mapping):
+            mutation = mutation.get(action)
+        elif action != "lambda:GetCodeSigningConfig":
+            mutation = None
+        if isinstance(mutation, BaseException):
+            raise mutation
+        if callable(mutation):
+            return mutation(copy.deepcopy(response))
+        return response
+
+    def _configuration(self) -> dict[str, Any]:
+        signed = self.plan["artifact_signing_contract"]["signed_destination"]
+        parameters = {
+            item["ParameterKey"]: item["ParameterValue"]
+            for item in self.plan["parameter_projection"]
+        }
+        environment = self.plan["function_configurator"][
+            "update_request_projection"
+        ]["Environment"]
+        return {
+            "FunctionName": materializer.BROKER_FUNCTION_NAME,
+            "FunctionArn": materializer.BROKER_FUNCTION_ARN,
+            "Runtime": "python3.12",
+            "Role": materializer.BROKER_EXECUTION_ROLE_ARN,
+            "Handler": materializer.BROKER_HANDLER,
+            "CodeSize": signed["archive_size_bytes"],
+            "Description": "GUG-215 exact retained Change Set retirement PEP",
+            "Timeout": 60,
+            "MemorySize": 256,
+            "CodeSha256": signed["lambda_code_sha256"],
+            "Version": "$LATEST",
+            "Environment": copy.deepcopy(environment),
+            "PackageType": "Zip",
+            "Architectures": ["x86_64"],
+            "EphemeralStorage": {"Size": 512},
+            "LoggingConfig": {
+                "LogFormat": "JSON",
+                "ApplicationLogLevel": "ERROR",
+                "SystemLogLevel": "WARN",
+                "LogGroup": materializer.LOG_GROUP_NAME,
+            },
+            "State": "Active",
+            "LastUpdateStatus": "Successful",
+            "RuntimeVersionConfig": {
+                "RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"]
+            },
+            "VpcConfig": {
+                "SubnetIds": [],
+                "SecurityGroupIds": [],
+                "VpcId": "",
+            },
+            "Layers": [],
+            "FileSystemConfigs": [],
+            "DeadLetterConfig": {},
+            "TracingConfig": {"Mode": "PassThrough"},
+            "SnapStart": {"ApplyOn": "None", "OptimizationStatus": "Off"},
+            "CapacityProviderConfig": {},
+            "DurableConfig": {},
+            "ImageConfigResponse": {"ImageConfig": {}},
+            "TenancyConfig": {},
+            "RevisionId": BROKER_REVISION_ID,
+        }
+
     def get_code_signing_config(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("lambda:GetCodeSigningConfig")
         expected = self.plan["artifact_signing_contract"]["code_signing_config"]
@@ -707,11 +852,129 @@ class FakeLambda:
                 "LastModified": "2030-01-01T00:00:00Z",
             }
         }
-        if isinstance(self.mutation, BaseException):
-            raise self.mutation
-        if callable(self.mutation):
-            return self.mutation(copy.deepcopy(response))
-        return response
+        return self._mutate("lambda:GetCodeSigningConfig", response)
+
+    def get_function(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:GetFunction")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        signed = self.plan["artifact_signing_contract"]["signed_destination"]
+        return self._mutate(
+            "lambda:GetFunction",
+            {
+                "Configuration": self._configuration(),
+                "Code": {
+                    "RepositoryType": "S3",
+                    "Location": "https://redacted.invalid/never-persisted",
+                    "ResolvedS3Object": {
+                        "Bucket": signed["bucket"],
+                        "Key": signed["key"],
+                        "Version": signed["version_id"],
+                    },
+                },
+                "Tags": materializer._expected_broker_function_tags(self.plan),
+            },
+        )
+
+    def get_function_configuration(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:GetFunctionConfiguration")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        return self._mutate(
+            "lambda:GetFunctionConfiguration", self._configuration()
+        )
+
+    def get_function_code_signing_config(self, **kwargs: Any) -> dict[str, str]:
+        self.calls.append("lambda:GetFunctionCodeSigningConfig")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        parameters = {
+            item["ParameterKey"]: item["ParameterValue"]
+            for item in self.plan["parameter_projection"]
+        }
+        return self._mutate(
+            "lambda:GetFunctionCodeSigningConfig",
+            {
+                "CodeSigningConfigArn": parameters["BrokerCodeSigningConfigArn"],
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+            },
+        )
+
+    def get_function_concurrency(self, **kwargs: Any) -> dict[str, int]:
+        self.calls.append("lambda:GetFunctionConcurrency")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        return self._mutate(
+            "lambda:GetFunctionConcurrency",
+            {
+                "ReservedConcurrentExecutions": 1,
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+            },
+        )
+
+    def get_runtime_management_config(self, **kwargs: Any) -> dict[str, str]:
+        self.calls.append("lambda:GetRuntimeManagementConfig")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        parameters = {
+            item["ParameterKey"]: item["ParameterValue"]
+            for item in self.plan["parameter_projection"]
+        }
+        return self._mutate(
+            "lambda:GetRuntimeManagementConfig",
+            {
+                "FunctionArn": materializer.BROKER_FUNCTION_ARN,
+                "UpdateRuntimeOn": "Manual",
+                "RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"],
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+            },
+        )
+
+    def list_tags(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:ListTags")
+        assert kwargs == {"Resource": materializer.BROKER_FUNCTION_ARN}
+        return self._mutate(
+            "lambda:ListTags",
+            {
+                "Tags": materializer._expected_broker_function_tags(self.plan),
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+            },
+        )
+
+    def list_versions_by_function(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:ListVersionsByFunction")
+        assert kwargs == {
+            "FunctionName": materializer.BROKER_FUNCTION_NAME,
+            "MaxItems": 50,
+        }
+        signed = self.plan["artifact_signing_contract"]["signed_destination"]
+        return self._mutate(
+            "lambda:ListVersionsByFunction",
+            {"Versions": [{"Version": "$LATEST", "CodeSha256": signed["lambda_code_sha256"]}]},
+        )
+
+    def list_aliases(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:ListAliases")
+        assert kwargs == {
+            "FunctionName": materializer.BROKER_FUNCTION_NAME,
+            "MaxItems": 50,
+        }
+        return self._mutate("lambda:ListAliases", {"Aliases": []})
+
+    def list_function_url_configs(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:ListFunctionUrlConfigs")
+        assert kwargs == {
+            "FunctionName": materializer.BROKER_FUNCTION_NAME,
+            "MaxItems": 50,
+        }
+        return self._mutate(
+            "lambda:ListFunctionUrlConfigs", {"FunctionUrlConfigs": []}
+        )
+
+    def get_policy(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("lambda:GetPolicy")
+        assert kwargs == {"FunctionName": materializer.BROKER_FUNCTION_NAME}
+        mutation = self.mutation.get("lambda:GetPolicy") if isinstance(self.mutation, Mapping) else None
+        if isinstance(mutation, BaseException):
+            raise mutation
+        if callable(mutation):
+            return mutation({})
+        raise FakeAwsError("ResourceNotFoundException", "policy not found")
 
 
 class FakeCloudFormation:
@@ -869,20 +1132,49 @@ def test_plan_is_reproducible_and_binds_the_only_exact_create_request(
     bundle: Mapping[str, Any],
 ) -> None:
     first = bundle["plan"]
-    second = materializer.build_materialization_plan(
+    second_pre_function = materializer.build_materialization_plan(
         intent=bundle["intent"],
         package_manifest=bundle["manifest"],
         package_archive=bundle["archive"],
         repo_root=bundle["repo"],
     )
+    second = materializer.finalize_materialization_plan(
+        pre_function_plan=second_pre_function,
+        broker_function_evidence_digest=(
+            materializer.broker_function_evidence_digest(
+                plan=second_pre_function,
+                revision_id=BROKER_REVISION_ID,
+            )
+        ),
+        function_configurator_checkpoint_digest=(
+            FUNCTION_CONFIGURATOR_CHECKPOINT
+        ),
+        repo_root=bundle["repo"],
+    )
 
     assert first == second
+    assert bundle["pre_function_plan"]["function_configuration_state"] == (
+        "PRE_FUNCTION"
+    )
+    assert bundle["pre_function_plan"]["broker_function_evidence_digest"] is None
+    assert bundle["pre_function_plan"][
+        "function_configurator_checkpoint_digest"
+    ] is None
+    assert first["function_configuration_state"] == "CONFIGURED"
+    assert first["function_configurator"][
+        "expected_safe_configuration_defaults"
+    ] == {
+        "CapacityProviderConfig": {},
+        "DurableConfig": {},
+        "ImageConfigResponse": {},
+        "TenancyConfig": {},
+    }
     request = first["create_stack_request"]
     assert request == {
         "StackName": materializer.DEDICATED_STACK_NAME,
         "TemplateBody": request["TemplateBody"],
         "Parameters": first["parameter_projection"],
-        "Capabilities": ["CAPABILITY_NAMED_IAM"],
+        "Capabilities": [],
         "RoleARN": materializer.CLOUDFORMATION_SERVICE_ROLE_ARN,
         "OnFailure": "DO_NOTHING",
         "EnableTerminationProtection": True,
@@ -943,6 +1235,41 @@ def test_plan_is_reproducible_and_binds_the_only_exact_create_request(
     assert "Tags" not in request
     assert "DisableRollback" not in request
     assert "NotificationARNs" not in request
+
+
+def test_pre_function_binding_excludes_entire_ephemeral_projection(
+    bundle: Mapping[str, Any],
+) -> None:
+    intent = bundle["intent"]
+    parameters = copy.deepcopy(intent["parameters"])
+    for key in (
+        materializer.PRIVATE_PARAMETER_PROJECTION_KEY,
+        "SingleOperatorOwnerAuthorizationSha256",
+        "SingleOperatorExpectedAuthorizationSha256",
+        "SingleOperatorExceptionCreatedAt",
+        "SingleOperatorExceptionNotBefore",
+        "SingleOperatorExceptionExpiresAt",
+        "IdentityStoreArn",
+        "ClassifierIdentityStoreUserId",
+    ):
+        parameters[key] = f"synthetic-ephemeral-change-{key}"
+    observed = materializer.gug363_pre_function_binding_sha256(
+        source=intent["source"],
+        artifact_signing_contract_digest_value=intent[
+            "artifact_signing_contract_digest"
+        ],
+        parameters=parameters,
+    )
+    assert observed == intent["gug363_pre_function_binding_sha256"]
+
+    parameters["ExpectedBrokerPolicySha256"] = "sha256:" + "f" * 64
+    assert materializer.gug363_pre_function_binding_sha256(
+        source=intent["source"],
+        artifact_signing_contract_digest_value=intent[
+            "artifact_signing_contract_digest"
+        ],
+        parameters=parameters,
+    ) != intent["gug363_pre_function_binding_sha256"]
 
 
 def test_plan_hard_replaces_unsigned_artifact_with_exact_signed_handoff(
@@ -1153,15 +1480,60 @@ def test_plan_rejects_template_without_visible_private_parameter_commitment(
         )
 
 
+def test_template_contract_rejects_in_stack_iam_or_dynamodb_authority() -> None:
+    body = (REPO_ROOT / materializer.TEMPLATE_PATH).read_text(encoding="utf-8")
+    for mutation in (
+        body + "\n  ForeignRole:\n    Type: AWS::IAM::Role\n",
+        body + "\n  ForeignTable:\n    Type: AWS::DynamoDB::Table\n",
+        body + "\n# dynamodb:PutResourcePolicy\n",
+    ):
+        with pytest.raises(
+            materializer.RetirementEntrypointMaterializationError,
+            match=(
+                "TEMPLATE_RESOURCE_SET_INVALID|"
+                "TEMPLATE_EXTERNAL_AUTHORITY_MUTATION_FORBIDDEN"
+            ),
+        ):
+            materializer._validate_template_contract(mutation)
+
+
+def test_template_contract_rejects_lambda_function_creation_or_target_drift() -> None:
+    body = (REPO_ROOT / materializer.TEMPLATE_PATH).read_text(encoding="utf-8")
+    assert "Type: AWS::Lambda::Function" not in body
+    assert "RetirementBrokerFunction" not in body
+
+    with pytest.raises(
+        materializer.RetirementEntrypointMaterializationError,
+        match="TEMPLATE_PRECREATED_FUNCTION_BINDING_INVALID",
+    ):
+        exact_target = (
+            "      TargetFunctionArn: !Sub arn:${AWS::Partition}:lambda:"
+            "${AWS::Region}:${AuthorityAccountId}:function:"
+            f"{materializer.BROKER_FUNCTION_NAME}"
+        )
+        materializer._validate_template_contract(
+            body.replace(
+                exact_target,
+                exact_target.replace(
+                    materializer.BROKER_FUNCTION_NAME,
+                    "scanalyze-unreviewed-retirement-broker",
+                ),
+                1,
+            )
+        )
+
+
 def test_log_group_and_effective_single_operator_resource_set_are_exact(
     bundle: Mapping[str, Any],
 ) -> None:
     plan = bundle["plan"]
     expected = dict(materializer.EXPECTED_RESOURCE_TYPES)
 
-    assert len(expected) == 21
+    assert len(expected) == 14
     assert expected["RetirementBrokerLogGroup"] == "AWS::Logs::LogGroup"
-    assert plan["expected_resource_count"] == 21
+    assert "RetirementBrokerFunction" not in expected
+    assert "AWS::Lambda::Function" not in expected.values()
+    assert plan["expected_resource_count"] == 14
     assert plan["expected_resources"] == [
         {"logical_resource_id": logical_id, "resource_type": resource_type}
         for logical_id, resource_type in materializer.EXPECTED_RESOURCE_TYPES
@@ -1174,10 +1546,12 @@ def test_log_group_and_effective_single_operator_resource_set_are_exact(
     assert not materializer.TWO_HUMAN_RESOURCE_IDS.intersection(expected)
     template = plan["create_stack_request"]["TemplateBody"]
     assert "Type: AWS::Logs::LogGroup" in template
+    assert "Type: AWS::Lambda::Function" not in template
+    assert "RetirementBrokerFunction" not in template
+    assert template.count(
+        f"      FunctionName: {materializer.BROKER_FUNCTION_NAME}"
+    ) == 7
     assert "RetentionInDays: 365" in template
-    assert "ApplicationLogLevel: ERROR" in template
-    assert "SystemLogLevel: WARN" in template
-    assert "LogFormat: JSON" in template
 
 
 def test_apply_is_sts_first_claims_ledger_then_calls_create_once_and_reads_back(
@@ -1229,14 +1603,15 @@ def test_apply_is_sts_first_claims_ledger_then_calls_create_once_and_reads_back(
     assert receipt["status"] == "READBACK_VERIFIED"
     assert receipt["target_state"] == "COMPLETE"
     assert receipt["materializer_readback_scope"] == (
-        "CLOUDFORMATION_CONTROL_PLANE_ONLY"
+        "LAMBDA_AND_CLOUDFORMATION_CONTROL_PLANE"
     )
     assert receipt["provider_certification_complete"] is False
     assert receipt["gug357_certification_required"] is True
     assert receipt["aws_mutation_count"] == 1
     assert receipt["artifact_signing_readback_complete"] is True
+    assert receipt["broker_function_readback_complete"] is True
     assert receipt["readback_complete"] is True
-    assert receipt["observed_resource_count"] == 21
+    assert receipt["observed_resource_count"] == 14
     contract = plan["artifact_signing_contract"]
     unsigned = contract["unsigned_source"]
     signed = contract["signed_destination"]
@@ -1280,6 +1655,132 @@ def test_apply_is_sts_first_claims_ledger_then_calls_create_once_and_reads_back(
             "ChecksumMode": "ENABLED",
         },
     ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("Layers", [{"Arn": "arn:aws:lambda:us-east-1:123456789012:layer:x:1"}]),
+        ("VpcConfig", {"SubnetIds": ["subnet-unreviewed"], "SecurityGroupIds": [], "VpcId": "vpc-unreviewed"}),
+        ("FileSystemConfigs", [{"Arn": "arn:aws:elasticfilesystem:us-east-1:123456789012:access-point/fsap-x", "LocalMountPath": "/mnt/x"}]),
+        ("KMSKeyArn", "arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"),
+        ("DeadLetterConfig", {"TargetArn": "arn:aws:sqs:us-east-1:123456789012:unreviewed"}),
+        ("TracingConfig", {"Mode": "Active"}),
+        ("SnapStart", {"ApplyOn": "PublishedVersions", "OptimizationStatus": "On"}),
+        ("DurableConfig", {"ExecutionTimeout": 900, "RetentionPeriodInDays": 14}),
+        (
+            "CapacityProviderConfig",
+            {
+                "LambdaManagedInstancesCapacityProviderConfig": {
+                    "CapacityProviderArn": "arn:aws:lambda:us-east-1:123456789012:capacity-provider:unreviewed",
+                    "ExecutionEnvironmentMemoryGiBPerVCpu": 4,
+                    "PerExecutionEnvironmentMaxConcurrency": 1,
+                }
+            },
+        ),
+        (
+            "ImageConfigResponse",
+            {"ImageConfig": {"Command": ["unreviewed.handler"]}},
+        ),
+        ("TenancyConfig", {"TenantIsolationMode": "PER_TENANT"}),
+    ),
+)
+def test_apply_rejects_unreviewed_lambda_configuration_surfaces_before_claim(
+    bundle: Mapping[str, Any], field: str, value: Any
+) -> None:
+    plan = bundle["plan"]
+    calls: list[str] = []
+    cfn = FakeCloudFormation(calls=calls, plan=plan, name_descriptions=[None])
+
+    def mutate(response: dict[str, Any]) -> dict[str, Any]:
+        response["Configuration"][field] = copy.deepcopy(value)
+        return response
+
+    factory = FakeFactory(
+        calls=calls,
+        cfn=cfn,
+        s3_response=_head_response(plan),
+        lambda_mutation={"lambda:GetFunction": mutate},
+    )
+    with pytest.raises(
+        materializer.RetirementEntrypointMaterializationError,
+        match="BROKER_FUNCTION_CONFIGURATION_MISMATCH",
+    ):
+        materializer.apply_materialization(
+            plan=plan,
+            authorization=_authorization(plan),
+            repo_root=bundle["repo"],
+            client_factory=factory,
+            claim_attempt=lambda value: pytest.fail(
+                f"unexpected ledger claim: {value}"
+            ),
+            clock=lambda: NOW,
+        )
+    assert cfn.create_requests == []
+
+
+def test_apply_rejects_qualified_runtime_readback_arn_before_claim(
+    bundle: Mapping[str, Any],
+) -> None:
+    plan = bundle["plan"]
+    calls: list[str] = []
+    cfn = FakeCloudFormation(calls=calls, plan=plan, name_descriptions=[None])
+
+    def mutate(response: dict[str, Any]) -> dict[str, Any]:
+        response["FunctionArn"] = f"{materializer.BROKER_FUNCTION_ARN}:1"
+        return response
+
+    factory = FakeFactory(
+        calls=calls,
+        cfn=cfn,
+        s3_response=_head_response(plan),
+        lambda_mutation={"lambda:GetRuntimeManagementConfig": mutate},
+    )
+    with pytest.raises(
+        materializer.RetirementEntrypointMaterializationError,
+        match="BROKER_FUNCTION_RUNTIME_READBACK_MISMATCH",
+    ):
+        materializer.apply_materialization(
+            plan=plan,
+            authorization=_authorization(plan),
+            repo_root=bundle["repo"],
+            client_factory=factory,
+            claim_attempt=lambda value: pytest.fail(
+                f"unexpected ledger claim: {value}"
+            ),
+            clock=lambda: NOW,
+        )
+    assert cfn.create_requests == []
+
+
+def test_apply_consumes_claim_but_does_not_create_if_authorization_expires_in_claim(
+    bundle: Mapping[str, Any],
+) -> None:
+    plan = bundle["plan"]
+    authorization = _authorization(plan)
+    calls: list[str] = []
+    cfn = FakeCloudFormation(calls=calls, plan=plan, name_descriptions=[None, None])
+    factory = FakeFactory(calls=calls, cfn=cfn, s3_response=_head_response(plan))
+    observed_time = [NOW]
+    claimed: list[dict[str, Any]] = []
+
+    def claim(value: Mapping[str, Any]) -> None:
+        claimed.append(copy.deepcopy(dict(value)))
+        observed_time[0] = datetime(2030, 1, 1, 0, 14, tzinfo=UTC)
+
+    receipt, ledger = materializer.apply_materialization(
+        plan=plan,
+        authorization=authorization,
+        repo_root=bundle["repo"],
+        client_factory=factory,
+        claim_attempt=claim,
+        clock=lambda: observed_time[0],
+    )
+    assert ledger == claimed[0]
+    assert receipt["status"] == "AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION"
+    assert receipt["aws_mutation_attempted"] is False
+    assert receipt["execution_ledger_digest"] == ledger["ledger_digest"]
+    assert cfn.create_requests == []
     serialized = materializer.canonical_json(receipt)
     assert CALLER_ARN not in serialized
     assert STACK_ID not in serialized
@@ -2188,7 +2689,7 @@ def test_existing_stack_with_cloudformation_role_drift_is_blocked_no_touch(
     ("field", "value"),
     (
         ("NotificationARNs", ["arn:aws:sns:us-east-1:042360977644:unexpected"]),
-        ("Capabilities", []),
+        ("Capabilities", ["CAPABILITY_NAMED_IAM"]),
         ("Capabilities", ["CAPABILITY_IAM"]),
         ("ParentId", STACK_ID.replace("gug357-retirement-entrypoint", "parent")),
         ("RootId", STACK_ID.replace("gug357-retirement-entrypoint", "root")),
@@ -2680,6 +3181,7 @@ def test_resealed_receipt_rejects_invalid_operation_and_invalid_order(
         ambiguous_response=False,
         no_touch=False,
         artifact_signing_readback_complete=True,
+        broker_function_readback_complete=True,
         readback_complete=True,
         created_at=NOW,
     )
@@ -2717,7 +3219,7 @@ def test_resealed_receipt_rejects_invalid_operation_and_invalid_order(
     _reseal(signing_overclaim, "receipt_digest")
     with pytest.raises(
         materializer.RetirementEntrypointMaterializationError,
-        match="RECEIPT_SIGNING_READBACK_REQUIRED",
+        match="RECEIPT_PROVIDER_READBACK_REQUIRED",
     ):
         materializer.validate_materialization_receipt(
             signing_overclaim,
@@ -2793,6 +3295,7 @@ def test_complete_receipts_reject_each_missing_readback_suffix_operation(
             ambiguous_response=False,
             no_touch=bool(case["no_touch"]),
             artifact_signing_readback_complete=True,
+            broker_function_readback_complete=True,
             readback_complete=True,
             created_at=NOW,
         )
@@ -3032,6 +3535,16 @@ def test_cli_blocks_apply_without_explicit_flag_and_emits_only_public_status(
             "sha256:" + "2" * 64,
             "--expected-artifact-signing-contract-digest",
             "sha256:" + "3" * 64,
+            "--expected-gug363-pre-function-binding-sha256",
+            "sha256:" + "4" * 64,
+            "--expected-broker-function-evidence-digest",
+            "sha256:" + "5" * 64,
+            "--expected-function-configurator-checkpoint-digest",
+            "sha256:" + "6" * 64,
+            "--expected-activator-checkpoint-digest",
+            "sha256:" + "7" * 64,
+            "--expected-service-role-evidence-digest",
+            "sha256:" + "8" * 64,
             "--profile",
             "synthetic-non-production",
             "--region",

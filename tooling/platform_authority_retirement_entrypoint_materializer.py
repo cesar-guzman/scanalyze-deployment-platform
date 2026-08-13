@@ -50,7 +50,19 @@ CLOUDFORMATION_SERVICE_ROLE_ARN = (
 TEMPLATE_PATH = Path(
     "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml"
 )
+FUNCTION_CONFIGURATOR_POLICY_PATH = Path(
+    "policies/iam/platform-authority-gug357-function-configurator.json"
+)
 LOG_GROUP_NAME = "/aws/lambda/scanalyze-platform-authority-gug215-retirement"
+BROKER_FUNCTION_NAME = "scanalyze-platform-authority-gug215-retirement"
+BROKER_FUNCTION_ARN = (
+    f"arn:aws:lambda:{REGION}:{AUTHORITY_ACCOUNT_ID}:function:{BROKER_FUNCTION_NAME}"
+)
+BROKER_EXECUTION_ROLE_NAME = "ScanalyzeGug215BrokerExecution"
+BROKER_EXECUTION_ROLE_ARN = (
+    f"arn:aws:iam::{AUTHORITY_ACCOUNT_ID}:role/{BROKER_EXECUTION_ROLE_NAME}"
+)
+BROKER_HANDLER = "tooling.platform_authority_identity_context_pep_runtime.handler"
 LOG_RETENTION_DAYS = 365
 LOG_ENCRYPTION_MODE = "AWS_OWNED_AT_REST"
 PRODUCTION_STATUS = "NO-GO"
@@ -63,6 +75,9 @@ MAX_AUTHORIZATION_WINDOW = timedelta(minutes=15)
 SIGNING_PLATFORM = "AWSLambda-SHA384-ECDSA"
 ARTIFACT_SIGNING_CONTRACT_DOMAIN = (
     b"scanalyze.gug363.artifact-signing-contract.v1\x00"
+)
+PRE_FUNCTION_BINDING_DOMAIN = (
+    b"scanalyze.gug363.pre-function-binding.v1\x00"
 )
 PRIVATE_PARAMETER_PROJECTION_DOMAIN = (
     b"scanalyze.gug363.private-parameter-projection.v1\x00"
@@ -85,7 +100,7 @@ ACTIVE_ALIASES = (
     "single-retire",
 )
 NORMAL_ALIASES = ("classify", "reconcile", "retire")
-CAPABILITIES = ("CAPABILITY_NAMED_IAM",)
+CAPABILITIES: tuple[str, ...] = ()
 ALLOWED_MUTATIONS = ("cloudformation:CreateStack",)
 PROHIBITED_OPERATIONS = (
     "cloudformation:CreateChangeSet",
@@ -118,6 +133,16 @@ PREFLIGHT_OPERATIONS = (
     "s3:HeadObject",
     "s3:GetObject",
     "lambda:GetCodeSigningConfig",
+    "lambda:GetFunction",
+    "lambda:GetFunctionConfiguration",
+    "lambda:GetFunctionCodeSigningConfig",
+    "lambda:GetFunctionConcurrency",
+    "lambda:GetRuntimeManagementConfig",
+    "lambda:ListTags",
+    "lambda:ListVersionsByFunction",
+    "lambda:ListAliases",
+    "lambda:ListFunctionUrlConfigs",
+    "lambda:GetPolicy",
     "cloudformation:DescribeStacks",
 )
 POST_WRITE_READBACK_OPERATIONS = (
@@ -138,6 +163,16 @@ RECONCILE_OPERATIONS = (
     "s3:HeadObject",
     "s3:GetObject",
     "lambda:GetCodeSigningConfig",
+    "lambda:GetFunction",
+    "lambda:GetFunctionConfiguration",
+    "lambda:GetFunctionCodeSigningConfig",
+    "lambda:GetFunctionConcurrency",
+    "lambda:GetRuntimeManagementConfig",
+    "lambda:ListTags",
+    "lambda:ListVersionsByFunction",
+    "lambda:ListAliases",
+    "lambda:ListFunctionUrlConfigs",
+    "lambda:GetPolicy",
     "cloudformation:DescribeStacks",
     "cloudformation:GetTemplate",
     "cloudformation:ListStackResources",
@@ -182,6 +217,81 @@ PARAMETER_KEYS = (
     "SingleOperatorExceptionExpiresAt",
 )
 
+FUNCTION_PARAMETER_ENVIRONMENT = {
+    "AUTHORIZATION_MODE": "AuthorizationMode",
+    "AUTHORITY_ACCOUNT_ID": "AuthorityAccountId",
+    "CHANGE_SET_NAME": "ChangeSetName",
+    "RETIREMENT_ID": "RetirementId",
+    "EXPECTED_TEMPLATE_SHA256": "ExpectedTemplateSha256",
+    "EXPECTED_EVIDENCE_SHA256": "ExpectedEvidenceSha256",
+    "EXPECTED_CODE_SHA256": "BrokerArtifactCodeSha256",
+    "EXPECTED_BROKER_POLICY_SHA256": "ExpectedBrokerPolicySha256",
+    "IDENTITY_STORE_ARN": "IdentityStoreArn",
+    "IDENTITY_CENTER_INSTANCE_ARN": "IdentityCenterInstanceArn",
+    "IDENTITY_CENTER_APPLICATION_ARN": "IdentityCenterApplicationArn",
+    "IDENTITY_CENTER_REDIRECT_URI": "IdentityCenterRedirectUri",
+    "CLASSIFIER_IDENTITY_STORE_USER_ID": "ClassifierIdentityStoreUserId",
+    "APPROVER_IDENTITY_STORE_USER_ID": "ApproverIdentityStoreUserId",
+    "CLASSIFIER_ASSIGNMENT_SHA256": "ClassifierAssignmentSha256",
+    "APPROVER_ASSIGNMENT_SHA256": "ApproverAssignmentSha256",
+    "CLASSIFIER_INVOKER_POLICY_SHA256": "ClassifierInvokerPolicySha256",
+    "APPROVER_INVOKER_POLICY_SHA256": "ApproverInvokerPolicySha256",
+    "CLASSIFIER_PROOF_POLICY_SHA256": "ClassifierProofPolicySha256",
+    "APPROVER_PROOF_POLICY_SHA256": "ApproverProofPolicySha256",
+    "IDENTITY_CENTER_APPLICATION_ACTOR_POLICY_SHA256": (
+        "IdentityCenterApplicationActorPolicySha256"
+    ),
+    "CLASSIFIER_PERMISSION_SET_ROLE_ARN": "ClassifierPermissionSetRoleArn",
+    "APPROVER_PERMISSION_SET_ROLE_ARN": "ApproverPermissionSetRoleArn",
+    "CODE_SIGNING_CONFIG_ARN": "BrokerCodeSigningConfigArn",
+    "BROKER_RUNTIME_VERSION_ARN": "BrokerRuntimeVersionArn",
+    "BROKER_VERSION_BINDING_SHA256": "BrokerVersionBindingSha256",
+    "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256": (
+        "SingleOperatorOwnerAuthorizationSha256"
+    ),
+    "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256": (
+        "SingleOperatorExpectedAuthorizationSha256"
+    ),
+    "SINGLE_OPERATOR_EXCEPTION_CREATED_AT": "SingleOperatorExceptionCreatedAt",
+    "SINGLE_OPERATOR_EXCEPTION_NOT_BEFORE": "SingleOperatorExceptionNotBefore",
+    "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT": "SingleOperatorExceptionExpiresAt",
+}
+FUNCTION_STATIC_ENVIRONMENT = {
+    "AUTHORITY_REGION": REGION,
+    "CLASSIFIER_INVOKER_ROLE_NAME": "ScanalyzeGug215ClassifierInvoker",
+    "APPROVER_INVOKER_ROLE_NAME": "ScanalyzeGug215ApproverInvoker",
+    "CLASSIFIER_PROOF_ROLE_NAME": "ScanalyzeGug217ClassifierProof",
+    "APPROVER_PROOF_ROLE_NAME": "ScanalyzeGug217ApproverProof",
+    "BROKER_EXECUTION_ROLE_NAME": BROKER_EXECUTION_ROLE_NAME,
+}
+DURABLE_FUNCTION_INPUT_KEYS = (
+    "BrokerArtifactBucket",
+    "BrokerArtifactKey",
+    "BrokerArtifactVersion",
+    "BrokerArtifactCodeSha256",
+    "BrokerCodeSigningConfigArn",
+    "BrokerRuntimeVersionArn",
+    "BrokerVersionBindingSha256",
+    "ExpectedBrokerPolicySha256",
+    "ClassifierInvokerPolicySha256",
+    "ApproverInvokerPolicySha256",
+    "ClassifierProofPolicySha256",
+    "ApproverProofPolicySha256",
+    "IdentityCenterApplicationActorPolicySha256",
+)
+FUNCTION_READBACK_OPERATIONS = (
+    "lambda:GetFunction",
+    "lambda:GetFunctionConfiguration",
+    "lambda:GetFunctionCodeSigningConfig",
+    "lambda:GetFunctionConcurrency",
+    "lambda:GetRuntimeManagementConfig",
+    "lambda:ListTags",
+    "lambda:ListVersionsByFunction",
+    "lambda:ListAliases",
+    "lambda:ListFunctionUrlConfigs",
+    "lambda:GetPolicy",
+)
+
 NO_ECHO_PARAMETER_KEYS = frozenset(
     {
         "RetirementId",
@@ -205,13 +315,6 @@ NO_ECHO_PARAMETER_KEYS = frozenset(
 EXPECTED_RESOURCE_TYPES = tuple(
     sorted(
         {
-            "ApproverInvokerRole": "AWS::IAM::Role",
-            "ApproverProofRole": "AWS::IAM::Role",
-            "ChangeSetRetirementLedger": "AWS::DynamoDB::Table",
-            "ClassifierInvokerRole": "AWS::IAM::Role",
-            "ClassifierProofRole": "AWS::IAM::Role",
-            "RetirementBrokerExecutionRole": "AWS::IAM::Role",
-            "RetirementBrokerFunction": "AWS::Lambda::Function",
             "RetirementBrokerLogGroup": "AWS::Logs::LogGroup",
             "RetirementBrokerSingleClassifyAlias": "AWS::Lambda::Alias",
             "RetirementBrokerSingleClassifyUrl": "AWS::Lambda::Url",
@@ -417,6 +520,307 @@ def artifact_signing_evidence_digest(contract: Mapping[str, Any]) -> str:
             "unsigned_source": unsigned,
             "signed_destination": contract["signed_destination"],
             "code_signing_config": contract["code_signing_config"],
+        }
+    )
+
+
+def gug363_pre_function_binding_sha256(
+    *,
+    source: Mapping[str, Any],
+    artifact_signing_contract_digest_value: str,
+    parameters: Mapping[str, Any],
+) -> str:
+    """Bind only durable function inputs shared by GUG-363 and GUG-365.
+
+    The private CloudFormation projection and every exception-window value are
+    intentionally excluded.  GUG-365 can therefore materialize the inert
+    function before GUG-357 issues the fresh configuration authorization.
+    """
+
+    durable_inputs = {
+        key: parameters[key]
+        for key in DURABLE_FUNCTION_INPUT_KEYS
+        if key in parameters
+    }
+    if set(durable_inputs) != set(DURABLE_FUNCTION_INPUT_KEYS):
+        raise RetirementEntrypointMaterializationError(
+            "PRE_FUNCTION_BINDING_INPUTS_INVALID"
+        )
+    _validate_source_contract(source)
+    _require_digest(
+        artifact_signing_contract_digest_value,
+        "ARTIFACT_SIGNING_CONTRACT_DIGEST_INVALID",
+    )
+    return "sha256:" + sha256(
+        PRE_FUNCTION_BINDING_DOMAIN
+        + canonical_json(
+            {
+                "source": dict(source),
+                "artifact_signing_contract_digest": (
+                    artifact_signing_contract_digest_value
+                ),
+                "durable_function_inputs": durable_inputs,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _function_environment(parameters: Mapping[str, Any]) -> dict[str, str]:
+    missing = set(FUNCTION_PARAMETER_ENVIRONMENT.values()) - set(parameters)
+    if missing:
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_PARAMETERS_INCOMPLETE"
+        )
+    environment = {
+        environment_key: str(parameters[parameter_key])
+        for environment_key, parameter_key in FUNCTION_PARAMETER_ENVIRONMENT.items()
+    }
+    environment.update(FUNCTION_STATIC_ENVIRONMENT)
+    return environment
+
+
+def _expected_broker_safe_configuration_defaults() -> dict[str, dict[str, Any]]:
+    """Return optional Lambda surfaces that must remain semantically absent."""
+
+    return {
+        "CapacityProviderConfig": {},
+        "DurableConfig": {},
+        "ImageConfigResponse": {},
+        "TenancyConfig": {},
+    }
+
+
+def _function_configurator_policy_document() -> dict[str, Any]:
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "ReadCallerIdentity",
+                "Effect": "Allow",
+                "Action": "sts:GetCallerIdentity",
+                "Resource": "*",
+            },
+            {
+                "Sid": "ReadAndConfigureExactBrokerFunction",
+                "Effect": "Allow",
+                "Action": [
+                    "lambda:GetFunction",
+                    "lambda:GetFunctionCodeSigningConfig",
+                    "lambda:GetFunctionConcurrency",
+                    "lambda:GetFunctionConfiguration",
+                    "lambda:GetPolicy",
+                    "lambda:GetRuntimeManagementConfig",
+                    "lambda:ListAliases",
+                    "lambda:ListFunctionUrlConfigs",
+                    "lambda:ListTags",
+                    "lambda:ListVersionsByFunction",
+                    "lambda:UpdateFunctionConfiguration",
+                ],
+                "Resource": BROKER_FUNCTION_ARN,
+            },
+            {
+                "Sid": "DenyPrivilegeAndDeploymentMutations",
+                "Effect": "Deny",
+                "Action": [
+                    "cloudformation:*",
+                    "dynamodb:*",
+                    "iam:*",
+                    "lambda:AddLayerVersionPermission",
+                    "lambda:AddPermission",
+                    "lambda:CreateAlias",
+                    "lambda:CreateFunction",
+                    "lambda:CreateFunctionUrlConfig",
+                    "lambda:DeleteAlias",
+                    "lambda:DeleteFunction",
+                    "lambda:DeleteFunctionCodeSigningConfig",
+                    "lambda:DeleteFunctionConcurrency",
+                    "lambda:DeleteFunctionUrlConfig",
+                    "lambda:InvokeAsync",
+                    "lambda:InvokeFunction",
+                    "lambda:InvokeFunctionUrl",
+                    "lambda:PublishLayerVersion",
+                    "lambda:PublishVersion",
+                    "lambda:PutFunctionCodeSigningConfig",
+                    "lambda:PutFunctionConcurrency",
+                    "lambda:PutRuntimeManagementConfig",
+                    "lambda:RemoveLayerVersionPermission",
+                    "lambda:RemovePermission",
+                    "lambda:TagResource",
+                    "lambda:UntagResource",
+                    "lambda:UpdateAlias",
+                    "lambda:UpdateFunctionCode",
+                    "lambda:UpdateFunctionEventInvokeConfig",
+                    "lambda:UpdateFunctionUrlConfig",
+                    "sts:AssumeRole",
+                    "sts:TagSession",
+                ],
+                "Resource": "*",
+            },
+        ],
+    }
+
+
+def _function_configurator_contract(
+    *,
+    parameters: Mapping[str, Any],
+    pre_function_binding_sha256: str,
+    authority_policy_document_digest: str,
+) -> dict[str, Any]:
+    environment = _function_environment(parameters)
+    request_projection = {
+        "FunctionName": BROKER_FUNCTION_NAME,
+        "Environment": {"Variables": environment},
+    }
+    return {
+        "contract_version": 1,
+        "phase": "FUNCTION_CONFIGURATOR",
+        "function_name": BROKER_FUNCTION_NAME,
+        "function_arn": BROKER_FUNCTION_ARN,
+        "gug363_pre_function_binding_sha256": pre_function_binding_sha256,
+        "environment_variable_count": len(environment),
+        "environment_projection_digest": canonical_digest(environment),
+        "update_request_projection": request_projection,
+        "update_request_projection_digest": canonical_digest(request_projection),
+        "expected_safe_configuration_defaults": (
+            _expected_broker_safe_configuration_defaults()
+        ),
+        "revision_id_mode": "FRESH_PREWRITE_PROVIDER_VALUE_REQUIRED",
+        "allowed_action": "lambda:UpdateFunctionConfiguration",
+        "authority_policy": {
+            "source_path": FUNCTION_CONFIGURATOR_POLICY_PATH.as_posix(),
+            "policy_document_digest": authority_policy_document_digest,
+            "sole_identity_policy_required": True,
+            "identical_permissions_boundary_required": True,
+        },
+        "attempt_limit": 1,
+        "retry_permitted": False,
+        "waiter": {
+            "api_action": "lambda:GetFunctionConfiguration",
+            "poll_interval_seconds": 3,
+            "max_poll_attempts": 20,
+            "timeout_seconds": 60,
+            "expected_state": "Active",
+            "expected_last_update_status": "Successful",
+        },
+        "post_update_readback_operations": list(FUNCTION_READBACK_OPERATIONS),
+        "unknown_outcome_mode": "STOP_NO_RETRY_RECONCILE_ONLY",
+        "authority_expiry_required_before_create_stack": True,
+    }
+
+
+def _expected_broker_function_tags(plan: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "managed_by": "reviewed-direct-lambda",
+        "service": "scanalyze-platform-authority",
+        "work_package": "GUG-365",
+        "environment": "non-production",
+        "production": "false",
+        "source_commit": str(plan["source"]["commit"]),
+        "gug363_pre_function_binding_sha256": str(
+            plan["gug363_pre_function_binding_sha256"]
+        ),
+    }
+
+
+def broker_function_evidence_digest(
+    *, plan: Mapping[str, Any], revision_id: str
+) -> str:
+    """Digest the exact post-configurator Lambda facts without raw locations."""
+
+    if (
+        not isinstance(revision_id, str)
+        or not revision_id
+        or len(revision_id) > 256
+        or any(ord(character) < 0x21 or ord(character) == 0x7F for character in revision_id)
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_REVISION_ID_INVALID"
+        )
+    configurator = plan.get("function_configurator")
+    signed = plan.get("artifact_signing_contract", {}).get(
+        "signed_destination", {}
+    )
+    parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in plan.get("parameter_projection", [])
+        if isinstance(item, Mapping)
+        and set(item) == {"ParameterKey", "ParameterValue"}
+    }
+    if not isinstance(configurator, Mapping) or set(parameters) != set(PARAMETER_KEYS):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_EVIDENCE_INPUT_INVALID"
+        )
+    environment = configurator["update_request_projection"]["Environment"][
+        "Variables"
+    ]
+    return canonical_digest(
+        {
+            "gug363_pre_function_binding_sha256": plan[
+                "gug363_pre_function_binding_sha256"
+            ],
+            "function_configurator_contract_digest": plan[
+                "function_configurator_contract_digest"
+            ],
+            "function": {
+                "function_name": BROKER_FUNCTION_NAME,
+                "function_arn": BROKER_FUNCTION_ARN,
+                "description": "GUG-215 exact retained Change Set retirement PEP",
+                "runtime": "python3.12",
+                "role": BROKER_EXECUTION_ROLE_ARN,
+                "handler": BROKER_HANDLER,
+                "code_size": signed["archive_size_bytes"],
+                "code_sha256": signed["lambda_code_sha256"],
+                "timeout": 60,
+                "memory_size": 256,
+                "version": "$LATEST",
+                "package_type": "Zip",
+                "architectures": ["x86_64"],
+                "environment_variables": environment,
+                "logging_config": {
+                    "LogFormat": "JSON",
+                    "ApplicationLogLevel": "ERROR",
+                    "SystemLogLevel": "WARN",
+                    "LogGroup": LOG_GROUP_NAME,
+                },
+                "state": "Active",
+                "last_update_status": "Successful",
+                "revision_id_sha256": digest_text(revision_id),
+                "vpc_config": {
+                    "SubnetIds": [],
+                    "SecurityGroupIds": [],
+                    "VpcId": "",
+                },
+                "layers": [],
+                "file_system_configs": [],
+                "kms_key_arn": "ABSENT",
+                "dead_letter_config": {},
+                "tracing_config": {"Mode": "PassThrough"},
+                "snap_start": {
+                    "ApplyOn": "None",
+                    "OptimizationStatus": "Off",
+                },
+                "ephemeral_storage": {"Size": 512},
+                "safe_configuration_defaults": (
+                    _expected_broker_safe_configuration_defaults()
+                ),
+            },
+            "signed_code": {
+                "s3_bucket": signed["bucket"],
+                "s3_key": signed["key"],
+                "s3_object_version": signed["version_id"],
+                "code_sha256": signed["lambda_code_sha256"],
+            },
+            "code_signing_config_arn": parameters["BrokerCodeSigningConfigArn"],
+            "runtime_management": {
+                "UpdateRuntimeOn": "Manual",
+                "RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"],
+            },
+            "reserved_concurrent_executions": 1,
+            "tags": _expected_broker_function_tags(plan),
+            "versions": ["$LATEST"],
+            "aliases": [],
+            "function_urls": [],
+            "resource_policy": "ABSENT_RESOURCE_NOT_FOUND",
         }
     )
 
@@ -724,35 +1128,62 @@ def _validate_template_contract(template_body: str) -> None:
         "    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain",
         "LogGroupName: /aws/lambda/scanalyze-platform-authority-gug215-retirement",
         f"RetentionInDays: {LOG_RETENTION_DAYS}",
-        "- logs:CreateLogStream\n                  - logs:PutLogEvents",
-        "log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:log-stream:*",
-        "- logs:CreateLogGroup",
-        "ApplicationLogLevel: ERROR",
-        "LogFormat: JSON",
-        "LogGroup: !Ref RetirementBrokerLogGroup",
-        "SystemLogLevel: WARN",
+        f"FunctionName: {BROKER_FUNCTION_NAME}",
+        "TargetFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:"
+        "${AuthorityAccountId}:function:"
+        f"{BROKER_FUNCTION_NAME}",
         "Name: single-classify",
         "Name: single-reconcile",
         "Name: single-retire",
         "AuthType: AWS_IAM",
-        "RuntimeVersionArn: !Ref BrokerRuntimeVersionArn",
-        "CodeSigningConfigArn: !Ref BrokerCodeSigningConfigArn",
-        "ReservedConcurrentExecutions: 1",
-        "DeletionProtectionEnabled: true",
+        "Principal: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:"
+        "role/ScanalyzeGug215ClassifierInvoker",
+        "Principal: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:"
+        "role/ScanalyzeGug215ApproverInvoker",
     )
     if any(fragment not in template_body for fragment in required_fragments):
         raise RetirementEntrypointMaterializationError(
             "TEMPLATE_CONTROL_SET_INVALID"
         )
+    function_arn = (
+        "arn:${AWS::Partition}:lambda:${AWS::Region}:${AuthorityAccountId}:"
+        f"function:{BROKER_FUNCTION_NAME}"
+    )
+    if (
+        template_body.count(f"      FunctionName: {BROKER_FUNCTION_NAME}") != 7
+        or template_body.count(f"      TargetFunctionArn: !Sub {function_arn}")
+        != 6
+        or template_body.count(f"      FunctionName: !Sub {function_arn}:") != 12
+        or template_body.count(f"    Value: {BROKER_FUNCTION_NAME}") != 1
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "TEMPLATE_PRECREATED_FUNCTION_BINDING_INVALID"
+        )
     if "$LATEST" in template_body:
         raise RetirementEntrypointMaterializationError("LATEST_ALIAS_FORBIDDEN")
+    if (
+        "Type: AWS::Lambda::Function" in template_body
+        or "RetirementBrokerFunction" in template_body
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "TEMPLATE_FUNCTION_CREATE_FORBIDDEN"
+        )
     if "KmsKeyId:" in template_body:
         raise RetirementEntrypointMaterializationError(
             "LOG_GROUP_ENCRYPTION_MODE_INVALID"
         )
+    if (
+        "Type: AWS::IAM::" in template_body
+        or "Type: AWS::DynamoDB::" in template_body
+        or "ResourcePolicy:" in template_body
+        or "dynamodb:PutResourcePolicy" in template_body
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "TEMPLATE_EXTERNAL_AUTHORITY_MUTATION_FORBIDDEN"
+        )
 
 
-def _source_snapshot(repo_root: Path, source: Mapping[str, Any]) -> str:
+def _source_snapshot(repo_root: Path, source: Mapping[str, Any]) -> tuple[str, str]:
     root = repo_root.resolve(strict=True)
     head = str(_git(root, "rev-parse", "HEAD")).strip()
     tree = str(_git(root, "rev-parse", "HEAD^{tree}")).strip()
@@ -777,6 +1208,33 @@ def _source_snapshot(repo_root: Path, source: Mapping[str, Any]) -> str:
         raise RetirementEntrypointMaterializationError("TEMPLATE_UNAVAILABLE") from exc
     if working != committed:
         raise RetirementEntrypointMaterializationError("TEMPLATE_COMMIT_DRIFT")
+    policy_path = FUNCTION_CONFIGURATOR_POLICY_PATH.as_posix()
+    policy_committed = bytes(
+        _git(root, "show", f"{head}:{policy_path}", text=False)
+    )
+    policy_candidate = root / FUNCTION_CONFIGURATOR_POLICY_PATH
+    try:
+        if policy_candidate.is_symlink() or not policy_candidate.is_file():
+            raise OSError
+        policy_working = policy_candidate.read_bytes()
+    except OSError as exc:
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_POLICY_UNAVAILABLE"
+        ) from exc
+    if policy_working != policy_committed:
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_POLICY_COMMIT_DRIFT"
+        )
+    try:
+        policy_document = json.loads(policy_committed.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_POLICY_INVALID"
+        ) from exc
+    if policy_document != _function_configurator_policy_document():
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_POLICY_INVALID"
+        )
     try:
         body = committed.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -785,7 +1243,7 @@ def _source_snapshot(repo_root: Path, source: Mapping[str, Any]) -> str:
     if source.get("template_sha256") != expected_digest:
         raise RetirementEntrypointMaterializationError("TEMPLATE_DIGEST_MISMATCH")
     _validate_template_contract(body)
-    return body
+    return body, canonical_digest(policy_document)
 
 
 def _validate_parameters(
@@ -905,6 +1363,7 @@ def validate_materialization_intent(intent: Mapping[str, Any]) -> None:
         "artifact_signing_contract",
         "artifact_signing_contract_digest",
         "artifact_signing_evidence_digest",
+        "gug363_pre_function_binding_sha256",
         "parameters",
         "owner_authorization_sha256",
         "single_operator_exception_digest",
@@ -980,6 +1439,21 @@ def validate_materialization_intent(intent: Mapping[str, Any]) -> None:
         owner_authorization_sha256=owner_digest,
         exception_digest=exception_digest,
     )
+    expected_pre_function_binding = gug363_pre_function_binding_sha256(
+        source=source,
+        artifact_signing_contract_digest_value=contract_digest,
+        parameters=parameters,
+    )
+    if (
+        _require_digest(
+            intent.get("gug363_pre_function_binding_sha256"),
+            "PRE_FUNCTION_BINDING_DIGEST_INVALID",
+        )
+        != expected_pre_function_binding
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "PRE_FUNCTION_BINDING_DIGEST_MISMATCH"
+        )
     _self_digest(intent, "intent_digest", "INTENT_DIGEST_MISMATCH")
 
 
@@ -1000,7 +1474,9 @@ def build_materialization_plan(
     except RetirementPackageError as exc:
         raise RetirementEntrypointMaterializationError("PACKAGE_BINDING_INVALID") from exc
     source = dict(intent["source"])
-    template_body = _source_snapshot(repo_root, source)
+    template_body, authority_policy_document_digest = _source_snapshot(
+        repo_root, source
+    )
     parameters = dict(intent["parameters"])
     artifact_signing_contract = dict(intent["artifact_signing_contract"])
     unsigned_source = artifact_signing_contract["unsigned_source"]
@@ -1019,6 +1495,15 @@ def build_materialization_plan(
         for key in PARAMETER_KEYS
     ]
     projection_digest = canonical_digest(projection)
+    pre_function_binding = str(intent["gug363_pre_function_binding_sha256"])
+    function_configurator = _function_configurator_contract(
+        parameters=parameters,
+        pre_function_binding_sha256=pre_function_binding,
+        authority_policy_document_digest=authority_policy_document_digest,
+    )
+    function_configurator_contract_digest = canonical_digest(
+        function_configurator
+    )
     resources = [
         {"logical_resource_id": logical_id, "resource_type": resource_type}
         for logical_id, resource_type in EXPECTED_RESOURCE_TYPES
@@ -1058,6 +1543,13 @@ def build_materialization_plan(
         "artifact_signing_evidence_digest": intent[
             "artifact_signing_evidence_digest"
         ],
+        "gug363_pre_function_binding_sha256": pre_function_binding,
+        "function_configurator_contract_digest": (
+            function_configurator_contract_digest
+        ),
+        "function_configuration_state": "PRE_FUNCTION",
+        "broker_function_evidence_digest": None,
+        "function_configurator_checkpoint_digest": None,
         "authorization_mode": AUTHORIZATION_MODE,
         "log_group": {
             "name": LOG_GROUP_NAME,
@@ -1125,6 +1617,14 @@ def build_materialization_plan(
         "artifact_signing_evidence_digest": intent[
             "artifact_signing_evidence_digest"
         ],
+        "gug363_pre_function_binding_sha256": pre_function_binding,
+        "function_configurator": function_configurator,
+        "function_configurator_contract_digest": (
+            function_configurator_contract_digest
+        ),
+        "function_configuration_state": "PRE_FUNCTION",
+        "broker_function_evidence_digest": None,
+        "function_configurator_checkpoint_digest": None,
         "parameter_projection": projection,
         "parameter_projection_digest": projection_digest,
         "expected_resources": resources,
@@ -1154,6 +1654,84 @@ def build_materialization_plan(
     return plan
 
 
+def finalize_materialization_plan(
+    *,
+    pre_function_plan: Mapping[str, Any],
+    broker_function_evidence_digest: str,
+    function_configurator_checkpoint_digest: str,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    """Seal the post-configurator plan without weakening the stable pre-binding."""
+
+    validate_materialization_plan(pre_function_plan, repo_root=repo_root)
+    if pre_function_plan.get("function_configuration_state") != "PRE_FUNCTION":
+        raise RetirementEntrypointMaterializationError(
+            "PLAN_ALREADY_FUNCTION_CONFIGURED"
+        )
+    _require_digest(
+        broker_function_evidence_digest,
+        "BROKER_FUNCTION_EVIDENCE_DIGEST_INVALID",
+    )
+    _require_digest(
+        function_configurator_checkpoint_digest,
+        "FUNCTION_CONFIGURATOR_CHECKPOINT_DIGEST_INVALID",
+    )
+    plan: dict[str, Any] = json.loads(canonical_json(pre_function_plan))
+    plan["function_configuration_state"] = "CONFIGURED"
+    plan["broker_function_evidence_digest"] = broker_function_evidence_digest
+    plan["function_configurator_checkpoint_digest"] = (
+        function_configurator_checkpoint_digest
+    )
+    binding = {
+        "intent_digest": plan["intent_digest"],
+        "source": plan["source"],
+        "target": plan["target"],
+        "parameter_projection_digest": plan["parameter_projection_digest"],
+        "expected_resource_set_digest": plan["expected_resource_set_digest"],
+        "artifact_signing_contract": plan["artifact_signing_contract"],
+        "artifact_signing_contract_digest": plan[
+            "artifact_signing_contract_digest"
+        ],
+        "artifact_signing_evidence_digest": plan[
+            "artifact_signing_evidence_digest"
+        ],
+        "gug363_pre_function_binding_sha256": plan[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": plan[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_state": plan["function_configuration_state"],
+        "broker_function_evidence_digest": plan[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": plan[
+            "function_configurator_checkpoint_digest"
+        ],
+        "authorization_mode": AUTHORIZATION_MODE,
+        "log_group": plan["log_group"],
+    }
+    binding_digest = canonical_digest(binding)
+    token = "gug363-" + binding_digest.removeprefix("sha256:")[:48]
+    plan["materialization_binding_digest"] = binding_digest
+    plan["client_request_token"] = token
+    request = plan["create_stack_request"]
+    request["ClientRequestToken"] = token
+    request_digest = canonical_digest(request)
+    plan["create_stack_request_digest"] = request_digest
+    operation = plan["materialization_operations"][0]
+    operation["request_projection_digest"] = request_digest
+    operation["client_request_token_sha256"] = digest_text(token)
+    plan["operation_list_digest"] = canonical_digest(
+        plan["materialization_operations"]
+    )
+    plan["plan_digest"] = canonical_digest(
+        {key: value for key, value in plan.items() if key != "plan_digest"}
+    )
+    validate_materialization_plan(plan, repo_root=repo_root)
+    return plan
+
+
 def validate_materialization_plan(
     plan: Mapping[str, Any], *, repo_root: Path | None = None
 ) -> None:
@@ -1176,6 +1754,12 @@ def validate_materialization_plan(
         "artifact_signing_contract",
         "artifact_signing_contract_digest",
         "artifact_signing_evidence_digest",
+        "gug363_pre_function_binding_sha256",
+        "function_configurator",
+        "function_configurator_contract_digest",
+        "function_configuration_state",
+        "broker_function_evidence_digest",
+        "function_configurator_checkpoint_digest",
         "parameter_projection",
         "parameter_projection_digest",
         "expected_resources",
@@ -1231,6 +1815,8 @@ def validate_materialization_plan(
         "single_operator_exception_digest",
         "artifact_signing_contract_digest",
         "artifact_signing_evidence_digest",
+        "gug363_pre_function_binding_sha256",
+        "function_configurator_contract_digest",
         "parameter_projection_digest",
         "expected_resource_set_digest",
         "materialization_binding_digest",
@@ -1239,6 +1825,34 @@ def validate_materialization_plan(
         "plan_digest",
     ):
         _require_digest(plan.get(field), "PLAN_DIGEST_INVALID")
+    function_configuration_state = plan.get("function_configuration_state")
+    broker_function_evidence_digest_value = plan.get(
+        "broker_function_evidence_digest"
+    )
+    function_configurator_checkpoint_digest_value = plan.get(
+        "function_configurator_checkpoint_digest"
+    )
+    if function_configuration_state == "PRE_FUNCTION":
+        if (
+            broker_function_evidence_digest_value is not None
+            or function_configurator_checkpoint_digest_value is not None
+        ):
+            raise RetirementEntrypointMaterializationError(
+                "PLAN_FUNCTION_CONFIGURATION_STATE_INVALID"
+            )
+    elif function_configuration_state == "CONFIGURED":
+        _require_digest(
+            broker_function_evidence_digest_value,
+            "BROKER_FUNCTION_EVIDENCE_DIGEST_INVALID",
+        )
+        _require_digest(
+            function_configurator_checkpoint_digest_value,
+            "FUNCTION_CONFIGURATOR_CHECKPOINT_DIGEST_INVALID",
+        )
+    else:
+        raise RetirementEntrypointMaterializationError(
+            "PLAN_FUNCTION_CONFIGURATION_STATE_INVALID"
+        )
     if plan.get("target") != _target_contract():
         raise RetirementEntrypointMaterializationError("PLAN_TARGET_INVALID")
     source = plan.get("source")
@@ -1309,6 +1923,36 @@ def validate_materialization_plan(
         owner_authorization_sha256=str(plan["owner_authorization_sha256"]),
         exception_digest=str(plan["single_operator_exception_digest"]),
     )
+    expected_pre_function_binding = gug363_pre_function_binding_sha256(
+        source=source,
+        artifact_signing_contract_digest_value=str(
+            plan["artifact_signing_contract_digest"]
+        ),
+        parameters=parameter_values,
+    )
+    if plan.get("gug363_pre_function_binding_sha256") != expected_pre_function_binding:
+        raise RetirementEntrypointMaterializationError(
+            "PRE_FUNCTION_BINDING_DIGEST_MISMATCH"
+        )
+    function_configurator = plan.get("function_configurator")
+    expected_function_configurator = _function_configurator_contract(
+        parameters=parameter_values,
+        pre_function_binding_sha256=expected_pre_function_binding,
+        authority_policy_document_digest=str(
+            plan.get("function_configurator", {})
+            .get("authority_policy", {})
+            .get("policy_document_digest")
+        ),
+    )
+    if (
+        not isinstance(function_configurator, Mapping)
+        or function_configurator != expected_function_configurator
+        or canonical_digest(function_configurator)
+        != plan.get("function_configurator_contract_digest")
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "FUNCTION_CONFIGURATOR_CONTRACT_INVALID"
+        )
     if (
         artifact_signing_contract["signed_destination"]["lambda_code_sha256"]
         != parameter_values["BrokerArtifactCodeSha256"]
@@ -1396,6 +2040,19 @@ def validate_materialization_plan(
             "artifact_signing_evidence_digest": plan[
                 "artifact_signing_evidence_digest"
             ],
+            "gug363_pre_function_binding_sha256": plan[
+                "gug363_pre_function_binding_sha256"
+            ],
+            "function_configurator_contract_digest": plan[
+                "function_configurator_contract_digest"
+            ],
+            "function_configuration_state": plan["function_configuration_state"],
+            "broker_function_evidence_digest": plan[
+                "broker_function_evidence_digest"
+            ],
+            "function_configurator_checkpoint_digest": plan[
+                "function_configurator_checkpoint_digest"
+            ],
             "authorization_mode": AUTHORIZATION_MODE,
             "log_group": log_group,
         }
@@ -1407,9 +2064,17 @@ def validate_materialization_plan(
         raise RetirementEntrypointMaterializationError("CLIENT_REQUEST_TOKEN_MISMATCH")
     _self_digest(plan, "plan_digest", "PLAN_DIGEST_MISMATCH")
     if repo_root is not None:
-        body = _source_snapshot(repo_root, source)
+        body, authority_policy_document_digest = _source_snapshot(repo_root, source)
         if body != request["TemplateBody"]:
             raise RetirementEntrypointMaterializationError("PLAN_TEMPLATE_BODY_DRIFT")
+        if (
+            plan["function_configurator"]["authority_policy"]
+            ["policy_document_digest"]
+            != authority_policy_document_digest
+        ):
+            raise RetirementEntrypointMaterializationError(
+                "FUNCTION_CONFIGURATOR_POLICY_DIGEST_MISMATCH"
+            )
 
 
 def validate_execution_authorization(
@@ -1420,6 +2085,10 @@ def validate_execution_authorization(
     require_active: bool,
 ) -> None:
     validate_materialization_plan(plan)
+    if plan.get("function_configuration_state") != "CONFIGURED":
+        raise RetirementEntrypointMaterializationError(
+            "AUTHORIZATION_REQUIRES_CONFIGURED_FUNCTION_PLAN"
+        )
     required = {
         "record_type",
         "schema_version",
@@ -1436,12 +2105,25 @@ def validate_execution_authorization(
         "operation_list_digest",
         "artifact_signing_contract_digest",
         "artifact_signing_evidence_digest",
+        "gug363_pre_function_binding_sha256",
+        "function_configurator_contract_digest",
+        "function_configuration_request_projection_digest",
+        "broker_function_evidence_digest",
+        "function_configurator_checkpoint_digest",
+        "function_configurator_authority_status",
+        "function_configurator_authority_ended_at",
+        "activator_checkpoint_digest",
+        "activator_authority_status",
+        "activator_authority_ended_at",
         "owner_authorization_sha256",
         "caller_arn_sha256",
         "caller_user_id_sha256",
         "live_checkpoint_digest",
         "live_before_state_digest",
         "service_role_evidence_digest",
+        "service_role_evidence_scope",
+        "service_role_evidence_collected_at",
+        "post_activator_bundle_readback_complete",
         "operator_authority_evidence_digest",
         "allowed_action",
         "forbidden_actions",
@@ -1472,6 +2154,27 @@ def validate_execution_authorization(
         "artifact_signing_evidence_digest": plan[
             "artifact_signing_evidence_digest"
         ],
+        "gug363_pre_function_binding_sha256": plan[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": plan[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_request_projection_digest": plan[
+            "function_configurator"
+        ]["update_request_projection_digest"],
+        "broker_function_evidence_digest": plan[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": plan[
+            "function_configurator_checkpoint_digest"
+        ],
+        "function_configurator_authority_status": "EXPIRED_OR_REVOKED",
+        "activator_authority_status": "EXPIRED_OR_REVOKED",
+        "service_role_evidence_scope": (
+            "POST_ACTIVATOR_FULL_BUNDLE_READBACK"
+        ),
+        "post_activator_bundle_readback_complete": True,
         "owner_authorization_sha256": plan["owner_authorization_sha256"],
         "allowed_action": "cloudformation:CreateStack",
         "forbidden_actions": list(PROHIBITED_OPERATIONS),
@@ -1486,6 +2189,7 @@ def validate_execution_authorization(
         "live_before_state_digest",
         "service_role_evidence_digest",
         "operator_authority_evidence_digest",
+        "activator_checkpoint_digest",
     ):
         _require_digest(authorization.get(field), "AUTHORIZATION_EVIDENCE_INVALID")
     _self_digest(
@@ -1493,8 +2197,29 @@ def validate_execution_authorization(
     )
     not_before = _parse_timestamp(authorization.get("not_before"), "AUTHORIZATION_WINDOW_INVALID")
     expires = _parse_timestamp(authorization.get("expires_at"), "AUTHORIZATION_WINDOW_INVALID")
+    configurator_authority_ended = _parse_timestamp(
+        authorization.get("function_configurator_authority_ended_at"),
+        "AUTHORIZATION_AUTHORITY_ORDER_INVALID",
+    )
+    activator_authority_ended = _parse_timestamp(
+        authorization.get("activator_authority_ended_at"),
+        "AUTHORIZATION_AUTHORITY_ORDER_INVALID",
+    )
+    service_role_evidence_collected = _parse_timestamp(
+        authorization.get("service_role_evidence_collected_at"),
+        "AUTHORIZATION_SERVICE_ROLE_EVIDENCE_ORDER_INVALID",
+    )
     if expires <= not_before or expires - not_before > MAX_AUTHORIZATION_WINDOW:
         raise RetirementEntrypointMaterializationError("AUTHORIZATION_WINDOW_INVALID")
+    if not (
+        configurator_authority_ended
+        <= activator_authority_ended
+        <= service_role_evidence_collected
+        <= not_before
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "AUTHORIZATION_AUTHORITY_ORDER_INVALID"
+        )
     signature_expires = _parse_timestamp(
         plan["artifact_signing_contract"]["signer"]["signature_expires_at"],
         "AUTHORIZATION_SIGNATURE_WINDOW_INVALID",
@@ -1549,6 +2274,42 @@ def build_execution_ledger(
         "artifact_signing_contract_digest": plan[
             "artifact_signing_contract_digest"
         ],
+        "gug363_pre_function_binding_sha256": plan[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": plan[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_request_projection_digest": authorization[
+            "function_configuration_request_projection_digest"
+        ],
+        "broker_function_evidence_digest": authorization[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": authorization[
+            "function_configurator_checkpoint_digest"
+        ],
+        "function_configurator_authority_ended_at": authorization[
+            "function_configurator_authority_ended_at"
+        ],
+        "activator_checkpoint_digest": authorization[
+            "activator_checkpoint_digest"
+        ],
+        "activator_authority_ended_at": authorization[
+            "activator_authority_ended_at"
+        ],
+        "service_role_evidence_scope": authorization[
+            "service_role_evidence_scope"
+        ],
+        "service_role_evidence_collected_at": authorization[
+            "service_role_evidence_collected_at"
+        ],
+        "post_activator_bundle_readback_complete": authorization[
+            "post_activator_bundle_readback_complete"
+        ],
+        "service_role_evidence_digest": authorization[
+            "service_role_evidence_digest"
+        ],
         "client_request_token_sha256": digest_text(plan["client_request_token"]),
         "caller_arn_sha256": caller_arn_sha256,
         "caller_user_id_sha256": authorization["caller_user_id_sha256"],
@@ -1589,6 +2350,18 @@ def validate_execution_ledger(
         "create_stack_request_digest",
         "operation_list_digest",
         "artifact_signing_contract_digest",
+        "gug363_pre_function_binding_sha256",
+        "function_configurator_contract_digest",
+        "function_configuration_request_projection_digest",
+        "broker_function_evidence_digest",
+        "function_configurator_checkpoint_digest",
+        "function_configurator_authority_ended_at",
+        "activator_checkpoint_digest",
+        "activator_authority_ended_at",
+        "service_role_evidence_scope",
+        "service_role_evidence_collected_at",
+        "post_activator_bundle_readback_complete",
+        "service_role_evidence_digest",
         "client_request_token_sha256",
         "caller_arn_sha256",
         "caller_user_id_sha256",
@@ -1619,6 +2392,42 @@ def validate_execution_ledger(
         "operation_list_digest": plan["operation_list_digest"],
         "artifact_signing_contract_digest": plan[
             "artifact_signing_contract_digest"
+        ],
+        "gug363_pre_function_binding_sha256": plan[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": plan[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_request_projection_digest": authorization[
+            "function_configuration_request_projection_digest"
+        ],
+        "broker_function_evidence_digest": authorization[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": authorization[
+            "function_configurator_checkpoint_digest"
+        ],
+        "function_configurator_authority_ended_at": authorization[
+            "function_configurator_authority_ended_at"
+        ],
+        "activator_checkpoint_digest": authorization[
+            "activator_checkpoint_digest"
+        ],
+        "activator_authority_ended_at": authorization[
+            "activator_authority_ended_at"
+        ],
+        "service_role_evidence_scope": authorization[
+            "service_role_evidence_scope"
+        ],
+        "service_role_evidence_collected_at": authorization[
+            "service_role_evidence_collected_at"
+        ],
+        "post_activator_bundle_readback_complete": authorization[
+            "post_activator_bundle_readback_complete"
+        ],
+        "service_role_evidence_digest": authorization[
+            "service_role_evidence_digest"
         ],
         "client_request_token_sha256": digest_text(plan["client_request_token"]),
         "target_digest": canonical_digest(plan["target"]),
@@ -1670,6 +2479,7 @@ def build_materialization_receipt(
     ambiguous_response: bool,
     no_touch: bool,
     artifact_signing_readback_complete: bool,
+    broker_function_readback_complete: bool,
     readback_complete: bool,
     created_at: datetime,
 ) -> dict[str, Any]:
@@ -1695,7 +2505,9 @@ def build_materialization_receipt(
         "environment": "synthetic-non-production",
         "production": False,
         "production_status": PRODUCTION_STATUS,
-        "materializer_readback_scope": "CLOUDFORMATION_CONTROL_PLANE_ONLY",
+        "materializer_readback_scope": (
+            "LAMBDA_AND_CLOUDFORMATION_CONTROL_PLANE"
+        ),
         "provider_certification_complete": False,
         "gug357_certification_required": True,
         "execution_mode": execution_mode,
@@ -1703,6 +2515,42 @@ def build_materialization_receipt(
         "target_state": target_state,
         "plan_digest": plan["plan_digest"],
         "authorization_digest": authorization["authorization_digest"],
+        "gug363_pre_function_binding_sha256": authorization[
+            "gug363_pre_function_binding_sha256"
+        ],
+        "function_configurator_contract_digest": authorization[
+            "function_configurator_contract_digest"
+        ],
+        "function_configuration_request_projection_digest": authorization[
+            "function_configuration_request_projection_digest"
+        ],
+        "broker_function_evidence_digest": authorization[
+            "broker_function_evidence_digest"
+        ],
+        "function_configurator_checkpoint_digest": authorization[
+            "function_configurator_checkpoint_digest"
+        ],
+        "function_configurator_authority_ended_at": authorization[
+            "function_configurator_authority_ended_at"
+        ],
+        "activator_checkpoint_digest": authorization[
+            "activator_checkpoint_digest"
+        ],
+        "activator_authority_ended_at": authorization[
+            "activator_authority_ended_at"
+        ],
+        "service_role_evidence_scope": authorization[
+            "service_role_evidence_scope"
+        ],
+        "service_role_evidence_collected_at": authorization[
+            "service_role_evidence_collected_at"
+        ],
+        "post_activator_bundle_readback_complete": authorization[
+            "post_activator_bundle_readback_complete"
+        ],
+        "service_role_evidence_digest": authorization[
+            "service_role_evidence_digest"
+        ],
         "execution_ledger_digest": ledger_digest,
         "stack_id_sha256": digest_text(stack_id) if stack_id else None,
         "stack_status": stack_status,
@@ -1716,6 +2564,7 @@ def build_materialization_receipt(
         "ambiguous_response": ambiguous_response,
         "no_touch": no_touch,
         "artifact_signing_readback_complete": artifact_signing_readback_complete,
+        "broker_function_readback_complete": broker_function_readback_complete,
         "readback_complete": readback_complete,
         "mutation_retry_attempted": False,
         "retry_permitted": False,
@@ -1743,11 +2592,22 @@ def validate_materialization_receipt(
         "production", "production_status", "materializer_readback_scope",
         "provider_certification_complete", "gug357_certification_required",
         "execution_mode", "status", "target_state", "plan_digest",
-        "authorization_digest", "execution_ledger_digest", "stack_id_sha256",
+        "authorization_digest", "gug363_pre_function_binding_sha256",
+        "function_configurator_contract_digest",
+        "function_configuration_request_projection_digest",
+        "broker_function_evidence_digest",
+        "function_configurator_checkpoint_digest",
+        "function_configurator_authority_ended_at",
+        "activator_checkpoint_digest", "activator_authority_ended_at",
+        "service_role_evidence_scope", "service_role_evidence_collected_at",
+        "post_activator_bundle_readback_complete",
+        "service_role_evidence_digest",
+        "execution_ledger_digest", "stack_id_sha256",
         "stack_status", "expected_resource_set_digest", "observed_resource_set_digest",
         "expected_resource_count", "observed_resource_count", "aws_operations",
         "aws_mutation_attempted", "aws_mutation_count", "ambiguous_response",
-        "no_touch", "artifact_signing_readback_complete", "readback_complete",
+        "no_touch", "artifact_signing_readback_complete",
+        "broker_function_readback_complete", "readback_complete",
         "mutation_retry_attempted", "retry_permitted",
         "broker_invocations", "retirement_effects_attempted",
         "prohibited_operation_attempted", "created_at", "receipt_digest",
@@ -1763,12 +2623,35 @@ def validate_materialization_receipt(
         or receipt.get("production") is not False
         or receipt.get("production_status") != PRODUCTION_STATUS
         or receipt.get("materializer_readback_scope")
-        != "CLOUDFORMATION_CONTROL_PLANE_ONLY"
+        != "LAMBDA_AND_CLOUDFORMATION_CONTROL_PLANE"
         or receipt.get("provider_certification_complete") is not False
         or receipt.get("gug357_certification_required") is not True
         or receipt.get("execution_mode") not in {"APPLY", "RECONCILE"}
         or receipt.get("plan_digest") != plan["plan_digest"]
         or receipt.get("authorization_digest") != authorization["authorization_digest"]
+        or receipt.get("gug363_pre_function_binding_sha256")
+        != authorization["gug363_pre_function_binding_sha256"]
+        or receipt.get("function_configurator_contract_digest")
+        != authorization["function_configurator_contract_digest"]
+        or receipt.get("function_configuration_request_projection_digest")
+        != authorization["function_configuration_request_projection_digest"]
+        or receipt.get("broker_function_evidence_digest")
+        != authorization["broker_function_evidence_digest"]
+        or receipt.get("function_configurator_checkpoint_digest")
+        != authorization["function_configurator_checkpoint_digest"]
+        or receipt.get("function_configurator_authority_ended_at")
+        != authorization["function_configurator_authority_ended_at"]
+        or receipt.get("activator_checkpoint_digest")
+        != authorization["activator_checkpoint_digest"]
+        or receipt.get("activator_authority_ended_at")
+        != authorization["activator_authority_ended_at"]
+        or receipt.get("service_role_evidence_scope")
+        != "POST_ACTIVATOR_FULL_BUNDLE_READBACK"
+        or receipt.get("service_role_evidence_collected_at")
+        != authorization["service_role_evidence_collected_at"]
+        or receipt.get("post_activator_bundle_readback_complete") is not True
+        or receipt.get("service_role_evidence_digest")
+        != authorization["service_role_evidence_digest"]
         or receipt.get("expected_resource_set_digest")
         != plan["expected_resource_set_digest"]
         or receipt.get("expected_resource_count") != len(EXPECTED_RESOURCE_TYPES)
@@ -1780,6 +2663,7 @@ def validate_materialization_receipt(
     ):
         raise RetirementEntrypointMaterializationError("RECEIPT_SCOPE_INVALID")
     allowed_statuses = {
+        "AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION",
         "CREATESTACK_ACCEPTED_RECONCILE_REQUIRED",
         "READBACK_PENDING_NO_MUTATION",
         "READBACK_VERIFIED",
@@ -1797,6 +2681,7 @@ def validate_materialization_receipt(
             "ambiguous_response",
             "no_touch",
             "artifact_signing_readback_complete",
+            "broker_function_readback_complete",
             "readback_complete",
         )
     ):
@@ -1808,7 +2693,16 @@ def validate_materialization_receipt(
     ledger_digest = receipt.get("execution_ledger_digest")
     if ledger_digest is not None:
         _require_digest(ledger_digest, "RECEIPT_LEDGER_DIGEST_INVALID")
-    if execution_mode == "APPLY" and not attempted and ledger_digest is not None:
+    post_claim_expiry = (
+        receipt.get("status")
+        == "AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION"
+    )
+    if (
+        execution_mode == "APPLY"
+        and not attempted
+        and ledger_digest is not None
+        and not post_claim_expiry
+    ):
         raise RetirementEntrypointMaterializationError("RECEIPT_LEDGER_OVERCLAIM")
     if execution_mode == "RECONCILE" and (attempted or ledger_digest is None):
         raise RetirementEntrypointMaterializationError("RECEIPT_RECONCILE_INVALID")
@@ -1816,10 +2710,13 @@ def validate_materialization_receipt(
         raise RetirementEntrypointMaterializationError("RECEIPT_NO_TOUCH_INVALID")
     if (
         receipt.get("readback_complete") is True
-        and receipt.get("artifact_signing_readback_complete") is not True
+        and (
+            receipt.get("artifact_signing_readback_complete") is not True
+            or receipt.get("broker_function_readback_complete") is not True
+        )
     ):
         raise RetirementEntrypointMaterializationError(
-            "RECEIPT_SIGNING_READBACK_REQUIRED"
+            "RECEIPT_PROVIDER_READBACK_REQUIRED"
         )
     stack_id_digest = receipt.get("stack_id_sha256")
     observed_digest = receipt.get("observed_resource_set_digest")
@@ -1860,6 +2757,11 @@ def validate_materialization_receipt(
     ):
         raise RetirementEntrypointMaterializationError("RECEIPT_UNCERTAINTY_INVALID")
     status_rules: dict[str, tuple[set[str], bool | None, bool | None]] = {
+        "AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION": (
+            {"ABSENT"},
+            False,
+            False,
+        ),
         "CREATESTACK_ACCEPTED_RECONCILE_REQUIRED": ({"IN_PROGRESS"}, True, False),
         "READBACK_PENDING_NO_MUTATION": ({"IN_PROGRESS", "AMBIGUOUS"}, False, None),
         "READBACK_VERIFIED": ({"COMPLETE"}, None, True),
@@ -1950,6 +2852,18 @@ def validate_materialization_receipt(
     ):
         raise RetirementEntrypointMaterializationError(
             "RECEIPT_SIGNING_READBACK_OVERCLAIM"
+        )
+    function_readback_complete = receipt.get(
+        "broker_function_readback_complete"
+    ) is True
+    function_operation_count = PREFLIGHT_OPERATIONS.index("lambda:GetPolicy") + 1
+    if function_readback_complete and not (
+        len(operations) >= function_operation_count
+        and operations[:function_operation_count]
+        == list(PREFLIGHT_OPERATIONS[:function_operation_count])
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "RECEIPT_BROKER_FUNCTION_READBACK_OVERCLAIM"
         )
     _parse_timestamp(receipt.get("created_at"), "RECEIPT_TIME_INVALID")
     _self_digest(receipt, "receipt_digest", "RECEIPT_DIGEST_MISMATCH")
@@ -2709,6 +3623,321 @@ def _refresh_artifact_signing_readback(
         )
 
 
+def _validate_broker_configuration(
+    configuration: Any, *, plan: Mapping[str, Any]
+) -> str:
+    if not isinstance(configuration, Mapping):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CONFIGURATION_MISMATCH"
+        )
+    signed = plan["artifact_signing_contract"]["signed_destination"]
+    parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in plan["parameter_projection"]
+    }
+    environment = plan["function_configurator"]["update_request_projection"][
+        "Environment"
+    ]
+    expected = {
+        "FunctionName": BROKER_FUNCTION_NAME,
+        "FunctionArn": BROKER_FUNCTION_ARN,
+        "Runtime": "python3.12",
+        "Role": BROKER_EXECUTION_ROLE_ARN,
+        "Handler": BROKER_HANDLER,
+        "CodeSize": signed["archive_size_bytes"],
+        "Description": "GUG-215 exact retained Change Set retirement PEP",
+        "Timeout": 60,
+        "MemorySize": 256,
+        "CodeSha256": signed["lambda_code_sha256"],
+        "Version": "$LATEST",
+        "Environment": environment,
+        "PackageType": "Zip",
+        "Architectures": ["x86_64"],
+        "EphemeralStorage": {"Size": 512},
+        "LoggingConfig": {
+            "LogFormat": "JSON",
+            "ApplicationLogLevel": "ERROR",
+            "SystemLogLevel": "WARN",
+            "LogGroup": LOG_GROUP_NAME,
+        },
+        "State": "Active",
+        "LastUpdateStatus": "Successful",
+        "RuntimeVersionConfig": {
+            "RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"]
+        },
+        "VpcConfig": {
+            "SubnetIds": [],
+            "SecurityGroupIds": [],
+            "VpcId": "",
+        },
+        "Layers": [],
+        "FileSystemConfigs": [],
+        "DeadLetterConfig": {},
+        "TracingConfig": {"Mode": "PassThrough"},
+        "SnapStart": {"ApplyOn": "None", "OptimizationStatus": "Off"},
+    }
+    safe_defaults = _expected_broker_safe_configuration_defaults()
+    configured_optional_surfaces = {
+        key: configuration.get(key) for key in safe_defaults
+    }
+    image_config = configured_optional_surfaces["ImageConfigResponse"]
+    image_config_is_empty = image_config in (None, {}) or (
+        isinstance(image_config, Mapping)
+        and set(image_config) == {"ImageConfig"}
+        and image_config.get("ImageConfig") == {}
+    )
+    if (
+        any(configuration.get(key) != value for key, value in expected.items())
+        or configuration.get("KMSKeyArn") not in (None, "")
+        or any(
+            configured_optional_surfaces[key] not in (None, {})
+            for key in ("CapacityProviderConfig", "DurableConfig", "TenancyConfig")
+        )
+        or not image_config_is_empty
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CONFIGURATION_MISMATCH"
+        )
+    revision_id = configuration.get("RevisionId")
+    if (
+        not isinstance(revision_id, str)
+        or not revision_id
+        or len(revision_id) > 256
+        or any(
+            ord(character) < 0x21 or ord(character) == 0x7F
+            for character in revision_id
+        )
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_REVISION_ID_INVALID"
+        )
+    return revision_id
+
+
+def _exact_provider_business_response(
+    response: object,
+    *,
+    expected: Mapping[str, Any],
+) -> bool:
+    """Compare exact business fields while permitting only SDK metadata."""
+
+    if not isinstance(response, Mapping):
+        return False
+    allowed = {*expected, "ResponseMetadata"}
+    if set(response) != set(expected) and set(response) != allowed:
+        return False
+    metadata = response.get("ResponseMetadata")
+    return (metadata is None or isinstance(metadata, Mapping)) and all(
+        response.get(key) == value for key, value in expected.items()
+    )
+
+
+def _refresh_broker_function_readback(
+    *,
+    plan: Mapping[str, Any],
+    client_factory: ClientFactory,
+    operations: list[str],
+) -> None:
+    """Re-read the configured inert function immediately before CreateStack."""
+
+    lambda_client = client_factory.lambda_client()
+    operations.append("lambda:GetFunction")
+    try:
+        function = lambda_client.get_function(FunctionName=BROKER_FUNCTION_NAME)
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_READBACK_UNAVAILABLE"
+        ) from exc
+    if not isinstance(function, Mapping):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_READBACK_MISMATCH"
+        )
+    revision_id = _validate_broker_configuration(
+        function.get("Configuration"), plan=plan
+    )
+    code = function.get("Code")
+    expected_signed = plan["artifact_signing_contract"]["signed_destination"]
+    if not isinstance(code, Mapping) or code.get("RepositoryType") != "S3":
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CODE_READBACK_MISMATCH"
+        )
+    resolved = code.get("ResolvedS3Object")
+    if resolved is not None and resolved != {
+        "Bucket": expected_signed["bucket"],
+        "Key": expected_signed["key"],
+        "Version": expected_signed["version_id"],
+    }:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CODE_READBACK_MISMATCH"
+        )
+    if function.get("Tags") != _expected_broker_function_tags(plan):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_TAG_READBACK_MISMATCH"
+        )
+
+    operations.append("lambda:GetFunctionConfiguration")
+    try:
+        configuration = lambda_client.get_function_configuration(
+            FunctionName=BROKER_FUNCTION_NAME
+        )
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CONFIGURATION_READBACK_UNAVAILABLE"
+        ) from exc
+    if _validate_broker_configuration(configuration, plan=plan) != revision_id:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_REVISION_CHANGED"
+        )
+
+    operations.append("lambda:GetFunctionCodeSigningConfig")
+    try:
+        function_csc = lambda_client.get_function_code_signing_config(
+            FunctionName=BROKER_FUNCTION_NAME
+        )
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CSC_READBACK_UNAVAILABLE"
+        ) from exc
+    parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in plan["parameter_projection"]
+    }
+    if not _exact_provider_business_response(
+        function_csc,
+        expected={
+            "CodeSigningConfigArn": parameters["BrokerCodeSigningConfigArn"]
+        },
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CSC_READBACK_MISMATCH"
+        )
+
+    operations.append("lambda:GetFunctionConcurrency")
+    try:
+        concurrency = lambda_client.get_function_concurrency(
+            FunctionName=BROKER_FUNCTION_NAME
+        )
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CONCURRENCY_READBACK_UNAVAILABLE"
+        ) from exc
+    if not _exact_provider_business_response(
+        concurrency,
+        expected={"ReservedConcurrentExecutions": 1},
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_CONCURRENCY_READBACK_MISMATCH"
+        )
+
+    operations.append("lambda:GetRuntimeManagementConfig")
+    try:
+        runtime = lambda_client.get_runtime_management_config(
+            FunctionName=BROKER_FUNCTION_NAME
+        )
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_RUNTIME_READBACK_UNAVAILABLE"
+        ) from exc
+    if not _exact_provider_business_response(
+        runtime,
+        expected={
+            "FunctionArn": BROKER_FUNCTION_ARN,
+            "UpdateRuntimeOn": "Manual",
+            "RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"],
+        },
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_RUNTIME_READBACK_MISMATCH"
+        )
+
+    operations.append("lambda:ListTags")
+    try:
+        tags = lambda_client.list_tags(Resource=BROKER_FUNCTION_ARN)
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_TAG_READBACK_UNAVAILABLE"
+        ) from exc
+    if not _exact_provider_business_response(
+        tags,
+        expected={"Tags": _expected_broker_function_tags(plan)},
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_TAG_READBACK_MISMATCH"
+        )
+
+    operations.append("lambda:ListVersionsByFunction")
+    try:
+        versions = lambda_client.list_versions_by_function(
+            FunctionName=BROKER_FUNCTION_NAME, MaxItems=50
+        )
+    except Exception as exc:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_VERSION_READBACK_UNAVAILABLE"
+        ) from exc
+    version_items = versions.get("Versions") if isinstance(versions, Mapping) else None
+    if (
+        not isinstance(version_items, list)
+        or len(version_items) != 1
+        or version_items[0].get("Version") != "$LATEST"
+        or version_items[0].get("CodeSha256") != expected_signed["lambda_code_sha256"]
+        or (isinstance(versions, Mapping) and versions.get("NextMarker") is not None)
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_VERSION_READBACK_MISMATCH"
+        )
+
+    for action, method_name, response_key, unavailable_code, mismatch_code in (
+        (
+            "lambda:ListAliases",
+            "list_aliases",
+            "Aliases",
+            "BROKER_FUNCTION_ALIAS_READBACK_UNAVAILABLE",
+            "BROKER_FUNCTION_ALIAS_READBACK_MISMATCH",
+        ),
+        (
+            "lambda:ListFunctionUrlConfigs",
+            "list_function_url_configs",
+            "FunctionUrlConfigs",
+            "BROKER_FUNCTION_URL_READBACK_UNAVAILABLE",
+            "BROKER_FUNCTION_URL_READBACK_MISMATCH",
+        ),
+    ):
+        operations.append(action)
+        try:
+            response = getattr(lambda_client, method_name)(
+                FunctionName=BROKER_FUNCTION_NAME, MaxItems=50
+            )
+        except Exception as exc:
+            raise RetirementEntrypointMaterializationError(unavailable_code) from exc
+        if (
+            not isinstance(response, Mapping)
+            or response.get(response_key) != []
+            or response.get("NextMarker") is not None
+        ):
+            raise RetirementEntrypointMaterializationError(mismatch_code)
+
+    operations.append("lambda:GetPolicy")
+    try:
+        lambda_client.get_policy(FunctionName=BROKER_FUNCTION_NAME)
+    except Exception as exc:
+        code_value, _ = _aws_error(exc)
+        if code_value != "ResourceNotFoundException":
+            raise RetirementEntrypointMaterializationError(
+                "BROKER_FUNCTION_POLICY_READBACK_UNAVAILABLE"
+            ) from exc
+    else:
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_POLICY_PRESENT"
+        )
+    observed_evidence = broker_function_evidence_digest(
+        plan=plan, revision_id=revision_id
+    )
+    if observed_evidence != plan.get("broker_function_evidence_digest"):
+        raise RetirementEntrypointMaterializationError(
+            "BROKER_FUNCTION_EVIDENCE_DIGEST_MISMATCH"
+        )
+
+
 def _identity_digest(identity: Any, authorization: Mapping[str, Any]) -> str:
     if not isinstance(identity, Mapping):
         raise RetirementEntrypointMaterializationError("CALLER_IDENTITY_INVALID")
@@ -2750,6 +3979,7 @@ def apply_materialization(
     ledger: dict[str, Any] | None = None
     mutation_attempted = False
     artifact_signing_readback_complete = False
+    broker_function_readback_complete = False
     try:
         sts = client_factory.sts()
         operations.append("sts:GetCallerIdentity")
@@ -2764,6 +3994,12 @@ def apply_materialization(
             operations=operations,
         )
         artifact_signing_readback_complete = True
+        _refresh_broker_function_readback(
+            plan=plan,
+            client_factory=client_factory,
+            operations=operations,
+        )
+        broker_function_readback_complete = True
 
         operations.append("cloudformation:DescribeStacks")
         second_stack = _describe_stack(cfn, DEDICATED_STACK_NAME)
@@ -2793,6 +4029,7 @@ def apply_materialization(
                 ambiguous_response=True,
                 no_touch=True,
                 artifact_signing_readback_complete=True,
+                broker_function_readback_complete=True,
                 readback_complete=False,
                 created_at=clock(),
             ), None
@@ -2830,6 +4067,7 @@ def apply_materialization(
                 ambiguous_response=state == "AMBIGUOUS",
                 no_touch=True,
                 artifact_signing_readback_complete=True,
+                broker_function_readback_complete=True,
                 readback_complete=state == "COMPLETE",
                 created_at=clock(),
             ), None
@@ -2841,6 +4079,35 @@ def apply_materialization(
             claimed_at=clock(),
         )
         claim_attempt(ledger)
+        try:
+            validate_execution_authorization(
+                authorization,
+                plan=plan,
+                now=clock(),
+                require_active=True,
+            )
+        except RetirementEntrypointMaterializationError as exc:
+            if exc.code != "AUTHORIZATION_NOT_ACTIVE":
+                raise
+            return build_materialization_receipt(
+                plan=plan,
+                authorization=authorization,
+                execution_mode="APPLY",
+                status="AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION",
+                target_state="ABSENT",
+                ledger_digest=ledger["ledger_digest"],
+                stack_id=None,
+                stack_status=None,
+                observed_resources=(),
+                aws_operations=operations,
+                aws_mutation_attempted=False,
+                ambiguous_response=False,
+                no_touch=True,
+                artifact_signing_readback_complete=True,
+                broker_function_readback_complete=True,
+                readback_complete=False,
+                created_at=clock(),
+            ), ledger
         operations.append("cloudformation:CreateStack")
         mutation_attempted = True
         response = cfn.create_stack(**plan["create_stack_request"])
@@ -2880,6 +4147,7 @@ def apply_materialization(
             ambiguous_response=state == "AMBIGUOUS",
             no_touch=False,
             artifact_signing_readback_complete=True,
+            broker_function_readback_complete=True,
             readback_complete=state == "COMPLETE",
             created_at=clock(),
         ), ledger
@@ -2901,6 +4169,7 @@ def apply_materialization(
             ambiguous_response=True,
             no_touch=False,
             artifact_signing_readback_complete=artifact_signing_readback_complete,
+            broker_function_readback_complete=broker_function_readback_complete,
             readback_complete=False,
             created_at=clock(),
         )
@@ -2923,6 +4192,7 @@ def apply_materialization(
             ambiguous_response=True,
             no_touch=False,
             artifact_signing_readback_complete=artifact_signing_readback_complete,
+            broker_function_readback_complete=broker_function_readback_complete,
             readback_complete=False,
             created_at=clock(),
         )
@@ -2951,6 +4221,7 @@ def reconcile_materialization(
     _identity_digest(sts.get_caller_identity(), authorization)
     cfn = client_factory.cloudformation()
     artifact_signing_readback_complete = False
+    broker_function_readback_complete = False
     try:
         operations.append("cloudformation:DescribeStacks")
         first_stack = _describe_stack(cfn, DEDICATED_STACK_NAME)
@@ -2960,6 +4231,12 @@ def reconcile_materialization(
             operations=operations,
         )
         artifact_signing_readback_complete = True
+        _refresh_broker_function_readback(
+            plan=plan,
+            client_factory=client_factory,
+            operations=operations,
+        )
+        broker_function_readback_complete = True
         operations.append("cloudformation:DescribeStacks")
         second_stack = _describe_stack(cfn, DEDICATED_STACK_NAME)
         first_id = first_stack.get("StackId") if first_stack is not None else None
@@ -3005,6 +4282,7 @@ def reconcile_materialization(
         ambiguous_response=state == "AMBIGUOUS",
         no_touch=True,
         artifact_signing_readback_complete=artifact_signing_readback_complete,
+        broker_function_readback_complete=broker_function_readback_complete,
         readback_complete=state == "COMPLETE",
         created_at=clock(),
     )

@@ -1,0 +1,26 @@
+{
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false
+  },
+  "artifact_type": "scanalyze.platform_authority.retirement_ledger_factory_receipt.v1",
+  "schema_version": 1,
+  "status": "CREATED",
+  "reason_code": "LEDGER_EXACT_FULL_READBACK",
+  "attempt": 1,
+  "create_table_call_count": 1,
+  "update_pitr_call_count": 1,
+  "retry_permitted": false,
+  "next_required_action": "REVOKE_FACTORY_AUTHORITY",
+  "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "contract_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "qualified_function_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "resource_policy_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "kms_key_arn_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "kms_key_metadata_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "revision_id_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "active_readback_attempt_count": 2,
+  "policy_readback_attempt_count": 2,
+  "pitr_readback_attempt_count": 1,
+  "receipt_sha256": "sha256:8fd1e16b623a17657845b3bfd43aa7e88d20c0bcb8303d2ff1e77b5746b278cd"
+}

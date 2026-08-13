@@ -9,10 +9,17 @@
     "production", "production_status", "materializer_readback_scope",
     "provider_certification_complete", "gug357_certification_required",
     "execution_mode", "status", "target_state", "plan_digest",
-    "authorization_digest", "execution_ledger_digest", "stack_id_sha256",
+    "authorization_digest", "gug363_pre_function_binding_sha256",
+    "function_configurator_contract_digest",
+    "function_configuration_request_projection_digest",
+    "broker_function_evidence_digest", "function_configurator_checkpoint_digest",
+    "function_configurator_authority_ended_at", "activator_checkpoint_digest",
+    "activator_authority_ended_at", "service_role_evidence_scope",
+    "service_role_evidence_collected_at", "post_activator_bundle_readback_complete",
+    "service_role_evidence_digest", "execution_ledger_digest", "stack_id_sha256",
     "stack_status", "expected_resource_set_digest", "observed_resource_set_digest",
     "expected_resource_count", "observed_resource_count", "aws_operations",
-    "artifact_signing_readback_complete",
+    "artifact_signing_readback_complete", "broker_function_readback_complete",
     "aws_mutation_attempted", "aws_mutation_count", "ambiguous_response", "no_touch",
     "readback_complete", "mutation_retry_attempted", "retry_permitted",
     "broker_invocations", "retirement_effects_attempted",
@@ -26,12 +33,13 @@
     "environment": { "const": "synthetic-non-production" },
     "production": { "const": false },
     "production_status": { "const": "NO-GO" },
-    "materializer_readback_scope": { "const": "CLOUDFORMATION_CONTROL_PLANE_ONLY" },
+    "materializer_readback_scope": { "const": "LAMBDA_AND_CLOUDFORMATION_CONTROL_PLANE" },
     "provider_certification_complete": { "const": false },
     "gug357_certification_required": { "const": true },
     "execution_mode": { "enum": ["APPLY", "RECONCILE"] },
     "status": {
       "enum": [
+        "AUTHORIZATION_EXPIRED_AFTER_CLAIM_NO_MUTATION",
         "CREATESTACK_ACCEPTED_RECONCILE_REQUIRED",
         "READBACK_PENDING_NO_MUTATION", "READBACK_VERIFIED",
         "UNCERTAIN_RECONCILE_ONLY", "NONDESTRUCTIVE_RECOVERY_REQUIRED",
@@ -46,6 +54,18 @@
       "$ref": "#/$defs/digest"
     },
     "authorization_digest": { "$ref": "#/$defs/digest" },
+    "gug363_pre_function_binding_sha256": { "$ref": "#/$defs/digest" },
+    "function_configurator_contract_digest": { "$ref": "#/$defs/digest" },
+    "function_configuration_request_projection_digest": { "$ref": "#/$defs/digest" },
+    "broker_function_evidence_digest": { "$ref": "#/$defs/digest" },
+    "function_configurator_checkpoint_digest": { "$ref": "#/$defs/digest" },
+    "function_configurator_authority_ended_at": { "$ref": "#/$defs/timestamp" },
+    "activator_checkpoint_digest": { "$ref": "#/$defs/digest" },
+    "activator_authority_ended_at": { "$ref": "#/$defs/timestamp" },
+    "service_role_evidence_scope": { "const": "POST_ACTIVATOR_FULL_BUNDLE_READBACK" },
+    "service_role_evidence_collected_at": { "$ref": "#/$defs/timestamp" },
+    "post_activator_bundle_readback_complete": { "const": true },
+    "service_role_evidence_digest": { "$ref": "#/$defs/digest" },
     "execution_ledger_digest": { "$ref": "#/$defs/nullable_digest" },
     "stack_id_sha256": { "$ref": "#/$defs/nullable_digest" },
     "stack_status": {
@@ -56,7 +76,7 @@
     },
     "expected_resource_set_digest": { "$ref": "#/$defs/digest" },
     "observed_resource_set_digest": { "$ref": "#/$defs/nullable_digest" },
-    "expected_resource_count": { "const": 21 },
+    "expected_resource_count": { "const": 14 },
     "observed_resource_count": { "type": "integer", "minimum": 0, "maximum": 2000 },
     "aws_operations": {
       "type": "array",
@@ -66,7 +86,12 @@
           "sts:GetCallerIdentity", "signer:DescribeSigningJob",
           "signer:GetSigningProfile", "s3:GetBucketVersioning",
           "s3:HeadObject", "s3:GetObject", "s3:ListObjectVersions",
-          "lambda:GetCodeSigningConfig", "cloudformation:CreateStack",
+          "lambda:GetCodeSigningConfig", "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration", "lambda:GetFunctionCodeSigningConfig",
+          "lambda:GetFunctionConcurrency", "lambda:GetRuntimeManagementConfig",
+          "lambda:ListTags", "lambda:ListVersionsByFunction", "lambda:ListAliases",
+          "lambda:ListFunctionUrlConfigs", "lambda:GetPolicy",
+          "cloudformation:CreateStack",
           "cloudformation:DescribeStacks", "cloudformation:GetTemplate",
           "cloudformation:ListStackResources", "cloudformation:DescribeStackEvents"
         ]
@@ -74,6 +99,10 @@
     },
     "artifact_signing_readback_complete": {
       "description": "True only after the exact read-only Signer job/profile, versioned unsigned and signed S3 objects, and Lambda code-signing configuration were refreshed successfully for this receipt.",
+      "type": "boolean"
+    },
+    "broker_function_readback_complete": {
+      "description": "True only after the exact post-configurator function, code, environment, runtime, concurrency, tags, versions, aliases, URLs, and absent resource policy were refreshed successfully.",
       "type": "boolean"
     },
     "aws_mutation_attempted": { "type": "boolean" },
@@ -112,7 +141,32 @@
       },
       "then": {
         "properties": {
-          "artifact_signing_readback_complete": { "const": true }
+          "artifact_signing_readback_complete": { "const": true },
+          "broker_function_readback_complete": { "const": true }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "broker_function_readback_complete": { "const": true } },
+        "required": ["broker_function_readback_complete"]
+      },
+      "then": {
+        "properties": {
+          "aws_operations": {
+            "allOf": [
+              { "contains": { "const": "lambda:GetFunction" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:GetFunctionConfiguration" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:GetFunctionCodeSigningConfig" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:GetFunctionConcurrency" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:GetRuntimeManagementConfig" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:ListTags" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:ListVersionsByFunction" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:ListAliases" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:ListFunctionUrlConfigs" }, "minContains": 1, "maxContains": 1 },
+              { "contains": { "const": "lambda:GetPolicy" }, "minContains": 1, "maxContains": 1 }
+            ]
+          }
         }
       }
     },
@@ -209,7 +263,7 @@
           "stack_id_sha256": { "$ref": "#/$defs/digest" },
           "stack_status": { "const": "CREATE_COMPLETE" },
           "observed_resource_set_digest": { "$ref": "#/$defs/digest" },
-          "observed_resource_count": { "const": 21 },
+          "observed_resource_count": { "const": 14 },
           "ambiguous_response": { "const": false },
           "readback_complete": { "const": true }
         }
@@ -251,6 +305,16 @@
         { "const": "s3:HeadObject" },
         { "const": "s3:GetObject" },
         { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "lambda:GetFunction" },
+        { "const": "lambda:GetFunctionConfiguration" },
+        { "const": "lambda:GetFunctionCodeSigningConfig" },
+        { "const": "lambda:GetFunctionConcurrency" },
+        { "const": "lambda:GetRuntimeManagementConfig" },
+        { "const": "lambda:ListTags" },
+        { "const": "lambda:ListVersionsByFunction" },
+        { "const": "lambda:ListAliases" },
+        { "const": "lambda:ListFunctionUrlConfigs" },
+        { "const": "lambda:GetPolicy" },
         { "const": "cloudformation:DescribeStacks" },
         { "const": "cloudformation:CreateStack" },
         { "const": "cloudformation:DescribeStacks" },
@@ -259,8 +323,8 @@
         { "const": "cloudformation:DescribeStackEvents" }
       ],
       "items": false,
-      "minItems": 17,
-      "maxItems": 17
+      "minItems": 27,
+      "maxItems": 27
     },
     "reconcile_complete_operations": {
       "type": "array",
@@ -276,14 +340,24 @@
         { "const": "s3:HeadObject" },
         { "const": "s3:GetObject" },
         { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "lambda:GetFunction" },
+        { "const": "lambda:GetFunctionConfiguration" },
+        { "const": "lambda:GetFunctionCodeSigningConfig" },
+        { "const": "lambda:GetFunctionConcurrency" },
+        { "const": "lambda:GetRuntimeManagementConfig" },
+        { "const": "lambda:ListTags" },
+        { "const": "lambda:ListVersionsByFunction" },
+        { "const": "lambda:ListAliases" },
+        { "const": "lambda:ListFunctionUrlConfigs" },
+        { "const": "lambda:GetPolicy" },
         { "const": "cloudformation:DescribeStacks" },
         { "const": "cloudformation:GetTemplate" },
         { "const": "cloudformation:ListStackResources" },
         { "const": "cloudformation:DescribeStackEvents" }
       ],
       "items": false,
-      "minItems": 15,
-      "maxItems": 15
+      "minItems": 25,
+      "maxItems": 25
     }
   }
 }

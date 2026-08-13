@@ -1,0 +1,156 @@
+{
+  "_test_metadata": {
+    "contains_live_data": false,
+    "synthetic": true
+  },
+  "account_id": "123456789012",
+  "attempt_count": 1,
+  "authority_evaluation_at": "2035-01-02T03:04:05Z",
+  "authority_evidence_collected_at": "2035-01-02T03:03:35Z",
+  "authority_session_expires_at": "2035-01-02T03:18:05Z",
+  "authority_session_identifier_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+  "authority_session_issued_at": "2035-01-02T03:03:05Z",
+  "before_state_digest": "sha256:cad536068f86024662d51b32cbb84942e9a2caa05f9a63c8ed51a978ee9854e8",
+  "bundle_digest": "sha256:186c8231a586c057344cc44347f25dcf45ae5af7d1991e82d60caae519b2a28a",
+  "caller_arn_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "claim": {
+    "claim_nonce_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "claimed_at": "2035-01-02T03:04:06Z",
+    "first_operation_sequence": 1,
+    "next_operation_sequence": 2
+  },
+  "executor_authority_evidence_digest": "sha256:69268b56fd29b043469ff5889d0a39f27bef53247d746e7ce70a2e1756f4eb0e",
+  "expires_at": "2035-01-02T03:14:05Z",
+  "host_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "in_flight_operation": null,
+  "initial_ledger_digest": "sha256:da6661d3f1b26a19f7fe36ed738c71b2b2e311764d06aec5f5dd319f0fc564e8",
+  "ledger_digest": "sha256:20567406eaed6281b6247c8cb5072ff5dcfbc127de34ebb163c988f63db7c339",
+  "ledger_id": "sha256:ec96ec0be55e6ce7bfaeb04cd1a4ab18c56e3ee23a493392b9a4a06207785301",
+  "ledger_version": 6,
+  "not_before": "2035-01-02T03:04:05Z",
+  "operation_count": 2,
+  "operation_outcomes": [
+    {
+      "blind_retry_permitted": false,
+      "next_required_action": "ATTEMPT_NEXT_ORDERED_OPERATION_ONCE",
+      "operation_sequence": 1,
+      "provider_result_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "recorded_at": "2035-01-02T03:04:08Z",
+      "request_digest": "sha256:c2d286c55204ee0f6b6d316341911363d467be22b81cf25f13d712bc26518efb",
+      "result": "SUCCEEDED",
+      "write_attempt_count": 1
+    },
+    {
+      "blind_retry_permitted": false,
+      "next_required_action": "NO_RETRY",
+      "operation_sequence": 2,
+      "provider_result_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "recorded_at": "2035-01-02T03:04:09Z",
+      "request_digest": "sha256:b30f174971f42a984d8dd2420986bc83a67aa82d7ef72768e7654be39e56caef",
+      "result": "SUCCEEDED",
+      "write_attempt_count": 1
+    }
+  ],
+  "ordered_operations_digest": "sha256:4855af4d30a91f159bb41a3d8023f4311c6a96c0869d2224c0079332a7e1b68f",
+  "ordered_request_digests": [
+    "sha256:c2d286c55204ee0f6b6d316341911363d467be22b81cf25f13d712bc26518efb",
+    "sha256:b30f174971f42a984d8dd2420986bc83a67aa82d7ef72768e7654be39e56caef"
+  ],
+  "phase": "POLICY_FACTORY",
+  "plan_digest": "sha256:58f2200953a54c95d74e9de2564934cb1088df36d396d0ca201c06212397bfcc",
+  "predecessor_ledger_digest": null,
+  "predecessor_phase": null,
+  "predecessor_terminal_receipt_digest": null,
+  "previous_ledger_digest": "sha256:bac2779e50d3410224b8fbc595fca5ecbfa126c8e73891371709b5b1769f68ec",
+  "profile_class": "GUG365PolicyFactory",
+  "receipt_chain": [
+    {
+      "at": "2035-01-02T03:04:06Z",
+      "event": "CLAIMED",
+      "facts": {
+        "attempt": 1,
+        "claim_nonce_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "previous_receipt_digest": null,
+      "receipt_digest": "sha256:f294bfc3200826264ef74b5ae5943c5430e8965fc33255724c6e432fd48b84e0",
+      "sequence": 1,
+      "source_ledger_digest": "sha256:69bf5701665ae1f907249dc21c068283a8bf4067ee3fc3d91014ecb5bff38a5a",
+      "source_ledger_version": 1
+    },
+    {
+      "at": "2035-01-02T03:04:07Z",
+      "event": "OPERATION_IN_FLIGHT",
+      "facts": {
+        "attempt": 1,
+        "operation_sequence": 1,
+        "request_digest": "sha256:c2d286c55204ee0f6b6d316341911363d467be22b81cf25f13d712bc26518efb",
+        "retry_permitted": false
+      },
+      "previous_receipt_digest": "sha256:f294bfc3200826264ef74b5ae5943c5430e8965fc33255724c6e432fd48b84e0",
+      "receipt_digest": "sha256:e77ae4bf909d5c9d210e2f4b2ee53724baaa79ce7ad05dcf961c35f6682aa728",
+      "sequence": 2,
+      "source_ledger_digest": "sha256:b3c83e4a2a2d3913e287bfbd533d0d031c33d02af9f165963b9e1c44d0e821ae",
+      "source_ledger_version": 2
+    },
+    {
+      "at": "2035-01-02T03:04:08Z",
+      "event": "OPERATION_SUCCEEDED",
+      "facts": {
+        "next_required_action": "ATTEMPT_NEXT_ORDERED_OPERATION_ONCE",
+        "operation_sequence": 1,
+        "outcome": "SUCCEEDED",
+        "provider_result_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "request_digest": "sha256:c2d286c55204ee0f6b6d316341911363d467be22b81cf25f13d712bc26518efb"
+      },
+      "previous_receipt_digest": "sha256:e77ae4bf909d5c9d210e2f4b2ee53724baaa79ce7ad05dcf961c35f6682aa728",
+      "receipt_digest": "sha256:ea62e7c6503f6dd594035f1d4a2f96bdc863169c49b782ad4c11f7cba346f668",
+      "sequence": 3,
+      "source_ledger_digest": "sha256:01bb81e9e513f0d6902cbfb1dce7169fa806b7f06d0e0b51cb6e19f46fee4958",
+      "source_ledger_version": 3
+    },
+    {
+      "at": "2035-01-02T03:04:08Z",
+      "event": "OPERATION_IN_FLIGHT",
+      "facts": {
+        "attempt": 1,
+        "operation_sequence": 2,
+        "request_digest": "sha256:b30f174971f42a984d8dd2420986bc83a67aa82d7ef72768e7654be39e56caef",
+        "retry_permitted": false
+      },
+      "previous_receipt_digest": "sha256:ea62e7c6503f6dd594035f1d4a2f96bdc863169c49b782ad4c11f7cba346f668",
+      "receipt_digest": "sha256:795f2fcc645cc883d06fdd12ffd2335381fcc979c065ae20c32897539f42e5e2",
+      "sequence": 4,
+      "source_ledger_digest": "sha256:962d57a1adf4ebd884763861e1765f152ac9b88e909625f1ebc1404531bc899e",
+      "source_ledger_version": 4
+    },
+    {
+      "at": "2035-01-02T03:04:09Z",
+      "event": "OPERATION_SUCCEEDED",
+      "facts": {
+        "next_required_action": "NO_RETRY",
+        "operation_sequence": 2,
+        "outcome": "SUCCEEDED",
+        "provider_result_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "request_digest": "sha256:b30f174971f42a984d8dd2420986bc83a67aa82d7ef72768e7654be39e56caef"
+      },
+      "previous_receipt_digest": "sha256:795f2fcc645cc883d06fdd12ffd2335381fcc979c065ae20c32897539f42e5e2",
+      "receipt_digest": "sha256:7ab0570e1a2cca9e5e4a259f7ee9db0e01165bd5c7890c18714ec1365e4a95ab",
+      "sequence": 5,
+      "source_ledger_digest": "sha256:bac2779e50d3410224b8fbc595fca5ecbfa126c8e73891371709b5b1769f68ec",
+      "source_ledger_version": 5
+    }
+  ],
+  "reconciliation": {
+    "classification": "EFFECT_PROVEN",
+    "observed_state_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "provider_writes_performed": 0,
+    "read_only": true,
+    "recorded_at": "2035-01-02T03:04:12Z",
+    "retry_of_ambiguous_write_permitted": false
+  },
+  "record_type": "scanalyze.platform_authority.gug365_phase_execution_ledger.v1",
+  "region": "us-east-1",
+  "required_predecessor_checkpoint_digest": "sha256:cad536068f86024662d51b32cbb84942e9a2caa05f9a63c8ed51a978ee9854e8",
+  "schema_version": 1,
+  "status": "RECONCILED"
+}

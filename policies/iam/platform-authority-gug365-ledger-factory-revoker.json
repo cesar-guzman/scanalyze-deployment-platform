@@ -1,0 +1,71 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmRevokerCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactFactoryRoleAndPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "${ledger_factory_boundary_arn}",
+        "${proof_boundary_arn}",
+        "${ledger_factory_role_arn}"
+      ]
+    },
+    {
+      "Sid": "RevokeFactoryToProofBoundaryFirst",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePermissionsBoundary",
+      "Resource": "${ledger_factory_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "DetachFactoryPolicyOnlyAfterProofBoundary",
+      "Effect": "Allow",
+      "Action": "iam:DetachRolePolicy",
+      "Resource": "${ledger_factory_role_arn}",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PermissionsBoundary": "${proof_boundary_arn}",
+          "iam:PolicyARN": "${ledger_factory_boundary_arn}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryForwardOrFactoryCapability",
+      "Effect": "Deny",
+      "NotAction": [
+        "sts:GetCallerIdentity",
+        "iam:DetachRolePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

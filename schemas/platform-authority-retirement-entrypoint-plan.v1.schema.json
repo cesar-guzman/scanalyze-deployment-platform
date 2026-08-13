@@ -10,7 +10,11 @@
     "two_human_status", "independent_approval_present", "intent_digest",
     "owner_authorization_sha256", "single_operator_exception_digest", "source",
     "target", "artifact_signing_contract", "artifact_signing_contract_digest",
-    "artifact_signing_evidence_digest", "parameter_projection", "parameter_projection_digest",
+    "artifact_signing_evidence_digest", "gug363_pre_function_binding_sha256",
+    "function_configurator", "function_configurator_contract_digest",
+    "function_configuration_state", "broker_function_evidence_digest",
+    "function_configurator_checkpoint_digest",
+    "parameter_projection", "parameter_projection_digest",
     "expected_resources", "expected_resource_count", "expected_resource_set_digest",
     "active_aliases", "normal_aliases_present", "log_group", "preflight_operations",
     "allowed_mutations", "prohibited_operations", "post_write_readback_operations",
@@ -41,16 +45,22 @@
       "description": "Digest of the normalized Signer, versioned S3, and Lambda CSC provider-fact projection implied by the contract and refreshed read-only before use; it never authorizes signing or upload mutations.",
       "$ref": "#/$defs/digest"
     },
+    "gug363_pre_function_binding_sha256": { "$ref": "#/$defs/digest" },
+    "function_configurator": { "$ref": "#/$defs/function_configurator" },
+    "function_configurator_contract_digest": { "$ref": "#/$defs/digest" },
+    "function_configuration_state": { "enum": ["PRE_FUNCTION", "CONFIGURED"] },
+    "broker_function_evidence_digest": { "$ref": "#/$defs/nullable_digest" },
+    "function_configurator_checkpoint_digest": { "$ref": "#/$defs/nullable_digest" },
     "parameter_projection": { "$ref": "#/$defs/parameter_projection" },
     "parameter_projection_digest": { "$ref": "#/$defs/digest" },
     "expected_resources": {
       "type": "array",
-      "minItems": 21,
-      "maxItems": 21,
+      "minItems": 14,
+      "maxItems": 14,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/resource" }
     },
-    "expected_resource_count": { "const": 21 },
+    "expected_resource_count": { "const": 14 },
     "expected_resource_set_digest": { "$ref": "#/$defs/digest" },
     "active_aliases": {
       "type": "array",
@@ -88,11 +98,21 @@
         { "const": "s3:HeadObject" },
         { "const": "s3:GetObject" },
         { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "lambda:GetFunction" },
+        { "const": "lambda:GetFunctionConfiguration" },
+        { "const": "lambda:GetFunctionCodeSigningConfig" },
+        { "const": "lambda:GetFunctionConcurrency" },
+        { "const": "lambda:GetRuntimeManagementConfig" },
+        { "const": "lambda:ListTags" },
+        { "const": "lambda:ListVersionsByFunction" },
+        { "const": "lambda:ListAliases" },
+        { "const": "lambda:ListFunctionUrlConfigs" },
+        { "const": "lambda:GetPolicy" },
         { "const": "cloudformation:DescribeStacks" }
       ],
       "items": false,
-      "minItems": 12,
-      "maxItems": 12
+      "minItems": 22,
+      "maxItems": 22
     },
     "allowed_mutations": {
       "type": "array",
@@ -130,8 +150,130 @@
     "client_request_token": { "type": "string", "pattern": "^gug363-[0-9a-f]{48}$" },
     "plan_digest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "function_configuration_state": { "const": "PRE_FUNCTION" } },
+        "required": ["function_configuration_state"]
+      },
+      "then": {
+        "properties": {
+          "broker_function_evidence_digest": { "const": null },
+          "function_configurator_checkpoint_digest": { "const": null }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "function_configuration_state": { "const": "CONFIGURED" } },
+        "required": ["function_configuration_state"]
+      },
+      "then": {
+        "properties": {
+          "broker_function_evidence_digest": { "$ref": "#/$defs/digest" },
+          "function_configurator_checkpoint_digest": { "$ref": "#/$defs/digest" }
+        }
+      }
+    }
+  ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "nullable_digest": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "function_configurator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version", "phase", "function_name", "function_arn",
+        "gug363_pre_function_binding_sha256", "environment_variable_count",
+        "environment_projection_digest", "update_request_projection",
+        "update_request_projection_digest", "expected_safe_configuration_defaults",
+        "revision_id_mode", "allowed_action",
+        "authority_policy", "attempt_limit", "retry_permitted", "waiter",
+        "post_update_readback_operations", "unknown_outcome_mode",
+        "authority_expiry_required_before_create_stack"
+      ],
+      "properties": {
+        "contract_version": { "const": 1 },
+        "phase": { "const": "FUNCTION_CONFIGURATOR" },
+        "function_name": { "const": "scanalyze-platform-authority-gug215-retirement" },
+        "function_arn": { "const": "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-gug215-retirement" },
+        "gug363_pre_function_binding_sha256": { "$ref": "#/$defs/digest" },
+        "environment_variable_count": { "const": 37 },
+        "environment_projection_digest": { "$ref": "#/$defs/digest" },
+        "update_request_projection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["FunctionName", "Environment"],
+          "properties": {
+            "FunctionName": { "const": "scanalyze-platform-authority-gug215-retirement" },
+            "Environment": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["Variables"],
+              "properties": {
+                "Variables": {
+                  "type": "object",
+                  "minProperties": 37,
+                  "maxProperties": 37,
+                  "additionalProperties": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "update_request_projection_digest": { "$ref": "#/$defs/digest" },
+        "expected_safe_configuration_defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["CapacityProviderConfig", "DurableConfig", "ImageConfigResponse", "TenancyConfig"],
+          "properties": {
+            "CapacityProviderConfig": { "type": "object", "maxProperties": 0 },
+            "DurableConfig": { "type": "object", "maxProperties": 0 },
+            "ImageConfigResponse": { "type": "object", "maxProperties": 0 },
+            "TenancyConfig": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        "revision_id_mode": { "const": "FRESH_PREWRITE_PROVIDER_VALUE_REQUIRED" },
+        "allowed_action": { "const": "lambda:UpdateFunctionConfiguration" },
+        "authority_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_path", "policy_document_digest", "sole_identity_policy_required", "identical_permissions_boundary_required"],
+          "properties": {
+            "source_path": { "const": "policies/iam/platform-authority-gug357-function-configurator.json" },
+            "policy_document_digest": { "$ref": "#/$defs/digest" },
+            "sole_identity_policy_required": { "const": true },
+            "identical_permissions_boundary_required": { "const": true }
+          }
+        },
+        "attempt_limit": { "const": 1 },
+        "retry_permitted": { "const": false },
+        "waiter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api_action", "poll_interval_seconds", "max_poll_attempts", "timeout_seconds", "expected_state", "expected_last_update_status"],
+          "properties": {
+            "api_action": { "const": "lambda:GetFunctionConfiguration" },
+            "poll_interval_seconds": { "const": 3 },
+            "max_poll_attempts": { "const": 20 },
+            "timeout_seconds": { "const": 60 },
+            "expected_state": { "const": "Active" },
+            "expected_last_update_status": { "const": "Successful" }
+          }
+        },
+        "post_update_readback_operations": {
+          "type": "array", "minItems": 10, "maxItems": 10,
+          "items": { "type": "string" }
+        },
+        "unknown_outcome_mode": { "const": "STOP_NO_RETRY_RECONCILE_ONLY" },
+        "authority_expiry_required_before_create_stack": { "const": true }
+      }
+    },
     "raw_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "code_sha256": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
     "timestamp": {
@@ -415,14 +557,24 @@
         { "const": "s3:HeadObject" },
         { "const": "s3:GetObject" },
         { "const": "lambda:GetCodeSigningConfig" },
+        { "const": "lambda:GetFunction" },
+        { "const": "lambda:GetFunctionConfiguration" },
+        { "const": "lambda:GetFunctionCodeSigningConfig" },
+        { "const": "lambda:GetFunctionConcurrency" },
+        { "const": "lambda:GetRuntimeManagementConfig" },
+        { "const": "lambda:ListTags" },
+        { "const": "lambda:ListVersionsByFunction" },
+        { "const": "lambda:ListAliases" },
+        { "const": "lambda:ListFunctionUrlConfigs" },
+        { "const": "lambda:GetPolicy" },
         { "const": "cloudformation:DescribeStacks" },
         { "const": "cloudformation:GetTemplate" },
         { "const": "cloudformation:ListStackResources" },
         { "const": "cloudformation:DescribeStackEvents" }
       ],
       "items": false,
-      "minItems": 15,
-      "maxItems": 15
+      "minItems": 25,
+      "maxItems": 25
     },
     "materialization_operation": {
       "type": "object",
@@ -473,10 +625,8 @@
         "Parameters": { "$ref": "#/$defs/parameter_projection" },
         "Capabilities": {
           "type": "array",
-          "prefixItems": [{ "const": "CAPABILITY_NAMED_IAM" }],
           "items": false,
-          "minItems": 1,
-          "maxItems": 1
+          "maxItems": 0
         },
         "RoleARN": {
           "const": "arn:aws:iam::042360977644:role/scanalyze-platform-authority-gug363-cfn-materializer"

@@ -31,6 +31,7 @@ from tooling.platform_authority_change_set_retirement_broker import (
     EXPECTED_LEDGER_TAGS,
     EXPECTED_RESOURCE_CHANGES,
     EXPECTED_TAGS,
+    LEDGER_FACTORY_ROLE_NAME,
     BrokerConfig,
     BrokerError,
     RetirementBroker,
@@ -38,6 +39,7 @@ from tooling.platform_authority_change_set_retirement_broker import (
     canonical_digest,
     secret_digest,
 )
+
 from tooling.platform_authority_single_operator_retirement_exception import (
     SingleOperatorExceptionError,
     build_single_operator_retirement_exception,
@@ -51,6 +53,10 @@ from tooling.validate_schema import _validate_gug215_ledger
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_ledger_provenance_tag_identifies_reviewed_direct_factory() -> None:
+    assert EXPECTED_LEDGER_TAGS["managed_by"] == "reviewed-direct-dynamodb"
 SCRIPT = REPO_ROOT / "scripts/deployment/platform-authority-change-set-retirement.py"
 BROKER_MODULE = REPO_ROOT / "tooling/platform_authority_change_set_retirement_broker.py"
 PACKAGE_MODULE = (
@@ -66,6 +72,10 @@ APPROVER_POLICY = (
 )
 PEP_TEMPLATE = (
     REPO_ROOT / "bootstrap/cfn-platform-authority-change-set-retirement-ledger.yaml"
+)
+GUG365_MATERIALIZER = (
+    REPO_ROOT
+    / "tooling/platform_authority_retirement_entrypoint_service_role_materializer.py"
 )
 ACCOUNT = "111122223333"
 MANAGEMENT_ACCOUNT = "999900001111"
@@ -380,7 +390,6 @@ class FakeIam:
     def __init__(self, log: list[str], config: BrokerConfig) -> None:
         self.log = log
         self.config = config
-        self.policy_document: Mapping[str, Any] = BROKER_POLICY
         self.trust: Mapping[str, Any] = {
             "Version": "2012-10-17",
             "Statement": [
@@ -391,19 +400,73 @@ class FakeIam:
                 }
             ],
         }
-        self.inline_names = [BROKER_POLICY_NAME]
-        self.attached: list[dict[str, str]] = []
-        self.boundary: object = None
+        self.inline_names: list[str] = []
+        self.boundaries: dict[str, object] = {
+            EXECUTION_ROLE: {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": config.broker_permissions_boundary_arn,
+            },
+            CLASSIFIER_ROLE: {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": (
+                    config.classifier_invoker_permissions_boundary_arn
+                ),
+            },
+            APPROVER_ROLE: {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": (
+                    config.approver_invoker_permissions_boundary_arn
+                ),
+            },
+            CLASSIFIER_PROOF_ROLE: {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": config.proof_permissions_boundary_arn,
+            },
+            APPROVER_PROOF_ROLE: {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": config.proof_permissions_boundary_arn,
+            },
+        }
         self.classifier_trust_override: Mapping[str, Any] | None = None
         self.approver_trust_override: Mapping[str, Any] | None = None
-        self.classifier_policy_document: Mapping[str, Any] = CLASSIFIER_INVOKER_POLICY
-        self.approver_policy_document: Mapping[str, Any] = APPROVER_INVOKER_POLICY
-        self.classifier_proof_policy_document: Mapping[str, Any] = PROOF_POLICY
-        self.approver_proof_policy_document: Mapping[str, Any] = PROOF_POLICY
-        self.classifier_inline_names = [CLASSIFIER_INVOKER_POLICY_NAME]
-        self.approver_inline_names = [APPROVER_INVOKER_POLICY_NAME]
-        self.classifier_proof_inline_names = ["Gug217ZeroAuthorityProof"]
-        self.approver_proof_inline_names = ["Gug217ZeroAuthorityProof"]
+        self.classifier_inline_names: list[str] = []
+        self.approver_inline_names: list[str] = []
+        self.classifier_proof_inline_names: list[str] = []
+        self.approver_proof_inline_names: list[str] = []
+        self.managed_documents: dict[str, Mapping[str, Any]] = {
+            config.broker_permissions_boundary_arn: BROKER_POLICY,
+            config.classifier_invoker_permissions_boundary_arn: (
+                CLASSIFIER_INVOKER_POLICY
+            ),
+            config.approver_invoker_permissions_boundary_arn: (
+                APPROVER_INVOKER_POLICY
+            ),
+            config.proof_permissions_boundary_arn: PROOF_POLICY,
+        }
+        self.attached_overrides: dict[str, list[dict[str, str]]] = {}
+        self.truncated_policy_inventory_role: str | None = None
+        self.extra_policy_roles: dict[str, list[str]] = {}
+        self.extra_policy_versions: set[str] = set()
+
+    def _policy_role_names(self, policy_arn: str) -> list[str]:
+        if policy_arn == self.config.broker_permissions_boundary_arn:
+            expected = [EXECUTION_ROLE]
+        elif policy_arn == self.config.classifier_invoker_permissions_boundary_arn:
+            expected = [CLASSIFIER_ROLE]
+        elif policy_arn == self.config.approver_invoker_permissions_boundary_arn:
+            expected = [APPROVER_ROLE]
+        else:
+            assert policy_arn == self.config.proof_permissions_boundary_arn
+            expected = [CLASSIFIER_PROOF_ROLE, APPROVER_PROOF_ROLE]
+        return sorted([*expected, *self.extra_policy_roles.get(policy_arn, [])])
+
+    def _boundary_role_names(self, policy_arn: str) -> list[str]:
+        expected = self._policy_role_names(policy_arn)
+        if policy_arn == self.config.proof_permissions_boundary_arn:
+            expected = sorted(
+                [*expected, LEDGER_FACTORY_ROLE_NAME]
+            )
+        return expected
 
     def _invoker_trust(self, *, classifier: bool) -> dict[str, Any]:
         principal = (
@@ -506,7 +569,7 @@ class FakeIam:
         role = {
             "Arn": arn,
             "AssumeRolePolicyDocument": trust,
-            "PermissionsBoundary": self.boundary,
+            "PermissionsBoundary": self.boundaries[RoleName],
         }
         if RoleName in {CLASSIFIER_PROOF_ROLE, APPROVER_PROOF_ROLE}:
             role["MaxSessionDuration"] = 3600
@@ -514,16 +577,37 @@ class FakeIam:
 
     def list_role_policies(self, *, RoleName: str) -> dict[str, Any]:
         self.log.append("iam:list-role-policies")
+        truncated = RoleName == self.truncated_policy_inventory_role
         if RoleName == CLASSIFIER_ROLE:
-            return {"PolicyNames": self.classifier_inline_names}
+            return {
+                "PolicyNames": self.classifier_inline_names,
+                "IsTruncated": truncated,
+                **({"Marker": "next"} if truncated else {}),
+            }
         if RoleName == APPROVER_ROLE:
-            return {"PolicyNames": self.approver_inline_names}
+            return {
+                "PolicyNames": self.approver_inline_names,
+                "IsTruncated": truncated,
+                **({"Marker": "next"} if truncated else {}),
+            }
         if RoleName == CLASSIFIER_PROOF_ROLE:
-            return {"PolicyNames": self.classifier_proof_inline_names}
+            return {
+                "PolicyNames": self.classifier_proof_inline_names,
+                "IsTruncated": truncated,
+                **({"Marker": "next"} if truncated else {}),
+            }
         if RoleName == APPROVER_PROOF_ROLE:
-            return {"PolicyNames": self.approver_proof_inline_names}
+            return {
+                "PolicyNames": self.approver_proof_inline_names,
+                "IsTruncated": truncated,
+                **({"Marker": "next"} if truncated else {}),
+            }
         assert RoleName == EXECUTION_ROLE
-        return {"PolicyNames": self.inline_names}
+        return {
+            "PolicyNames": self.inline_names,
+            "IsTruncated": truncated,
+            **({"Marker": "next"} if truncated else {}),
+        }
 
     def list_attached_role_policies(self, *, RoleName: str) -> dict[str, Any]:
         self.log.append("iam:list-attached-role-policies")
@@ -534,25 +618,88 @@ class FakeIam:
             CLASSIFIER_PROOF_ROLE,
             APPROVER_PROOF_ROLE,
         }
-        return {"AttachedPolicies": self.attached}
+        if RoleName in self.attached_overrides:
+            return {
+                "AttachedPolicies": self.attached_overrides[RoleName],
+                "IsTruncated": False,
+            }
+        boundary = self.boundaries[RoleName]
+        assert isinstance(boundary, Mapping)
+        policy_arn = str(boundary["PermissionsBoundaryArn"])
+        return {
+            "AttachedPolicies": [
+                {
+                    "PolicyName": policy_arn.rsplit("/", 1)[-1],
+                    "PolicyArn": policy_arn,
+                }
+            ],
+            "IsTruncated": False,
+        }
 
-    def get_role_policy(self, *, RoleName: str, PolicyName: str) -> dict[str, Any]:
-        self.log.append("iam:get-role-policy")
-        if RoleName == CLASSIFIER_ROLE:
-            assert PolicyName == CLASSIFIER_INVOKER_POLICY_NAME
-            return {"PolicyDocument": self.classifier_policy_document}
-        if RoleName == APPROVER_ROLE:
-            assert PolicyName == APPROVER_INVOKER_POLICY_NAME
-            return {"PolicyDocument": self.approver_policy_document}
-        if RoleName == CLASSIFIER_PROOF_ROLE:
-            assert PolicyName == "Gug217ZeroAuthorityProof"
-            return {"PolicyDocument": self.classifier_proof_policy_document}
-        if RoleName == APPROVER_PROOF_ROLE:
-            assert PolicyName == "Gug217ZeroAuthorityProof"
-            return {"PolicyDocument": self.approver_proof_policy_document}
-        assert RoleName == EXECUTION_ROLE and PolicyName == BROKER_POLICY_NAME
-        return {"PolicyDocument": self.policy_document}
+    def get_policy(self, *, PolicyArn: str) -> dict[str, Any]:
+        self.log.append("iam:get-policy")
+        assert PolicyArn in self.managed_documents
+        return {
+            "Policy": {
+                "Arn": PolicyArn,
+                "DefaultVersionId": "v1",
+                "AttachmentCount": len(self._policy_role_names(PolicyArn)),
+                "PermissionsBoundaryUsageCount": len(
+                    self._boundary_role_names(PolicyArn)
+                ),
+                "IsAttachable": True,
+            }
+        }
 
+    def get_policy_version(
+        self,
+        *,
+        PolicyArn: str,
+        VersionId: str,
+    ) -> dict[str, Any]:
+        self.log.append("iam:get-policy-version")
+        assert PolicyArn in self.managed_documents
+        assert VersionId == "v1"
+        return {
+            "PolicyVersion": {
+                "Document": self.managed_documents[PolicyArn],
+                "VersionId": "v1",
+                "IsDefaultVersion": True,
+            }
+        }
+
+    def list_policy_versions(self, *, PolicyArn: str) -> dict[str, Any]:
+        self.log.append("iam:list-policy-versions")
+        assert PolicyArn in self.managed_documents
+        versions = [{"VersionId": "v1", "IsDefaultVersion": True}]
+        if PolicyArn in self.extra_policy_versions:
+            versions.append({"VersionId": "v2", "IsDefaultVersion": False})
+        return {"Versions": versions, "IsTruncated": False}
+
+    def list_entities_for_policy(
+        self,
+        *,
+        PolicyArn: str,
+        EntityFilter: str,
+        PolicyUsageFilter: str,
+    ) -> dict[str, Any]:
+        self.log.append("iam:list-entities-for-policy")
+        assert PolicyArn in self.managed_documents
+        assert EntityFilter == "Role"
+        assert PolicyUsageFilter in {"PermissionsPolicy", "PermissionsBoundary"}
+        role_names = (
+            self._policy_role_names(PolicyArn)
+            if PolicyUsageFilter == "PermissionsPolicy"
+            else self._boundary_role_names(PolicyArn)
+        )
+        return {
+            "PolicyGroups": [],
+            "PolicyUsers": [],
+            "PolicyRoles": [
+                {"RoleName": name} for name in role_names
+            ],
+            "IsTruncated": False,
+        }
 
 class FakeLambda:
     def __init__(self, log: list[str], config: BrokerConfig) -> None:
@@ -567,6 +714,20 @@ class FakeLambda:
         self.signing_arn = config.code_signing_config_arn
         self.runtime_version_arn = config.broker_runtime_version_arn
         self.runtime_update_mode = "Manual"
+        self.architectures = ["x86_64"]
+        self.dead_letter_config: dict[str, Any] = {}
+        self.ephemeral_storage = {"Size": 512}
+        self.file_system_configs: list[dict[str, Any]] = []
+        self.handler = "tooling.platform_authority_identity_context_pep_runtime.handler"
+        self.kms_key_arn: str | None = None
+        self.layers: list[dict[str, Any]] = []
+        self.memory_size = 256
+        self.package_type = "Zip"
+        self.runtime = "python3.12"
+        self.snap_start = {"ApplyOn": "None", "OptimizationStatus": "Off"}
+        self.timeout = 60
+        self.tracing_config = {"Mode": "PassThrough"}
+        self.vpc_config = {"SubnetIds": [], "SecurityGroupIds": [], "VpcId": ""}
         self.logging_config: dict[str, Any] = {
             "LogFormat": "JSON",
             "ApplicationLogLevel": "ERROR",
@@ -609,6 +770,23 @@ class FakeLambda:
                 "RuntimeVersionArn": self.runtime_version_arn,
             },
             "LoggingConfig": self.logging_config,
+            "Architectures": self.architectures,
+            "DeadLetterConfig": self.dead_letter_config,
+            "EphemeralStorage": self.ephemeral_storage,
+            "FileSystemConfigs": self.file_system_configs,
+            "Handler": self.handler,
+            "KMSKeyArn": self.kms_key_arn,
+            "Layers": self.layers,
+            "MemorySize": self.memory_size,
+            "PackageType": self.package_type,
+            "Runtime": self.runtime,
+            "SnapStart": self.snap_start,
+            "Timeout": self.timeout,
+            "TracingConfig": self.tracing_config,
+            "VpcConfig": self.vpc_config,
+            "Environment": {
+                "Variables": self.config.normalized_runtime_environment()
+            },
         }
 
     def get_function_concurrency(self, *, FunctionName: str) -> dict[str, Any]:
@@ -761,7 +939,10 @@ class FakeDynamoDb:
             ],
         }
         self.table_overrides: dict[str, Any] = {}
+        self.ttl_description: dict[str, Any] = {"TimeToLiveStatus": "DISABLED"}
         self.pitr_enabled = True
+        self.tag_items: list[dict[str, str]] | None = None
+        self.tag_next_token: str | None = None
         self.raise_after_put_commit = False
         self.raise_after_update_states: set[str] = set()
 
@@ -769,8 +950,12 @@ class FakeDynamoDb:
         self.log.append("ddb:describe-table")
         table = {
             "TableStatus": "ACTIVE",
+            "TableName": self.config.ledger_table_name,
             "TableArn": self.config.table_arn,
             "KeySchema": [{"AttributeName": "retirement_id", "KeyType": "HASH"}],
+            "AttributeDefinitions": [
+                {"AttributeName": "retirement_id", "AttributeType": "S"}
+            ],
             "DeletionProtectionEnabled": True,
             "SSEDescription": {
                 "Status": "ENABLED",
@@ -778,10 +963,18 @@ class FakeDynamoDb:
                 "KMSMasterKeyArn": LEDGER_KMS_KEY_ARN,
             },
             "BillingModeSummary": {"BillingMode": "PAY_PER_REQUEST"},
+            "TableClassSummary": {"TableClass": "STANDARD"},
+            "LocalSecondaryIndexes": [],
+            "GlobalSecondaryIndexes": [],
             "Replicas": [],
+            "GlobalTableWitnesses": [],
         }
         table.update(self.table_overrides)
         return {"Table": table}
+
+    def describe_time_to_live(self, *, TableName: str) -> dict[str, Any]:
+        self.log.append("ddb:describe-time-to-live")
+        return {"TimeToLiveDescription": dict(self.ttl_description)}
 
     def describe_continuous_backups(self, *, TableName: str) -> dict[str, Any]:
         self.log.append("ddb:describe-continuous-backups")
@@ -802,7 +995,16 @@ class FakeDynamoDb:
             "account_id": ACCOUNT,
             "region": REGION,
         }
-        return {"Tags": [{"Key": key, "Value": value} for key, value in tags.items()]}
+        response: dict[str, Any] = {
+            "Tags": (
+                list(self.tag_items)
+                if self.tag_items is not None
+                else [{"Key": key, "Value": value} for key, value in tags.items()]
+            )
+        }
+        if self.tag_next_token is not None:
+            response["NextToken"] = self.tag_next_token
+        return response
 
     def get_resource_policy(self, *, ResourceArn: str) -> dict[str, Any]:
         self.log.append("ddb:get-resource-policy")
@@ -1173,10 +1375,11 @@ def test_cloudformation_alias_families_are_mutually_exclusive_by_condition() -> 
         assert "Condition: SingleOperatorMode" in block
         assert "Condition: TwoHumanMode" not in block
 
-    for role_name in ("ClassifierInvokerRole", "ApproverInvokerRole"):
-        block = resource_block(role_name)
-        assert "- SingleOperatorMode" in block
-        assert "single-" in block
+    assert "Type: AWS::IAM::Role" not in source
+    assert "!GetAtt ClassifierInvokerRole" not in source
+    assert "!GetAtt ApproverInvokerRole" not in source
+    assert source.count("role/ScanalyzeGug215ClassifierInvoker") == 4
+    assert source.count("role/ScanalyzeGug215ApproverInvoker") == 8
 
 
 @pytest.mark.parametrize(
@@ -1427,11 +1630,12 @@ def test_bootstrap_policy_validator_rejects_reintroduced_direct_delete() -> None
         )
 
 
-def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> None:
+def test_pep_template_has_no_iam_or_ledger_materialization_authority() -> None:
     source = PEP_TEMPLATE.read_text(encoding="utf-8")
     assert yaml.compose(source) is not None
-    assert source.count("Type: AWS::DynamoDB::Table") == 1
-    assert source.count("Type: AWS::Lambda::Function") == 1
+    assert source.count("Type: AWS::DynamoDB::Table") == 0
+    assert source.count("Type: AWS::IAM::Role") == 0
+    assert source.count("Type: AWS::Lambda::Function") == 0
     assert source.count("Type: AWS::Lambda::Version") == 1
     assert source.count("Type: AWS::Lambda::Alias") == 6
     assert source.count("Type: AWS::Lambda::Url") == 6
@@ -1439,16 +1643,10 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
     assert source.count("AuthType: AWS_IAM") >= 6
     assert source.count("InvokeMode: BUFFERED") == 6
     assert "CodeSha256: !Ref BrokerArtifactCodeSha256" in source
-    assert "ReservedConcurrentExecutions: 1" in source
-    assert "lambda:GetPolicy" in source
-    assert "DenyWritesOutsideRetirementBroker" in source
-    assert "dynamodb:LeadingKeys: 'false'" in source
-    assert "aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215BrokerExecution" in source
-    assert "sts:RequestContext/identitystore:UserId" in source
-    assert "identitystore:IdentityStoreArn" in source
-    assert "identitycenter:ApplicationArn" in source
-    assert "sts:RequestContextProviders" in source
-    assert "arn:aws:iam::aws:contextProvider/IdentityCenter" in source
+    assert "ReservedConcurrentExecutions: 1" not in source
+    assert "ResourcePolicy:" not in source
+    assert "dynamodb:PutResourcePolicy" not in source
+    assert "Role: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug215BrokerExecution" not in source
     assert "IfExists" not in source
     assert "dynamodb:PartiQLBatchWrite" not in source
     assert "dynamodb:ExecuteStatement" not in source
@@ -1461,30 +1659,17 @@ def test_pep_template_has_one_non_human_delete_writer_and_identity_context() -> 
     assert "Name: single-classify" in source
     assert "Name: single-retire" in source
     assert "Name: single-reconcile" in source
-    assert "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256" in source
-    assert "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256" in source
-    assert "RuntimeManagementConfig:" in source
-    assert "UpdateRuntimeOn: Manual" in source
-    assert "RuntimeVersionArn: !Ref BrokerRuntimeVersionArn" in source
-    assert "BROKER_RUNTIME_VERSION_ARN: !Ref BrokerRuntimeVersionArn" in source
-    assert (
-        "BROKER_VERSION_BINDING_SHA256: !Ref BrokerVersionBindingSha256" in source
-    )
+    assert "SINGLE_OPERATOR_OWNER_AUTHORIZATION_SHA256" not in source
+    assert "SINGLE_OPERATOR_EXPECTED_AUTHORIZATION_SHA256" not in source
+    assert "RuntimeManagementConfig:" not in source
+    assert "UpdateRuntimeOn: Manual" not in source
+    assert "RuntimeVersionArn: !Ref BrokerRuntimeVersionArn" not in source
+    assert "BROKER_RUNTIME_VERSION_ARN: !Ref BrokerRuntimeVersionArn" not in source
+    assert "BROKER_VERSION_BINDING_SHA256: !Ref BrokerVersionBindingSha256" not in source
     assert "GUG-215 ${BrokerVersionBindingSha256}" in source
     assert "${SingleOperatorExpectedAuthorizationSha256}" in source
-    assert "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT" in source
-    execution_section = source[
-        source.index("RetirementBrokerExecutionRole:") : source.index(
-            "RetirementBrokerFunction:"
-        )
-    ]
-    assert execution_section.count("cloudformation:DeleteChangeSet") == 1
-    classifier_section = source[
-        source.index("ClassifierInvokerRole:") : source.index("ApproverInvokerRole:")
-    ]
-    approver_section = source[source.index("ApproverInvokerRole:") :]
-    assert "Effect: Allow\n                Action: cloudformation:DeleteChangeSet" not in classifier_section
-    assert "Effect: Allow\n                Action: cloudformation:DeleteChangeSet" not in approver_section
+    assert "SINGLE_OPERATOR_EXCEPTION_EXPIRES_AT" not in source
+    assert "cloudformation:DeleteChangeSet" not in source
 
 
 def test_classification_is_service_owned_create_only_and_sanitized() -> None:
@@ -1723,7 +1908,10 @@ def test_single_operator_ledger_rejects_exception_configuration_drift() -> None:
         )
     )
     broker_b = RetirementBroker(config=config_b, clients=clients, now=lambda: NOW)
-    with pytest.raises(BrokerError, match="LEDGER_BINDING_CHANGED"):
+    with pytest.raises(
+        BrokerError,
+        match="BROKER_CODE_BOUNDARY_CHANGED|LEDGER_BINDING_CHANGED",
+    ):
         _handle(broker_b, alias=ALIAS_SINGLE_RETIRE)
     assert clients.cloudformation.delete_calls == 0
     assert clients.dynamodb.ledger is not None
@@ -2160,6 +2348,11 @@ def test_reconciliation_revalidates_stack_continuity_before_terminal_cas() -> No
         ("attached", "BROKER_ROLE_POLICY_INVENTORY_CHANGED"),
         ("code", "BROKER_CODE_BOUNDARY_CHANGED"),
         ("runtime", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("layer", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("ephemeral", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("vpc", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("dead-letter", "BROKER_CODE_BOUNDARY_CHANGED"),
+        ("tracing", "BROKER_CODE_BOUNDARY_CHANGED"),
         ("logging", "BROKER_CODE_BOUNDARY_CHANGED"),
         ("runtime-mode", "BROKER_RUNTIME_MANAGEMENT_CHANGED"),
         ("concurrency", "BROKER_CONCURRENCY_CHANGED"),
@@ -2177,17 +2370,36 @@ def test_effective_broker_role_code_alias_and_signing_are_read_back(
     config = _config()
     clients = FakeClients(config)
     if mutation == "policy":
-        clients.iam.policy_document = {"Version": "2012-10-17", "Statement": []}
+        clients.iam.managed_documents[config.broker_permissions_boundary_arn] = {
+            "Version": "2012-10-17",
+            "Statement": [],
+        }
     elif mutation == "trust":
         clients.iam.trust = {"Version": "2012-10-17", "Statement": []}
     elif mutation == "attached":
-        clients.iam.attached = [{"PolicyName": "Broad", "PolicyArn": "arn:synthetic"}]
+        clients.iam.attached_overrides[EXECUTION_ROLE] = []
     elif mutation == "code":
         clients.lambda_client.code_sha256 = "B" * 43 + "="
     elif mutation == "runtime":
         clients.lambda_client.runtime_version_arn = (
             f"arn:aws:lambda:{REGION}::runtime:" + "b" * 64
         )
+    elif mutation == "layer":
+        clients.lambda_client.layers = [{"Arn": "arn:aws:lambda:us-east-1:123456789012:layer:foreign:1"}]
+    elif mutation == "ephemeral":
+        clients.lambda_client.ephemeral_storage = {"Size": 10240}
+    elif mutation == "vpc":
+        clients.lambda_client.vpc_config = {
+            "SubnetIds": ["subnet-foreign"],
+            "SecurityGroupIds": ["sg-foreign"],
+            "VpcId": "vpc-foreign",
+        }
+    elif mutation == "dead-letter":
+        clients.lambda_client.dead_letter_config = {
+            "TargetArn": "arn:aws:sqs:us-east-1:123456789012:foreign"
+        }
+    elif mutation == "tracing":
+        clients.lambda_client.tracing_config = {"Mode": "Active"}
     elif mutation == "logging":
         clients.lambda_client.logging_config["ApplicationLogLevel"] = "INFO"
     elif mutation == "runtime-mode":
@@ -2233,7 +2445,9 @@ def test_effective_invoker_trust_and_policy_are_read_back(
             "Statement": [],
         }
     elif mutation == "policy":
-        clients.iam.classifier_policy_document = {
+        clients.iam.managed_documents[
+            clients.config.classifier_invoker_permissions_boundary_arn
+        ] = {
             "Version": "2012-10-17",
             "Statement": [],
         }
@@ -2246,15 +2460,122 @@ def test_effective_invoker_trust_and_policy_are_read_back(
     assert clients.cloudformation.delete_calls == 0
 
 
+def test_truncated_role_policy_inventory_blocks_before_any_effect() -> None:
+    clients = FakeClients(_config())
+    clients.iam.truncated_policy_inventory_role = EXECUTION_ROLE
+    broker, _ = _broker(clients)
+
+    with pytest.raises(
+        BrokerError, match="BROKER_ROLE_POLICY_INVENTORY_CHANGED"
+    ):
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
+
+
+@pytest.mark.parametrize("mutation", ("extra-role", "extra-version"))
+def test_managed_policy_entity_or_version_drift_blocks_before_any_effect(
+    mutation: str,
+) -> None:
+    config = _config()
+    clients = FakeClients(config)
+    if mutation == "extra-role":
+        clients.iam.extra_policy_roles[
+            config.classifier_invoker_permissions_boundary_arn
+        ] = ["ForeignInvoker"]
+    else:
+        clients.iam.extra_policy_versions.add(
+            config.classifier_invoker_permissions_boundary_arn
+        )
+    broker, _ = _broker(clients, config=config)
+
+    with pytest.raises(BrokerError, match="INVOKER_ROLE_POLICY_CHANGED"):
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
+    assert clients.cloudformation.delete_calls == 0
+    assert clients.dynamodb.write_count == 0
+
+    assert clients.dynamodb.write_count == 0
+    assert clients.cloudformation.delete_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("role_name", "replacement", "code"),
+    (
+        (EXECUTION_ROLE, None, "BROKER_ROLE_BOUNDARY_CHANGED"),
+        (
+            CLASSIFIER_ROLE,
+            {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": "arn:foreign",
+            },
+            "INVOKER_ROLE_BOUNDARY_CHANGED",
+        ),
+        (APPROVER_ROLE, "classifier", "INVOKER_ROLE_BOUNDARY_CHANGED"),
+        (
+            CLASSIFIER_PROOF_ROLE,
+            {
+                "PermissionsBoundaryType": "Policy",
+                "PermissionsBoundaryArn": "arn:foreign",
+            },
+            "PROOF_ROLE_BOUNDARY_CHANGED",
+        ),
+        (APPROVER_PROOF_ROLE, None, "PROOF_ROLE_BOUNDARY_CHANGED"),
+    ),
+)
+def test_every_role_requires_its_exact_gug365_permissions_boundary(
+    role_name: str,
+    replacement: object,
+    code: str,
+) -> None:
+    config = _config()
+    clients = FakeClients(config)
+    clients.iam.boundaries[role_name] = (
+        clients.iam.boundaries[CLASSIFIER_ROLE]
+        if replacement == "classifier"
+        else replacement
+    )
+    broker, _ = _broker(clients, config=config)
+
+    with pytest.raises(BrokerError, match=code):
+        _handle(broker, alias=ALIAS_CLASSIFY, event={})
+
+    assert clients.dynamodb.write_count == 0
+    assert clients.cloudformation.delete_calls == 0
+
+
 @pytest.mark.parametrize(
     "mutation",
-    ("billing", "kms", "kms-manager", "stream", "replica", "pitr", "policy"),
+    (
+        "attributes",
+        "billing",
+        "gsi",
+        "kms",
+        "kms-manager",
+        "lsi",
+        "name",
+        "policy",
+        "pitr",
+        "replica",
+        "stream",
+        "table-class",
+        "tags-duplicate",
+        "tags-pagination",
+        "ttl",
+        "witness",
+    ),
 )
 def test_ledger_controls_fail_closed_before_any_effect(mutation: str) -> None:
     config = _config()
     clients = FakeClients(config)
-    if mutation == "billing":
+    if mutation == "attributes":
+        clients.dynamodb.table_overrides["AttributeDefinitions"] = [
+            {"AttributeName": "retirement_id", "AttributeType": "S"},
+            {"AttributeName": "foreign", "AttributeType": "S"},
+        ]
+    elif mutation == "billing":
         clients.dynamodb.table_overrides["BillingModeSummary"] = {"BillingMode": "PROVISIONED"}
+    elif mutation == "gsi":
+        clients.dynamodb.table_overrides["GlobalSecondaryIndexes"] = [
+            {"IndexName": "foreign"}
+        ]
     elif mutation == "kms":
         clients.dynamodb.table_overrides["SSEDescription"] = {
             "Status": "ENABLED",
@@ -2263,14 +2584,45 @@ def test_ledger_controls_fail_closed_before_any_effect(mutation: str) -> None:
         }
     elif mutation == "kms-manager":
         clients.kms.overrides["KeyManager"] = "CUSTOMER"
+    elif mutation == "lsi":
+        clients.dynamodb.table_overrides["LocalSecondaryIndexes"] = [
+            {"IndexName": "foreign"}
+        ]
+    elif mutation == "name":
+        clients.dynamodb.table_overrides["TableName"] = "foreign"
     elif mutation == "stream":
         clients.dynamodb.table_overrides["LatestStreamArn"] = "arn:synthetic"
     elif mutation == "replica":
         clients.dynamodb.table_overrides["Replicas"] = [{"RegionName": "us-west-2"}]
     elif mutation == "pitr":
         clients.dynamodb.pitr_enabled = False
-    else:
+    elif mutation == "policy":
         clients.dynamodb.resource_policy["Statement"][0]["Principal"] = {"AWS": ACCOUNT}
+    elif mutation == "table-class":
+        clients.dynamodb.table_overrides["TableClassSummary"] = {
+            "TableClass": "STANDARD_INFREQUENT_ACCESS"
+        }
+    elif mutation == "tags-duplicate":
+        expected_tags = {
+            **EXPECTED_LEDGER_TAGS,
+            "account_id": ACCOUNT,
+            "region": REGION,
+        }
+        clients.dynamodb.tag_items = [
+            {"Key": key, "Value": value} for key, value in expected_tags.items()
+        ] + [{"Key": "managed_by", "Value": EXPECTED_LEDGER_TAGS["managed_by"]}]
+    elif mutation == "tags-pagination":
+        clients.dynamodb.tag_next_token = "unexpected-next-page"
+    elif mutation == "ttl":
+        clients.dynamodb.ttl_description = {
+            "TimeToLiveStatus": "ENABLED",
+            "AttributeName": "exception_expires_at",
+        }
+    else:
+        assert mutation == "witness"
+        clients.dynamodb.table_overrides["GlobalTableWitnesses"] = [
+            {"RegionName": "us-west-2"}
+        ]
     broker, _ = _broker(clients, config=config)
     with pytest.raises(BrokerError, match="LEDGER_"):
         _handle(broker, alias=ALIAS_CLASSIFY, event={})
@@ -2325,6 +2677,7 @@ def test_direct_cli_mutation_adapters_are_hard_disabled() -> None:
 def test_broker_logging_boundary_and_sdk_has_zero_retries_are_exact() -> None:
     broker_source = BROKER_MODULE.read_text(encoding="utf-8")
     template_source = PEP_TEMPLATE.read_text(encoding="utf-8")
+    gug365_source = GUG365_MATERIALIZER.read_text(encoding="utf-8")
 
     def resource_block(name: str) -> str:
         match = re.search(
@@ -2332,15 +2685,6 @@ def test_broker_logging_boundary_and_sdk_has_zero_retries_are_exact() -> None:
             template_source,
         )
         assert match is not None, name
-        return match.group(0)
-
-    def statement_block(role: str, sid: str) -> str:
-        match = re.search(
-            rf"(?ms)^              - Sid: {re.escape(sid)}\n"
-            r".*?(?=^              - Sid: |\Z)",
-            role,
-        )
-        assert match is not None, sid
         return match.group(0)
 
     log_group = resource_block("RetirementBrokerLogGroup")
@@ -2363,48 +2707,27 @@ def test_broker_logging_boundary_and_sdk_has_zero_retries_are_exact() -> None:
         ("production", "'false'"),
     ]
 
-    role = resource_block("RetirementBrokerExecutionRole")
-    write_logs = statement_block(role, "WriteExactBrokerLogStreams")
-    assert re.findall(
-        r"^                  - (logs:[A-Za-z]+)$", write_logs, re.MULTILINE
-    ) == ["logs:CreateLogStream", "logs:PutLogEvents"]
+    assert "Type: AWS::IAM::Role" not in template_source
+    assert "Type: AWS::Lambda::Function" not in template_source
+    assert "RetirementBrokerFunction" not in template_source
+    assert "LoggingConfig:" not in template_source
+    assert "logs:PutResourcePolicy" not in template_source
     assert (
-        "                Resource: !Sub "
-        "arn:${AWS::Partition}:logs:${AWS::Region}:${AuthorityAccountId}:"
-        "log-group:/aws/lambda/scanalyze-platform-authority-gug215-retirement:"
-        "log-stream:*\n"
-    ) in write_logs
-
-    deny = statement_block(role, "DenyRetirementPrivilegeEscalation")
-    assert {
-        action
-        for action in re.findall(
-            r"^                  - (logs:[A-Za-z]+)$", deny, re.MULTILINE
-        )
-    } == {
-        "logs:AssociateKmsKey",
-        "logs:CreateLogGroup",
-        "logs:DeleteLogGroup",
-        "logs:DeleteRetentionPolicy",
-        "logs:DisassociateKmsKey",
-        "logs:PutResourcePolicy",
-        "logs:PutRetentionPolicy",
-    }
-    assert "logs:*" not in role
-
-    function = resource_block("RetirementBrokerFunction")
+        'BROKER_FUNCTION_NAME = "scanalyze-platform-authority-gug215-retirement"'
+        in gug365_source
+    )
     assert (
-        "    DependsOn:\n"
-        "      - ChangeSetRetirementLedger\n"
-        "      - RetirementBrokerLogGroup\n"
-    ) in function
-    assert (
-        "      LoggingConfig:\n"
-        "        ApplicationLogLevel: ERROR\n"
-        "        LogFormat: JSON\n"
-        "        LogGroup: !Ref RetirementBrokerLogGroup\n"
-        "        SystemLogLevel: WARN\n"
-    ) in function
+        '"LoggingConfig": {\n'
+        '            "LogFormat": "JSON",\n'
+        '            "ApplicationLogLevel": "ERROR",\n'
+        '            "SystemLogLevel": "WARN",\n'
+        '            "LogGroup": LOG_GROUP_NAME,\n'
+        "        },"
+    ) in gug365_source
+    assert '"reserved_concurrent_executions": 1' in gug365_source
+    assert '"RuntimeVersionArn": parameters["BrokerRuntimeVersionArn"]' in (
+        gug365_source
+    )
     assert (
         "  BrokerLogGroupName:\n"
         "    Value: !Ref RetirementBrokerLogGroup\n"

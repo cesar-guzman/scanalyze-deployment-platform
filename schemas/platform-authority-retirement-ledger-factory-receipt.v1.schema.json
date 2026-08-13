@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-retirement-ledger-factory-receipt.v1.schema.json",
+  "title": "GUG-365 one-shot ledger-factory causal receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "status", "reason_code", "attempt",
+    "create_table_call_count", "update_pitr_call_count", "retry_permitted",
+    "next_required_action", "request_sha256", "contract_sha256",
+    "qualified_function_sha256", "resource_policy_sha256",
+    "kms_key_arn_sha256", "kms_key_metadata_sha256", "revision_id_sha256",
+    "active_readback_attempt_count", "policy_readback_attempt_count",
+    "pitr_readback_attempt_count", "receipt_sha256"
+  ],
+  "properties": {
+    "artifact_type": {"const": "scanalyze.platform_authority.retirement_ledger_factory_receipt.v1"},
+    "schema_version": {"const": 1},
+    "status": {"enum": ["CREATED", "CREATED_RECONCILED"]},
+    "reason_code": {"const": "LEDGER_EXACT_FULL_READBACK"},
+    "attempt": {"const": 1},
+    "create_table_call_count": {"const": 1},
+    "update_pitr_call_count": {"const": 1},
+    "retry_permitted": {"const": false},
+    "next_required_action": {"const": "REVOKE_FACTORY_AUTHORITY"},
+    "request_sha256": {"$ref": "#/$defs/digest"},
+    "contract_sha256": {"$ref": "#/$defs/digest"},
+    "qualified_function_sha256": {"$ref": "#/$defs/digest"},
+    "resource_policy_sha256": {"$ref": "#/$defs/digest"},
+    "kms_key_arn_sha256": {"$ref": "#/$defs/digest"},
+    "kms_key_metadata_sha256": {"$ref": "#/$defs/digest"},
+    "revision_id_sha256": {"$ref": "#/$defs/digest"},
+    "active_readback_attempt_count": {"type": "integer", "minimum": 2, "maximum": 60},
+    "policy_readback_attempt_count": {"type": "integer", "minimum": 2, "maximum": 12},
+    "pitr_readback_attempt_count": {"type": "integer", "minimum": 1, "maximum": 12},
+    "receipt_sha256": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

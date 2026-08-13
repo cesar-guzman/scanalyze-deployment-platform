@@ -1,0 +1,2753 @@
+{
+  "_test_metadata": {
+    "synthetic": true,
+    "contains_live_data": false
+  },
+  "record_type": "scanalyze.platform_authority.retirement_entrypoint_service_role_plan.v1",
+  "schema_version": 1,
+  "implementation_issue": "GUG-365",
+  "parent_issue": "GUG-357",
+  "source_issue": "GUG-363",
+  "environment": "synthetic-non-production",
+  "production": false,
+  "deployment_authorized": true,
+  "aws_calls_performed": false,
+  "gug363_pre_function_binding_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "gug363_artifact_signing_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ledger_factory_artifact_signing_contract": {
+    "contract_version": 1,
+    "package_manifest": {
+      "synthetic": true
+    },
+    "runtime_version_arn": "arn:synthetic",
+    "unsigned_source": {
+      "synthetic": true
+    },
+    "signer": {
+      "synthetic": true
+    },
+    "signed_destination": {
+      "synthetic": true
+    },
+    "code_signing_config": {
+      "synthetic": true
+    }
+  },
+  "ledger_factory_artifact_signing_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ledger_factory_artifact_signing_evidence_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "target": {
+    "authority_account_id": "111122223333",
+    "region": "us-east-1",
+    "partition": "aws",
+    "service_role_arn": "arn:aws:iam::111122223333:role/Service"
+  },
+  "signed_artifact_binding": {
+    "binding_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bucket": "synthetic",
+    "key": "synthetic",
+    "version_id": "synthetic",
+    "sse_kms_key_arn": "arn:synthetic",
+    "code_signing_config_arn": "arn:synthetic"
+  },
+  "boundaries": [
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-service_role",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "service_role",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-service_role",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-service_role.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-broker",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "broker",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-broker",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-broker.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-classifier_invoker",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "classifier_invoker",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-classifier_invoker",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-classifier_invoker.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-approver_invoker",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "approver_invoker",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-approver_invoker",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-approver_invoker.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "proof",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-proof",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-proof.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "description": "synthetic",
+      "document": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "ledger_factory",
+      "path": "/scanalyze/platform-authority/",
+      "policy_name": "synthetic-ledger_factory",
+      "tags": [],
+      "template_path": "policies/iam/synthetic-ledger_factory.json",
+      "template_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "boundary_set_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "child_role_boundary_assignments": [
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-broker",
+      "boundary_key": "broker",
+      "role_arn": "arn:aws:iam::111122223333:role/Broker",
+      "role_name": "Broker"
+    },
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-classifier_invoker",
+      "boundary_key": "classifier_invoker",
+      "role_arn": "arn:aws:iam::111122223333:role/Classifier",
+      "role_name": "Classifier"
+    },
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-approver_invoker",
+      "boundary_key": "approver_invoker",
+      "role_arn": "arn:aws:iam::111122223333:role/Approver",
+      "role_name": "Approver"
+    },
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "boundary_key": "proof",
+      "role_arn": "arn:aws:iam::111122223333:role/ClassifierProof",
+      "role_name": "ClassifierProof"
+    },
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "boundary_key": "ledger_factory",
+      "role_arn": "arn:aws:iam::111122223333:role/ApproverProof",
+      "role_name": "ApproverProof"
+    },
+    {
+      "boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "boundary_key": "ledger_factory",
+      "role_arn": "arn:aws:iam::111122223333:role/LedgerFactory",
+      "role_name": "LedgerFactory"
+    }
+  ],
+  "child_role_boundary_assignment_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "service_role": {
+    "arn": "arn:aws:iam::111122223333:role/Service",
+    "attached_policy_arns": [
+      "arn:aws:iam::111122223333:policy/synthetic-service_role"
+    ],
+    "boundary_key": "service_role",
+    "inline_policy_names": [],
+    "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "max_session_duration": 3600,
+    "path": "/",
+    "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-service_role",
+    "role_name": "Service",
+    "tags": [],
+    "trust_policy": {
+      "Version": "2012-10-17",
+      "Statement": []
+    },
+    "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "service_role_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "child_roles": [
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-broker",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-broker",
+      "arn": "arn:aws:iam::111122223333:role/Broker",
+      "attached_policy_arns": [],
+      "boundary_key": "broker",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "Broker",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-classifier_invoker",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-classifier_invoker",
+      "arn": "arn:aws:iam::111122223333:role/Classifier",
+      "attached_policy_arns": [],
+      "boundary_key": "classifier_invoker",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "Classifier",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-approver_invoker",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-approver_invoker",
+      "arn": "arn:aws:iam::111122223333:role/Approver",
+      "attached_policy_arns": [],
+      "boundary_key": "approver_invoker",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "Approver",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "arn": "arn:aws:iam::111122223333:role/ClassifierProof",
+      "attached_policy_arns": [],
+      "boundary_key": "proof",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "ClassifierProof",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "arn": "arn:aws:iam::111122223333:role/ApproverProof",
+      "attached_policy_arns": [],
+      "boundary_key": "ledger_factory",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "ApproverProof",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "activation_permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "activation_policy_arn": "arn:aws:iam::111122223333:policy/synthetic-ledger_factory",
+      "arn": "arn:aws:iam::111122223333:role/LedgerFactory",
+      "attached_policy_arns": [],
+      "boundary_key": "ledger_factory",
+      "final_state_after_one_shot": "ACTIVE",
+      "gug363_parameter_digest_key": null,
+      "inline_policy_names": [],
+      "managed_policy_document_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_session_duration": 3600,
+      "path": "/",
+      "permissions_boundary_arn": "arn:aws:iam::111122223333:policy/synthetic-proof",
+      "role_name": "LedgerFactory",
+      "tags": [],
+      "trust_policy": {
+        "Version": "2012-10-17",
+        "Statement": []
+      },
+      "trust_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "child_role_set_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ledger_table": {
+    "arn": "arn:aws:dynamodb:us-east-1:111122223333:table/synthetic",
+    "attribute_definitions": [],
+    "billing_mode": "PAY_PER_REQUEST",
+    "deletion_protection_enabled": true,
+    "global_secondary_indexes": [],
+    "key_schema": [],
+    "kms_key_contract": {},
+    "latest_stream_label": null,
+    "local_secondary_indexes": [],
+    "point_in_time_recovery": {},
+    "replicas": [],
+    "resource_policy": {},
+    "resource_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sse_specification": {},
+    "table_class": "STANDARD",
+    "table_name": "synthetic",
+    "tags": [],
+    "time_to_live": {}
+  },
+  "ledger_table_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "broker_function": {
+    "arn": "arn:aws:lambda:us-east-1:111122223333:function:synthetic",
+    "code_signing_config_arn": "arn:synthetic",
+    "code_signing_config_contract": {},
+    "complete_environment_configuration_deferred_to_gug357": {},
+    "create_request": {},
+    "create_request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "execution_role_must_remain_proof_bound_until_activation": {},
+    "expected_aliases": {},
+    "expected_function_urls": {},
+    "expected_versions": {},
+    "fresh_gug357_configuration_is_not_part_of_gug365_bundle": {},
+    "function_name": "synthetic",
+    "normalized_configuration": {},
+    "precreated_environment_variables": {},
+    "preexisting_mode": "STOP_NO_ADOPTION_NO_REPAIR",
+    "reserved_concurrent_executions": {},
+    "resource_policy_expected": {},
+    "runtime_management": {},
+    "signed_code": {},
+    "tags": []
+  },
+  "broker_function_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ledger_factory_function": {
+    "arn": "arn:aws:lambda:us-east-1:111122223333:function:factory",
+    "artifact_sse_kms_key_arn": "arn:synthetic",
+    "code_signing_config_arn": "arn:synthetic",
+    "code_signing_config_contract": {},
+    "create_request": {},
+    "create_request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "event_contract": {},
+    "execution_role_must_remain_proof_bound_until_factory_activation": {},
+    "expected_aliases": {},
+    "expected_function_urls": {},
+    "expected_versions": {},
+    "function_name": "factory",
+    "immutable_version": "1",
+    "immutable_version_arn": "arn:aws:lambda:us-east-1:111122223333:function:factory:1",
+    "invocation_type": "RequestResponse",
+    "normalized_configuration": {},
+    "package_manifest": {},
+    "package_manifest_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "preexisting_mode": "STOP_NO_ADOPTION_NO_REPAIR",
+    "reserved_concurrent_executions": {},
+    "resource_policy_expected": {},
+    "runtime_management": {},
+    "sdk_retry_mode": "ZERO",
+    "signed_code": {},
+    "tags": []
+  },
+  "ledger_factory_function_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ledger_factory_log_group": {
+    "arn": "arn:aws:logs:us-east-1:111122223333:log-group:synthetic",
+    "data_protection_policy": null,
+    "deletion_protection_enabled": true,
+    "inherited_properties": [],
+    "kms_key_id": null,
+    "log_group_class": "STANDARD",
+    "log_group_name": "synthetic",
+    "preexisting_mode": "STOP_NO_ADOPTION_NO_REPAIR",
+    "retention_in_days": 365,
+    "stored_bytes": 0,
+    "tags": []
+  },
+  "ledger_factory_log_group_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "authorization_phases": [
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "POLICY_FACTORY",
+      "same_session_reuse_permitted": false,
+      "sequence": 1
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "FOUNDATION_FACTORY",
+      "same_session_reuse_permitted": false,
+      "sequence": 2
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "FUNCTION_FACTORY",
+      "same_session_reuse_permitted": false,
+      "sequence": 3
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "LEDGER_FACTORY_FUNCTION_FACTORY",
+      "same_session_reuse_permitted": false,
+      "sequence": 4
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "LEDGER_FACTORY_ACTIVATOR",
+      "same_session_reuse_permitted": false,
+      "sequence": 5
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "LEDGER_FACTORY_INVOKER",
+      "same_session_reuse_permitted": false,
+      "sequence": 6
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "LEDGER_FACTORY_REVOKER",
+      "same_session_reuse_permitted": false,
+      "sequence": 7
+    },
+    {
+      "authority_overlap_permitted": false,
+      "checkpoint": {
+        "name": "synthetic"
+      },
+      "checkpoint_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checkpoint_required_before_next_phase": true,
+      "executor_effective_authority_requirement": {
+        "closed": true
+      },
+      "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executor_policy": {
+        "document": {}
+      },
+      "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mutations": [],
+      "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operations": [],
+      "phase": "ACTIVATOR",
+      "same_session_reuse_permitted": false,
+      "sequence": 8
+    }
+  ],
+  "authorization_phase_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "revocation": {
+    "checkpoint": {
+      "name": "synthetic"
+    },
+    "executor_effective_authority_requirement": {
+      "closed": true
+    },
+    "executor_effective_authority_requirement_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "executor_policy": {
+      "document": {}
+    },
+    "executor_policy_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "forward_execution_permitted": false,
+    "mutation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mutations": [],
+    "operation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "operations": [],
+    "phase": "REVOCATOR",
+    "same_session_reuse_permitted": false
+  },
+  "revocation_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "allowed_mutations": [
+    "exact"
+  ],
+  "prohibited_mutations": [
+    "broad"
+  ],
+  "prohibited_standalone_mutations": [
+    "direct"
+  ],
+  "planned_iam_writes": [
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 1,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 2,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 3,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 4,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 5,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreatePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreatePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 6,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 7,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 8,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 9,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 10,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 11,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 12,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:CreateRole",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateRole",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 13,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 14,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 15,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 16,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 17,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 18,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 19,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:AttachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "AttachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 20,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 21,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 22,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 23,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 24,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 25,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:PutRolePermissionsBoundary",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRolePermissionsBoundary",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 26,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "iam:DetachRolePolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "DetachRolePolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 27,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:CreateFunction",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateFunction",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 28,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:CreateFunction",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateFunction",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 29,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:PutRuntimeManagementConfig",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRuntimeManagementConfig",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 30,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:PutRuntimeManagementConfig",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRuntimeManagementConfig",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 31,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:PutFunctionConcurrency",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutFunctionConcurrency",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 32,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:PutFunctionConcurrency",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutFunctionConcurrency",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 33,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "lambda:InvokeFunction",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "InvokeFunction",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 34,
+      "service": "lambda",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "logs:CreateLogGroup",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "CreateLogGroup",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {
+        "synthetic": true
+      },
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 35,
+      "service": "logs",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "allowed_action": "logs:PutRetentionPolicy",
+      "ambiguous_outcome": "STOP_AND_RECONCILE_READ_ONLY",
+      "api_action": "PutRetentionPolicy",
+      "attempt_limit": 1,
+      "delete_permitted": false,
+      "repair_permitted": false,
+      "request": {"synthetic": true},
+      "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retry_permitted": false,
+      "sequence": 36,
+      "service": "logs",
+      "target_arn": "arn:synthetic"
+    }
+  ],
+  "planned_iam_write_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "planned_readbacks": [
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 1,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 2,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 3,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 4,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 5,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 6,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 7,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 8,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 9,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 10,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 11,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 12,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 13,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 14,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 15,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 16,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 17,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 18,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 19,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 20,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 21,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 22,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 23,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 24,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 25,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 26,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 27,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 28,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 29,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 30,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 31,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 32,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 33,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 34,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 35,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 36,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 37,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 38,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 39,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 40,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 41,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 42,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 43,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 44,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 45,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 46,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 47,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 48,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 49,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 50,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 51,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 52,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 53,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 54,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 55,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 56,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 57,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 58,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 59,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 60,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 61,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 62,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 63,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 64,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 65,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 66,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 67,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 68,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 69,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 70,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 71,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 72,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 73,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 74,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 75,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 76,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 77,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 78,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 79,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 80,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 81,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 82,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 83,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 84,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 85,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 86,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 87,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 88,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 89,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 90,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 91,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 92,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 93,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 94,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 95,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 96,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 97,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 98,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 99,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 100,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 101,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 102,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 103,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 104,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 105,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 106,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 107,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 108,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 109,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 110,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 111,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 112,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 113,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 114,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 115,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 116,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 117,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 118,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 119,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 120,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 121,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 122,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 123,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 124,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 125,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    },
+    {
+      "api_action": "GetSynthetic",
+      "attempt_limit": 1,
+      "complete_pagination_required": false,
+      "request": {
+        "synthetic": true
+      },
+      "retry_permitted": false,
+      "sequence": 126,
+      "service": "iam",
+      "target_arn": "arn:synthetic"
+    }
+  ],
+  "planned_readback_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "preexisting_object_mode": "STOP_NO_ADOPTION_NO_REPAIR",
+  "ambiguous_outcome_mode": "STOP_AND_RECONCILE_READ_ONLY",
+  "mutation_retry_permitted": false,
+  "update_permitted": false,
+  "delete_permitted": false,
+  "repair_permitted": false,
+  "ledger_factory_causal_receipt_gate": {
+    "accepted_create_table_call_count": 1,
+    "accepted_statuses": [
+      "CREATED",
+      "CREATED_RECONCILED"
+    ],
+    "accepted_update_pitr_call_count": 1,
+    "already_exact_mode": "STOP",
+    "checkpoint": "synthetic",
+    "invocation_type": "RequestResponse",
+    "main_role_activation_permitted": false,
+    "payload": {},
+    "qualified_function_arn": "arn:aws:lambda:us-east-1:111122223333:function:factory:1",
+    "receipt_contract_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "receipt_sha256_required": true,
+    "sdk_retry_mode": "ZERO"
+  },
+  "residual_risk": "single-operator non-production residual",
+  "plan_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

@@ -44,28 +44,40 @@ It never calls `CreateChangeSet`, `ExecuteChangeSet`, `DeleteChangeSet`,
 Lambda invocation or the GUG-215 ledger. Both the unsigned Signer source and the
 signed destination must already exist as exact immutable S3 object versions.
 
-The request fixes `CAPABILITY_NAMED_IAM`, `OnFailure=DO_NOTHING`, termination
+The request fixes an empty capabilities list, `OnFailure=DO_NOTHING`, termination
 protection, a deterministic client-request token, the complete template body,
 the exact ordered parameter projection and the fixed CloudFormation service
 role ARN. The stack name, Region, account and service role are code-owned
 constants, not CLI, environment, intent or authorization choices.
 
-### 2. CloudFormation uses a pre-existing fixed service role
+### 2. CloudFormation uses the GUG-365 bounded fixed service role
 
 The human operator does not receive direct IAM, Lambda, DynamoDB or Logs
 provider authority. `CreateStack` must carry the fixed service role
 `scanalyze-platform-authority-gug363-cfn-materializer` in the authority account,
 and readback must prove that the created stack retains that exact `RoleARN`.
 
-GUG-363 does not create, update or repair this role and does not grant
-`iam:PassRole`. Before a GUG-357 execution checkpoint can be issued, separate
-read-only evidence must prove all of the following:
+GUG-363 does not create, update or repair the service role, five child roles,
+dedicated factory role, retained ledger or either precreated function and does
+not grant `iam:PassRole`.
+ADR-052/GUG-365 owns that prerequisite bundle. Each precreated IAM role must
+carry and attach its exact role/class-specific managed boundary, and the
+precreated broker function must match the exact reviewed code, runtime,
+Code Signing Config, execution role, logging and environment contract. The
+GUG-363 stack contains no IAM, DynamoDB or `AWS::Lambda::Function` resources
+and sends an empty CloudFormation capabilities list.
+
+Before a GUG-357 execution checkpoint can be issued, separate read-only evidence
+must prove all of the following:
 
 - the exact role exists and trusts only the CloudFormation service principal
   under the reviewed account and Region boundary;
-- its inline and attached policies, permissions boundary and tags exactly match
-  the independently reviewed least-privilege contract for the twenty-one
+- its inline and attached policies, exact GUG-365 permissions boundary and tags
+  match the independently reviewed least-privilege contract for the fourteen
   expected single-operator resources;
+- all five child roles bind the exact GUG-365 broker, classifier, approver or
+  deny-all proof boundary required by the template, and every default managed
+  policy version matches the plan-bound document digest;
 - the operator has only the reviewed CloudFormation create/read authority for
   the dedicated stack and `iam:PassRole` for that one role, with no provider
   mutation authority; and
@@ -75,9 +87,9 @@ read-only evidence must prove all of the following:
   `live_before_state_digest` and overall `live_checkpoint_digest`.
 
 The existing GUG-357 temporary audit permission-set package does not grant the
-IAM role/policy reads needed to prove those facts. Missing that separately
-authorized evidence is a hard stop, not an invitation to broaden the audit
-policy or use an administrator profile.
+IAM role/policy reads needed to prove those facts. Missing the GUG-365 bundle or
+that separately authorized evidence is a hard stop, not an invitation to
+broaden the audit policy or use an administrator profile.
 
 ### 3. Require an external signed-artifact handoff
 
@@ -170,7 +182,7 @@ then binds:
 - the ADR-050 owner authorization and exception digests;
 - all private Identity Center, identity-proof, policy and assignment bindings;
 - the fixed target and CloudFormation service-role ARN; and
-- the exact twenty-one-resource single-operator graph, including the dedicated
+- the exact fourteen-resource single-operator graph, including the dedicated
   retained CloudWatch Logs group.
 
 The plan is self-digested for integrity but states
@@ -242,8 +254,9 @@ must be excluded operationally.
 The template creates
 `/aws/lambda/scanalyze-platform-authority-gug215-retirement` with 365-day
 retention, CloudFormation retain policies and AWS-owned encryption at rest. The
-Lambda uses JSON platform logging with application level `ERROR` and system
-level `WARN`.
+precreated GUG-365 Lambda must already use JSON platform logging with
+application level `ERROR` and system level `WARN`; that configuration is an
+external prerequisite and not a resource owned by this stack.
 
 The broker source still emits no application log statements and accepts no
 request data. Its execution role may only create streams and put events in that
@@ -258,12 +271,12 @@ A successful API response is not completion. Exact readback must prove:
 1. the dedicated full stack ID, fixed `RoleARN`, template digest and parameter
    projection;
 2. `CREATE_COMPLETE`, termination protection and no drifted stack identity;
-3. exactly the twenty-one expected resources and no normal-mode alias family;
-4. the exact retained log group and Lambda `LoggingConfig`;
-5. the exact signed destination artifact and signed code SHA, completed Signer
-   source/destination/profile binding, Code Signing Config `Enforce` policy and
-   exact `AllowedPublishers`, runtime pin, role, aliases, Function URLs and
-   permissions; and
+3. exactly the fourteen expected resources and no normal-mode alias family;
+4. the exact retained log group;
+5. separate GUG-365 prerequisite certification for the exact precreated broker
+   function, including signed destination artifact and code SHA, Code Signing
+   Config, runtime pin, role and `LoggingConfig`, plus this stack's exact
+   published version, aliases, Function URLs and permissions; and
 6. a sanitized create-only receipt bound to the plan, authorization, resource
    set and observed stack.
 
@@ -298,9 +311,10 @@ exact authorization. GUG-363 contains no cleanup path.
 
 - The retained Change Set does not bootstrap or authorize its own retirement
   PEP.
-- The operator does not receive direct provider mutation permissions, but the
-  fixed external service role and exact `iam:PassRole` contract become critical
-  preconditions and residual trusted boundaries.
+- The operator does not receive direct provider mutation permissions. The fixed
+  service role, six managed policies, seven exact role terminal states, both
+  precreated functions and exact `iam:PassRole` contract are
+  critical preconditions that GUG-357 must freshly revalidate.
 - Artifact production is also an external prerequisite: the GUG-215 ZIP remains
   unsigned/non-deployable, while only a separately evidenced signed destination
   is eligible for CloudFormation.

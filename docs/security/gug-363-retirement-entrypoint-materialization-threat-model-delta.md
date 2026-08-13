@@ -10,8 +10,9 @@ service role, owner-local attempt ledger, exact unsigned-source-to-signed-
 destination verification, readback, retained logging and reconcile-only
 recovery.
 
-It excludes creation or mutation of the CloudFormation service role, operator
-policy and `iam:PassRole` grant; artifact upload/copy; creation, retry,
+It excludes GUG-365 creation or mutation of the CloudFormation service role and
+its managed boundary bundle, the operator policy and `iam:PassRole` grant;
+artifact upload/copy; creation, retry,
 cancellation or mutation of Signer jobs/profiles or Lambda Code Signing Configs;
 Identity Center provisioning; broker invocation; `DeleteChangeSet`; stack
 update/deletion; cleanup; customer scope and production. No live deployment is
@@ -41,11 +42,13 @@ read-only reconciliation.
   CloudFormation request;
 - private materialization intent, plan and independent expected plan digest;
 - fixed stack/account/Region and CloudFormation service-role ARN;
-- fresh service-role policy/trust and operator PassRole evidence;
+- fresh service-role policy/trust, exact GUG-365 service/workload boundaries
+  and operator PassRole evidence;
 - private GUG-357 execution authorization and independent expected digest;
 - caller digest, owner authorization and ADR-050 exception digests;
 - owner-local consumed-attempt ledger;
-- exact twenty-one-resource graph and retained log-group contract; and
+- exact fourteen-resource graph, exact precreated-function binding and retained
+  log-group contract; and
 - sanitized materialization/reconciliation receipts plus private AWS readback.
 
 ## Trust boundaries
@@ -121,10 +124,14 @@ authorization. The current temporary GUG-357 audit permission-set package lacks
 those IAM reads, so another explicitly authorized read-only evidence path is a
 live prerequisite.
 
-The role remains a trusted external boundary. If its effective permissions can
-create resources beyond the reviewed graph, or if the operator can pass it to a
-different service/request, live execution is blocked. Repository code cannot
-turn an overly broad role into least privilege.
+ADR-052/GUG-365 makes the service role, five workload roles, proof-bound
+factory role, six managed policies, two precreated functions and retained
+ledger a separate repository-owned prerequisite bundle. The
+GUG-363 template has no IAM or DynamoDB resources. Boundary absence, an inline
+policy, a missing/wrong attachment or ledger-policy drift is a hard stop. If
+the bundle can create effective permissions beyond the reviewed graph, or if
+the operator can pass the role to a different service/request, live execution
+is blocked.
 
 ### One-attempt boundary
 
@@ -186,8 +193,8 @@ Logs remain sensitive operational evidence and never authorize an effect.
 | Caller substitutes the CloudFormation service role | Fixed role ARN is bound into plan/request/authorization and read back as stack `RoleARN` | Block before create or classify readback as drift |
 | Operator bypasses CloudFormation with direct provider APIs | Operator policy must lack IAM/Lambda/DynamoDB/Logs writes; CloudFormation uses the fixed service role | GUG-357 checkpoint blocked |
 | Operator uses a broad or foreign `iam:PassRole` edge | Fresh GUG-357 evidence requires one exact role and reviewed caller policy | No execution authorization issued |
-| External service role is broadened after review | Fresh trust/effective-policy/boundary/tag digest is required and bound to the checkpoint; stack readback proves RoleARN | Drift or stale evidence blocks; role remains residual trusted boundary |
-| Operator sends another template through a raw CloudFormation client | Exact wrapper plan/request digests and authorization are mandatory operational controls; service-role permissions must be resource-limited | Out-of-band raw use is a governance/security violation; no repository claim of complete IAM enforcement |
+| External service role is broadened after review | Fresh trust/effective-policy/boundary/tag digest is required and bound to the checkpoint; stack readback proves RoleARN | Drift or stale evidence blocks |
+| Operator sends another template through a raw CloudFormation client | The service role has no IAM, DynamoDB or Lambda function-create authority, while every precreated workload role retains its exact role/class-specific boundary | The alternate stack cannot create or mutate roles, attached policies, boundaries, the retained table, its resource policy or a Lambda function |
 | Retained shell is used as the target | Dedicated fixed stack name and explicit retained-shell deny | Block before AWS write |
 | Unsigned GUG-215 source ZIP is projected as Lambda code | Source manifest semantics are explicitly unsigned/non-deployable; only distinct signed-destination fields project to CloudFormation | Offline plan failure |
 | Source or destination is uploaded/copied, or `latest` is substituted | GUG-363 has no S3 mutation; both exact object versions/byte digests/sizes/encryption bindings are read back, and any full-object provider checksum supplied by AWS must match | Block before ledger claim |
@@ -195,7 +202,8 @@ Logs remain sensitive operational evidence and never authorize an effect.
 | Code Signing Config ARN is correct but policy is `Warn` or allows another publisher | Runtime reads policy and exact `AllowedPublishers`; ARN-only evidence is insufficient | Block before ledger claim |
 | Signing evidence is stale or replaced after authorization | Authorization binds the exact signing contract/evidence; runtime re-reads Signer, S3 and Code Signing Config before claiming the attempt | Block before ledger claim; remaining read-to-create race is residual |
 | Dirty or replaced source changes template authority | Exact clean HEAD/tree, `git show` bytes, worktree equality and template digest | Offline plan failure |
-| Normal and single alias families coexist | Exact twenty-one-resource single-mode graph and condition/resource readback | Plan or readback failure |
+| Normal and single alias families coexist | Exact fourteen-resource single-mode graph and condition/resource readback | Plan or readback failure |
+| Stack targets a foreign or replacement broker function | Every version, alias, URL and permission uses the exact literal GUG-365 function name or closed ARN; the template cannot create a function | Offline plan failure or prerequisite-certification failure |
 | `$LATEST`, public Function URL or foreign permission is introduced | Published version, exact aliases, `AWS_IAM` URLs and exact role principals are closed bindings | Drift; no completion receipt |
 | Automatic rollback deletes evidence | Request uses `OnFailure=DO_NOTHING` and omits the mutually exclusive `DisableRollback`; readback requires rollback disabled; no update or delete path; termination protection enabled | Partial state retained for separate recovery |
 | A create is replayed after timeout | Ledger consumed before effect, one SDK call, zero retries, deterministic client token | Reconcile only; never another create |
@@ -235,13 +243,14 @@ Logs remain sensitive operational evidence and never authorize an effect.
 
 ## Residual risks
 
-- The fixed CloudFormation service role and operator PassRole policy are
-  external prerequisites, not materialized by this package.
+- The fixed CloudFormation service role, its six managed policies and the
+  operator PassRole policy are external prerequisites, not materialized by this
+  GUG-363 package; GUG-365 owns the IAM bundle.
 - The source upload, Signer job/profile, signed destination and Code Signing
   Config are external prerequisites, not created or repaired by GUG-363.
-- IAM cannot make a local wrapper the only possible CloudFormation client.
-  Direct raw API use by an otherwise permitted principal remains a governance
-  risk constrained by caller/service-role least privilege and CloudTrail.
+- IAM cannot make a local wrapper the only possible CloudFormation client. The
+  GUG-365 service-role and child-role boundaries therefore constrain raw-client
+  use server-side; CloudTrail and the wrapper remain evidence controls.
 - The owner-local attempt ledger is not a cross-host CAS service.
 - Service-role or caller-policy drift can race the last read-only evidence.
 - Signer, S3 or Code Signing Config state can race the last read-only evidence

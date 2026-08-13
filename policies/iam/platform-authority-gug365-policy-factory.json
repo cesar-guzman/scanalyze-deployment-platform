@@ -1,0 +1,100 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateExactBoundaryPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:TagPolicy"
+      ],
+      "Resource": [
+        "${service_role_boundary_arn}",
+        "${broker_boundary_arn}",
+        "${classifier_boundary_arn}",
+        "${approver_boundary_arn}",
+        "${proof_boundary_arn}",
+        "${ledger_factory_boundary_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "reviewed-direct-iam",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/work_package": "GUG-365",
+          "aws:RequestTag/environment": "non-production",
+          "aws:RequestTag/production": "false",
+          "aws:RequestTag/source_commit": "${source_commit}",
+          "aws:RequestTag/gug363_pre_function_binding_sha256": "${gug363_pre_function_binding_sha256}"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "work_package",
+            "environment",
+            "production",
+            "source_commit",
+            "gug363_pre_function_binding_sha256"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyExactBoundaryPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyTags",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": [
+        "${service_role_boundary_arn}",
+        "${broker_boundary_arn}",
+        "${classifier_boundary_arn}",
+        "${approver_boundary_arn}",
+        "${proof_boundary_arn}",
+        "${ledger_factory_boundary_arn}"
+      ]
+    },
+    {
+      "Sid": "DenyEveryOtherProvisioningCapability",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "iam:AddRoleToInstanceProfile",
+        "iam:AttachRolePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:CreateRole",
+        "iam:CreateServiceLinkedRole",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:DeleteRole",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PassRole",
+        "iam:PutRolePermissionsBoundary",
+        "iam:PutRolePolicy",
+        "iam:SetDefaultPolicyVersion",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "signer:StartSigningJob",
+        "sts:AssumeRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

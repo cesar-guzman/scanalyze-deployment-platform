@@ -184,9 +184,11 @@ ADR-051 / GUG-363 defines the repository mechanism for a future exact
 single-operator deployment: one direct `CreateStack` of the dedicated GUG-357
 entrypoint through a fixed, pre-existing CloudFormation service role. Follow the
 [GUG-363 runbook](platform-authority-retirement-entrypoint-materialization.md).
-GUG-363 does not create the role or grant `iam:PassRole`; GUG-357 must first
-prove both contracts through a separate read-only checkpoint. That mechanism
-does not authorize this runbook's broker invocation or `DeleteChangeSet` effect.
+GUG-363 does not create the role or grant `iam:PassRole`. GUG-365 must first
+materialize and certify the service role plus its exact service/workload
+boundary bundle; then GUG-357 must freshly prove that bundle and the PassRole
+contract through a separate read-only checkpoint. Neither mechanism authorizes
+this runbook's broker invocation or `DeleteChangeSet` effect.
 
 Stop if any parameter comes from a request, naming inference, chat history or
 unreviewed live value.
@@ -201,9 +203,11 @@ Before invocation, read back and prove:
    encryption, PAY_PER_REQUEST billing, no stream/replica and 35-day PITR;
 3. its resource policy denies all writes outside the exact broker execution
    role;
-4. the broker execution role has exactly one inline policy, no attached policy,
-   no permissions boundary and Lambda-service-only trust;
-5. the live canonical broker policy digest matches the deployment binding;
+4. the broker execution role has zero inline policies, Lambda-service-only
+   trust, the exact GUG-365 broker managed policy as its permissions boundary,
+   and that same policy as its only attached identity policy;
+5. the live canonical default-version digest of that broker managed policy
+   matches the deployment binding;
 6. the function uses the reviewed versioned artifact, code SHA, execution role,
    code-signing configuration, `RuntimeManagementConfig.UpdateRuntimeOn = Manual`
    and exact reviewed `RuntimeVersionArn`;

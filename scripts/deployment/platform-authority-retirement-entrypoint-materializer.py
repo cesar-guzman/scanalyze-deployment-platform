@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan, apply, or reconcile the exact GUG-363 retirement entrypoint.
+"""Plan, finalize, apply, or reconcile the exact GUG-363 retirement entrypoint.
 
 ``plan`` is completely offline.  ``apply`` requires a fresh GUG-357 execution
 authorization and exposes only one possible AWS write: one direct
@@ -32,6 +32,7 @@ from tooling.platform_authority_retirement_entrypoint_materializer import (  # n
     RetirementEntrypointMaterializationError,
     apply_materialization,
     build_materialization_plan,
+    finalize_materialization_plan,
     reconcile_materialization,
     validate_execution_authorization,
     validate_execution_ledger,
@@ -431,6 +432,27 @@ def _load_plan(args: argparse.Namespace) -> dict[str, Any]:
         raise RetirementEntrypointMaterializationError(
             "EXPECTED_ARTIFACT_SIGNING_CONTRACT_DIGEST_MISMATCH"
         )
+    if (
+        plan.get("gug363_pre_function_binding_sha256")
+        != args.expected_gug363_pre_function_binding_sha256
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_PRE_FUNCTION_BINDING_DIGEST_MISMATCH"
+        )
+    if (
+        plan.get("broker_function_evidence_digest")
+        != args.expected_broker_function_evidence_digest
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_BROKER_FUNCTION_EVIDENCE_DIGEST_MISMATCH"
+        )
+    if (
+        plan.get("function_configurator_checkpoint_digest")
+        != args.expected_function_configurator_checkpoint_digest
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_FUNCTION_CONFIGURATOR_CHECKPOINT_DIGEST_MISMATCH"
+        )
     return plan
 
 
@@ -455,6 +477,20 @@ def _load_authorization(
         raise RetirementEntrypointMaterializationError(
             "EXPECTED_ARTIFACT_SIGNING_CONTRACT_DIGEST_MISMATCH"
         )
+    if (
+        authorization.get("activator_checkpoint_digest")
+        != args.expected_activator_checkpoint_digest
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_ACTIVATOR_CHECKPOINT_DIGEST_MISMATCH"
+        )
+    if (
+        authorization.get("service_role_evidence_digest")
+        != args.expected_service_role_evidence_digest
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_SERVICE_ROLE_EVIDENCE_DIGEST_MISMATCH"
+        )
     return authorization
 
 
@@ -472,6 +508,35 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     )
     _write_private_json(
         args.plan_out, plan, exists_code="MATERIALIZATION_PLAN_ALREADY_EXISTS"
+    )
+    print(json.dumps(_public_status(plan), sort_keys=True))
+    return 0
+
+
+def _cmd_finalize_plan(args: argparse.Namespace) -> int:
+    pre_function_plan = _read_private_json(args.pre_function_plan)
+    validate_materialization_plan(pre_function_plan, repo_root=REPO_ROOT)
+    if (
+        pre_function_plan.get("plan_digest")
+        != args.expected_pre_function_plan_digest
+        or pre_function_plan.get("gug363_pre_function_binding_sha256")
+        != args.expected_gug363_pre_function_binding_sha256
+    ):
+        raise RetirementEntrypointMaterializationError(
+            "EXPECTED_PRE_FUNCTION_PLAN_BINDING_MISMATCH"
+        )
+    plan = finalize_materialization_plan(
+        pre_function_plan=pre_function_plan,
+        broker_function_evidence_digest=args.broker_function_evidence_digest,
+        function_configurator_checkpoint_digest=(
+            args.function_configurator_checkpoint_digest
+        ),
+        repo_root=REPO_ROOT,
+    )
+    _write_private_json(
+        args.plan_out,
+        plan,
+        exists_code="MATERIALIZATION_PLAN_ALREADY_EXISTS",
     )
     print(json.dumps(_public_status(plan), sort_keys=True))
     return 0
@@ -619,6 +684,17 @@ def _execution_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--expected-artifact-signing-contract-digest", required=True
     )
+    parser.add_argument(
+        "--expected-gug363-pre-function-binding-sha256", required=True
+    )
+    parser.add_argument(
+        "--expected-broker-function-evidence-digest", required=True
+    )
+    parser.add_argument(
+        "--expected-function-configurator-checkpoint-digest", required=True
+    )
+    parser.add_argument("--expected-activator-checkpoint-digest", required=True)
+    parser.add_argument("--expected-service-role-evidence-digest", required=True)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--region", required=True, choices=(REGION,))
     parser.add_argument("--receipt-out", type=Path, required=True)
@@ -634,6 +710,22 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--unsigned-package-archive", type=Path, required=True)
     plan.add_argument("--plan-out", type=Path, required=True)
     plan.set_defaults(handler=_cmd_plan)
+
+    finalize = subparsers.add_parser(
+        "finalize-plan",
+        help="Seal the post-configurator plan from independently supplied evidence",
+    )
+    finalize.add_argument("--pre-function-plan", type=Path, required=True)
+    finalize.add_argument("--expected-pre-function-plan-digest", required=True)
+    finalize.add_argument(
+        "--expected-gug363-pre-function-binding-sha256", required=True
+    )
+    finalize.add_argument("--broker-function-evidence-digest", required=True)
+    finalize.add_argument(
+        "--function-configurator-checkpoint-digest", required=True
+    )
+    finalize.add_argument("--plan-out", type=Path, required=True)
+    finalize.set_defaults(handler=_cmd_finalize_plan)
 
     apply = subparsers.add_parser(
         "apply", help="Attempt the one exact direct CreateStack request"

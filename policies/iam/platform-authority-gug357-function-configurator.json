@@ -1,0 +1,67 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadAndConfigureExactBrokerFunction",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:ListAliases",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-gug215-retirement"
+    },
+    {
+      "Sid": "DenyPrivilegeAndDeploymentMutations",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "dynamodb:*",
+        "iam:*",
+        "lambda:AddLayerVersionPermission",
+        "lambda:AddPermission",
+        "lambda:CreateAlias",
+        "lambda:CreateFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:DeleteAlias",
+        "lambda:DeleteFunction",
+        "lambda:DeleteFunctionCodeSigningConfig",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:DeleteFunctionUrlConfig",
+        "lambda:InvokeAsync",
+        "lambda:InvokeFunction",
+        "lambda:InvokeFunctionUrl",
+        "lambda:PublishLayerVersion",
+        "lambda:PublishVersion",
+        "lambda:PutFunctionCodeSigningConfig",
+        "lambda:PutFunctionConcurrency",
+        "lambda:PutRuntimeManagementConfig",
+        "lambda:RemoveLayerVersionPermission",
+        "lambda:RemovePermission",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:UpdateAlias",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionEventInvokeConfig",
+        "lambda:UpdateFunctionUrlConfig",
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

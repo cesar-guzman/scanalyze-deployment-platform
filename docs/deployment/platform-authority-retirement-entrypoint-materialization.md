@@ -49,10 +49,13 @@ The `CreateStack` request carries the fixed pre-existing CloudFormation role
 `scanalyze-platform-authority-gug363-cfn-materializer` in the authority account.
 CloudFormation, rather than the operator, uses that role to create the reviewed
 IAM, DynamoDB, Lambda and Logs resources. GUG-363 neither materializes nor
-repairs the role. GUG-357 must first establish fresh read-only
-evidence for its exact trust, effective policies, boundary, tags and the
-operator's one-role-only `iam:PassRole` grant. Readback of the resulting stack
-must return the same exact `RoleARN`.
+repairs the role. ADR-052/GUG-365 must first materialize and certify its exact
+service-role boundary and the four role/class-specific boundaries referenced by
+all five child roles. Boundary absence is a hard stop. GUG-357 must then
+establish fresh read-only evidence for the role's exact trust, policies,
+boundary and tags; every child-boundary default version; and the operator's
+one-role-only `iam:PassRole` grant. Readback of the resulting stack must return
+the same exact `RoleARN`.
 
 The current GUG-357 audit permission-set package does not include the IAM reads
 needed for that proof. Until a separate approved read-only evidence path closes
@@ -143,7 +146,7 @@ The only allowed mutation is `cloudformation:CreateStack`. The request fixes:
 - the dedicated stack name;
 - complete in-memory `TemplateBody` rather than an unbound URL;
 - the exact ordered parameter list;
-- `CAPABILITY_NAMED_IAM` only;
+- an empty capabilities list because the stack contains no IAM resources;
 - `OnFailure=DO_NOTHING`;
 - `EnableTerminationProtection=true`;
 - the fixed CloudFormation service-role ARN; and
@@ -167,14 +170,18 @@ treated as drift.
 
 ## Exact single-operator resource graph
 
-The expected stack has twenty-one resources:
+The expected stack has fourteen resources. The five IAM roles, retained
+DynamoDB ledger and exact broker function are GUG-365 prerequisites and are
+not CloudFormation resources:
 
-- one deletion-protected, retained DynamoDB retirement ledger;
+- one precreated deletion-protected, retained DynamoDB retirement ledger
+  prerequisite, outside this fourteen-resource graph;
 - one retained CloudWatch Logs group;
-- five exact IAM roles: broker execution, two invokers and two deny-all proof
-  roles;
-- one Lambda function sourced only from the exact signed destination and one
-  published version pinned to that signed `CodeSha256`;
+- five exact precreated IAM role prerequisites, outside this graph: broker
+  execution, two invokers and two deny-all proof roles;
+- one exact precreated Lambda function outside this graph, sourced only from
+  the signed destination and separately certified by GUG-365;
+- one published version pinned to that signed `CodeSha256`;
 - only the three `single-classify`, `single-retire` and `single-reconcile`
   aliases;
 - only their three `AWS_IAM` Function URLs; and
@@ -187,11 +194,11 @@ unqualified invocation path fail readback.
 ## Logging boundary
 
 The stack creates the fixed log group
-`/aws/lambda/scanalyze-platform-authority-gug215-retirement` before the Lambda.
-It has 365-day retention, `DeletionPolicy: Retain`,
+`/aws/lambda/scanalyze-platform-authority-gug215-retirement`. It has 365-day
+retention, `DeletionPolicy: Retain`,
 `UpdateReplacePolicy: Retain` and AWS-owned encryption at rest.
 
-The function fixes:
+The precreated GUG-365 function must separately certify:
 
 ```yaml
 LoggingConfig:

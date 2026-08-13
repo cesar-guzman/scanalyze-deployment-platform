@@ -159,7 +159,9 @@ mechanism, read-only evidence must prove:
    `operator_authority_evidence_digest`, `live_before_state_digest` and the
    overall `live_checkpoint_digest`; and
 5. the resulting stack readback returns the same exact `RoleARN` and closed
-   twenty-one-resource single-operator graph.
+   fourteen-resource single-operator graph; the retained ledger, both
+   precreated functions, all five workload roles and the proof-bound/detached
+   factory role remain externally materialized GUG-365 prerequisites.
 
 The current temporary audit policy intentionally exposes Identity Center and
 Identity Store reads only. It does not expose `iam:GetRole`, policy inventory or
