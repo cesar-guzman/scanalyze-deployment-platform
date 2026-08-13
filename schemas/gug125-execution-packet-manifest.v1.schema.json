@@ -28,7 +28,7 @@
     "source_tree_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
     "release_manifest_digest": { "$ref": "#/$defs/digest" },
     "deployment_contract_digest": { "$ref": "#/$defs/digest" },
-    "target_environment_class": { "enum": ["sandbox", "dev", "staging"] },
+    "target_environment_class": { "enum": ["sandbox", "dev"] },
     "target_region_reference": { "type": "string" },
     "target_deployment_reference": { "type": "string" },
     "plan_manifest_references": {

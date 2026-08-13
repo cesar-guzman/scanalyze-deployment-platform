@@ -23,3 +23,12 @@ Execution requires strict zero-AWS offline preflight validations:
 ## Owner Authorization
 All executions are digest-bound via `gug125-owner-authorization-checkpoint.v1.schema.json`.
 Any mutation to the plan, tree SHA, or inputs instantly invalidates authorization.
+
+## Conceptual Future Execution Prompt (GUG-125 Route B)
+**To the future executing agent:**
+You have received a closed execution packet for GUG-125. Your boundary is restricted to fully offline local execution to generate the cryptographic deployment proof.
+
+1. **NO CLOUD:** Zero cloud connectivity, NO AWS Sessions, NO network calls.
+2. **VALIDATION:** Validate the entire execution packet (`manifest`, `authorization`, `ledger`) against the strict `OfflinePacketValidator` in `tooling/gug125_offline_validator.py`.
+3. **EVIDENCE:** Upon successful generation, output the `evidence-hygiene` payload confirming that the state transition occurred locally and securely, without leaking sensitive secrets.
+4. **DO NOT OPEN A BROWSER OR PROMPT FOR MFA:** This is a synthetically generated boundary execution.
