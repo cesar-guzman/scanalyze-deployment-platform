@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-phase-authorization.v1.schema.json",
+  "title": "GUG-376 blocked phase-authorization checkpoint v1",
+  "description": "Current main cannot issue a phase authorization. This record is only the fail-closed source-contract checkpoint.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "upstream_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "production_authorized",
+    "production_status",
+    "deployment_authorized",
+    "consumer_writes_authorized",
+    "decision",
+    "state",
+    "owner_authorization_issued",
+    "phase",
+    "source_head_sha",
+    "source_merge_sha",
+    "source_tree_sha",
+    "gap_checkpoint_digest",
+    "aws_calls_performed",
+    "aws_mutations",
+    "gug365_aws_writes",
+    "gug357_create_stack",
+    "gug215_effects",
+    "gug206_effects",
+    "missing_source_contracts",
+    "next_action",
+    "created_at",
+    "checkpoint_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_phase_authorization.v1"
+    },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-376" },
+    "upstream_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "authority-non-production" },
+    "production": { "const": false },
+    "production_authorized": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "deployment_authorized": { "const": false },
+    "consumer_writes_authorized": { "const": false },
+    "decision": { "const": "STOP" },
+    "state": { "const": "STOP_UPSTREAM_SOURCE_CONTRACT_GAP" },
+    "owner_authorization_issued": { "const": false },
+    "phase": { "const": "IDENTITY_CENTER_FOUNDATION" },
+    "source_head_sha": {
+      "const": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4"
+    },
+    "source_merge_sha": {
+      "const": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86"
+    },
+    "source_tree_sha": {
+      "const": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e"
+    },
+    "gap_checkpoint_digest": {
+      "const": "sha256:9e1ad097fe1f7dfd98ed267bcf2c0aaa4e0a3a92344d589d7e4357c1894bc5d3"
+    },
+    "aws_calls_performed": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "gug365_aws_writes": { "const": 0 },
+    "gug357_create_stack": { "const": 0 },
+    "gug215_effects": { "const": 0 },
+    "gug206_effects": { "const": 0 },
+    "missing_source_contracts": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        { "const": "IDENTITY_CENTER_PROVIDER_OUTPUT_POLLING" },
+        { "const": "IDENTITY_CENTER_PROVISIONED_ROLE_ARN_CAUSALITY" },
+        { "const": "KMS_ARTIFACT_USE_POLICY" },
+        { "const": "S3_ARTIFACT_BUCKET_POLICY" },
+        { "const": "SIGNER_DESTINATION_POLICY_AND_RESULT_PROJECTION" },
+        { "const": "LIVE_PRIVATE_ORCHESTRATOR" }
+      ],
+      "items": false,
+      "uniqueItems": true
+    },
+    "next_action": { "const": "MATERIALIZE_REVIEWED_SOURCE_CONTRACTS" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "checkpoint_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

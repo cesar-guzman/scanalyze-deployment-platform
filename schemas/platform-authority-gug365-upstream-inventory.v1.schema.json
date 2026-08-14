@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-inventory.v1.schema.json",
+  "title": "GUG-376 provider-backed upstream prerequisite inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "production_status",
+    "deployment_authorized",
+    "aws_access_mode",
+    "aws_mutations",
+    "sts_was_first_signed_call",
+    "session_source",
+    "session_chain_depth",
+    "source_head_sha",
+    "source_merge_sha",
+    "source_tree_sha",
+    "upstream_run_digest",
+    "owner_decisions_digest",
+    "account_binding_digest",
+    "region",
+    "caller_identity_digest",
+    "snapshot_count",
+    "first_snapshot_digest",
+    "second_snapshot_digest",
+    "snapshots_stable",
+    "inventory_complete",
+    "certification_eligible",
+    "raw_provider_responses_persisted",
+    "sensitive_values_persisted",
+    "evidence_origin",
+    "provider_transcript_verified",
+    "provider_transcript_verification_digests",
+    "provider_verifier_identity_digest",
+    "provider_attestation_root_digest",
+    "resources",
+    "runtime_evidence",
+    "created_at",
+    "inventory_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_inventory.v1"
+    },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "authority-non-production" },
+    "production": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "deployment_authorized": { "const": false },
+    "aws_access_mode": { "const": "READ_ONLY" },
+    "aws_mutations": { "const": 0 },
+    "sts_was_first_signed_call": { "const": true },
+    "session_source": { "const": "DIRECT_SSO_PERMISSION_SET" },
+    "session_chain_depth": { "const": 0 },
+    "source_head_sha": {
+      "const": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4"
+    },
+    "source_merge_sha": {
+      "const": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86"
+    },
+    "source_tree_sha": {
+      "const": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e"
+    },
+    "upstream_run_digest": { "$ref": "#/$defs/digest" },
+    "owner_decisions_digest": { "$ref": "#/$defs/digest" },
+    "account_binding_digest": { "$ref": "#/$defs/digest" },
+    "region": { "const": "us-east-1" },
+    "caller_identity_digest": { "$ref": "#/$defs/digest" },
+    "snapshot_count": { "const": 2 },
+    "first_snapshot_digest": { "$ref": "#/$defs/digest" },
+    "second_snapshot_digest": { "$ref": "#/$defs/digest" },
+    "snapshots_stable": { "type": "boolean" },
+    "inventory_complete": { "const": false },
+    "certification_eligible": { "const": false },
+    "raw_provider_responses_persisted": { "const": false },
+    "sensitive_values_persisted": { "const": false },
+    "evidence_origin": { "const": "REPOSITORY_OBSERVED_UNATTESTED" },
+    "provider_transcript_verified": { "const": false },
+    "provider_transcript_verification_digests": {
+      "type": "array", "maxItems": 0
+    },
+    "provider_verifier_identity_digest": { "type": "null" },
+    "provider_attestation_root_digest": { "type": "null" },
+    "resources": { "$ref": "#/$defs/resources" },
+    "runtime_evidence": { "$ref": "#/$defs/runtime_evidence" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "inventory_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "classification": {
+      "enum": [
+        "ABSENT_READY",
+        "EXACT_PRESENT_NO_TOUCH",
+        "PREEXISTING_NO_TOUCH",
+        "DRIFT_BLOCKED_NO_REPAIR",
+        "UNCERTAIN_RECONCILE_ONLY",
+        "NOT_AUTHORIZED"
+      ]
+    },
+    "target_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_resource", "surface", "source_target_digest",
+        "owner_decisions_digest", "owner_decision_digests",
+        "owner_decision_target_digests", "target_digest"
+      ],
+      "properties": {
+        "inventory_resource": { "type": "string", "minLength": 1 },
+        "surface": { "type": "string", "minLength": 1 },
+        "source_target_digest": { "$ref": "#/$defs/digest" },
+        "owner_decisions_digest": { "$ref": "#/$defs/digest" },
+        "owner_decision_digests": {
+          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "owner_decision_target_digests": {
+          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "target_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "target_contract",
+        "target_digest",
+        "provider_fact_digest",
+        "readback_complete",
+        "pagination_complete",
+        "access_denied",
+        "ambiguous",
+        "no_touch",
+        "repair_permitted"
+      ],
+      "properties": {
+        "classification": { "$ref": "#/$defs/classification" },
+        "target_contract": { "$ref": "#/$defs/target_contract" },
+        "target_digest": { "$ref": "#/$defs/digest" },
+        "provider_fact_digest": { "$ref": "#/$defs/digest" },
+        "readback_complete": { "type": "boolean" },
+        "pagination_complete": { "type": "boolean" },
+        "access_denied": { "type": "boolean" },
+        "ambiguous": { "type": "boolean" },
+        "no_touch": { "const": true },
+        "repair_permitted": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "classification": {
+                "enum": [
+                  "ABSENT_READY",
+                  "EXACT_PRESENT_NO_TOUCH",
+                  "PREEXISTING_NO_TOUCH",
+                  "DRIFT_BLOCKED_NO_REPAIR"
+                ]
+              }
+            },
+            "required": ["classification"]
+          },
+          "then": {
+            "properties": {
+              "readback_complete": { "const": true },
+              "pagination_complete": { "const": true },
+              "access_denied": { "const": false },
+              "ambiguous": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classification": { "const": "NOT_AUTHORIZED" }
+            },
+            "required": ["classification"]
+          },
+          "then": {
+            "properties": {
+              "readback_complete": { "const": false },
+              "access_denied": { "const": true },
+              "ambiguous": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classification": { "const": "UNCERTAIN_RECONCILE_ONLY" }
+            },
+            "required": ["classification"]
+          },
+          "then": {
+            "properties": {
+              "readback_complete": { "const": false },
+              "ambiguous": { "const": true }
+            }
+          }
+        }
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_bucket",
+        "kms_key",
+        "signing_profile",
+        "code_signing_config",
+        "identity_center_application",
+        "classifier_permission_set",
+        "approver_permission_set",
+        "classifier_permission_set_role",
+        "approver_permission_set_role",
+        "broker_unsigned_object",
+        "broker_signing_job",
+        "broker_signed_object",
+        "ledger_factory_unsigned_object",
+        "ledger_factory_signing_job",
+        "ledger_factory_signed_object"
+      ],
+      "properties": {
+        "artifact_bucket": { "$ref": "#/$defs/resource" },
+        "kms_key": { "$ref": "#/$defs/resource" },
+        "signing_profile": { "$ref": "#/$defs/resource" },
+        "code_signing_config": { "$ref": "#/$defs/resource" },
+        "identity_center_application": { "$ref": "#/$defs/resource" },
+        "classifier_permission_set": { "$ref": "#/$defs/resource" },
+        "approver_permission_set": { "$ref": "#/$defs/resource" },
+        "classifier_permission_set_role": { "$ref": "#/$defs/resource" },
+        "approver_permission_set_role": { "$ref": "#/$defs/resource" },
+        "broker_unsigned_object": { "$ref": "#/$defs/resource" },
+        "broker_signing_job": { "$ref": "#/$defs/resource" },
+        "broker_signed_object": { "$ref": "#/$defs/resource" },
+        "ledger_factory_unsigned_object": { "$ref": "#/$defs/resource" },
+        "ledger_factory_signing_job": { "$ref": "#/$defs/resource" },
+        "ledger_factory_signed_object": { "$ref": "#/$defs/resource" }
+      }
+    },
+    "runtime_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "update_runtime_on",
+        "runtime_version_arn",
+        "runtime_version_arn_digest",
+        "source_function_arn_digest",
+        "source_function_version",
+        "function_configuration_digest",
+        "runtime_management_config_digest",
+        "provider_backed",
+        "readback_complete",
+        "evidence_status",
+        "evidence_collected_at",
+        "runtime_evidence_digest"
+      ],
+      "properties": {
+        "runtime": { "const": "python3.12" },
+        "update_runtime_on": { "const": "Manual" },
+        "runtime_version_arn": { "type": "null" },
+        "runtime_version_arn_digest": { "type": "null" },
+        "source_function_arn_digest": { "type": "null" },
+        "source_function_version": { "type": "null" },
+        "function_configuration_digest": { "type": "null" },
+        "runtime_management_config_digest": { "type": "null" },
+        "provider_backed": { "const": false },
+        "readback_complete": { "const": false },
+        "evidence_status": { "const": "NOT_PROVEN" },
+        "evidence_collected_at": { "type": "null" },
+        "runtime_evidence_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}
