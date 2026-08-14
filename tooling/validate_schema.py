@@ -108,6 +108,21 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-gug365-phase-execution-ledger": (
             "platform-authority-gug365-phase-execution-ledger.v{version}.schema.json"
         ),
+        "platform-authority-gug365-upstream-owner-decisions": (
+            "platform-authority-gug365-upstream-owner-decisions.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-upstream-inventory": (
+            "platform-authority-gug365-upstream-inventory.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-upstream-plan": (
+            "platform-authority-gug365-upstream-plan.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-upstream-phase-authorization": (
+            "platform-authority-gug365-upstream-phase-authorization.v{version}.schema.json"
+        ),
+        "platform-authority-gug365-upstream-final-handoff": (
+            "platform-authority-gug365-upstream-final-handoff.v{version}.schema.json"
+        ),
         "platform-authority-founder-bootstrap-exception": "platform-authority-founder-bootstrap-exception.v{version}.schema.json",
         "platform-authority-founder-execution-ledger": "platform-authority-founder-execution-ledger.v{version}.schema.json",
         "platform-authority-founder-pep-intent": "platform-authority-founder-pep-intent.v{version}.schema.json",

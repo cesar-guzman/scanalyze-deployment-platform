@@ -1,0 +1,37 @@
+{
+  "record_type": "scanalyze.platform_authority.gug365_upstream_owner_decisions.v1",
+  "schema_version": 1,
+  "implementation_issue": "GUG-376",
+  "consumer_issue": "GUG-365",
+  "environment": "authority-non-production",
+  "production": false,
+  "production_status": "NO-GO",
+  "deployment_authorized": true,
+  "aws_calls_performed": 0,
+  "aws_mutations": 0,
+  "source_head_sha": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4",
+  "source_merge_sha": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86",
+  "source_tree_sha": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e",
+  "upstream_run_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "private_root_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "decisions": [
+    {
+      "inventory_resource": "artifact_bucket",
+      "key": "artifact_bucket_name",
+      "value_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "constraints": ["globally unique"],
+      "classification": "ABSENT_READY",
+      "target_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "collision_proof_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "no_touch_if_exact": true,
+      "impact": "Synthetic impact.",
+      "rollback_boundary": "No automatic rollback.",
+      "decision_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "decision_count": 1,
+  "collision_proof_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "approval_status": "PENDING",
+  "created_at": "2026-08-13T20:00:00Z",
+  "owner_decisions_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+}

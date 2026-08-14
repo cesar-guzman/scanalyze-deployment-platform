@@ -1,0 +1,522 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-plan.v1.schema.json",
+  "title": "GUG-376 closed-world upstream prerequisite plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "production_status",
+    "deployment_authorized",
+    "authorization_mode",
+    "two_human_status",
+    "independent_approval_present",
+    "aws_calls_performed",
+    "aws_mutations",
+    "state",
+    "owner_authorization_issued",
+    "source_head_sha",
+    "source_merge_sha",
+    "source_tree_sha",
+    "gap_checkpoint_digest",
+    "original_run_digest",
+    "upstream_run_digest",
+    "owner_decisions_digest",
+    "owner_decisions_approval_digest",
+    "inventory_digest",
+    "inventory_account_binding_digest",
+    "inventory_caller_identity_digest",
+    "runtime_evidence_digest",
+    "private_ledger_root_digest",
+    "phase_inventory_bindings",
+    "artifact_topology",
+    "phase_count",
+    "first_mutation_phase",
+    "phases",
+    "complete_write_set_digest",
+    "created_at",
+    "plan_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_plan.v1"
+    },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "authority-non-production" },
+    "production": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "deployment_authorized": { "const": false },
+    "authorization_mode": { "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION" },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "aws_calls_performed": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "state": { "const": "STOPPED_BEFORE_FIRST_AWS_WRITE" },
+    "owner_authorization_issued": { "const": false },
+    "source_head_sha": {
+      "const": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4"
+    },
+    "source_merge_sha": {
+      "const": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86"
+    },
+    "source_tree_sha": {
+      "const": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e"
+    },
+    "gap_checkpoint_digest": {
+      "const": "sha256:9e1ad097fe1f7dfd98ed267bcf2c0aaa4e0a3a92344d589d7e4357c1894bc5d3"
+    },
+    "original_run_digest": {
+      "const": "sha256:203c5da1fe530ae27a0166554a091375a432ee3a01507d485596ea19ace8b15c"
+    },
+    "upstream_run_digest": { "$ref": "#/$defs/digest" },
+    "owner_decisions_digest": { "$ref": "#/$defs/digest" },
+    "owner_decisions_approval_digest": { "$ref": "#/$defs/digest" },
+    "inventory_digest": { "$ref": "#/$defs/digest" },
+    "inventory_account_binding_digest": { "$ref": "#/$defs/digest" },
+    "inventory_caller_identity_digest": { "$ref": "#/$defs/digest" },
+    "runtime_evidence_digest": { "$ref": "#/$defs/digest" },
+    "private_ledger_root_digest": { "$ref": "#/$defs/digest" },
+    "phase_inventory_bindings": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/phase_inventory_binding" }
+    },
+    "artifact_topology": { "$ref": "#/$defs/artifact_topology" },
+    "phase_count": { "const": 9 },
+    "first_mutation_phase": { "$ref": "#/$defs/phase_name" },
+    "phases": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "IDENTITY_CENTER_FOUNDATION" },
+                "sequence": { "const": 1 },
+                "inventory_target": { "const": "identity_center_topology" },
+                "causal_predecessor": { "type": "null" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "KMS_FOUNDATION" },
+                "sequence": { "const": 2 },
+                "inventory_target": { "const": "kms_key" },
+                "causal_predecessor": { "const": "IDENTITY_CENTER_FOUNDATION" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "S3_ARTIFACT_FOUNDATION" },
+                "sequence": { "const": 3 },
+                "inventory_target": { "const": "artifact_bucket" },
+                "causal_predecessor": { "const": "KMS_FOUNDATION" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "SIGNER_PROFILE_FOUNDATION" },
+                "sequence": { "const": 4 },
+                "inventory_target": { "const": "signing_profile" },
+                "causal_predecessor": { "const": "S3_ARTIFACT_FOUNDATION" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "LAMBDA_CSC_FOUNDATION" },
+                "sequence": { "const": 5 },
+                "inventory_target": { "const": "code_signing_config" },
+                "causal_predecessor": { "const": "SIGNER_PROFILE_FOUNDATION" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "BROKER_UNSIGNED_PUBLISH" },
+                "sequence": { "const": 6 },
+                "inventory_target": { "const": "broker_unsigned_object" },
+                "causal_predecessor": { "const": "LAMBDA_CSC_FOUNDATION" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "BROKER_SIGNING_JOB" },
+                "sequence": { "const": 7 },
+                "inventory_target": { "const": "broker_signing_job" },
+                "causal_predecessor": { "const": "BROKER_UNSIGNED_PUBLISH" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH" },
+                "sequence": { "const": 8 },
+                "inventory_target": { "const": "ledger_factory_unsigned_object" },
+                "causal_predecessor": { "const": "BROKER_SIGNING_JOB" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/phase" },
+            {
+              "properties": {
+                "phase": { "const": "LEDGER_FACTORY_SIGNING_JOB" },
+                "sequence": { "const": 9 },
+                "inventory_target": { "const": "ledger_factory_signing_job" },
+                "causal_predecessor": { "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH" }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "complete_write_set_digest": { "$ref": "#/$defs/digest" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "plan_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "phase_name": {
+      "enum": [
+        "IDENTITY_CENTER_FOUNDATION",
+        "KMS_FOUNDATION",
+        "S3_ARTIFACT_FOUNDATION",
+        "SIGNER_PROFILE_FOUNDATION",
+        "LAMBDA_CSC_FOUNDATION",
+        "BROKER_UNSIGNED_PUBLISH",
+        "BROKER_SIGNING_JOB",
+        "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+        "LEDGER_FACTORY_SIGNING_JOB"
+      ]
+    },
+    "phase_inventory_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase", "resource_names", "resource_target_digests",
+        "resource_target_bindings",
+        "inventory_projection_digest", "provider_before_state_digest",
+        "phase_inventory_binding_digest"
+      ],
+      "properties": {
+        "phase": { "$ref": "#/$defs/phase_name" },
+        "resource_names": {
+          "type": "array", "minItems": 1, "maxItems": 5,
+          "uniqueItems": true, "items": { "type": "string", "minLength": 1 }
+        },
+        "resource_target_digests": {
+          "type": "array", "minItems": 1, "maxItems": 5,
+          "uniqueItems": true, "items": { "$ref": "#/$defs/digest" }
+        },
+        "resource_target_bindings": {
+          "type": "array", "minItems": 1, "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["inventory_resource", "target_digest"],
+            "properties": {
+              "inventory_resource": { "type": "string", "minLength": 1 },
+              "target_digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "inventory_projection_digest": { "$ref": "#/$defs/digest" },
+        "provider_before_state_digest": { "$ref": "#/$defs/digest" },
+        "phase_inventory_binding_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "slot": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,95}$"
+    },
+    "artifact_topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_bucket_required",
+        "same_kms_key_required",
+        "same_code_signing_config_required",
+        "allowed_publisher_count",
+        "signer_platform",
+        "distinct_signing_jobs_required",
+        "distinct_signed_objects_required",
+        "unsigned_signed_outer_digests_must_differ",
+        "zip_members_must_match"
+      ],
+      "properties": {
+        "same_bucket_required": { "const": true },
+        "same_kms_key_required": { "const": true },
+        "same_code_signing_config_required": { "const": true },
+        "allowed_publisher_count": { "const": 1 },
+        "signer_platform": { "const": "AWSLambda-SHA384-ECDSA" },
+        "distinct_signing_jobs_required": { "const": true },
+        "distinct_signed_objects_required": { "const": true },
+        "unsigned_signed_outer_digests_must_differ": { "const": true },
+        "zip_members_must_match": { "const": true }
+      }
+    },
+    "request_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_digest",
+        "resolution_status",
+        "provider_generated_slots",
+        "sensitive_values_persisted"
+      ],
+      "properties": {
+        "template_digest": { "$ref": "#/$defs/digest" },
+        "resolution_status": {
+          "enum": ["EXACT_RESOLVED", "UNRESOLVED_PROVIDER_SLOTS"]
+        },
+        "provider_generated_slots": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/slot" }
+        },
+        "sensitive_values_persisted": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resolution_status": { "const": "EXACT_RESOLVED" }
+            },
+            "required": ["resolution_status"]
+          },
+          "then": {
+            "properties": {
+              "provider_generated_slots": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolution_status": { "const": "UNRESOLVED_PROVIDER_SLOTS" }
+            },
+            "required": ["resolution_status"]
+          },
+          "then": {
+            "properties": {
+              "provider_generated_slots": { "minItems": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "action",
+        "inventory_resource",
+        "target_digest",
+        "request_template",
+        "request_digest",
+        "request_digest_kind",
+        "required_slots",
+        "approved_principal_digests",
+        "authorized_resource_arn_digests",
+        "expected_readback_digest",
+        "executor_policy_digest",
+        "retry_permitted",
+        "automatic_rollback",
+        "ambiguous_outcome",
+        "operation_digest"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "action": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+:[A-Z][A-Za-z0-9]+$"
+        },
+        "inventory_resource": { "type": "string", "minLength": 1 },
+        "target_digest": { "$ref": "#/$defs/digest" },
+        "request_template": { "$ref": "#/$defs/request_template" },
+        "request_digest": { "$ref": "#/$defs/digest" },
+        "request_digest_kind": {
+          "enum": ["EXACT_REQUEST", "REQUEST_TEMPLATE"]
+        },
+        "required_slots": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/slot" }
+        },
+        "approved_principal_digests": {
+          "type": "array", "maxItems": 32, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "authorized_resource_arn_digests": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "expected_readback_digest": { "$ref": "#/$defs/digest" },
+        "executor_policy_digest": { "$ref": "#/$defs/digest" },
+        "retry_permitted": { "const": false },
+        "automatic_rollback": { "const": false },
+        "ambiguous_outcome": { "const": "RECONCILE_ONLY" },
+        "operation_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "sequence",
+        "inventory_target",
+        "inventory_classification",
+        "resolution",
+        "causal_predecessor",
+        "operations",
+        "ordered_request_digests",
+        "phase_operation_digest",
+        "phase_mutation_digest",
+        "rollback_boundary"
+      ],
+      "properties": {
+        "phase": { "$ref": "#/$defs/phase_name" },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "inventory_target": {
+          "enum": [
+            "identity_center_topology",
+            "kms_key",
+            "artifact_bucket",
+            "signing_profile",
+            "code_signing_config",
+            "broker_unsigned_object",
+            "broker_signing_job",
+            "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job"
+          ]
+        },
+        "inventory_classification": {
+          "enum": ["ABSENT_READY", "EXACT_PRESENT_NO_TOUCH"]
+        },
+        "resolution": { "enum": ["MUTATE", "EXACT_PRESENT_NO_TOUCH"] },
+        "causal_predecessor": {
+          "oneOf": [
+            { "$ref": "#/$defs/phase_name" },
+            { "type": "null" }
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/operation" }
+        },
+        "ordered_request_digests": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/digest" }
+        },
+        "phase_operation_digest": { "$ref": "#/$defs/digest" },
+        "phase_mutation_digest": { "$ref": "#/$defs/digest" },
+        "rollback_boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "resolution": { "const": "MUTATE" } },
+            "required": ["resolution"]
+          },
+          "then": {
+            "properties": {
+              "inventory_classification": { "const": "ABSENT_READY" },
+              "operations": { "minItems": 1 },
+              "ordered_request_digests": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolution": { "const": "EXACT_PRESENT_NO_TOUCH" }
+            },
+            "required": ["resolution"]
+          },
+          "then": {
+            "properties": {
+              "inventory_classification": {
+                "const": "EXACT_PRESENT_NO_TOUCH"
+              },
+              "operations": { "maxItems": 0 },
+              "ordered_request_digests": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

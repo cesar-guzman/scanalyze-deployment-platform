@@ -1,0 +1,449 @@
+{
+  "artifact_topology": {
+    "allowed_publisher_count": 1,
+    "distinct_signed_objects_required": true,
+    "distinct_signing_jobs_required": true,
+    "same_bucket_required": true,
+    "same_code_signing_config_required": true,
+    "same_kms_key_required": true,
+    "signer_platform": "AWSLambda-SHA384-ECDSA",
+    "unsigned_signed_outer_digests_must_differ": true,
+    "zip_members_must_match": true
+  },
+  "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+  "aws_calls_performed": 0,
+  "aws_mutations": 0,
+  "complete_write_set_digest": "sha256:05dd590b3f005d096e0776eb61aebd0bbdc0cf582234a77d4cd95588df4677b5",
+  "consumer_issue": "GUG-365",
+  "created_at": "2026-08-13T20:02:00Z",
+  "deployment_authorized": false,
+  "environment": "authority-non-production",
+  "first_mutation_phase": "KMS_FOUNDATION",
+  "gap_checkpoint_digest": "sha256:9e1ad097fe1f7dfd98ed267bcf2c0aaa4e0a3a92344d589d7e4357c1894bc5d3",
+  "implementation_issue": "GUG-376",
+  "independent_approval_present": false,
+  "inventory_account_binding_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "inventory_caller_identity_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "inventory_digest": "sha256:2c4cb1aeacd819a5519da7bd4ad4fc027abf588007277f026fdadcd995cea4e7",
+  "original_run_digest": "sha256:203c5da1fe530ae27a0166554a091375a432ee3a01507d485596ea19ace8b15c",
+  "owner_authorization_issued": false,
+  "owner_decisions_approval_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "owner_decisions_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "phase_count": 9,
+  "phase_inventory_bindings": [
+    {
+      "inventory_projection_digest": "sha256:0bb31254ded1173d13f4275f2e833ca18edb0295db30566201fa39960c1ff072",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "identity_center_application",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "classifier_permission_set",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "approver_permission_set",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "classifier_permission_set_role",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "approver_permission_set_role",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:48da357cd425a4e8ebdf913cdab869f93e876c502c06fdb08b3f3e6f54d2b427",
+      "provider_before_state_digest": "sha256:2cbdf8f7877839ca4760de57ab5feca745ceb8648ad5e809cc22feb4c0308058",
+      "resource_names": [
+        "identity_center_application",
+        "classifier_permission_set",
+        "approver_permission_set",
+        "classifier_permission_set_role",
+        "approver_permission_set_role"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:ede442cbc66df1cf7cf41896c7be7e707ec93ae4cf9bfe2bae3f67d70f94da14",
+      "phase": "KMS_FOUNDATION",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "kms_key",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:66750945b874ce1e7c9c3d4b6d4983fa6cb2df45f7b7a899e964d3ee9fd33427",
+      "provider_before_state_digest": "sha256:d62f75a67246e108c9306f4bbdeecfa59831d4dea110b9c29ade39f5cf6e1a44",
+      "resource_names": [
+        "kms_key"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:e6c397d16dcf2d98590b8830dde4aa6116fbc584faa445e495c8da26663f3f59",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "artifact_bucket",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:4397b373e6947470d1e25e71de32d5f5c3f2928e17ccefb783c9d76feb0aee08",
+      "provider_before_state_digest": "sha256:d75023f1bc740d8f7e8a6c403ec61324e18d622d65d52cc23e7a9c3b78dae47f",
+      "resource_names": [
+        "artifact_bucket"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:88a8b6938cf12273ec0ca7a296d09311baa764754d0709640b7ca5725251c8b1",
+      "phase": "SIGNER_PROFILE_FOUNDATION",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "signing_profile",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:8cbcacce6335794069937be0dd2f009049b119e2a76c111507da51fa805a7fde",
+      "provider_before_state_digest": "sha256:1a13f3f9d058bc72486fe92f4d90a58f7669fc7dd0738434397bfb99acd2f264",
+      "resource_names": [
+        "signing_profile"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:c0873bed9e3f81f420de9161c80a239c7267e173b55d8ad6f9a3ff038b7315c0",
+      "phase": "LAMBDA_CSC_FOUNDATION",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "code_signing_config",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:8cc0d23f8d2a3241b20748c8f14e069bbcbe49019842ceed213c06b9013785f1",
+      "provider_before_state_digest": "sha256:c65fc51c4d8de97459702ba7049a98bbc7bd27d3de700b8d76304c8af1007132",
+      "resource_names": [
+        "code_signing_config"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:d51a44ddc213ba9ac1e847aca06d4917ba787bc33818f2740c5b69ebc98a6283",
+      "phase": "BROKER_UNSIGNED_PUBLISH",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "broker_unsigned_object",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:d9c241729ac677099f149e89eafd6defdeba1755c5e052f68062df37b841710b",
+      "provider_before_state_digest": "sha256:edfebb2375ec0fe50e46d4cf0fd11e7c735b63bdca53291efd1c3f1d9dfb740c",
+      "resource_names": [
+        "broker_unsigned_object"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:523132bab80744d3e195361bf3b4567a305b1e6a53206df39cb189dbf9fff4be",
+      "phase": "BROKER_SIGNING_JOB",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "broker_signing_job",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "broker_signed_object",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:3b30d452e055edefe252970cd444185493121e812a82eee3774c1e1b7101c6a4",
+      "provider_before_state_digest": "sha256:58a177e62e203a1b021830088d7f0b73f271690be02a28b64047828bc74614bc",
+      "resource_names": [
+        "broker_signing_job",
+        "broker_signed_object"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:ad5ee2bdcb2f12795a16685ca9f126525c810ca33abbc8249e0e8bf22b89a97f",
+      "phase": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "ledger_factory_unsigned_object",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:53015f007f13d0060132aa032815b5d99fee2cb99696d9949c154a64bb9b2d14",
+      "provider_before_state_digest": "sha256:62fc6ea476b4f1c3a5d850c8304425e2738db0ea81e1bd1d6961fce77fdde20e",
+      "resource_names": [
+        "ledger_factory_unsigned_object"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "inventory_projection_digest": "sha256:3c04976d6b638c1a8a2fb9b5c6e785b6bc0ea30054f0692df6b93dec05a27d09",
+      "phase": "LEDGER_FACTORY_SIGNING_JOB",
+      "resource_target_bindings": [
+        {
+          "inventory_resource": "ledger_factory_signing_job",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "inventory_resource": "ledger_factory_signed_object",
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "phase_inventory_binding_digest": "sha256:47e34c397b8eed29f3aeae8dfb08e86106412f5a07a96e9be39e259c4da0ae42",
+      "provider_before_state_digest": "sha256:d4a507f6149efec5c0dcf14e66a7eeed4e105793900f2c0725801ab0719fd631",
+      "resource_names": [
+        "ledger_factory_signing_job",
+        "ledger_factory_signed_object"
+      ],
+      "resource_target_digests": [
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "causal_predecessor": null,
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "identity_center_topology",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 1
+    },
+    {
+      "causal_predecessor": "IDENTITY_CENTER_FOUNDATION",
+      "inventory_classification": "ABSENT_READY",
+      "inventory_target": "kms_key",
+      "operations": [
+        {
+          "action": "kms:CreateKey",
+          "approved_principal_digests": [
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "authorized_resource_arn_digests": [
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "inventory_resource": "kms_key",
+          "ambiguous_outcome": "RECONCILE_ONLY",
+          "automatic_rollback": false,
+          "executor_policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "expected_readback_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "operation_digest": "sha256:bb235bcef01deeaba467a4d89dcaa83f495d67c4bf82f151d0c28fe7e7fe9dab",
+          "request_digest": "sha256:634a3e88ef36a7b070b101c074bce960dd39de71230948e34d1183e51db776d2",
+          "request_digest_kind": "EXACT_REQUEST",
+          "request_template": {
+            "provider_generated_slots": [],
+            "resolution_status": "EXACT_RESOLVED",
+            "sensitive_values_persisted": false,
+            "template_digest": "sha256:634a3e88ef36a7b070b101c074bce960dd39de71230948e34d1183e51db776d2"
+          },
+          "required_slots": [],
+          "retry_permitted": false,
+          "sequence": 1,
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "action": "kms:EnableKeyRotation",
+          "approved_principal_digests": [],
+          "authorized_resource_arn_digests": [
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "inventory_resource": "kms_key",
+          "ambiguous_outcome": "RECONCILE_ONLY",
+          "automatic_rollback": false,
+          "executor_policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "expected_readback_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "operation_digest": "sha256:4d36550607d569b70cd3056ebb53b3b5c8bde06ee49303e0fcc6580e98cb2fca",
+          "request_digest": "sha256:b5f06363e084ecfdbdfc468f954bc52f7e703951d0c263724c01ad9d5bcc5f06",
+          "request_digest_kind": "REQUEST_TEMPLATE",
+          "request_template": {
+            "provider_generated_slots": [
+              "KMS_KEY_ID"
+            ],
+            "resolution_status": "UNRESOLVED_PROVIDER_SLOTS",
+            "sensitive_values_persisted": false,
+            "template_digest": "sha256:b5f06363e084ecfdbdfc468f954bc52f7e703951d0c263724c01ad9d5bcc5f06"
+          },
+          "required_slots": [
+            "KMS_KEY_ID"
+          ],
+          "retry_permitted": false,
+          "sequence": 2,
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "action": "kms:CreateAlias",
+          "approved_principal_digests": [],
+          "authorized_resource_arn_digests": [
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "inventory_resource": "kms_key",
+          "ambiguous_outcome": "RECONCILE_ONLY",
+          "automatic_rollback": false,
+          "executor_policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "expected_readback_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "operation_digest": "sha256:777641858fab096c5eb3f6631fea39a4895ce614ed5fb1d59d8d63347e1a4985",
+          "request_digest": "sha256:4cd1d2737a4f403dfa9a001e4ae70b1f94f1f27a39d51e205e01840bc453d52c",
+          "request_digest_kind": "REQUEST_TEMPLATE",
+          "request_template": {
+            "provider_generated_slots": [
+              "KMS_KEY_ID"
+            ],
+            "resolution_status": "UNRESOLVED_PROVIDER_SLOTS",
+            "sensitive_values_persisted": false,
+            "template_digest": "sha256:4cd1d2737a4f403dfa9a001e4ae70b1f94f1f27a39d51e205e01840bc453d52c"
+          },
+          "required_slots": [
+            "KMS_KEY_ID"
+          ],
+          "retry_permitted": false,
+          "sequence": 3,
+          "target_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "ordered_request_digests": [
+        "sha256:634a3e88ef36a7b070b101c074bce960dd39de71230948e34d1183e51db776d2",
+        "sha256:b5f06363e084ecfdbdfc468f954bc52f7e703951d0c263724c01ad9d5bcc5f06",
+        "sha256:4cd1d2737a4f403dfa9a001e4ae70b1f94f1f27a39d51e205e01840bc453d52c"
+      ],
+      "phase": "KMS_FOUNDATION",
+      "phase_mutation_digest": "sha256:a20bbd4733c0629b98f3f7741d2a9377ff485b63c8db8b2e5af5bdef66b6fc9b",
+      "phase_operation_digest": "sha256:e7d2a7d272b5b505b8ef9455c08bab2831f6f94995c6d942f786db0a87540e53",
+      "resolution": "MUTATE",
+      "rollback_boundary": "No automatic rollback; read-only reconciliation only.",
+      "sequence": 2
+    },
+    {
+      "causal_predecessor": "KMS_FOUNDATION",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "artifact_bucket",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 3
+    },
+    {
+      "causal_predecessor": "S3_ARTIFACT_FOUNDATION",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "signing_profile",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "SIGNER_PROFILE_FOUNDATION",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 4
+    },
+    {
+      "causal_predecessor": "SIGNER_PROFILE_FOUNDATION",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "code_signing_config",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "LAMBDA_CSC_FOUNDATION",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 5
+    },
+    {
+      "causal_predecessor": "LAMBDA_CSC_FOUNDATION",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "broker_unsigned_object",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "BROKER_UNSIGNED_PUBLISH",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 6
+    },
+    {
+      "causal_predecessor": "BROKER_UNSIGNED_PUBLISH",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "broker_signing_job",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "BROKER_SIGNING_JOB",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 7
+    },
+    {
+      "causal_predecessor": "BROKER_SIGNING_JOB",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "ledger_factory_unsigned_object",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 8
+    },
+    {
+      "causal_predecessor": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "inventory_classification": "EXACT_PRESENT_NO_TOUCH",
+      "inventory_target": "ledger_factory_signing_job",
+      "operations": [],
+      "ordered_request_digests": [],
+      "phase": "LEDGER_FACTORY_SIGNING_JOB",
+      "phase_mutation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "phase_operation_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "resolution": "EXACT_PRESENT_NO_TOUCH",
+      "rollback_boundary": "Exact provider state remains untouched.",
+      "sequence": 9
+    }
+  ],
+  "plan_digest": "sha256:9ef6737cabc63c80c30a583e3ddc1f34c69a2772210143678a6ce7538ddfd0c1",
+  "private_ledger_root_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "production": false,
+  "production_status": "NO-GO",
+  "record_type": "scanalyze.platform_authority.gug365_upstream_plan.v1",
+  "runtime_evidence_digest": "sha256:51bb61bca7753e7c886c1e7c56fd46ae3955fe96277dfa1a96b7a3f6b027a8c8",
+  "schema_version": 1,
+  "source_head_sha": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4",
+  "source_merge_sha": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86",
+  "source_tree_sha": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e",
+  "state": "STOPPED_BEFORE_FIRST_AWS_WRITE",
+  "two_human_status": "NOT_PROVEN",
+  "upstream_run_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+}

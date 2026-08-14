@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-owner-decisions.v1.schema.json",
+  "title": "GUG-376 owner-selected upstream prerequisite decisions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "production_status",
+    "deployment_authorized",
+    "aws_calls_performed",
+    "aws_mutations",
+    "source_head_sha",
+    "source_merge_sha",
+    "source_tree_sha",
+    "upstream_run_digest",
+    "private_root_digest",
+    "decisions",
+    "decision_count",
+    "collision_proof_digest",
+    "approval_status",
+    "created_at",
+    "owner_decisions_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_owner_decisions.v1"
+    },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "authority-non-production" },
+    "production": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "deployment_authorized": { "const": false },
+    "aws_calls_performed": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "source_head_sha": {
+      "const": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4"
+    },
+    "source_merge_sha": {
+      "const": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86"
+    },
+    "source_tree_sha": {
+      "const": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e"
+    },
+    "upstream_run_digest": { "$ref": "#/$defs/digest" },
+    "private_root_digest": { "$ref": "#/$defs/digest" },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/decision" }
+    },
+    "decision_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "collision_proof_digest": { "$ref": "#/$defs/digest" },
+    "approval_status": { "const": "PENDING" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "owner_decisions_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_resource",
+        "key",
+        "value_digest",
+        "constraints",
+        "classification",
+        "target_digest",
+        "collision_proof_digest",
+        "no_touch_if_exact",
+        "impact",
+        "rollback_boundary",
+        "decision_digest"
+      ],
+      "properties": {
+        "inventory_resource": {
+          "enum": [
+            "artifact_bucket", "kms_key", "signing_profile",
+            "code_signing_config", "identity_center_application",
+            "classifier_permission_set", "approver_permission_set",
+            "classifier_permission_set_role", "approver_permission_set_role",
+            "broker_unsigned_object", "broker_signing_job",
+            "broker_signed_object", "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job", "ledger_factory_signed_object"
+          ]
+        },
+        "key": { "$ref": "#/$defs/token" },
+        "value_digest": { "$ref": "#/$defs/digest" },
+        "constraints": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "classification": { "const": "ABSENT_READY" },
+        "target_digest": { "$ref": "#/$defs/digest" },
+        "collision_proof_digest": { "$ref": "#/$defs/digest" },
+        "no_touch_if_exact": { "const": true },
+        "impact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "rollback_boundary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "decision_digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

@@ -1,0 +1,353 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmOnlyTheCurrentCaller",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DiscoverAuthorityInventory",
+      "Effect": "Allow",
+      "Action": [
+        "iam:ListRoles",
+        "kms:ListAliases",
+        "kms:ListKeys",
+        "lambda:ListCodeSigningConfigs",
+        "lambda:ListFunctions",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:ListAllMyBuckets",
+        "signer:ListSigningJobs",
+        "signer:ListSigningPlatforms",
+        "signer:ListSigningProfiles"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactArtifactBucketAndVersions",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketAcl",
+        "s3:GetBucketEncryption",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:GetBucketLocation",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:ListBucket",
+        "s3:ListBucketVersions"
+      ],
+      "Resource": "${artifact_bucket_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactArtifactObjectVersions",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectAttributes",
+        "s3:GetObjectTagging",
+        "s3:GetObjectVersion",
+        "s3:GetObjectVersionTagging"
+      ],
+      "Resource": [
+        "${broker_signed_object_arn}",
+        "${broker_unsigned_object_arn}",
+        "${ledger_factory_signed_object_arn}",
+        "${ledger_factory_unsigned_object_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DecryptOnlyThroughExactArtifactBucket",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${artifact_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "kms:EncryptionContext:aws:s3:arn": "${artifact_bucket_arn}",
+          "kms:ViaService": "s3.us-east-1.amazonaws.com"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactKmsKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListGrants",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "${artifact_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactSigningProfile",
+      "Effect": "Allow",
+      "Action": [
+        "signer:GetRevocationStatus",
+        "signer:GetSigningProfile",
+        "signer:ListProfilePermissions",
+        "signer:ListTagsForResource"
+      ],
+      "Resource": "${signing_profile_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactSigningJobs",
+      "Effect": "Allow",
+      "Action": [
+        "signer:DescribeSigningJob",
+        "signer:GetRevocationStatus"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactLambdaCodeSigningConfig",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetCodeSigningConfig",
+        "lambda:ListFunctionsByCodeSigningConfig",
+        "lambda:ListTags"
+      ],
+      "Resource": "${code_signing_config_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactLambdaRuntimeEvidence",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": [
+        "${runtime_source_function_arn}",
+        "${runtime_source_function_version_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactGeneratedIdentityCenterRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "${retire_approve_generated_role_arn}",
+        "${retire_class_generated_role_arn}"
+      ],
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAuthorityReadsOutsideHomeRegion",
+      "Effect": "Deny",
+      "Action": [
+        "kms:*",
+        "lambda:*",
+        "s3:*",
+        "signer:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsBeforeAbsoluteStart",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsAtAbsoluteExpiry",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryUnreviewedAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoles",
+        "iam:ListRoleTags",
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListAliases",
+        "kms:ListGrants",
+        "kms:ListKeys",
+        "kms:ListResourceTags",
+        "lambda:GetCodeSigningConfig",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:ListCodeSigningConfigs",
+        "lambda:ListFunctions",
+        "lambda:ListFunctionsByCodeSigningConfig",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction",
+        "s3:GetAccountPublicAccessBlock",
+        "s3:GetBucketAcl",
+        "s3:GetBucketEncryption",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:GetBucketLocation",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetObject",
+        "s3:GetObjectAttributes",
+        "s3:GetObjectTagging",
+        "s3:GetObjectVersion",
+        "s3:GetObjectVersionTagging",
+        "s3:ListAllMyBuckets",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "signer:DescribeSigningJob",
+        "signer:GetRevocationStatus",
+        "signer:GetSigningProfile",
+        "signer:ListProfilePermissions",
+        "signer:ListSigningJobs",
+        "signer:ListSigningPlatforms",
+        "signer:ListSigningProfiles",
+        "signer:ListTagsForResource",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

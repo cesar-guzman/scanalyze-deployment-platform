@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-final-handoff.v1.schema.json",
+  "title": "GUG-376 blocked upstream handoff checkpoint v1",
+  "description": "Fail-closed repository checkpoint; it is not a live or executable handoff.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "production_status",
+    "deployment_authorized",
+    "consumer_writes_authorized",
+    "status",
+    "state",
+    "evidence_scope",
+    "provider_certification_complete",
+    "negative_evidence_complete",
+    "consumer_fresh_checkpoint_required",
+    "authorization_mode",
+    "two_human_status",
+    "independent_approval_present",
+    "source_head_sha",
+    "source_merge_sha",
+    "source_tree_sha",
+    "gap_checkpoint_digest",
+    "aws_write_counts",
+    "gug365_aws_writes",
+    "gug357_create_stack",
+    "gug215_effects",
+    "gug206_effects",
+    "signing_job_count",
+    "distinct_signing_jobs_proven",
+    "distinct_signed_objects_proven",
+    "gug363_plan_deployment_authorized",
+    "gug363_plan_production",
+    "missing_source_contracts",
+    "next_action",
+    "created_at",
+    "handoff_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_final_handoff.v1"
+    },
+    "schema_version": { "const": 1 },
+    "implementation_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "authority-non-production" },
+    "production": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "deployment_authorized": { "const": false },
+    "consumer_writes_authorized": { "const": false },
+    "status": { "const": "STOP_UPSTREAM_SOURCE_CONTRACT_GAP" },
+    "state": { "const": "STOPPED_BEFORE_FIRST_AWS_WRITE" },
+    "evidence_scope": { "const": "REPOSITORY_VALIDATED_NO_LIVE_EXECUTION" },
+    "provider_certification_complete": { "const": false },
+    "negative_evidence_complete": { "const": false },
+    "consumer_fresh_checkpoint_required": { "const": true },
+    "authorization_mode": { "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION" },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "source_head_sha": {
+      "const": "51cfbb5d8912bf4a300ae5f258b4ccc250d2f4b4"
+    },
+    "source_merge_sha": {
+      "const": "a1999d0f9a885a98e443a5c8e9d4c9f7dba04d86"
+    },
+    "source_tree_sha": {
+      "const": "0a1171aae5c3fb8ccb8c7e62cbfbd780f91c700e"
+    },
+    "gap_checkpoint_digest": {
+      "const": "sha256:9e1ad097fe1f7dfd98ed267bcf2c0aaa4e0a3a92344d589d7e4357c1894bc5d3"
+    },
+    "aws_write_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "by_action", "write_count_digest"],
+      "properties": {
+        "total": { "const": 0 },
+        "by_action": { "type": "array", "maxItems": 0 },
+        "write_count_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "gug365_aws_writes": { "const": 0 },
+    "gug357_create_stack": { "const": 0 },
+    "gug215_effects": { "const": 0 },
+    "gug206_effects": { "const": 0 },
+    "signing_job_count": { "const": 0 },
+    "distinct_signing_jobs_proven": { "const": false },
+    "distinct_signed_objects_proven": { "const": false },
+    "gug363_plan_deployment_authorized": { "const": false },
+    "gug363_plan_production": { "const": false },
+    "missing_source_contracts": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        { "const": "IDENTITY_CENTER_PROVIDER_OUTPUT_POLLING" },
+        { "const": "IDENTITY_CENTER_PROVISIONED_ROLE_ARN_CAUSALITY" },
+        { "const": "KMS_ARTIFACT_USE_POLICY" },
+        { "const": "S3_ARTIFACT_BUCKET_POLICY" },
+        { "const": "SIGNER_DESTINATION_POLICY_AND_RESULT_PROJECTION" },
+        { "const": "LIVE_PRIVATE_ORCHESTRATOR" }
+      ],
+      "items": false,
+      "uniqueItems": true
+    },
+    "next_action": { "const": "MATERIALIZE_REVIEWED_SOURCE_CONTRACTS" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "handoff_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}
