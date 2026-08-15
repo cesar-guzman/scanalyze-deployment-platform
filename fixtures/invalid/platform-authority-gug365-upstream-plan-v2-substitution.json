@@ -1,0 +1,1990 @@
+{
+  "consumer_issue": "GUG-365",
+  "deployment_authorized": false,
+  "environment": "repository-only",
+  "evidence_scope": "REPOSITORY_SCRIPTED_SYNTHETIC_ONLY",
+  "implementation_issue": "GUG-377",
+  "independent_approval_present": false,
+  "live_promotion_status": "STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED",
+  "operations": [
+    {
+      "action": "s3:PutObject",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [],
+      "dependencies": [],
+      "global_sequence": 1,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:499bcc5a4707f5434d473139b1419ea8ce2e1fa29b1c4f3edef5c95cd64a9ef1",
+      "operation_id": "GUG377_OP_01_CREATE_APPLICATION",
+      "operation_kind": "CREATE_APPLICATION",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN"
+      ],
+      "request_contract_digest": "sha256:ed65068425018b7bb6ddc66b496f9499400b4457db29eb48a6997a51dc9112e2",
+      "result_contract_digest": "sha256:19cd0f2345fb54c8e922b78e6cc2f0da9e6367bcaf51c30dab1eff6199ae3f72",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:9ef402713f58308d45db069d9435f1ff54ff9d46d98978dc87731026af3c7493",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "sso:PutApplicationGrant",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_01_CREATE_APPLICATION"
+      ],
+      "global_sequence": 2,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:8db0e3a29246116352510f5561cb80d4cacd50f1092b3449417102111f04be84",
+      "operation_id": "GUG377_OP_02_PUT_APPLICATION_GRANT",
+      "operation_kind": "PUT_APPLICATION_GRANT",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 2,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:7fa3b457389679340f3b397ce7314ed1fe76d1c9dc74bb083eb4ff79a0ab8df3",
+      "result_contract_digest": "sha256:b98830a406eb382359ed793a5b057cc8b4c88b3075233762b79d35f274233285",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:f56aade6350982c418406f0a7717672b3feaf985705e73992a2b04132c65eb3d",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "sso:PutApplicationAccessScope",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_02_PUT_APPLICATION_GRANT"
+      ],
+      "global_sequence": 3,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:d1bc6afa0404db8b08394fa76698bbe70e269c9b7f25f7064bff79cc85000d12",
+      "operation_id": "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE",
+      "operation_kind": "PUT_APPLICATION_ACCESS_SCOPE",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 3,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:e6265f3865fe0bf21118211ffc3b746fadb3d86f733a4478a511d164991541b3",
+      "result_contract_digest": "sha256:058a8ae6dd2e203e0884a4fe8dd40069b9a7aadd9602d90176082cffdb11d426",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:df18a38b4941391347406d9a8f6daf3200e9b2ad64391b1a197b68b2bda9d760",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "sso:PutApplicationAssignmentConfiguration",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE"
+      ],
+      "global_sequence": 4,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:5260306f063b7ca66e45acf01e62929c88c43fac44c26fdf8f08be1496f4c7d5",
+      "operation_id": "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG",
+      "operation_kind": "PUT_APPLICATION_ASSIGNMENT_CONFIG",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 4,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:ff86056bc996fd16fa8cad4da581660776b8c497ad1731e10328e1cce0aac205",
+      "result_contract_digest": "sha256:0e44b76f57a8760780c3cce22129a0440af75d40925dac55e97945551fa60393",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:cf0bbde07c4f2dc22fc47629c399c85d199766370564afde0de988331026d900",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "sso:CreateApplicationAssignment",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG"
+      ],
+      "global_sequence": 5,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:113c84c557f81bd581d28280d054bd338bc8004a7a72c18632ad3b2516a38cec",
+      "operation_id": "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT",
+      "operation_kind": "CREATE_APPLICATION_ASSIGNMENT",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 5,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:826730e5f60bcfebcd2133bf9d517a134baab9d0b5552195ecc5872b41f076d2",
+      "result_contract_digest": "sha256:398958e91d21c8bdb6d8fde64c365c53e23c9c3beca3d58f5d3d7f4b9295e401",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:5af6143e930b429888ee7e3253b5ee69797407076657b8312f2dd03fe8b3908a",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "sso:CreatePermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:4709b399c95599d51eff5e3ce4c89781f93f7e51f32b70d57031cfc1dd32e0b3",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT"
+      ],
+      "global_sequence": 6,
+      "inventory_resource": "classifier_permission_set",
+      "operation_digest": "sha256:dc50a0b9657c65f34f86f9294b8ef28efea6491cdbedf96a40174d88a2fd71be",
+      "operation_id": "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET",
+      "operation_kind": "CLASSIFIER_CREATE_PERMISSION_SET",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 6,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "CLASSIFIER_PERMISSION_SET_ARN"
+      ],
+      "request_contract_digest": "sha256:87bdc7ef1093ad888d7f6133a82de7e6ff2b50e04c17358b582bcd0410ea0d2b",
+      "result_contract_digest": "sha256:7762fba8563ebb44f3d5dc83ea317750ebea5c3ec6cadc8bac0bcc38e5707797",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:fa7de180b9fafe64aa49ec8aed55cda747bf5d2606bfb9434f6ab829d6bca380",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:dc16dd72c0785bee7cba8092bd7589284cd0d262bfd23364e4bedaa104207e78"
+    },
+    {
+      "action": "sso:CreatePermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:e470af054a41afef7ed03ad0808f9407ef999a6af91427d6253a45ab7c8c4c06",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET"
+      ],
+      "global_sequence": 7,
+      "inventory_resource": "approver_permission_set",
+      "operation_digest": "sha256:3da40985e16e62ca314f8f56588e081f56869c848f82343381fee121b44da1f9",
+      "operation_id": "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET",
+      "operation_kind": "APPROVER_CREATE_PERMISSION_SET",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 7,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "APPROVER_PERMISSION_SET_ARN"
+      ],
+      "request_contract_digest": "sha256:b9b763896c1132ae3fb70ad961fb4dc19ff7d69568512cfbe1b876b9744b5b81",
+      "result_contract_digest": "sha256:dd482ae2481d3b8f6d8322f3b7fbe8ca387cb4532f6e8579c2e670a3973669ca",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:6db6778248e1c303d1d0f9dae425ff475fc2c614f310777ed38ec75922109eb0",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:d508ae1315d84f61a6641f02dfefc5a1373fc328ba951b346077affd33bd51cf"
+    },
+    {
+      "action": "sso:PutInlinePolicyToPermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:4709b399c95599d51eff5e3ce4c89781f93f7e51f32b70d57031cfc1dd32e0b3",
+      "consumed_slots": [
+        "CLASSIFIER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET"
+      ],
+      "global_sequence": 8,
+      "inventory_resource": "classifier_permission_set",
+      "operation_digest": "sha256:73c15beae0e396f451b50ff9570e448127f342bf3a32ac9290847fc7b58aeb95",
+      "operation_id": "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY",
+      "operation_kind": "CLASSIFIER_PUT_INLINE_POLICY",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 8,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:4fe068fccf4d19baa453fe37da4728b20c95645da0e25a19e6b1853cba4e1adc",
+      "result_contract_digest": "sha256:3840a1f7b70292ff8991bbcdbd4c09055b6f5ee598dc89033f3a55213a883fc6",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:57677caae258d2ecf6d4a8b440cc6652f759386d25e1152042f704b75d931076",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:dc16dd72c0785bee7cba8092bd7589284cd0d262bfd23364e4bedaa104207e78"
+    },
+    {
+      "action": "sso:PutInlinePolicyToPermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:e470af054a41afef7ed03ad0808f9407ef999a6af91427d6253a45ab7c8c4c06",
+      "consumed_slots": [
+        "APPROVER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY"
+      ],
+      "global_sequence": 9,
+      "inventory_resource": "approver_permission_set",
+      "operation_digest": "sha256:9b8554cc0a8dae4340076b9700be2c04e966c0c0b783b3a82d8cde92b76d70e5",
+      "operation_id": "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY",
+      "operation_kind": "APPROVER_PUT_INLINE_POLICY",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 9,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:949ab3e3f9c729a1dee3e61e5e6dcb46e3cacc5cc7e885625cdfe3c835b929f3",
+      "result_contract_digest": "sha256:b1ee1df1ce3cbe4180779625c79dde77479accacfaa7d871e123d9552a926acf",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:97ad620aff5ec0e556d6c4fe1d12d91faa2504f1152b24444690f2927d796962",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:d508ae1315d84f61a6641f02dfefc5a1373fc328ba951b346077affd33bd51cf"
+    },
+    {
+      "action": "sso:CreateAccountAssignment",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:86470e8a07cef1d4aecd980061a664757a331015c4aaee18caa3cb641311afa4",
+      "consumed_slots": [
+        "CLASSIFIER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY"
+      ],
+      "global_sequence": 10,
+      "inventory_resource": "classifier_permission_set_role",
+      "operation_digest": "sha256:873b3b5f760cf8c937155d94cf596e08a80294638efe9eccc66e7a0e41d07db5",
+      "operation_id": "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+      "operation_kind": "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 10,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_IDENTITY",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+      ],
+      "request_contract_digest": "sha256:899d2eb63e6847a08594a04ecfd8c11da4359b7d5cf6b9c970ed758e2eb1d589",
+      "result_contract_digest": "sha256:eb2f8c051c529528cf3190522e22344969c3e21178193277c348b40a4a188cb7",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:4d99024de178cfa08e27e4c9495b81dfe3d1eb6573af046ad6b3aa46830b7ca6",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:f35b246608f227f1dbf80cb784d2d4e79e4e38e0f1415bcd457ffb2b5e2f9350"
+    },
+    {
+      "action": "sso:CreateAccountAssignment",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:241a2ba67014ab6c11ef73110030565f21b50bca3195bda1d4944f91f75ea42a",
+      "consumed_slots": [
+        "APPROVER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT"
+      ],
+      "global_sequence": 11,
+      "inventory_resource": "approver_permission_set_role",
+      "operation_digest": "sha256:9df9862f52df4e732de792dff2c76f1e83d6520086554b4dbf2019722cd8c246",
+      "operation_id": "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+      "operation_kind": "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 11,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_IDENTITY",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+      ],
+      "request_contract_digest": "sha256:1a6af2b089fda56bb22a1cb29874eb864c69685fc11c739ba95a49adfc515f91",
+      "result_contract_digest": "sha256:e1d1e874963a602508eacc15c9054b3e364a2e3210d21ed7f73439a859039d70",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:67184ec0ccc2ee0449e7711e1a93b1321550cbd0a610c26b8809d96d97d0a9a6",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:2df5f5ff8a9983880ee80739f27464c4f7ae32f570fefd701f5682a64d5b749e"
+    },
+    {
+      "action": "sso:ProvisionPermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:86470e8a07cef1d4aecd980061a664757a331015c4aaee18caa3cb641311afa4",
+      "consumed_slots": [
+        "CLASSIFIER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT"
+      ],
+      "global_sequence": 12,
+      "inventory_resource": "classifier_permission_set_role",
+      "operation_digest": "sha256:f9da4a936353711f2a0dabb03f71f3e2b4f03d235722fb75f91cea9cb4355131",
+      "operation_id": "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET",
+      "operation_kind": "CLASSIFIER_PROVISION_PERMISSION_SET",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 12,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_IDENTITY",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+        "CLASSIFIER_PERMISSION_SET_ROLE_ARN"
+      ],
+      "request_contract_digest": "sha256:5c4591af0619b95279a82b71c1928f751e015b00429cefd253d87d034a9b8c32",
+      "result_contract_digest": "sha256:664cbf081272b0c51ae6e4d1d4e1b705d1aa4a8a2543c471d28ca34a5d1f7f3e",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:602dbb578f760c0621eb15d9ee0f104ed9bb34f969471dd1e1ce0dd00df3768d",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:f35b246608f227f1dbf80cb784d2d4e79e4e38e0f1415bcd457ffb2b5e2f9350"
+    },
+    {
+      "action": "sso:ProvisionPermissionSet",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:241a2ba67014ab6c11ef73110030565f21b50bca3195bda1d4944f91f75ea42a",
+      "consumed_slots": [
+        "APPROVER_PERMISSION_SET_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET"
+      ],
+      "global_sequence": 13,
+      "inventory_resource": "approver_permission_set_role",
+      "operation_digest": "sha256:4683fce1799825b290a8e77d6d5d4f8ed22b50beecea07e5fd0109f3675c7034",
+      "operation_id": "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET",
+      "operation_kind": "APPROVER_PROVISION_PERMISSION_SET",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 13,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_IDENTITY",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+        "APPROVER_PERMISSION_SET_ROLE_ARN"
+      ],
+      "request_contract_digest": "sha256:00b4e436fd351c807c6eeaa27417b54eeb634cc1ba1949c602565285c1f024b3",
+      "result_contract_digest": "sha256:f1392edc49afc6002e0bfd107a7a86d4da595da5f69091efb2411b047b071b20",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:c341ec6b4cf63294a89ead9ef756cc6cc9f36eb5bddd57af21949ac67d19a0eb",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:2df5f5ff8a9983880ee80739f27464c4f7ae32f570fefd701f5682a64d5b749e"
+    },
+    {
+      "action": "sso:PutApplicationAuthenticationMethod",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:0f29c073459c32b539c6805a7e2f18c94bc469d436530a517c0033e2af2dda16",
+      "consumed_slots": [
+        "IDENTITY_CENTER_APPLICATION_ARN",
+        "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+        "APPROVER_PERMISSION_SET_ROLE_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET"
+      ],
+      "global_sequence": 14,
+      "inventory_resource": "identity_center_application",
+      "operation_digest": "sha256:d9fcc3324ce0635f1dfd0894e11f97b7de66f3a8908c6a1630d2ece3b7fa320a",
+      "operation_id": "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD",
+      "operation_kind": "PUT_APPLICATION_AUTH_METHOD",
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_sequence": 14,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:f39f192b26eb2b1a49f8ce9567aade287a6a32e5aeb82d16a70c62e748ff4b0f",
+      "result_contract_digest": "sha256:70413265fe30906d9f42c26b4d912aae6cb8441d625ace64535ed21fe849e3f8",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:7f291ca1d70b483c33222225655c133cae3d0ea5cf95389f70092357a2d9315a",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "action": "kms:CreateKey",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:32137b3e3d12eb985727c19cc7a4b5bd61f135de5f422f9423ee94ae96969b02",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD"
+      ],
+      "global_sequence": 15,
+      "inventory_resource": "kms_key",
+      "operation_digest": "sha256:a9fe2da63d6b64c83a62895af8eab97ebe04aeebeacdcb3ef2e77c4e39eb96be",
+      "operation_id": "GUG377_OP_15_CREATE_KMS_KEY",
+      "operation_kind": "CREATE_KMS_KEY",
+      "phase": "KMS_FOUNDATION",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "KMS_KEY_ID",
+        "KMS_KEY_ARN"
+      ],
+      "request_contract_digest": "sha256:e8f26b6ffbfa47ae68ccb798359e448e3ea5a2adfac7dfb49bb7b88b300499a8",
+      "result_contract_digest": "sha256:dd3cfef9bc1aeecb5cfcc24f00dfad0bb0b6aa21e35a94aa051172142328d2ae",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:17217a9c86e2e6b1ba1e4720f1404731d630aca1f1dca987037bdb81ab0b6db1",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:2b66d17c4a3a3a9743ff22dd678269cbb589734abaace678767e6b7069a7fa84"
+    },
+    {
+      "action": "kms:EnableKeyRotation",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:32137b3e3d12eb985727c19cc7a4b5bd61f135de5f422f9423ee94ae96969b02",
+      "consumed_slots": [
+        "KMS_KEY_ID"
+      ],
+      "dependencies": [
+        "GUG377_OP_15_CREATE_KMS_KEY"
+      ],
+      "global_sequence": 16,
+      "inventory_resource": "kms_key",
+      "operation_digest": "sha256:d5b3d7aafd49b36093a9dd8bb63e8b9b58a101826780ccd6f4e9ee8e4ad48fb6",
+      "operation_id": "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION",
+      "operation_kind": "ENABLE_KMS_KEY_ROTATION",
+      "phase": "KMS_FOUNDATION",
+      "phase_sequence": 2,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:9a5cea1e2564972a955e571bb644e24923a00a3c499fa79a7d1fc517cb53498f",
+      "result_contract_digest": "sha256:4e14ae3eb994fc0b42e85592eea308881f9ac8a74eeb1372d4bf86e2089a5d9d",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:085976ec1e545d8533bd7d06de1d9202ad81fa745acecf07278b0e6ab464eea0",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:2b66d17c4a3a3a9743ff22dd678269cbb589734abaace678767e6b7069a7fa84"
+    },
+    {
+      "action": "kms:CreateAlias",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:32137b3e3d12eb985727c19cc7a4b5bd61f135de5f422f9423ee94ae96969b02",
+      "consumed_slots": [
+        "KMS_KEY_ID"
+      ],
+      "dependencies": [
+        "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION"
+      ],
+      "global_sequence": 17,
+      "inventory_resource": "kms_key",
+      "operation_digest": "sha256:89d19eb8040fcbdc665448d09315779abfb8adfb2495b09fc2fa0fb4342b25c0",
+      "operation_id": "GUG377_OP_17_CREATE_KMS_ALIAS",
+      "operation_kind": "CREATE_KMS_ALIAS",
+      "phase": "KMS_FOUNDATION",
+      "phase_sequence": 3,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:0b8ab3c06a3b144f2ef30979b57484e6d77e03d03c1a34f804c179eaab2ff314",
+      "result_contract_digest": "sha256:506216f6ac4d0a975453f2b7917d6fc224a8f6a9f4e9aaa71ab89505740c691e",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:bedf304c5d6dcf906ffa764c3bb59e8f5fd9870be0420231623167aa04cd8354",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:2b66d17c4a3a3a9743ff22dd678269cbb589734abaace678767e6b7069a7fa84"
+    },
+    {
+      "action": "s3:CreateBucket",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_17_CREATE_KMS_ALIAS"
+      ],
+      "global_sequence": 18,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:142b520d73800e99a17d9159955573e283e4a82d2228797f62be52cec0ab1ef0",
+      "operation_id": "GUG377_OP_18_CREATE_ARTIFACT_BUCKET",
+      "operation_kind": "CREATE_ARTIFACT_BUCKET",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:5a0b7b57a512ed5f3da91933a43f283bc56c5\u003284457814252a30c47d53ce3930",
+      "result_contract_digest": "sha256:4f27af4a384c26730e2fc4d810b1f403f90d5f2cd3f7e640fb1503b4999ac998",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:e5df475a36276fedf3949e37261e74e4738d30b85cde72d052e234a4f6ceeecd",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutBucketOwnershipControls",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_18_CREATE_ARTIFACT_BUCKET"
+      ],
+      "global_sequence": 19,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:a1e0bc75eb790d68400de4bb8d1cbbaaf7de1b415ea5cc7f0dc0cf5d4f81876f",
+      "operation_id": "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS",
+      "operation_kind": "PUT_BUCKET_OWNERSHIP_CONTROLS",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 2,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:30faa457c598ea2e92f473d0ba4bc4f2dd88d641825fed6441919e65d5832747",
+      "result_contract_digest": "sha256:325630ab58cd75009687d4c075c8ebe74e16fc9af6214da6ea3322329c908775",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:b78b1807c0aca725452569426f486639e0d2631ae388ecb7660e963a403fe516",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutPublicAccessBlock",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS"
+      ],
+      "global_sequence": 20,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:8d85259c6512b3eaa57cfe01bc433e5e471ab06e7a4f89e7a767eddce21ef75e",
+      "operation_id": "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK",
+      "operation_kind": "PUT_BUCKET_PUBLIC_ACCESS_BLOCK",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 3,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:d9e51eb3ead15d6da5d88eae7b734899df5707daf237d83ef421582c087e070d",
+      "result_contract_digest": "sha256:a71ace9e7b9cd7fd61a21cdf101a202b64f553fc43ab7af9d75b6f36b2274533",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:bafa60194d892ec18a37d565e7707bcd35b18598989cc57c1d284b652f32d952",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutBucketVersioning",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK"
+      ],
+      "global_sequence": 21,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:da448acb9299d957c2fbfe61f08dff8b43eaeba97b2a759b1e808752bc0c22c0",
+      "operation_id": "GUG377_OP_21_PUT_BUCKET_VERSIONING",
+      "operation_kind": "PUT_BUCKET_VERSIONING",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 4,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:d7b6f8db22dfa733d514064e9d57e1a3d865cb734eccc89f82a850c71c28c13f",
+      "result_contract_digest": "sha256:c2c68b7d10f73144ebe230d47d5fcc5b5a236dd82c7a8b21f1883b42ec4e9c99",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:0939c2a674ac55cf4112d0ef0d84008b9fd4cad1e7d01279980f568ea0b0baaa",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutBucketEncryption",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [
+        "KMS_KEY_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_21_PUT_BUCKET_VERSIONING"
+      ],
+      "global_sequence": 22,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:7b68d46ba6832f76d6c6630eb4d0d843a6379e97e6ebbd249553f76d28f6bde3",
+      "operation_id": "GUG377_OP_22_PUT_BUCKET_ENCRYPTION",
+      "operation_kind": "PUT_BUCKET_ENCRYPTION",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 5,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:1b3fef52b258f816d9d91ccd66c68cefa3ed1846057d534fc437452556c3a20d",
+      "result_contract_digest": "sha256:8fccd9b48f10c1f4bc8d6297444699095700d6a3c5f7d04c994b2416f9f5cad5",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:8a7672c75ad8090331da6b3e23800db8bde3a6c1d6fa4786b2de3569c66036a8",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutBucketPolicy",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [
+        "KMS_KEY_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_22_PUT_BUCKET_ENCRYPTION"
+      ],
+      "global_sequence": 23,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:63d41a5165c7842ec36a6e081f1e6cc2146fa6e184abfacbbfd17d213939ccfb",
+      "operation_id": "GUG377_OP_23_PUT_BUCKET_POLICY",
+      "operation_kind": "PUT_BUCKET_POLICY",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 6,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:22177d0795b5943a89ac6a64ff788cd8adea158c19697607a5fd7259b69bf4c0",
+      "result_contract_digest": "sha256:0c2938c9648dd7c99d4a868978ed8427f303def910c481dd59868bbafec27fb5",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:3ee0d275bf1d84c0e674006ef99121db9de31393bd9eec98296bf43b7469aa2a",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "s3:PutBucketTagging",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:6dcd936c2e280c2c514c2839cfccf21f470235d55b702c3f11cdf587e782704d",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_23_PUT_BUCKET_POLICY"
+      ],
+      "global_sequence": 24,
+      "inventory_resource": "artifact_bucket",
+      "operation_digest": "sha256:8721341bf351b58d35d324158a0c54c8674fef1694af04d74e0f4ab910eccb92",
+      "operation_id": "GUG377_OP_24_PUT_BUCKET_TAGGING",
+      "operation_kind": "PUT_BUCKET_TAGGING",
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_sequence": 7,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [],
+      "request_contract_digest": "sha256:0f26cecbc9200bcaee7a7a015a7d021905137f3e414e973d33712a808d5ee8db",
+      "result_contract_digest": "sha256:cfe56164048f26a1b679f7d4d35836f12461b5b308a70d89df96fcd9b660e712",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:00d96e2bf6c1725ffae848a03b57fb31aa5a17f557cdb090f12c2a02b029b0fc",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "action": "signer:PutSigningProfile",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:627b769d4c79014fd1d5560975c242efd30be2445b556fa5ee5d3cc651a46495",
+      "consumed_slots": [],
+      "dependencies": [
+        "GUG377_OP_24_PUT_BUCKET_TAGGING"
+      ],
+      "global_sequence": 25,
+      "inventory_resource": "signing_profile",
+      "operation_digest": "sha256:3561c351db1a6b54dd8970a70d19185ef079e4c136496c463c7f0961ab7dc54a",
+      "operation_id": "GUG377_OP_25_PUT_SIGNING_PROFILE",
+      "operation_kind": "PUT_SIGNING_PROFILE",
+      "phase": "SIGNER_PROFILE_FOUNDATION",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "SIGNING_PROFILE_VERSION_ID",
+        "SIGNING_PROFILE_VERSION_ARN"
+      ],
+      "request_contract_digest": "sha256:4675ca2c1038aa8c2740a45925f56846e47ab65eb57d71917a32a60ed450b06d",
+      "result_contract_digest": "sha256:40ca7d2105168721a426470cff8e25f7d7337159f6ac0c7e5d57b726508f2561",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:19e8fb8b1bf049282cf20df45360fd33b5fdeefcc71af63b7adfc73b9f9a79b4",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:a55fb692c942355a7e2da2e1dc03f2923a99dc69cb0b5e36cc2442afcb199ffc"
+    },
+    {
+      "action": "lambda:CreateCodeSigningConfig",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:04037cc10085ba0fe12789c7db6803b162118138afa3073c71843e4fe97a592d",
+      "consumed_slots": [
+        "SIGNING_PROFILE_VERSION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_25_PUT_SIGNING_PROFILE"
+      ],
+      "global_sequence": 26,
+      "inventory_resource": "code_signing_config",
+      "operation_digest": "sha256:8a836d240a0b1ca05e54ef9b4038cc16dc81e2a189e245d981854832d72c1303",
+      "operation_id": "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG",
+      "operation_kind": "CREATE_CODE_SIGNING_CONFIG",
+      "phase": "LAMBDA_CSC_FOUNDATION",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "CODE_SIGNING_CONFIG_ARN"
+      ],
+      "request_contract_digest": "sha256:6dcc06cdb2ce9453be1de41e8c7e3afda449ab60f9d257fd32d86f5eac688c18",
+      "result_contract_digest": "sha256:d8859e62633579beaf6bda0d7a341f3150315bd764441092f994aac860ddaf67",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:0e464007b9988fc01ffa9982cf9ee7e3b3f1b13df63d946e7389a08a648a9f17",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:c9e43c1c851d71c413a51e2611b8a94cbfccc216f0d7454e052df6187dac71ed"
+    },
+    {
+      "action": "s3:PutObject",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:368d01d29888074ddc43344dd231796b46159e32b9c69acd1c6cb8e7256f27f4",
+      "consumed_slots": [
+        "KMS_KEY_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG"
+      ],
+      "global_sequence": 27,
+      "inventory_resource": "broker_unsigned_object",
+      "operation_digest": "sha256:f01f09d8d41f3ff0abbb064589b11f5dc438d81ccde592cfd2e24b61dbe4ffa7",
+      "operation_id": "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT",
+      "operation_kind": "BROKER_PUT_UNSIGNED_OBJECT",
+      "phase": "BROKER_UNSIGNED_PUBLISH",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "BROKER_UNSIGNED_VERSION_ID"
+      ],
+      "request_contract_digest": "sha256:96d771d9c79b23433935ff26154371a1ed1543a3d0c6a731370c82aa3cdeb306",
+      "result_contract_digest": "sha256:fa41f40f70a04e0c9eab657b0143d0df21b26290cfbdce95df8ae4b8fff44bfe",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:5fd88b1835a2fd9b07c9ecacefb1439c5c4ecbff8dd06d1f1bfb505f792bdeb4",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:21e2c9835b030a50592a2f7cf9b5be204209632b43946b4056fc22ced69a66c8"
+    },
+    {
+      "action": "signer:StartSigningJob",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:b2d61c60c5287eeabe9065956f8e091f23cd6a2c85bb6f19fca5bf12ac146d60",
+      "consumed_slots": [
+        "BROKER_UNSIGNED_VERSION_ID",
+        "SIGNING_PROFILE_VERSION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT"
+      ],
+      "global_sequence": 28,
+      "inventory_resource": "broker_signing_job",
+      "operation_digest": "sha256:391609c3130fbdad0254c994fc843798881e476c022ed1373c2c9ecd3e372ce5",
+      "operation_id": "GUG377_OP_28_BROKER_START_SIGNING_JOB",
+      "operation_kind": "BROKER_START_SIGNING_JOB",
+      "phase": "BROKER_SIGNING_JOB",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_SIGNER",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "BROKER_SIGNING_JOB_ID",
+        "BROKER_SIGNED_KEY",
+        "BROKER_SIGNED_VERSION_ID"
+      ],
+      "request_contract_digest": "sha256:9f907be14b484b3e05fd3eb8f0b757daf1ff7153d45c12084e207d226f134604",
+      "result_contract_digest": "sha256:c8571e72adf003b63ba580092e5ce666193888b3b03bfcf2e613fc28fe54ba99",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:5a8fc1d900178a66ead7de4e6f831ced6ca8dd6452f5badf0e0960f8fe74c71f",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:30a28daa03c0b60e10da7f590502beb1e7b6de83f0b8db10d88fca59784c0cb8"
+    },
+    {
+      "action": "s3:PutObject",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:41c94010d35bbc50a6a68e9535caceb10bee79f49541e99e811b2d7f74b39519",
+      "consumed_slots": [
+        "KMS_KEY_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_28_BROKER_START_SIGNING_JOB"
+      ],
+      "global_sequence": 29,
+      "inventory_resource": "ledger_factory_unsigned_object",
+      "operation_digest": "sha256:1fa7bf9e153be65cb19a519be5f1c0e9e74cc8aab0df2a4ba2ed2d072f155e48",
+      "operation_id": "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+      "operation_kind": "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+      "phase": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "NONE",
+        "max_attempts": 0,
+        "max_elapsed_seconds": 0,
+        "nonterminal_states": [],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "LEDGER_FACTORY_UNSIGNED_VERSION_ID"
+      ],
+      "request_contract_digest": "sha256:1c366f8ab5a3b7d87ed784fd08895bd1bd5680c32fd08673eba4c28764672146",
+      "result_contract_digest": "sha256:ff09e91bf9a471db9952fa5130217819ef4e1c472a0918c27cc98b771c52bfd0",
+      "result_projection_kind": "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:3f56e9fbb73b3afddd503152c875eb19021f9bb0de1825f428160c5821aea8f3",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:bfb428654aa8768842a37f00937415e139758d5dfb9401fe2ac8f7599e0f4c02"
+    },
+    {
+      "action": "signer:StartSigningJob",
+      "ambiguous_outcome": "UNCERTAIN_RECONCILE_ONLY",
+      "attempt_limit": 1,
+      "before_state_digest": "sha256:04baa542e27e31bdd4fd365196e949b2c33fcfe57d42563f108ce97de45c4f15",
+      "consumed_slots": [
+        "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+        "SIGNING_PROFILE_VERSION_ARN"
+      ],
+      "dependencies": [
+        "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+      ],
+      "global_sequence": 30,
+      "inventory_resource": "ledger_factory_signing_job",
+      "operation_digest": "sha256:26645d3813b86e43d7bc23a7f2398e2f6a13d9d90438e361b641abc3080787b7",
+      "operation_id": "GUG377_OP_30_LEDGER_FACTORY_START_SIGNING_JOB",
+      "operation_kind": "LEDGER_FACTORY_START_SIGNING_JOB",
+      "phase": "LEDGER_FACTORY_SIGNING_JOB",
+      "phase_sequence": 1,
+      "polling_policy": {
+        "backoff_seconds": [
+          1,
+          1,
+          1
+        ],
+        "failure_states": [
+          "FAILED"
+        ],
+        "kind": "ASYNC_SIGNER",
+        "max_attempts": 4,
+        "max_elapsed_seconds": 3,
+        "nonterminal_states": [
+          "IN_PROGRESS"
+        ],
+        "success_states": [
+          "SUCCEEDED"
+        ],
+        "unknown_state": "UNCERTAIN_RECONCILE_ONLY"
+      },
+      "produced_slots": [
+        "LEDGER_FACTORY_SIGNING_JOB_ID",
+        "LEDGER_FACTORY_SIGNED_KEY",
+        "LEDGER_FACTORY_SIGNED_VERSION_ID"
+      ],
+      "request_contract_digest": "sha256:dd304fc824f5fc3ecc721de2ca2af04e27bb5cec67a7c3847cadaf2027abd9ff",
+      "result_contract_digest": "sha256:61d46a7535d4b36a842642a314d710b19f20473a3c9f5d8b6a6d17f2ec362471",
+      "result_projection_kind": "ASYNC_RESULT_AND_EXACT_READBACK",
+      "retry_permitted": false,
+      "rollback_boundary_digest": "sha256:cef57080732399300022f4dc8bb68f75bb758d539c39903ca92085e727f8c6fa",
+      "sdk_retry_count": 0,
+      "target_state_digest": "sha256:5770aebf7b2c00ae9d72fc07ef7c172a9b8117e183494e3eb0e3438fb38ef05b"
+    }
+  ],
+  "phases": [
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": null,
+      "inventory_target": "identity_center_topology",
+      "operation_ids": [
+        "GUG377_OP_01_CREATE_APPLICATION",
+        "GUG377_OP_02_PUT_APPLICATION_GRANT",
+        "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE",
+        "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG",
+        "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT",
+        "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET",
+        "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET",
+        "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY",
+        "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY",
+        "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+        "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+        "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET",
+        "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET",
+        "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD"
+      ],
+      "phase": "IDENTITY_CENTER_FOUNDATION",
+      "phase_digest": "sha256:983ac1dcf5347cc78d04ff5c010a8e7f48bfbe8dcff6c90ec2ef4a1aeba2bb7a",
+      "sequence": 1
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "IDENTITY_CENTER_FOUNDATION",
+      "inventory_target": "kms_key",
+      "operation_ids": [
+        "GUG377_OP_15_CREATE_KMS_KEY",
+        "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION",
+        "GUG377_OP_17_CREATE_KMS_ALIAS"
+      ],
+      "phase": "KMS_FOUNDATION",
+      "phase_digest": "sha256:abd9082cc4940717d91098c360764d8021b5137df96a012fc71affde1cbe8ac6",
+      "sequence": 2
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "KMS_FOUNDATION",
+      "inventory_target": "artifact_bucket",
+      "operation_ids": [
+        "GUG377_OP_18_CREATE_ARTIFACT_BUCKET",
+        "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS",
+        "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK",
+        "GUG377_OP_21_PUT_BUCKET_VERSIONING",
+        "GUG377_OP_22_PUT_BUCKET_ENCRYPTION",
+        "GUG377_OP_23_PUT_BUCKET_POLICY",
+        "GUG377_OP_24_PUT_BUCKET_TAGGING"
+      ],
+      "phase": "S3_ARTIFACT_FOUNDATION",
+      "phase_digest": "sha256:7ec483de40bfdd3ab66c01df43c5881e0c8d38ef6de38b126554c761cba4dc5a",
+      "sequence": 3
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "S3_ARTIFACT_FOUNDATION",
+      "inventory_target": "signing_profile",
+      "operation_ids": [
+        "GUG377_OP_25_PUT_SIGNING_PROFILE"
+      ],
+      "phase": "SIGNER_PROFILE_FOUNDATION",
+      "phase_digest": "sha256:83bed746ac3283d32e9886cb9bc5a274a30759e17c91682443ef46db5bda2ab5",
+      "sequence": 4
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "SIGNER_PROFILE_FOUNDATION",
+      "inventory_target": "code_signing_config",
+      "operation_ids": [
+        "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG"
+      ],
+      "phase": "LAMBDA_CSC_FOUNDATION",
+      "phase_digest": "sha256:8bb3c08883ac0add60b1f4fc2e48dfa87f139a38914d789441dd5ee6d3b5a8e4",
+      "sequence": 5
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "LAMBDA_CSC_FOUNDATION",
+      "inventory_target": "broker_unsigned_object",
+      "operation_ids": [
+        "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT"
+      ],
+      "phase": "BROKER_UNSIGNED_PUBLISH",
+      "phase_digest": "sha256:008341864de509889108ca165685d7f8e46f5e2295228cfcf51f566c31035e0c",
+      "sequence": 6
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "BROKER_UNSIGNED_PUBLISH",
+      "inventory_target": "broker_signing_job",
+      "operation_ids": [
+        "GUG377_OP_28_BROKER_START_SIGNING_JOB"
+      ],
+      "phase": "BROKER_SIGNING_JOB",
+      "phase_digest": "sha256:096f78f054cc8a5c4cf1061fa3350b9147faa081c96d29d051b26f1ca271e5a1",
+      "sequence": 7
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "BROKER_SIGNING_JOB",
+      "inventory_target": "ledger_factory_unsigned_object",
+      "operation_ids": [
+        "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+      ],
+      "phase": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "phase_digest": "sha256:b270d8f9e603734e7f216291cf68c41a8236239c013265d85d945ed244952cdc",
+      "sequence": 8
+    },
+    {
+      "automatic_rollback": false,
+      "causal_predecessor": "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+      "inventory_target": "ledger_factory_signing_job",
+      "operation_ids": [
+        "GUG377_OP_30_LEDGER_FACTORY_START_SIGNING_JOB"
+      ],
+      "phase": "LEDGER_FACTORY_SIGNING_JOB",
+      "phase_digest": "sha256:7661410dd234c22a76f9556f31da190eb17f64743cd1343effca30c2ce45c3ed",
+      "sequence": 9
+    }
+  ],
+  "plan_digest": "sha256:e7abd7bc04314be7e9541ba00d0a5b78e66746a48950d2f845cd6e16391bdef8",
+  "production": false,
+  "record_type": "scanalyze.platform_authority.gug365_upstream_plan.v2",
+  "rollback_manifest": {
+    "automatic_rollback": false,
+    "deployment_authorized": false,
+    "phase_dispositions": [
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "LEDGER_FACTORY_SIGNING_JOB"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "LEDGER_FACTORY_UNSIGNED_PUBLISH"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "BROKER_SIGNING_JOB"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "BROKER_UNSIGNED_PUBLISH"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "LAMBDA_CSC_FOUNDATION"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "SIGNER_PROFILE_FOUNDATION"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "S3_ARTIFACT_FOUNDATION"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "KMS_FOUNDATION"
+      },
+      {
+        "disposition": "PRESERVE_AND_ESCALATE",
+        "future_owner_authorization_required": true,
+        "phase": "IDENTITY_CENTER_FOUNDATION"
+      }
+    ],
+    "provider_mutations": [],
+    "record_type": "scanalyze.platform_authority.gug365_upstream_rollback_revocation.v1",
+    "rollback_manifest_digest": "sha256:2686a5aae0d540017962cf3f805b1d50917ca8b84e0a5c5d71c944671312365e"
+  },
+  "schema_version": 2,
+  "source_manifest": {
+    "contracts": [
+      {
+        "artifact_type": "platform_authority_change_set_retirement_package_manifest",
+        "content_digest": "sha256:c6395c2f968d4f6266bc34321dd841cb0ad6928b3342178c0a08bf6299816ad8",
+        "repository_path": "schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_intent",
+        "content_digest": "sha256:18874ea97d9af6179a09cd975a02c67a8c7c61d8240f7ec3aaf941eb3ee82fde",
+        "repository_path": "schemas/platform-authority-retirement-entrypoint-intent.v1.schema.json",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_plan",
+        "content_digest": "sha256:0b60396b853989e0e8ecf896db36425001191931fe7b2648dbe3377b3fe85d60",
+        "repository_path": "schemas/platform-authority-retirement-entrypoint-plan.v1.schema.json",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_ledger_factory_package",
+        "content_digest": "sha256:eaab396cf99a3be3ecd3f81245274f73f72be250478fa55bca10bc7ee1099468",
+        "repository_path": "schemas/platform-authority-retirement-ledger-factory-package.v1.schema.json",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_service_role_plan",
+        "content_digest": "sha256:78adef8517e3d4230f49c4ff02135cd8ad6a5b364e005eb92ea41d6f8deceaef",
+        "repository_path": "schemas/platform-authority-retirement-entrypoint-service-role-plan.v1.schema.json",
+        "schema_version": 1
+      }
+    ],
+    "implementation_source_set_digest": "sha256:c143eb36292cbf2dd113c8f76f42136f7325c1de776a68a51dab0577120bfb60",
+    "implementation_sources": [
+      {
+        "content_digest": "sha256:83a0bad74847c636aa37c0526983e607d54809f9597b2833b182efff594d39b5",
+        "repository_path": "tooling/platform_authority_gug365_upstream_prerequisites.py"
+      },
+      {
+        "content_digest": "sha256:1de11322acc73e9714bbed83a75cf5b1989b06f31116ade9cc630deca43a9364",
+        "repository_path": "tooling/platform_authority_gug365_phase_execution_ledger.py"
+      },
+      {
+        "content_digest": "sha256:bcd7f913a3caeeb76eff9f6174a3550748aabb82d199f4303b7c0affdf554b98",
+        "repository_path": "tooling/platform_authority_gug365_upstream_provider_contracts.py"
+      },
+      {
+        "content_digest": "sha256:9c6f8d379fa90c63a914322767ce7e7f5172211ecf429232183e110a473159ff",
+        "repository_path": "tooling/platform_authority_gug365_upstream_dry_run_runner.py"
+      },
+      {
+        "content_digest": "sha256:a13e3ab8797bb229821d28de244482df22215aef948c45b2b37afbc32796764e",
+        "repository_path": "tooling/platform_authority_gug365_upstream_materializer.py"
+      },
+      {
+        "content_digest": "sha256:e82ccb649037639918148f58625b88a97a79d8bb075f0842c7fcc6b499bdcb99",
+        "repository_path": "scripts/deployment/platform-authority-gug365-upstream-materializer.py"
+      },
+      {
+        "content_digest": "sha256:2bae26330b33a7a4fbdd6d84fab32906b67d46dc48997f6dd68ec1d01a2770c8",
+        "repository_path": "schemas/platform-authority-gug365-upstream-inventory.v2.schema.json"
+      },
+      {
+        "content_digest": "sha256:a723f12e2b3d5ce6a61698787ec2e51fb2d947d9bd410479c5229dc098d75b3e",
+        "repository_path": "schemas/platform-authority-gug365-upstream-plan.v2.schema.json"
+      },
+      {
+        "content_digest": "sha256:c1e443c35686decca037f33d96243f71a421cb83f101f6d340b794ca5c86a1b0",
+        "repository_path": "schemas/platform-authority-gug365-upstream-final-handoff.v2.schema.json"
+      }
+    ],
+    "pr78_head_sha": "4d2ec5c7d8a65e7c7f2ec17f09dfa372a2a9a3ae",
+    "pr78_merge_sha": "0f708c22ec20a2671c6cabd72493d2eff9cb4059",
+    "record_type": "scanalyze.platform_authority.gug365_upstream_source_manifest.v1",
+    "source_head_role": "BASELINE_MAIN",
+    "source_head_sha": "27cfe380557c18f4b5318f3369bf27f3caa3b08f",
+    "source_manifest_digest": "sha256:3d9815c14769b02859727621800daf788ea238c640cdd27eb7057460c2590f23",
+    "source_tree_sha": "e4d6ffdef4057e2d16cdc02a4a125a530b34b081",
+    "upstream_catalog_digest": "sha256:d8580f361efff5bf4c3d2b112fdc98661b6b403206190efde5d208abfa47144f"
+  },
+  "target_manifest": {
+    "account_binding": "EXTERNAL_DIGEST_REQUIRED_LIVE_NOT_PRODUCED",
+    "authority_environment": "authority-non-production",
+    "identity_center": {
+      "authorization_mode": "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+      "distinct_permission_sets_required": true,
+      "independent_approval_present": false,
+      "provisioned_role_readback_required": true,
+      "same_user_digest_binding_required": true,
+      "two_human_status": "NOT_PROVEN"
+    },
+    "package_inputs": [
+      {
+        "artifact_type": "platform_authority_change_set_retirement_package_manifest",
+        "content_digest": "sha256:c6395c2f968d4f6266bc34321dd841cb0ad6928b3342178c0a08bf6299816ad8",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_intent",
+        "content_digest": "sha256:18874ea97d9af6179a09cd975a02c67a8c7c61d8240f7ec3aaf941eb3ee82fde",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_plan",
+        "content_digest": "sha256:0b60396b853989e0e8ecf896db36425001191931fe7b2648dbe3377b3fe85d60",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_ledger_factory_package",
+        "content_digest": "sha256:eaab396cf99a3be3ecd3f81245274f73f72be250478fa55bca10bc7ee1099468",
+        "schema_version": 1
+      },
+      {
+        "artifact_type": "platform_authority_retirement_entrypoint_service_role_plan",
+        "content_digest": "sha256:78adef8517e3d4230f49c4ff02135cd8ad6a5b364e005eb92ea41d6f8deceaef",
+        "schema_version": 1
+      }
+    ],
+    "provider_slots": [
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+        "slot": "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+          "APPROVER_PROVISION_PERMISSION_SET",
+          "APPROVER_PUT_INLINE_POLICY"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "APPROVER_CREATE_PERMISSION_SET",
+        "slot": "APPROVER_PERMISSION_SET_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "APPROVER_PROVISION_PERMISSION_SET",
+        "slot": "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "PUT_APPLICATION_AUTH_METHOD"
+        ],
+        "derivation_kind": "PROVISIONED_ROLE_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "APPROVER_PROVISION_PERMISSION_SET",
+        "slot": "APPROVER_PERMISSION_SET_ROLE_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "BROKER_START_SIGNING_JOB",
+        "slot": "BROKER_SIGNED_KEY",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "BROKER_START_SIGNING_JOB",
+        "slot": "BROKER_SIGNED_VERSION_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "BROKER_START_SIGNING_JOB",
+        "slot": "BROKER_SIGNING_JOB_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "BROKER_START_SIGNING_JOB"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "BROKER_PUT_UNSIGNED_OBJECT",
+        "slot": "BROKER_UNSIGNED_VERSION_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+        "slot": "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+          "CLASSIFIER_PROVISION_PERMISSION_SET",
+          "CLASSIFIER_PUT_INLINE_POLICY"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CLASSIFIER_CREATE_PERMISSION_SET",
+        "slot": "CLASSIFIER_PERMISSION_SET_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CLASSIFIER_PROVISION_PERMISSION_SET",
+        "slot": "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "PUT_APPLICATION_AUTH_METHOD"
+        ],
+        "derivation_kind": "PROVISIONED_ROLE_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CLASSIFIER_PROVISION_PERMISSION_SET",
+        "slot": "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CREATE_CODE_SIGNING_CONFIG",
+        "slot": "CODE_SIGNING_CONFIG_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "CREATE_APPLICATION_ASSIGNMENT",
+          "PUT_APPLICATION_ACCESS_SCOPE",
+          "PUT_APPLICATION_ASSIGNMENT_CONFIG",
+          "PUT_APPLICATION_AUTH_METHOD",
+          "PUT_APPLICATION_GRANT"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CREATE_APPLICATION",
+        "slot": "IDENTITY_CENTER_APPLICATION_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "BROKER_PUT_UNSIGNED_OBJECT",
+          "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+          "PUT_BUCKET_ENCRYPTION",
+          "PUT_BUCKET_POLICY"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CREATE_KMS_KEY",
+        "slot": "KMS_KEY_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "CREATE_KMS_ALIAS",
+          "ENABLE_KMS_KEY_ROTATION"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "CREATE_KMS_KEY",
+        "slot": "KMS_KEY_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "LEDGER_FACTORY_START_SIGNING_JOB",
+        "slot": "LEDGER_FACTORY_SIGNED_KEY",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "LEDGER_FACTORY_START_SIGNING_JOB",
+        "slot": "LEDGER_FACTORY_SIGNED_VERSION_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "LEDGER_FACTORY_START_SIGNING_JOB",
+        "slot": "LEDGER_FACTORY_SIGNING_JOB_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "LEDGER_FACTORY_START_SIGNING_JOB"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+        "slot": "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [
+          "BROKER_START_SIGNING_JOB",
+          "CREATE_CODE_SIGNING_CONFIG",
+          "LEDGER_FACTORY_START_SIGNING_JOB"
+        ],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "PUT_SIGNING_PROFILE",
+        "slot": "SIGNING_PROFILE_VERSION_ARN",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      },
+      {
+        "consumer_operation_kinds": [],
+        "derivation_kind": "WRITE_RESPONSE_AND_EXACT_READBACK",
+        "live_value_status": "NOT_PRODUCED",
+        "producer_operation_kind": "PUT_SIGNING_PROFILE",
+        "slot": "SIGNING_PROFILE_VERSION_ID",
+        "value_storage": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+      }
+    ],
+    "record_type": "scanalyze.platform_authority.gug365_upstream_target_manifest.v1",
+    "region": "us-east-1",
+    "resources": {
+      "approver_permission_set": {
+        "constraints": [
+          "DISTINCT_APPROVER_PERMISSION_SET",
+          "INLINE_POLICY_ONLY",
+          "NO_ADDITIVE_GRANTS"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "approver_permission_set",
+        "target_state_digest": "sha256:d508ae1315d84f61a6641f02dfefc5a1373fc328ba951b346077affd33bd51cf"
+      },
+      "approver_permission_set_role": {
+        "constraints": [
+          "PROVISIONED_ROLE_READBACK",
+          "APPROVER_BINDING"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "approver_permission_set_role",
+        "target_state_digest": "sha256:2df5f5ff8a9983880ee80739f27464c4f7ae32f570fefd701f5682a64d5b749e"
+      },
+      "artifact_bucket": {
+        "constraints": [
+          "AUTHORITY_OWNED",
+          "VERSIONING_ENABLED",
+          "KMS_ENCRYPTED",
+          "PUBLIC_ACCESS_BLOCKED",
+          "IMMUTABLE_VERSION_REFERENCES"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "artifact_bucket",
+        "target_state_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+      },
+      "broker_signed_object": {
+        "constraints": [
+          "IMMUTABLE_DESTINATION_VERSION",
+          "CHECKSUM_BOUND_TO_SIGNING_RESULT",
+          "DISTINCT_FROM_UNSIGNED_OBJECT"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "broker_signed_object",
+        "target_state_digest": "sha256:49fe7100f3bedd7d2e6515db859ff2926357f36468a50390c5634f1f87c85798"
+      },
+      "broker_signing_job": {
+        "constraints": [
+          "DISTINCT_JOB",
+          "SUCCEEDED_ONLY",
+          "DESTINATION_VERSION_BOUND"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "broker_signing_job",
+        "target_state_digest": "sha256:30a28daa03c0b60e10da7f590502beb1e7b6de83f0b8db10d88fca59784c0cb8"
+      },
+      "broker_unsigned_object": {
+        "constraints": [
+          "GUG215_MANIFEST_DIGEST_BOUND",
+          "VERSION_ID_REQUIRED",
+          "CHECKSUM_REQUIRED"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "broker_unsigned_object",
+        "target_state_digest": "sha256:21e2c9835b030a50592a2f7cf9b5be204209632b43946b4056fc22ced69a66c8"
+      },
+      "classifier_permission_set": {
+        "constraints": [
+          "DISTINCT_CLASSIFIER_PERMISSION_SET",
+          "INLINE_POLICY_ONLY",
+          "NO_ADDITIVE_GRANTS"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "classifier_permission_set",
+        "target_state_digest": "sha256:dc16dd72c0785bee7cba8092bd7589284cd0d262bfd23364e4bedaa104207e78"
+      },
+      "classifier_permission_set_role": {
+        "constraints": [
+          "PROVISIONED_ROLE_READBACK",
+          "CLASSIFIER_BINDING"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "classifier_permission_set_role",
+        "target_state_digest": "sha256:f35b246608f227f1dbf80cb784d2d4e79e4e38e0f1415bcd457ffb2b5e2f9350"
+      },
+      "code_signing_config": {
+        "constraints": [
+          "UNTRUSTED_ARTIFACT_ENFORCE",
+          "ONE_EXACT_PUBLISHER"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "code_signing_config",
+        "target_state_digest": "sha256:c9e43c1c851d71c413a51e2611b8a94cbfccc216f0d7454e052df6187dac71ed"
+      },
+      "identity_center_application": {
+        "constraints": [
+          "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+          "EXACT_APPLICATION_CONFIGURATION",
+          "SAME_USER_DIGEST_BINDING"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "identity_center_application",
+        "target_state_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+      },
+      "kms_key": {
+        "constraints": [
+          "SYMMETRIC_ENCRYPT_DECRYPT",
+          "ROTATION_ENABLED",
+          "EXACT_POLICY_USE_BINDING"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "kms_key",
+        "target_state_digest": "sha256:2b66d17c4a3a3a9743ff22dd678269cbb589734abaace678767e6b7069a7fa84"
+      },
+      "ledger_factory_signed_object": {
+        "constraints": [
+          "IMMUTABLE_DESTINATION_VERSION",
+          "CHECKSUM_BOUND_TO_SIGNING_RESULT",
+          "DISTINCT_FROM_UNSIGNED_OBJECT"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "ledger_factory_signed_object",
+        "target_state_digest": "sha256:09065b1e094dd01bfb6024082aabea153cbe4941e6ddff130a8efb54e53a736d"
+      },
+      "ledger_factory_signing_job": {
+        "constraints": [
+          "DISTINCT_JOB",
+          "SUCCEEDED_ONLY",
+          "DESTINATION_VERSION_BOUND"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "ledger_factory_signing_job",
+        "target_state_digest": "sha256:5770aebf7b2c00ae9d72fc07ef7c172a9b8117e183494e3eb0e3438fb38ef05b"
+      },
+      "ledger_factory_unsigned_object": {
+        "constraints": [
+          "LEDGER_FACTORY_MANIFEST_DIGEST_BOUND",
+          "VERSION_ID_REQUIRED",
+          "CHECKSUM_REQUIRED"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "ledger_factory_unsigned_object",
+        "target_state_digest": "sha256:bfb428654aa8768842a37f00937415e139758d5dfb9401fe2ac8f7599e0f4c02"
+      },
+      "signing_profile": {
+        "constraints": [
+          "AWSLAMBDA_SHA384_ECDSA",
+          "IMMUTABLE_PROFILE_VERSION"
+        ],
+        "mutable_reference_permitted": false,
+        "provider_value_storage": "DIGEST_PROJECTION_ONLY",
+        "resource_kind": "signing_profile",
+        "target_state_digest": "sha256:a55fb692c942355a7e2da2e1dc03f2923a99dc69cb0b5e36cc2442afcb199ffc"
+      }
+    },
+    "runtime": {
+      "architecture": "x86_64",
+      "provider_provenance": "REQUIRED_LIVE_NOT_PRODUCED",
+      "qualifier_policy": "PUBLISHED_VERSION_ONLY",
+      "reference_storage": "DIGEST_ONLY",
+      "required_provider_projections": [
+        "PUBLISHED_QUALIFIER_DIGEST",
+        "RUNTIME_CONFIGURATION_DIGEST",
+        "RUNTIME_VERSION_REFERENCE_DIGEST"
+      ],
+      "runtime": "python3.12",
+      "runtime_management_mode": "Manual"
+    },
+    "target_manifest_digest": "sha256:9a93457d1defc3cf2e98a020780d040876e3987a47a1dab0c6e7529963afd01a"
+  },
+  "two_human_status": "NOT_PROVEN",
+  "upstream_contract_issue": "GUG-376"
+}

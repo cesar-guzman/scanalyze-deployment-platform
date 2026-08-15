@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-final-handoff.v2.schema.json",
+  "title": "GUG-377 repository-only final handoff v2",
+  "description": "Synthetic source-contract completion checkpoint. Live promotion remains stopped.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "upstream_contract_issue",
+    "consumer_issue",
+    "status",
+    "state",
+    "evidence_scope",
+    "source_contracts_closed",
+    "synthetic_materialization_complete",
+    "provider_certification_complete",
+    "live_provider_evidence",
+    "consumer_fresh_checkpoint_required",
+    "deployment_authorized",
+    "production",
+    "two_human_status",
+    "independent_approval_present",
+    "plan_digest",
+    "inventory_digest",
+    "completion_package_digest",
+    "rollback_package_digest",
+    "synthetic_signing_job_count",
+    "live_signing_job_count",
+    "aws_calls_performed",
+    "aws_mutations",
+    "provider_network_calls",
+    "gug365_effects",
+    "gug357_effects",
+    "gug215_effects",
+    "gug206_effects",
+    "missing_live_prerequisites",
+    "handoff_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_final_handoff.v2"
+    },
+    "schema_version": { "const": 2 },
+    "implementation_issue": { "const": "GUG-377" },
+    "upstream_contract_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "status": { "const": "STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED" },
+    "state": { "const": "SOURCE_CONTRACTS_CLOSED_REPOSITORY_ONLY" },
+    "evidence_scope": { "const": "REPOSITORY_VALIDATED_SYNTHETIC_ONLY" },
+    "source_contracts_closed": { "const": true },
+    "synthetic_materialization_complete": { "type": "boolean" },
+    "provider_certification_complete": { "const": false },
+    "live_provider_evidence": { "const": false },
+    "consumer_fresh_checkpoint_required": { "const": true },
+    "deployment_authorized": { "const": false },
+    "production": { "const": false },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "inventory_digest": { "$ref": "#/$defs/digest" },
+    "completion_package_digest": { "$ref": "#/$defs/digest" },
+    "rollback_package_digest": { "$ref": "#/$defs/digest" },
+    "synthetic_signing_job_count": { "enum": [0, 2] },
+    "live_signing_job_count": { "const": 0 },
+    "aws_calls_performed": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "provider_network_calls": { "const": 0 },
+    "gug365_effects": { "const": 0 },
+    "gug357_effects": { "const": 0 },
+    "gug215_effects": { "const": 0 },
+    "gug206_effects": { "const": 0 },
+    "missing_live_prerequisites": {
+      "type": "array",
+      "const": ["LIVE_PRIVATE_ORCHESTRATOR"]
+    },
+    "handoff_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "synthetic_materialization_complete": { "const": true }
+        },
+        "required": ["synthetic_materialization_complete"]
+      },
+      "then": {
+        "properties": {
+          "synthetic_signing_job_count": { "const": 2 }
+        }
+      },
+      "else": {
+        "properties": {
+          "synthetic_signing_job_count": { "const": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

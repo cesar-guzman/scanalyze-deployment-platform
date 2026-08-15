@@ -1,0 +1,131 @@
+{
+  "consumer_issue": "GUG-365",
+  "deployment_authorized": false,
+  "environment": "repository-only",
+  "evidence_scope": "REPOSITORY_SCRIPTED_SYNTHETIC_ONLY",
+  "implementation_issue": "GUG-377",
+  "inventory_digest": "sha256:950d4faf5700914ba79d31b8b04a9b1d9455ae1847aa85a5943645322064cea7",
+  "production": false,
+  "provider_certification_complete": false,
+  "provider_mode": "SCRIPTED_SYNTHETIC",
+  "record_type": "scanalyze.platform_authority.gug365_upstream_inventory.v2",
+  "resources": [
+    {
+      "before_state_projection_digest": "sha256:accba871651b2f2e1d545aa81aa14e6e0cf5d1ef78155943f1886d37d8f9e07a",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "approver_permission_set",
+      "target_state_projection_digest": "sha256:d508ae1315d84f61a6641f02dfefc5a1373fc328ba951b346077affd33bd51cf"
+    },
+    {
+      "before_state_projection_digest": "sha256:fd8016a276125c6c9143d35114cd5e7d43baec83f8f504ac79c3f23ffd985f29",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "approver_permission_set_role",
+      "target_state_projection_digest": "sha256:2df5f5ff8a9983880ee80739f27464c4f7ae32f570fefd701f5682a64d5b749e"
+    },
+    {
+      "before_state_projection_digest": "sha256:21ea48b0ce2c6a1e0faa2a232bc864890cfd938898befd4ef5fc8920e0e3ccc5",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "artifact_bucket",
+      "target_state_projection_digest": "sha256:a9a6107455de4ca9b6bfd0bcca2af3f5e4e3b8ca051f111a198725136a1997f7"
+    },
+    {
+      "before_state_projection_digest": "sha256:a3c4fb8a6a482d00dbc77b8d46114a4dbf46cb023d5de2a4d9c9430ea15eca5c",
+      "classification": "SCRIPTED_SYNTHETIC_DERIVED_TARGET",
+      "provider_certified": false,
+      "resource_kind": "broker_signed_object",
+      "target_state_projection_digest": "sha256:49fe7100f3bedd7d2e6515db859ff2926357f36468a50390c5634f1f87c85798"
+    },
+    {
+      "before_state_projection_digest": "sha256:49fdde42acdd9ac10ea81ffb76d71a8759a34af7b839ad09cd10336df3bb0671",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "broker_signing_job",
+      "target_state_projection_digest": "sha256:30a28daa03c0b60e10da7f590502beb1e7b6de83f0b8db10d88fca59784c0cb8"
+    },
+    {
+      "before_state_projection_digest": "sha256:ce13ffdbd572f721db1148810b7252dcdbe9b0006f23c88d9046a93d59e73ad6",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "broker_unsigned_object",
+      "target_state_projection_digest": "sha256:21e2c9835b030a50592a2f7cf9b5be204209632b43946b4056fc22ced69a66c8"
+    },
+    {
+      "before_state_projection_digest": "sha256:194bcc1c01b87e5ab9865183d7db9c1c015feb330fc6887817c74f4b8746227d",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "classifier_permission_set",
+      "target_state_projection_digest": "sha256:dc16dd72c0785bee7cba8092bd7589284cd0d262bfd23364e4bedaa104207e78"
+    },
+    {
+      "before_state_projection_digest": "sha256:c3b9f7b5e642386d811c7f6fe3084711e10befd57f9aad7a0545ea7f01edd958",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "classifier_permission_set_role",
+      "target_state_projection_digest": "sha256:f35b246608f227f1dbf80cb784d2d4e79e4e38e0f1415bcd457ffb2b5e2f9350"
+    },
+    {
+      "before_state_projection_digest": "sha256:5676d3e78825b593c1e39f2310dba8b862cad0e149ef1790c5459c8d971122be",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "code_signing_config",
+      "target_state_projection_digest": "sha256:c9e43c1c851d71c413a51e2611b8a94cbfccc216f0d7454e052df6187dac71ed"
+    },
+    {
+      "before_state_projection_digest": "sha256:e8f19227d27e69128319d649722087ed0c588cc231fadcf0f0a66aad7e5f4051",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "identity_center_application",
+      "target_state_projection_digest": "sha256:ac48f308a38f20ffb6394c190e04a8bd7ac9b0190ef9a1647cae70dfaa9f5808"
+    },
+    {
+      "before_state_projection_digest": "sha256:535dc7e089cdbf59bd5885ae9247f87a1910b2074bd39e53c3a23fc9fa1f0c45",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "kms_key",
+      "target_state_projection_digest": "sha256:2b66d17c4a3a3a9743ff22dd678269cbb589734abaace678767e6b7069a7fa84"
+    },
+    {
+      "before_state_projection_digest": "sha256:720e0cbd48df5b7bb156aa5c4e28f8229cfd5f63956938ea56315080fdd287d9",
+      "classification": "SCRIPTED_SYNTHETIC_DERIVED_TARGET",
+      "provider_certified": false,
+      "resource_kind": "ledger_factory_signed_object",
+      "target_state_projection_digest": "sha256:09065b1e094dd01bfb6024082aabea153cbe4941e6ddff130a8efb54e53a736d"
+    },
+    {
+      "before_state_projection_digest": "sha256:c2424b603def47986775125c4f75d4eee43ebdc50a4513598503171bc099128f",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "ledger_factory_signing_job",
+      "target_state_projection_digest": "sha256:5770aebf7b2c00ae9d72fc07ef7c172a9b8117e183494e3eb0e3438fb38ef05b"
+    },
+    {
+      "before_state_projection_digest": "sha256:f7df5d1f7a5898ede8b2b66ecf457d8f9184554f51695cb739ab16a0fcea1732",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "ledger_factory_unsigned_object",
+      "target_state_projection_digest": "sha256:bfb428654aa8768842a37f00937415e139758d5dfb9401fe2ac8f7599e0f4c02"
+    },
+    {
+      "before_state_projection_digest": "sha256:54ed2fe3eca14e7ecc08a5b376eda32dac321e7bdc2c0d3b10d97f48c64a9aed",
+      "classification": "SCRIPTED_SYNTHETIC",
+      "provider_certified": false,
+      "resource_kind": "signing_profile",
+      "target_state_projection_digest": "sha256:a55fb692c942355a7e2da2e1dc03f2923a99dc69cb0b5e36cc2442afcb199ffc"
+    }
+  ],
+  "runtime_provenance": {
+    "architecture": "x86_64",
+    "provenance_status": "NOT_PROVEN_LIVE",
+    "provider_backed": false,
+    "qualifier_policy": "PUBLISHED_VERSION_ONLY",
+    "runtime": "python3.12",
+    "runtime_management_mode": "Manual"
+  },
+  "schema_version": 2,
+  "source_manifest_digest": "sha256:3d9815c14769b02859727621800daf788ea238c640cdd27eb7057460c2590f23",
+  "target_manifest_digest": "sha256:9a93457d1defc3cf2e98a020780d040876e3987a47a1dab0c6e7529963afd01a",
+  "upstream_contract_issue": "GUG-376"
+}
