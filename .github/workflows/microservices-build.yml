@@ -181,6 +181,7 @@ jobs:
           cache-dependency-path: |
             backend/workers/scanalyze-${{ matrix.service }}/requirements.txt
             backend/workers/scanalyze-ocr-worker/requirements.lock
+            backend/workers/scanalyze-classifier-worker/requirements.lock
 
       - name: Validate repository policy
         run: python tooling/check_microservices.py
@@ -204,24 +205,28 @@ jobs:
           export SCANALYZE_TENANT="$service_tenant"
           export SCANALYZE_TENANTS="$service_tenant"
           python -m compileall -q "$service_dir"
-          if [[ "$SERVICE" == "ocr-worker" ]]; then
-            python -m pip install --require-hashes -r "$service_dir/requirements.lock"
-          else
-            python -m pip install -r "$service_dir/requirements.txt"
-          fi
+          case "$SERVICE" in
+            ocr-worker|classifier-worker)
+              python -m pip install --require-hashes -r "$service_dir/requirements.lock"
+              ;;
+            *)
+              python -m pip install -r "$service_dir/requirements.txt"
+              ;;
+          esac
           python -m pip install \
             'jsonschema==4.26.0' \
             'pytest==9.1.1'
           PYTHONPATH="$service_dir/src:$service_dir" python -m pytest "$service_dir/tests" -q
 
-      - name: Materialize approved OCR base image
-        if: matrix.service == 'ocr-worker'
+      - name: Materialize approved hermetic base image
+        if: matrix.service == 'ocr-worker' || matrix.service == 'classifier-worker'
         env:
           CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+          SERVICE: ${{ matrix.service }}
         run: |
           set -euo pipefail
           if [[ -z "$CI_BASE_IMAGE" ]]; then
-            echo "::error::CI_BASE_IMAGE is required when ocr-worker is selected"
+            echo "::error::CI_BASE_IMAGE is required when ${SERVICE} is selected"
             exit 1
           fi
           if [[ ! "$CI_BASE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -243,20 +248,87 @@ jobs:
           fi
           scripts/microservices/prepare-ocr-wheelhouse.sh
 
+      - name: Prepare classifier hermetic wheelhouse
+        if: matrix.service == 'classifier-worker'
+        env:
+          CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CI_BASE_IMAGE" ]]; then
+            echo "::error::CI_BASE_IMAGE is required when classifier-worker is selected"
+            exit 1
+          fi
+          scripts/microservices/prepare-classifier-wheelhouse.sh
+
       - name: Build without publishing
         env:
           CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
           SCANALYZE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           SERVICE: ${{ matrix.service }}
         run: |
           set -euo pipefail
           if [[ -z "$CI_BASE_IMAGE" ]]; then
-            if [[ "$SERVICE" == "ocr-worker" ]]; then
-              echo "::error::CI_BASE_IMAGE is required when ocr-worker is selected"
-              exit 1
-            fi
+            case "$SERVICE" in
+              ocr-worker|classifier-worker)
+                echo "::error::CI_BASE_IMAGE is required when ${SERVICE} is selected"
+                exit 1
+                ;;
+            esac
             echo "::notice::Skipping Docker build: repository variable CI_BASE_IMAGE is not configured"
             echo "Code validation was performed by the compile-and-test step above"
+            exit 0
+          fi
+
+          if [[ "$SERVICE" == "classifier-worker" ]]; then
+            [[ "$(git rev-parse HEAD)" == "$SCANALYZE_SOURCE_REVISION" ]] || {
+              echo "::error::classifier build revision must match checked-out HEAD"
+              exit 1
+            }
+            [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || {
+              echo "::error::classifier hermetic build requires a clean worktree"
+              exit 1
+            }
+            wheelhouse="backend/workers/scanalyze-classifier-worker/.wheelhouse"
+            lock_file="backend/workers/scanalyze-classifier-worker/requirements.lock"
+            marker="${wheelhouse}/.gug378-wheelhouse"
+            [[ -d "$wheelhouse" && -f "$marker" ]] || {
+              echo "::error::classifier wheelhouse was not prepared"
+              exit 1
+            }
+            lock_digest="$(sha256sum "$lock_file" | awk '{print $1}')"
+            expected_marker="$(printf 'lock_sha256=%s\ntarget=linux/amd64\npython=3.11.14' "$lock_digest")"
+            [[ "$(<"$marker")" == "$expected_marker" ]] || {
+              echo "::error::classifier wheelhouse does not match requirements.lock"
+              exit 1
+            }
+            [[ "$(find "$wheelhouse" -maxdepth 1 -type f -name '*.whl' | wc -l | tr -d ' ')" == "13" ]] || {
+              echo "::error::classifier wheelhouse must contain exactly 13 wheels"
+              exit 1
+            }
+            if find "$wheelhouse" -type l | grep -q .; then
+              echo "::error::classifier wheelhouse must not contain symbolic links"
+              exit 1
+            fi
+            source_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+            [[ "$source_url" == "https://github.com/cesar-guzman/scanalyze-deployment-platform" ]] || {
+              echo "::error::classifier source label must name the canonical repository"
+              exit 1
+            }
+            created="$(git show -s --format=%cI "$SCANALYZE_SOURCE_REVISION")"
+            image="scanalyze-ci/classifier-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"
+            docker image inspect "$CI_BASE_IMAGE" >/dev/null
+            docker build \
+              --platform linux/amd64 \
+              --pull=false \
+              --network=none \
+              --build-arg "BASE_IMAGE=${CI_BASE_IMAGE}" \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${SCANALYZE_SOURCE_REVISION}" \
+              --label "org.opencontainers.image.created=${created}" \
+              --tag "$image" \
+              backend/workers/scanalyze-classifier-worker
             exit 0
           fi
 
@@ -280,6 +352,17 @@ jobs:
           set -euo pipefail
           image="scanalyze-ci/ocr-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"
           scripts/microservices/verify-ocr-container.sh \
+            --image "$image" \
+            --revision "$SCANALYZE_SOURCE_REVISION"
+
+      - name: Verify classifier container evidence
+        if: matrix.service == 'classifier-worker'
+        env:
+          SCANALYZE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          image="scanalyze-ci/classifier-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"
+          scripts/microservices/verify-classifier-container.sh \
             --image "$image" \
             --revision "$SCANALYZE_SOURCE_REVISION"
 
