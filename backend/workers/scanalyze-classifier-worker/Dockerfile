@@ -5,7 +5,7 @@ WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
-COPY requirements.txt .
+COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=app:app src/ ./src/
