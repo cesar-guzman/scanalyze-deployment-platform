@@ -2,14 +2,22 @@
 
 ## Current status and hard boundary
 
-This runbook records the GUG-376 repository contract and its mandatory source
-gap stop. The current branch intentionally has no executable/live runner,
-provider callback, AWS client or live ledger adapter; its runner module is an
-inert STOP shim. Do not translate the reserved future steps below into ad hoc
-AWS CLI/SDK calls.
+This runbook records two deliberately separate repository boundaries:
 
-This PR is offline and makes **zero AWS calls**. Neither the PR, ADR, Linear
-status, upstream plan nor an owner-decision approval authorizes AWS writes.
+- the GUG-376 v1 runner remains an inert
+  `STOP_UPSTREAM_SOURCE_CONTRACT_GAP` shim; and
+- GUG-377 adds v2 inventory, plan and final-handoff records plus a
+  repository-only materializer. Its default adapter is inert and its scripted
+  adapter is a deterministic test double, not an AWS/provider adapter.
+
+Neither path constructs an AWS SDK client, performs provider network I/O,
+opens a private evidence root or implements a live ledger. Any live-adapter
+request stops with `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`. Do not translate
+the reserved future steps below into ad hoc AWS CLI/SDK calls.
+
+This PR is offline and makes **zero AWS calls and zero provider network
+calls**. Neither the PR, ADR, Linear status, upstream plan nor an
+owner-decision approval authorizes AWS writes.
 Every live phase requires a new exact phase-specific owner authorization.
 Production remains **NO-GO**.
 
@@ -103,10 +111,12 @@ accept automatic runtime management. If no eligible source is available,
 return `STOP_RUNTIME_PIN_SOURCE_NOT_PROVEN` with the minimum missing read-only
 authority/evidence.
 
-### Deterministic package build
+### Reserved deterministic private package build
 
-With all AWS credential variables absent and network/provider construction
-blocked:
+These steps are reserved for a separately reviewed future private/live lane.
+The GUG-377 scripted materializer does not build or persist packages and never
+creates or accesses a private root. With all AWS credential variables absent
+and network/provider construction blocked, that future lane must:
 
 1. rebuild the GUG-215 package only through
    `scripts/deployment/platform-authority-change-set-retirement-package.py`;
@@ -119,16 +129,41 @@ blocked:
 
 Synthetic fixtures are negative-test inputs, never live packages.
 
-## Reserved common phase protocol
+## Repository materializer and reserved common phase protocol
 
-The current branch does not execute or simulate this protocol. The following
-sequence is reserved design input for a future separately reviewed private
-live orchestrator after current-main source gaps are closed. Before its first
-phase, that orchestrator must compile the
-immutable private upstream plan with the exact nine-phase graph and typed
-provider slots. Every phase remains present; exact preexisting state produces
-a zero-write `EXACT_PRESENT_NO_TOUCH` receipt. For each mutation phase and
-contiguous exact request batch:
+GUG-377 compiles a repository-only v2 plan containing exactly 30 ordered
+operations in nine phases. The scripted adapter can exercise the closed
+operation/result, bounded-polling, one-attempt CAS and reconciliation
+contracts without provider I/O:
+
+| Phase | Ordered operations |
+|---|---:|
+| `IDENTITY_CENTER_FOUNDATION` | 14 |
+| `KMS_FOUNDATION` | 3 |
+| `S3_ARTIFACT_FOUNDATION` | 7 |
+| `SIGNER_PROFILE_FOUNDATION` | 1 |
+| `LAMBDA_CSC_FOUNDATION` | 1 |
+| `BROKER_UNSIGNED_PUBLISH` | 1 |
+| `BROKER_SIGNING_JOB` | 1 |
+| `LEDGER_FACTORY_UNSIGNED_PUBLISH` | 1 |
+| `LEDGER_FACTORY_SIGNING_JOB` | 1 |
+
+The global operation sequence is `1..30`; each operation has one immediate
+predecessor except the first, a unique operation ID/kind, `attempt_limit=1`,
+`sdk_retry_count=0`, `retry_permitted=false` and
+`ambiguous_outcome=UNCERTAIN_RECONCILE_ONLY`. Polling is allowed only for the
+closed Identity Center assignment/provisioning and Signer job kinds, with
+finite attempts, elapsed time and backoff plus closed terminal statuses.
+
+This is synthetic repository execution only. It neither simulates AWS truth
+nor proves provider certification, private custody, owner authorization or a
+durable live ledger. The following sequence remains reserved design input for
+a future separately reviewed private live orchestrator. Before its first
+phase, that orchestrator must compile an immutable private upstream plan with
+the same nine-phase graph and typed provider slots. Every phase remains
+present; exact preexisting state produces a zero-write
+`EXACT_PRESENT_NO_TOUCH` receipt. For each mutation phase and contiguous exact
+request batch:
 
 1. refresh source, owner-decision, before-state and predecessor-slot evidence;
 2. render the phase's sole identity policy and identical maximum-permissions
@@ -161,18 +196,27 @@ contiguous exact request batch:
 A previous phase authorization, “continue”, a merge, a plan digest by itself
 or approval of the selected names is invalid.
 
-The exported runner entry point stops before validation, CAS or a provider
-callback with `STOP_UPSTREAM_SOURCE_CONTRACT_GAP`. The module contains no
-private write-capable simulation helper. Supplying an external/live transcript
-additionally remains blocked by `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`.
+The exported GUG-376 v1 runner entry point still stops before validation, CAS
+or a provider callback with `STOP_UPSTREAM_SOURCE_CONTRACT_GAP`. GUG-377 does
+not weaken or replace that stop. Its separate v2 materializer closes the
+repository source contracts for typed asynchronous Identity Center results,
+generated role projections, KMS/S3/Signer target records and causal object/job
+results. It accepts only the inert adapter or an explicitly injected scripted
+adapter; the adapter contract exposes typed operations, not a generic
+`execute` or raw `payload` escape hatch.
 
-The missing source contracts are explicit: asynchronous Identity Center
-request/poll results and both generated role ARNs; exact KMS artifact-use and
-S3 bucket policies; causal S3 VersionId, Signer jobId, signed-key and signed
-VersionId projections; and a private raw-bundle orchestrator. Consequently the
-public phase-authorization schema is a STOP checkpoint only and fixes
-`deployment_authorized=false`, `owner_authorization_issued=false` and all AWS
-effect counters to zero.
+Before a scripted write, the repository `AttemptLedger` performs one CAS from
+unclaimed to in-flight. A typed successful result may then complete the
+operation once. An ambiguous result consumes that sole attempt, rejects rerun
+and permits only read-only reconciliation. This ledger demonstrates the
+contract; it is not the owner-only append-only durable ledger required for
+live execution.
+
+The missing live products remain explicit: a provider-backed adapter, private
+root/raw bundle, external owner/provider/final verifiers and durable private
+ledger. Consequently v2 fixes `deployment_authorized=false`,
+`owner_authorization_issued=false`, `live_provider_evidence=false` and all AWS
+and downstream effect counters to zero.
 
 A future separately reviewed private orchestrator must supply four trusted
 adapters in one raw-bundle verification call: an external owner-authorization
@@ -363,6 +407,12 @@ target constraints and before-state to find at most one causal result. Resolve
 slots only after unique exact evidence. Preserve unresolved ambiguity; never
 blind retry, repair, delete, recreate or start a second upstream run.
 
+In the repository materializer, the one-attempt CAS occurs before the scripted
+write. An ambiguous scripted result therefore consumes the attempt; calling
+the operation again is rejected. Only the typed read-only reconciliation path
+may classify the existing result. `UNKNOWN`, timeout or an unrecognized poll
+status never becomes success and never schedules another write.
+
 ## Post-phase signed readback
 
 After Phase 9, independently rebuild and verify both archives and signing
@@ -384,6 +434,7 @@ Do not run GUG-363 `apply` and do not compile the GUG-365 plan.
 
 | State | Permitted response | Prohibited response |
 |---|---|---|
+| Repository scripted materialization | Emit a distinct digest-bound completion package, an empty/non-executable rollback package and a STOP handoff | Treat scripted results as provider evidence or run rollback |
 | Before any phase write | Expire session; reviewed Git revert | Any AWS cleanup |
 | Conclusive exact phase | Preserve state/evidence; continue only with next fresh authorization | Reuse session or phase authorization |
 | Partial phase | Stop; open separately reviewed recovery/revocation package | Inline repair or compensating delete |
@@ -396,30 +447,51 @@ new mutations. None is automatic rollback.
 
 ## Terminal checkpoint
 
-Repository tests may publish only the zero-effect
-`STOP_UPSTREAM_SOURCE_CONTRACT_GAP` checkpoint. It is classified
-`REPOSITORY_VALIDATED_NO_LIVE_EXECUTION`; `LIVE` is neither emitted nor
-accepted. Its write-count list is empty, its total is zero, and it explicitly
-records zero signing jobs and no distinct-job/object proof. A future separately
-reviewed private orchestrator must rebuild all nine certifications from the raw
-causal bundle; this checkpoint cannot be promoted. It records:
+The GUG-376 v1 CLI may still publish only the zero-effect
+`STOP_UPSTREAM_SOURCE_CONTRACT_GAP` checkpoint, classified
+`REPOSITORY_VALIDATED_NO_LIVE_EXECUTION`.
+
+The separate GUG-377 v2 CLI may report
+`REPOSITORY_SOURCE_CONTRACTS_CLOSED`; a fully successful scripted run may
+report `SYNTHETIC_MATERIALIZATION_COMPLETE`. Its final handoff nevertheless
+remains `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`, with
+`state=SOURCE_CONTRACTS_CLOSED_REPOSITORY_ONLY`,
+`evidence_scope=REPOSITORY_VALIDATED_SYNTHETIC_ONLY`,
+`provider_certification_complete=false`,
+`live_provider_evidence=false`, `deployment_authorized=false`,
+`consumer_fresh_checkpoint_required=true`,
+`two_human_status=NOT_PROVEN` and
+`independent_approval_present=false`.
+
+The inventory, plan, completion, rollback and handoff are separate
+digest-bound records. The rollback package is empty, non-automatic and
+non-executable; it does not imply any compensating provider mutation. Neither
+v1 nor v2 emits or accepts `LIVE`. A future separately reviewed private
+orchestrator must rebuild all nine certifications from a private raw causal
+bundle; repository evidence cannot be promoted. Both paths record:
 
 ```text
 GUG365_AWS_WRITES=0
 GUG357_CREATE_STACK=0
 GUG215_EFFECTS=0
 GUG206_EFFECTS=0
+AWS_CALLS_PERFORMED=0
+AWS_MUTATIONS=0
+PROVIDER_NETWORK_CALLS=0
 production=NO-GO
 ```
 
-GUG-376 may move to Done only after the private handoff and sanitized manifest
-are complete. GUG-365 remains In Progress and must refresh provider state
-before compiling its own fresh plan. If any gate remains incomplete, preserve
-GUG-376 In Progress, retain GUG-365 as blocked and report the exact stop code
-and one next required action.
+GUG-377 repository completion neither marks GUG-376 Done nor unblocks or
+executes GUG-365. It has zero effects on GUG-365, GUG-357, GUG-215 and GUG-206.
+GUG-365 remains In Progress and must refresh provider state before compiling
+its own fresh plan. Live completion requires the independently reviewed
+private orchestrator, provider evidence, owner/verifier checkpoints and
+consumer refresh. Until then, preserve the exact STOP code and production
+**NO-GO**.
 
 ## References
 
 - [ADR-053](../../ADR/ADR-053-gug365-upstream-prerequisites-materialization.md)
+- [ADR-054](../../ADR/ADR-054-gug377-provider-backed-upstream-materializer.md)
 - [Deployment contract](../deployment/platform-authority-gug365-upstream-prerequisites.md)
 - [Threat model](../security/gug376-upstream-prerequisites-threat-model.md)

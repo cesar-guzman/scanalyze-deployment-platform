@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-inventory.v2.schema.json",
+  "title": "GUG-377 scripted upstream inventory v2",
+  "description": "Digest-only repository inventory; it is neither live provider evidence nor deployment authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "upstream_contract_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "deployment_authorized",
+    "provider_mode",
+    "evidence_scope",
+    "source_manifest_digest",
+    "target_manifest_digest",
+    "resources",
+    "runtime_provenance",
+    "provider_certification_complete",
+    "inventory_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_inventory.v2"
+    },
+    "schema_version": { "const": 2 },
+    "implementation_issue": { "const": "GUG-377" },
+    "upstream_contract_issue": { "const": "GUG-376" },
+    "consumer_issue": { "const": "GUG-365" },
+    "environment": { "const": "repository-only" },
+    "production": { "const": false },
+    "deployment_authorized": { "const": false },
+    "provider_mode": { "const": "SCRIPTED_SYNTHETIC" },
+    "evidence_scope": { "const": "REPOSITORY_SCRIPTED_SYNTHETIC_ONLY" },
+    "source_manifest_digest": { "$ref": "#/$defs/digest" },
+    "target_manifest_digest": { "$ref": "#/$defs/digest" },
+    "resources": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/resource_approver_permission_set" },
+        { "$ref": "#/$defs/resource_approver_permission_set_role" },
+        { "$ref": "#/$defs/resource_artifact_bucket" },
+        { "$ref": "#/$defs/resource_broker_signed_object" },
+        { "$ref": "#/$defs/resource_broker_signing_job" },
+        { "$ref": "#/$defs/resource_broker_unsigned_object" },
+        { "$ref": "#/$defs/resource_classifier_permission_set" },
+        { "$ref": "#/$defs/resource_classifier_permission_set_role" },
+        { "$ref": "#/$defs/resource_code_signing_config" },
+        { "$ref": "#/$defs/resource_identity_center_application" },
+        { "$ref": "#/$defs/resource_kms_key" },
+        { "$ref": "#/$defs/resource_ledger_factory_signed_object" },
+        { "$ref": "#/$defs/resource_ledger_factory_signing_job" },
+        { "$ref": "#/$defs/resource_ledger_factory_unsigned_object" },
+        { "$ref": "#/$defs/resource_signing_profile" }
+      ],
+      "items": false
+    },
+    "runtime_provenance": { "$ref": "#/$defs/runtime_provenance" },
+    "provider_certification_complete": { "const": false },
+    "inventory_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resource_kind": {
+      "enum": [
+        "approver_permission_set",
+        "approver_permission_set_role",
+        "artifact_bucket",
+        "broker_signed_object",
+        "broker_signing_job",
+        "broker_unsigned_object",
+        "classifier_permission_set",
+        "classifier_permission_set_role",
+        "code_signing_config",
+        "identity_center_application",
+        "kms_key",
+        "ledger_factory_signed_object",
+        "ledger_factory_signing_job",
+        "ledger_factory_unsigned_object",
+        "signing_profile"
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_kind",
+        "classification",
+        "before_state_projection_digest",
+        "target_state_projection_digest",
+        "provider_certified"
+      ],
+      "properties": {
+        "resource_kind": { "$ref": "#/$defs/resource_kind" },
+        "classification": {
+          "enum": [
+            "SCRIPTED_SYNTHETIC",
+            "SCRIPTED_SYNTHETIC_DERIVED_TARGET"
+          ]
+        },
+        "before_state_projection_digest": { "$ref": "#/$defs/digest" },
+        "target_state_projection_digest": { "$ref": "#/$defs/digest" },
+        "provider_certified": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resource_kind": {
+                "enum": [
+                  "broker_signed_object",
+                  "ledger_factory_signed_object"
+                ]
+              }
+            },
+            "required": ["resource_kind"]
+          },
+          "then": {
+            "properties": {
+              "classification": {
+                "const": "SCRIPTED_SYNTHETIC_DERIVED_TARGET"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "classification": { "const": "SCRIPTED_SYNTHETIC" }
+            }
+          }
+        }
+      ]
+    },
+    "resource_approver_permission_set": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "approver_permission_set" } } } ] },
+    "resource_approver_permission_set_role": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "approver_permission_set_role" } } } ] },
+    "resource_artifact_bucket": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "artifact_bucket" } } } ] },
+    "resource_broker_signed_object": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "broker_signed_object" } } } ] },
+    "resource_broker_signing_job": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "broker_signing_job" } } } ] },
+    "resource_broker_unsigned_object": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "broker_unsigned_object" } } } ] },
+    "resource_classifier_permission_set": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "classifier_permission_set" } } } ] },
+    "resource_classifier_permission_set_role": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "classifier_permission_set_role" } } } ] },
+    "resource_code_signing_config": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "code_signing_config" } } } ] },
+    "resource_identity_center_application": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "identity_center_application" } } } ] },
+    "resource_kms_key": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "kms_key" } } } ] },
+    "resource_ledger_factory_signed_object": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "ledger_factory_signed_object" } } } ] },
+    "resource_ledger_factory_signing_job": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "ledger_factory_signing_job" } } } ] },
+    "resource_ledger_factory_unsigned_object": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "ledger_factory_unsigned_object" } } } ] },
+    "resource_signing_profile": { "allOf": [ { "$ref": "#/$defs/resource" }, { "properties": { "resource_kind": { "const": "signing_profile" } } } ] },
+    "runtime_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "architecture",
+        "qualifier_policy",
+        "runtime_management_mode",
+        "provider_backed",
+        "provenance_status"
+      ],
+      "properties": {
+        "runtime": { "const": "python3.12" },
+        "architecture": { "const": "x86_64" },
+        "qualifier_policy": { "const": "PUBLISHED_VERSION_ONLY" },
+        "runtime_management_mode": { "const": "Manual" },
+        "provider_backed": { "const": false },
+        "provenance_status": { "const": "NOT_PROVEN_LIVE" }
+      }
+    }
+  }
+}

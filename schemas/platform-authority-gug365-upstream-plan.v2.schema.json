@@ -1,0 +1,4444 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug365-upstream-plan.v2.schema.json",
+  "title": "GUG-377 deterministic repository-only upstream materialization plan v2",
+  "description": "Exact nine-phase, thirty-operation scripted plan; it grants no live provider authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "upstream_contract_issue",
+    "consumer_issue",
+    "environment",
+    "production",
+    "deployment_authorized",
+    "two_human_status",
+    "independent_approval_present",
+    "evidence_scope",
+    "live_promotion_status",
+    "source_manifest",
+    "target_manifest",
+    "phases",
+    "operations",
+    "rollback_manifest",
+    "plan_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug365_upstream_plan.v2"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "implementation_issue": {
+      "const": "GUG-377"
+    },
+    "upstream_contract_issue": {
+      "const": "GUG-376"
+    },
+    "consumer_issue": {
+      "const": "GUG-365"
+    },
+    "environment": {
+      "const": "repository-only"
+    },
+    "production": {
+      "const": false
+    },
+    "deployment_authorized": {
+      "const": false
+    },
+    "two_human_status": {
+      "const": "NOT_PROVEN"
+    },
+    "independent_approval_present": {
+      "const": false
+    },
+    "evidence_scope": {
+      "const": "REPOSITORY_SCRIPTED_SYNTHETIC_ONLY"
+    },
+    "live_promotion_status": {
+      "const": "STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED"
+    },
+    "source_manifest": {
+      "$ref": "#/$defs/source_manifest"
+    },
+    "target_manifest": {
+      "$ref": "#/$defs/target_manifest"
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "sequence": {
+                  "const": 1
+                },
+                "inventory_target": {
+                  "const": "identity_center_topology"
+                },
+                "causal_predecessor": {
+                  "type": "null"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_01_CREATE_APPLICATION",
+                    "GUG377_OP_02_PUT_APPLICATION_GRANT",
+                    "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE",
+                    "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG",
+                    "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT",
+                    "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET",
+                    "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET",
+                    "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY",
+                    "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY",
+                    "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+                    "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+                    "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET",
+                    "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET",
+                    "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "KMS_FOUNDATION"
+                },
+                "sequence": {
+                  "const": 2
+                },
+                "inventory_target": {
+                  "const": "kms_key"
+                },
+                "causal_predecessor": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_15_CREATE_KMS_KEY",
+                    "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION",
+                    "GUG377_OP_17_CREATE_KMS_ALIAS"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "sequence": {
+                  "const": 3
+                },
+                "inventory_target": {
+                  "const": "artifact_bucket"
+                },
+                "causal_predecessor": {
+                  "const": "KMS_FOUNDATION"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_18_CREATE_ARTIFACT_BUCKET",
+                    "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS",
+                    "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK",
+                    "GUG377_OP_21_PUT_BUCKET_VERSIONING",
+                    "GUG377_OP_22_PUT_BUCKET_ENCRYPTION",
+                    "GUG377_OP_23_PUT_BUCKET_POLICY",
+                    "GUG377_OP_24_PUT_BUCKET_TAGGING"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "SIGNER_PROFILE_FOUNDATION"
+                },
+                "sequence": {
+                  "const": 4
+                },
+                "inventory_target": {
+                  "const": "signing_profile"
+                },
+                "causal_predecessor": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_25_PUT_SIGNING_PROFILE"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "LAMBDA_CSC_FOUNDATION"
+                },
+                "sequence": {
+                  "const": 5
+                },
+                "inventory_target": {
+                  "const": "code_signing_config"
+                },
+                "causal_predecessor": {
+                  "const": "SIGNER_PROFILE_FOUNDATION"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "BROKER_UNSIGNED_PUBLISH"
+                },
+                "sequence": {
+                  "const": 6
+                },
+                "inventory_target": {
+                  "const": "broker_unsigned_object"
+                },
+                "causal_predecessor": {
+                  "const": "LAMBDA_CSC_FOUNDATION"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "BROKER_SIGNING_JOB"
+                },
+                "sequence": {
+                  "const": 7
+                },
+                "inventory_target": {
+                  "const": "broker_signing_job"
+                },
+                "causal_predecessor": {
+                  "const": "BROKER_UNSIGNED_PUBLISH"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_28_BROKER_START_SIGNING_JOB"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH"
+                },
+                "sequence": {
+                  "const": 8
+                },
+                "inventory_target": {
+                  "const": "ledger_factory_unsigned_object"
+                },
+                "causal_predecessor": {
+                  "const": "BROKER_SIGNING_JOB"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/phase"
+            },
+            {
+              "properties": {
+                "phase": {
+                  "const": "LEDGER_FACTORY_SIGNING_JOB"
+                },
+                "sequence": {
+                  "const": 9
+                },
+                "inventory_target": {
+                  "const": "ledger_factory_signing_job"
+                },
+                "causal_predecessor": {
+                  "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH"
+                },
+                "operation_ids": {
+                  "const": [
+                    "GUG377_OP_30_LEDGER_FACTORY_START_SIGNING_JOB"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_01_CREATE_APPLICATION"
+                },
+                "operation_kind": {
+                  "const": "CREATE_APPLICATION"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 1
+                },
+                "action": {
+                  "const": "sso:CreateApplication"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": []
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_02_PUT_APPLICATION_GRANT"
+                },
+                "operation_kind": {
+                  "const": "PUT_APPLICATION_GRANT"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 2
+                },
+                "global_sequence": {
+                  "const": 2
+                },
+                "action": {
+                  "const": "sso:PutApplicationGrant"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_01_CREATE_APPLICATION"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE"
+                },
+                "operation_kind": {
+                  "const": "PUT_APPLICATION_ACCESS_SCOPE"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 3
+                },
+                "global_sequence": {
+                  "const": 3
+                },
+                "action": {
+                  "const": "sso:PutApplicationAccessScope"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_02_PUT_APPLICATION_GRANT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG"
+                },
+                "operation_kind": {
+                  "const": "PUT_APPLICATION_ASSIGNMENT_CONFIG"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 4
+                },
+                "global_sequence": {
+                  "const": 4
+                },
+                "action": {
+                  "const": "sso:PutApplicationAssignmentConfiguration"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_03_PUT_APPLICATION_ACCESS_SCOPE"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT"
+                },
+                "operation_kind": {
+                  "const": "CREATE_APPLICATION_ASSIGNMENT"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 5
+                },
+                "global_sequence": {
+                  "const": 5
+                },
+                "action": {
+                  "const": "sso:CreateApplicationAssignment"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_04_PUT_APPLICATION_ASSIGNMENT_CONFIG"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET"
+                },
+                "operation_kind": {
+                  "const": "CLASSIFIER_CREATE_PERMISSION_SET"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 6
+                },
+                "global_sequence": {
+                  "const": 6
+                },
+                "action": {
+                  "const": "sso:CreatePermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "classifier_permission_set"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_05_CREATE_APPLICATION_ASSIGNMENT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "CLASSIFIER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET"
+                },
+                "operation_kind": {
+                  "const": "APPROVER_CREATE_PERMISSION_SET"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 7
+                },
+                "global_sequence": {
+                  "const": 7
+                },
+                "action": {
+                  "const": "sso:CreatePermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "approver_permission_set"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_06_CLASSIFIER_CREATE_PERMISSION_SET"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "APPROVER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY"
+                },
+                "operation_kind": {
+                  "const": "CLASSIFIER_PUT_INLINE_POLICY"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 8
+                },
+                "global_sequence": {
+                  "const": 8
+                },
+                "action": {
+                  "const": "sso:PutInlinePolicyToPermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "classifier_permission_set"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_07_APPROVER_CREATE_PERMISSION_SET"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "CLASSIFIER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY"
+                },
+                "operation_kind": {
+                  "const": "APPROVER_PUT_INLINE_POLICY"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 9
+                },
+                "global_sequence": {
+                  "const": 9
+                },
+                "action": {
+                  "const": "sso:PutInlinePolicyToPermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "approver_permission_set"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_08_CLASSIFIER_PUT_INLINE_POLICY"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "APPROVER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT"
+                },
+                "operation_kind": {
+                  "const": "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 10
+                },
+                "global_sequence": {
+                  "const": 10
+                },
+                "action": {
+                  "const": "sso:CreateAccountAssignment"
+                },
+                "inventory_resource": {
+                  "const": "classifier_permission_set_role"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_09_APPROVER_PUT_INLINE_POLICY"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_IDENTITY"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "CLASSIFIER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT"
+                },
+                "operation_kind": {
+                  "const": "APPROVER_CREATE_ACCOUNT_ASSIGNMENT"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 11
+                },
+                "global_sequence": {
+                  "const": 11
+                },
+                "action": {
+                  "const": "sso:CreateAccountAssignment"
+                },
+                "inventory_resource": {
+                  "const": "approver_permission_set_role"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_10_CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_IDENTITY"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "APPROVER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET"
+                },
+                "operation_kind": {
+                  "const": "CLASSIFIER_PROVISION_PERMISSION_SET"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 12
+                },
+                "global_sequence": {
+                  "const": 12
+                },
+                "action": {
+                  "const": "sso:ProvisionPermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "classifier_permission_set_role"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_11_APPROVER_CREATE_ACCOUNT_ASSIGNMENT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_IDENTITY"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+                    "CLASSIFIER_PERMISSION_SET_ROLE_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "CLASSIFIER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET"
+                },
+                "operation_kind": {
+                  "const": "APPROVER_PROVISION_PERMISSION_SET"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 13
+                },
+                "global_sequence": {
+                  "const": 13
+                },
+                "action": {
+                  "const": "sso:ProvisionPermissionSet"
+                },
+                "inventory_resource": {
+                  "const": "approver_permission_set_role"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_12_CLASSIFIER_PROVISION_PERMISSION_SET"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_IDENTITY"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+                    "APPROVER_PERMISSION_SET_ROLE_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "APPROVER_PERMISSION_SET_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD"
+                },
+                "operation_kind": {
+                  "const": "PUT_APPLICATION_AUTH_METHOD"
+                },
+                "phase": {
+                  "const": "IDENTITY_CENTER_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 14
+                },
+                "global_sequence": {
+                  "const": 14
+                },
+                "action": {
+                  "const": "sso:PutApplicationAuthenticationMethod"
+                },
+                "inventory_resource": {
+                  "const": "identity_center_application"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_13_APPROVER_PROVISION_PERMISSION_SET"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "IDENTITY_CENTER_APPLICATION_ARN",
+                    "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+                    "APPROVER_PERMISSION_SET_ROLE_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_15_CREATE_KMS_KEY"
+                },
+                "operation_kind": {
+                  "const": "CREATE_KMS_KEY"
+                },
+                "phase": {
+                  "const": "KMS_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 15
+                },
+                "action": {
+                  "const": "kms:CreateKey"
+                },
+                "inventory_resource": {
+                  "const": "kms_key"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_14_PUT_APPLICATION_AUTH_METHOD"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "KMS_KEY_ID",
+                    "KMS_KEY_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION"
+                },
+                "operation_kind": {
+                  "const": "ENABLE_KMS_KEY_ROTATION"
+                },
+                "phase": {
+                  "const": "KMS_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 2
+                },
+                "global_sequence": {
+                  "const": 16
+                },
+                "action": {
+                  "const": "kms:EnableKeyRotation"
+                },
+                "inventory_resource": {
+                  "const": "kms_key"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_15_CREATE_KMS_KEY"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ID"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_17_CREATE_KMS_ALIAS"
+                },
+                "operation_kind": {
+                  "const": "CREATE_KMS_ALIAS"
+                },
+                "phase": {
+                  "const": "KMS_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 3
+                },
+                "global_sequence": {
+                  "const": 17
+                },
+                "action": {
+                  "const": "kms:CreateAlias"
+                },
+                "inventory_resource": {
+                  "const": "kms_key"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_16_ENABLE_KMS_KEY_ROTATION"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ID"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_18_CREATE_ARTIFACT_BUCKET"
+                },
+                "operation_kind": {
+                  "const": "CREATE_ARTIFACT_BUCKET"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 18
+                },
+                "action": {
+                  "const": "s3:CreateBucket"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_17_CREATE_KMS_ALIAS"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_OWNERSHIP_CONTROLS"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 2
+                },
+                "global_sequence": {
+                  "const": 19
+                },
+                "action": {
+                  "const": "s3:PutBucketOwnershipControls"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_18_CREATE_ARTIFACT_BUCKET"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_PUBLIC_ACCESS_BLOCK"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 3
+                },
+                "global_sequence": {
+                  "const": 20
+                },
+                "action": {
+                  "const": "s3:PutPublicAccessBlock"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_19_PUT_BUCKET_OWNERSHIP_CONTROLS"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_21_PUT_BUCKET_VERSIONING"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_VERSIONING"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 4
+                },
+                "global_sequence": {
+                  "const": 21
+                },
+                "action": {
+                  "const": "s3:PutBucketVersioning"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_20_PUT_BUCKET_PUBLIC_ACCESS_BLOCK"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_22_PUT_BUCKET_ENCRYPTION"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_ENCRYPTION"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 5
+                },
+                "global_sequence": {
+                  "const": 22
+                },
+                "action": {
+                  "const": "s3:PutBucketEncryption"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_21_PUT_BUCKET_VERSIONING"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_23_PUT_BUCKET_POLICY"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_POLICY"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 6
+                },
+                "global_sequence": {
+                  "const": 23
+                },
+                "action": {
+                  "const": "s3:PutBucketPolicy"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_22_PUT_BUCKET_ENCRYPTION"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_24_PUT_BUCKET_TAGGING"
+                },
+                "operation_kind": {
+                  "const": "PUT_BUCKET_TAGGING"
+                },
+                "phase": {
+                  "const": "S3_ARTIFACT_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 7
+                },
+                "global_sequence": {
+                  "const": 24
+                },
+                "action": {
+                  "const": "s3:PutBucketTagging"
+                },
+                "inventory_resource": {
+                  "const": "artifact_bucket"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_23_PUT_BUCKET_POLICY"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": []
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_25_PUT_SIGNING_PROFILE"
+                },
+                "operation_kind": {
+                  "const": "PUT_SIGNING_PROFILE"
+                },
+                "phase": {
+                  "const": "SIGNER_PROFILE_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 25
+                },
+                "action": {
+                  "const": "signer:PutSigningProfile"
+                },
+                "inventory_resource": {
+                  "const": "signing_profile"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_24_PUT_BUCKET_TAGGING"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "SIGNING_PROFILE_VERSION_ID",
+                    "SIGNING_PROFILE_VERSION_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": []
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG"
+                },
+                "operation_kind": {
+                  "const": "CREATE_CODE_SIGNING_CONFIG"
+                },
+                "phase": {
+                  "const": "LAMBDA_CSC_FOUNDATION"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 26
+                },
+                "action": {
+                  "const": "lambda:CreateCodeSigningConfig"
+                },
+                "inventory_resource": {
+                  "const": "code_signing_config"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_25_PUT_SIGNING_PROFILE"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "CODE_SIGNING_CONFIG_ARN"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "SIGNING_PROFILE_VERSION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT"
+                },
+                "operation_kind": {
+                  "const": "BROKER_PUT_UNSIGNED_OBJECT"
+                },
+                "phase": {
+                  "const": "BROKER_UNSIGNED_PUBLISH"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 27
+                },
+                "action": {
+                  "const": "s3:PutObject"
+                },
+                "inventory_resource": {
+                  "const": "broker_unsigned_object"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_26_CREATE_CODE_SIGNING_CONFIG"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "BROKER_UNSIGNED_VERSION_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_28_BROKER_START_SIGNING_JOB"
+                },
+                "operation_kind": {
+                  "const": "BROKER_START_SIGNING_JOB"
+                },
+                "phase": {
+                  "const": "BROKER_SIGNING_JOB"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 28
+                },
+                "action": {
+                  "const": "signer:StartSigningJob"
+                },
+                "inventory_resource": {
+                  "const": "broker_signing_job"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_27_BROKER_PUT_UNSIGNED_OBJECT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_SIGNER"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "BROKER_SIGNING_JOB_ID",
+                    "BROKER_SIGNED_KEY",
+                    "BROKER_SIGNED_VERSION_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "BROKER_UNSIGNED_VERSION_ID",
+                    "SIGNING_PROFILE_VERSION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+                },
+                "operation_kind": {
+                  "const": "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+                },
+                "phase": {
+                  "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 29
+                },
+                "action": {
+                  "const": "s3:PutObject"
+                },
+                "inventory_resource": {
+                  "const": "ledger_factory_unsigned_object"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_28_BROKER_START_SIGNING_JOB"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "NONE"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "LEDGER_FACTORY_UNSIGNED_VERSION_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "KMS_KEY_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "IMMEDIATE_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/operation"
+            },
+            {
+              "properties": {
+                "operation_id": {
+                  "const": "GUG377_OP_30_LEDGER_FACTORY_START_SIGNING_JOB"
+                },
+                "operation_kind": {
+                  "const": "LEDGER_FACTORY_START_SIGNING_JOB"
+                },
+                "phase": {
+                  "const": "LEDGER_FACTORY_SIGNING_JOB"
+                },
+                "phase_sequence": {
+                  "const": 1
+                },
+                "global_sequence": {
+                  "const": 30
+                },
+                "action": {
+                  "const": "signer:StartSigningJob"
+                },
+                "inventory_resource": {
+                  "const": "ledger_factory_signing_job"
+                },
+                "dependencies": {
+                  "const": [
+                    "GUG377_OP_29_LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+                  ]
+                },
+                "polling_policy": {
+                  "properties": {
+                    "kind": {
+                      "const": "ASYNC_SIGNER"
+                    }
+                  }
+                },
+                "produced_slots": {
+                  "const": [
+                    "LEDGER_FACTORY_SIGNING_JOB_ID",
+                    "LEDGER_FACTORY_SIGNED_KEY",
+                    "LEDGER_FACTORY_SIGNED_VERSION_ID"
+                  ]
+                },
+                "consumed_slots": {
+                  "const": [
+                    "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+                    "SIGNING_PROFILE_VERSION_ARN"
+                  ]
+                },
+                "result_projection_kind": {
+                  "const": "ASYNC_RESULT_AND_EXACT_READBACK"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "rollback_manifest": {
+      "$ref": "#/$defs/rollback_manifest"
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type",
+        "schema_version",
+        "repository_path",
+        "content_digest"
+      ],
+      "properties": {
+        "artifact_type": {
+          "enum": [
+            "platform_authority_change_set_retirement_package_manifest",
+            "platform_authority_retirement_entrypoint_intent",
+            "platform_authority_retirement_entrypoint_plan",
+            "platform_authority_retirement_ledger_factory_package",
+            "platform_authority_retirement_entrypoint_service_role_plan"
+          ]
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "repository_path": {
+          "enum": [
+            "schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json",
+            "schemas/platform-authority-retirement-entrypoint-intent.v1.schema.json",
+            "schemas/platform-authority-retirement-entrypoint-plan.v1.schema.json",
+            "schemas/platform-authority-retirement-ledger-factory-package.v1.schema.json",
+            "schemas/platform-authority-retirement-entrypoint-service-role-plan.v1.schema.json"
+          ]
+        },
+        "content_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "source_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "source_head_sha",
+        "source_head_role",
+        "source_tree_sha",
+        "pr78_head_sha",
+        "pr78_merge_sha",
+        "upstream_catalog_digest",
+        "contracts",
+        "implementation_sources",
+        "implementation_source_set_digest",
+        "source_manifest_digest"
+      ],
+      "properties": {
+        "record_type": {
+          "const": "scanalyze.platform_authority.gug365_upstream_source_manifest.v1"
+        },
+        "source_head_sha": {
+          "const": "27cfe380557c18f4b5318f3369bf27f3caa3b08f"
+        },
+        "source_tree_sha": {
+          "const": "e4d6ffdef4057e2d16cdc02a4a125a530b34b081"
+        },
+        "pr78_head_sha": {
+          "const": "4d2ec5c7d8a65e7c7f2ec17f09dfa372a2a9a3ae"
+        },
+        "pr78_merge_sha": {
+          "const": "0f708c22ec20a2671c6cabd72493d2eff9cb4059"
+        },
+        "contracts": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/source_contract"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_change_set_retirement_package_manifest"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "repository_path": {
+                      "const": "schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/source_contract"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_intent"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "repository_path": {
+                      "const": "schemas/platform-authority-retirement-entrypoint-intent.v1.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/source_contract"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_plan"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "repository_path": {
+                      "const": "schemas/platform-authority-retirement-entrypoint-plan.v1.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/source_contract"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_ledger_factory_package"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "repository_path": {
+                      "const": "schemas/platform-authority-retirement-ledger-factory-package.v1.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/source_contract"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_service_role_plan"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    },
+                    "repository_path": {
+                      "const": "schemas/platform-authority-retirement-entrypoint-service-role-plan.v1.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "source_manifest_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_head_role": {
+          "const": "BASELINE_MAIN"
+        },
+        "implementation_sources": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "tooling/platform_authority_gug365_upstream_prerequisites.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "tooling/platform_authority_gug365_phase_execution_ledger.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "tooling/platform_authority_gug365_upstream_provider_contracts.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "tooling/platform_authority_gug365_upstream_dry_run_runner.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "tooling/platform_authority_gug365_upstream_materializer.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "scripts/deployment/platform-authority-gug365-upstream-materializer.py"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "schemas/platform-authority-gug365-upstream-inventory.v2.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "schemas/platform-authority-gug365-upstream-plan.v2.schema.json"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/implementation_source"
+                },
+                {
+                  "properties": {
+                    "repository_path": {
+                      "const": "schemas/platform-authority-gug365-upstream-final-handoff.v2.schema.json"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "implementation_source_set_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "upstream_catalog_digest": {
+          "const": "sha256:d8580f361efff5bf4c3d2b112fdc98661b6b403206190efde5d208abfa47144f"
+        }
+      }
+    },
+    "target_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_kind",
+        "constraints",
+        "provider_value_storage",
+        "mutable_reference_permitted",
+        "target_state_digest"
+      ],
+      "properties": {
+        "resource_kind": {
+          "enum": [
+            "identity_center_application",
+            "classifier_permission_set",
+            "approver_permission_set",
+            "classifier_permission_set_role",
+            "approver_permission_set_role",
+            "kms_key",
+            "artifact_bucket",
+            "signing_profile",
+            "code_signing_config",
+            "broker_unsigned_object",
+            "broker_signing_job",
+            "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job",
+            "broker_signed_object",
+            "ledger_factory_signed_object"
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+              "EXACT_APPLICATION_CONFIGURATION",
+              "SAME_USER_DIGEST_BINDING",
+              "DISTINCT_CLASSIFIER_PERMISSION_SET",
+              "INLINE_POLICY_ONLY",
+              "NO_ADDITIVE_GRANTS",
+              "DISTINCT_APPROVER_PERMISSION_SET",
+              "PROVISIONED_ROLE_READBACK",
+              "CLASSIFIER_BINDING",
+              "APPROVER_BINDING",
+              "SYMMETRIC_ENCRYPT_DECRYPT",
+              "ROTATION_ENABLED",
+              "EXACT_POLICY_USE_BINDING",
+              "AUTHORITY_OWNED",
+              "VERSIONING_ENABLED",
+              "KMS_ENCRYPTED",
+              "PUBLIC_ACCESS_BLOCKED",
+              "IMMUTABLE_VERSION_REFERENCES",
+              "AWSLAMBDA_SHA384_ECDSA",
+              "IMMUTABLE_PROFILE_VERSION",
+              "UNTRUSTED_ARTIFACT_ENFORCE",
+              "ONE_EXACT_PUBLISHER",
+              "GUG215_MANIFEST_DIGEST_BOUND",
+              "VERSION_ID_REQUIRED",
+              "CHECKSUM_REQUIRED",
+              "DISTINCT_JOB",
+              "SUCCEEDED_ONLY",
+              "DESTINATION_VERSION_BOUND",
+              "LEDGER_FACTORY_MANIFEST_DIGEST_BOUND",
+              "IMMUTABLE_DESTINATION_VERSION",
+              "CHECKSUM_BOUND_TO_SIGNING_RESULT",
+              "DISTINCT_FROM_UNSIGNED_OBJECT"
+            ]
+          }
+        },
+        "provider_value_storage": {
+          "const": "DIGEST_PROJECTION_ONLY"
+        },
+        "mutable_reference_permitted": {
+          "const": false
+        },
+        "target_state_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "package_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type",
+        "schema_version",
+        "content_digest"
+      ],
+      "properties": {
+        "artifact_type": {
+          "enum": [
+            "platform_authority_change_set_retirement_package_manifest",
+            "platform_authority_retirement_entrypoint_intent",
+            "platform_authority_retirement_entrypoint_plan",
+            "platform_authority_retirement_ledger_factory_package",
+            "platform_authority_retirement_entrypoint_service_role_plan"
+          ]
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "content_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "target_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "region",
+        "authority_environment",
+        "account_binding",
+        "resources",
+        "runtime",
+        "identity_center",
+        "package_inputs",
+        "provider_slots",
+        "target_manifest_digest"
+      ],
+      "properties": {
+        "record_type": {
+          "const": "scanalyze.platform_authority.gug365_upstream_target_manifest.v1"
+        },
+        "region": {
+          "const": "us-east-1"
+        },
+        "authority_environment": {
+          "const": "authority-non-production"
+        },
+        "account_binding": {
+          "const": "EXTERNAL_DIGEST_REQUIRED_LIVE_NOT_PRODUCED"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "identity_center_application",
+            "classifier_permission_set",
+            "approver_permission_set",
+            "classifier_permission_set_role",
+            "approver_permission_set_role",
+            "kms_key",
+            "artifact_bucket",
+            "signing_profile",
+            "code_signing_config",
+            "broker_unsigned_object",
+            "broker_signing_job",
+            "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job",
+            "broker_signed_object",
+            "ledger_factory_signed_object"
+          ],
+          "properties": {
+            "identity_center_application": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "identity_center_application"
+                    },
+                    "constraints": {
+                      "const": [
+                        "SINGLE_OPERATOR_NONPROD_EXCEPTION",
+                        "EXACT_APPLICATION_CONFIGURATION",
+                        "SAME_USER_DIGEST_BINDING"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "classifier_permission_set": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "classifier_permission_set"
+                    },
+                    "constraints": {
+                      "const": [
+                        "DISTINCT_CLASSIFIER_PERMISSION_SET",
+                        "INLINE_POLICY_ONLY",
+                        "NO_ADDITIVE_GRANTS"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "approver_permission_set": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "approver_permission_set"
+                    },
+                    "constraints": {
+                      "const": [
+                        "DISTINCT_APPROVER_PERMISSION_SET",
+                        "INLINE_POLICY_ONLY",
+                        "NO_ADDITIVE_GRANTS"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "classifier_permission_set_role": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "classifier_permission_set_role"
+                    },
+                    "constraints": {
+                      "const": [
+                        "PROVISIONED_ROLE_READBACK",
+                        "CLASSIFIER_BINDING"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "approver_permission_set_role": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "approver_permission_set_role"
+                    },
+                    "constraints": {
+                      "const": [
+                        "PROVISIONED_ROLE_READBACK",
+                        "APPROVER_BINDING"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "kms_key": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "kms_key"
+                    },
+                    "constraints": {
+                      "const": [
+                        "SYMMETRIC_ENCRYPT_DECRYPT",
+                        "ROTATION_ENABLED",
+                        "EXACT_POLICY_USE_BINDING"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "artifact_bucket": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "artifact_bucket"
+                    },
+                    "constraints": {
+                      "const": [
+                        "AUTHORITY_OWNED",
+                        "VERSIONING_ENABLED",
+                        "KMS_ENCRYPTED",
+                        "PUBLIC_ACCESS_BLOCKED",
+                        "IMMUTABLE_VERSION_REFERENCES"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "signing_profile": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "signing_profile"
+                    },
+                    "constraints": {
+                      "const": [
+                        "AWSLAMBDA_SHA384_ECDSA",
+                        "IMMUTABLE_PROFILE_VERSION"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "code_signing_config": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "code_signing_config"
+                    },
+                    "constraints": {
+                      "const": [
+                        "UNTRUSTED_ARTIFACT_ENFORCE",
+                        "ONE_EXACT_PUBLISHER"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "broker_unsigned_object": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "broker_unsigned_object"
+                    },
+                    "constraints": {
+                      "const": [
+                        "GUG215_MANIFEST_DIGEST_BOUND",
+                        "VERSION_ID_REQUIRED",
+                        "CHECKSUM_REQUIRED"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "broker_signing_job": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "broker_signing_job"
+                    },
+                    "constraints": {
+                      "const": [
+                        "DISTINCT_JOB",
+                        "SUCCEEDED_ONLY",
+                        "DESTINATION_VERSION_BOUND"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "ledger_factory_unsigned_object": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "ledger_factory_unsigned_object"
+                    },
+                    "constraints": {
+                      "const": [
+                        "LEDGER_FACTORY_MANIFEST_DIGEST_BOUND",
+                        "VERSION_ID_REQUIRED",
+                        "CHECKSUM_REQUIRED"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "ledger_factory_signing_job": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "ledger_factory_signing_job"
+                    },
+                    "constraints": {
+                      "const": [
+                        "DISTINCT_JOB",
+                        "SUCCEEDED_ONLY",
+                        "DESTINATION_VERSION_BOUND"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "broker_signed_object": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "broker_signed_object"
+                    },
+                    "constraints": {
+                      "const": [
+                        "IMMUTABLE_DESTINATION_VERSION",
+                        "CHECKSUM_BOUND_TO_SIGNING_RESULT",
+                        "DISTINCT_FROM_UNSIGNED_OBJECT"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "ledger_factory_signed_object": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/target_resource"
+                },
+                {
+                  "properties": {
+                    "resource_kind": {
+                      "const": "ledger_factory_signed_object"
+                    },
+                    "constraints": {
+                      "const": [
+                        "IMMUTABLE_DESTINATION_VERSION",
+                        "CHECKSUM_BOUND_TO_SIGNING_RESULT",
+                        "DISTINCT_FROM_UNSIGNED_OBJECT"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runtime",
+            "architecture",
+            "qualifier_policy",
+            "runtime_management_mode",
+            "provider_provenance",
+            "reference_storage",
+            "required_provider_projections"
+          ],
+          "properties": {
+            "runtime": {
+              "const": "python3.12"
+            },
+            "architecture": {
+              "const": "x86_64"
+            },
+            "qualifier_policy": {
+              "const": "PUBLISHED_VERSION_ONLY"
+            },
+            "runtime_management_mode": {
+              "const": "Manual"
+            },
+            "provider_provenance": {
+              "const": "REQUIRED_LIVE_NOT_PRODUCED"
+            },
+            "reference_storage": {
+              "const": "DIGEST_ONLY"
+            },
+            "required_provider_projections": {
+              "const": [
+                "PUBLISHED_QUALIFIER_DIGEST",
+                "RUNTIME_CONFIGURATION_DIGEST",
+                "RUNTIME_VERSION_REFERENCE_DIGEST"
+              ]
+            }
+          }
+        },
+        "identity_center": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authorization_mode",
+            "two_human_status",
+            "independent_approval_present",
+            "same_user_digest_binding_required",
+            "distinct_permission_sets_required",
+            "provisioned_role_readback_required"
+          ],
+          "properties": {
+            "authorization_mode": {
+              "const": "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+            },
+            "two_human_status": {
+              "const": "NOT_PROVEN"
+            },
+            "independent_approval_present": {
+              "const": false
+            },
+            "same_user_digest_binding_required": {
+              "const": true
+            },
+            "distinct_permission_sets_required": {
+              "const": true
+            },
+            "provisioned_role_readback_required": {
+              "const": true
+            }
+          }
+        },
+        "package_inputs": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/package_input"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_change_set_retirement_package_manifest"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/package_input"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_intent"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/package_input"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_plan"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/package_input"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_ledger_factory_package"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/package_input"
+                },
+                {
+                  "properties": {
+                    "artifact_type": {
+                      "const": "platform_authority_retirement_entrypoint_service_role_plan"
+                    },
+                    "schema_version": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "target_manifest_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "provider_slots": {
+          "type": "array",
+          "minItems": 22,
+          "maxItems": 22,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "APPROVER_CREATE_ACCOUNT_ASSIGNMENT"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "APPROVER_PERMISSION_SET_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "APPROVER_CREATE_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+                        "APPROVER_PROVISION_PERMISSION_SET",
+                        "APPROVER_PUT_INLINE_POLICY"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "APPROVER_PROVISION_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "APPROVER_PERMISSION_SET_ROLE_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "APPROVER_PROVISION_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "PROVISIONED_ROLE_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "PUT_APPLICATION_AUTH_METHOD"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "BROKER_SIGNED_KEY"
+                    },
+                    "producer_operation_kind": {
+                      "const": "BROKER_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "BROKER_SIGNED_VERSION_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "BROKER_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "BROKER_SIGNING_JOB_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "BROKER_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "BROKER_UNSIGNED_VERSION_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "BROKER_PUT_UNSIGNED_OBJECT"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "BROKER_START_SIGNING_JOB"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "CLASSIFIER_PERMISSION_SET_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CLASSIFIER_CREATE_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+                        "CLASSIFIER_PROVISION_PERMISSION_SET",
+                        "CLASSIFIER_PUT_INLINE_POLICY"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CLASSIFIER_PROVISION_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "CLASSIFIER_PERMISSION_SET_ROLE_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CLASSIFIER_PROVISION_PERMISSION_SET"
+                    },
+                    "derivation_kind": {
+                      "const": "PROVISIONED_ROLE_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "PUT_APPLICATION_AUTH_METHOD"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "CODE_SIGNING_CONFIG_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CREATE_CODE_SIGNING_CONFIG"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "IDENTITY_CENTER_APPLICATION_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CREATE_APPLICATION"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "CREATE_APPLICATION_ASSIGNMENT",
+                        "PUT_APPLICATION_ACCESS_SCOPE",
+                        "PUT_APPLICATION_ASSIGNMENT_CONFIG",
+                        "PUT_APPLICATION_AUTH_METHOD",
+                        "PUT_APPLICATION_GRANT"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "KMS_KEY_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CREATE_KMS_KEY"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "BROKER_PUT_UNSIGNED_OBJECT",
+                        "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+                        "PUT_BUCKET_ENCRYPTION",
+                        "PUT_BUCKET_POLICY"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "KMS_KEY_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "CREATE_KMS_KEY"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "CREATE_KMS_ALIAS",
+                        "ENABLE_KMS_KEY_ROTATION"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "LEDGER_FACTORY_SIGNED_KEY"
+                    },
+                    "producer_operation_kind": {
+                      "const": "LEDGER_FACTORY_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "LEDGER_FACTORY_SIGNED_VERSION_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "LEDGER_FACTORY_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "LEDGER_FACTORY_SIGNING_JOB_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "LEDGER_FACTORY_START_SIGNING_JOB"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "LEDGER_FACTORY_UNSIGNED_VERSION_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "LEDGER_FACTORY_START_SIGNING_JOB"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "SIGNING_PROFILE_VERSION_ARN"
+                    },
+                    "producer_operation_kind": {
+                      "const": "PUT_SIGNING_PROFILE"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": [
+                        "BROKER_START_SIGNING_JOB",
+                        "CREATE_CODE_SIGNING_CONFIG",
+                        "LEDGER_FACTORY_START_SIGNING_JOB"
+                      ]
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/provider_slot"
+                },
+                {
+                  "properties": {
+                    "slot": {
+                      "const": "SIGNING_PROFILE_VERSION_ID"
+                    },
+                    "producer_operation_kind": {
+                      "const": "PUT_SIGNING_PROFILE"
+                    },
+                    "derivation_kind": {
+                      "const": "WRITE_RESPONSE_AND_EXACT_READBACK"
+                    },
+                    "consumer_operation_kinds": {
+                      "const": []
+                    },
+                    "value_storage": {
+                      "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+                    },
+                    "live_value_status": {
+                      "const": "NOT_PRODUCED"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "sequence",
+        "inventory_target",
+        "causal_predecessor",
+        "operation_ids",
+        "automatic_rollback",
+        "phase_digest"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "IDENTITY_CENTER_FOUNDATION",
+            "KMS_FOUNDATION",
+            "S3_ARTIFACT_FOUNDATION",
+            "SIGNER_PROFILE_FOUNDATION",
+            "LAMBDA_CSC_FOUNDATION",
+            "BROKER_UNSIGNED_PUBLISH",
+            "BROKER_SIGNING_JOB",
+            "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+            "LEDGER_FACTORY_SIGNING_JOB"
+          ]
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "inventory_target": {
+          "enum": [
+            "identity_center_topology",
+            "kms_key",
+            "artifact_bucket",
+            "signing_profile",
+            "code_signing_config",
+            "broker_unsigned_object",
+            "broker_signing_job",
+            "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job"
+          ]
+        },
+        "causal_predecessor": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "IDENTITY_CENTER_FOUNDATION",
+                "KMS_FOUNDATION",
+                "S3_ARTIFACT_FOUNDATION",
+                "SIGNER_PROFILE_FOUNDATION",
+                "LAMBDA_CSC_FOUNDATION",
+                "BROKER_UNSIGNED_PUBLISH",
+                "BROKER_SIGNING_JOB",
+                "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+                "LEDGER_FACTORY_SIGNING_JOB"
+              ]
+            }
+          ]
+        },
+        "operation_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^GUG377_OP_(0[1-9]|[12][0-9]|30)_[A-Z][A-Z0-9_]{2,95}$"
+          }
+        },
+        "automatic_rollback": {
+          "const": false
+        },
+        "phase_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "polling_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "max_attempts",
+            "max_elapsed_seconds",
+            "backoff_seconds",
+            "nonterminal_states",
+            "success_states",
+            "failure_states",
+            "unknown_state"
+          ],
+          "properties": {
+            "kind": {
+              "const": "NONE"
+            },
+            "max_attempts": {
+              "const": 0
+            },
+            "max_elapsed_seconds": {
+              "const": 0
+            },
+            "backoff_seconds": {
+              "const": []
+            },
+            "nonterminal_states": {
+              "const": []
+            },
+            "success_states": {
+              "const": [
+                "SUCCEEDED"
+              ]
+            },
+            "failure_states": {
+              "const": [
+                "FAILED"
+              ]
+            },
+            "unknown_state": {
+              "const": "UNCERTAIN_RECONCILE_ONLY"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "max_attempts",
+            "max_elapsed_seconds",
+            "backoff_seconds",
+            "nonterminal_states",
+            "success_states",
+            "failure_states",
+            "unknown_state"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ASYNC_IDENTITY",
+                "ASYNC_SIGNER"
+              ]
+            },
+            "max_attempts": {
+              "const": 4
+            },
+            "max_elapsed_seconds": {
+              "const": 3
+            },
+            "backoff_seconds": {
+              "const": [
+                1,
+                1,
+                1
+              ]
+            },
+            "nonterminal_states": {
+              "const": [
+                "IN_PROGRESS"
+              ]
+            },
+            "success_states": {
+              "const": [
+                "SUCCEEDED"
+              ]
+            },
+            "failure_states": {
+              "const": [
+                "FAILED"
+              ]
+            },
+            "unknown_state": {
+              "const": "UNCERTAIN_RECONCILE_ONLY"
+            }
+          }
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "operation_kind",
+        "phase",
+        "phase_sequence",
+        "global_sequence",
+        "action",
+        "inventory_resource",
+        "dependencies",
+        "produced_slots",
+        "consumed_slots",
+        "result_projection_kind",
+        "request_contract_digest",
+        "before_state_digest",
+        "target_state_digest",
+        "result_contract_digest",
+        "attempt_limit",
+        "sdk_retry_count",
+        "retry_permitted",
+        "ambiguous_outcome",
+        "polling_policy",
+        "rollback_boundary_digest",
+        "operation_digest"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^GUG377_OP_(0[1-9]|[12][0-9]|30)_[A-Z][A-Z0-9_]{2,95}$"
+        },
+        "operation_kind": {
+          "enum": [
+            "CREATE_APPLICATION",
+            "PUT_APPLICATION_GRANT",
+            "PUT_APPLICATION_ACCESS_SCOPE",
+            "PUT_APPLICATION_ASSIGNMENT_CONFIG",
+            "CREATE_APPLICATION_ASSIGNMENT",
+            "CLASSIFIER_CREATE_PERMISSION_SET",
+            "APPROVER_CREATE_PERMISSION_SET",
+            "CLASSIFIER_PUT_INLINE_POLICY",
+            "APPROVER_PUT_INLINE_POLICY",
+            "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+            "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+            "CLASSIFIER_PROVISION_PERMISSION_SET",
+            "APPROVER_PROVISION_PERMISSION_SET",
+            "PUT_APPLICATION_AUTH_METHOD",
+            "CREATE_KMS_KEY",
+            "ENABLE_KMS_KEY_ROTATION",
+            "CREATE_KMS_ALIAS",
+            "CREATE_ARTIFACT_BUCKET",
+            "PUT_BUCKET_OWNERSHIP_CONTROLS",
+            "PUT_BUCKET_PUBLIC_ACCESS_BLOCK",
+            "PUT_BUCKET_VERSIONING",
+            "PUT_BUCKET_ENCRYPTION",
+            "PUT_BUCKET_POLICY",
+            "PUT_BUCKET_TAGGING",
+            "PUT_SIGNING_PROFILE",
+            "CREATE_CODE_SIGNING_CONFIG",
+            "BROKER_PUT_UNSIGNED_OBJECT",
+            "BROKER_START_SIGNING_JOB",
+            "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+            "LEDGER_FACTORY_START_SIGNING_JOB"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "IDENTITY_CENTER_FOUNDATION",
+            "KMS_FOUNDATION",
+            "S3_ARTIFACT_FOUNDATION",
+            "SIGNER_PROFILE_FOUNDATION",
+            "LAMBDA_CSC_FOUNDATION",
+            "BROKER_UNSIGNED_PUBLISH",
+            "BROKER_SIGNING_JOB",
+            "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+            "LEDGER_FACTORY_SIGNING_JOB"
+          ]
+        },
+        "phase_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 14
+        },
+        "global_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "action": {
+          "enum": [
+            "sso:CreateApplication",
+            "sso:PutApplicationGrant",
+            "sso:PutApplicationAccessScope",
+            "sso:PutApplicationAssignmentConfiguration",
+            "sso:CreateApplicationAssignment",
+            "sso:CreatePermissionSet",
+            "sso:PutInlinePolicyToPermissionSet",
+            "sso:CreateAccountAssignment",
+            "sso:ProvisionPermissionSet",
+            "sso:PutApplicationAuthenticationMethod",
+            "kms:CreateKey",
+            "kms:EnableKeyRotation",
+            "kms:CreateAlias",
+            "s3:CreateBucket",
+            "s3:PutBucketOwnershipControls",
+            "s3:PutPublicAccessBlock",
+            "s3:PutBucketVersioning",
+            "s3:PutBucketEncryption",
+            "s3:PutBucketPolicy",
+            "s3:PutBucketTagging",
+            "signer:PutSigningProfile",
+            "lambda:CreateCodeSigningConfig",
+            "s3:PutObject",
+            "signer:StartSigningJob"
+          ]
+        },
+        "inventory_resource": {
+          "enum": [
+            "identity_center_application",
+            "classifier_permission_set",
+            "approver_permission_set",
+            "classifier_permission_set_role",
+            "approver_permission_set_role",
+            "kms_key",
+            "artifact_bucket",
+            "signing_profile",
+            "code_signing_config",
+            "broker_unsigned_object",
+            "broker_signing_job",
+            "ledger_factory_unsigned_object",
+            "ledger_factory_signing_job"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^GUG377_OP_(0[1-9]|[12][0-9]|30)_[A-Z][A-Z0-9_]{2,95}$"
+          }
+        },
+        "request_contract_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "before_state_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "target_state_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "result_contract_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "attempt_limit": {
+          "const": 1
+        },
+        "sdk_retry_count": {
+          "const": 0
+        },
+        "retry_permitted": {
+          "const": false
+        },
+        "ambiguous_outcome": {
+          "const": "UNCERTAIN_RECONCILE_ONLY"
+        },
+        "polling_policy": {
+          "$ref": "#/$defs/polling_policy"
+        },
+        "rollback_boundary_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "produced_slots": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+              "APPROVER_PERMISSION_SET_ARN",
+              "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+              "APPROVER_PERMISSION_SET_ROLE_ARN",
+              "BROKER_SIGNED_KEY",
+              "BROKER_SIGNED_VERSION_ID",
+              "BROKER_SIGNING_JOB_ID",
+              "BROKER_UNSIGNED_VERSION_ID",
+              "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+              "CLASSIFIER_PERMISSION_SET_ARN",
+              "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+              "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+              "CODE_SIGNING_CONFIG_ARN",
+              "IDENTITY_CENTER_APPLICATION_ARN",
+              "KMS_KEY_ARN",
+              "KMS_KEY_ID",
+              "LEDGER_FACTORY_SIGNED_KEY",
+              "LEDGER_FACTORY_SIGNED_VERSION_ID",
+              "LEDGER_FACTORY_SIGNING_JOB_ID",
+              "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+              "SIGNING_PROFILE_VERSION_ARN",
+              "SIGNING_PROFILE_VERSION_ID"
+            ]
+          }
+        },
+        "consumed_slots": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+              "APPROVER_PERMISSION_SET_ARN",
+              "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+              "APPROVER_PERMISSION_SET_ROLE_ARN",
+              "BROKER_SIGNED_KEY",
+              "BROKER_SIGNED_VERSION_ID",
+              "BROKER_SIGNING_JOB_ID",
+              "BROKER_UNSIGNED_VERSION_ID",
+              "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+              "CLASSIFIER_PERMISSION_SET_ARN",
+              "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+              "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+              "CODE_SIGNING_CONFIG_ARN",
+              "IDENTITY_CENTER_APPLICATION_ARN",
+              "KMS_KEY_ARN",
+              "KMS_KEY_ID",
+              "LEDGER_FACTORY_SIGNED_KEY",
+              "LEDGER_FACTORY_SIGNED_VERSION_ID",
+              "LEDGER_FACTORY_SIGNING_JOB_ID",
+              "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+              "SIGNING_PROFILE_VERSION_ARN",
+              "SIGNING_PROFILE_VERSION_ID"
+            ]
+          }
+        },
+        "result_projection_kind": {
+          "enum": [
+            "IMMEDIATE_RESULT_AND_EXACT_READBACK",
+            "ASYNC_RESULT_AND_EXACT_READBACK"
+          ]
+        }
+      }
+    },
+    "phase_disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "disposition",
+        "future_owner_authorization_required"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "IDENTITY_CENTER_FOUNDATION",
+            "KMS_FOUNDATION",
+            "S3_ARTIFACT_FOUNDATION",
+            "SIGNER_PROFILE_FOUNDATION",
+            "LAMBDA_CSC_FOUNDATION",
+            "BROKER_UNSIGNED_PUBLISH",
+            "BROKER_SIGNING_JOB",
+            "LEDGER_FACTORY_UNSIGNED_PUBLISH",
+            "LEDGER_FACTORY_SIGNING_JOB"
+          ]
+        },
+        "disposition": {
+          "const": "PRESERVE_AND_ESCALATE"
+        },
+        "future_owner_authorization_required": {
+          "const": true
+        }
+      }
+    },
+    "rollback_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "automatic_rollback",
+        "deployment_authorized",
+        "provider_mutations",
+        "phase_dispositions",
+        "rollback_manifest_digest"
+      ],
+      "properties": {
+        "record_type": {
+          "const": "scanalyze.platform_authority.gug365_upstream_rollback_revocation.v1"
+        },
+        "automatic_rollback": {
+          "const": false
+        },
+        "deployment_authorized": {
+          "const": false
+        },
+        "provider_mutations": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "phase_dispositions": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "uniqueItems": true,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "LEDGER_FACTORY_SIGNING_JOB"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "LEDGER_FACTORY_UNSIGNED_PUBLISH"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "BROKER_SIGNING_JOB"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "BROKER_UNSIGNED_PUBLISH"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "LAMBDA_CSC_FOUNDATION"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "SIGNER_PROFILE_FOUNDATION"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "S3_ARTIFACT_FOUNDATION"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "KMS_FOUNDATION"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/phase_disposition"
+                },
+                {
+                  "properties": {
+                    "phase": {
+                      "const": "IDENTITY_CENTER_FOUNDATION"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "rollback_manifest_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "provider_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "producer_operation_kind",
+        "derivation_kind",
+        "consumer_operation_kinds",
+        "value_storage",
+        "live_value_status"
+      ],
+      "properties": {
+        "slot": {
+          "enum": [
+            "APPROVER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+            "APPROVER_PERMISSION_SET_ARN",
+            "APPROVER_PERMISSION_SET_PROVISION_REQUEST_ID",
+            "APPROVER_PERMISSION_SET_ROLE_ARN",
+            "BROKER_SIGNED_KEY",
+            "BROKER_SIGNED_VERSION_ID",
+            "BROKER_SIGNING_JOB_ID",
+            "BROKER_UNSIGNED_VERSION_ID",
+            "CLASSIFIER_ACCOUNT_ASSIGNMENT_REQUEST_ID",
+            "CLASSIFIER_PERMISSION_SET_ARN",
+            "CLASSIFIER_PERMISSION_SET_PROVISION_REQUEST_ID",
+            "CLASSIFIER_PERMISSION_SET_ROLE_ARN",
+            "CODE_SIGNING_CONFIG_ARN",
+            "IDENTITY_CENTER_APPLICATION_ARN",
+            "KMS_KEY_ARN",
+            "KMS_KEY_ID",
+            "LEDGER_FACTORY_SIGNED_KEY",
+            "LEDGER_FACTORY_SIGNED_VERSION_ID",
+            "LEDGER_FACTORY_SIGNING_JOB_ID",
+            "LEDGER_FACTORY_UNSIGNED_VERSION_ID",
+            "SIGNING_PROFILE_VERSION_ARN",
+            "SIGNING_PROFILE_VERSION_ID"
+          ]
+        },
+        "producer_operation_kind": {
+          "enum": [
+            "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+            "APPROVER_CREATE_PERMISSION_SET",
+            "APPROVER_PROVISION_PERMISSION_SET",
+            "BROKER_START_SIGNING_JOB",
+            "BROKER_PUT_UNSIGNED_OBJECT",
+            "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+            "CLASSIFIER_CREATE_PERMISSION_SET",
+            "CLASSIFIER_PROVISION_PERMISSION_SET",
+            "CREATE_CODE_SIGNING_CONFIG",
+            "CREATE_APPLICATION",
+            "CREATE_KMS_KEY",
+            "LEDGER_FACTORY_START_SIGNING_JOB",
+            "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+            "PUT_SIGNING_PROFILE"
+          ]
+        },
+        "derivation_kind": {
+          "enum": [
+            "WRITE_RESPONSE_AND_EXACT_READBACK",
+            "PROVISIONED_ROLE_READBACK"
+          ]
+        },
+        "consumer_operation_kinds": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "APPROVER_CREATE_ACCOUNT_ASSIGNMENT",
+              "APPROVER_PROVISION_PERMISSION_SET",
+              "APPROVER_PUT_INLINE_POLICY",
+              "PUT_APPLICATION_AUTH_METHOD",
+              "BROKER_START_SIGNING_JOB",
+              "CLASSIFIER_CREATE_ACCOUNT_ASSIGNMENT",
+              "CLASSIFIER_PROVISION_PERMISSION_SET",
+              "CLASSIFIER_PUT_INLINE_POLICY",
+              "CREATE_APPLICATION_ASSIGNMENT",
+              "PUT_APPLICATION_ACCESS_SCOPE",
+              "PUT_APPLICATION_ASSIGNMENT_CONFIG",
+              "PUT_APPLICATION_GRANT",
+              "BROKER_PUT_UNSIGNED_OBJECT",
+              "LEDGER_FACTORY_PUT_UNSIGNED_OBJECT",
+              "PUT_BUCKET_ENCRYPTION",
+              "PUT_BUCKET_POLICY",
+              "CREATE_KMS_ALIAS",
+              "ENABLE_KMS_KEY_ROTATION",
+              "LEDGER_FACTORY_START_SIGNING_JOB",
+              "CREATE_CODE_SIGNING_CONFIG"
+            ]
+          }
+        },
+        "value_storage": {
+          "const": "TRANSIENT_DIGEST_PROJECTION_ONLY"
+        },
+        "live_value_status": {
+          "const": "NOT_PRODUCED"
+        }
+      }
+    },
+    "implementation_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_path",
+        "content_digest"
+      ],
+      "properties": {
+        "repository_path": {
+          "enum": [
+            "tooling/platform_authority_gug365_upstream_prerequisites.py",
+            "tooling/platform_authority_gug365_phase_execution_ledger.py",
+            "tooling/platform_authority_gug365_upstream_provider_contracts.py",
+            "tooling/platform_authority_gug365_upstream_dry_run_runner.py",
+            "tooling/platform_authority_gug365_upstream_materializer.py",
+            "scripts/deployment/platform-authority-gug365-upstream-materializer.py",
+            "schemas/platform-authority-gug365-upstream-inventory.v2.schema.json",
+            "schemas/platform-authority-gug365-upstream-plan.v2.schema.json",
+            "schemas/platform-authority-gug365-upstream-final-handoff.v2.schema.json"
+          ]
+        },
+        "content_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}
