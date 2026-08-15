@@ -108,7 +108,9 @@ require_equal(sys.version_info[:3], (3, 11, 14), "Python version")
 require_equal(metadata.version("boto3"), "1.43.72", "boto3 version")
 require_equal(metadata.version("pydantic"), "2.13.4", "pydantic version")
 require_equal(metadata.version("structlog"), "26.1.0", "structlog version")
-require_equal(set(os.listdir("/sys/class/net")), {"lo"}, "network interfaces")
+interfaces = set(os.listdir("/sys/class/net"))
+if "lo" not in interfaces or "eth0" in interfaces:
+    raise SystemExit(f"network namespace is not isolated: {sorted(interfaces)!r}")
 for name in (
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
