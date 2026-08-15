@@ -18,10 +18,19 @@ CHANGED_SCRIPT = REPO_ROOT / "scripts" / "microservices" / "changed-services.sh"
 PREPARE_OCR_WHEELHOUSE_SCRIPT = (
     REPO_ROOT / "scripts" / "microservices" / "prepare-ocr-wheelhouse.sh"
 )
+PREPARE_CLASSIFIER_WHEELHOUSE_SCRIPT = (
+    REPO_ROOT / "scripts" / "microservices" / "prepare-classifier-wheelhouse.sh"
+)
 VERIFY_OCR_CONTAINER_SCRIPT = (
     REPO_ROOT / "scripts" / "microservices" / "verify-ocr-container.sh"
 )
+VERIFY_CLASSIFIER_CONTAINER_SCRIPT = (
+    REPO_ROOT / "scripts" / "microservices" / "verify-classifier-container.sh"
+)
 OCR_SERVICE_DIR = REPO_ROOT / "backend" / "workers" / "scanalyze-ocr-worker"
+CLASSIFIER_SERVICE_DIR = (
+    REPO_ROOT / "backend" / "workers" / "scanalyze-classifier-worker"
+)
 MAKEFILE = REPO_ROOT / "Makefile"
 
 
@@ -101,7 +110,7 @@ def fake_tool_env(tmp_path: Path, aws_account: str | None = None) -> tuple[dict[
     return env, docker_log
 
 
-def fake_wheel_download_python(tmp_path: Path) -> Path:
+def fake_wheel_download_python(tmp_path: Path, wheel_count: int = 11) -> Path:
     fake_python = tmp_path / "python3.11"
     make_executable(
         fake_python,
@@ -120,7 +129,7 @@ def fake_wheel_download_python(tmp_path: Path) -> Path:
         "done\n"
         "[[ -n \"$destination\" ]]\n"
         "mkdir -p \"$destination\"\n"
-        "for index in {1..11}; do\n"
+        f"for index in {{1..{wheel_count}}}; do\n"
         "  printf 'synthetic wheel %s\\n' \"$index\" > \"$destination/package_${index}-1.0-py3-none-any.whl\"\n"
         "done\n",
     )
@@ -153,6 +162,48 @@ def verify_tool_env(tmp_path: Path, revision: str) -> tuple[dict[str, str], Path
         "  printf '%s\\n' 'OCR_CONTAINER_IMPORT_OK'\n"
         "elif [[ \"$args\" == *\" run \"* || \"${1:-}\" == \"run\" ]]; then\n"
         "  printf '%s\\n' 'Invalid WORKER_MODE. Must be INGEST or OCR_POLL.'\n"
+        "  exit 1\n"
+        "else\n"
+        "  exit 97\n"
+        "fi\n",
+    )
+    return {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "DOCKER_LOG": str(docker_log),
+        "EXPECTED_REVISION": revision,
+    }, docker_log
+
+
+def verify_classifier_tool_env(
+    tmp_path: Path, revision: str
+) -> tuple[dict[str, str], Path]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker_log = tmp_path / "docker.log"
+    make_executable(
+        bin_dir / "docker",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_LOG\"\n"
+        "args=\"$*\"\n"
+        "if [[ \"$args\" == *\"image inspect --format {{.Os}}/{{.Architecture}}\"* ]]; then\n"
+        "  printf '%s\\n' 'linux/amd64'\n"
+        "elif [[ \"$args\" == *\"image inspect --format {{.Config.User}}\"* ]]; then\n"
+        "  printf '%s\\n' 'app'\n"
+        "elif [[ \"$args\" == *\"image inspect --format {{json .Config.Entrypoint}}\"* ]]; then\n"
+        "  printf '%s\\n' '[\"python\",\"-m\",\"classifier_worker.main\"]'\n"
+        "elif [[ \"$args\" == *\"org.opencontainers.image.source\"* ]]; then\n"
+        "  printf '%s\\n' 'https://github.com/cesar-guzman/scanalyze-deployment-platform'\n"
+        "elif [[ \"$args\" == *\"org.opencontainers.image.revision\"* ]]; then\n"
+        "  printf '%s\\n' \"$EXPECTED_REVISION\"\n"
+        "elif [[ \"$args\" == *\"image inspect\"* ]]; then\n"
+        "  :\n"
+        "elif [[ \"$args\" == *\"--interactive --entrypoint python\"* ]]; then\n"
+        "  printf '%s\\n' 'CLASSIFIER_CONTAINER_SMOKE_OK'\n"
+        "elif [[ \"$args\" == *\"--entrypoint python\"* ]]; then\n"
+        "  printf '%s\\n' 'CLASSIFIER_CONTAINER_IMPORT_OK'\n"
+        "elif [[ \"${1:-}\" == \"run\" ]]; then\n"
+        "  printf '%s\\n' 'SCANALYZE_DEPLOYMENT_ID is invalid'\n"
         "  exit 1\n"
         "else\n"
         "  exit 97\n"
@@ -459,6 +510,47 @@ def test_prepare_ocr_wheelhouse_writes_only_the_generated_contract(
     ]
 
 
+def test_prepare_classifier_wheelhouse_writes_only_the_generated_contract(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    script = (
+        repo
+        / "scripts"
+        / "microservices"
+        / PREPARE_CLASSIFIER_WHEELHOUSE_SCRIPT.name
+    )
+    service_dir = repo / "backend" / "workers" / "scanalyze-classifier-worker"
+    script.parent.mkdir(parents=True)
+    service_dir.mkdir(parents=True)
+    shutil.copy2(PREPARE_CLASSIFIER_WHEELHOUSE_SCRIPT, script)
+    shutil.copy2(
+        CLASSIFIER_SERVICE_DIR / "requirements.lock",
+        service_dir / "requirements.lock",
+    )
+    fake_python = fake_wheel_download_python(tmp_path, wheel_count=13)
+
+    result = run_script(
+        script,
+        env={"CLASSIFIER_PYTHON_BIN": str(fake_python)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    wheelhouse = service_dir / ".wheelhouse"
+    assert wheelhouse.is_dir()
+    assert len(list(wheelhouse.glob("*.whl"))) == 13
+    assert (wheelhouse / ".gug378-wheelhouse").read_text(encoding="utf-8") == (
+        "lock_sha256="
+        + hashlib.sha256((service_dir / "requirements.lock").read_bytes()).hexdigest()
+        + "\ntarget=linux/amd64\npython=3.11.14\n"
+    )
+    assert not list(service_dir.glob(".wheelhouse.tmp.*"))
+    assert sorted(path.name for path in service_dir.iterdir()) == [
+        ".wheelhouse",
+        "requirements.lock",
+    ]
+
+
 def test_hermetic_build_is_ocr_only_and_requires_prepared_wheelhouse(
     tmp_path: Path,
 ) -> None:
@@ -715,6 +807,63 @@ def test_ocr_container_smoke_has_no_optimization_removable_assertions() -> None:
     tree = ast.parse(smoke_script.read_text(encoding="utf-8"), filename=str(smoke_script))
 
     assert not [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
+
+
+def test_verify_classifier_container_binds_isolated_runtime_and_revision(
+    tmp_path: Path,
+) -> None:
+    revision = "c" * 40
+    image = f"scanalyze-ci/classifier-worker:sha-{revision[:12]}"
+    env, docker_log = verify_classifier_tool_env(tmp_path, revision)
+
+    result = run_script(
+        VERIFY_CLASSIFIER_CONTAINER_SCRIPT,
+        "--image",
+        image,
+        "--revision",
+        revision,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = docker_log.read_text(encoding="utf-8")
+    assert "image inspect" in calls
+    assert "--platform linux/amd64 --network none --read-only --cap-drop ALL" in calls
+    assert "--security-opt no-new-privileges:true" in calls
+    assert "--pids-limit 128 --memory 512m" in calls
+    assert "--env AWS_EC2_METADATA_DISABLED=true" in calls
+    assert "--interactive --entrypoint python" in calls
+    assert "--mount" not in calls
+    assert "--volume" not in calls
+    assert " -v " not in calls
+    assert "PASS: hermetic classifier image" in result.stdout
+
+
+def test_classifier_container_smoke_has_no_optimization_removable_assertions() -> None:
+    smoke_script = CLASSIFIER_SERVICE_DIR / "tests" / "container_smoke.py"
+    tree = ast.parse(smoke_script.read_text(encoding="utf-8"), filename=str(smoke_script))
+
+    assert not [node for node in ast.walk(tree) if isinstance(node, ast.Assert)]
+
+
+def test_verify_classifier_container_rejects_non_exact_image_before_docker(
+    tmp_path: Path,
+) -> None:
+    revision = "d" * 40
+    env, docker_log = verify_classifier_tool_env(tmp_path, revision)
+
+    result = run_script(
+        VERIFY_CLASSIFIER_CONTAINER_SCRIPT,
+        "--image",
+        "scanalyze-ci/classifier-worker:wrong",
+        "--revision",
+        revision,
+        env=env,
+    )
+
+    assert result.returncode == 2
+    assert "exact hermetic classifier tag" in result.stderr
+    assert not docker_log.exists()
 
 
 def test_verify_ocr_container_rejects_non_exact_image_before_docker(
