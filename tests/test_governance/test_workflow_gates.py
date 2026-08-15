@@ -210,6 +210,7 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert cache_paths == [
         "backend/workers/scanalyze-${{ matrix.service }}/requirements.txt",
         "backend/workers/scanalyze-ocr-worker/requirements.lock",
+        "backend/workers/scanalyze-classifier-worker/requirements.lock",
     ]
     isolated_test_step = next(
         step
@@ -217,7 +218,7 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
         if step.get("name") == "Compile and test service"
     )
     isolated_test_script = isolated_test_step["run"]
-    assert 'if [[ "$SERVICE" == "ocr-worker" ]]; then' in isolated_test_script
+    assert "ocr-worker|classifier-worker)" in isolated_test_script
     assert (
         'python -m pip install --require-hashes -r "$service_dir/requirements.lock"'
         in isolated_test_script
@@ -231,9 +232,12 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     checkout = next(step for step in validate["steps"] if step["name"] == "Check out source")
     assert checkout["with"]["ref"] == SOURCE_SHA_EXPRESSION
 
-    materialize = _validate_step("Materialize approved OCR base image")
-    assert materialize["if"] == "matrix.service == 'ocr-worker'"
+    materialize = _validate_step("Materialize approved hermetic base image")
+    assert materialize["if"] == (
+        "matrix.service == 'ocr-worker' || matrix.service == 'classifier-worker'"
+    )
     assert materialize["env"]["CI_BASE_IMAGE"] == "${{ vars.CI_BASE_IMAGE }}"
+    assert materialize["env"]["SERVICE"] == "${{ matrix.service }}"
     assert "CI_BASE_IMAGE must be an immutable sha256 reference" in materialize["run"]
     assert 'docker pull --platform linux/amd64 "$CI_BASE_IMAGE"' in materialize["run"]
     assert 'docker image inspect "$CI_BASE_IMAGE"' in materialize["run"]
@@ -244,12 +248,33 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert "CI_BASE_IMAGE is required when ocr-worker is selected" in prepare["run"]
     assert "scripts/microservices/prepare-ocr-wheelhouse.sh" in prepare["run"]
 
+    classifier_prepare = _validate_step("Prepare classifier hermetic wheelhouse")
+    assert classifier_prepare["if"] == "matrix.service == 'classifier-worker'"
+    assert classifier_prepare["env"]["CI_BASE_IMAGE"] == "${{ vars.CI_BASE_IMAGE }}"
+    assert "CI_BASE_IMAGE is required when classifier-worker is selected" in (
+        classifier_prepare["run"]
+    )
+    assert "scripts/microservices/prepare-classifier-wheelhouse.sh" in (
+        classifier_prepare["run"]
+    )
+
     build = _validate_step("Build without publishing")
     assert "GITHUB_SHA" not in build["env"]
     assert build["env"]["SCANALYZE_SOURCE_REVISION"] == SOURCE_SHA_EXPRESSION
+    assert build["env"]["GITHUB_REPOSITORY"] == "${{ github.repository }}"
+    assert build["env"]["GITHUB_SERVER_URL"] == "${{ github.server_url }}"
     assert '--tag "sha-${SCANALYZE_SOURCE_REVISION:0:12}"' in build["run"]
     assert 'build_args+=(--hermetic)' in build["run"]
     assert 'scripts/microservices/build-push.sh "${build_args[@]}"' in build["run"]
+    assert 'if [[ "$SERVICE" == "classifier-worker" ]]; then' in build["run"]
+    assert "--pull=false" in build["run"]
+    assert "--network=none" in build["run"]
+    assert 'org.opencontainers.image.source=${source_url}' in build["run"]
+    assert (
+        'org.opencontainers.image.revision=${SCANALYZE_SOURCE_REVISION}'
+        in build["run"]
+    )
+    assert 'docker image inspect "$CI_BASE_IMAGE"' in build["run"]
 
     verify = _validate_step("Verify OCR container evidence")
     assert verify["if"] == "matrix.service == 'ocr-worker'"
@@ -260,6 +285,21 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
         in verify["run"]
     )
     assert '--revision "$SCANALYZE_SOURCE_REVISION"' in verify["run"]
+
+    classifier_verify = _validate_step("Verify classifier container evidence")
+    assert classifier_verify["if"] == "matrix.service == 'classifier-worker'"
+    assert "GITHUB_SHA" not in classifier_verify["env"]
+    assert (
+        classifier_verify["env"]["SCANALYZE_SOURCE_REVISION"]
+        == SOURCE_SHA_EXPRESSION
+    )
+    assert (
+        'image="scanalyze-ci/classifier-worker:sha-${SCANALYZE_SOURCE_REVISION:0:12}"'
+        in classifier_verify["run"]
+    )
+    assert "scripts/microservices/verify-classifier-container.sh" in (
+        classifier_verify["run"]
+    )
 
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == ["changes", "validation_gate"]
@@ -293,6 +333,23 @@ def test_ocr_compile_step_uses_hashed_lock_and_separate_test_dependencies(
     ]
 
 
+def test_classifier_compile_step_uses_hashed_lock_and_separate_test_dependencies(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_compile_and_test_step(tmp_path, service="classifier-worker")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls == [
+        "-m\tcompileall\t-q\tbackend/workers/scanalyze-classifier-worker",
+        (
+            "-m\tpip\tinstall\t--require-hashes\t-r\t"
+            "backend/workers/scanalyze-classifier-worker/requirements.lock"
+        ),
+        "-m\tpip\tinstall\tjsonschema==4.26.0\tpytest==9.1.1",
+        "-m\tpytest\tbackend/workers/scanalyze-classifier-worker/tests\t-q",
+    ]
+
+
 def test_non_ocr_compile_step_preserves_requirements_txt(
     tmp_path: Path,
 ) -> None:
@@ -312,7 +369,7 @@ def test_non_ocr_compile_step_preserves_requirements_txt(
 
 def test_ocr_validation_fails_closed_without_ci_base_image() -> None:
     materialize = _run_validate_step(
-        "Materialize approved OCR base image",
+        "Materialize approved hermetic base image",
         service="ocr-worker",
         ci_base_image="",
     )
@@ -339,6 +396,32 @@ def test_ocr_validation_fails_closed_without_ci_base_image() -> None:
     assert "CI_BASE_IMAGE is required when ocr-worker is selected" in (
         build.stdout + build.stderr
     )
+
+
+def test_classifier_validation_fails_closed_without_ci_base_image() -> None:
+    materialize = _run_validate_step(
+        "Materialize approved hermetic base image",
+        service="classifier-worker",
+        ci_base_image="",
+    )
+    prepare = _run_validate_step(
+        "Prepare classifier hermetic wheelhouse",
+        service="classifier-worker",
+        ci_base_image="",
+    )
+    build = _run_validate_step(
+        "Build without publishing",
+        service="classifier-worker",
+        ci_base_image="",
+    )
+
+    assert materialize.returncode != 0
+    assert prepare.returncode != 0
+    assert build.returncode != 0
+    for result in (materialize, prepare, build):
+        assert "CI_BASE_IMAGE is required when classifier-worker is selected" in (
+            result.stdout + result.stderr
+        )
 
 
 def test_non_ocr_validation_preserves_no_base_image_skip() -> None:
