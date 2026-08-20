@@ -86,6 +86,59 @@ def test_data_foundation_v2_is_produced_and_required_by_consumers(
     assert "must be exactly data-foundation/v2" in result.stderr
 
 
+def test_account_ready_v2_is_external_and_required_by_gate_and_global(
+    canonical_dag,
+):
+    gate = _layer(canonical_dag, "account-ready-gate")
+    global_layer = _layer(canonical_dag, "global")
+
+    assert gate["produces_contract"] is None
+    assert gate["requires_contracts"] == ["account-ready/v2"]
+    assert gate["plan_role"] is None
+    assert gate["apply_role"] is None
+    assert global_layer["requires_contracts"] == ["account-ready/v2"]
+
+
+def test_account_ready_gate_is_backendless_and_has_no_terminal_role(
+    canonical_dag,
+    tmp_path,
+):
+    document = copy.deepcopy(canonical_dag)
+    _layer(document, "account-ready-gate")["plan_role"] = (
+        "ScanalyzeCustomer-Validation"
+    )
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "account-ready-gate.plan_role must be None" in result.stderr
+
+
+def test_account_ready_v1_is_rejected(canonical_dag, tmp_path):
+    document = copy.deepcopy(canonical_dag)
+    _layer(document, "account-ready-gate")["requires_contracts"] = [
+        "account-ready/v1"
+    ]
+    _layer(document, "global")["requires_contracts"] = ["account-ready/v1"]
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "must not accept legacy ACCOUNT_READY v1" in result.stderr
+
+
+def test_internal_account_ready_producer_is_rejected(canonical_dag, tmp_path):
+    document = copy.deepcopy(canonical_dag)
+    gate = _layer(document, "account-ready-gate")
+    gate["requires_contracts"] = []
+    gate["produces_contract"] = "account-ready/v2"
+
+    result = _run(document, tmp_path)
+
+    assert result.returncode == 1
+    assert "must not produce ACCOUNT_READY" in result.stderr
+
+
 def test_missing_root_fails(canonical_dag, tmp_path):
     document = copy.deepcopy(canonical_dag)
     _layer(document, "network")["root"] = "roots/not-a-real-layer"

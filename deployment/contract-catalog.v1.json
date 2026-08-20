@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
   "contracts": {
-    "account-ready/v1": {
+    "account-ready/v2": {
       "authority": "account-baseline",
       "producer": null,
-      "output_schema": "schemas/account-ready.v1.schema.json",
+      "output_schema": "schemas/account-ready.v2.schema.json",
       "scope": "external",
       "transport": { "kind": "deployment-record" },
       "consumers": ["account-ready-gate", "global"],

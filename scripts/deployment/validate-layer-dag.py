@@ -69,6 +69,7 @@ EXPECTED_ROLES = {
     "validation": ("ScanalyzeCustomer-Validation", None),
 }
 EXPECTED_LAYER_ROLES = {
+    "account-ready-gate": (None, None),
     "identity-control-plane": (
         "ScanalyzeCustomer-Identity-Plan",
         "ScanalyzeCustomer-Identity-Apply",
@@ -104,9 +105,11 @@ LAYER_FIELDS = {
 KINDS = {"terraform", "gate", "artifact", "validation"}
 SCOPES = {"global", "regional", "none"}
 DESTROY_POLICIES = {"deny", "approval-required"}
-EXTERNAL_CONTRACTS = {"account-ready/v1", "identity-contract/v2"}
+ACCOUNT_READY_CONTRACT = "account-ready/v2"
+LEGACY_ACCOUNT_READY_CONTRACT = "account-ready/v1"
+EXTERNAL_CONTRACTS = {ACCOUNT_READY_CONTRACT, "identity-contract/v2"}
 EXTERNAL_CONTRACT_CONSUMERS = {
-    "account-ready/v1": {"account-ready-gate", "global"},
+    ACCOUNT_READY_CONTRACT: {"account-ready-gate", "global"},
     "identity-contract/v2": {"identity-control-plane"},
 }
 EXTERNAL_SUPPLY_CHAIN_ARTIFACTS = {
@@ -270,6 +273,14 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
             or not CONTRACT_PATTERN.fullmatch(produces_contract)
         ):
             errors.append(f"{layer}.produces_contract must be null or '<layer>/vN'")
+        if (
+            isinstance(produces_contract, str)
+            and produces_contract.startswith("account-ready/")
+        ):
+            errors.append(
+                f"{layer}.produces_contract must not produce ACCOUNT_READY; "
+                "the account baseline is externally authoritative"
+            )
         expected_contract = EXPECTED_TERRAFORM_CONTRACTS.get(layer)
         if kind == "terraform" and produces_contract != expected_contract:
             errors.append(
@@ -278,6 +289,10 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
         for contract in item.get("requires_contracts", []) if isinstance(item.get("requires_contracts"), list) else []:
             if isinstance(contract, str) and not CONTRACT_PATTERN.fullmatch(contract):
                 errors.append(f"{layer}.requires_contracts contains invalid contract identifier")
+            if contract == LEGACY_ACCOUNT_READY_CONTRACT:
+                errors.append(
+                    f"{layer}.requires_contracts must not accept legacy ACCOUNT_READY v1"
+                )
 
         for role_field in ("plan_role", "apply_role"):
             role = item.get(role_field)
@@ -409,6 +424,11 @@ def validate_layer_dag(document: Any, repo_root: Path = REPO_ROOT) -> list[str]:
         errors.append("services must require an immutable image-digests artifact")
 
     gate = layers["account-ready-gate"]
+    for consumer in ("account-ready-gate", "global"):
+        if ACCOUNT_READY_CONTRACT not in layers[consumer]["requires_contracts"]:
+            errors.append(
+                f"{consumer} must require exactly {ACCOUNT_READY_CONTRACT}"
+            )
     gate_operations = set(gate["allowed_operations"])
     forbidden_gate_operations = {
         operation

@@ -16,7 +16,10 @@
           "aws:RequestTag/region": "${aws:ResourceTag/region}",
           "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
           "aws:RequestTag/operation": "validate",
-          "aws:RequestTag/layer": "synthetic-validation"
+          "aws:RequestTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
         },
         "StringLike": {
           "aws:RequestTag/change_id": "chg_*",
@@ -39,7 +42,10 @@
           "aws:RequestTag/region": "${aws:ResourceTag/region}",
           "aws:RequestTag/environment": "${aws:ResourceTag/environment}",
           "aws:RequestTag/operation": "validate",
-          "aws:RequestTag/layer": "synthetic-validation"
+          "aws:RequestTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
         },
         "StringLike": {
           "aws:RequestTag/change_id": "chg_*"

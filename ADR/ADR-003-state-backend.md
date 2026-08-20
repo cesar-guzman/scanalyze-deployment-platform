@@ -1,11 +1,11 @@
 # ADR-003: Terraform State, Backend Strategy, Locking, Recovery, and Ownership
 
-> **Status**: `DRAFT rev3`  
-> **Date**: 2026-06-23  
+> **Status**: `DRAFT rev4`
+> **Date**: 2026-06-23; GUG-379 amendment 2026-08-16
 > **Decision makers**: César Guzmán  
 > **Scope**: Scanalyze Dedicated Deployment Platform  
 > **Depends on**: ADR-001, ADR-002, ADR-004 rev3  
-> **Rev3 changes**: P0-4 (correct principals, valid S3 actions, per-key permissions, targeted deny patterns) + P0-5 (ephemeral plans, sanitized evidence, restricted recovery) + regional state keys + ownership updated for account baseline
+> **Rev4 changes**: ACCOUNT_READY v2 is the only operational baseline contract; the account baseline owns eight terminal roles, three buckets and three KMS keys; S3 native lockfiles replace the legacy DynamoDB backend lock; repository-only materialization remains distinct from live readback
 
 ---
 
@@ -19,9 +19,10 @@ State files contain resource identifiers, some configuration values, and can con
 
 ## Decision
 
-### 1. Three Storage Zones per Customer Account
+### 1. Three Buckets and an Ephemeral Plan Zone per Customer Account
 
-Each customer account has **three S3 storage zones** for Terraform operations, each with distinct security properties:
+Each customer account has **three S3 buckets** plus one ephemeral plan prefix,
+each with distinct security properties:
 
 ```
 Customer Account (${CUSTOMER_ACCT})
@@ -42,24 +43,58 @@ Customer Account (${CUSTOMER_ACCT})
 │   ├── Versioning: ENABLED
 │   ├── Object Lock: COMPLIANCE
 │   │   ├── Default: 90 days (summaries), 365 days (apply logs)
-│   ├── Access: Apply (write sanitized records), Diagnostic (read),
-│   │          Validation (read)
+│   ├── Access: future isolated evidence publisher (write), Diagnostic (read),
+│   │          Validation (read); Plan/Apply never publish
+│   └── Block Public Access: ALL enabled
+│
+├── S3: scanalyze-${CUSTOMER_ACCT}-contracts               ← CONTRACTS BUCKET
+│   ├── Purpose: Content-addressed producer contracts and release bindings
+│   ├── KMS: dedicated contracts KMS key
+│   ├── Versioning: ENABLED
+│   ├── Access: producer writes; authorized consumers read exact digests
 │   └── Block Public Access: ALL enabled
 │
 └── Prefix in state bucket: plan-execution/                 ← PLAN EXECUTION ZONE
     ├── Purpose: Ephemeral plan binaries and full plan JSON
     ├── TTL: 24–72 hours (S3 lifecycle rule)
     ├── Object Lock: NONE
-    ├── Access: Plan (write), Apply (read+delete after use)
+    ├── Access: Plan (write), Apply (read exact saved-plan version)
     ├── Contains: plan binary, plan JSON, plan digest, state lineage/serial
     └── Automatically deleted by lifecycle rule after TTL
 ```
 
 > [!IMPORTANT]
-> **Why three zones:**
+> **Why these zones:**
 > - **State bucket**: No Object Lock because `.tflock` must be deletable. Contains live state and ephemeral plan-execution artifacts.
 > - **Evidence bucket**: COMPLIANCE Object Lock for immutable audit. Contains ONLY sanitized summaries — never raw plans, state snapshots, or secrets.
+> - **Contracts bucket**: Stores only content-addressed contract envelopes and bindings; it is never inferred from a name or caller input.
 > - **Plan execution prefix**: Ephemeral within state bucket. Plans contain secrets in cleartext. Short TTL + auto-deletion ensures no long-lived sensitive copies.
+
+The three deterministic bucket names are normative template invariants, not
+discovery or proof of ownership. Operational coordinates come only from an
+exact, separately anchored ACCOUNT_READY v2 contract produced from baseline
+readback. A matching name alone never proves that a bucket exists or belongs to
+the destination account.
+
+### 1.1 GUG-379 account-baseline boundary
+
+`AccountVendingProvider` remains the sole baseline owner. The reviewed
+`bootstrap/cfn-tf-state-backend.yaml` candidate defines the three retained
+buckets and three retained KMS keys, then references the exact
+content-addressed `bootstrap/cfn-terminal-roles.yaml` child. That child
+materializes the eight terminal roles and quota-valid managed policies. The
+repository-only `tooling.account_ready_v2_materializer` consumes an exact
+closed readback of those outputs and emits the single content-addressed
+ACCOUNT_READY v2 envelope. It never calls AWS, Terraform, or a subprocess. It
+verifies that returned bucket outputs match the template's exact naming
+invariant; it does not discover, adopt, or claim a resource because its name
+happens to match.
+
+The `account-ready-gate` remains a validation-only consumer with no state and
+no apply authority. A dry-run or schema-valid candidate proves deterministic
+repository behavior only; resource existence, control effectiveness, writer
+authority, deployment readiness, and production readiness remain
+`NOT_PROVEN_LIVE` until separately authorized readback.
 
 ### 2. State Restoration vs Release Rollback
 
@@ -142,6 +177,8 @@ account_baseline:
   owns:
     - "ScanalyzeCustomer-Plan role, trust policy, permissions boundary"
     - "ScanalyzeCustomer-Apply role, trust policy, permissions boundary"
+    - "ScanalyzeCustomer-Identity-Plan role, trust policy, permissions boundary"
+    - "ScanalyzeCustomer-Identity-Apply role, trust policy, permissions boundary"
     - "ScanalyzeCustomer-Promotion role, trust policy, permissions boundary"
     - "ScanalyzeCustomer-Validation role, trust policy, permissions boundary"
     - "ScanalyzeCustomer-Diagnostic role, trust policy, permissions boundary"
@@ -158,7 +195,7 @@ namespaces:
       - "ECS task execution role and policy attachments"
       - "ECS task roles (per-service)"
       - "Application permissions boundaries"
-    note: "Control-plane roles (Plan/Apply/Promotion/Validation/Diagnostic/StateRecovery) are NOT here. They belong to account baseline."
+    note: "All eight terminal control-plane roles are NOT here. They belong to account baseline."
 
   network:
     root: roots/network
@@ -305,12 +342,15 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/{dep_id}/{change_id}/...
 | Role | Permissions on plan-execution/ prefix |
 |---|---|
 | Plan | `s3:PutObject` (writes plan artifacts) |
-| Apply | `s3:GetObject`, `s3:DeleteObject` (reads then deletes after apply) |
+| Apply | `s3:GetObject`, `s3:GetObjectVersion` (read-only, exact saved version) |
 | Diagnostic | No access (default) |
 | StateRecovery | No access |
 
 > [!NOTE]
-> S3 lifecycle rule deletes objects under `plan-execution/` prefix after 72 hours. Even if the Apply role fails to delete after use, the lifecycle rule ensures no long-lived sensitive copies.
+> S3 lifecycle expires objects under `plan-execution/` after 72 hours and
+> removes noncurrent versions under the declared retention rule. Apply cannot
+> overwrite or delete the reviewed plan; it reads the exact version bound to
+> the approval record.
 
 ### 8. Recovery Store (Restricted)
 
@@ -441,7 +481,7 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
       },
       "Action": [
         "s3:GetObject",
-        "s3:DeleteObject"
+        "s3:GetObjectVersion"
       ],
       "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/${DEPLOYMENT_ID}/*"
     },
@@ -646,7 +686,7 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
 | Role | State KMS key | Evidence KMS key |
 |---|---|---|
 | **Plan** | `kms:Decrypt` (read state), `kms:Encrypt` + `kms:GenerateDataKey` (write plan-execution artifacts) | — |
-| **Apply** | `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` (read+write state, read+delete plan-execution, write recovery) | `kms:Encrypt`, `kms:GenerateDataKey` (write evidence) |
+| **Apply** | `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` (read+write state, read-only plan-execution, write recovery) | `kms:Encrypt`, `kms:GenerateDataKey` (write evidence) |
 | **Promotion** | — | — |
 | **Validation** | — | `kms:Decrypt` (read evidence) |
 | **Diagnostic** | `kms:Decrypt` (read state) | `kms:Decrypt` (read evidence) |

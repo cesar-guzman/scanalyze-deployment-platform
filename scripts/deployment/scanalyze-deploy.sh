@@ -13,8 +13,8 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+readonly SCRIPT_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly REPO_ROOT="$(cd -P -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly VERSION="1.0.0"
 
 # ── Defaults (safe) ──────────────────────────────────────────────────
@@ -93,12 +93,12 @@ Options:
   --layer <name>              Terraform layer name
   --release-version <value>   Immutable release version
   --release-digest <sha256>   Immutable release manifest digest
-  --resolved-input <path>     Verified layer resolution outside the repository
+  --resolved-input <path>     Verified layer resolution (not used by account-ready-gate)
   --target-record <path>      Approved deployment target retrieved from the registry
   --target-anchor <path>      Independently retrieved registry digest/version anchor
   --account-ready <path>      ACCOUNT_READY v2 contract for the exact target
-  --execution-lock <path>     Held deployment execution lock for this run
-  --execution-id <id>         Exact exec_<ULID> bound to the held lock
+  --execution-lock <path>     Held lock (not used by account-ready-gate)
+  --execution-id <id>         Exact exec_<ULID> (not used by account-ready-gate)
   --non-interactive           Suppress interactive prompts
   --dry-run                   Dry-run mode (default)
   --no-dry-run                Disable dry-run mode
@@ -176,8 +176,9 @@ guard_plan_dir() {
     die "--plan-dir is required for Terraform operations"
   fi
   local abs_plan_dir
-  abs_plan_dir="$(cd "$PLAN_DIR" 2>/dev/null && pwd)" || die "--plan-dir does not exist: $PLAN_DIR"
-  if [[ "$abs_plan_dir" == "$REPO_ROOT"* ]]; then
+  abs_plan_dir="$(cd -P -- "$PLAN_DIR" 2>/dev/null && pwd -P)" \
+    || die "--plan-dir does not exist: $PLAN_DIR"
+  if [[ "$abs_plan_dir" == "$REPO_ROOT" || "$abs_plan_dir" == "$REPO_ROOT/"* ]]; then
     die "--plan-dir must be outside the repository: $abs_plan_dir is inside $REPO_ROOT"
   fi
 }
@@ -187,8 +188,9 @@ guard_evidence_dir() {
     die "--evidence-dir is required"
   fi
   local abs_evidence_dir
-  abs_evidence_dir="$(cd "$EVIDENCE_DIR" 2>/dev/null && pwd)" || die "--evidence-dir does not exist: $EVIDENCE_DIR"
-  if [[ "$abs_evidence_dir" == "$REPO_ROOT"* ]]; then
+  abs_evidence_dir="$(cd -P -- "$EVIDENCE_DIR" 2>/dev/null && pwd -P)" \
+    || die "--evidence-dir does not exist: $EVIDENCE_DIR"
+  if [[ "$abs_evidence_dir" == "$REPO_ROOT" || "$abs_evidence_dir" == "$REPO_ROOT/"* ]]; then
     die "--evidence-dir must be outside the repository: $abs_evidence_dir is inside $REPO_ROOT"
   fi
 }
@@ -407,6 +409,22 @@ cmd_plan_layer() {
   if [[ "$DRY_RUN" == true ]]; then
     info "[DRY-RUN] Would run: terraform -chdir=roots/${LAYER} plan -out=${PLAN_DIR}/${LAYER}.tfplan"
     pass "Plan layer dry-run complete"
+    return
+  fi
+
+  if [[ "$LAYER" == "account-ready-gate" ]]; then
+    bash "$SCRIPT_DIR/terraform-layer.sh" plan \
+      --layer "$LAYER" \
+      --plan-dir "$PLAN_DIR" \
+      --customer-id "$CUSTOMER_ID" \
+      --account-id "$ACCOUNT_ID" \
+      --region "$REGION" \
+      --environment "$ENVIRONMENT" \
+      --deployment-id "$DEPLOYMENT_ID" \
+      --manifest "$MANIFEST" \
+      --target-record "$TARGET_RECORD" \
+      --target-anchor "$TARGET_ANCHOR" \
+      --account-ready "$ACCOUNT_READY_CONTRACT"
     return
   fi
 

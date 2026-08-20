@@ -8,9 +8,9 @@ layers:
     scope: regional
     state_key: null
     requires_contracts:
-      - account-ready/v1
+      - account-ready/v2
     produces_contract: null
-    plan_role: ScanalyzeCustomer-Validation
+    plan_role: null
     apply_role: null
     allowed_operations:
       - validate-account-binding
@@ -33,7 +33,7 @@ layers:
     scope: global
     state_key: "{deployment_id}/global/terraform.tfstate"
     requires_contracts:
-      - account-ready/v1
+      - account-ready/v2
     produces_contract: global/v1
     plan_role: ScanalyzeCustomer-Plan
     apply_role: ScanalyzeCustomer-Apply

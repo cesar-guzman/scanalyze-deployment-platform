@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -17,6 +18,7 @@ import pytest
 from tooling.authorize_deployment_backend import (
     AuthorizationError,
     authorize_backend,
+    authorize_backendless_gate,
     canonical_digest,
     load_json_strict,
     render_backend_hcl,
@@ -378,6 +380,193 @@ def _run_top_level_invalid_plan(
     return result, aws_marker, terraform_marker
 
 
+def _run_backendless_gate(
+    tmp_path: Path,
+    mutation: str = "valid",
+    *,
+    plan_dir_target: Path | None = None,
+    direct_wrapper: bool = False,
+    top_level_dry_run: bool = False,
+    artifact_symlink: str | None = None,
+    artifact_race: str | None = None,
+    wrapper_repo_root: Path = REPO_ROOT,
+    real_terraform: Path | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
+    account_ready = _account_ready()
+    if mutation == "swapped-roles":
+        plan_arn = account_ready["roles"]["plan"]["arn"]
+        account_ready["roles"]["plan"]["arn"] = account_ready["roles"]["apply"]["arn"]
+        account_ready["roles"]["apply"]["arn"] = plan_arn
+    elif mutation == "arbitrary-bucket":
+        account_ready["state_infrastructure"]["evidence_bucket"] = (
+            f"arn:aws:s3:::arbitrary-evidence-{ACCOUNT_ID}"
+        )
+    elif mutation not in {"valid", "wrong-anchor"}:
+        raise AssertionError(f"unsupported backendless gate mutation: {mutation}")
+    account_ready["contract_digest"] = _digest(account_ready, "contract_digest")
+    target = _target(account_ready)
+    anchor = _anchor(target)
+    if mutation == "wrong-anchor":
+        anchor["record_digest"] = "sha256:" + ("f" * 64)
+
+    evidence = {
+        "manifest": tmp_path / "manifest.yaml",
+        "target": tmp_path / "target.json",
+        "anchor": tmp_path / "anchor.json",
+        "account_ready": tmp_path / "account-ready.json",
+    }
+    evidence["manifest"].write_text(json.dumps(_manifest()), encoding="utf-8")
+    for name, document in (
+        ("target", target),
+        ("anchor", anchor),
+        ("account_ready", account_ready),
+    ):
+        evidence[name].write_text(json.dumps(document), encoding="utf-8")
+        evidence[name].chmod(0o600)
+
+    plan_dir = tmp_path / "plans"
+    if plan_dir_target is None:
+        plan_dir.mkdir()
+    else:
+        plan_dir.symlink_to(plan_dir_target, target_is_directory=True)
+    if artifact_symlink is not None:
+        if plan_dir_target is not None:
+            raise AssertionError("artifact symlink requires a real plan directory")
+        artifact_names = {
+            "plan": "account-ready-gate.tfplan",
+            "summary": "account-ready-gate-plan-summary.txt",
+        }
+        artifact_name = artifact_names[artifact_symlink]
+        sentinel = tmp_path / f"{artifact_symlink}-sentinel"
+        sentinel.write_text("DO_NOT_CLOBBER\n", encoding="utf-8")
+        (plan_dir / artifact_name).symlink_to(sentinel)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    aws_marker = tmp_path / "aws-called"
+    terraform_marker = tmp_path / "terraform-calls"
+    projection_marker = tmp_path / "gate-projection.json"
+    tf_data_marker = tmp_path / "tf-data-dir"
+    cli_config_marker = tmp_path / "terraform-cli-config"
+    race_command = ":"
+    if artifact_race == "plan":
+        race_sentinel = tmp_path / "plan-race-sentinel"
+        race_sentinel.write_text("DO_NOT_CLOBBER\n", encoding="utf-8")
+        final_plan = plan_dir / "account-ready-gate.tfplan"
+        race_command = (
+            f"ln -s {shlex.quote(str(race_sentinel))} "
+            f"{shlex.quote(str(final_plan))}"
+        )
+    elif artifact_race is not None:
+        raise AssertionError(f"unsupported artifact race: {artifact_race}")
+    _write_executable(
+        fake_bin / "aws",
+        f"""
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf 'called\n' > {shlex.quote(str(aws_marker))}
+        exit 97
+        """,
+    )
+    if real_terraform is None:
+        _write_executable(
+            fake_bin / "terraform",
+            f"""
+            #!/usr/bin/env bash
+            set -euo pipefail
+            [[ "${{TF_DATA_DIR:-}}" == "${{HOME}}/data" ]]
+            [[ -d "$TF_DATA_DIR" ]]
+            [[ "${{CHECKPOINT_DISABLE:-}}" == "1" ]]
+            cp -- "$TF_CLI_CONFIG_FILE" {shlex.quote(str(cli_config_marker))}
+            printf '%s\n' "$TF_DATA_DIR" > {shlex.quote(str(tf_data_marker))}
+            printf '%s\n' "$*" >> {shlex.quote(str(terraform_marker))}
+            saw_plan=false
+            saw_state=false
+            for argument in "$@"; do
+              case "$argument" in
+                -chdir=*)
+                  [[ "${{argument#-chdir=}}" == "${{HOME}}/root" ]]
+                  ;;
+                plan)
+                  saw_plan=true
+                  ;;
+                -state=*)
+                  [[ "${{argument#-state=}}" == "${{HOME}}/gate-empty.tfstate" ]]
+                  saw_state=true
+                  ;;
+                -var-file=*)
+                  cp -- "${{argument#-var-file=}}" {shlex.quote(str(projection_marker))}
+                  ;;
+                -out=*)
+                  : > "${{argument#-out=}}"
+                  {race_command}
+                  ;;
+              esac
+            done
+            if [[ "$saw_plan" == true ]]; then
+              [[ "$saw_state" == true ]]
+            fi
+            """,
+        )
+    else:
+        (fake_bin / "terraform").symlink_to(real_terraform)
+
+    common_arguments = [
+        "--manifest",
+        str(evidence["manifest"]),
+        "--customer-id",
+        CUSTOMER_ID,
+        "--deployment-id",
+        DEPLOYMENT_ID,
+        "--account-id",
+        ACCOUNT_ID,
+        "--region",
+        REGION,
+        "--environment",
+        ENVIRONMENT,
+        "--layer",
+        "account-ready-gate",
+        "--target-record",
+        str(evidence["target"]),
+        "--target-anchor",
+        str(evidence["anchor"]),
+        "--account-ready",
+        str(evidence["account_ready"]),
+        "--plan-dir",
+        str(plan_dir),
+    ]
+    if direct_wrapper:
+        command = [
+            "bash",
+            str(wrapper_repo_root / "scripts/deployment/terraform-layer.sh"),
+            "plan",
+            *common_arguments,
+        ]
+    else:
+        command = [
+            "bash",
+            str(wrapper_repo_root / "scripts/deployment/scanalyze-deploy.sh"),
+            "plan-layer",
+            *common_arguments,
+        ]
+        if not top_level_dry_run:
+            command.append("--no-dry-run")
+    env = os.environ.copy()
+    for name in tuple(env):
+        if name.startswith("AWS_") or name.startswith("TF_"):
+            env.pop(name, None)
+    env.pop("SCANALYZE_ALLOW_LIVE", None)
+    env["PATH"] = f"{fake_bin}:{Path(sys.executable).parent}:{env['PATH']}"
+    result = subprocess.run(
+        command,
+        cwd=wrapper_repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, aws_marker, terraform_marker, projection_marker
+
+
 def test_authorization_derives_backend_only_from_trusted_bindings() -> None:
     binding, target, _, account_ready, _ = _authorized()
 
@@ -397,6 +586,440 @@ def test_authorization_derives_backend_only_from_trusted_bindings() -> None:
     }
     assert binding["registry_record_digest"] == target["record_digest"]
     assert binding["binding_digest"] == _digest(binding, "binding_digest")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["swapped-roles", "state-bucket", "evidence-bucket", "contracts-bucket"],
+)
+def test_backend_authorization_reuses_strict_account_ready_v2_verifier(
+    mutation: str,
+) -> None:
+    account_ready = _account_ready()
+    if mutation == "swapped-roles":
+        plan_arn = account_ready["roles"]["plan"]["arn"]
+        account_ready["roles"]["plan"]["arn"] = account_ready["roles"]["apply"]["arn"]
+        account_ready["roles"]["apply"]["arn"] = plan_arn
+    else:
+        field = mutation.replace("-", "_")
+        account_ready["state_infrastructure"][field] = (
+            f"arn:aws:s3:::arbitrary-{mutation}-{ACCOUNT_ID}"
+        )
+    account_ready["contract_digest"] = _digest(account_ready, "contract_digest")
+    target = _target(account_ready)
+
+    with pytest.raises(
+        AuthorizationError,
+        match="ACCOUNT_READY v2 strict verification failed",
+    ):
+        authorize_backend(
+            manifest=_manifest(),
+            target=target,
+            anchor=_anchor(target),
+            account_ready=account_ready,
+            execution_lock=_lock(target),
+            layer_catalog=_catalog(),
+            layer="network",
+            now=NOW,
+            schema_dir=SCHEMAS,
+        )
+
+
+def test_backendless_gate_projection_and_preconditions_are_offline(
+    tmp_path: Path,
+) -> None:
+    account_ready = _account_ready()
+    target = _target(account_ready)
+    projection = authorize_backendless_gate(
+        manifest=_manifest(),
+        target=target,
+        anchor=_anchor(target),
+        account_ready=account_ready,
+        schema_dir=SCHEMAS,
+    )
+
+    assert projection == {
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": REGION,
+        "environment": ENVIRONMENT,
+        "expected_baseline_version": "v2.0.0",
+        "expected_contract_digest": account_ready["contract_digest"],
+        "account_ready_binding": {
+            "schema_version": "2",
+            "customer_id": CUSTOMER_ID,
+            "deployment_id": DEPLOYMENT_ID,
+            "account_id": ACCOUNT_ID,
+            "region": REGION,
+            "environment": ENVIRONMENT,
+            "baseline_version": "v2.0.0",
+            "contract_digest": account_ready["contract_digest"],
+        },
+    }
+
+    harness = tmp_path / "gate-harness"
+    harness.mkdir()
+    gate_root = REPO_ROOT / "roots/account-ready-gate"
+    for filename in ("variables.tf", "contract_validation.tf"):
+        (harness / filename).write_text(
+            (gate_root / filename).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    (harness / "versions.tf").write_text(
+        'terraform { required_version = ">= 1.14.6, < 1.15.0" }\n',
+        encoding="utf-8",
+    )
+    terraform_home = tmp_path / "terraform-home"
+    terraform_home.mkdir()
+    env = os.environ.copy()
+    for name in tuple(env):
+        if name.startswith("AWS_") or name.startswith("TF_"):
+            env.pop(name, None)
+    env.update(
+        {
+            "CHECKPOINT_DISABLE": "1",
+            "HOME": str(terraform_home),
+            "TF_IN_AUTOMATION": "1",
+            "TF_INPUT": "0",
+        }
+    )
+    initialized = subprocess.run(
+        [
+            "terraform",
+            f"-chdir={harness}",
+            "init",
+            "-backend=false",
+            "-input=false",
+            "-no-color",
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert initialized.returncode == 0, initialized.stderr
+
+    variables_path = tmp_path / "gate.auto.tfvars.json"
+
+    def plan(candidate: dict) -> subprocess.CompletedProcess[str]:
+        variables_path.write_text(json.dumps(candidate), encoding="utf-8")
+        return subprocess.run(
+            [
+                "terraform",
+                f"-chdir={harness}",
+                "plan",
+                "-input=false",
+                "-no-color",
+                "-refresh=false",
+                "-lock=false",
+                f"-var-file={variables_path}",
+            ],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    valid = plan(projection)
+    assert valid.returncode == 0, valid.stderr
+
+    mismatches = (
+        ("customer_id", "cust_01J5A1B2C3D4E5F6G7H8J9K0M2", "customer binding"),
+        ("deployment_id", OTHER_DEPLOYMENT_ID, "deployment binding"),
+        ("account_id", OTHER_ACCOUNT_ID, "account binding"),
+        ("region", "us-west-2", "region binding"),
+        ("environment", "staging", "environment binding"),
+        ("baseline_version", "v2.0.1", "baseline version"),
+        ("contract_digest", "sha256:" + ("b" * 64), "digest"),
+    )
+    for field, value, expected in mismatches:
+        candidate = copy.deepcopy(projection)
+        candidate["account_ready_binding"][field] = value
+        denied = plan(candidate)
+        assert denied.returncode != 0
+        assert expected in denied.stderr
+
+
+def test_backendless_gate_runtime_calls_no_aws_and_uses_no_backend(
+    tmp_path: Path,
+) -> None:
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(tmp_path)
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not aws_marker.exists()
+    calls = terraform_marker.read_text(encoding="utf-8").splitlines()
+    assert len(calls) == 2
+    assert " init -backend=false -input=false -no-color" in calls[0]
+    assert "-backend-config" not in "\n".join(calls)
+    assert " plan -input=false -no-color -refresh=false -lock=false " in calls[1]
+    assert " -state=" in calls[1]
+    assert "/gate-empty.tfstate" in calls[1]
+    assert "-var-file=" in calls[1]
+    projection = json.loads(projection_marker.read_text(encoding="utf-8"))
+    assert projection["account_ready_binding"]["contract_digest"].startswith(
+        "sha256:"
+    )
+    assert projection["expected_contract_digest"] == (
+        projection["account_ready_binding"]["contract_digest"]
+    )
+    plan_dir = tmp_path / "plans"
+    for artifact in (
+        plan_dir / "account-ready-gate.tfplan",
+        plan_dir / "account-ready-gate-plan-summary.txt",
+    ):
+        assert artifact.is_file()
+        assert not artifact.is_symlink()
+        assert artifact.stat().st_mode & 0o777 == 0o600
+    tf_data_dir = Path((tmp_path / "tf-data-dir").read_text(encoding="utf-8").strip())
+    assert tf_data_dir.name == "data"
+    assert tf_data_dir.parent.name.startswith(".account-ready-gate.terraform-home.")
+    assert not tf_data_dir.exists()
+    cli_config = (tmp_path / "terraform-cli-config").read_text(encoding="utf-8")
+    assert "provider_installation" in cli_config
+    assert "filesystem_mirror" in cli_config
+    assert "provider-mirror" in cli_config
+    assert "direct {" not in cli_config
+    assert not list(plan_dir.glob(".account-ready-gate.terraform-home.*"))
+
+
+@pytest.mark.parametrize(
+    ("direct_wrapper", "top_level_dry_run"),
+    [(False, True), (True, False)],
+)
+def test_physical_plan_dir_resolution_rejects_symlink_into_repository(
+    tmp_path: Path,
+    direct_wrapper: bool,
+    top_level_dry_run: bool,
+) -> None:
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(
+            tmp_path,
+            plan_dir_target=REPO_ROOT,
+            direct_wrapper=direct_wrapper,
+            top_level_dry_run=top_level_dry_run,
+        )
+    )
+
+    assert result.returncode != 0
+    assert "--plan-dir must be outside the repository" in result.stderr
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+
+
+@pytest.mark.parametrize("artifact_symlink", ["plan", "summary"])
+def test_preexisting_artifact_symlink_is_denied_without_clobber(
+    tmp_path: Path,
+    artifact_symlink: str,
+) -> None:
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(
+            tmp_path,
+            artifact_symlink=artifact_symlink,
+        )
+    )
+
+    sentinel = tmp_path / f"{artifact_symlink}-sentinel"
+    artifact_names = {
+        "plan": "account-ready-gate.tfplan",
+        "summary": "account-ready-gate-plan-summary.txt",
+    }
+    destination = tmp_path / "plans" / artifact_names[artifact_symlink]
+    assert result.returncode != 0
+    assert "destination already exists" in result.stderr
+    assert sentinel.read_text(encoding="utf-8") == "DO_NOT_CLOBBER\n"
+    assert destination.is_symlink()
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+
+
+def test_artifact_publication_rolls_back_summary_when_plan_destination_races(
+    tmp_path: Path,
+) -> None:
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(tmp_path, artifact_race="plan")
+    )
+
+    plan_dir = tmp_path / "plans"
+    plan = plan_dir / "account-ready-gate.tfplan"
+    summary = plan_dir / "account-ready-gate-plan-summary.txt"
+    sentinel = tmp_path / "plan-race-sentinel"
+    assert result.returncode != 0
+    assert "private plan artifact publication failed" in result.stderr
+    assert plan.is_symlink()
+    assert plan.resolve() == sentinel
+    assert sentinel.read_text(encoding="utf-8") == "DO_NOT_CLOBBER\n"
+    assert not summary.exists()
+    assert not aws_marker.exists()
+    assert len(terraform_marker.read_text(encoding="utf-8").splitlines()) == 2
+    assert projection_marker.exists()
+    assert not list(plan_dir.glob(".account-ready-gate.terraform-home.*"))
+
+
+def _isolated_gate_wrapper_repo(
+    tmp_path: Path,
+    terraform_configuration: str,
+) -> tuple[Path, Path]:
+    wrapper_repo = tmp_path / "runtime-repo"
+    deployment_scripts = wrapper_repo / "scripts/deployment"
+    tooling_dir = wrapper_repo / "tooling"
+    gate_root = wrapper_repo / "roots/account-ready-gate"
+    deployment_scripts.mkdir(parents=True)
+    tooling_dir.mkdir()
+    gate_root.mkdir(parents=True)
+    (deployment_scripts / "terraform-layer.sh").symlink_to(
+        REPO_ROOT / "scripts/deployment/terraform-layer.sh"
+    )
+    for filename in ("authorize_deployment_backend.py", "verify_account_ready.py"):
+        (tooling_dir / filename).symlink_to(REPO_ROOT / "tooling" / filename)
+    (gate_root / "main.tf").write_text(terraform_configuration, encoding="utf-8")
+    return wrapper_repo, gate_root
+
+
+def test_backendless_gate_ignores_root_state_and_dot_terraform(
+    tmp_path: Path,
+) -> None:
+    terraform_binary = shutil.which("terraform")
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
+
+    wrapper_repo, gate_root = _isolated_gate_wrapper_repo(
+        tmp_path,
+        'terraform { required_version = ">= 1.14.6, < 1.15.0" }\n',
+    )
+    state_sentinel = gate_root / "terraform.tfstate"
+    state_sentinel.write_text("DO_NOT_READ_OR_TOUCH\n", encoding="utf-8")
+    dot_terraform_sentinel = gate_root / ".terraform"
+    dot_terraform_sentinel.write_text("DO_NOT_READ_OR_TOUCH\n", encoding="utf-8")
+
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(
+            tmp_path,
+            direct_wrapper=True,
+            wrapper_repo_root=wrapper_repo,
+            real_terraform=Path(terraform_binary),
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert state_sentinel.read_text(encoding="utf-8") == "DO_NOT_READ_OR_TOUCH\n"
+    assert dot_terraform_sentinel.read_text(encoding="utf-8") == (
+        "DO_NOT_READ_OR_TOUCH\n"
+    )
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+    plan_dir = tmp_path / "plans"
+    for artifact in (
+        plan_dir / "account-ready-gate.tfplan",
+        plan_dir / "account-ready-gate-plan-summary.txt",
+    ):
+        assert artifact.is_file()
+        assert not artifact.is_symlink()
+        assert artifact.stat().st_mode & 0o777 == 0o600
+    assert not list(plan_dir.glob(".account-ready-gate.terraform-home.*"))
+
+
+def test_backendless_gate_real_root_uses_only_builtin_provider(tmp_path: Path) -> None:
+    terraform_binary = shutil.which("terraform")
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
+
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(
+            tmp_path,
+            direct_wrapper=True,
+            real_terraform=Path(terraform_binary),
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+    plan_dir = tmp_path / "plans"
+    summary = plan_dir / "account-ready-gate-plan-summary.txt"
+    output = result.stdout + result.stderr + summary.read_text(encoding="utf-8")
+    for sensitive in (
+        CUSTOMER_ID,
+        DEPLOYMENT_ID,
+        ACCOUNT_ID,
+        _account_ready()["contract_digest"],
+    ):
+        assert sensitive not in output
+    for artifact in (plan_dir / "account-ready-gate.tfplan", summary):
+        assert artifact.is_file()
+        assert not artifact.is_symlink()
+        assert artifact.stat().st_mode & 0o777 == 0o600
+    assert not list(plan_dir.glob(".account-ready-gate.terraform-home.*"))
+
+
+def test_backendless_gate_cannot_download_external_providers(tmp_path: Path) -> None:
+    terraform_binary = shutil.which("terraform")
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
+
+    wrapper_repo, _ = _isolated_gate_wrapper_repo(
+        tmp_path,
+        """
+        terraform {
+          required_version = ">= 1.14.6, < 1.15.0"
+          required_providers {
+            aws = {
+              source  = "hashicorp/aws"
+              version = "= 6.0.0"
+            }
+          }
+        }
+        """,
+    )
+
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(
+            tmp_path,
+            direct_wrapper=True,
+            wrapper_repo_root=wrapper_repo,
+            real_terraform=Path(terraform_binary),
+        )
+    )
+
+    output = result.stdout + result.stderr
+    normalized_output = " ".join(output.split())
+    assert result.returncode != 0
+    assert "was not found in any of the search locations" in normalized_output
+    assert "provider-mirror" in output
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+    plan_dir = tmp_path / "plans"
+    assert not (plan_dir / "account-ready-gate.tfplan").exists()
+    assert not (plan_dir / "account-ready-gate-plan-summary.txt").exists()
+    assert not list(plan_dir.glob(".account-ready-gate.terraform-home.*"))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["swapped-roles", "arbitrary-bucket", "wrong-anchor"],
+)
+def test_backendless_gate_invalid_evidence_calls_no_aws_or_terraform(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    result, aws_marker, terraform_marker, projection_marker = (
+        _run_backendless_gate(tmp_path, mutation)
+    )
+
+    assert result.returncode != 0
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+    assert not projection_marker.exists()
+    output = result.stdout + result.stderr
+    for sensitive in (ACCOUNT_ID, DEPLOYMENT_ID, "arn:aws:", "sha256:"):
+        assert sensitive not in output
 
 
 def test_domain_owning_layer_uses_digest_bound_target_v2_origin() -> None:
@@ -1351,10 +1974,12 @@ def test_state_recovery_version_inventory_is_exactly_bound() -> None:
         "s3:ListBucket",
         "s3:ListBucketVersions",
     }
-    assert listing["Resource"] == "arn:aws:s3:::scanalyze-${account_id}-tf-state"
+    assert listing["Resource"] == (
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state"
+    )
     assert listing["Condition"] == {
         "StringLike": {
-            "s3:prefix": ["${deployment_id}/*/terraform.tfstate"],
+            "s3:prefix": "${deployment_id}/*/terraform.tfstate",
         },
         "StringEquals": {
             "aws:PrincipalTag/deployment_id": "${deployment_id}",

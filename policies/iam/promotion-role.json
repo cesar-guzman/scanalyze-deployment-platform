@@ -2,49 +2,61 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ECRPush",
+      "Sid": "ReadPromotionInputs",
       "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload",
-        "ecr:PutImage",
-        "ecr:BatchGetImage",
-        "ecr:GetDownloadUrlForLayer"
-      ],
-      "Resource": "arn:aws:ecr:${region}:${account_id}:repository/scanalyze/*"
-    },
-    {
-      "Sid": "ECRAuthToken",
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "FrontendS3Write",
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:ListBucket"
-      ],
+      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
       "Resource": [
-        "arn:aws:s3:::scanalyze-${account_id}-frontend",
-        "arn:aws:s3:::scanalyze-${account_id}-frontend/releases/*"
-      ]
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*"
+      ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
     },
     {
-      "Sid": "CloudFrontInvalidation",
+      "Sid": "PublishImages",
       "Effect": "Allow",
-      "Action": [
-        "cloudfront:CreateInvalidation",
-        "cloudfront:GetInvalidation"
+      "Action": ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload", "ecr:GetDownloadUrlForLayer", "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart"],
+      "Resource": "arn:${aws_partition}:ecr:${region}:${account_id}:repository/scanalyze/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
+    },
+    {
+      "Sid": "GetEcrAuthorizationToken",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
+    },
+    {
+      "Sid": "PublishFrontendRelease",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket", "s3:PutObject"],
+      "Resource": [
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/releases/${deployment_id}/*"
       ],
-      "Resource": "arn:aws:cloudfront::${account_id}:distribution/${cloudfront_distribution_id}"
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
+    },
+    {
+      "Sid": "InvalidateExactDistribution",
+      "Effect": "Allow",
+      "Action": ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"],
+      "Resource": "arn:${aws_partition}:cloudfront::${account_id}:distribution/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication", "aws:ResourceTag/deployment_id": "${deployment_id}"}}
+    },
+    {
+      "Sid": "UsePromotionInputKeys",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:DescribeKey"],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
+    },
+    {
+      "Sid": "DenyPromotionInfrastructureAndState",
+      "Effect": "Deny",
+      "Action": ["cloudformation:*", "dynamodb:*", "ec2:*", "ecs:*", "iam:*", "organizations:*", "sqs:*", "ssm:PutParameter", "sts:AssumeRole"],
+      "Resource": "*"
     }
   ]
 }

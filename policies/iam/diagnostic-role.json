@@ -2,109 +2,112 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadAllResources",
+      "Sid": "ReadDeploymentResourcesForDiagnostic",
       "Effect": "Allow",
       "Action": [
+        "acm:Describe*",
+        "apigateway:GET",
+        "cloudfront:Get*",
+        "cloudwatch:Describe*",
+        "cloudwatch:GetMetric*",
+        "cognito-idp:DescribeUserPool",
+        "cognito-idp:DescribeUserPoolDomain",
+        "dynamodb:Describe*",
         "ec2:Describe*",
         "ecs:Describe*",
         "ecs:List*",
         "elasticloadbalancing:Describe*",
-        "dynamodb:Describe*",
-        "dynamodb:List*",
-        "s3:GetBucket*",
-        "s3:ListBucket",
-        "s3:GetObject",
-        "sqs:GetQueue*",
-        "sqs:ListQueues",
-        "kms:Describe*",
-        "kms:List*",
         "iam:Get*",
         "iam:List*",
+        "kms:Describe*",
+        "kms:List*",
+        "lambda:Get*",
         "logs:Describe*",
-        "logs:GetLogEvents",
         "logs:FilterLogEvents",
-        "cloudwatch:Describe*",
-        "cloudwatch:GetMetric*",
-        "cloudwatch:ListMetrics",
-        "cognito-idp:Describe*",
-        "apigateway:GET",
-        "lambda:GetFunction",
-        "lambda:GetPolicy",
+        "logs:GetLogEvents",
         "route53:Get*",
         "route53:List*",
-        "cloudfront:Get*",
-        "wafv2:Get*",
+        "s3:GetBucket*",
+        "s3:ListAllMyBuckets",
+        "sqs:GetQueue*",
+        "sqs:ListQueues",
         "ssm:GetParameter",
         "ssm:GetParameters",
-        "ssm:GetParametersByPath"
+        "ssm:GetParametersByPath",
+        "wafv2:Get*"
       ],
-      "Resource": "*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "diagnostic"
+        }
+      }
     },
     {
-      "Sid": "ReadStateForDiagnostic",
+      "Sid": "ReadDiagnosticBaselineObjects",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
         "s3:GetObjectVersion"
       ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*"
+      "Resource": [
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "diagnostic"
+        }
+      }
     },
     {
-      "Sid": "ReadEvidence",
+      "Sid": "DecryptDiagnosticInputs",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject"
+        "kms:Decrypt",
+        "kms:DescribeKey"
       ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*"
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "diagnostic"
+        }
+      }
     },
     {
-      "Sid": "DecryptStateKey",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
-    },
-    {
-      "Sid": "DecryptEvidenceKey",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
-    },
-    {
-      "Sid": "DecryptContractsKey",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
-    },
-    {
-      "Sid": "DenyAllWrites",
+      "Sid": "DenyDiagnosticWritesAndRoleChaining",
       "Effect": "Deny",
       "Action": [
-        "s3:PutObject",
-        "s3:DeleteObject",
+        "dynamodb:Delete*",
+        "dynamodb:Put*",
+        "dynamodb:Update*",
         "ec2:Create*",
         "ec2:Delete*",
         "ec2:Modify*",
         "ecs:Create*",
-        "ecs:Update*",
         "ecs:Delete*",
-        "dynamodb:Create*",
-        "dynamodb:Update*",
-        "dynamodb:Delete*",
-        "dynamodb:PutItem",
+        "ecs:RunTask",
+        "ecs:Update*",
+        "iam:Attach*",
         "iam:Create*",
         "iam:Delete*",
-        "iam:Update*",
-        "iam:Put*",
-        "iam:Attach*",
         "iam:Detach*",
+        "iam:Put*",
+        "iam:Update*",
+        "s3:Delete*",
+        "s3:Put*",
+        "sqs:Delete*",
+        "sqs:PurgeQueue",
+        "sqs:SendMessage",
+        "ssm:DeleteParameter",
         "ssm:PutParameter",
-        "ssm:DeleteParameter"
+        "sts:AssumeRole"
       ],
       "Resource": "*"
     }

@@ -21,6 +21,11 @@ from typing import Any
 import jsonschema
 import yaml
 
+if __package__:
+    from .verify_account_ready import verify_account_ready
+else:
+    from verify_account_ready import verify_account_ready
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMA_DIR = REPO_ROOT / "schemas"
@@ -224,6 +229,101 @@ def _validate_state_binding(
     return bucket, state_kms_key
 
 
+def _strict_account_ready_projection(
+    target: dict[str, Any],
+    account_ready: dict[str, Any],
+    schema_dir: Path,
+) -> dict[str, Any]:
+    """Verify ACCOUNT_READY v2 and return only its Terraform gate projection."""
+    target_binding = target.get("account_ready")
+    if not isinstance(target_binding, dict):
+        raise AuthorizationError("deployment target ACCOUNT_READY binding is invalid")
+    anchor = {
+        "customer_id": target.get("customer_id"),
+        "deployment_id": target.get("deployment_id"),
+        "account_id": target.get("account_id"),
+        "region": target.get("region"),
+        "environment": target.get("environment"),
+        "baseline_version": target_binding.get("baseline_version"),
+        "expected_contract_digest": target_binding.get("contract_digest"),
+    }
+    result = verify_account_ready(
+        account_ready,
+        anchor,
+        _schema(schema_dir, "account-ready.v2.schema.json"),
+    )
+    if not result.passed:
+        raise AuthorizationError("ACCOUNT_READY v2 strict verification failed")
+
+    return {
+        "customer_id": target["customer_id"],
+        "deployment_id": target["deployment_id"],
+        "account_id": target["account_id"],
+        "region": target["region"],
+        "environment": target["environment"],
+        "expected_baseline_version": target_binding["baseline_version"],
+        "expected_contract_digest": target_binding["contract_digest"],
+        "account_ready_binding": {
+            field: account_ready[field]
+            for field in (
+                "schema_version",
+                "customer_id",
+                "deployment_id",
+                "account_id",
+                "region",
+                "environment",
+                "baseline_version",
+                "contract_digest",
+            )
+        },
+    }
+
+
+def authorize_backendless_gate(
+    *,
+    manifest: dict[str, Any],
+    target: dict[str, Any],
+    anchor: dict[str, Any],
+    account_ready: dict[str, Any],
+    schema_dir: Path = DEFAULT_SCHEMA_DIR,
+) -> dict[str, Any]:
+    """Authorize the validation-only ACCOUNT_READY gate without AWS or state."""
+    _validate_schema(manifest, schema_dir, "deployment-manifest.v2.schema.json", "manifest v2")
+    target_schema_version = target.get("schema_version")
+    if target_schema_version not in {"1", "2"}:
+        raise AuthorizationError("deployment target schema version is unsupported")
+    _validate_schema(
+        target,
+        schema_dir,
+        f"deployment-target.v{target_schema_version}.schema.json",
+        f"deployment target v{target_schema_version}",
+    )
+    _validate_schema(anchor, schema_dir, "deployment-target-anchor.v1.schema.json", "registry anchor")
+    _validate_schema(account_ready, schema_dir, "account-ready.v2.schema.json", "ACCOUNT_READY v2")
+
+    _digest_matches(target, "record_digest", "deployment target record")
+    _digest_matches(account_ready, "contract_digest", "ACCOUNT_READY contract")
+    if anchor != {
+        "schema_version": "1",
+        "deployment_id": target["deployment_id"],
+        "registry_version": target["registry_version"],
+        "record_digest": target["record_digest"],
+    }:
+        raise AuthorizationError("registry anchor does not exactly match target record")
+    if target["status"] not in EXECUTABLE_STATUSES:
+        raise AuthorizationError("deployment target status is not executable")
+    if target["account_ready"] != {
+        "schema_version": "2",
+        "baseline_version": account_ready["baseline_version"],
+        "contract_digest": account_ready["contract_digest"],
+    }:
+        raise AuthorizationError("registry and ACCOUNT_READY contract binding mismatch")
+
+    _exact_bindings(manifest, target, account_ready)
+    _validate_state_binding(target, account_ready)
+    return _strict_account_ready_projection(target, account_ready, schema_dir)
+
+
 def _state_key(
     layer_catalog: dict[str, Any],
     layer: str,
@@ -343,6 +443,7 @@ def authorize_backend(
     _exact_bindings(manifest, target, account_ready)
     _validate_roles(account_ready)
     bucket, kms_key = _validate_state_binding(target, account_ready)
+    _strict_account_ready_projection(target, account_ready, schema_dir)
     _validate_execution_lock(execution_lock, target, now)
     key = _state_key(
         layer_catalog,
@@ -427,55 +528,113 @@ def write_private_file(path: Path, content: str) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backendless-gate", action="store_true")
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--target-anchor", type=Path, required=True)
     parser.add_argument("--account-ready", type=Path, required=True)
-    parser.add_argument("--execution-lock", type=Path, required=True)
-    parser.add_argument("--layer-catalog", type=Path, required=True)
+    parser.add_argument("--execution-lock", type=Path)
+    parser.add_argument("--layer-catalog", type=Path)
     parser.add_argument("--layer", required=True)
-    parser.add_argument("--backend-out", type=Path, required=True)
-    parser.add_argument("--binding-out", type=Path, required=True)
+    parser.add_argument("--backend-out", type=Path)
+    parser.add_argument("--binding-out", type=Path)
+    parser.add_argument("--gate-vars-out", type=Path)
     parser.add_argument("--expected-customer-id", required=True)
     parser.add_argument("--expected-deployment-id", required=True)
     parser.add_argument("--expected-account-id", required=True)
     parser.add_argument("--expected-region", required=True)
-    parser.add_argument("--expected-execution-id", required=True)
+    parser.add_argument("--expected-environment")
+    parser.add_argument("--expected-execution-id")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        binding = authorize_backend(
-            manifest=load_yaml_strict(args.manifest),
-            target=load_json_strict(args.target),
-            anchor=load_json_strict(args.target_anchor),
-            account_ready=load_json_strict(args.account_ready),
-            execution_lock=load_json_strict(args.execution_lock),
-            layer_catalog=load_yaml_strict(args.layer_catalog),
-            layer=args.layer,
-            now=datetime.now(UTC),
-        )
-        expected = {
+        manifest = load_yaml_strict(args.manifest)
+        target = load_json_strict(args.target)
+        anchor = load_json_strict(args.target_anchor)
+        account_ready = load_json_strict(args.account_ready)
+        expected: dict[str, str] = {
             "customer_id": args.expected_customer_id,
             "deployment_id": args.expected_deployment_id,
             "account_id": args.expected_account_id,
             "region": args.expected_region,
-            "execution_id": args.expected_execution_id,
         }
-        for field, value in expected.items():
-            if binding.get(field) != value:
-                raise AuthorizationError(f"request assertion does not match {field}")
-        write_private_file(args.backend_out, render_backend_hcl(binding))
-        write_private_file(
-            args.binding_out,
-            json.dumps(binding, sort_keys=True, indent=2) + "\n",
-        )
+        if args.expected_environment is not None:
+            expected["environment"] = args.expected_environment
+
+        if args.backendless_gate:
+            if args.layer != "account-ready-gate":
+                raise AuthorizationError("backendless gate mode is limited to account-ready-gate")
+            if args.gate_vars_out is None:
+                raise AuthorizationError("backendless gate variables output is required")
+            if any(
+                value is not None
+                for value in (
+                    args.execution_lock,
+                    args.layer_catalog,
+                    args.backend_out,
+                    args.binding_out,
+                    args.expected_execution_id,
+                )
+            ):
+                raise AuthorizationError("backend inputs are forbidden for account-ready-gate")
+            if args.expected_environment is None:
+                raise AuthorizationError("account-ready-gate environment assertion is required")
+            projection = authorize_backendless_gate(
+                manifest=manifest,
+                target=target,
+                anchor=anchor,
+                account_ready=account_ready,
+            )
+            for field, value in expected.items():
+                if projection.get(field) != value:
+                    raise AuthorizationError(f"request assertion does not match {field}")
+            write_private_file(
+                args.gate_vars_out,
+                json.dumps(projection, sort_keys=True, indent=2) + "\n",
+            )
+        else:
+            if args.layer == "account-ready-gate":
+                raise AuthorizationError("account-ready-gate requires backendless gate mode")
+            if args.gate_vars_out is not None:
+                raise AuthorizationError("gate variables output is forbidden for backend layers")
+            required_backend_inputs = {
+                "execution lock": args.execution_lock,
+                "layer catalog": args.layer_catalog,
+                "backend output": args.backend_out,
+                "binding output": args.binding_out,
+                "execution ID assertion": args.expected_execution_id,
+            }
+            if any(value is None for value in required_backend_inputs.values()):
+                raise AuthorizationError("required backend inputs are incomplete")
+            binding = authorize_backend(
+                manifest=manifest,
+                target=target,
+                anchor=anchor,
+                account_ready=account_ready,
+                execution_lock=load_json_strict(args.execution_lock),
+                layer_catalog=load_yaml_strict(args.layer_catalog),
+                layer=args.layer,
+                now=datetime.now(UTC),
+            )
+            expected["execution_id"] = args.expected_execution_id
+            for field, value in expected.items():
+                if binding.get(field) != value:
+                    raise AuthorizationError(f"request assertion does not match {field}")
+            write_private_file(args.backend_out, render_backend_hcl(binding))
+            write_private_file(
+                args.binding_out,
+                json.dumps(binding, sort_keys=True, indent=2) + "\n",
+            )
     except (AuthorizationError, OSError, KeyError) as exc:
         print(f"DENY: backend authorization failed: {exc}", file=sys.stderr)
         return 2
-    print("PASS: registry, account baseline, execution lock, and backend binding verified")
+    if args.backendless_gate:
+        print("PASS: registry and ACCOUNT_READY v2 gate binding verified")
+    else:
+        print("PASS: registry, account baseline, execution lock, and backend binding verified")
     return 0
 
 

@@ -1,15 +1,22 @@
 # Root: account-ready-gate
 
 > **Layer**: pre  
-> **Scope**: global  
+> **Scope**: regional
 > **Module**: `modules/none`  
-> **Consumes**: account-ready  
+> **Consumes**: `account-ready/v2`
 > **Deployable**: false  
-> **State key**: `{dep_id}/account-ready-gate/terraform.tfstate`
+> **State key**: none
 
 ## Purpose
 
-Validation-only root that consumes the ACCOUNT_READY contract and verifies preconditions fail-closed. Does not create resources, produce contracts, or own state backend.
+Validation-only root that consumes an externally produced and independently
+anchored `ACCOUNT_READY v2` contract. The Python verifier first validates the
+complete eight-role, state-infrastructure, control, tuple, and digest evidence;
+this root then binds its identity/digest projection to the deployment registry.
+
+The root does not create baseline resources, produce contracts, own state, or
+permit apply/destroy. Account baseline creation remains exclusively owned by
+the external AccountVendingProvider.
 
 ## M1 Constraints
 
@@ -20,3 +27,4 @@ Validation-only root that consumes the ACCOUNT_READY contract and verifies preco
 - No :latest image tags
 - No timestamp()
 - Contract gate uses `precondition` (never `check {}`)
+- Only schema version `2` is accepted; v1 has no compatibility fallback

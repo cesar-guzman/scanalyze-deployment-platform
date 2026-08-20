@@ -70,7 +70,7 @@ ROLE_LAYERS = {
     "identity_plan": ("identity-control-plane",),
     "identity_apply": ("identity-control-plane",),
     "promotion": ("artifact-publication",),
-    "validation": ("synthetic-validation",),
+    "validation": ("artifact-publication", "synthetic-validation"),
 }
 ROLE_OPERATIONS = {
     "plan": "plan",

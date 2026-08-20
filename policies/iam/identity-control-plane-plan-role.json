@@ -2,6 +2,24 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ListIdentityState",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "plan",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        },
+        "StringLike": {
+          "s3:prefix": [
+            "${deployment_id}/${region}/identity-control-plane/terraform.tfstate",
+            "${deployment_id}/${region}/identity-control-plane/terraform.tfstate.tflock"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "ReadIdentityLayerState",
       "Effect": "Allow",
       "Action": [
@@ -26,16 +44,24 @@
       "Action": [
         "s3:PutObject"
       ],
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*/identity-control-plane/plan.tfplan"
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "plan",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        }
+      }
     },
     {
-      "Sid": "EncryptEvidenceKey",
+      "Sid": "UseStateKeyForIdentityPlan",
       "Effect": "Allow",
       "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey",
         "kms:Encrypt",
         "kms:GenerateDataKey"
       ],
-      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
     },
     {
       "Sid": "ReadIdentityContractsAndArtifacts",
@@ -47,7 +73,7 @@
       ],
       "Resource": [
         "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/identity-control-plane/*",
-        "arn:${aws_partition}:s3:::scanalyze-shared-releases/${release_digest}/*",
+        "arn:${aws_partition}:s3:::scanalyze-shared-releases/*",
         "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
       ]
     },
@@ -57,7 +83,6 @@
       "Action": [
         "cloudwatch:DescribeAlarms",
         "cognito-idp:DescribeUserPool",
-        "cognito-idp:DescribeUserPoolClient",
         "cognito-idp:DescribeUserPoolDomain",
         "cognito-idp:GetGroup",
         "cognito-idp:ListGroups",
@@ -74,6 +99,18 @@
       "Resource": "*"
     },
     {
+      "Sid": "ValidateIdentityDestinationAccount",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "plan",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        }
+      }
+    },
+    {
       "Sid": "DecryptIdentityContracts",
       "Effect": "Allow",
       "Action": [
@@ -82,8 +119,7 @@
       ],
       "Resource": [
         "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
-        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}",
-        "arn:${aws_partition}:kms:${region}:${account_id}:key/${identity_logs_kms_key_id}"
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
       ]
     }
   ]

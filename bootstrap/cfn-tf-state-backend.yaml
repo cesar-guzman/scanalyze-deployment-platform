@@ -1,233 +1,330 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  Scanalyze Platform v2 — Terraform State Backend Bootstrap.
-  Creates S3 bucket + DynamoDB lock table for Terraform remote state.
-  Deploy this FIRST in every new customer account before any Terraform root.
-  Replicable across accounts via CloudFormation StackSets or manual deploy.
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Parameters
-# ─────────────────────────────────────────────────────────────────────────────
+Description: Scanalyze external destination-account ACCOUNT_READY v2 baseline. Creates durable state,
+  evidence, and contract storage and delegates terminal IAM roles to an exact content-addressed nested
+  template. It creates no workloads, legacy lock table, or log groups.
+Metadata:
+  Scanalyze: {Contract: account-ready/v2, BaselineVersion: v2.0.0, Ownership: external-account-baseline,
+    TerminalRolesPolicyBundleSha256: 'sha256:d8bf3b47f85522031fd4409dd602e5d98e8d25026e6f5f40737a24b4a88b9a55',
+    TerminalRolesTemplateSha256: 'sha256:628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106'}
 Parameters:
-  DeploymentId:
-    Type: String
-    Description: >
-      Unique deployment identifier for this customer (e.g., dep_01KWM783E0S1FZVAM8FRDV1HR2).
-      Used as prefix for bucket, table, and KMS alias names.
-    AllowedPattern: '^[a-zA-Z0-9_-]+$'
-    ConstraintDescription: Must contain only alphanumeric characters, hyphens, and underscores.
-
-  SanitizedDeploymentId:
-    Type: String
-    Description: >
-      Lowercase, hyphenated version of DeploymentId for S3/DynamoDB naming.
-      Example: dep_01KWM783E0S1FZVAM8FRDV1HR2 becomes dep-01kwm783e0s1fzvam8frdv1hr2.
-      S3 bucket names require lowercase + hyphens only.
-    AllowedPattern: '^[a-z0-9-]+$'
-    ConstraintDescription: Must be lowercase alphanumeric with hyphens only.
-
+  CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
+  DeploymentId: {Type: String, AllowedPattern: '^dep_[0-9A-HJKMNP-TV-Z]{26}$'}
+  SharedServicesAccountId: {Type: String, AllowedPattern: '^(?!000000000000$)[0-9]{12}$'}
   Environment:
     Type: String
     Default: sandbox
-    AllowedValues:
-      - sandbox
-      - staging
-      - production
-    Description: Environment name for tagging.
-
-  StateBucketRetentionDays:
-    Type: Number
-    Default: 90
-    MinValue: 30
-    MaxValue: 365
-    Description: Days to retain non-current state versions before deletion.
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Mappings — sanitize deployment_id for S3 (lowercase, no underscores)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Resources
-# ─────────────────────────────────────────────────────────────────────────────
+    AllowedValues: [sandbox, dev, staging, production]
+  TerminalRolesTemplateUrl: {Type: String, MaxLength: 1024, AllowedPattern: '^https://scanalyze-shared-releases\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/terminal-roles/sha256/628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106/cfn-terminal-roles\.yaml\?versionId=(?![Nn][Uu][Ll][Ll]$)[A-Za-z0-9._~+/=-]+$',
+    ConstraintDescription: 'must be the non-null version-pinned shared-releases URL whose content-addressed
+      path matches terminal template sha256:628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106'}
+Rules:
+  SharedServicesMustBeExternal:
+    Assertions:
+    - Assert: !Not [!Equals [!Ref 'SharedServicesAccountId', !Ref 'AWS::AccountId']]
+      AssertDescription: SharedServicesAccountId must differ from the destination account.
 Resources:
-
-  # ── KMS Key for state encryption ──────────────────────────────────────────
   StateKmsKey:
     Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      Description: !Sub 'Terraform state encryption key for ${DeploymentId}'
       EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
       KeyPolicy:
         Version: '2012-10-17'
         Statement:
-          - Sid: AllowRootFullAccess
-            Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
-            Action: 'kms:*'
-            Resource: '*'
+        - Sid: AllowDestinationAccountKeyAdministration
+          Effect: Allow
+          Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+          Action: kms:*
+          Resource: '*'
       Tags:
-        - Key: deployment_id
-          Value: !Ref DeploymentId
-        - Key: managed_by
-          Value: cloudformation
-        - Key: layer
-          Value: bootstrap
-        - Key: environment
-          Value: !Ref Environment
-
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  EvidenceKmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: AllowDestinationAccountKeyAdministration
+          Effect: Allow
+          Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+          Action: kms:*
+          Resource: '*'
+      Tags:
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  ContractsKmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: AllowDestinationAccountKeyAdministration
+          Effect: Allow
+          Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+          Action: kms:*
+          Resource: '*'
+      Tags:
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
   StateKmsAlias:
     Type: AWS::KMS::Alias
-    Properties:
-      AliasName: !Sub 'alias/${DeploymentId}-tf-state'
-      TargetKeyId: !Ref StateKmsKey
-
-  # ── S3 Bucket for Terraform state ─────────────────────────────────────────
+    Properties: {AliasName: !Sub 'alias/scanalyze/${AWS::AccountId}/tf-state', TargetKeyId: !Ref 'StateKmsKey'}
+  EvidenceKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties: {AliasName: !Sub 'alias/scanalyze/${AWS::AccountId}/tf-evidence', TargetKeyId: !Ref 'EvidenceKmsKey'}
+  ContractsKmsAlias:
+    Type: AWS::KMS::Alias
+    Properties: {AliasName: !Sub 'alias/scanalyze/${AWS::AccountId}/contracts', TargetKeyId: !Ref 'ContractsKmsKey'}
   StateBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub 'scanalyze-${SanitizedDeploymentId}-tf-state'
-      VersioningConfiguration:
-        Status: Enabled
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: 'aws:kms'
-              KMSMasterKeyID: !GetAtt StateKmsKey.Arn
-            BucketKeyEnabled: true
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+      BucketName: !Sub 'scanalyze-${AWS::AccountId}-tf-state'
+      VersioningConfiguration: {Status: Enabled}
       LifecycleConfiguration:
         Rules:
-          - Id: ExpireNonCurrentVersions
-            Status: Enabled
-            NoncurrentVersionExpiration:
-              NoncurrentDays: !Ref StateBucketRetentionDays
-          - Id: AbortIncompleteMultipart
-            Status: Enabled
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 7
+        - Id: ExpireEphemeralPlanExecution
+          Prefix: plan-execution/
+          Status: Enabled
+          ExpirationInDays: 3
+          NoncurrentVersionExpiration: {NoncurrentDays: 3}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'StateKmsKey.Arn'}
+          BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+        - {ObjectOwnership: BucketOwnerEnforced}
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true,
+        RestrictPublicBuckets: true}
       Tags:
-        - Key: deployment_id
-          Value: !Ref DeploymentId
-        - Key: managed_by
-          Value: cloudformation
-        - Key: layer
-          Value: bootstrap
-        - Key: environment
-          Value: !Ref Environment
-        - Key: purpose
-          Value: terraform-state
-
-  # ── S3 Bucket Policy — deny unencrypted and non-HTTPS ─────────────────────
-  StateBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref StateBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: DenyUnencryptedUploads
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:PutObject'
-            Resource: !Sub '${StateBucket.Arn}/*'
-            Condition:
-              StringNotEquals:
-                's3:x-amz-server-side-encryption': 'aws:kms'
-          - Sid: DenyInsecureTransport
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
-            Resource:
-              - !GetAtt StateBucket.Arn
-              - !Sub '${StateBucket.Arn}/*'
-            Condition:
-              Bool:
-                'aws:SecureTransport': 'false'
-
-  # ── DynamoDB Lock Table ───────────────────────────────────────────────────
-  StateLockTable:
-    Type: AWS::DynamoDB::Table
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub 'scanalyze-${SanitizedDeploymentId}-tf-lock'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: LockID
-          AttributeType: S
-      KeySchema:
-        - AttributeName: LockID
-          KeyType: HASH
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      SSESpecification:
-        SSEEnabled: true
-        SSEType: KMS
-        KMSMasterKeyId: !GetAtt StateKmsKey.Arn
+      BucketName: !Sub 'scanalyze-${AWS::AccountId}-tf-evidence'
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule:
+          DefaultRetention: {Mode: COMPLIANCE, Days: 90}
+      VersioningConfiguration: {Status: Enabled}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'EvidenceKmsKey.Arn'}
+          BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+        - {ObjectOwnership: BucketOwnerEnforced}
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true,
+        RestrictPublicBuckets: true}
       Tags:
-        - Key: deployment_id
-          Value: !Ref DeploymentId
-        - Key: managed_by
-          Value: cloudformation
-        - Key: layer
-          Value: bootstrap
-        - Key: environment
-          Value: !Ref Environment
-        - Key: purpose
-          Value: terraform-lock
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Outputs — consumed by Terraform backend configuration
-# ─────────────────────────────────────────────────────────────────────────────
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  ContractsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'scanalyze-${AWS::AccountId}-contracts'
+      VersioningConfiguration: {Status: Enabled}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'ContractsKmsKey.Arn'}
+          BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+        - {ObjectOwnership: BucketOwnerEnforced}
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true,
+        RestrictPublicBuckets: true}
+      Tags:
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref 'StateBucket'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: DenyInsecureTransport
+          Effect: Deny
+          Principal: '*'
+          Action: s3:*
+          Resource: [!GetAtt 'StateBucket.Arn', !Sub '${StateBucket.Arn}/*']
+          Condition:
+            Bool: {'aws:SecureTransport': 'false'}
+        - Sid: DenyMissingKmsEncryption
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${StateBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption': 'aws:kms'}
+        - Sid: DenyWrongKmsKey
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${StateBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption-aws-kms-key-id': !GetAtt 'StateKmsKey.Arn'}
+  EvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref 'EvidenceBucket'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: DenyInsecureTransport
+          Effect: Deny
+          Principal: '*'
+          Action: s3:*
+          Resource: [!GetAtt 'EvidenceBucket.Arn', !Sub '${EvidenceBucket.Arn}/*']
+          Condition:
+            Bool: {'aws:SecureTransport': 'false'}
+        - Sid: DenyMissingKmsEncryption
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${EvidenceBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption': 'aws:kms'}
+        - Sid: DenyWrongKmsKey
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${EvidenceBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption-aws-kms-key-id': !GetAtt 'EvidenceKmsKey.Arn'}
+        - Sid: DenyObjectLockOverride
+          Effect: Deny
+          Principal: '*'
+          Action: ['s3:BypassGovernanceRetention', 's3:PutBucketObjectLockConfiguration', 's3:PutObjectLegalHold',
+            's3:PutObjectRetention']
+          Resource: [!GetAtt 'EvidenceBucket.Arn', !Sub '${EvidenceBucket.Arn}/*']
+  ContractsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref 'ContractsBucket'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: DenyInsecureTransport
+          Effect: Deny
+          Principal: '*'
+          Action: s3:*
+          Resource: [!GetAtt 'ContractsBucket.Arn', !Sub '${ContractsBucket.Arn}/*']
+          Condition:
+            Bool: {'aws:SecureTransport': 'false'}
+        - Sid: DenyMissingKmsEncryption
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${ContractsBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption': 'aws:kms'}
+        - Sid: DenyWrongKmsKey
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${ContractsBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption-aws-kms-key-id': !GetAtt 'ContractsKmsKey.Arn'}
+  TerminalRoles:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    DependsOn: [StateBucketPolicy, EvidenceBucketPolicy, ContractsBucketPolicy]
+    Properties:
+      TemplateURL: !Ref 'TerminalRolesTemplateUrl'
+      Parameters: {CustomerId: !Ref 'CustomerId', DeploymentId: !Ref 'DeploymentId', SharedServicesAccountId: !Ref 'SharedServicesAccountId',
+        Environment: !Ref 'Environment', StateBucketArn: !GetAtt 'StateBucket.Arn', EvidenceBucketArn: !GetAtt 'EvidenceBucket.Arn',
+        ContractsBucketArn: !GetAtt 'ContractsBucket.Arn', StateKmsKeyArn: !GetAtt 'StateKmsKey.Arn',
+        EvidenceKmsKeyArn: !GetAtt 'EvidenceKmsKey.Arn', ContractsKmsKeyArn: !GetAtt 'ContractsKmsKey.Arn'}
+      Tags:
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
 Outputs:
-  StateBucketName:
-    Description: S3 bucket name for Terraform state
-    Value: !Ref StateBucket
-    Export:
-      Name: !Sub '${DeploymentId}-tf-state-bucket'
-
-  StateBucketArn:
-    Description: S3 bucket ARN
-    Value: !GetAtt StateBucket.Arn
-
-  LockTableName:
-    Description: DynamoDB table name for Terraform state locking
-    Value: !Ref StateLockTable
-    Export:
-      Name: !Sub '${DeploymentId}-tf-lock-table'
-
-  LockTableArn:
-    Description: DynamoDB table ARN
-    Value: !GetAtt StateLockTable.Arn
-
-  KmsKeyArn:
-    Description: KMS key ARN for state encryption
-    Value: !GetAtt StateKmsKey.Arn
-    Export:
-      Name: !Sub '${DeploymentId}-tf-state-kms-key'
-
-  KmsKeyAlias:
-    Description: KMS key alias
-    Value: !Ref StateKmsAlias
-
-  BackendConfig:
-    Description: >
-      Terraform backend configuration values.
-      Use these in backend.tfvars or -backend-config flags.
-    Value: !Sub |
-      bucket         = "${StateBucket}"
-      dynamodb_table = "${StateLockTable}"
-      region         = "${AWS::Region}"
-      encrypt        = true
-      kms_key_id     = "${StateKmsKey.Arn}"
-
-  StateKeyPattern:
-    Description: Key pattern for each Terraform root
-    Value: !Sub '${DeploymentId}/${AWS::Region}/{layer}/terraform.tfstate'
+  BaselineVersion: {Value: v2.0.0}
+  CustomerId: {Value: !Ref 'CustomerId'}
+  DeploymentId: {Value: !Ref 'DeploymentId'}
+  AccountId: {Value: !Ref 'AWS::AccountId'}
+  Region: {Value: !Ref 'AWS::Region'}
+  Environment: {Value: !Ref 'Environment'}
+  StateBucketName: {Value: !Ref 'StateBucket'}
+  StateBucketArn: {Value: !GetAtt 'StateBucket.Arn'}
+  EvidenceBucketName: {Value: !Ref 'EvidenceBucket'}
+  EvidenceBucketArn: {Value: !GetAtt 'EvidenceBucket.Arn'}
+  ContractsBucketName: {Value: !Ref 'ContractsBucket'}
+  ContractsBucketArn: {Value: !GetAtt 'ContractsBucket.Arn'}
+  StateKmsKeyArn: {Value: !GetAtt 'StateKmsKey.Arn'}
+  StateKmsAlias: {Value: !Ref 'StateKmsAlias'}
+  EvidenceKmsKeyArn: {Value: !GetAtt 'EvidenceKmsKey.Arn'}
+  EvidenceKmsAlias: {Value: !Ref 'EvidenceKmsAlias'}
+  ContractsKmsKeyArn: {Value: !GetAtt 'ContractsKmsKey.Arn'}
+  ContractsKmsAlias: {Value: !Ref 'ContractsKmsAlias'}
+  PlanRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.PlanRoleArn'}
+  ApplyRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.ApplyRoleArn'}
+  IdentityPlanRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.IdentityPlanRoleArn'}
+  IdentityApplyRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.IdentityApplyRoleArn'}
+  PromotionRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.PromotionRoleArn'}
+  ValidationRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.ValidationRoleArn'}
+  DiagnosticRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.DiagnosticRoleArn'}
+  StateRecoveryRoleArn: {Value: !GetAtt 'TerminalRoles.Outputs.StateRecoveryRoleArn'}
+  StateVersioningEnabled: {Value: 'true'}
+  StateDefaultEncryption: {Value: 'aws:kms'}
+  StateBucketKeyEnabled: {Value: 'true'}
+  StatePublicAccessBlocked: {Value: 'true'}
+  StateObjectLockEnabled: {Value: 'false'}
+  NativeLockfileEnabled: {Value: 'true'}
