@@ -41,6 +41,10 @@ def test_account_ready_gate_account_id_validation_is_re2_safe(tmp_path: Path) ->
     assert variables.count('can(regex("^[0-9]{12}$",') == 2
     assert variables.count("try(tonumber(") == 2
 
+    terraform_binary = shutil.which("terraform")
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
+
     for account_id, expected in (
         (ACCOUNT_ID, "true"),
         ("000000000000", "false"),
@@ -50,7 +54,7 @@ def test_account_ready_gate_account_id_validation_is_re2_safe(tmp_path: Path) ->
             f'&& try(tonumber("{account_id}") != 0, false)\n'
         )
         result = subprocess.run(
-            ["terraform", f"-chdir={tmp_path}", "console"],
+            [terraform_binary, f"-chdir={tmp_path}", "console"],
             input=expression,
             text=True,
             capture_output=True,
@@ -79,7 +83,8 @@ def test_account_ready_gate_real_root_is_backendless_and_provider_free(
         shutil.copy2(lock_file, harness / lock_file.name)
 
     terraform_binary = shutil.which("terraform")
-    assert terraform_binary is not None
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
     controlled_bin = tmp_path / "bin"
     controlled_bin.mkdir()
     (controlled_bin / "terraform").symlink_to(terraform_binary)

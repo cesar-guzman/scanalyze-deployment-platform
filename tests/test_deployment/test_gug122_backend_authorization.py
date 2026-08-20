@@ -658,6 +658,10 @@ def test_backendless_gate_projection_and_preconditions_are_offline(
         },
     }
 
+    terraform_binary = shutil.which("terraform")
+    if terraform_binary is None:
+        pytest.skip("Terraform executable is unavailable")
+
     harness = tmp_path / "gate-harness"
     harness.mkdir()
     gate_root = REPO_ROOT / "roots/account-ready-gate"
@@ -686,7 +690,7 @@ def test_backendless_gate_projection_and_preconditions_are_offline(
     )
     initialized = subprocess.run(
         [
-            "terraform",
+            terraform_binary,
             f"-chdir={harness}",
             "init",
             "-backend=false",
@@ -706,7 +710,7 @@ def test_backendless_gate_projection_and_preconditions_are_offline(
         variables_path.write_text(json.dumps(candidate), encoding="utf-8")
         return subprocess.run(
             [
-                "terraform",
+                terraform_binary,
                 f"-chdir={harness}",
                 "plan",
                 "-input=false",

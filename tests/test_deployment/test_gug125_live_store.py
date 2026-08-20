@@ -298,38 +298,59 @@ def _actions(document: dict, sid: str) -> set[str]:
 def test_exact_plan_kms_and_version_permissions_are_complete() -> None:
     plan = _policy("policies/iam/plan-role.json")
     apply = _policy("policies/iam/apply-role.json")
-    key = _policy("policies/kms/evidence-key.json")
-    bucket = _policy("policies/s3/evidence-bucket.json")
+    identity_plan = _policy("policies/iam/identity-control-plane-plan-role.json")
+    identity_apply = _policy("policies/iam/identity-control-plane-apply-role.json")
+
+    for writer, writer_sid, reader, reader_sid in (
+        (plan, "WriteOwnSavedPlan", apply, "ReadOwnSavedPlanVersion"),
+        (
+            identity_plan,
+            "WriteIdentityPlanExecutionZone",
+            identity_apply,
+            "ReadIdentityPlanExecutionZone",
+        ),
+    ):
+        write_statement = next(
+            item for item in writer["Statement"] if item["Sid"] == writer_sid
+        )
+        read_statement = next(
+            item for item in reader["Statement"] if item["Sid"] == reader_sid
+        )
+
+        assert _actions(writer, writer_sid) == {"s3:PutObject"}
+        assert _actions(reader, reader_sid) == {"s3:GetObjectVersion"}
+        assert read_statement["Resource"] == write_statement["Resource"]
+        assert "-tf-state/plan-execution/" in write_statement["Resource"]
+        assert "-tf-evidence/plan-execution/" not in write_statement["Resource"]
 
     assert {"kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
-        plan, "EncryptEvidenceKey"
+        plan, "UsePlanBaselineKeys"
     )
-    assert {"kms:Decrypt"} <= _actions(apply, "DecryptEvidenceKey")
+    assert {"kms:Decrypt"} <= _actions(apply, "UseApplyBaselineKeys")
     assert {"kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
-        key, "AllowPlanEncrypt"
+        identity_plan, "UseStateKeyForIdentityPlan"
     )
-    assert {"kms:Decrypt"} <= _actions(key, "AllowApplyDecrypt")
-    decrypt_statement = next(
-        item for item in key["Statement"] if item["Sid"] == "AllowApplyDecrypt"
+    assert _actions(identity_apply, "ReadSavedPlanKey") == {"kms:Decrypt"}
+
+    state_key_arn = (
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
     )
-    assert set(decrypt_statement["Principal"]["AWS"]) == {
-        "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
-        "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply",
-    }
-    assert decrypt_statement["Condition"]["StringEquals"] == {
-        "kms:ViaService": "s3.${region}.amazonaws.com",
-        "kms:EncryptionContext:aws:s3:arn": (
-            "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
-        ),
-    }
-    encrypt_statement = next(
-        item for item in key["Statement"] if item["Sid"] == "AllowPlanEncrypt"
-    )
-    assert encrypt_statement["Condition"] == decrypt_statement["Condition"]
-    assert {"s3:GetObjectVersion"} <= _actions(apply, "ReadPlanExecutionZone")
-    assert {"s3:GetObjectVersion"} <= _actions(
-        bucket, "AllowApplyReadPlanExecution"
-    )
+    for policy, sid in (
+        (plan, "UsePlanBaselineKeys"),
+        (apply, "UseApplyBaselineKeys"),
+        (identity_plan, "UseStateKeyForIdentityPlan"),
+        (identity_apply, "ReadSavedPlanKey"),
+    ):
+        statement = next(item for item in policy["Statement"] if item["Sid"] == sid)
+        resources = statement["Resource"]
+        assert state_key_arn in (
+            {resources} if isinstance(resources, str) else set(resources)
+        )
+
+    for policy in (plan, apply, identity_plan, identity_apply):
+        serialized = json.dumps(policy, sort_keys=True)
+        assert "-tf-evidence/plan-execution/" not in serialized
+        assert "${evidence_kms_key_id}" not in serialized
 
 
 def test_live_plan_store_has_no_delete_surface() -> None:
