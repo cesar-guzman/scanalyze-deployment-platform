@@ -35,9 +35,8 @@ DESTRUCTIVE_IDENTITY_ACTIONS = {
     "sqs:PurgeQueue",
 }
 
-CLOUDWATCH_ALARM_MANAGEMENT_ACTIONS = {
+CLOUDWATCH_ALARM_TAGGING_ACTIONS = {
     "cloudwatch:ListTagsForResource",
-    "cloudwatch:PutMetricAlarm",
     "cloudwatch:TagResource",
     "cloudwatch:UntagResource",
 }
@@ -72,8 +71,6 @@ def test_identity_apply_role_has_only_reviewed_wildcard_resource_exceptions() ->
     }
 
     assert wildcard_sids == {
-        "CreateTaggedUserPool",
-        "CreateTaggedIdentityEncryptionKey",
         "DescribeIdentityMonitoring",
         "DenyIdentityDestructionOutsideReviewedDecommission",
         "DenyPrivilegeEscalationAndHumanAdministration",
@@ -84,8 +81,14 @@ def test_identity_apply_role_has_only_reviewed_wildcard_resource_exceptions() ->
         for statement in policy["Statement"]
         if statement["Effect"] == "Allow"
     }
-    assert "Condition" in allow_statements["CreateTaggedUserPool"]
-    assert "Condition" in allow_statements["CreateTaggedIdentityEncryptionKey"]
+    assert "CreateTaggedUserPool" not in allow_statements
+    assert "CreateTaggedIdentityEncryptionKey" not in allow_statements
+
+    allowed_actions = set().union(
+        *(_actions(statement) for statement in allow_statements.values())
+    )
+    assert "cognito-idp:CreateUserPool" not in allowed_actions
+    assert "kms:CreateKey" not in allowed_actions
 
 
 def test_identity_role_templates_are_partition_portable() -> None:
@@ -145,14 +148,17 @@ def test_identity_apply_role_denies_destructive_decommission_actions() -> None:
     assert delete_object_statements[0]["Resource"].endswith("terraform.tfstate.tflock")
 
 
-def test_identity_apply_role_can_reconcile_tags_on_exact_alarm_family() -> None:
+def test_identity_apply_role_can_only_tag_exact_preprovisioned_alarm_family() -> None:
     policy = _load("identity-control-plane-apply-role.json")
     statement = next(
-        item for item in policy["Statement"] if item["Sid"] == "ManageIdentityAlarms"
+        item
+        for item in policy["Statement"]
+        if item["Sid"] == "TagPreprovisionedIdentityAlarms"
     )
 
     assert statement["Effect"] == "Allow"
-    assert _actions(statement) == CLOUDWATCH_ALARM_MANAGEMENT_ACTIONS
+    assert _actions(statement) == CLOUDWATCH_ALARM_TAGGING_ACTIONS
+    assert "cloudwatch:PutMetricAlarm" not in _actions(statement)
     assert statement["Resource"] == (
         "arn:${aws_partition}:cloudwatch:${region}:${account_id}:"
         "alarm:${deployment_id}-identity-*"

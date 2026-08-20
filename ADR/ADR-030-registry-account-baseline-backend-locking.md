@@ -2,8 +2,9 @@
 
 - **Status:** Proposed; accepted only after reviewed merge and main verification
 - **Date:** 2026-07-14; transition/recovery boundary clarified 2026-07-27;
-  runtime-origin versioning amended by GUG-101 on 2026-08-05
-- **Work package:** GUG-122
+  runtime-origin versioning amended by GUG-101 on 2026-08-05; greenfield
+  producer boundary amended by GUG-379 on 2026-08-16
+- **Work package:** GUG-122, amended by GUG-379
 - **Baseline:** `82fd2c7156f88897ca78af3ba0b54ee8921a4f40`
 - **Remediation baseline:** `af0d99ee4020d8cd1ded608dd640fa405d97002f`
 - **Program:** GUG-115
@@ -82,7 +83,26 @@ KMS keys, and these exact state controls:
 - S3-native lockfiles enabled.
 
 Missing, legacy, malformed, foreign, ambiguous, or conflicting baseline
-evidence is denied. No bucket name, prefix, role, or KMS key is inferred.
+evidence is denied. Bucket outputs must match the three deterministic names
+declared by the baseline template. That equality is an input invariant, not
+resource discovery or evidence of existence/ownership; only authenticated
+terminal readback can establish live provenance. No prefix, role, or KMS key is
+substituted from caller input.
+
+The GUG-379 producer is the single repository module
+`tooling.account_ready_v2_materializer`. It accepts only a closed, exact
+readback of the approved account-baseline template plus an approved target and
+its independent anchor. The baseline template is owned by
+`AccountVendingProvider`; `account-ready-gate` remains a consumer and cannot
+produce, apply, or own baseline state. A candidate envelope is deterministic
+and content-addressed, but its live provenance remains `NOT_PROVEN_LIVE` until
+a separately authorized operator supplies authentic terminal readback.
+
+Dry-run emits only a sanitized operator manifest: opaque digests, schema and
+baseline versions, control pass/fail states, and `NOT_PROVEN_LIVE`. Account IDs,
+bucket names, state keys, KMS identifiers, role ARNs, raw targets, anchors, and
+lock records are excluded. No dry-run path creates an AWS client, executes a
+subprocess, or writes inside the repository.
 
 ### 4. Backend configuration is derived, private, and temporary
 
@@ -127,13 +147,16 @@ StateRecovery can enumerate versions only through the exact state bucket and
 deployment state-key prefix using `s3:ListBucket` plus
 `s3:ListBucketVersions`, and can read/restore only bound state objects. It can
 delete only the exact `.tflock` object under recovery session tags. Every
-session requires an incident identifier; `.tflock` deletion additionally
-requires `recovery_approved=true`. It cannot delete state or object versions,
-list arbitrary buckets/prefixes, scan the registry, reassign ownership, apply
-Terraform, or automatically force-unlock. State restoration always requires a
-subsequent reviewed reconciliation plan. GUG-123 must prove which identity may
-issue the approval tag before this becomes a live control. ADR-031 now defines
-that candidate human-only trust; live issuance remains unvalidated.
+session in the future policy requires an incident identifier; `.tflock`
+deletion additionally requires `recovery_approved=true`. The ACCOUNT_READY v2
+child currently materializes that future policy and boundary but installs a
+deny-only StateRecovery trust, so no principal can reach it. It cannot delete
+state or object versions, list arbitrary buckets/prefixes, scan the registry,
+reassign ownership, apply Terraform, or automatically force-unlock. State
+restoration always requires a subsequent reviewed reconciliation plan. GUG-123
+must prove an independent identity that may issue the approval before a future
+review may replace the deny-only trust. The policy fixture is future semantics,
+not current live assumability.
 
 ### 7. Local authorization precedes cloud identity
 
@@ -179,6 +202,16 @@ lock transition, recovery action, or authorization ordering and recreate an
 inconsistent boundary. Do not fall back to manifest-supplied backend fields,
 v1 baseline inference, DynamoDB locking, or automatic force-unlock.
 
+The issue-scoped GUG-379 review rule requires exactly one independent
+exact-final-head approval from `@guguce-google`. It does not replace or reduce
+the separate operator authorization, security review, stale-lock dual review,
+saved-plan approval, AWS readback, or production gate required for any future
+live action.
+
+The unattributed API Gateway access log group observed during readiness
+assessment is outside the baseline contract. GUG-379 must not adopt, import,
+tag, modify, delete, or cite it as greenfield evidence.
+
 ## Evidence classification
 
 - **Implemented:** candidate schemas, pure registry/lock models, backend
@@ -195,3 +228,6 @@ v1 baseline inference, DynamoDB locking, or automatic force-unlock.
 No schema version or third-party dependency changed in the 2026-07-27
 remediation. The later GUG-101 amendment adds target/binding v2 while preserving
 the v1 schema bytes and execution-lock v1 contract.
+
+The GUG-379 amendment keeps the v1 schema bytes only as explicit legacy input;
+the canonical DAG and account-ready gate reject v1 operationally.

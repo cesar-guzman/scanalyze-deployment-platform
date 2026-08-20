@@ -8,14 +8,14 @@
         "s3:ListBucket",
         "s3:ListBucketVersions"
       ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
-        "StringLike": {
-          "s3:prefix": ["${deployment_id}/*/terraform.tfstate"]
-        },
         "StringEquals": {
           "aws:PrincipalTag/deployment_id": "${deployment_id}",
           "aws:PrincipalTag/operation": "state-recovery"
+        },
+        "StringLike": {
+          "s3:prefix": "${deployment_id}/*/terraform.tfstate"
         }
       }
     },
@@ -26,7 +26,7 @@
         "s3:GetObject",
         "s3:GetObjectVersion"
       ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate",
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/deployment_id": "${deployment_id}",
@@ -38,13 +38,13 @@
       "Sid": "RestoreBoundStateVersion",
       "Effect": "Allow",
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate",
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/deployment_id": "${deployment_id}",
           "aws:PrincipalTag/operation": "state-recovery",
           "s3:x-amz-server-side-encryption": "aws:kms",
-          "s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
+          "s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
         }
       }
     },
@@ -52,7 +52,7 @@
       "Sid": "DeleteOnlyReviewedNativeLockfile",
       "Effect": "Allow",
       "Action": "s3:DeleteObject",
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate.tflock",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate.tflock",
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/deployment_id": "${deployment_id}",
@@ -62,26 +62,35 @@
       }
     },
     {
-      "Sid": "EncryptDecryptStateKey",
+      "Sid": "UseStateRecoveryKey",
       "Effect": "Allow",
       "Action": [
-        "kms:Encrypt",
         "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:Encrypt",
         "kms:GenerateDataKey"
       ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/deployment_id": "${deployment_id}",
+          "aws:PrincipalTag/operation": "state-recovery"
+        }
+      }
     },
     {
-      "Sid": "DenyNonStateAccess",
+      "Sid": "DenyNonStateAccessAndRoleChaining",
       "Effect": "Deny",
       "Action": [
-        "ec2:*",
-        "ecs:*",
         "dynamodb:*",
+        "ec2:*",
+        "ecr:*",
+        "ecs:*",
+        "iam:*",
+        "organizations:*",
         "sqs:*",
         "ssm:PutParameter",
-        "iam:*",
-        "ecr:*"
+        "sts:AssumeRole"
       ],
       "Resource": "*"
     }

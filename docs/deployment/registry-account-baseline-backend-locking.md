@@ -11,6 +11,11 @@ manifest v2 target assertions
           v exact equality
 approved deployment target <---- independent registry version/digest anchor
           |
+account-baseline exact readback
+          |
+          v deterministic repository-only producer
+content-addressed ACCOUNT_READY v2
+          |
           +---- target v2 runtime-origin v1 (domain-owning layers)
           |
           +---- exact ACCOUNT_READY v2 digest and state binding
@@ -41,6 +46,29 @@ or previous successful run cannot replace any proof.
 
 The v1 deployment manifest and `ACCOUNT_READY` v1 remain explicit legacy
 schemas. They are not accepted by `authorize_deployment_backend.py`.
+
+## Greenfield ACCOUNT_READY producer
+
+There is one repository producer: `python -m
+tooling.account_ready_v2_materializer`. It accepts a closed readback from the
+reviewed account-baseline template, the exact approved deployment target, and
+the independently retrieved target anchor. It validates the complete
+customer/deployment/account/region/environment tuple, all eight terminal role
+ARNs and resource tags, the three bucket and three KMS bindings, and all six
+state controls before calculating the canonical digest.
+
+The producer has no AWS SDK import, subprocess path, environment/profile
+fallback, resource-discovery path, v1 conversion, or overwrite behavior. It
+requires readback bucket outputs to equal the template's three deterministic
+name invariants; equality never proves live existence or ownership. Outputs are
+new owner-only files outside the repository. Repeated identical input produces
+identical contract and sanitized manifest bytes at fresh output paths; any
+pre-existing output path is a stop condition.
+
+The operator manifest never contains account IDs, ARNs, bucket names, state
+keys, KMS identifiers, targets, anchors, or lock payloads. It labels repository
+provenance `NOT_PROVEN_LIVE`. A future human account-vending operation and
+readback require a separate issue-scoped, time-bounded authorization.
 
 ## Operational inputs
 
@@ -116,3 +144,7 @@ account identifiers remain only in approved encrypted systems.
 - CI validated: pending PR.
 - Live validated: no.
 - Production: **NO-GO**.
+
+GUG-379 requires exactly one independent code review from `@guguce-google` on
+the exact final head. This repository review does not satisfy any future AWS,
+stale-lock recovery, saved-plan, deployment, or production approval.

@@ -2,49 +2,180 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadOnlyHealth",
+      "Sid": "ReadOnlyValidationHealth",
       "Effect": "Allow",
       "Action": [
-        "ecs:DescribeServices",
-        "ecs:DescribeTasks",
-        "ecs:DescribeTaskDefinition",
-        "ecs:ListTasks",
-        "elasticloadbalancing:DescribeTargetHealth",
-        "elasticloadbalancing:DescribeTargetGroups",
-        "dynamodb:DescribeTable",
-        "sqs:GetQueueAttributes",
         "cloudwatch:DescribeAlarms",
         "cloudwatch:GetMetricData",
-        "logs:GetLogEvents",
+        "dynamodb:DescribeTable",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:DescribeTasks",
+        "ecs:ListTasks",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadDeploymentValidationLogs",
+      "Effect": "Allow",
+      "Action": [
         "logs:FilterLogEvents",
+        "logs:GetLogEvents"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/codebuild/${deployment_id}-*",
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/codebuild/${deployment_id}-*:log-stream:*",
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/lambda/${deployment_id}-identity-*",
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/lambda/${deployment_id}-identity-*:log-stream:*",
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/ecs/${deployment_id}/*",
+        "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/ecs/${deployment_id}/*:log-stream:*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadDeploymentValidationParameters",
+      "Effect": "Allow",
+      "Action": [
         "ssm:GetParameter",
         "ssm:GetParameters"
       ],
+      "Resource": [
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/*",
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/${deployment_id}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadValidationArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:DescribeImages",
+        "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "arn:${aws_partition}:ecr:${region}:${account_id}:repository/scanalyze/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": "artifact-publication"
+        }
+      }
+    },
+    {
+      "Sid": "GetValidationEcrAuthorizationToken",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": "artifact-publication"
+        }
+      }
+    },
+    {
+      "Sid": "ReadValidationInputs",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DecryptValidationInputs",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "validate",
+          "aws:PrincipalTag/layer": [
+            "artifact-publication",
+            "synthetic-validation"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "DenyValidationWritesAndRoleChaining",
+      "Effect": "Deny",
+      "Action": [
+        "cloudformation:*",
+        "cloudfront:Create*",
+        "cloudfront:Update*",
+        "dynamodb:Delete*",
+        "dynamodb:Put*",
+        "dynamodb:Update*",
+        "ec2:Create*",
+        "ec2:Delete*",
+        "ec2:Modify*",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+        "ecs:Create*",
+        "ecs:Delete*",
+        "ecs:RegisterTaskDefinition",
+        "ecs:RunTask",
+        "ecs:Update*",
+        "iam:*",
+        "s3:Delete*",
+        "s3:Put*",
+        "sqs:Delete*",
+        "sqs:PurgeQueue",
+        "sqs:SendMessage",
+        "ssm:PutParameter",
+        "sts:AssumeRole"
+      ],
       "Resource": "*"
-    },
-    {
-      "Sid": "ReadEvidenceForValidation",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*"
-    },
-    {
-      "Sid": "DecryptEvidence",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
-    },
-    {
-      "Sid": "DecryptContracts",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
     }
   ]
 }

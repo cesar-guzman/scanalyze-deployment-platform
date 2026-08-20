@@ -50,6 +50,13 @@ Migration must never:
 - disable encryption, versioning, or public access controls; or
 - run concurrently with plan/apply/recovery.
 
+Before any migration, compare every rendered state key across deployment,
+region, and layer. Duplicate canonical templates, a key already owned by a
+different root, a partially materialized baseline, or any existing destination
+object is a stop condition. A deterministic second repository-only run must
+produce byte-identical contract and sanitized manifest output; this no-change
+check is not a Terraform plan and proves no live state.
+
 ## Stale execution lock
 
 Expiry is evidence that the owner may have failed; it is not permission to
@@ -59,6 +66,10 @@ change, obtain dual review, and preserve sanitized evidence. The distributed
 execution lock and Terraform `.tflock` are distinct and both must be reconciled.
 
 Automatic lease stealing and automatic `force-unlock` are forbidden.
+
+The single independent reviewer rule for GUG-379 applies only to its exact
+repository head. It does not replace the dual review in this stale-lock
+procedure, authorize a live recovery session, or permit a cloud mutation.
 
 ## State restoration
 
@@ -84,6 +95,16 @@ If migration or recovery evidence is incomplete or inconsistent, stop all new
 execution, preserve the current state and every version, retain locks until
 ownership is known, and return to report-only investigation. Never relax the
 authorizer or re-enable a legacy fallback to restore availability.
+
+A failed or partial account-baseline materialization is quarantined. Do not
+rerun by adopting a bucket, key, role, or alias that happens to exist; do not
+emit ACCOUNT_READY from partial outputs; and do not delete retained resources
+under this runbook. Reconciliation requires exact stack/resource provenance
+and a separately reviewed forward-recovery or decommission plan.
+
+The unattributed API Gateway access log group is not baseline evidence and is
+not a migration candidate. Preserve it unchanged until ownership and
+provenance are independently established.
 
 ## Current status
 

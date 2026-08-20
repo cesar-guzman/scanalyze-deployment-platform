@@ -2,148 +2,359 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadWriteTerraformState",
+      "Sid": "ListRegionalState",
       "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion",
-        "s3:PutObject"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate"
-    },
-    {
-      "Sid": "ManageTerraformLock",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/*/terraform.tfstate.tflock"
-    },
-    {
-      "Sid": "ReadPlanExecutionZone",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*"
-    },
-    {
-      "Sid": "WriteEvidence",
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
-        "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*"
-      ]
-    },
-    {
-      "Sid": "ReadWriteContracts",
-      "Effect": "Allow",
-      "Action": [
-        "ssm:GetParameter",
-        "ssm:GetParameters",
-        "ssm:GetParametersByPath",
-        "ssm:PutParameter"
-      ],
-      "Resource": "arn:aws:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
-    },
-    {
-      "Sid": "ReadWriteContractPayloads",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*"
-    },
-    {
-      "Sid": "ManageInfrastructure",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:*",
-        "ecs:*",
-        "elasticloadbalancing:*",
-        "dynamodb:*",
-        "s3:*",
-        "sqs:*",
-        "kms:*",
-        "iam:*",
-        "logs:*",
-        "cloudwatch:*",
-        "route53:*",
-        "cloudfront:*",
-        "wafv2:*",
-        "cognito-idp:*",
-        "apigateway:*",
-        "lambda:*",
-        "sns:*",
-        "acm:*",
-        "application-autoscaling:*"
-      ],
-      "Resource": "*",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
-          "aws:PrincipalTag/deployment_id": "${deployment_id}"
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["network", "platform", "data-foundation", "cicd", "services", "edge-identity", "addons"]
+        },
+        "StringLike": {
+          "s3:prefix": [
+            "${deployment_id}/${region}/${aws:PrincipalTag/layer}/terraform.tfstate",
+            "${deployment_id}/${region}/${aws:PrincipalTag/layer}/terraform.tfstate.tflock"
+          ]
         }
       }
     },
     {
-      "Sid": "EncryptDecryptStateKey",
+      "Sid": "ReadWriteRegionalState",
       "Effect": "Allow",
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${state_kms_key_id}"
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/${aws:PrincipalTag/layer}/terraform.tfstate",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["network", "platform", "data-foundation", "cicd", "services", "edge-identity", "addons"]
+        }
+      }
     },
     {
-      "Sid": "EncryptEvidenceKey",
+      "Sid": "ManageRegionalLockfile",
       "Effect": "Allow",
-      "Action": [
-        "kms:Encrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+      "Action": ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${region}/${aws:PrincipalTag/layer}/terraform.tfstate.tflock",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["network", "platform", "data-foundation", "cicd", "services", "edge-identity", "addons"]
+        }
+      }
     },
     {
-      "Sid": "DecryptEvidenceKey",
+      "Sid": "ListGlobalState",
       "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+      "Action": "s3:ListBucket",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["global", "edge"]
+        },
+        "StringLike": {
+          "s3:prefix": [
+            "${deployment_id}/${aws:PrincipalTag/layer}/terraform.tfstate",
+            "${deployment_id}/${aws:PrincipalTag/layer}/terraform.tfstate.tflock"
+          ]
+        }
+      }
     },
     {
-      "Sid": "EncryptDecryptContractsKey",
+      "Sid": "ReadWriteGlobalState",
       "Effect": "Allow",
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${aws:PrincipalTag/layer}/terraform.tfstate",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["global", "edge"]
+        }
+      }
     },
     {
-      "Sid": "DenyIAMUserCreation",
+      "Sid": "ManageGlobalLockfile",
+      "Effect": "Allow",
+      "Action": ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/${deployment_id}/${aws:PrincipalTag/layer}/terraform.tfstate.tflock",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["global", "edge"]
+        }
+      }
+    },
+    {
+      "Sid": "ReadOwnSavedPlanVersion",
+      "Effect": "Allow",
+      "Action": "s3:GetObjectVersion",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "ReadContracts",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "WriteOwnContract",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/${aws:PrincipalTag/layer}/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "ReadContractParameters",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+      "Resource": [
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/${deployment_id}/*",
+        "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
+      ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "WritePlatformContractParameters",
+      "Effect": "Allow",
+      "Action": ["ssm:AddTagsToResource", "ssm:PutParameter"],
+      "Resource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/${deployment_id}/layers/platform/outputs/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "platform"}}
+    },
+    {
+      "Sid": "WriteCicdImageParameters",
+      "Effect": "Allow",
+      "Action": ["ssm:AddTagsToResource", "ssm:PutParameter"],
+      "Resource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/${deployment_id}/cicd/images/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "cicd"}}
+    },
+    {
+      "Sid": "ReadTerraformManagedInfrastructure",
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate", "acm:ListTagsForCertificate", "apigateway:GET",
+        "cloudfront:Get*", "cloudfront:ListTagsForResource",
+        "cloudwatch:Describe*", "cloudwatch:GetDashboard", "cloudwatch:GetMetric*", "cloudwatch:ListMetrics", "cloudwatch:ListTagsForResource",
+        "codebuild:BatchGetProjects", "codebuild:ListProjects", "codecommit:GetRepository", "codecommit:ListTagsForResource",
+        "codepipeline:GetPipeline", "codepipeline:GetPipelineState", "codepipeline:ListTagsForResource",
+        "dynamodb:Describe*", "dynamodb:ListTagsOfResource", "ec2:Describe*",
+        "ecr:Describe*", "ecr:GetLifecyclePolicy", "ecr:GetRepositoryPolicy", "ecr:ListTagsForResource",
+        "ecs:Describe*", "ecs:List*", "elasticloadbalancing:Describe*", "iam:Get*", "iam:List*",
+        "kms:Describe*", "kms:GetKeyPolicy", "kms:GetKeyRotationStatus", "kms:List*",
+        "logs:Describe*", "logs:ListTagsForResource", "route53:Get*", "route53:List*",
+        "s3:GetBucket*", "s3:ListAllMyBuckets", "s3:ListBucket", "sns:GetTopicAttributes", "sns:ListTagsForResource",
+        "sqs:GetQueue*", "sqs:ListQueueTags", "sqs:ListQueues", "wafv2:Get*", "wafv2:List*", "sts:GetCallerIdentity"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/deployment_id": "${deployment_id}",
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["global", "network", "platform", "data-foundation", "cicd", "services", "edge-identity", "edge", "addons"]
+        }
+      }
+    },
+    {
+      "Sid": "ManageNetworkLayer",
+      "Effect": "Allow",
+      "Action": ["ec2:AllocateAddress", "ec2:AssociateRouteTable", "ec2:AttachInternetGateway", "ec2:AuthorizeSecurityGroupEgress", "ec2:AuthorizeSecurityGroupIngress", "ec2:CreateInternetGateway", "ec2:CreateNatGateway", "ec2:CreateRoute", "ec2:CreateRouteTable", "ec2:CreateSecurityGroup", "ec2:CreateSubnet", "ec2:CreateTags", "ec2:CreateVpc", "ec2:CreateVpcEndpoint", "ec2:ModifySubnetAttribute", "ec2:ModifyVpcAttribute", "ec2:ModifyVpcEndpoint", "ec2:ReplaceRoute", "ec2:ReplaceRouteTableAssociation", "ec2:RevokeSecurityGroupEgress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "network"}}
+    },
+    {
+      "Sid": "ManagePlatformLayer",
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupEgress", "ec2:AuthorizeSecurityGroupIngress", "ec2:CreateSecurityGroup", "ec2:CreateTags", "ec2:RevokeSecurityGroupEgress", "ec2:RevokeSecurityGroupIngress", "ecs:CreateCluster", "ecs:PutClusterCapacityProviders", "ecs:TagResource", "ecs:UpdateCluster", "elasticloadbalancing:AddTags", "elasticloadbalancing:CreateListener", "elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:ModifyListener", "elasticloadbalancing:ModifyLoadBalancerAttributes"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "platform"}}
+    },
+    {
+      "Sid": "ManageDataFoundationLayer",
+      "Effect": "Allow",
+      "Action": ["dynamodb:CreateTable", "dynamodb:TagResource", "dynamodb:UntagResource", "dynamodb:UpdateContinuousBackups", "dynamodb:UpdateTable", "dynamodb:UpdateTimeToLive", "s3:CreateBucket", "s3:PutBucketLifecycleConfiguration", "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging", "s3:PutBucketVersioning", "s3:PutEncryptionConfiguration", "sqs:CreateQueue", "sqs:SetQueueAttributes", "sqs:TagQueue", "sqs:UntagQueue"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "data-foundation"}}
+    },
+    {
+      "Sid": "ManageBoundLayerKey",
+      "Effect": "Allow",
+      "Action": "kms:EnableKeyRotation",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["data-foundation", "cicd"],
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "${aws:PrincipalTag/layer}"
+        }
+      }
+    },
+    {
+      "Sid": "TagBoundLayerKey",
+      "Effect": "Allow",
+      "Action": "kms:TagResource",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["data-foundation", "cicd"],
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "${aws:PrincipalTag/layer}",
+          "aws:RequestTag/customer_id": "${customer_id}",
+          "aws:RequestTag/deployment_id": "${deployment_id}",
+          "aws:RequestTag/layer": "${aws:PrincipalTag/layer}"
+        },
+        "ForAllValues:StringEquals": {"aws:TagKeys": ["customer_id", "deployment_id", "layer"]}
+      }
+    },
+    {
+      "Sid": "CreateBoundLayerGrant",
+      "Effect": "Allow",
+      "Action": "kms:CreateGrant",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["data-foundation", "cicd"],
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "${aws:PrincipalTag/layer}"
+        },
+        "Bool": {"kms:GrantIsForAWSResource": "true"},
+        "ForAllValues:StringEquals": {
+          "kms:GrantOperations": ["Decrypt", "DescribeKey", "Encrypt", "GenerateDataKey", "GenerateDataKeyWithoutPlaintext"]
+        }
+      }
+    },
+    {
+      "Sid": "ManageExactDataFoundationAlias",
+      "Effect": "Allow",
+      "Action": ["kms:CreateAlias", "kms:UpdateAlias"],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:alias/${deployment_id}-data",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "data-foundation"}}
+    },
+    {
+      "Sid": "ManageCicdLayer",
+      "Effect": "Allow",
+      "Action": ["codebuild:CreateProject", "codebuild:UpdateProject", "codecommit:CreateRepository", "codecommit:TagResource", "codecommit:UpdateRepositoryDescription", "codepipeline:CreatePipeline", "codepipeline:TagResource", "codepipeline:UpdatePipeline", "ecr:CreateRepository", "ecr:PutLifecyclePolicy", "ecr:PutImageScanningConfiguration", "ecr:PutImageTagMutability", "ecr:SetRepositoryPolicy", "ecr:TagResource", "logs:CreateLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "s3:CreateBucket", "s3:PutBucketLifecycleConfiguration", "s3:PutBucketPublicAccessBlock", "s3:PutBucketTagging", "s3:PutBucketVersioning", "s3:PutEncryptionConfiguration"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "cicd"}}
+    },
+    {
+      "Sid": "ManageExactCicdAlias",
+      "Effect": "Allow",
+      "Action": ["kms:CreateAlias", "kms:UpdateAlias"],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:alias/${deployment_id}-cicd-artifacts",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "cicd"}}
+    },
+    {
+      "Sid": "BindLayerAliasToBoundKey",
+      "Effect": "Allow",
+      "Action": ["kms:CreateAlias", "kms:UpdateAlias"],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["data-foundation", "cicd"],
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "${aws:PrincipalTag/layer}"
+        }
+      }
+    },
+    {
+      "Sid": "PassCodeBuild",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-codebuild-role",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "cicd", "iam:PassedToService": "codebuild.${aws_url_suffix}"}}
+    },
+    {
+      "Sid": "PassCodePipeline",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-codepipeline-role",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "cicd", "iam:PassedToService": "codepipeline.${aws_url_suffix}"}}
+    },
+    {
+      "Sid": "ManageServicesLayer",
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupEgress", "ec2:AuthorizeSecurityGroupIngress", "ec2:CreateSecurityGroup", "ec2:CreateTags", "ec2:RevokeSecurityGroupEgress", "ec2:RevokeSecurityGroupIngress", "ecs:CreateService", "ecs:RegisterTaskDefinition", "ecs:TagResource", "ecs:UpdateService", "elasticloadbalancing:AddTags", "elasticloadbalancing:CreateTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "services"}}
+    },
+    {
+      "Sid": "PassEcsExecution",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-ecs-task-execution",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "services", "iam:PassedToService": "ecs-tasks.${aws_url_suffix}"}}
+    },
+    {
+      "Sid": "ManageEdgeIdentityLayer",
+      "Effect": "Allow",
+      "Action": ["apigateway:DELETE", "apigateway:PATCH", "apigateway:POST", "apigateway:PUT"],
+      "Resource": [
+        "arn:${aws_partition}:apigateway:${region}::/apis*",
+        "arn:${aws_partition}:apigateway:${region}::/vpclinks*",
+        "arn:${aws_partition}:apigateway:${region}::/tags/*"
+      ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "edge-identity"}}
+    },
+    {
+      "Sid": "ManageEdgeLayer",
+      "Effect": "Allow",
+      "Action": ["acm:AddTagsToCertificate", "acm:RequestCertificate", "cloudfront:CreateCachePolicy", "cloudfront:CreateDistribution", "cloudfront:CreateFunction", "cloudfront:CreateOriginAccessControl", "cloudfront:CreateResponseHeadersPolicy", "cloudfront:PublishFunction", "cloudfront:TagResource", "cloudfront:UpdateCachePolicy", "cloudfront:UpdateDistribution", "cloudfront:UpdateFunction", "cloudfront:UpdateOriginAccessControl", "cloudfront:UpdateResponseHeadersPolicy", "route53:ChangeResourceRecordSets", "wafv2:CreateWebACL", "wafv2:TagResource", "wafv2:UpdateWebACL"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "edge"}}
+    },
+    {
+      "Sid": "ManageExactFrontendRuntimeConfig",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/${deployment_id}/config.json",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "edge"}}
+    },
+    {
+      "Sid": "ManageAddonsLayer",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:PutDashboard", "cloudwatch:PutMetricAlarm", "cloudwatch:TagResource", "logs:CreateLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "sns:CreateTopic", "sns:SetTopicAttributes", "sns:TagResource"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply", "aws:PrincipalTag/layer": "addons"}}
+    },
+    {
+      "Sid": "UseApplyBaselineKeys",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:DescribeKey", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
+      ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "DenyTerminalMutation",
       "Effect": "Deny",
-      "Action": [
-        "iam:CreateUser",
-        "iam:CreateAccessKey"
-      ],
-      "Resource": "*"
+      "Action": ["iam:AttachRolePolicy", "iam:DeleteRole", "iam:DeleteRolePermissionsBoundary", "iam:DeleteRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePermissionsBoundary", "iam:PutRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy"],
+      "Resource": [
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Plan",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Apply",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Promotion",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Validation",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic",
+        "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
+      ]
     },
     {
-      "Sid": "DenyOrganizations",
+      "Sid": "DenyEscalation",
       "Effect": "Deny",
-      "Action": [
-        "organizations:*"
-      ],
+      "Action": ["account:*", "aws-portal:*", "billing:*", "budgets:*", "ce:*", "cur:*", "iam:CreateAccessKey", "iam:CreateUser", "iam:DeleteUser", "iam:UpdateLoginProfile", "organizations:*", "sts:AssumeRole"],
       "Resource": "*"
     }
   ]

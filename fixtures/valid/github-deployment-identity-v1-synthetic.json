@@ -1,6 +1,6 @@
 {
   "account_id": "123456789012",
-  "contract_digest": "sha256:d33e075efe32beb2f66f64f49906fbba0aac2a1a13703479930ccf09c258d66a",
+  "contract_digest": "sha256:e85d51dd768a8e46513b18256565dd44c8813e18bb54a3e354f4c8575b2397ed",
   "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "diagnostic_access": {
@@ -225,7 +225,7 @@
       "source_identity_pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "validation": {
-      "allowed_layers": ["synthetic-validation"],
+      "allowed_layers": ["artifact-publication", "synthetic-validation"],
       "max_session_duration_seconds": 900,
       "operation": "validate",
       "required_resource_tags": {

@@ -577,6 +577,7 @@ def test_reproducibility_workflow_has_one_run_per_event_and_pinned_toolchain() -
         if step["name"] == "Set up Terraform"
     )
     assert terraform_step["with"]["terraform_version"] == "1.14.6"
+    assert terraform_step["with"]["terraform_wrapper"] == "false"
     assert (REPO_ROOT / ".terraform-version").read_text(encoding="utf-8").strip() == "1.14.6"
     assert "| Terraform | 1.14.6 " in (
         REPO_ROOT / "REPRODUCIBILITY.md"

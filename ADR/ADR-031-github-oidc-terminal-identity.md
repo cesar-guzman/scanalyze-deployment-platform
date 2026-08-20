@@ -59,8 +59,11 @@ The repository OIDC subject template contains, in order:
 AWS trust uses exact `StringEquals` for `aud=sts.amazonaws.com` and the complete
 derived subject. Wildcards, default subjects, pull-request events, feature
 branches, arbitrary reusable workflows, and dry-run execution are forbidden.
-The first hop is a deployment-tagged orchestrator role with a maximum
-15-minute session.
+The identity contract requires the first-hop caller to request exactly
+`DurationSeconds=900`. IAM role `MaxSessionDuration` cannot be configured below
+one hour, so the role setting alone does not prove a 15-minute session. The
+broker/caller must enforce and negatively test the 900-second request before
+live use.
 
 The subject template is repository-wide. Its live rollout must first inventory
 every existing OIDC consumer and install each new exact trust subject before
@@ -94,16 +97,79 @@ customer, deployment, account, region, environment, operation, and layer tags,
 an approved change ID, a fixed tag allowlist, a non-null `aws:TagKeys` context,
 and `exec_<ULID>` source identity.
 
-Plan cannot become Apply. Promotion is limited to artifact publication.
-Validation is limited to synthetic validation. Customer roles are terminal and
-cannot assume further roles. Sessions are capped at 15 minutes.
+Plan cannot become Apply. Promotion is limited to artifact publication writes.
+Validation remains read-only and is limited to the two validation entrypoints:
+artifact-publication input validation and synthetic validation. The operation is
+always `validate`; Validation never inherits Promotion's publication authority.
+Customer roles are terminal and cannot assume further roles. The child sets the
+minimum supported IAM role maximum of 3,600 seconds, while the identity contract
+requires each AssumeRole request to set `DurationSeconds=900`. That caller-side
+enforcement is downstream and not live-proven; the template by itself does not
+cap a session at 15 minutes.
 
-Diagnostic and StateRecovery remain human break-glass paths. Their trust is
-separate, requires reviewed approval, MFA, exact ownership tags,
-incident/operator evidence, and never names the orchestrator. StateRecovery
-also requires `recovery_approved=true`; the permission is limited to the exact
-principal-tagged account. GUG-123 does not issue that approval or perform
-recovery.
+The dedicated identity roles have a read-only upper bound on objects in
+`scanalyze-shared-releases`; they receive no list, write, or publication action.
+The exact immutable release-digest prefix must be reduced by the per-execution
+session policy. Until that downstream session-policy wiring is implemented and
+verified, identity plan/apply is not deployable or live-ready.
+
+Generic Apply service mutations that still require `Resource: "*"` are an
+account-level upper bound, not proof of resource or layer isolation. A dedicated
+one-deployment account reduces cross-deployment exposure, but session layer tags
+alone do not prevent mutation of manually created or cross-layer resources.
+Per-layer session policies and service-specific ARN/resource-tag bindings are
+downstream requirements for data/runtime/edge execution. Until those controls
+are implemented and negatively tested, no terminal-role assumption or live
+deployment is authorized and this candidate remains `DEPLOYMENT_NO_GO`.
+
+Generic Apply deliberately cannot create roles or policies, attach policies,
+or rewrite trust. The current `modules/global/iam.tf` and
+`modules/cicd/main.tf` still declare those IAM resources, while neither the
+parent nor the terminal-role companion preprovisions the three exact PassRole
+targets. AccountVending must materialize the reviewed roles/policies or those
+modules must be redesigned before global or CI/CD can run. Re-adding IAM create
+authority to generic Apply is not an accepted compatibility path.
+
+IdentityApply likewise cannot create roles, write inline role policies, change
+trust, or retag roles. It may read and pass only the two exact preprovisioned
+identity runtime roles to their exact Lambda functions, with partition-portable
+service binding. The current identity-control-plane Terraform still declares
+those roles and inline policies, so AccountVending must preprovision reviewed
+Lambda-only trusts and policies and the module must migrate to consuming them.
+Identity-control-plane execution remains `DEPLOYMENT_NO_GO` until that work is
+implemented and negatively tested; restoring persistent IAM mutation is not a
+compatibility option.
+
+The closed KMS ownership-tag contracts also intentionally fail against current
+Terraform callers: identity adds `managed_by` and `purpose`, data-foundation
+omits `customer_id`, and CI/CD supplies only `Name` and `layer`. Those modules
+must adopt the exact reviewed customer/deployment/layer request-tag contract
+before KMS create, tag, alias, or grant paths can run. The policies are not
+relaxed to preserve compatibility; identity, data-foundation, and CI/CD remain
+`DEPLOYMENT_NO_GO` until caller tags and negative tests agree.
+
+IAM separates saved-plan and evidence paths but cannot attest object content.
+Apply and IdentityApply therefore have no evidence-bucket PutObject or evidence
+key encrypt/data-key authority, and their boundaries explicitly deny those
+operations. A future evidence publisher must be separately trusted and must
+prove runtime sanitization, evidence-schema validation, and negative content
+tests before it can write COMPLIANCE WORM storage.
+
+Diagnostic remains a human break-glass path with separate trust, reviewed
+approval, MFA, exact ownership tags, incident/operator evidence, and no
+orchestrator principal. StateRecovery is materialized with its future
+least-privilege permissions boundary, but its deployed trust is deliberately
+deny-only. The current break-glass role could otherwise self-assert
+`recovery_approved=true`, which is not independent approval. GUG-123 must wire
+and prove a distinct approval issuer before StateRecovery can gain any Allow
+trust. Until then it is not assumable and cannot perform recovery.
+
+The parent intentionally applies `Retain` to the nested terminal-role stack.
+Deleting or replacing the parent therefore does not revoke the seven live
+Allow trusts or remove the roles. Any future decommission must first revoke or
+replace those trusts, verify that no usable sessions remain, and only then
+retire the retained child through a separately reviewed forward operation.
+Parent deletion alone is never accepted as IAM revocation evidence.
 
 ### 5. Repository workflows remain unprivileged until the live engine exists
 
@@ -150,11 +216,14 @@ default subjects, or broad role trust.
 
 - **Implemented:** candidate schemas, validator, exact trust/policy fixtures,
   synthetic tests, Make gate, ADR, runbook, threat delta, and sanitized source.
+  The fixture-to-CloudFormation union is an offline structural guarantee only.
 - **Locally validated:** only named offline commands for the candidate tree.
 - **CI validated:** pending the exact PR commit.
 - **Live validated:** no.
-- **Blocked:** reviewed PR/main verification, authorized GitHub configuration,
-  IAM Access Analyzer/live STS denial evidence, GUG-124, GUG-125, and GUG-117.
+- **Blocked:** per-execution release-digest session-policy reduction,
+  independent StateRecovery approval issuance and trust activation, reviewed
+  PR/main verification, authorized GitHub configuration, IAM Access
+  Analyzer/live STS denial evidence, GUG-124, GUG-125, and GUG-117.
 - **Production:** **NO-GO**.
 
 ## References

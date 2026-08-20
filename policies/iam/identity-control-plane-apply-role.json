@@ -2,6 +2,24 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ListIdentityState",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        },
+        "StringLike": {
+          "s3:prefix": [
+            "${deployment_id}/${region}/identity-control-plane/terraform.tfstate",
+            "${deployment_id}/${region}/identity-control-plane/terraform.tfstate.tflock"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "ReadWriteIdentityLayerState",
       "Effect": "Allow",
       "Action": [
@@ -25,29 +43,32 @@
       "Sid": "ReadIdentityPlanExecutionZone",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject",
         "s3:GetObjectVersion"
       ],
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*/identity-control-plane/plan.tfplan"
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        }
+      }
     },
     {
-      "Sid": "DecryptEvidenceKey",
+      "Sid": "ReadSavedPlanKey",
       "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt"
-      ],
-      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+      "Action": "kms:Decrypt",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
     },
     {
-      "Sid": "ReadApprovedIdentityArtifacts",
+      "Sid": "ReadApprovedArtifacts",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-shared-releases/${release_digest}/identity-control-plane/*"
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-shared-releases/*"
     },
     {
-      "Sid": "PublishIdentityContractAndEvidence",
+      "Sid": "PublishIdentityContract",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
@@ -58,49 +79,23 @@
       ],
       "Resource": [
         "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/identity-control-plane/*",
-        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/identity-control-plane/*",
         "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/identity-control-plane/*"
       ]
     },
     {
-      "Sid": "CreateTaggedUserPool",
+      "Sid": "ReadPreprovisionedIdentityUserPool",
       "Effect": "Allow",
       "Action": [
-        "cognito-idp:CreateUserPool"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestTag/customer_id": "${customer_id}",
-          "aws:RequestTag/deployment_id": "${deployment_id}"
-        }
-      }
-    },
-    {
-      "Sid": "ManageDeploymentUserPool",
-      "Effect": "Allow",
-      "Action": [
-        "cognito-idp:AddCustomAttributes",
-        "cognito-idp:CreateGroup",
-        "cognito-idp:CreateResourceServer",
-        "cognito-idp:CreateUserPoolClient",
-        "cognito-idp:CreateUserPoolDomain",
         "cognito-idp:DescribeUserPool",
-        "cognito-idp:DescribeUserPoolClient",
         "cognito-idp:GetGroup",
-        "cognito-idp:ListGroups",
-        "cognito-idp:TagResource",
-        "cognito-idp:UntagResource",
-        "cognito-idp:UpdateGroup",
-        "cognito-idp:UpdateResourceServer",
-        "cognito-idp:UpdateUserPool",
-        "cognito-idp:UpdateUserPoolClient",
-        "cognito-idp:UpdateUserPoolDomain"
+        "cognito-idp:ListGroups"
       ],
       "Resource": "arn:${aws_partition}:cognito-idp:${region}:${account_id}:userpool/*",
       "Condition": {
         "StringEquals": {
-          "aws:ResourceTag/deployment_id": "${deployment_id}"
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane"
         }
       }
     },
@@ -108,7 +103,6 @@
       "Sid": "ManageIdentityFunctions",
       "Effect": "Allow",
       "Action": [
-        "lambda:AddPermission",
         "lambda:CreateAlias",
         "lambda:CreateFunction",
         "lambda:GetAlias",
@@ -122,7 +116,12 @@
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration"
       ],
-      "Resource": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-*"
+      "Resource": [
+        "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-pre-token",
+        "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-pre-token:*",
+        "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-control-processor",
+        "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-control-processor:*"
+      ]
     },
     {
       "Sid": "ManageIdentityStores",
@@ -145,53 +144,25 @@
       "Sid": "ManageIdentityQueues",
       "Effect": "Allow",
       "Action": [
-        "sqs:CreateQueue",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl",
         "sqs:ListQueueTags",
-        "sqs:SetQueueAttributes",
         "sqs:TagQueue",
         "sqs:UntagQueue"
       ],
       "Resource": "arn:${aws_partition}:sqs:${region}:${account_id}:${deployment_id}-identity-*"
     },
     {
-      "Sid": "CreateBoundedIdentityRuntimeRoles",
-      "Effect": "Allow",
-      "Action": [
-        "iam:CreateRole"
-      ],
-      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestTag/customer_id": "${customer_id}",
-          "aws:RequestTag/deployment_id": "${deployment_id}",
-          "aws:RequestTag/layer": "identity-control-plane",
-          "iam:PermissionsBoundary": "${identity_runtime_permissions_boundary_arn}"
-        },
-        "ForAllValues:StringEquals": {
-          "aws:TagKeys": [
-            "customer_id",
-            "deployment_id",
-            "layer",
-            "managed_by",
-            "purpose"
-          ]
-        }
-      }
-    },
-    {
-      "Sid": "ManageBoundedIdentityRuntimeRoles",
+      "Sid": "ReadPreprovisionedIdentityRuntimeRoles",
       "Effect": "Allow",
       "Action": [
         "iam:GetRole",
-        "iam:GetRolePolicy",
-        "iam:PutRolePolicy",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:UpdateAssumeRolePolicy"
+        "iam:GetRolePolicy"
       ],
-      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Resource": [
+        "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-${deployment_id}-pre-token",
+        "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-${deployment_id}-control-processor"
+      ],
       "Condition": {
         "StringEquals": {
           "aws:ResourceTag/customer_id": "${customer_id}",
@@ -201,19 +172,23 @@
       }
     },
     {
-      "Sid": "PassBoundedIdentityRuntimeRolesToLambdaOnly",
+      "Sid": "PassPreTokenRoleToFunction",
       "Effect": "Allow",
-      "Action": [
-        "iam:PassRole"
-      ],
-      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Action": "iam:PassRole",
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-${deployment_id}-pre-token",
       "Condition": {
-        "StringEquals": {
-          "iam:PassedToService": "lambda.amazonaws.com"
-        },
-        "ArnLike": {
-          "iam:AssociatedResourceArn": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-*"
-        }
+        "StringEquals": {"iam:PassedToService": "lambda.${aws_url_suffix}"},
+        "ArnLike": {"iam:AssociatedResourceArn": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-pre-token"}
+      }
+    },
+    {
+      "Sid": "PassControlProcessorRoleToFunction",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-${deployment_id}-control-processor",
+      "Condition": {
+        "StringEquals": {"iam:PassedToService": "lambda.${aws_url_suffix}"},
+        "ArnLike": {"iam:AssociatedResourceArn": "arn:${aws_partition}:lambda:${region}:${account_id}:function:${deployment_id}-identity-control-processor"}
       }
     },
     {
@@ -221,16 +196,22 @@
       "Effect": "Allow",
       "Action": [
         "cloudwatch:DescribeAlarms",
-        "logs:DescribeLogGroups"
+        "logs:DescribeLogGroups",
+        "sts:GetCallerIdentity"
       ],
-      "Resource": "*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": "identity-control-plane"
+        }
+      }
     },
     {
-      "Sid": "ManageIdentityAlarms",
+      "Sid": "TagPreprovisionedIdentityAlarms",
       "Effect": "Allow",
       "Action": [
         "cloudwatch:ListTagsForResource",
-        "cloudwatch:PutMetricAlarm",
         "cloudwatch:TagResource",
         "cloudwatch:UntagResource"
       ],
@@ -251,32 +232,14 @@
       "Resource": "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/aws/lambda/${deployment_id}-identity-*"
     },
     {
-      "Sid": "CreateTaggedIdentityEncryptionKey",
-      "Effect": "Allow",
-      "Action": [
-        "kms:CreateKey"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestTag/customer_id": "${customer_id}",
-          "aws:RequestTag/deployment_id": "${deployment_id}",
-          "aws:RequestTag/layer": "identity-control-plane"
-        }
-      }
-    },
-    {
       "Sid": "ManageTaggedIdentityEncryptionKey",
       "Effect": "Allow",
       "Action": [
-        "kms:CreateGrant",
         "kms:DescribeKey",
         "kms:EnableKeyRotation",
         "kms:GetKeyPolicy",
         "kms:GetKeyRotationStatus",
-        "kms:ListResourceTags",
-        "kms:TagResource",
-        "kms:UntagResource"
+        "kms:ListResourceTags"
       ],
       "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
       "Condition": {
@@ -284,9 +247,50 @@
           "aws:ResourceTag/customer_id": "${customer_id}",
           "aws:ResourceTag/deployment_id": "${deployment_id}",
           "aws:ResourceTag/layer": "identity-control-plane"
+        }
+      }
+    },
+    {
+      "Sid": "TagBoundIdentityEncryptionKey",
+      "Effect": "Allow",
+      "Action": "kms:TagResource",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane",
+          "aws:RequestTag/customer_id": "${customer_id}",
+          "aws:RequestTag/deployment_id": "${deployment_id}",
+          "aws:RequestTag/layer": "identity-control-plane"
         },
-        "BoolIfExists": {
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": ["customer_id", "deployment_id", "layer"]
+        }
+      }
+    },
+    {
+      "Sid": "CreateBoundIdentityEncryptionGrant",
+      "Effect": "Allow",
+      "Action": "kms:CreateGrant",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane"
+        },
+        "Bool": {
           "kms:GrantIsForAWSResource": "true"
+        },
+        "ForAllValues:StringEquals": {
+          "kms:GrantOperations": [
+            "Decrypt",
+            "DescribeKey",
+            "Encrypt",
+            "GenerateDataKey",
+            "GenerateDataKeyWithoutPlaintext"
+          ]
         }
       }
     },
@@ -297,10 +301,23 @@
         "kms:CreateAlias",
         "kms:UpdateAlias"
       ],
-      "Resource": [
-        "arn:${aws_partition}:kms:${region}:${account_id}:alias/${deployment_id}-identity",
-        "arn:${aws_partition}:kms:${region}:${account_id}:key/*"
-      ]
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:alias/${deployment_id}-identity"
+    },
+    {
+      "Sid": "BindIdentityAliasToOwnedKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/customer_id": "${customer_id}",
+          "aws:ResourceTag/deployment_id": "${deployment_id}",
+          "aws:ResourceTag/layer": "identity-control-plane"
+        }
+      }
     },
     {
       "Sid": "UseDeploymentInfrastructureEncryptionKeys",
@@ -349,9 +366,13 @@
       "Sid": "DenyRemovalOfIdentityBindingTags",
       "Effect": "Deny",
       "Action": [
-        "iam:UntagRole"
+        "cognito-idp:UntagResource",
+        "kms:UntagResource"
       ],
-      "Resource": "arn:${aws_partition}:iam::${account_id}:role/scanalyze/${deployment_id}/identity-*",
+      "Resource": [
+        "arn:${aws_partition}:cognito-idp:${region}:${account_id}:userpool/*",
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/*"
+      ],
       "Condition": {
         "ForAnyValue:StringEquals": {
           "aws:TagKeys": [

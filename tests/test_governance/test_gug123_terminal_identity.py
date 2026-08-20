@@ -263,7 +263,9 @@ def _identity() -> dict:
                 "promotion", "promote", ["artifact-publication"]
             ),
             "validation": _terminal(
-                "validation", "validate", ["synthetic-validation"]
+                "validation",
+                "validate",
+                ["artifact-publication", "synthetic-validation"],
             ),
         },
         "diagnostic_access": {
@@ -611,6 +613,7 @@ def test_unanchored_platform_authority_or_role_tag_drift_is_denied() -> None:
         ("plan", "required_session_tags", ["deployment_id"]),
         ("apply", "source_identity_pattern", ".*"),
         ("identity_plan", "allowed_layers", ["services"]),
+        ("validation", "allowed_layers", ["synthetic-validation"]),
         (
             "identity_apply",
             "role_arn",

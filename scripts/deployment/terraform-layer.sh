@@ -3,9 +3,10 @@
 
 set -euo pipefail
 IFS=$'\n\t'
+umask 077
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+readonly SCRIPT_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly REPO_ROOT="$(cd -P -- "${SCRIPT_DIR}/../.." && pwd -P)"
 
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 info() { printf 'INFO: %s\n' "$*"; }
@@ -79,15 +80,21 @@ done
 [[ -n "$DEPLOYMENT_ID" ]] || die "--deployment-id is required"
 [[ -n "$ACCOUNT_ID" ]] || die "--account-id is required"
 [[ -n "$REGION" ]] || die "--region is required"
-[[ -n "$RELEASE_VERSION" ]] || die "--release-version is required"
-[[ -n "$RELEASE_DIGEST" ]] || die "--release-digest is required"
-[[ -n "$RESOLVED_INPUT" ]] || die "--resolved-input is required"
 [[ -n "$MANIFEST" ]] || die "--manifest is required"
 [[ -n "$TARGET_RECORD" ]] || die "--target-record is required"
 [[ -n "$TARGET_ANCHOR" ]] || die "--target-anchor is required"
 [[ -n "$ACCOUNT_READY_CONTRACT" ]] || die "--account-ready is required"
-[[ -n "$EXECUTION_LOCK" ]] || die "--execution-lock is required"
-[[ -n "$EXECUTION_ID" ]] || die "--execution-id is required"
+
+BACKENDLESS_GATE=false
+if [[ "$LAYER" == "account-ready-gate" ]]; then
+  BACKENDLESS_GATE=true
+else
+  [[ -n "$RELEASE_VERSION" ]] || die "--release-version is required"
+  [[ -n "$RELEASE_DIGEST" ]] || die "--release-digest is required"
+  [[ -n "$RESOLVED_INPUT" ]] || die "--resolved-input is required"
+  [[ -n "$EXECUTION_LOCK" ]] || die "--execution-lock is required"
+  [[ -n "$EXECUTION_ID" ]] || die "--execution-id is required"
+fi
 
 ROOT_DIR="${REPO_ROOT}/roots/${LAYER}"
 [[ -d "$ROOT_DIR" ]] || die "Layer root not found"
@@ -100,16 +107,75 @@ if grep -q '^variable "environment"' "${ROOT_DIR}"/*.tf && [[ -z "$ENVIRONMENT" 
   die "--environment is required for layer ${LAYER}"
 fi
 
-ABS_PLAN_DIR="$(cd "$PLAN_DIR" && pwd)" || die "--plan-dir does not exist"
+ABS_PLAN_DIR="$(cd -P -- "$PLAN_DIR" 2>/dev/null && pwd -P)" \
+  || die "--plan-dir does not exist"
 [[ "$ABS_PLAN_DIR" != "$REPO_ROOT" && "$ABS_PLAN_DIR" != "$REPO_ROOT/"* ]] \
   || die "--plan-dir must be outside the repository"
 
 MATERIALIZED_VARS="${ABS_PLAN_DIR}/.${LAYER}.$$.auto.tfvars.json"
 BACKEND_CONFIG="${ABS_PLAN_DIR}/.${LAYER}.$$.backend.hcl"
 BACKEND_BINDING="${ABS_PLAN_DIR}/.${LAYER}.$$.backend-binding.json"
-PLAN_FILE="${ABS_PLAN_DIR}/${LAYER}.tfplan"
-PLAN_SUMMARY="${ABS_PLAN_DIR}/${LAYER}-plan-summary.txt"
+FINAL_PLAN_FILE="${ABS_PLAN_DIR}/${LAYER}.tfplan"
+FINAL_PLAN_SUMMARY="${ABS_PLAN_DIR}/${LAYER}-plan-summary.txt"
+PLAN_FILE=""
+PLAN_SUMMARY=""
 TERRAFORM_HOME=""
+TERRAFORM_ROOT="$ROOT_DIR"
+
+refuse_existing_artifact() {
+  local destination="$1"
+  local label="$2"
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    die "${label} destination already exists"
+  fi
+}
+
+publish_private_artifacts() {
+  python3 - \
+    "$PLAN_SUMMARY" "$FINAL_PLAN_SUMMARY" \
+    "$PLAN_FILE" "$FINAL_PLAN_FILE" <<'PY'
+import os
+import stat
+import sys
+
+pairs = list(zip(sys.argv[1::2], sys.argv[2::2], strict=True))
+identities = {}
+created = []
+
+try:
+    for staged, destination in pairs:
+        descriptor = os.open(
+            staged,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise OSError("staged artifact is not regular")
+            os.fchmod(descriptor, 0o600)
+            identities[destination] = (metadata.st_dev, metadata.st_ino)
+        finally:
+            os.close(descriptor)
+
+    for staged, destination in pairs:
+        os.link(staged, destination, follow_symlinks=False)
+        created.append(destination)
+except (OSError, TypeError, ValueError):
+    for destination in created:
+        try:
+            metadata = os.stat(destination, follow_symlinks=False)
+            if (metadata.st_dev, metadata.st_ino) == identities[destination]:
+                os.unlink(destination)
+        except OSError:
+            pass
+    print("DENY: private plan artifact publication failed", file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
+
+refuse_existing_artifact "$FINAL_PLAN_FILE" "Terraform plan"
+refuse_existing_artifact "$FINAL_PLAN_SUMMARY" "Terraform plan summary"
+
 cleanup() {
   rm -f -- "$MATERIALIZED_VARS" "$BACKEND_CONFIG" "$BACKEND_BINDING"
   if [[ -n "$TERRAFORM_HOME" && -d "$TERRAFORM_HOME" ]]; then
@@ -118,24 +184,42 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 "${REPO_ROOT}/tooling/authorize_deployment_backend.py" \
-  --manifest "$MANIFEST" \
-  --target "$TARGET_RECORD" \
-  --target-anchor "$TARGET_ANCHOR" \
-  --account-ready "$ACCOUNT_READY_CONTRACT" \
-  --execution-lock "$EXECUTION_LOCK" \
-  --layer-catalog "${REPO_ROOT}/deployment/layers.yaml" \
-  --layer "$LAYER" \
-  --backend-out "$BACKEND_CONFIG" \
-  --binding-out "$BACKEND_BINDING" \
-  --expected-customer-id "$CUSTOMER_ID" \
-  --expected-deployment-id "$DEPLOYMENT_ID" \
-  --expected-account-id "$ACCOUNT_ID" \
-  --expected-region "$REGION" \
-  --expected-execution-id "$EXECUTION_ID" \
-  || die "Authorized registry-backed backend binding is required"
+terraform_variables=()
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  python3 "${REPO_ROOT}/tooling/authorize_deployment_backend.py" \
+    --backendless-gate \
+    --manifest "$MANIFEST" \
+    --target "$TARGET_RECORD" \
+    --target-anchor "$TARGET_ANCHOR" \
+    --account-ready "$ACCOUNT_READY_CONTRACT" \
+    --layer "$LAYER" \
+    --gate-vars-out "$MATERIALIZED_VARS" \
+    --expected-customer-id "$CUSTOMER_ID" \
+    --expected-deployment-id "$DEPLOYMENT_ID" \
+    --expected-account-id "$ACCOUNT_ID" \
+    --expected-region "$REGION" \
+    --expected-environment "$ENVIRONMENT" \
+    || die "Verified ACCOUNT_READY v2 gate binding is required"
+  terraform_variables=("-var-file=${MATERIALIZED_VARS}")
+else
+  python3 "${REPO_ROOT}/tooling/authorize_deployment_backend.py" \
+    --manifest "$MANIFEST" \
+    --target "$TARGET_RECORD" \
+    --target-anchor "$TARGET_ANCHOR" \
+    --account-ready "$ACCOUNT_READY_CONTRACT" \
+    --execution-lock "$EXECUTION_LOCK" \
+    --layer-catalog "${REPO_ROOT}/deployment/layers.yaml" \
+    --layer "$LAYER" \
+    --backend-out "$BACKEND_CONFIG" \
+    --binding-out "$BACKEND_BINDING" \
+    --expected-customer-id "$CUSTOMER_ID" \
+    --expected-deployment-id "$DEPLOYMENT_ID" \
+    --expected-account-id "$ACCOUNT_ID" \
+    --expected-region "$REGION" \
+    --expected-execution-id "$EXECUTION_ID" \
+    || die "Authorized registry-backed backend binding is required"
 
-AUTHORIZED_ENVIRONMENT="$(python3 - "$BACKEND_BINDING" <<'PY'
+  AUTHORIZED_ENVIRONMENT="$(python3 - "$BACKEND_BINDING" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -146,13 +230,13 @@ if not isinstance(value, str) or not value:
     raise SystemExit("authorized environment binding is unavailable")
 print(value)
 PY
-)" || die "Unable to read environment from the authorized backend binding"
-[[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$AUTHORIZED_ENVIRONMENT" ]] \
-  || die "--environment conflicts with the authorized deployment target"
-ENVIRONMENT="$AUTHORIZED_ENVIRONMENT"
+  )" || die "Unable to read environment from the authorized backend binding"
+  [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$AUTHORIZED_ENVIRONMENT" ]] \
+    || die "--environment conflicts with the authorized deployment target"
+  ENVIRONMENT="$AUTHORIZED_ENVIRONMENT"
 
-if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
-  AUTHORIZED_DOMAIN_NAME="$(python3 - "$BACKEND_BINDING" <<'PY'
+  if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
+    AUTHORIZED_DOMAIN_NAME="$(python3 - "$BACKEND_BINDING" <<'PY'
 import sys
 import json
 from pathlib import Path
@@ -170,53 +254,54 @@ if not isinstance(value, str) or not value:
     raise SystemExit("authorized runtime-origin domain is unavailable")
 print(value)
 PY
-)" || die "Unable to read domain from the authorized backend binding"
-  [[ "$DOMAIN_NAME" == "$AUTHORIZED_DOMAIN_NAME" ]] \
-    || die "--domain-name conflicts with the authorized deployment target"
-  DOMAIN_NAME="$AUTHORIZED_DOMAIN_NAME"
-fi
+    )" || die "Unable to read domain from the authorized backend binding"
+    [[ "$DOMAIN_NAME" == "$AUTHORIZED_DOMAIN_NAME" ]] \
+      || die "--domain-name conflicts with the authorized deployment target"
+    DOMAIN_NAME="$AUTHORIZED_DOMAIN_NAME"
+  fi
 
-CALLER_ACCOUNT="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
-  || die "Unable to verify AWS caller identity"
-[[ "$CALLER_ACCOUNT" == "$ACCOUNT_ID" ]] \
-  || die "Caller account does not match the expected account"
-pass "Account binding verified"
+  CALLER_ACCOUNT="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
+    || die "Unable to verify AWS caller identity"
+  [[ "$CALLER_ACCOUNT" == "$ACCOUNT_ID" ]] \
+    || die "Caller account does not match the expected account"
+  pass "Account binding verified"
 
-export AWS_REGION="$REGION"
-export AWS_DEFAULT_REGION="$REGION"
+  export AWS_REGION="$REGION"
+  export AWS_DEFAULT_REGION="$REGION"
 
-python3 "${SCRIPT_DIR}/validate-contract-resolution.py" \
-  --resolution "$RESOLVED_INPUT" \
-  --layer "$LAYER" \
-  --customer-id "$CUSTOMER_ID" \
-  --deployment-id "$DEPLOYMENT_ID" \
-  --account-id "$ACCOUNT_ID" \
-  --region "$REGION" \
-  --release-version "$RELEASE_VERSION" \
-  --release-digest "$RELEASE_DIGEST" \
-  --materialize-out "$MATERIALIZED_VARS" \
-  || die "Verified contract resolution is required before Terraform plan"
+  python3 "${SCRIPT_DIR}/validate-contract-resolution.py" \
+    --resolution "$RESOLVED_INPUT" \
+    --layer "$LAYER" \
+    --customer-id "$CUSTOMER_ID" \
+    --deployment-id "$DEPLOYMENT_ID" \
+    --account-id "$ACCOUNT_ID" \
+    --region "$REGION" \
+    --release-version "$RELEASE_VERSION" \
+    --release-digest "$RELEASE_DIGEST" \
+    --materialize-out "$MATERIALIZED_VARS" \
+    || die "Verified contract resolution is required before Terraform plan"
 
-terraform_variables=(
-  "-var-file=${MATERIALIZED_VARS}"
-  "-var=deployment_id=${DEPLOYMENT_ID}"
-  "-var=account_id=${ACCOUNT_ID}"
-  "-var=region=${REGION}"
-)
-if grep -q '^variable "customer_id"' "${ROOT_DIR}"/*.tf; then
-  terraform_variables+=("-var=customer_id=${CUSTOMER_ID}")
-fi
-if grep -q '^variable "environment"' "${ROOT_DIR}"/*.tf; then
-  terraform_variables+=("-var=environment=${ENVIRONMENT}")
-fi
-if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
-  terraform_variables+=("-var=domain_name=${DOMAIN_NAME}")
-fi
-if grep -q '^variable "release_version"' "${ROOT_DIR}"/*.tf; then
-  terraform_variables+=("-var=release_version=${RELEASE_VERSION}")
-fi
-if grep -q '^variable "release_manifest_digest"' "${ROOT_DIR}"/*.tf; then
-  terraform_variables+=("-var=release_manifest_digest=${RELEASE_DIGEST}")
+  terraform_variables=(
+    "-var-file=${MATERIALIZED_VARS}"
+    "-var=deployment_id=${DEPLOYMENT_ID}"
+    "-var=account_id=${ACCOUNT_ID}"
+    "-var=region=${REGION}"
+  )
+  if grep -q '^variable "customer_id"' "${ROOT_DIR}"/*.tf; then
+    terraform_variables+=("-var=customer_id=${CUSTOMER_ID}")
+  fi
+  if grep -q '^variable "environment"' "${ROOT_DIR}"/*.tf; then
+    terraform_variables+=("-var=environment=${ENVIRONMENT}")
+  fi
+  if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
+    terraform_variables+=("-var=domain_name=${DOMAIN_NAME}")
+  fi
+  if grep -q '^variable "release_version"' "${ROOT_DIR}"/*.tf; then
+    terraform_variables+=("-var=release_version=${RELEASE_VERSION}")
+  fi
+  if grep -q '^variable "release_manifest_digest"' "${ROOT_DIR}"/*.tf; then
+    terraform_variables+=("-var=release_manifest_digest=${RELEASE_DIGEST}")
+  fi
 fi
 
 TERRAFORM_BIN="$(command -v terraform)" \
@@ -225,8 +310,52 @@ TERRAFORM_HOME="$(mktemp -d "${ABS_PLAN_DIR}/.${LAYER}.terraform-home.XXXXXX")" 
   || die "Unable to create controlled Terraform environment"
 chmod 0700 "$TERRAFORM_HOME"
 mkdir -m 0700 "$TERRAFORM_HOME/tmp"
-printf '' > "${TERRAFORM_HOME}/terraform.rc"
+mkdir -m 0700 "$TERRAFORM_HOME/artifacts"
+mkdir -m 0700 "$TERRAFORM_HOME/data"
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  mkdir -m 0700 "$TERRAFORM_HOME/provider-mirror"
+  python3 - \
+    "$TERRAFORM_HOME/provider-mirror" \
+    "$TERRAFORM_HOME/terraform.rc" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+mirror_path, configuration_path = sys.argv[1:]
+Path(configuration_path).write_text(
+    "provider_installation {\n"
+    "  filesystem_mirror {\n"
+    f"    path = {json.dumps(mirror_path)}\n"
+    "  }\n"
+    "}\n",
+    encoding="utf-8",
+)
+PY
+else
+  printf '' > "${TERRAFORM_HOME}/terraform.rc"
+fi
 chmod 0600 "${TERRAFORM_HOME}/terraform.rc"
+PLAN_FILE="${TERRAFORM_HOME}/artifacts/${LAYER}.tfplan"
+PLAN_SUMMARY="${TERRAFORM_HOME}/artifacts/${LAYER}-plan-summary.txt"
+: > "$PLAN_FILE"
+chmod 0600 "$PLAN_FILE"
+: > "$PLAN_SUMMARY"
+chmod 0600 "$PLAN_SUMMARY"
+
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  TERRAFORM_ROOT="${TERRAFORM_HOME}/root"
+  mkdir -m 0700 "$TERRAFORM_ROOT"
+  gate_configuration_found=false
+  for configuration_file in "$ROOT_DIR"/*.tf; do
+    [[ -f "$configuration_file" && ! -L "$configuration_file" ]] \
+      || die "ACCOUNT_READY gate configuration must contain only regular Terraform files"
+    cp -- "$configuration_file" "$TERRAFORM_ROOT/"
+    chmod 0600 "${TERRAFORM_ROOT}/$(basename -- "$configuration_file")"
+    gate_configuration_found=true
+  done
+  [[ "$gate_configuration_found" == true ]] \
+    || die "ACCOUNT_READY gate configuration is unavailable"
+fi
 
 terraform_environment=(
   "HOME=${TERRAFORM_HOME}"
@@ -252,31 +381,63 @@ preserved_aws_environment=(
   AWS_SDK_LOAD_CONFIG
   AWS_EC2_METADATA_DISABLED
 )
-for variable_name in "${preserved_aws_environment[@]}"; do
-  variable_value="${!variable_name:-}"
-  if [[ -n "$variable_value" ]]; then
-    terraform_environment+=("${variable_name}=${variable_value}")
-  fi
-done
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  terraform_environment+=(
+    "AWS_EC2_METADATA_DISABLED=true"
+    "CHECKPOINT_DISABLE=1"
+    "TF_DATA_DIR=${TERRAFORM_HOME}/data"
+  )
+else
+  for variable_name in "${preserved_aws_environment[@]}"; do
+    variable_value="${!variable_name:-}"
+    if [[ -n "$variable_value" ]]; then
+      terraform_environment+=("${variable_name}=${variable_value}")
+    fi
+  done
+fi
 
-info "Initializing verified registry-backed layer plan..."
-env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$ROOT_DIR" init \
-  -input=false \
-  -no-color \
-  -reconfigure \
-  -backend-config="$BACKEND_CONFIG" \
-  >/dev/null
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  info "Initializing verified ACCOUNT_READY gate without a backend..."
+  env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" init \
+    -backend=false \
+    -input=false \
+    -no-color \
+    >/dev/null
+else
+  info "Initializing verified registry-backed layer plan..."
+  env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" init \
+    -input=false \
+    -no-color \
+    -reconfigure \
+    -backend-config="$BACKEND_CONFIG" \
+    >/dev/null
+fi
 
 info "Planning verified layer..."
-env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$ROOT_DIR" plan \
-  -input=false \
-  -no-color \
-  -out="$PLAN_FILE" \
-  "${terraform_variables[@]}" \
-  2>&1 | tee "$PLAN_SUMMARY"
+if [[ "$BACKENDLESS_GATE" == true ]]; then
+  env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
+    -input=false \
+    -no-color \
+    -refresh=false \
+    -lock=false \
+    -state="${TERRAFORM_HOME}/gate-empty.tfstate" \
+    -out="$PLAN_FILE" \
+    "${terraform_variables[@]}" \
+    2>&1 | tee "$PLAN_SUMMARY"
+else
+  env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
+    -input=false \
+    -no-color \
+    -out="$PLAN_FILE" \
+    "${terraform_variables[@]}" \
+    2>&1 | tee "$PLAN_SUMMARY"
+fi
 
 if grep -qE '(destroy|replace)' "$PLAN_SUMMARY" 2>/dev/null; then
   warn "Destructive changes detected; reviewed approval remains mandatory."
 fi
+
+publish_private_artifacts \
+  || die "Unable to publish private Terraform plan artifacts"
 
 pass "Verified plan saved outside the repository"
