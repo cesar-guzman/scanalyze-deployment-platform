@@ -74,7 +74,7 @@ def _resolution(layer: str, *, tamper: bool = False) -> dict:
         "module_source_digest": "sha256:" + ("d" * 64),
     }
     document = {
-        "schema_version": "2",
+        "schema_version": "3",
         "consumer_layer": layer,
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
@@ -91,6 +91,28 @@ def _resolution(layer: str, *, tamper: bool = False) -> dict:
         document["required_contracts"][0]["outputs"][
             "ecs_execution_role_arn"
         ] = f"arn:aws:iam::{ACCOUNT_ID}:role/Unreviewed"
+    return document
+
+
+def _account_ready_resolution(account_ready: dict, *, tamper: bool = False) -> dict:
+    document = {
+        "schema_version": "3",
+        "consumer_layer": "global",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "aws_account_id": ACCOUNT_ID,
+        "region": "us-east-1",
+        "release_digest": RELEASE_DIGEST,
+        "release_version": RELEASE_VERSION,
+        "resolved_at": "2026-07-14T00:05:00Z",
+        "max_contract_age_seconds": 3600,
+        "required_contracts": [
+            {"contract_id": "account-ready/v2", "contract": account_ready}
+        ],
+    }
+    document["resolution_digest"] = compute_digest(canonicalize(document))
+    if tamper:
+        document["required_contracts"][0]["contract"]["environment"] = "unreviewed"
     return document
 
 
@@ -229,26 +251,43 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
 def _run_layer_plan(
     tmp_path: Path,
     *,
+    layer: str = "network",
     include_resolution: bool = True,
     tamper_resolution: bool = False,
+    tamper_backend_binding: str | None = None,
+    plan_parent_mode: int | None = None,
+    plan_dir_mode: int | None = None,
     ambient_environment: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict, str]:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    plan_dir = tmp_path / "plans"
+    plan_parent = tmp_path
+    if plan_parent_mode is not None:
+        plan_parent = tmp_path / "plan-parent"
+        plan_parent.mkdir()
+        plan_parent.chmod(plan_parent_mode)
+    plan_dir = plan_parent / "plans"
     plan_dir.mkdir()
+    if plan_dir_mode is not None:
+        plan_dir.chmod(plan_dir_mode)
     capture_path = tmp_path / "terraform-variables.json"
     backend_capture_path = tmp_path / "terraform-backend.hcl"
     terraform_environment_path = tmp_path / "terraform-environment.txt"
     aws_marker_path = tmp_path / "aws-called"
     terraform_marker_path = tmp_path / "terraform-called"
+    backend = _backend_evidence(tmp_path)
+    account_ready = json.loads(backend["account_ready"].read_text(encoding="utf-8"))
+    resolution = (
+        _account_ready_resolution(account_ready, tamper=tamper_resolution)
+        if layer == "global"
+        else _resolution(layer, tamper=tamper_resolution)
+    )
     resolution_path = tmp_path / "resolution.json"
     resolution_path.write_text(
-        json.dumps(_resolution("network", tamper=tamper_resolution)),
+        json.dumps(resolution),
         encoding="utf-8",
     )
     resolution_path.chmod(0o600)
-    backend = _backend_evidence(tmp_path)
 
     _write_executable(
         fake_bin / "aws",
@@ -281,13 +320,93 @@ def _run_layer_plan(
         exit 64
         """,
     )
+    if tamper_backend_binding is not None:
+        tamper_script = fake_bin / "tamper-backend-binding.py"
+        tamper_script.write_text(
+            textwrap.dedent(
+                """
+                import hashlib
+                import json
+                import os
+                import sys
+                from pathlib import Path
+
+                binding_path = Path(sys.argv[1])
+                backend_path = Path(sys.argv[2])
+                mode = sys.argv[3]
+                plan_dir = Path(sys.argv[4])
+                if mode == "replace-plan-dir":
+                    displaced = plan_dir.with_name("displaced-plan-directory")
+                    os.replace(plan_dir, displaced)
+                    plan_dir.mkdir(mode=0o700)
+                elif mode == "symlink":
+                    binding_path.unlink()
+                    binding_path.symlink_to(backend_path)
+                else:
+                    document = json.loads(binding_path.read_text(encoding="utf-8"))
+                    if mode == "stale-digest":
+                        document["account_ready_digest"] = "sha256:" + ("0" * 64)
+                    elif mode == "foreign-tuple":
+                        document["account_id"] = "999888777666"
+                        unsigned = {
+                            key: value
+                            for key, value in document.items()
+                            if key != "binding_digest"
+                        }
+                        canonical = json.dumps(
+                            unsigned,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            ensure_ascii=True,
+                        ).encode("ascii")
+                        document["binding_digest"] = (
+                            "sha256:" + hashlib.sha256(canonical).hexdigest()
+                        )
+                    else:
+                        raise SystemExit("unsupported test tamper mode")
+                    replacement = binding_path.with_name("replacement-binding.json")
+                    replacement.write_text(
+                        json.dumps(document, sort_keys=True, indent=2) + "\\n",
+                        encoding="utf-8",
+                    )
+                    replacement.chmod(0o600)
+                    os.replace(replacement, binding_path)
+                """
+            ).lstrip(),
+            encoding="utf-8",
+        )
+        _write_executable(
+            fake_bin / "python3",
+            f"""
+            #!/usr/bin/env bash
+            set -u
+            real_python={shlex.quote(sys.executable)}
+            "$real_python" "$@"
+            status=$?
+            if [[ "$status" -eq 0 && "${{1:-}}" == {shlex.quote(str(REPO_ROOT / "tooling" / "authorize_deployment_backend.py"))} ]]; then
+              binding_out=""
+              backend_out=""
+              while [[ "$#" -gt 0 ]]; do
+                case "$1" in
+                  --binding-out) binding_out="$2"; shift 2 ;;
+                  --backend-out) backend_out="$2"; shift 2 ;;
+                  *) shift ;;
+                esac
+              done
+              "$real_python" {shlex.quote(str(tamper_script))} \
+                "$binding_out" "$backend_out" {shlex.quote(tamper_backend_binding)} \
+                {shlex.quote(str(plan_dir))}
+            fi
+            exit "$status"
+            """,
+        )
 
     command = [
         "bash",
         str(REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh"),
         "plan",
         "--layer",
-        "network",
+        layer,
         "--plan-dir",
         str(plan_dir),
         "--customer-id",
@@ -467,6 +586,96 @@ def test_plan_uses_only_verified_materialized_variables(tmp_path: Path) -> None:
         "TF_INPUT",
     }
     assert "UNREVIEWED_AMBIENT" not in environment_names
+
+
+def test_global_plan_uses_backend_anchored_account_ready_v3(tmp_path: Path) -> None:
+    result, captured, backend = _run_layer_plan(tmp_path, layer="global")
+
+    account_ready = json.loads(
+        (tmp_path / "account-ready.json").read_text(encoding="utf-8")
+    )
+    assert result.returncode == 0, result.stderr
+    assert captured == {
+        "expected_upstream_digest": account_ready["contract_digest"],
+        "upstream_contract_digest": account_ready["contract_digest"],
+        "upstream_schema_version": "2",
+    }
+    assert "use_lockfile = true" in backend
+    assert (tmp_path / "aws-called").is_file()
+    assert (tmp_path / "terraform-called").is_file()
+
+
+@pytest.mark.parametrize(
+    "tamper_mode",
+    ["symlink", "stale-digest", "foreign-tuple"],
+)
+def test_plan_rejects_replaced_backend_binding_before_aws_or_terraform(
+    tmp_path: Path,
+    tamper_mode: str,
+) -> None:
+    result, captured, backend = _run_layer_plan(
+        tmp_path,
+        layer="global",
+        tamper_backend_binding=tamper_mode,
+    )
+
+    assert result.returncode == 2
+    assert "Unable to revalidate authorized backend binding" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert CUSTOMER_ID not in result.stderr
+    assert DEPLOYMENT_ID not in result.stderr
+    assert ACCOUNT_ID not in result.stderr
+    assert not (tmp_path / "aws-called").exists()
+    assert not (tmp_path / "terraform-called").exists()
+    assert captured == {}
+    assert backend == ""
+
+
+def test_plan_rejects_plan_directory_replacement_before_aws_or_terraform(
+    tmp_path: Path,
+) -> None:
+    result, captured, backend = _run_layer_plan(
+        tmp_path,
+        layer="global",
+        tamper_backend_binding="replace-plan-dir",
+    )
+
+    assert result.returncode == 2
+    assert "Plan directory identity changed after backend authorization" in result.stderr
+    assert not (tmp_path / "aws-called").exists()
+    assert not (tmp_path / "terraform-called").exists()
+    assert captured == {}
+    assert backend == ""
+
+
+def test_plan_rejects_non_owner_controlled_plan_directory_before_subprocesses(
+    tmp_path: Path,
+) -> None:
+    result, captured, backend = _run_layer_plan(tmp_path, plan_dir_mode=0o770)
+
+    assert result.returncode == 2
+    assert "owner-controlled" in result.stderr
+    assert not (tmp_path / "aws-called").exists()
+    assert not (tmp_path / "terraform-called").exists()
+    assert captured == {}
+    assert backend == ""
+
+
+def test_plan_rejects_writable_plan_directory_ancestor_before_subprocesses(
+    tmp_path: Path,
+) -> None:
+    result, captured, backend = _run_layer_plan(
+        tmp_path,
+        plan_parent_mode=0o777,
+        plan_dir_mode=0o700,
+    )
+
+    assert result.returncode == 2
+    assert "owner-controlled ancestry" in result.stderr
+    assert not (tmp_path / "aws-called").exists()
+    assert not (tmp_path / "terraform-called").exists()
+    assert captured == {}
+    assert backend == ""
 
 
 def test_resolution_validator_rejects_self_consistent_noncanonical_evidence(

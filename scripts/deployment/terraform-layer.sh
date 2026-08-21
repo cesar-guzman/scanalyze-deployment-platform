@@ -112,11 +112,12 @@ ABS_PLAN_DIR="$(cd -P -- "$PLAN_DIR" 2>/dev/null && pwd -P)" \
 [[ "$ABS_PLAN_DIR" != "$REPO_ROOT" && "$ABS_PLAN_DIR" != "$REPO_ROOT/"* ]] \
   || die "--plan-dir must be outside the repository"
 
-MATERIALIZED_VARS="${ABS_PLAN_DIR}/.${LAYER}.$$.auto.tfvars.json"
-BACKEND_CONFIG="${ABS_PLAN_DIR}/.${LAYER}.$$.backend.hcl"
-BACKEND_BINDING="${ABS_PLAN_DIR}/.${LAYER}.$$.backend-binding.json"
 FINAL_PLAN_FILE="${ABS_PLAN_DIR}/${LAYER}.tfplan"
 FINAL_PLAN_SUMMARY="${ABS_PLAN_DIR}/${LAYER}-plan-summary.txt"
+CONTROL_DIR=""
+MATERIALIZED_VARS=""
+BACKEND_CONFIG=""
+BACKEND_BINDING=""
 PLAN_FILE=""
 PLAN_SUMMARY=""
 TERRAFORM_HOME=""
@@ -177,12 +178,111 @@ refuse_existing_artifact "$FINAL_PLAN_FILE" "Terraform plan"
 refuse_existing_artifact "$FINAL_PLAN_SUMMARY" "Terraform plan summary"
 
 cleanup() {
-  rm -f -- "$MATERIALIZED_VARS" "$BACKEND_CONFIG" "$BACKEND_BINDING"
+  if [[ -n "$MATERIALIZED_VARS" || -n "$BACKEND_CONFIG" || -n "$BACKEND_BINDING" ]]; then
+    rm -f -- "$MATERIALIZED_VARS" "$BACKEND_CONFIG" "$BACKEND_BINDING"
+  fi
   if [[ -n "$TERRAFORM_HOME" && -d "$TERRAFORM_HOME" ]]; then
     rm -rf -- "$TERRAFORM_HOME"
   fi
+  if [[ -n "$CONTROL_DIR" && -d "$CONTROL_DIR" ]]; then
+    rmdir -- "$CONTROL_DIR" 2>/dev/null || true
+  fi
 }
+
+PLAN_DIR_ID="$(python3 - "$ABS_PLAN_DIR" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+
+def sanitized_exception(_exception_type, _exception, _traceback):
+    print("plan directory custody validation failed", file=sys.stderr)
+
+
+sys.excepthook = sanitized_exception
+
+candidate = Path(sys.argv[1])
+trusted_owners = {0, os.geteuid()}
+for current in (candidate, *candidate.parents):
+    metadata = current.lstat()
+    sticky_root = (
+        metadata.st_uid == 0
+        and bool(metadata.st_mode & stat.S_ISVTX)
+    )
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid not in trusted_owners
+        or (
+            metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            and not sticky_root
+        )
+    ):
+        raise SystemExit("plan directory ancestry is not owner-controlled")
+
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+descriptor = os.open(candidate, flags)
+try:
+    metadata = os.fstat(descriptor)
+    safe = (
+        stat.S_ISDIR(metadata.st_mode)
+        and metadata.st_uid == os.geteuid()
+        and metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH) == 0
+    )
+finally:
+    os.close(descriptor)
+if not safe:
+    raise SystemExit("plan directory is not owner-controlled")
+print(f"{metadata.st_dev}:{metadata.st_ino}")
+PY
+)" || die "--plan-dir must have owner-controlled ancestry"
+[[ -n "$PLAN_DIR_ID" ]] \
+  || die "Unable to bind plan directory identity"
+
+require_plan_dir_identity() {
+  python3 - "$ABS_PLAN_DIR" "$PLAN_DIR_ID" <<'PY'
+import os
+import stat
+import sys
+
+
+def sanitized_exception(_exception_type, _exception, _traceback):
+    print("plan directory identity validation failed", file=sys.stderr)
+
+
+sys.excepthook = sanitized_exception
+
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+descriptor = os.open(sys.argv[1], flags)
+try:
+    metadata = os.fstat(descriptor)
+finally:
+    os.close(descriptor)
+identity = f"{metadata.st_dev}:{metadata.st_ino}"
+if (
+    identity != sys.argv[2]
+    or not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+):
+    raise SystemExit("plan directory identity changed")
+PY
+}
+
+if ! require_plan_dir_identity; then
+  die "--plan-dir must be an owner-controlled directory"
+fi
+
+CONTROL_DIR="$(mktemp -d "${ABS_PLAN_DIR}/.${LAYER}.control.XXXXXX")" \
+  || die "Unable to create private plan control directory"
 trap cleanup EXIT INT TERM
+chmod 0700 "$CONTROL_DIR" \
+  || die "Unable to secure private plan control directory"
+require_plan_dir_identity \
+  || die "Plan directory identity changed during control setup"
+MATERIALIZED_VARS="${CONTROL_DIR}/materialized.auto.tfvars.json"
+BACKEND_CONFIG="${CONTROL_DIR}/backend.hcl"
+BACKEND_BINDING="${CONTROL_DIR}/backend-binding.json"
 
 terraform_variables=()
 if [[ "$BACKENDLESS_GATE" == true ]]; then
@@ -218,43 +318,170 @@ else
     --expected-region "$REGION" \
     --expected-execution-id "$EXECUTION_ID" \
     || die "Authorized registry-backed backend binding is required"
+  require_plan_dir_identity \
+    || die "Plan directory identity changed after backend authorization"
 
-  AUTHORIZED_ENVIRONMENT="$(python3 - "$BACKEND_BINDING" <<'PY'
+  AUTHORIZED_BINDINGS="$(python3 - \
+    "$BACKEND_BINDING" "$BACKEND_CONFIG" "$REPO_ROOT" \
+    "$CUSTOMER_ID" "$DEPLOYMENT_ID" "$ACCOUNT_ID" "$REGION" \
+    "$LAYER" "$EXECUTION_ID" "$ROOT_REQUIRES_DOMAIN" <<'PY'
+import hashlib
 import json
+import os
+import re
+import stat
 import sys
 from pathlib import Path
 
-document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-value = document.get("environment") if isinstance(document, dict) else None
-if not isinstance(value, str) or not value:
-    raise SystemExit("authorized environment binding is unavailable")
-print(value)
+
+def sanitized_exception(_exception_type, _exception, _traceback):
+    print("backend binding revalidation failed", file=sys.stderr)
+
+
+sys.excepthook = sanitized_exception
+
+import jsonschema  # noqa: E402
+
+(
+    binding_name,
+    backend_name,
+    repo_root,
+    customer_id,
+    deployment_id,
+    account_id,
+    region,
+    layer,
+    execution_id,
+    root_requires_domain,
+) = sys.argv[1:]
+
+
+def reject_duplicate_keys(pairs):
+    document = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate JSON key")
+        document[key] = value
+    return document
+
+
+def read_private_regular(path, *, json_document=False):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+        ):
+            raise ValueError("authorization artifact custody is invalid")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            if json_document:
+                return json.load(handle, object_pairs_hook=reject_duplicate_keys)
+            return handle.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+binding = read_private_regular(binding_name, json_document=True)
+if not isinstance(binding, dict):
+    raise ValueError("backend binding must be an object")
+schema_version = binding.get("schema_version")
+if schema_version not in {"1", "2"}:
+    raise ValueError("backend binding schema is unsupported")
+schema_path = Path(repo_root) / "schemas" / f"terraform-backend-binding.v{schema_version}.schema.json"
+schema = json.loads(schema_path.read_text(encoding="utf-8"))
+jsonschema.Draft202012Validator(
+    schema,
+    format_checker=jsonschema.FormatChecker(),
+).validate(binding)
+
+digest_body = {key: value for key, value in binding.items() if key != "binding_digest"}
+canonical = json.dumps(
+    digest_body,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=True,
+).encode("ascii")
+expected_binding_digest = "sha256:" + hashlib.sha256(canonical).hexdigest()
+if binding.get("binding_digest") != expected_binding_digest:
+    raise ValueError("backend binding digest mismatch")
+
+expected_tuple = {
+    "customer_id": customer_id,
+    "deployment_id": deployment_id,
+    "account_id": account_id,
+    "region": region,
+    "layer": layer,
+    "execution_id": execution_id,
+}
+if any(binding.get(key) != value for key, value in expected_tuple.items()):
+    raise ValueError("backend binding request tuple mismatch")
+backend = binding.get("backend")
+if not isinstance(backend, dict) or (
+    backend.get("region") != region
+    or backend.get("allowed_account_ids") != [account_id]
+):
+    raise ValueError("backend binding authority mismatch")
+
+backend_content = read_private_regular(backend_name)
+expected_backend_lines = [
+    f'bucket = {json.dumps(backend["bucket"])}',
+    f'key = {json.dumps(backend["key"])}',
+    f'region = {json.dumps(backend["region"])}',
+    "encrypt = true",
+    f'kms_key_id = {json.dumps(backend["kms_key_id"])}',
+    "use_lockfile = true",
+    f'allowed_account_ids = [{json.dumps(backend["allowed_account_ids"][0])}]',
+    "",
+]
+if backend_content != "\n".join(expected_backend_lines):
+    raise ValueError("backend configuration does not match its binding")
+
+environment = binding.get("environment")
+account_ready_digest = binding.get("account_ready_digest")
+if not isinstance(environment, str) or "|" in environment or "\n" in environment:
+    raise ValueError("authorized environment binding is unavailable")
+if (
+    not isinstance(account_ready_digest, str)
+    or re.fullmatch(r"sha256:[a-f0-9]{64}", account_ready_digest) is None
+):
+    raise ValueError("authorized ACCOUNT_READY digest binding is unavailable")
+
+domain_name = ""
+if root_requires_domain == "true":
+    runtime_origin = binding.get("runtime_origin")
+    domain_name = (
+        runtime_origin.get("domain_name")
+        if isinstance(runtime_origin, dict)
+        else None
+    )
+    if (
+        schema_version != "2"
+        or not isinstance(domain_name, str)
+        or re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+",
+            domain_name,
+        )
+        is None
+    ):
+        raise ValueError("authorized runtime-origin domain is unavailable")
+
+print("|".join((environment, account_ready_digest, domain_name)))
 PY
-  )" || die "Unable to read environment from the authorized backend binding"
+  )" || die "Unable to revalidate authorized backend binding"
+  IFS='|' read -r \
+    AUTHORIZED_ENVIRONMENT AUTHORIZED_ACCOUNT_READY_DIGEST AUTHORIZED_DOMAIN_NAME \
+    <<< "$AUTHORIZED_BINDINGS"
   [[ -z "$ENVIRONMENT" || "$ENVIRONMENT" == "$AUTHORIZED_ENVIRONMENT" ]] \
     || die "--environment conflicts with the authorized deployment target"
   ENVIRONMENT="$AUTHORIZED_ENVIRONMENT"
 
   if [[ "$ROOT_REQUIRES_DOMAIN" == true ]]; then
-    AUTHORIZED_DOMAIN_NAME="$(python3 - "$BACKEND_BINDING" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-runtime_origin = document.get("runtime_origin") if isinstance(document, dict) else None
-value = runtime_origin.get("domain_name") if isinstance(runtime_origin, dict) else None
-if (
-    document.get("schema_version") != "2"
-    or not isinstance(runtime_origin, dict)
-    or runtime_origin.get("schema_version") != "1"
-):
-    raise SystemExit("authorized runtime-origin binding is unavailable")
-if not isinstance(value, str) or not value:
-    raise SystemExit("authorized runtime-origin domain is unavailable")
-print(value)
-PY
-    )" || die "Unable to read domain from the authorized backend binding"
     [[ "$DOMAIN_NAME" == "$AUTHORIZED_DOMAIN_NAME" ]] \
       || die "--domain-name conflicts with the authorized deployment target"
     DOMAIN_NAME="$AUTHORIZED_DOMAIN_NAME"
@@ -278,6 +505,7 @@ PY
     --region "$REGION" \
     --release-version "$RELEASE_VERSION" \
     --release-digest "$RELEASE_DIGEST" \
+    --expected-account-ready-digest "$AUTHORIZED_ACCOUNT_READY_DIGEST" \
     --materialize-out "$MATERIALIZED_VARS" \
     || die "Verified contract resolution is required before Terraform plan"
 
@@ -304,6 +532,8 @@ PY
   fi
 fi
 
+require_plan_dir_identity \
+  || die "Plan directory identity changed before Terraform setup"
 TERRAFORM_BIN="$(command -v terraform)" \
   || die "Terraform executable is not available"
 TERRAFORM_HOME="$(mktemp -d "${ABS_PLAN_DIR}/.${LAYER}.terraform-home.XXXXXX")" \
@@ -396,6 +626,8 @@ else
   done
 fi
 
+require_plan_dir_identity \
+  || die "Plan directory identity changed before Terraform init"
 if [[ "$BACKENDLESS_GATE" == true ]]; then
   info "Initializing verified ACCOUNT_READY gate without a backend..."
   env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" init \
@@ -413,6 +645,8 @@ else
     >/dev/null
 fi
 
+require_plan_dir_identity \
+  || die "Plan directory identity changed before Terraform plan"
 info "Planning verified layer..."
 if [[ "$BACKENDLESS_GATE" == true ]]; then
   env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
@@ -433,6 +667,8 @@ else
     2>&1 | tee "$PLAN_SUMMARY"
 fi
 
+require_plan_dir_identity \
+  || die "Plan directory identity changed before artifact publication"
 if grep -qE '(destroy|replace)' "$PLAN_SUMMARY" 2>/dev/null; then
   warn "Destructive changes detected; reviewed approval remains mandatory."
 fi

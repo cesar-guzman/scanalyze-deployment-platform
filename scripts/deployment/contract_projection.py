@@ -10,6 +10,7 @@ from typing import Any, NoReturn
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 from tooling.validate_digest import canonicalize, compute_digest
+from tooling.verify_account_ready import verify_account_ready
 
 
 class ContractProjectionError(ValueError):
@@ -26,6 +27,8 @@ RESERVED_PROJECTION_FIELDS = {
     "release_manifest_digest",
     "contract_digest",
 }
+
+ACCOUNT_READY_CONTRACT_ID = "account-ready/v2"
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -89,12 +92,12 @@ def _validate_schema(
         )
 
 
-def expected_terraform_contracts(
+def _declared_contract_records(
     dag: Any,
     catalog: dict[str, Any],
     layer: str,
-) -> set[str]:
-    """Return the exact Terraform-root contracts declared for a consumer."""
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return validated catalog records declared for one DAG consumer."""
     if not isinstance(dag, dict) or not isinstance(dag.get("layers"), list):
         raise ContractProjectionError("canonical DAG document is invalid")
     stage = next(
@@ -113,16 +116,59 @@ def expected_terraform_contracts(
     if not isinstance(records, dict):
         raise ContractProjectionError("contract catalog is invalid")
 
-    expected: set[str] = set()
+    declared: list[tuple[str, dict[str, Any]]] = []
     for contract_id in stage["requires_contracts"]:
         record = records.get(contract_id)
         if not isinstance(record, dict):
             raise ContractProjectionError(
                 "canonical DAG references an unknown contract"
             )
-        if record.get("authority") == "terraform-root":
-            expected.add(contract_id)
-    return expected
+        declared.append((contract_id, record))
+    return declared
+
+
+def expected_terraform_contracts(
+    dag: Any,
+    catalog: dict[str, Any],
+    layer: str,
+) -> set[str]:
+    """Return the exact Terraform-root contracts declared for a consumer."""
+    return {
+        contract_id
+        for contract_id, record in _declared_contract_records(dag, catalog, layer)
+        if record.get("authority") == "terraform-root"
+    }
+
+
+def _is_supported_account_ready_record(
+    contract_id: str,
+    record: dict[str, Any],
+) -> bool:
+    return (
+        contract_id == ACCOUNT_READY_CONTRACT_ID
+        and record.get("authority") == "account-baseline"
+        and record.get("producer") is None
+        and record.get("scope") == "external"
+        and record.get("transport") == {"kind": "deployment-record"}
+    )
+
+
+def expected_resolvable_contracts(
+    dag: Any,
+    catalog: dict[str, Any],
+    layer: str,
+) -> set[str]:
+    """Return contracts supported by the active deterministic resolver.
+
+    Release and identity authorities remain explicit unsupported boundaries;
+    they are never accepted merely because the DAG names them.
+    """
+    return {
+        contract_id
+        for contract_id, record in _declared_contract_records(dag, catalog, layer)
+        if record.get("authority") == "terraform-root"
+        or _is_supported_account_ready_record(contract_id, record)
+    }
 
 
 def _catalog_output_schema(record: dict[str, Any]) -> Path:
@@ -138,9 +184,24 @@ def _catalog_output_schema(record: dict[str, Any]) -> Path:
     return path
 
 
-def _metadata_value(contract: dict[str, Any], name: str) -> str:
+def _metadata_value(
+    contract: dict[str, Any],
+    name: str,
+    contract_id: str | None = None,
+) -> str:
+    output_schema_version = contract.get("output_schema_version", contract_id)
     if name == "output_schema_major":
-        return contract["output_schema_version"].rsplit("/v", 1)[1]
+        if not isinstance(output_schema_version, str) or "/v" not in output_schema_version:
+            raise ContractProjectionError(
+                "catalog metadata binding references an invalid schema version"
+            )
+        return output_schema_version.rsplit("/v", 1)[1]
+    if name == "output_schema_version":
+        if not isinstance(output_schema_version, str):
+            raise ContractProjectionError(
+                "catalog metadata binding references an invalid schema version"
+            )
+        return output_schema_version
     value = contract.get(name)
     if not isinstance(value, str):
         raise ContractProjectionError(
@@ -193,6 +254,8 @@ def bind_variables(
     contract: dict[str, Any],
     outputs: dict[str, Any],
     binding: dict[str, Any],
+    *,
+    contract_id: str | None = None,
 ) -> None:
     """Project one verified envelope through its catalog binding."""
     contract_variable = binding.get("contract_variable")
@@ -211,9 +274,90 @@ def bind_variables(
         _add_variable(variables, destination, outputs[source])
 
     for source, destinations in binding.get("metadata_variables", {}).items():
-        value = _metadata_value(contract, source)
+        value = _metadata_value(contract, source, contract_id)
         for destination in destinations:
             _add_variable(variables, destination, value)
+
+
+def validate_account_ready_contract(
+    evidence: Any,
+    *,
+    catalog: dict[str, Any],
+    layer: str,
+    customer_id: str,
+    deployment_id: str,
+    account_id: str,
+    region: str,
+    required_contracts: set[str],
+    expected_account_ready_digest: str | None,
+) -> tuple[str, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Validate externally anchored ACCOUNT_READY v2 evidence."""
+    if not isinstance(evidence, dict):
+        raise ContractProjectionError("contract must be a JSON object")
+    if "contract_id" in evidence or "contract" in evidence:
+        if set(evidence) != {"contract_id", "contract"}:
+            raise ContractProjectionError(
+                "external contract wrapper is incomplete or unexpected"
+            )
+        if evidence.get("contract_id") != ACCOUNT_READY_CONTRACT_ID:
+            raise ContractProjectionError(
+                "contract does not match a declared contract identifier"
+            )
+        contract = evidence.get("contract")
+    else:
+        contract = evidence
+    if ACCOUNT_READY_CONTRACT_ID not in required_contracts:
+        raise ContractProjectionError(
+            "contract does not match a declared contract identifier"
+        )
+    if not isinstance(contract, dict):
+        raise ContractProjectionError("ACCOUNT_READY contract must be a JSON object")
+
+    record = catalog.get("contracts", {}).get(ACCOUNT_READY_CONTRACT_ID)
+    if not isinstance(record, dict) or not _is_supported_account_ready_record(
+        ACCOUNT_READY_CONTRACT_ID,
+        record,
+    ):
+        raise ContractProjectionError(
+            "ACCOUNT_READY catalog authority is not supported"
+        )
+    binding = record.get("consumer_bindings", {}).get(layer)
+    if not isinstance(binding, dict):
+        raise ContractProjectionError(
+            "contract is not authorized for consumer target"
+        )
+    if set(binding) - {"metadata_variables"}:
+        raise ContractProjectionError(
+            "ACCOUNT_READY consumer binding exceeds metadata authority"
+        )
+    if not isinstance(expected_account_ready_digest, str):
+        raise ContractProjectionError(
+            "independent ACCOUNT_READY digest binding is required"
+        )
+
+    schema = load_json(_catalog_output_schema(record), "ACCOUNT_READY schema")
+    if not isinstance(schema, dict):
+        raise ContractProjectionError("ACCOUNT_READY schema must be a JSON object")
+    _validate_schema(contract, schema, "ACCOUNT_READY contract")
+    expected_tuple = {
+        "customer_id": customer_id,
+        "deployment_id": deployment_id,
+        "account_id": account_id,
+        "region": region,
+    }
+    if any(contract.get(key) != value for key, value in expected_tuple.items()):
+        raise ContractProjectionError("ACCOUNT_READY target binding mismatch")
+    anchor = {
+        **expected_tuple,
+        "environment": contract.get("environment"),
+        "baseline_version": contract.get("baseline_version"),
+        "expected_contract_digest": expected_account_ready_digest,
+    }
+    if not verify_account_ready(contract, anchor, schema).passed:
+        raise ContractProjectionError("ACCOUNT_READY verification failed")
+
+    wrapper = {"contract_id": ACCOUNT_READY_CONTRACT_ID, "contract": contract}
+    return ACCOUNT_READY_CONTRACT_ID, wrapper, {}, binding
 
 
 def validate_contract(
@@ -346,37 +490,62 @@ def project_contracts(
     resolved_at: datetime,
     max_contract_age_seconds: int,
     required_contracts: set[str],
+    expected_account_ready_digest: str | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Validate exact evidence and reconstruct the only authorized variables."""
-    expected = expected_terraform_contracts(dag, catalog, layer)
-
-    resolved: dict[str, dict[str, Any]] = {}
-    variables: dict[str, Any] = {}
-    for contract in contracts:
-        contract_id, envelope, outputs, binding = validate_contract(
-            contract,
-            envelope_schema,
-            catalog=catalog,
-            layer=layer,
-            customer_id=customer_id,
-            deployment_id=deployment_id,
-            account_id=account_id,
-            region=region,
-            release_digest=release_digest,
-            release_version=release_version,
-            resolved_at=resolved_at,
-            max_contract_age_seconds=max_contract_age_seconds,
-            required_contracts=required_contracts,
-        )
-        if contract_id in resolved:
-            raise ContractProjectionError("duplicate contract evidence")
-        bind_variables(variables, envelope, outputs, binding)
-        resolved[contract_id] = envelope
-
+    expected = expected_resolvable_contracts(dag, catalog, layer)
     if required_contracts != expected:
         raise ContractProjectionError(
             "required contract set does not match the canonical DAG target"
         )
+
+    resolved: dict[str, dict[str, Any]] = {}
+    variables: dict[str, Any] = {}
+    for evidence in contracts:
+        if isinstance(evidence, dict) and "output_schema_version" in evidence:
+            contract_id, envelope, outputs, binding = validate_contract(
+                evidence,
+                envelope_schema,
+                catalog=catalog,
+                layer=layer,
+                customer_id=customer_id,
+                deployment_id=deployment_id,
+                account_id=account_id,
+                region=region,
+                release_digest=release_digest,
+                release_version=release_version,
+                resolved_at=resolved_at,
+                max_contract_age_seconds=max_contract_age_seconds,
+                required_contracts=required_contracts,
+            )
+        else:
+            contract_id, envelope, outputs, binding = validate_account_ready_contract(
+                evidence,
+                catalog=catalog,
+                layer=layer,
+                customer_id=customer_id,
+                deployment_id=deployment_id,
+                account_id=account_id,
+                region=region,
+                required_contracts=required_contracts,
+                expected_account_ready_digest=expected_account_ready_digest,
+            )
+        if contract_id in resolved:
+            raise ContractProjectionError("duplicate contract evidence")
+        metadata_source = (
+            envelope["contract"]
+            if contract_id == ACCOUNT_READY_CONTRACT_ID
+            else envelope
+        )
+        bind_variables(
+            variables,
+            metadata_source,
+            outputs,
+            binding,
+            contract_id=contract_id,
+        )
+        resolved[contract_id] = envelope
+
     if set(resolved) != required_contracts:
         raise ContractProjectionError(
             "one or more required contracts are missing"

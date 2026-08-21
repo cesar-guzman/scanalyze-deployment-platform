@@ -22,7 +22,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
 DEFAULT_RESOLUTION_SCHEMA = (
-    REPO_ROOT / "schemas" / "contract-resolution.v2.schema.json"
+    REPO_ROOT / "schemas" / "contract-resolution.v3.schema.json"
 )
 DEFAULT_CATALOG = REPO_ROOT / "deployment" / "contract-catalog.v1.json"
 DEFAULT_CATALOG_SCHEMA = REPO_ROOT / "schemas" / "contract-catalog.v1.schema.json"
@@ -174,6 +174,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--region", required=True)
     parser.add_argument("--release-digest", required=True)
     parser.add_argument("--release-version", required=True)
+    parser.add_argument(
+        "--expected-account-ready-digest",
+        help="independent digest from the authorized backend binding",
+    )
     parser.add_argument("--resolved-at", help="explicit RFC 3339 orchestrator time")
     parser.add_argument("--max-contract-age-seconds", type=int, default=86400)
     parser.add_argument(
@@ -260,9 +264,10 @@ def main(argv: list[str] | None = None) -> int:
             resolved_at=resolved_at,
             max_contract_age_seconds=args.max_contract_age_seconds,
             required_contracts=required_contracts,
+            expected_account_ready_digest=args.expected_account_ready_digest,
         )
         resolution: dict[str, Any] = {
-            "schema_version": "2",
+            "schema_version": "3",
             "consumer_layer": args.layer,
             "customer_id": args.customer_id,
             "deployment_id": args.deployment_id,

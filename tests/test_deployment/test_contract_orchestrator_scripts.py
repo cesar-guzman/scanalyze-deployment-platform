@@ -242,7 +242,7 @@ def test_publish_then_resolve_writes_content_bound_resolution_to_mode_0600(
     assert "resolved 1 contract(s)" in result.stdout
     assert ACCOUNT_ID not in result.stdout
     resolution = json.loads(var_file.read_text(encoding="utf-8"))
-    assert resolution["schema_version"] == "2"
+    assert resolution["schema_version"] == "3"
     assert resolution["consumer_layer"] == "network"
     assert resolution["customer_id"] == CUSTOMER_ID
     assert resolution["release_version"] == RELEASE_VERSION
@@ -352,6 +352,17 @@ def test_publish_live_mode_is_always_blocked_before_writing(
 @pytest.mark.parametrize("acknowledged", [False, True])
 def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledged):
     output = tmp_path / "network.auto.tfvars.json"
+    aws_marker = tmp_path / "aws-called"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_aws = fake_bin / "aws"
+    fake_aws.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        f"Path({str(aws_marker)!r}).write_text('called\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    fake_aws.chmod(0o755)
     args = [
         sys.executable,
         str(RESOLVE_SCRIPT),
@@ -378,6 +389,7 @@ def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledg
         str(output),
     ]
     env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
     if acknowledged:
         env["SCANALYZE_ALLOW_LIVE"] = "1"
     else:
@@ -390,3 +402,4 @@ def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledg
     if acknowledged:
         assert "not implemented" in result.stderr
     assert not output.exists()
+    assert not aws_marker.exists()

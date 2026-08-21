@@ -10,7 +10,12 @@
       "consumers": ["account-ready-gate", "global"],
       "consumer_bindings": {
         "account-ready-gate": {},
-        "global": {}
+        "global": {
+          "metadata_variables": {
+            "contract_digest": ["upstream_contract_digest", "expected_upstream_digest"],
+            "output_schema_major": ["upstream_schema_version"]
+          }
+        }
       }
     },
     "global/v1": {
