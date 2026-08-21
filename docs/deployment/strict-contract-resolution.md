@@ -12,8 +12,9 @@ operation. Production remains **NO-GO**.
 - DAG: `deployment/layers.yaml`
 - producer/consumer registry: `deployment/contract-catalog.v1.json`
 - envelope: `schemas/layer-contract.v2.schema.json`
-- active resolution: `schemas/contract-resolution.v2.schema.json`
-- retained historical resolution: `schemas/contract-resolution.v1.schema.json`
+- active resolution: `schemas/contract-resolution.v3.schema.json`
+- retained historical resolutions: `schemas/contract-resolution.v1.schema.json`
+  and `schemas/contract-resolution.v2.schema.json`
 - publisher: `scripts/deployment/publish-contract.py`
 - resolver: `scripts/deployment/resolve-contracts.py`
 - pre-plan guard: `scripts/deployment/validate-contract-resolution.py`
@@ -28,7 +29,9 @@ operation. Production remains **NO-GO**.
    immutable release version and digest, state key, timestamp, output schema version, and module
    source digest.
 5. Run `resolve-contracts.py --allow-fixtures` for the exact target layer and
-   every Terraform contract required by the DAG.
+   every supported contract required by the DAG. For `account-ready/v2`, pass
+   the independently authorized backend-binding digest with
+   `--expected-account-ready-digest`; never copy the digest from the fixture.
 6. Pass the resulting mode-0600 artifact to `terraform-layer.sh` using
    `--resolved-input`.
 
@@ -41,16 +44,16 @@ The only accepted contract-derived variables are:
 
 ```text
 deterministic_projection(
-  validated resolution-v2 contract envelopes,
+  validated resolution-v3 contract evidence,
   deployment/contract-catalog.v1.json
 )
 ```
 
 The wrapper adds only its explicit, target-validated deployment, account,
 region, customer, release-version, and release-digest arguments. Variable names
-alone are not evidence. Resolution v2 therefore carries canonical Terraform
-contract envelopes and has no materialized `variables` field. The shared
-projector revalidates each output schema/digest and reconstructs:
+alone are not evidence. Resolution v3 carries canonical Terraform envelopes and
+an explicit `account-ready/v2` wrapper, with no materialized `variables` field.
+The shared projector revalidates each output schema/digest and reconstructs:
 
 - `metadata_variables` from authoritative envelope metadata;
 - `output_variables` from schema-validated canonical outputs, preserving JSON
@@ -58,14 +61,21 @@ projector revalidates each output schema/digest and reconstructs:
 - `contract_variable` from authoritative envelope metadata plus canonical
   outputs.
 
-Resolution v1 cannot prove all three binding kinds and is rejected by the active
-path even when a caller explicitly supplies its historical schema.
+For `global`, the canonical resolvable requirement is exactly
+`account-ready/v2`. The existing ACCOUNT_READY verifier checks its approved v2
+schema, exact customer/deployment/account/region tuple, role and state bindings,
+six baseline controls, canonical digest, and the independent digest already
+bound into the authorized Terraform backend record. Only its digest and schema
+major are projected to the three catalog-authorized global variables.
 
-The canonical DAG may also declare external, non-Terraform contracts such as
-`release-manifest/v1` and `identity-contract/v2`. The current projection filters
-those records rather than validating them. That pre-existing P2 gap remains
-explicitly out of scope for GUG-121 and must not be interpreted as verified
-external-contract evidence.
+Resolution v1/v2 cannot represent the active heterogeneous evidence set and is
+rejected even when a caller explicitly supplies a historical schema.
+
+The canonical DAG may also declare external contracts such as
+`release-manifest/v1` and `identity-contract/v2`. Resolution v3 supports only
+the closed `account-baseline` record for `account-ready/v2`; release and identity
+authorities remain explicitly filtered, are never accepted as evidence, and
+remain out of scope for GUG-381.
 
 ## Terraform environment boundary
 
@@ -95,7 +105,8 @@ Stop before plan when any of the following occurs:
 - resolution stored in the repository, weak file permissions, wrong target
   tuple, altered resolution digest, non-canonical contract set, or wrong
   catalog producer;
-- legacy resolution schema, duplicated materialized variable authority, or
+- legacy resolution schema, missing independent ACCOUNT_READY digest,
+  duplicated materialized variable authority, or
   any ambient Terraform-specific environment variable.
 
 Do not retry by changing expected digests, copying values from state, setting
@@ -117,11 +128,11 @@ the reviewed root or quarantine the generation.
 | edge | `edge/v2` |
 | addons | `addons/v2` |
 
-Replaced layer-contract v1 schemas and `contract-resolution.v1` remain available
-only for explicit historical rollback evidence. The active resolver emits only
-resolution v2; the active validator never converts or accepts v1. Do not
+Replaced layer-contract v1 schemas and `contract-resolution.v1/v2` remain
+available only for explicit historical rollback evidence. The active resolver
+emits only resolution v3; the active validator never converts or accepts v1/v2. Do not
 overwrite an old digest, repoint a mutable alias, infer fields, or silently
-convert a v1 payload into v2. A version transition requires an updated DAG,
+convert a v1/v2 payload into v3. A version transition requires an updated DAG,
 catalog, producer, consumer, schema, test vector, and reviewed PR.
 
 ## Evidence handling
@@ -136,8 +147,8 @@ Terraform tests are never live validation.
 
 ## Rollback
 
-Before an authorized engine consumes v2, revert the remediation commit and
+Before an authorized engine consumes v3, revert the remediation commit and
 remove only unpublished temporary resolution and var files. Do not reactivate
-resolution v1 as an implicit fallback. If an authorized engine has consumed v2,
+resolution v1/v2 as an implicit fallback. If an authorized engine has consumed v3,
 retain immutable evidence and use a reviewed forward fix or explicit version
 rollback. Never delete a published generation or state object.

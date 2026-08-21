@@ -106,7 +106,7 @@ The target contract path is:
 /scanalyze/deployments/{deployment_id}/contracts/{layer}/vN/releases/{release_digest}/digests/{contract_digest}
 ```
 
-Each contract is one JSON envelope containing:
+Each Terraform-root contract is one JSON envelope containing:
 
 - schema and output-schema versions;
 - deployment, account, region/scope, producer, and layer identity;
@@ -121,18 +121,26 @@ IAM writer restricted to the producer boundary; freshness comes from matching
 the expected release and recorded contract version. A consumer fails closed if
 any binding, schema, owner, or digest is absent or inconsistent.
 
+External evidence uses its catalog-declared authority and transport instead of
+this Terraform envelope. The active exception is `account-ready/v2`, whose raw
+contract is carried in the closed resolution-v3 wrapper and independently
+anchored by the authorized backend binding before projection.
+
 GitHub outputs may carry non-sensitive control metadata such as a stage result.
 They do not carry VPC IDs, subnet IDs, role ARNs, endpoints, image mappings, or
 other infrastructure outputs.
 
 `resolve-contracts.py` supports only explicitly acknowledged local test
-fixtures. It writes a digested, owner-readable resolution v2 outside the
-repository containing canonical contract evidence, not a second materialized
+fixtures. It writes a digested, owner-readable resolution v3 outside the
+repository containing canonical Terraform envelopes and explicitly wrapped,
+externally anchored ACCOUNT_READY v2 evidence, not a second materialized
 variable map. The pre-plan validator reconstructs all catalog bindings from
-that evidence. The wrapper rejects ambient Terraform-specific environment
-configuration before any AWS or Terraform subprocess and invokes Terraform
-through a controlled child environment. It never logs contract values. Live
-SSM resolution remains disabled until GUG-125.
+that evidence and requires the ACCOUNT_READY digest already bound by backend
+authorization. Resolution v1/v2 is rejected by the active path. The wrapper
+rejects ambient Terraform-specific environment configuration before any AWS or
+Terraform subprocess and invokes Terraform through a controlled child
+environment. It never logs contract values. Live SSM resolution remains
+disabled until GUG-125.
 
 `publish-contract.py` currently means "render and validate a candidate envelope
 to a local file." It does not publish to AWS. SSM publication remains blocked

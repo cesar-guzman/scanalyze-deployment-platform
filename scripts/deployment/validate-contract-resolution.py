@@ -13,7 +13,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "contract-resolution.v2.schema.json"
+DEFAULT_SCHEMA = REPO_ROOT / "schemas" / "contract-resolution.v3.schema.json"
 DEFAULT_CONTRACT_SCHEMA = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
 DEFAULT_CATALOG = REPO_ROOT / "deployment" / "contract-catalog.v1.json"
 DEFAULT_CATALOG_SCHEMA = REPO_ROOT / "schemas" / "contract-catalog.v1.schema.json"
@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
 from contract_projection import (  # noqa: E402
     ContractProjectionError,
-    expected_terraform_contracts,
+    expected_resolvable_contracts,
     load_json,
     project_contracts,
 )
@@ -126,6 +126,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--region", required=True)
     parser.add_argument("--release-version", required=True)
     parser.add_argument("--release-digest", required=True)
+    parser.add_argument(
+        "--expected-account-ready-digest",
+        help="independent digest from the authorized backend binding",
+    )
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     parser.add_argument(
         "--contract-schema",
@@ -172,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationError("resolution validator configuration is invalid")
         _validate_schema(resolution, schema)
         _validate_schema(catalog, catalog_schema)
-        if resolution.get("schema_version") != "2":
+        if resolution.get("schema_version") != "3":
             raise ValidationError(
                 "active contract resolution schema downgrade is forbidden"
             )
@@ -196,10 +200,15 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationError("resolution target binding mismatch")
 
         evidence = resolution["required_contracts"]
-        evidence_ids = [item["output_schema_version"] for item in evidence]
+        evidence_ids = [
+            item.get("output_schema_version", item.get("contract_id"))
+            for item in evidence
+        ]
+        if any(not isinstance(contract_id, str) for contract_id in evidence_ids):
+            raise ValidationError("resolution contract identifier is invalid")
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValidationError("resolution contains duplicate contract evidence")
-        requirements = expected_terraform_contracts(dag, catalog, args.layer)
+        requirements = expected_resolvable_contracts(dag, catalog, args.layer)
         if set(evidence_ids) != requirements:
             raise ValidationError(
                 "resolution contract set does not match the canonical DAG target"
@@ -219,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
             resolved_at=_parse_timestamp(resolution["resolved_at"]),
             max_contract_age_seconds=resolution["max_contract_age_seconds"],
             required_contracts=requirements,
+            expected_account_ready_digest=args.expected_account_ready_digest,
         )
         _write_exclusive(args.materialize_out, variables)
     except (ValidationError, ContractProjectionError, FileNotFoundError) as exc:

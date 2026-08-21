@@ -21,6 +21,9 @@ ENVELOPE_SCHEMA_PATH = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
 LAYERS_PATH = REPO_ROOT / "deployment" / "layers.yaml"
 PUBLISH_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "publish-contract.py"
 RESOLVE_SCRIPT = REPO_ROOT / "scripts" / "deployment" / "resolve-contracts.py"
+VALIDATE_RESOLUTION_SCRIPT = (
+    REPO_ROOT / "scripts" / "deployment" / "validate-contract-resolution.py"
+)
 LAYER_WRAPPER = REPO_ROOT / "scripts" / "deployment" / "terraform-layer.sh"
 DEPLOY_WRAPPER = REPO_ROOT / "scripts" / "deployment" / "scanalyze-deploy.sh"
 DEPLOYMENT_SCRIPT_DIR = REPO_ROOT / "scripts" / "deployment"
@@ -30,9 +33,11 @@ if str(DEPLOYMENT_SCRIPT_DIR) not in sys.path:
 from contract_projection import (  # noqa: E402
     ContractProjectionError,
     bind_variables,
+    expected_resolvable_contracts,
     project_contracts,
 )
 from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
+from tooling.verify_account_ready import canonical_digest as account_ready_digest  # noqa: E402
 
 CUSTOMER_ID = "cust_01J5A1B2C3D4E5F6G7H8J9K0M1"
 DEPLOYMENT_ID = "dep_01J5A1B2C3D4E5F6G7H8J9K0M1"
@@ -74,6 +79,14 @@ def test_catalog_is_schema_valid_and_covers_every_dag_contract() -> None:
 
     for contract_id, record in contracts.items():
         assert set(record["consumer_bindings"]) == set(record["consumers"]), contract_id
+
+
+def test_global_resolvable_contract_set_is_exactly_account_ready_v2() -> None:
+    assert expected_resolvable_contracts(
+        yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8")),
+        _load_json(CATALOG_PATH),
+        "global",
+    ) == {"account-ready/v2"}
 
 
 def test_terraform_contract_paths_are_content_addressed_and_not_latest() -> None:
@@ -291,7 +304,7 @@ def test_real_root_contract_resolver_consumer_flow_is_content_bound(tmp_path: Pa
     result = _resolve_global(tmp_path, contract)
     assert result.returncode == 0, result.stderr
     resolution = _load_json(tmp_path / "network.resolution.json")
-    assert resolution["schema_version"] == "2"
+    assert resolution["schema_version"] == "3"
     assert resolution["consumer_layer"] == "network"
     assert resolution["customer_id"] == CUSTOMER_ID
     assert resolution["required_contracts"][0]["output_schema_version"] == "global/v1"
@@ -307,7 +320,7 @@ def test_real_root_contract_resolver_consumer_flow_is_content_bound(tmp_path: Pa
         ("customer_id", "cust_01J5A1B2C3D4E5F6G7H8J9K0M2", "customer binding mismatch"),
         ("release_digest", "sha256:" + ("c" * 64), "release binding mismatch"),
         ("release_version", "2026.07.13", "release version binding mismatch"),
-        ("layer", "platform", "not authorized for consumer"),
+        ("layer", "platform", "canonical DAG target"),
         ("resolved_at", "2026-07-16T00:00:00Z", "stale"),
     ],
 )
@@ -343,6 +356,293 @@ def test_resolver_rejects_wrong_producer_schema_or_altered_contract(
     assert result.returncode == 1
     assert expected in result.stderr
     assert not (tmp_path / "network.resolution.json").exists()
+
+
+def _account_ready_v2() -> dict:
+    role_names = {
+        "plan": "Plan",
+        "apply": "Apply",
+        "identity_plan": "Identity-Plan",
+        "identity_apply": "Identity-Apply",
+        "promotion": "Promotion",
+        "validation": "Validation",
+        "diagnostic": "Diagnostic",
+        "state_recovery": "StateRecovery",
+    }
+    tags = {
+        "customer_id_tag": CUSTOMER_ID,
+        "deployment_id_tag": DEPLOYMENT_ID,
+        "account_id_tag": ACCOUNT_ID,
+        "region_tag": "us-east-1",
+        "environment_tag": "sandbox",
+    }
+    contract = {
+        "schema_version": "2",
+        "customer_id": CUSTOMER_ID,
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": "us-east-1",
+        "environment": "sandbox",
+        "baseline_version": "v2.0.0",
+        "provisioned_at": PRODUCED_AT,
+        "roles": {
+            key: {
+                "arn": f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-{name}",
+                **tags,
+            }
+            for key, name in role_names.items()
+        },
+        "state_infrastructure": {
+            "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
+            "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
+            "state_kms_key": (
+                f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:"
+                "key/00000000-0000-0000-0000-000000000001"
+            ),
+            "evidence_kms_key": (
+                f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:"
+                "key/00000000-0000-0000-0000-000000000002"
+            ),
+            "contracts_kms_key": (
+                f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:"
+                "key/00000000-0000-0000-0000-000000000003"
+            ),
+        },
+        "controls": {
+            "state_versioning_enabled": True,
+            "state_default_encryption": "aws:kms",
+            "state_bucket_key_enabled": True,
+            "state_public_access_blocked": True,
+            "state_object_lock_enabled": False,
+            "native_lockfile_enabled": True,
+        },
+    }
+    contract["contract_digest"] = account_ready_digest(contract)
+    return contract
+
+
+def _account_ready_resolve_args(
+    contract: Path,
+    output: Path,
+    expected_digest: str | None,
+) -> list[str]:
+    args = [
+        sys.executable,
+        str(RESOLVE_SCRIPT),
+        "--contract",
+        str(contract),
+        "--allow-fixtures",
+        "--layer",
+        "global",
+        "--customer-id",
+        CUSTOMER_ID,
+        "--deployment-id",
+        DEPLOYMENT_ID,
+        "--account-id",
+        ACCOUNT_ID,
+        "--region",
+        "us-east-1",
+        "--release-digest",
+        RELEASE_DIGEST,
+        "--release-version",
+        RELEASE_VERSION,
+        "--resolved-at",
+        RESOLVED_AT,
+        "--required-contract",
+        "account-ready/v2",
+        "--out",
+        str(output),
+    ]
+    if expected_digest is not None:
+        args.extend(["--expected-account-ready-digest", expected_digest])
+    return args
+
+
+def test_account_ready_v2_resolves_v3_and_materializes_only_global_metadata(
+    tmp_path: Path,
+) -> None:
+    contract = _account_ready_v2()
+    contract_path = tmp_path / "account-ready.json"
+    resolution_path = tmp_path / "global.resolution.json"
+    variables_path = tmp_path / "global.auto.tfvars.json"
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+    resolved = subprocess.run(
+        _account_ready_resolve_args(
+            contract_path,
+            resolution_path,
+            contract["contract_digest"],
+        ),
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert resolved.returncode == 0, resolved.stderr
+    resolution = _load_json(resolution_path)
+    assert resolution["schema_version"] == "3"
+    assert resolution["required_contracts"] == [
+        {"contract_id": "account-ready/v2", "contract": contract}
+    ]
+
+    validated = subprocess.run(
+        [
+            sys.executable,
+            str(VALIDATE_RESOLUTION_SCRIPT),
+            "--resolution",
+            str(resolution_path),
+            "--layer",
+            "global",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--expected-account-ready-digest",
+            contract["contract_digest"],
+            "--materialize-out",
+            str(variables_path),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert validated.returncode == 0, validated.stderr
+    assert _load_json(variables_path) == {
+        "expected_upstream_digest": contract["contract_digest"],
+        "upstream_contract_digest": contract["contract_digest"],
+        "upstream_schema_version": "2",
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["missing-anchor", "wrong-anchor", "foreign-tuple", "partial", "v1", "altered"],
+)
+def test_account_ready_resolution_failures_create_no_output(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    contract = _account_ready_v2()
+    expected_digest: str | None = contract["contract_digest"]
+    if case == "missing-anchor":
+        expected_digest = None
+    elif case == "wrong-anchor":
+        expected_digest = "sha256:" + ("0" * 64)
+    elif case == "foreign-tuple":
+        contract["account_id"] = "999888777666"
+    elif case == "partial":
+        contract.pop("roles")
+    elif case == "v1":
+        contract["schema_version"] = "1"
+    elif case == "altered":
+        contract["baseline_version"] = "v2.0.1"
+    contract_path = tmp_path / f"{case}.json"
+    output_path = tmp_path / f"{case}.resolution.json"
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+    result = subprocess.run(
+        _account_ready_resolve_args(contract_path, output_path, expected_digest),
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert CUSTOMER_ID not in result.stdout + result.stderr
+    assert ACCOUNT_ID not in result.stdout + result.stderr
+    assert not output_path.exists()
+
+
+def test_account_ready_duplicate_extra_and_wrong_consumer_fail_closed(
+    tmp_path: Path,
+) -> None:
+    contract = _account_ready_v2()
+    contract_path = tmp_path / "account-ready.json"
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+    for name, extra_args in (
+        ("duplicate", ["--contract", str(contract_path)]),
+        ("extra", ["--required-contract", "global/v1"]),
+        ("consumer", []),
+    ):
+        output_path = tmp_path / f"{name}.resolution.json"
+        args = _account_ready_resolve_args(
+            contract_path,
+            output_path,
+            contract["contract_digest"],
+        )
+        if name == "consumer":
+            args[args.index("global")] = "network"
+        args.extend(extra_args)
+        result = subprocess.run(
+            args,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert not output_path.exists()
+
+
+def test_active_validator_rejects_resolution_v2_downgrade(tmp_path: Path) -> None:
+    contract = _publish_global(tmp_path)
+    assert _resolve_global(tmp_path, contract).returncode == 0
+    resolution_path = tmp_path / "network.resolution.json"
+    resolution = _load_json(resolution_path)
+    resolution["schema_version"] = "2"
+    digest_input = {
+        key: value for key, value in resolution.items() if key != "resolution_digest"
+    }
+    resolution["resolution_digest"] = compute_digest(canonicalize(digest_input))
+    resolution_path.write_text(json.dumps(resolution), encoding="utf-8")
+    resolution_path.chmod(0o600)
+    variables_path = tmp_path / "network.auto.tfvars.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(VALIDATE_RESOLUTION_SCRIPT),
+            "--resolution",
+            str(resolution_path),
+            "--schema",
+            str(REPO_ROOT / "schemas/contract-resolution.v2.schema.json"),
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--release-version",
+            RELEASE_VERSION,
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--materialize-out",
+            str(variables_path),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "schema downgrade is forbidden" in result.stderr
+    assert not variables_path.exists()
 
 
 def test_plan_wrapper_has_no_mock_fallback_and_requires_verified_resolution() -> None:
