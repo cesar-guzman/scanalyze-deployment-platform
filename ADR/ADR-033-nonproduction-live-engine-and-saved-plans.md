@@ -1,12 +1,12 @@
 # ADR-033: Non-Production Live Engine and Exact Saved Plans
 
-- **Status:** Proposed; accepted only after reviewed merge and main verification
-- **Date:** 2026-07-15
-- **Work package:** GUG-125
-- **Baseline:** `76a04da02dbf563973d59309035be1272192c66f`
+- **Status:** Proposed; GUG-382 repository candidate, live not proven
+- **Date:** 2026-07-15; GUG-382 amendment 2026-08-21
+- **Work package:** GUG-125, amended by GUG-382
+- **GUG-382 baseline:** `2b5f2038d0b7b190e50233713aa4923fb3e95371`
 - **Program / phase gate:** GUG-115 / GUG-117
 - **Upstream:** GUG-121, GUG-122, GUG-123, GUG-124
-- **AWS live validation:** Blocked; no successful AWS session was established
+- **AWS live validation:** **NOT_PROVEN**; GUG-382 executed no AWS action
 - **Production:** **NO-GO**
 
 ## Context
@@ -29,8 +29,9 @@ resulting state, producer contract, or runtime health is unknown.
 
 ### 1. The plan and execution ledger use different authorities
 
-The destination-account Plan terminal role writes exactly one KMS-encrypted,
-versioned plan object under:
+The destination-account Plan terminal role is designed to write exactly one
+KMS-encrypted, versioned plan object to the destination state bucket
+`scanalyze-<account-id>-tf-state` under:
 
 ```text
 plan-execution/{deployment_id}/{change_id}/{layer}/plan.tfplan
@@ -41,6 +42,11 @@ execution ledger in `scanalyze-deployment-executions`. A destination terminal
 role cannot create or approve its own ledger, and the orchestrator cannot write
 the plan object. These adapters are separate types and are tested not to expose
 each other's methods.
+
+The platform-authority execution table also carries create-only, consistently
+read plan, approval, health, and reconciliation control records. Each record is
+schema-validated, tuple-bound, and digest-checked again at readback; a workflow
+artifact or caller path is not durable authority.
 
 The ledger adapter also derives the only acceptable authority name as
 `ScanalyzeOrchestrator-<deployment_id>`. A generic, differently scoped,
@@ -106,19 +112,34 @@ RECONCILED_APPLIED only when lineage matches, state serial advanced, a new
 speculative plan is `NO_CHANGE`, and the producer contract verifies. Every
 other result is `RECONCILIATION_REQUIRED`; it cannot retry or mutate state.
 
-### 6. Dry-run and live activation remain distinct
+### 6. Dry-run, the protected live shape, and activation remain distinct
 
 Dry-run rejects ambient AWS access keys, session tokens, profiles, web-identity
 token files, and role ARNs. The CLI has no `--profile` override, emits only
 sanitized status, and writes operational files with mode 0600 outside the
 repository. CI validates synthetic/fake-adapter behavior without OIDC or AWS.
 
-This change does not activate `id-token: write` in repository workflows. Live
-activation requires the GUG-123 shared-services platform authority, an exact
-deployment-scoped protected Environment with an independent reviewer,
-ACCOUNT_READY v2 in each destination account, and valid short-lived sessions.
-Those prerequisites were not available during implementation, so a workflow
-that could mint authority would be fail-open and remains disabled.
+GUG-382 adds only the governed repository shape for a future dev execution. A
+manual dispatch selects exactly one `plan` or `apply` phase; the phases are
+separate workflow runs so approval cannot be inferred from the plan-producing
+run. `id-token: write` is allowlisted only on the canonical `live-layer` caller
+and `live_saved_plan` reusable job. A separate unprivileged prerequisite job
+holds the mandatory materialization stop, so the OIDC-capable job is not
+scheduled while that gate fails.
+
+That gate currently always stops with `LIVE_INPUT_MATERIALIZATION_NOT_PROVEN`.
+It cannot be enabled by setting a repository or Environment variable. As a
+result, this amendment is `REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN`: no OIDC
+token, STS session, remote Terraform plan, saved-plan publication, apply,
+health check, reconciliation, or rollback was executed by GUG-382.
+
+Activation requires a reviewed implementation that materializes authenticated
+registry, ACCOUNT_READY v2, backend, lock, contract-resolution v3, release,
+source, toolchain, and state bindings before OIDC. It also requires the exact
+GUG-123 platform-authority account/profile and backend, a non-overlapping dev
+network decision, the destination baseline and terminal roles, and a protected
+deployment-scoped Environment with a verified second P0 reviewer. Each item is
+currently **NOT_PROVEN**.
 
 “Shared-services” means the dedicated or formally designated **Scanalyze
 platform-authority account**. It does not authorize access to an unrelated
@@ -164,6 +185,8 @@ Terraform request field authoritative.
   artifacts.
 - No automatic state repair, force-unlock, replacement, destroy, migration, or
   production target is accepted.
+- Live selection is restricted to `dev`; staging and production are explicitly
+  denied before any credential step.
 
 ## Alternatives rejected
 
@@ -175,12 +198,14 @@ Terraform request field authoritative.
   different object.
 - **Retry an uncertain apply:** it can duplicate or conflict with completed
   effects.
-- **Enable OIDC before the platform authority exists:** a name or input would
-  become authority.
+- **Make the OIDC credential step reachable before live inputs and platform
+  authority are proven:** a name or input would become authority.
 
 ## Rollback
 
-Before live activation, revert this package and retain no operational data.
+Before live activation, disable the live dispatch inputs or revert GUG-382; no
+AWS cleanup is required because the repository candidate has executed no AWS
+action and the materialization gate precedes OIDC.
 After any authorized live plan exists, first disable dispatch, preserve the
 sanitized ledger/evidence index, classify every active plan as applied,
 rejected, expired, or reconciliation-required, delete only exact R0 object
@@ -191,9 +216,10 @@ an in-flight execution to the legacy re-plan/apply path.
 
 | Class | Status |
 |---|---|
-| Implemented | Typed schemas, authorization core, separated AWS adapters, portable platform-authority module/root, CLI boundary, IAM/KMS/S3 deltas, tests, CI target, ADR and runbooks |
-| Locally validated | Focused synthetic tests and offline dry-run gate; broader gates reported separately |
+| Implemented | Repository candidate: typed orchestration intents, exact saved-plan runner, separated plan/apply workflow shape, durable control-record adapters, canonical OIDC job allowlist, tests, CI target, ADR and runbooks |
+| Locally validated | Focused synthetic tests, Python compilation, shell syntax and offline dry-run gate; broader gates reported separately |
 | CI validated | Pending the exact PR commit |
-| Live validated | No |
-| Blocked | Authorized third-account Identity Center profile/backend; exact protected Environments and independent reviewers; destination ACCOUNT_READY v2; sequential two-account execution |
+| Live validated | **NOT_PROVEN**; no AWS action executed |
+| Blocked | Typed live-input materializer and connected controller; authenticated GitHub approval provenance; run-attempt/single-use binding; identity-stable plan custody; hash-verified OIDC toolchain; compatible exact KMS key policy; exact platform-authority account/profile/backend; destination baseline and terminal roles; non-overlapping dev network decision; exact protected Environment; verified second P0 reviewer; immutable plan/apply evidence |
+| Classification | `REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN` |
 | Production | **NO-GO** |

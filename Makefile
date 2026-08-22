@@ -422,22 +422,40 @@ supply-chain-check:
 		--expected-policy-digest "$$(cat $(FIXTURES_DIR)/valid/release-trust-policy-v1-synthetic.sha256)" >/dev/null
 	@echo "Supply chain check complete."
 
-# ── Non-Production Live Engine Check (GUG-125, offline) ─────────────
+# ── Non-Production Live Engine Check (GUG-125/GUG-382, offline) ───────
 nonprod-live-engine-check:
-	@echo "=== GUG-125 Non-Production Live Engine Check ==="
+	@echo "=== GUG-125/GUG-382 Non-Production Live Engine Check ==="
 	@$(PYTHON) -c "import jsonschema" 2>/dev/null || \
 		{ echo "BLOCKED_TOOLING: jsonschema is required."; exit 1; }
 	@$(PYTHON) -m pytest \
 		$(TESTS_DIR)/test_deployment/test_gug125_nonprod_live_engine.py \
 		$(TESTS_DIR)/test_deployment/test_gug125_live_store.py \
 		$(TESTS_DIR)/test_deployment/test_gug125_platform_authority_factory.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_orchestrator.py \
+		$(TESTS_DIR)/test_deployment/test_local_apply_blocked.py \
+		$(TESTS_DIR)/test_governance/test_gug123_terminal_identity.py \
+		$(TESTS_DIR)/test_gitops_schemas.py \
 		-v --tb=short
+	@$(PYTHON) -m py_compile \
+		scripts/deployment/nonprod-live-engine.py \
+		$(TOOLING_DIR)/nonprod_live_engine.py \
+		$(TOOLING_DIR)/nonprod_live_store.py \
+		$(TOOLING_DIR)/nonprod_live_orchestrator.py \
+		$(TOOLING_DIR)/validate_github_deployment_identity.py
+	@bash -n \
+		scripts/deployment/terraform-layer.sh \
+		scripts/deployment/terraform-saved-plan.sh
 	@$(TERRAFORM) -chdir=modules/platform-authority init -backend=false -input=false -no-color -lockfile=readonly >/dev/null
 	@$(TERRAFORM) -chdir=modules/platform-authority test -no-color
 	@env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
-		-u AWS_PROFILE -u AWS_WEB_IDENTITY_TOKEN_FILE -u AWS_ROLE_ARN \
+		-u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_CONFIG_FILE \
+		-u AWS_SHARED_CREDENTIALS_FILE -u AWS_WEB_IDENTITY_TOKEN_FILE \
+		-u AWS_ROLE_ARN -u AWS_CONTAINER_CREDENTIALS_FULL_URI \
+		-u AWS_CONTAINER_CREDENTIALS_RELATIVE_URI \
+		-u AWS_CONTAINER_AUTHORIZATION_TOKEN \
+		-u AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE \
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
-	@echo "GUG-125 live-engine offline check complete."
+	@echo "GUG-382 status: REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN"
 
 # ── GUG-365 Upstream Prerequisite Check (GUG-376, offline) ───────────
 platform-authority-upstream-prerequisites-check:
@@ -1011,6 +1029,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-051-direct-retirement-entrypoint-materialization.md \
 			ADR/ADR-052-gug357-cloudformation-service-role-boundaries.md \
 			ADR/ADR-053-gug365-upstream-prerequisites-materialization.md \
+			docs/deployment/ssm-contracts.md \
 			docs/deployment/platform-authority-retirement-entrypoint-service-role.md \
 			docs/operations/platform-authority-retirement-entrypoint-service-role.md \
 			docs/security/gug365-retirement-entrypoint-service-role-threat-model.md \
@@ -1063,6 +1082,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/security/gug-357-identity-center-audit-permission-set-threat-model-delta.md \
 			docs/security/gug-363-retirement-entrypoint-materialization-threat-model-delta.md \
 			docs/security/gug-274-platform-authority-artifact-authentication-threat-model-delta.md \
+			docs/security/gug-382-protected-nonprod-live-orchestration-threat-model-delta.md \
 			docs/security/gug-124-threat-model-delta.md \
 			docs/security/gug-123-threat-model-delta.md \
 			docs/production-readiness/README.md \
@@ -1125,10 +1145,10 @@ nonprod-readiness-check: release-dry-run nonprod-live-engine-check
 	@echo "release-dry-run:    PASSED"
 	@echo "gitops-orchestrator: LOCALLY_VALIDATED_DRY_RUN_ONLY"
 	@echo "exact-plan-engine:  LOCALLY_VALIDATED_OFFLINE_ONLY"
-	@echo "live-validation:    BLOCKED (requires AWS credentials + PM approval)"
+	@echo "live-validation:    LIVE_NOT_PROVEN (pre-OIDC materializer gate remains closed)"
 	@echo "production-ready:   NO-GO (requires live validation)"
 	@echo ""
-	@echo "=== NONPROD-READINESS: PREPARED ==="
+	@echo "=== NONPROD-READINESS: REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN ==="
 
 # Clean clone verification
 clone-check:

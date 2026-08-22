@@ -1,4 +1,4 @@
-name: Reusable Terraform layer validation
+name: Reusable Terraform layer orchestration
 
 on:
   workflow_call:
@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       layer:
-        description: Terraform root to validate
+        description: Terraform root to validate or execute
         required: true
         type: string
       release_digest:
@@ -33,10 +33,40 @@ on:
         default: true
         type: boolean
       allow_live:
-        description: Reserved live mode; deliberately NO-GO in this change
+        description: Permit the protected dev live path
         required: false
         default: false
         type: boolean
+      live_operation:
+        description: Separate saved-plan lifecycle phase
+        required: false
+        default: none
+        type: string
+      github_environment:
+        description: Exact deployment-scoped protected GitHub Environment
+        required: false
+        default: ""
+        type: string
+      main_sha:
+        description: Exact reviewed main SHA for a live phase
+        required: false
+        default: ""
+        type: string
+      execution_id:
+        description: Exact execution ID for a live phase
+        required: false
+        default: ""
+        type: string
+      change_id:
+        description: Exact change ID for a live phase
+        required: false
+        default: ""
+        type: string
+      plan_record_digest:
+        description: Exact saved-plan record digest required by apply
+        required: false
+        default: ""
+        type: string
     outputs:
       validation_status:
         description: Sanitized offline validation status
@@ -46,8 +76,118 @@ permissions:
   contents: read
 
 jobs:
+  mode_boundary:
+    name: Validate execution boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Reject unauthorized modes before credentials
+        env:
+          ALLOW_LIVE: ${{ inputs.allow_live }}
+          AWS_REGION_INPUT: ${{ inputs.aws_region }}
+          CHANGE_ID: ${{ inputs.change_id }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          EVENT_NAME: ${{ github.event_name }}
+          EXECUTION_ID: ${{ inputs.execution_id }}
+          GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
+          HEAD_REPOSITORY_ID: ${{ github.event.repository.id }}
+          LIVE_OPERATION: ${{ inputs.live_operation }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          MAIN_SHA: ${{ inputs.main_sha }}
+          PLAN_RECORD_DIGEST: ${{ inputs.plan_record_digest }}
+          REF_NAME: ${{ github.ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          RELEASE_DIGEST: ${{ inputs.release_digest }}
+          RUN_SHA: ${{ github.sha }}
+          TARGET_LAYER: ${{ inputs.layer }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "::error::Only workflow_dispatch may invoke release orchestration"
+            exit 1
+          fi
+          if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
+            echo "::error::Exactly one of dry_run or allow_live must be true"
+            exit 1
+          fi
+          if [[ ! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+            echo "::error::deployment_id is invalid"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::release_digest is invalid"
+            exit 1
+          fi
+          if [[ ! "$AWS_REGION_INPUT" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "::error::aws_region is invalid"
+            exit 1
+          fi
+          case "$TARGET_LAYER" in
+            account-ready-gate|global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
+            *) echo "::error::Layer is not an approved Terraform root"; exit 1 ;;
+          esac
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            case "$LOGICAL_ENVIRONMENT" in
+              sandbox|dev|staging) ;;
+              *) echo "::error::Dry-run is limited to non-production"; exit 1 ;;
+            esac
+            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" ]]; then
+              echo "::error::Dry-run cannot carry a live operation or saved-plan selector"
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ "$LOGICAL_ENVIRONMENT" != "dev" ]]; then
+            echo "::error::Live orchestration is restricted to dev"
+            exit 1
+          fi
+          case "$TARGET_LAYER" in
+            global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
+            *) echo "::error::The selected stage has no authorized Terraform apply role"; exit 1 ;;
+          esac
+          case "$LIVE_OPERATION" in
+            plan|apply) ;;
+            *) echo "::error::Live execution requires one explicit plan or apply phase"; exit 1 ;;
+          esac
+          if [[ "$REF_NAME" != "refs/heads/main" || "$REF_PROTECTED" != "true" ]]; then
+            echo "::error::Live execution requires the protected main ref"
+            exit 1
+          fi
+          if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ || "$RUN_SHA" != "$MAIN_SHA" ]]; then
+            echo "::error::Live execution is not bound to the exact requested main SHA"
+            exit 1
+          fi
+          if [[ ! "$EXECUTION_ID" =~ ^exec_[0-9A-HJKMNP-TV-Z]{26}$ ]] || \
+             [[ ! "$CHANGE_ID" =~ ^chg_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+            echo "::error::Live execution identifiers are invalid"
+            exit 1
+          fi
+          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" ]]; then
+            echo "::error::The deployment-scoped GitHub Environment is not canonical"
+            exit 1
+          fi
+          if [[ ! "$HEAD_REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Repository numeric identity is unavailable"
+            exit 1
+          fi
+          if [[ "$LIVE_OPERATION" == "apply" ]]; then
+            if [[ ! "$PLAN_RECORD_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Apply requires one exact saved-plan record digest"
+              exit 1
+            fi
+          elif [[ -n "$PLAN_RECORD_DIGEST" ]]; then
+            echo "::error::Plan cannot accept a pre-existing saved-plan record"
+            exit 1
+          fi
+
   offline_validation:
     name: Validate ${{ inputs.layer }} offline
+    needs: mode_boundary
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -93,52 +233,6 @@ jobs:
           set -euo pipefail
           python -m pip install '.[test]'
 
-      - name: Validate execution mode and identifiers
-        env:
-          ALLOW_LIVE: ${{ inputs.allow_live }}
-          AWS_REGION_INPUT: ${{ inputs.aws_region }}
-          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
-          TARGET_LAYER: ${{ inputs.layer }}
-          RELEASE_DIGEST: ${{ inputs.release_digest }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
-            echo "::error::Exactly one of dry_run or allow_live must be true"
-            exit 1
-          fi
-
-          case "$LOGICAL_ENVIRONMENT" in
-            sandbox|dev|staging) ;;
-            *)
-              echo "::error::Only sandbox, dev, and staging are supported"
-              exit 1
-              ;;
-          esac
-
-          case "$TARGET_LAYER" in
-            account-ready-gate|global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
-            *)
-              echo "::error::Layer is not an approved Terraform root"
-              exit 1
-              ;;
-          esac
-
-          if [[ ! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
-            echo "::error::deployment_id is not a valid Scanalyze deployment ULID"
-            exit 1
-          fi
-          if [[ ! "$RELEASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::release_digest must be a lowercase SHA-256 digest"
-            exit 1
-          fi
-          if [[ ! "$AWS_REGION_INPUT" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
-            echo "::error::aws_region is invalid"
-            exit 1
-          fi
-
       - name: Validate canonical layer DAG
         run: |
           set -euo pipefail
@@ -166,7 +260,6 @@ jobs:
           supplied = Path(os.environ["REQUEST_PATH"])
           if supplied.is_absolute():
               raise SystemExit("ERROR: request_path must be repository-relative")
-
           request_path = (repo / supplied).resolve()
           try:
               request_path.relative_to(repo)
@@ -174,43 +267,32 @@ jobs:
               raise SystemExit("ERROR: request_path escapes the repository") from exc
           if not request_path.is_file():
               raise SystemExit("ERROR: deployment request does not exist")
-
-          schema_path = repo / "schemas" / "deployment-request.schema.json"
-          schema = json.loads(schema_path.read_text(encoding="utf-8"))
+          schema = json.loads(
+              (repo / "schemas" / "deployment-request.schema.json").read_text(encoding="utf-8")
+          )
           if request_path.suffix == ".json":
               request = json.loads(request_path.read_text(encoding="utf-8"))
           else:
               request = yaml.safe_load(request_path.read_text(encoding="utf-8"))
-
-          validator = jsonschema.Draft202012Validator(
+          jsonschema.Draft202012Validator(
               schema,
               format_checker=jsonschema.FormatChecker(),
-          )
-          errors = list(validator.iter_errors(request))
-          if errors:
-              location = ".".join(str(part) for part in errors[0].absolute_path) or "root"
-              raise SystemExit(f"ERROR: deployment request schema validation failed at {location}")
-
+          ).validate(request)
           expected = {
               "deployment_id": os.environ["DEPLOYMENT_ID"],
               "environment": os.environ["LOGICAL_ENVIRONMENT"],
               "release_digest": os.environ["RELEASE_DIGEST"],
           }
-          for field, value in expected.items():
-              if request.get(field) != value:
-                  raise SystemExit(f"ERROR: deployment request {field} does not match workflow input")
-
-          selectors = request.get("non_sensitive_selectors", {})
-          if selectors.get("region") != os.environ["AWS_REGION_INPUT"]:
+          if any(request.get(field) != value for field, value in expected.items()):
+              raise SystemExit("ERROR: deployment request does not match workflow bindings")
+          if request.get("non_sensitive_selectors", {}).get("region") != os.environ["AWS_REGION_INPUT"]:
               raise SystemExit("ERROR: deployment request region does not match workflow input")
           if request.get("full_deployment") is not True:
-              raise SystemExit("ERROR: this workflow revision only supports full_deployment requests")
-
+              raise SystemExit("ERROR: offline workflow requires the canonical full-deployment request")
           print("PASS: Git-safe deployment request is valid and bound to workflow inputs")
           PY
 
       - name: Refuse ambient AWS credentials in dry-run
-        if: ${{ inputs.dry_run && !inputs.allow_live }}
         run: |
           set -euo pipefail
           for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_WEB_IDENTITY_TOKEN_FILE; do
@@ -221,7 +303,6 @@ jobs:
           done
 
       - name: Initialize and validate Terraform without backend
-        if: ${{ inputs.dry_run && !inputs.allow_live }}
         env:
           AWS_EC2_METADATA_DISABLED: "true"
           TARGET_LAYER: ${{ inputs.layer }}
@@ -235,7 +316,6 @@ jobs:
 
       - name: Record sanitized evidence
         id: evidence
-        if: ${{ inputs.dry_run && !inputs.allow_live }}
         env:
           AWS_REGION_INPUT: ${{ inputs.aws_region }}
           COMMIT_SHA: ${{ github.sha }}
@@ -256,31 +336,173 @@ jobs:
             echo '- Status: `DRY_RUN_VALIDATED`'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  live_no_go:
-    name: Live ${{ inputs.layer }} is NO-GO
-    needs: offline_validation
+  live_input_gate:
+    name: Require proven typed live inputs
+    needs: mode_boundary
     if: ${{ inputs.allow_live && !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     steps:
-      - name: Block live Terraform execution
-        env:
-          TARGET_LAYER: ${{ inputs.layer }}
+      - name: Require a proven typed live-input materializer
         run: |
           set -euo pipefail
-          echo "::error::NO-GO: live AWS access and Terraform apply are not enabled in this workflow revision"
-          {
-            echo "### Live Terraform gate"
-            printf -- '- Layer: `%s`\n' "$TARGET_LAYER"
-            echo '- Status: `NO-GO`'
-            echo '- OIDC token requested: no'
-            echo '- AWS API calls: none'
-            echo '- Terraform apply: not executed'
-            echo '- Account binding: `PENDING`'
-            echo '- Remote backend and state lock: `PENDING`'
-            echo '- Saved plan and policy gate: `PENDING`'
-            echo '- Saved-plan apply: `PENDING`'
-            echo '- Contract publication and validation: `PENDING`'
-          } >> "$GITHUB_STEP_SUMMARY"
+          # GUG-382 intentionally does not turn protected variables, mutable
+          # locators, or caller-supplied paths into deployment authority. The
+          # typed live registry/ACCOUNT_READY/backend/contract materializer is
+          # an external prerequisite and is not present in this repository
+          # candidate. This unprivileged job must succeed before an OIDC-capable
+          # job can be scheduled.
+          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"
           exit 1
+
+  live_saved_plan:
+    name: Protected non-production saved-plan phase
+    needs:
+      - mode_boundary
+      - live_input_gate
+    if: ${{ inputs.allow_live && !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.github_environment }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      SCANALYZE_ALLOW_LIVE: "true"
+      SCANALYZE_DRY_RUN: "false"
+      SCANALYZE_LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+      SCANALYZE_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+      SCANALYZE_GITHUB_ENVIRONMENT: ${{ inputs.github_environment }}
+      SCANALYZE_EXPECTED_MAIN_SHA: ${{ inputs.main_sha }}
+      SCANALYZE_EXPECTED_REPOSITORY_ID: ${{ vars.REPOSITORY_ID }}
+      SCANALYZE_EXPECTED_REPOSITORY_OWNER_ID: ${{ vars.REPOSITORY_OWNER_ID }}
+      SCANALYZE_OIDC_AUDIENCE: sts.amazonaws.com
+      SCANALYZE_ROLE_DURATION_SECONDS: "900"
+      AWS_REGION: ${{ inputs.aws_region }}
+      AWS_DEFAULT_REGION: ${{ inputs.aws_region }}
+    steps:
+      - name: Validate protected Environment bindings before OIDC
+        env:
+          DESTINATION_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ENVIRONMENT_CONFIGURATION_DIGEST: ${{ vars.ENVIRONMENT_CONFIGURATION_DIGEST }}
+          ENVIRONMENT_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
+          ENVIRONMENT_LOGICAL_ENVIRONMENT: ${{ vars.LOGICAL_ENVIRONMENT }}
+          ENVIRONMENT_MAIN_SHA: ${{ vars.MAIN_SHA }}
+          ENVIRONMENT_REGION: ${{ vars.AWS_REGION }}
+          GENERIC_APPLY_ROLE_ARN: ${{ vars.GENERIC_APPLY_ROLE_ARN }}
+          GENERIC_PLAN_ROLE_ARN: ${{ vars.GENERIC_PLAN_ROLE_ARN }}
+          IDENTITY_APPLY_ROLE_ARN: ${{ vars.IDENTITY_APPLY_ROLE_ARN }}
+          IDENTITY_PLAN_ROLE_ARN: ${{ vars.IDENTITY_PLAN_ROLE_ARN }}
+          ORCHESTRATOR_ROLE_ARN: ${{ vars.ORCHESTRATOR_ROLE_ARN }}
+          PLATFORM_AUTHORITY_ACCOUNT_ID: ${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}
+          REPOSITORY_ID: ${{ vars.REPOSITORY_ID }}
+          REPOSITORY_OWNER_ID: ${{ vars.REPOSITORY_OWNER_ID }}
+          SECOND_P0_REVIEWER_ID: ${{ vars.SECOND_P0_REVIEWER_ID }}
+          DISPATCH_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          DISPATCH_LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          DISPATCH_MAIN_SHA: ${{ inputs.main_sha }}
+          DISPATCH_REGION: ${{ inputs.aws_region }}
+        run: |
+          set -euo pipefail
+          required=(
+            DESTINATION_ACCOUNT_ID ENVIRONMENT_CONFIGURATION_DIGEST
+            ENVIRONMENT_DEPLOYMENT_ID ENVIRONMENT_LOGICAL_ENVIRONMENT
+            ENVIRONMENT_MAIN_SHA ENVIRONMENT_REGION GENERIC_APPLY_ROLE_ARN
+            GENERIC_PLAN_ROLE_ARN IDENTITY_APPLY_ROLE_ARN
+            IDENTITY_PLAN_ROLE_ARN ORCHESTRATOR_ROLE_ARN
+            PLATFORM_AUTHORITY_ACCOUNT_ID REPOSITORY_ID REPOSITORY_OWNER_ID
+            SECOND_P0_REVIEWER_ID
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Protected Environment is missing a required live binding"
+              exit 1
+            fi
+          done
+          if [[ ! "$DESTINATION_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || \
+             [[ "$DESTINATION_ACCOUNT_ID" == "000000000000" ]] || \
+             [[ ! "$PLATFORM_AUTHORITY_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || \
+             [[ "$PLATFORM_AUTHORITY_ACCOUNT_ID" == "000000000000" ]] || \
+             [[ "$DESTINATION_ACCOUNT_ID" == "$PLATFORM_AUTHORITY_ACCOUNT_ID" ]]; then
+            echo "::error::Platform-authority and destination account separation is invalid"
+            exit 1
+          fi
+          if [[ "$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID" ]] || \
+             [[ "$ENVIRONMENT_LOGICAL_ENVIRONMENT" != "$DISPATCH_LOGICAL_ENVIRONMENT" ]] || \
+             [[ "$ENVIRONMENT_REGION" != "$DISPATCH_REGION" ]] || \
+             [[ "$ENVIRONMENT_MAIN_SHA" != "$DISPATCH_MAIN_SHA" ]]; then
+            echo "::error::Protected Environment does not match the dispatch bindings"
+            exit 1
+          fi
+          if [[ ! "$ENVIRONMENT_CONFIGURATION_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+             [[ ! "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "$REPOSITORY_OWNER_ID" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "$SECOND_P0_REVIEWER_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Protected Environment identity evidence is invalid"
+            exit 1
+          fi
+          if [[ "$REPOSITORY_ID" != "${GITHUB_REPOSITORY_ID}" ]] || \
+             [[ "$REPOSITORY_OWNER_ID" != "${GITHUB_REPOSITORY_OWNER_ID}" ]]; then
+            echo "::error::This repository is not the protected Environment repository"
+            exit 1
+          fi
+          expected_orchestrator="arn:aws:iam::${PLATFORM_AUTHORITY_ACCOUNT_ID}:role/ScanalyzeOrchestrator-${DISPATCH_DEPLOYMENT_ID}"
+          if [[ "$ORCHESTRATOR_ROLE_ARN" != "$expected_orchestrator" ]]; then
+            echo "::error::The orchestrator role is not deployment-scoped"
+            exit 1
+          fi
+          expected_roles=(
+            "arn:aws:iam::${DESTINATION_ACCOUNT_ID}:role/ScanalyzeCustomer-Plan"
+            "arn:aws:iam::${DESTINATION_ACCOUNT_ID}:role/ScanalyzeCustomer-Apply"
+            "arn:aws:iam::${DESTINATION_ACCOUNT_ID}:role/ScanalyzeCustomer-Identity-Plan"
+            "arn:aws:iam::${DESTINATION_ACCOUNT_ID}:role/ScanalyzeCustomer-Identity-Apply"
+          )
+          actual_roles=(
+            "$GENERIC_PLAN_ROLE_ARN" "$GENERIC_APPLY_ROLE_ARN"
+            "$IDENTITY_PLAN_ROLE_ARN" "$IDENTITY_APPLY_ROLE_ARN"
+          )
+          for index in 0 1 2 3; do
+            if [[ "${actual_roles[$index]}" != "${expected_roles[$index]}" ]]; then
+              echo "::error::A terminal role binding is not canonical"
+              exit 1
+            fi
+          done
+
+      - name: Check out exact source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.main_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.14.6"
+          terraform_wrapper: false
+
+      - name: Install live-engine dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install '.[test]'
+
+      - name: Acquire exact platform-authority OIDC session
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ inputs.aws_region }}
+          allowed-account-ids: ${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}
+          mask-aws-account-id: true
+          role-duration-seconds: 900
+          role-session-name: scanalyze-${{ github.run_id }}-${{ github.run_attempt }}
+          role-to-assume: ${{ vars.ORCHESTRATOR_ROLE_ARN }}
+          unset-current-credentials: true

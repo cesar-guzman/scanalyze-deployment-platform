@@ -335,54 +335,96 @@ def test_nonprod_workflow_separates_logical_and_github_environments() -> None:
         for job_id, job in jobs.items()
         if "environment" in job
     }
-    assert protected_jobs == {"go-no-go": "${{ inputs.github_environment }}"}
+    # The protected Environment belongs to the concrete job in the reusable
+    # workflow; GitHub does not allow it on a reusable-workflow caller job.
+    assert protected_jobs == {}
 
-    reusable_jobs = [
-        job
-        for job in jobs.values()
+    reusable_jobs = {
+        job_id: job
+        for job_id, job in jobs.items()
         if job.get("uses") == "./.github/workflows/_terraform-layer.yml"
-    ]
-    assert len(reusable_jobs) == 11
-    for job in reusable_jobs:
+    }
+    assert set(reusable_jobs) == {
+        "live-layer",
+        "account-ready-gate",
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "identity-control-plane",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons",
+    }
+    for job_id, job in reusable_jobs.items():
         assert job["with"]["logical_environment"] == "${{ inputs.logical_environment }}"
         assert "environment" not in job["with"]
-        assert "github_environment" not in job["with"]
+        if job_id == "live-layer":
+            assert job["with"]["github_environment"] == (
+                "${{ inputs.github_environment }}"
+            )
+        else:
+            assert "github_environment" not in job["with"]
 
 
 def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
-    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
-    gate = workflow["jobs"]["go-no-go"]
+    workflow = _load_workflow(LAYER_WORKFLOW_PATH)
+    gate = workflow["jobs"]["live_saved_plan"]
     step = next(
         item
         for item in gate["steps"]
-        if item["name"] == "Enforce dry-run authorization boundary"
+        if item["name"] == "Validate protected Environment bindings before OIDC"
     )
 
     assert step["env"] == {
-        "ALLOW_LIVE": "${{ inputs.allow_live }}",
-        "DRY_RUN": "${{ inputs.dry_run }}",
-        "DISPATCH_AWS_REGION": "${{ inputs.aws_region }}",
-        "DISPATCH_DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
-        "DISPATCH_LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
-        "ENVIRONMENT_AWS_REGION": "${{ vars.AWS_REGION }}",
+        "DESTINATION_ACCOUNT_ID": "${{ vars.AWS_ACCOUNT_ID }}",
+        "ENVIRONMENT_CONFIGURATION_DIGEST": (
+            "${{ vars.ENVIRONMENT_CONFIGURATION_DIGEST }}"
+        ),
         "ENVIRONMENT_DEPLOYMENT_ID": "${{ vars.DEPLOYMENT_ID }}",
         "ENVIRONMENT_LOGICAL_ENVIRONMENT": "${{ vars.LOGICAL_ENVIRONMENT }}",
+        "ENVIRONMENT_MAIN_SHA": "${{ vars.MAIN_SHA }}",
+        "ENVIRONMENT_REGION": "${{ vars.AWS_REGION }}",
+        "GENERIC_APPLY_ROLE_ARN": "${{ vars.GENERIC_APPLY_ROLE_ARN }}",
+        "GENERIC_PLAN_ROLE_ARN": "${{ vars.GENERIC_PLAN_ROLE_ARN }}",
+        "IDENTITY_APPLY_ROLE_ARN": "${{ vars.IDENTITY_APPLY_ROLE_ARN }}",
+        "IDENTITY_PLAN_ROLE_ARN": "${{ vars.IDENTITY_PLAN_ROLE_ARN }}",
+        "ORCHESTRATOR_ROLE_ARN": "${{ vars.ORCHESTRATOR_ROLE_ARN }}",
+        "PLATFORM_AUTHORITY_ACCOUNT_ID": (
+            "${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}"
+        ),
+        "REPOSITORY_ID": "${{ vars.REPOSITORY_ID }}",
+        "REPOSITORY_OWNER_ID": "${{ vars.REPOSITORY_OWNER_ID }}",
+        "SECOND_P0_REVIEWER_ID": "${{ vars.SECOND_P0_REVIEWER_ID }}",
+        "DISPATCH_DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
+        "DISPATCH_LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
+        "DISPATCH_MAIN_SHA": "${{ inputs.main_sha }}",
+        "DISPATCH_REGION": "${{ inputs.aws_region }}",
     }
 
     script = step["run"]
     for binding in (
-        "ENVIRONMENT_AWS_REGION",
+        "DESTINATION_ACCOUNT_ID",
         "ENVIRONMENT_DEPLOYMENT_ID",
         "ENVIRONMENT_LOGICAL_ENVIRONMENT",
+        "ENVIRONMENT_MAIN_SHA",
+        "ENVIRONMENT_REGION",
+        "ORCHESTRATOR_ROLE_ARN",
+        "PLATFORM_AUTHORITY_ACCOUNT_ID",
+        "SECOND_P0_REVIEWER_ID",
     ):
-        assert f'"${binding}"' in script
-    assert 'if [[ -z "$binding" ]]; then' in script
+        assert binding in script
+    assert 'if [[ -z "${!name:-}" ]]; then' in script
     assert '"$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID"' in script
     assert (
         '"$ENVIRONMENT_LOGICAL_ENVIRONMENT" != '
         '"$DISPATCH_LOGICAL_ENVIRONMENT"'
     ) in script
-    assert '"$ENVIRONMENT_AWS_REGION" != "$DISPATCH_AWS_REGION"' in script
+    assert '"$ENVIRONMENT_REGION" != "$DISPATCH_REGION"' in script
+    assert '"$ENVIRONMENT_MAIN_SHA" != "$DISPATCH_MAIN_SHA"' in script
+    assert '"$DESTINATION_ACCOUNT_ID" == "$PLATFORM_AUTHORITY_ACCOUNT_ID"' in script
 
     error_lines = [line for line in script.splitlines() if "::error::" in line]
     assert error_lines
@@ -391,24 +433,54 @@ def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
 
 
 def _run_environment_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
-    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
-    gate = workflow["jobs"]["go-no-go"]
+    workflow = _load_workflow(LAYER_WORKFLOW_PATH)
+    gate = workflow["jobs"]["live_saved_plan"]
     script = next(
         item["run"]
         for item in gate["steps"]
-        if item["name"] == "Enforce dry-run authorization boundary"
+        if item["name"] == "Validate protected Environment bindings before OIDC"
     )
+    deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    destination_account_id = "123456789012"
+    platform_account_id = "210987654321"
     env = os.environ.copy()
     env.update(
         {
-            "ALLOW_LIVE": "false",
-            "DRY_RUN": "true",
-            "DISPATCH_AWS_REGION": "us-east-1",
-            "DISPATCH_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "DISPATCH_LOGICAL_ENVIRONMENT": "dev",
-            "ENVIRONMENT_AWS_REGION": "us-east-1",
-            "ENVIRONMENT_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "DESTINATION_ACCOUNT_ID": destination_account_id,
+            "ENVIRONMENT_CONFIGURATION_DIGEST": "sha256:" + "a" * 64,
+            "ENVIRONMENT_DEPLOYMENT_ID": deployment_id,
             "ENVIRONMENT_LOGICAL_ENVIRONMENT": "dev",
+            "ENVIRONMENT_MAIN_SHA": "b" * 40,
+            "ENVIRONMENT_REGION": "us-east-1",
+            "GENERIC_APPLY_ROLE_ARN": (
+                f"arn:aws:iam::{destination_account_id}:"
+                "role/ScanalyzeCustomer-Apply"
+            ),
+            "GENERIC_PLAN_ROLE_ARN": (
+                f"arn:aws:iam::{destination_account_id}:role/ScanalyzeCustomer-Plan"
+            ),
+            "IDENTITY_APPLY_ROLE_ARN": (
+                f"arn:aws:iam::{destination_account_id}:"
+                "role/ScanalyzeCustomer-Identity-Apply"
+            ),
+            "IDENTITY_PLAN_ROLE_ARN": (
+                f"arn:aws:iam::{destination_account_id}:"
+                "role/ScanalyzeCustomer-Identity-Plan"
+            ),
+            "ORCHESTRATOR_ROLE_ARN": (
+                f"arn:aws:iam::{platform_account_id}:"
+                f"role/ScanalyzeOrchestrator-{deployment_id}"
+            ),
+            "PLATFORM_AUTHORITY_ACCOUNT_ID": platform_account_id,
+            "REPOSITORY_ID": "2000002",
+            "REPOSITORY_OWNER_ID": "1000001",
+            "SECOND_P0_REVIEWER_ID": "3000003",
+            "DISPATCH_DEPLOYMENT_ID": deployment_id,
+            "DISPATCH_LOGICAL_ENVIRONMENT": "dev",
+            "DISPATCH_MAIN_SHA": "b" * 40,
+            "DISPATCH_REGION": "us-east-1",
+            "GITHUB_REPOSITORY_ID": "2000002",
+            "GITHUB_REPOSITORY_OWNER_ID": "1000001",
         }
     )
     env.update(overrides)
@@ -425,7 +497,7 @@ def _run_environment_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
 def test_protected_environment_gate_accepts_exact_bindings() -> None:
     result = _run_environment_gate()
     assert result.returncode == 0, result.stderr
-    assert "approved offline orchestration only" in result.stdout
+    assert result.stdout == ""
 
 
 @pytest.mark.parametrize(
@@ -433,12 +505,13 @@ def test_protected_environment_gate_accepts_exact_bindings() -> None:
     [
         {"ENVIRONMENT_DEPLOYMENT_ID": ""},
         {"ENVIRONMENT_LOGICAL_ENVIRONMENT": ""},
-        {"ENVIRONMENT_AWS_REGION": ""},
+        {"ENVIRONMENT_REGION": ""},
+        {"SECOND_P0_REVIEWER_ID": ""},
         {"ENVIRONMENT_DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"},
         {"ENVIRONMENT_LOGICAL_ENVIRONMENT": "staging"},
-        {"ENVIRONMENT_AWS_REGION": "us-west-2"},
-        {"ALLOW_LIVE": "true", "DRY_RUN": "false"},
-        {"DRY_RUN": "false"},
+        {"ENVIRONMENT_REGION": "us-west-2"},
+        {"PLATFORM_AUTHORITY_ACCOUNT_ID": "123456789012"},
+        {"REPOSITORY_ID": "9999999"},
     ],
 )
 def test_protected_environment_gate_rejects_missing_or_mismatched_bindings(
@@ -457,13 +530,16 @@ def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
 
     assert "logical_environment" in call_inputs
     assert "environment" not in call_inputs
-    assert "github_environment" not in call_inputs
-    assert all("environment" not in job for job in workflow["jobs"].values())
+    assert "github_environment" in call_inputs
+    assert "environment" not in workflow["jobs"]["offline_validation"]
+    assert workflow["jobs"]["live_saved_plan"]["environment"] == {
+        "name": "${{ inputs.github_environment }}"
+    }
 
     validation_step = next(
         item
-        for item in workflow["jobs"]["offline_validation"]["steps"]
-        if item["name"] == "Validate execution mode and identifiers"
+        for item in workflow["jobs"]["mode_boundary"]["steps"]
+        if item["name"] == "Reject unauthorized modes before credentials"
     )
     assert validation_step["env"]["LOGICAL_ENVIRONMENT"] == (
         "${{ inputs.logical_environment }}"
@@ -472,14 +548,69 @@ def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
     assert "sandbox|dev|staging|production" not in validation_step["run"]
 
 
-def test_dry_run_workflows_have_no_oidc_permission() -> None:
-    for workflow_path in (
-        NONPROD_WORKFLOW_PATH,
-        LAYER_WORKFLOW_PATH,
-    ):
-        workflow_text = workflow_path.read_text(encoding="utf-8")
-        assert "id-token: write" not in workflow_text
-        assert "aws-actions/configure-aws-credentials" not in workflow_text
+def test_oidc_is_allowlisted_to_the_two_canonical_live_jobs() -> None:
+    expected = {
+        NONPROD_WORKFLOW_PATH: {"live-layer"},
+        LAYER_WORKFLOW_PATH: {"live_saved_plan"},
+    }
+    for workflow_path, privileged_jobs in expected.items():
+        workflow = _load_workflow(workflow_path)
+        assert "id-token" not in workflow.get("permissions", {})
+        observed = set()
+        for job_name, job in workflow["jobs"].items():
+            permissions = job.get("permissions", {})
+            configure_steps = [
+                step
+                for step in job.get("steps", [])
+                if isinstance(step, dict)
+                and str(step.get("uses", "")).startswith(
+                    "aws-actions/configure-aws-credentials@"
+                )
+            ]
+            if "id-token" in permissions or configure_steps:
+                observed.add(job_name)
+            if job_name not in privileged_jobs:
+                assert "id-token" not in permissions
+                assert not configure_steps
+        assert observed == privileged_jobs
+
+    reusable = _load_workflow(LAYER_WORKFLOW_PATH)["jobs"]["live_saved_plan"]
+    assert reusable["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "id-token": "write",
+    }
+    configure_index = next(
+        index
+        for index, step in enumerate(reusable["steps"])
+        if str(step.get("uses", "")).startswith(
+            "aws-actions/configure-aws-credentials@"
+        )
+    )
+    preflight_index = next(
+        index
+        for index, step in enumerate(reusable["steps"])
+        if step.get("name") == "Validate protected Environment bindings before OIDC"
+    )
+    assert preflight_index < configure_index
+    assert reusable["steps"][configure_index]["uses"] == (
+        "aws-actions/configure-aws-credentials@"
+        "e6de054238d6b7531b4efff3b6587d9aade6a06c"
+    )
+    materializer_job = _load_workflow(LAYER_WORKFLOW_PATH)["jobs"]["live_input_gate"]
+    assert materializer_job["permissions"] == {}
+    assert materializer_job["needs"] == "mode_boundary"
+    assert "environment" not in materializer_job
+    assert reusable["needs"] == ["mode_boundary", "live_input_gate"]
+    materializer = next(
+        step
+        for step in materializer_job["steps"]
+        if step.get("name") == "Require a proven typed live-input materializer"
+    )
+    assert "env" not in materializer
+    assert materializer["run"].rstrip().endswith(
+        'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\nexit 1'
+    )
 
 
 def test_git_safe_examples_contain_no_arns() -> None:

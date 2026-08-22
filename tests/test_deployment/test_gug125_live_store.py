@@ -2,26 +2,122 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from tooling.authorize_deployment_backend import AuthorizationError, canonical_digest
-from tooling.nonprod_live_store import AwsCliExecutionLedgerStore, AwsCliPlanStore
+from tooling.nonprod_live_engine import (
+    build_saved_plan_approval,
+    build_saved_plan_record,
+)
+from tooling.nonprod_live_store import (
+    AwsCliExecutionLedgerStore,
+    AwsCliPlanStore,
+    AwsCliTerminalSession,
+)
 
 
 ACCOUNT_ID = "1" * 12
+SHARED_ACCOUNT_ID = "2" * 12
 DEPLOYMENT_ID = "dep_" + ("A" * 26)
 EXECUTION_ID = "exec_" + ("A" * 26)
 ORCHESTRATOR_ROLE = f"ScanalyzeOrchestrator-{DEPLOYMENT_ID}"
 ORCHESTRATOR_ROLE_ARN = f"arn:aws:iam::{ACCOUNT_ID}:role/{ORCHESTRATOR_ROLE}"
+TERMINAL_ORCHESTRATOR_ROLE_ARN = (
+    f"arn:aws:iam::{SHARED_ACCOUNT_ID}:role/{ORCHESTRATOR_ROLE}"
+)
 REPO_ROOT = Path(__file__).resolve().parents[2]
+NOW = datetime(2026, 8, 21, 18, 0, tzinfo=UTC)
+
+
+def _sha(character: str) -> str:
+    return "sha256:" + character * 64
+
+
+def _bindings() -> dict:
+    return {
+        "customer_id": "cust_" + ("A" * 26),
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "region": "us-east-1",
+        "environment": "dev",
+        "execution_id": EXECUTION_ID,
+        "change_id": "chg_" + ("A" * 26),
+        "layer": "network",
+        "release_version": "2026.08.21-gug382",
+        "release_digest": _sha("a"),
+        "release_policy_digest": _sha("b"),
+        "release_projection_digest": _sha("c"),
+        "plan_policy_digest": _sha("d"),
+        "github_environment": f"scanalyze-{DEPLOYMENT_ID}-dev",
+        "github_deployment_identity_digest": _sha("e"),
+        "environment_configuration_digest": _sha("f"),
+        "platform_authority_digest": _sha("1"),
+        "registry_record_digest": _sha("2"),
+        "account_ready_digest": _sha("3"),
+        "execution_lock_digest": _sha("4"),
+        "backend_binding_digest": _sha("5"),
+        "contract_resolution_digest": _sha("6"),
+        "toolchain_digest": _sha("7"),
+        "root_module_digest": _sha("8"),
+        "source_revision_digest": _sha("9"),
+        "state_lineage": "synthetic-lineage",
+        "state_serial": 3,
+    }
+
+
+def _plan_record() -> dict:
+    bindings = _bindings()
+    return build_saved_plan_record(
+        bindings=bindings,
+        plan_sha256=_sha("0"),
+        plan_size_bytes=128,
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
+        object_key=(
+            f"plan-execution/{DEPLOYMENT_ID}/{bindings['change_id']}/"
+            "network/plan.tfplan"
+        ),
+        object_version_id="synthetic-version",
+        created_at=NOW,
+        expires_at=NOW + timedelta(hours=1),
+    )
+
+
+def _approval_record() -> dict:
+    plan = _plan_record()
+    return build_saved_plan_approval(
+        plan_record=plan,
+        repository_owner_id=10,
+        repository_id=20,
+        workflow_ref=(
+            "synthetic-owner/scanalyze-deployment-platform/"
+            ".github/workflows/nonprod-release.yml@refs/heads/main"
+        ),
+        workflow_sha="a" * 40,
+        workflow_run_id=30,
+        github_environment=plan["github_environment"],
+        environment_configuration_digest=plan["environment_configuration_digest"],
+        initiator_user_id=40,
+        approver_user_id=50,
+        approved_at=NOW + timedelta(minutes=2),
+        expires_at=NOW + timedelta(minutes=45),
+    )
 
 
 class FakeRunner:
-    def __init__(self, role: str = "ScanalyzeCustomer-Plan") -> None:
+    def __init__(
+        self,
+        role: str = "ScanalyzeCustomer-Plan",
+        *,
+        account_id: str = ACCOUNT_ID,
+        read_document: dict | None = None,
+    ) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.role = role
+        self.account_id = account_id
+        self.read_document = read_document
 
     def __call__(self, command: tuple[str, ...]) -> str:
         self.commands.append(tuple(command))
@@ -29,9 +125,9 @@ class FakeRunner:
         if operation == ("get-caller-identity", "--region"):
             return json.dumps(
                 {
-                    "Account": ACCOUNT_ID,
+                    "Account": self.account_id,
                     "Arn": (
-                        f"arn:aws:sts::{ACCOUNT_ID}:assumed-role/"
+                        f"arn:aws:sts::{self.account_id}:assumed-role/"
                         f"{self.role}/fixture-session"
                     ),
                 }
@@ -44,7 +140,18 @@ class FakeRunner:
             Path(command[-1]).write_bytes(b"exact saved plan")
             return "{}"
         if operation == ("get-item", "--region"):
-            return json.dumps({"Item": {"document": {"S": json.dumps(_ledger())}}})
+            document = _ledger() if self.read_document is None else self.read_document
+            return json.dumps({"Item": {"document": {"S": json.dumps(document)}}})
+        if operation == ("assume-role", "--region"):
+            return json.dumps(
+                {
+                    "Credentials": {
+                        "AccessKeyId": "synthetic-access-key",
+                        "SecretAccessKey": "synthetic-secret-key",
+                        "SessionToken": "synthetic-session-token",
+                    }
+                }
+            )
         return "{}"
 
 
@@ -87,6 +194,18 @@ def _ledger_store(runner: FakeRunner) -> AwsCliExecutionLedgerStore:
     )
 
 
+class ProcessRecorder:
+    def __init__(self, return_code: int = 0) -> None:
+        self.return_code = return_code
+        self.command: tuple[str, ...] | None = None
+        self.environment: dict[str, str] | None = None
+
+    def __call__(self, command: tuple[str, ...], environment: dict[str, str]) -> int:
+        self.command = tuple(command)
+        self.environment = dict(environment)
+        return self.return_code
+
+
 def test_terminal_identity_is_exact_and_no_default_profile_is_injected() -> None:
     runner = FakeRunner()
     store = _plan_store(runner)
@@ -98,6 +217,98 @@ def test_terminal_identity_is_exact_and_no_default_profile_is_injected() -> None
     assert "--profile" not in runner.commands[0]
 
 
+def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credentials() -> None:
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, account_id=SHARED_ACCOUNT_ID)
+    process = ProcessRecorder()
+    session = AwsCliTerminalSession(
+        region="us-east-1",
+        account_id=ACCOUNT_ID,
+        runner=runner,
+        process_runner=process,
+    )
+    customer_id = "cust_" + ("A" * 26)
+    change_id = "chg_" + ("A" * 26)
+
+    session.run_terminal_phase(
+        orchestrator_role_arn=TERMINAL_ORCHESTRATOR_ROLE_ARN,
+        role_arn=f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-Plan",
+        customer_id=customer_id,
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        change_id=change_id,
+        environment="dev",
+        operation="plan",
+        layer="network",
+        command=("/repository/terraform-saved-plan.sh", "plan"),
+        base_environment={
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_ACTIONS": "true",
+            "AWS_PROFILE": "must-not-propagate",
+            "AWS_WEB_IDENTITY_TOKEN_FILE": "/must/not/propagate",
+            "AWS_ENDPOINT_URL_STS": "https://must-not-propagate.invalid",
+            "BASH_ENV": "/must/not/propagate",
+            "PYTHONPATH": "/must/not/propagate",
+        },
+    )
+
+    identity, assume = runner.commands
+    assert identity[:3] == ("aws", "sts", "get-caller-identity")
+    assert assume[:3] == ("aws", "sts", "assume-role")
+    assert assume[assume.index("--role-session-name") + 1] == EXECUTION_ID
+    assert assume[assume.index("--source-identity") + 1] == EXECUTION_ID
+    assert assume[assume.index("--duration-seconds") + 1] == "900"
+    for key, value in {
+        "customer_id": customer_id,
+        "deployment_id": DEPLOYMENT_ID,
+        "account_id": ACCOUNT_ID,
+        "environment": "dev",
+        "operation": "plan",
+        "layer": "network",
+        "change_id": change_id,
+    }.items():
+        assert f"Key={key},Value={value}" in assume
+    assert "--profile" not in assume
+    assert process.command == ("/repository/terraform-saved-plan.sh", "plan")
+    assert process.environment is not None
+    assert process.environment["AWS_ACCESS_KEY_ID"] == "synthetic-access-key"
+    assert process.environment["AWS_EC2_METADATA_DISABLED"] == "true"
+    assert process.environment["GITHUB_ACTIONS"] == "true"
+    assert process.environment["PATH"] == "/usr/bin:/bin"
+    assert "AWS_PROFILE" not in process.environment
+    assert "AWS_WEB_IDENTITY_TOKEN_FILE" not in process.environment
+    assert "AWS_ENDPOINT_URL_STS" not in process.environment
+    assert "BASH_ENV" not in process.environment
+    assert "PYTHONPATH" not in process.environment
+
+
+def test_terminal_session_rejects_wrong_role_before_aws_or_process() -> None:
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, account_id=SHARED_ACCOUNT_ID)
+    process = ProcessRecorder()
+    session = AwsCliTerminalSession(
+        region="us-east-1",
+        account_id=ACCOUNT_ID,
+        runner=runner,
+        process_runner=process,
+    )
+
+    with pytest.raises(AuthorizationError, match="terminal role"):
+        session.run_terminal_phase(
+            orchestrator_role_arn=TERMINAL_ORCHESTRATOR_ROLE_ARN,
+            role_arn=f"arn:aws:iam::{ACCOUNT_ID}:role/Administrator",
+            customer_id="cust_" + ("A" * 26),
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            change_id="chg_" + ("A" * 26),
+            environment="dev",
+            operation="apply",
+            layer="network",
+            command=("/repository/terraform-saved-plan.sh", "apply"),
+            base_environment={},
+        )
+    assert runner.commands == []
+    assert process.command is None
+
+
 def test_plan_write_is_create_only_versioned_and_kms_encrypted(tmp_path: Path) -> None:
     plan = tmp_path / "plan.tfplan"
     plan.write_bytes(b"exact saved plan")
@@ -106,7 +317,7 @@ def test_plan_write_is_create_only_versioned_and_kms_encrypted(tmp_path: Path) -
 
     result = store.put_plan_once(
         path=plan,
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-evidence",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
         ),
@@ -130,7 +341,7 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
     destination = tmp_path / "downloaded.tfplan"
 
     result = store.get_plan_version(
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-evidence",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
         ),
@@ -151,6 +362,40 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
             object_version_id=result["object_version_id"],
             destination=destination,
         )
+
+
+def test_plan_store_rejects_noncanonical_bucket_key_or_kms_before_aws(
+    tmp_path: Path,
+) -> None:
+    plan = tmp_path / "plan.tfplan"
+    plan.write_bytes(b"exact saved plan")
+    canonical_key = (
+        f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
+    )
+    canonical_kms = f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:key/synthetic-state-key"
+
+    for bucket, key, kms in (
+        (f"scanalyze-{ACCOUNT_ID}-tf-evidence", canonical_key, canonical_kms),
+        (
+            f"scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan-execution/foreign/plan.tfplan",
+            canonical_kms,
+        ),
+        (
+            f"scanalyze-{ACCOUNT_ID}-tf-state",
+            canonical_key,
+            f"arn:aws:kms:us-west-2:{ACCOUNT_ID}:key/foreign",
+        ),
+    ):
+        runner = FakeRunner()
+        with pytest.raises(AuthorizationError, match="bucket|object key|KMS"):
+            _plan_store(runner).put_plan_once(
+                path=plan,
+                bucket=bucket,
+                object_key=key,
+                kms_key_arn=kms,
+            )
+        assert runner.commands == []
 
 
 def test_ledger_create_and_replace_are_conditional() -> None:
@@ -227,6 +472,79 @@ def test_ledger_read_is_strongly_consistent_and_projected() -> None:
     command = runner.commands[0]
     assert "--consistent-read" in command
     assert command[command.index("--projection-expression") + 1] == "document"
+
+
+def test_plan_control_record_is_create_only_and_read_consistently() -> None:
+    plan = _plan_record()
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, read_document=plan)
+    store = _ledger_store(runner)
+
+    store.put_plan_record_once(plan)
+    assert store.get_plan_record(
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        layer="network",
+    ) == plan
+
+    create, read = runner.commands
+    assert create[:3] == ("aws", "dynamodb", "put-item")
+    assert "attribute_not_exists(record_key)" in create[
+        create.index("--condition-expression") + 1
+    ]
+    item = json.loads(create[create.index("--item") + 1])
+    assert item["record_key"]["S"] == f"plan#{EXECUTION_ID}#network"
+    assert set(item) == {"deployment_id", "record_key", "document"}
+    assert "--consistent-read" in read
+    assert read[read.index("--projection-expression") + 1] == "document"
+    assert "--profile" not in create + read
+
+
+def test_approval_control_record_is_time_bound_and_create_only() -> None:
+    approval = _approval_record()
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, read_document=approval)
+    store = _ledger_store(runner)
+
+    store.put_approval_record_once(approval, now=NOW + timedelta(minutes=3))
+    assert store.get_approval_record(
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        layer="network",
+        now=NOW + timedelta(minutes=3),
+    ) == approval
+
+    item = json.loads(runner.commands[0][runner.commands[0].index("--item") + 1])
+    assert item["record_key"]["S"] == f"approval#{EXECUTION_ID}#network"
+
+    with pytest.raises(AuthorizationError, match="currently valid"):
+        _ledger_store(FakeRunner(read_document=approval)).get_approval_record(
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            layer="network",
+            now=NOW + timedelta(minutes=46),
+        )
+
+
+def test_control_record_read_rejects_tuple_or_digest_substitution() -> None:
+    foreign_tuple = _plan_record()
+    foreign_tuple["execution_id"] = "exec_" + ("B" * 26)
+    foreign_tuple["record_digest"] = canonical_digest(
+        {key: value for key, value in foreign_tuple.items() if key != "record_digest"}
+    )
+    with pytest.raises(AuthorizationError, match="storage key binding"):
+        _ledger_store(FakeRunner(read_document=foreign_tuple)).get_plan_record(
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            layer="network",
+        )
+
+    tampered = _plan_record()
+    tampered["plan_sha256"] = _sha("f")
+    with pytest.raises(AuthorizationError, match="digest mismatch"):
+        _ledger_store(FakeRunner(read_document=tampered)).get_plan_record(
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            layer="network",
+        )
 
 
 def test_noncanonical_table_or_role_is_denied() -> None:

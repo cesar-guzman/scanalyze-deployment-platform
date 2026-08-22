@@ -44,8 +44,15 @@ CREDENTIAL_ENVIRONMENT_NAMES = frozenset(
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
         "AWS_PROFILE",
+        "AWS_DEFAULT_PROFILE",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_CONFIG_FILE",
         "AWS_WEB_IDENTITY_TOKEN_FILE",
         "AWS_ROLE_ARN",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
     }
 )
 PLAN_BINDING_FIELDS = (
@@ -186,6 +193,8 @@ def build_saved_plan_record(
         raise AuthorizationError("saved plan lifetime must be between five minutes and 24 hours")
     if object_key != _exact_plan_key(bindings):
         raise AuthorizationError("saved plan object key is not derived from trusted bindings")
+    if bucket != f"scanalyze-{bindings['account_id']}-tf-state":
+        raise AuthorizationError("saved plan bucket is not the canonical state bucket")
 
     record: dict[str, Any] = {
         "schema_version": "1",
@@ -222,6 +231,37 @@ def _validate_approval_record(
     expires = _parse_timestamp(approval["expires_at"], "approval expires_at")
     if expires <= approved or current < approved or current >= expires:
         raise AuthorizationError("saved plan approval is not currently valid")
+
+
+def validate_saved_plan_document(document: Mapping[str, Any]) -> None:
+    """Validate an untrusted saved-plan document read from durable storage."""
+    _validate_schema(document, "saved-plan.v1.schema.json", "saved plan")
+    _verify_digest(document, "record_digest", "saved plan")
+
+
+def validate_saved_plan_approval_document(
+    document: Mapping[str, Any],
+    *,
+    now: datetime,
+) -> None:
+    """Validate an untrusted, time-bound approval read from durable storage."""
+    _validate_approval_record(document, now=now)
+
+
+def validate_health_receipt_document(document: Mapping[str, Any]) -> None:
+    """Validate an untrusted health receipt read from durable storage."""
+    _validate_schema(document, "live-health-receipt.v1.schema.json", "health receipt")
+    _verify_digest(document, "receipt_digest", "health receipt")
+
+
+def validate_reconciliation_receipt_document(document: Mapping[str, Any]) -> None:
+    """Validate an untrusted reconciliation receipt read from durable storage."""
+    _validate_schema(
+        document,
+        "live-reconciliation-receipt.v1.schema.json",
+        "reconciliation receipt",
+    )
+    _verify_digest(document, "receipt_digest", "reconciliation receipt")
 
 
 def _validate_plan_approval_binding(
