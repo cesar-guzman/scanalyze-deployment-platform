@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +87,16 @@ APPROVED_WORKFLOW_EVENTS = {
         {"workflow_dispatch", "push"}
     ),
 }
+LIVE_OIDC_ACTION = (
+    "aws-actions/configure-aws-credentials@"
+    "e6de054238d6b7531b4efff3b6587d9aade6a06c"
+)
+APPROVED_PRIVILEGED_JOBS = {
+    ".github/workflows/nonprod-release.yml": frozenset({"live-layer"}),
+    ".github/workflows/_terraform-layer.yml": frozenset({"live_saved_plan"}),
+}
+LIVE_JOB_PERMISSIONS = {"actions": "read", "contents": "read", "id-token": "write"}
+FULL_LENGTH_ACTION_REF = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 ROLE_ARN = re.compile(
     r"^arn:aws(?:-[a-z]+)*:iam::(?P<account>[0-9]{12}):role/"
     r"(?P<name>[A-Za-z0-9+=,.@_/-]+)$"
@@ -798,6 +809,329 @@ def _validate_orchestrator_policy(path: Path) -> None:
         raise GitHubDeploymentIdentityError("orchestrator source identity is not exact")
 
 
+def _load_workflow(path: Path) -> dict[str, Any]:
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise GitHubDeploymentIdentityError("repository workflow is invalid") from exc
+    if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
+        raise GitHubDeploymentIdentityError("repository workflow is invalid")
+    return document
+
+
+def _workflow_trigger(workflow: dict[str, Any]) -> dict[str, Any]:
+    # PyYAML 1.1 treats the unquoted GitHub Actions key `on` as boolean true.
+    trigger = workflow.get("on", workflow.get(True))
+    if not isinstance(trigger, dict):
+        raise GitHubDeploymentIdentityError("repository workflow trigger is invalid")
+    return trigger
+
+
+def _named_step(job: dict[str, Any], name: str) -> dict[str, Any]:
+    matches = [
+        step
+        for step in job.get("steps", [])
+        if isinstance(step, dict) and step.get("name") == name
+    ]
+    if len(matches) != 1:
+        raise GitHubDeploymentIdentityError("canonical live preflight step is incomplete")
+    return matches[0]
+
+
+def _require_shell_markers(step: dict[str, Any], markers: tuple[str, ...]) -> None:
+    script = step.get("run")
+    if not isinstance(script, str) or any(marker not in script for marker in markers):
+        raise GitHubDeploymentIdentityError("canonical live preflight is incomplete")
+
+
+def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
+    workflow_dir = repo_root / ".github/workflows"
+    observed: dict[str, list[str]] = {}
+    workflow_paths = sorted(
+        {*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")}
+    )
+    for path in workflow_paths:
+        relative = path.relative_to(repo_root).as_posix()
+        workflow = _load_workflow(path)
+        top_permissions = workflow.get("permissions", {})
+        if not isinstance(top_permissions, dict) or "id-token" in top_permissions:
+            raise GitHubDeploymentIdentityError(
+                "OIDC permission must not be granted at workflow scope"
+            )
+        allowed = APPROVED_PRIVILEGED_JOBS.get(relative, frozenset())
+        privileged: list[str] = []
+        for job_name, job in workflow["jobs"].items():
+            if not isinstance(job, dict):
+                raise GitHubDeploymentIdentityError("repository workflow job is invalid")
+            permissions = job.get("permissions", {})
+            if not isinstance(permissions, dict):
+                raise GitHubDeploymentIdentityError("workflow job permissions are invalid")
+            steps = job.get("steps", [])
+            if steps is None:
+                steps = []
+            if not isinstance(steps, list):
+                raise GitHubDeploymentIdentityError("workflow job steps are invalid")
+            configure_steps = [
+                step
+                for step in steps
+                if isinstance(step, dict)
+                and isinstance(step.get("uses"), str)
+                and step["uses"].startswith("aws-actions/configure-aws-credentials@")
+            ]
+            has_id_token_permission = "id-token" in permissions
+            has_oidc = permissions.get("id-token") == "write"
+            if has_id_token_permission or configure_steps:
+                privileged.append(job_name)
+            if configure_steps and any(
+                step.get("uses") != LIVE_OIDC_ACTION for step in configure_steps
+            ):
+                raise GitHubDeploymentIdentityError("live OIDC action is not SHA-pinned")
+            if job_name not in allowed and (has_id_token_permission or configure_steps):
+                raise GitHubDeploymentIdentityError(
+                    "repository workflow can bypass deployment authorization"
+                )
+            if job_name in allowed and not has_oidc:
+                raise GitHubDeploymentIdentityError(
+                    "canonical live OIDC permission is incomplete"
+                )
+        if privileged:
+            if frozenset(privileged) != allowed:
+                raise GitHubDeploymentIdentityError(
+                    "repository workflow can bypass deployment authorization"
+                )
+            observed[relative] = sorted(privileged)
+
+    expected = {
+        path: sorted(jobs) for path, jobs in APPROVED_PRIVILEGED_JOBS.items()
+    }
+    if observed != expected:
+        raise GitHubDeploymentIdentityError("canonical live OIDC jobs are incomplete")
+
+    caller_workflow = _load_workflow(
+        repo_root / ".github/workflows/nonprod-release.yml"
+    )
+    if set(_workflow_trigger(caller_workflow)) != {"workflow_dispatch"}:
+        raise GitHubDeploymentIdentityError(
+            "live release must be restricted to workflow_dispatch"
+        )
+    caller = caller_workflow["jobs"]["live-layer"]
+    if (
+        caller.get("permissions") != LIVE_JOB_PERMISSIONS
+        or caller.get("uses") != "./.github/workflows/_terraform-layer.yml"
+        or caller.get("needs") != "go-no-go"
+        or caller.get("if") != "${{ inputs.allow_live && !inputs.dry_run }}"
+        or "steps" in caller
+        or "environment" in caller
+        or "secrets" in caller
+        or caller.get("with")
+        != {
+            "deployment_id": "${{ inputs.deployment_id }}",
+            "logical_environment": "${{ inputs.logical_environment }}",
+            "layer": "${{ inputs.target_layer }}",
+            "release_digest": "${{ inputs.release_digest }}",
+            "request_path": "${{ inputs.request_path }}",
+            "aws_region": "${{ inputs.aws_region }}",
+            "dry_run": False,
+            "allow_live": True,
+            "live_operation": "${{ inputs.live_operation }}",
+            "github_environment": "${{ inputs.github_environment }}",
+            "main_sha": "${{ inputs.main_sha }}",
+            "execution_id": "${{ inputs.execution_id }}",
+            "change_id": "${{ inputs.change_id }}",
+            "plan_record_digest": "${{ inputs.plan_record_digest }}",
+        }
+    ):
+        raise GitHubDeploymentIdentityError("live reusable-workflow caller is not exact")
+
+    dispatch_gate = _named_step(
+        caller_workflow["jobs"]["preflight"], "Validate dispatch execution mode"
+    )
+    dispatch_env = dispatch_gate.get("env", {})
+    if any(
+        dispatch_env.get(name) != value
+        for name, value in {
+            "ALLOW_LIVE": "${{ inputs.allow_live }}",
+            "DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
+            "DRY_RUN": "${{ inputs.dry_run }}",
+            "EVENT_NAME": "${{ github.event_name }}",
+            "GITHUB_ENVIRONMENT_INPUT": "${{ inputs.github_environment }}",
+            "LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
+            "MAIN_SHA": "${{ inputs.main_sha }}",
+            "REF_NAME": "${{ github.ref }}",
+            "REF_PROTECTED": "${{ github.ref_protected }}",
+            "RUN_SHA": "${{ github.sha }}",
+        }.items()
+    ):
+        raise GitHubDeploymentIdentityError("live dispatch bindings are incomplete")
+    dispatch_script = dispatch_gate.get("run")
+    if not isinstance(dispatch_script, str) or "${{" in dispatch_script:
+        raise GitHubDeploymentIdentityError(
+            "live dispatch inputs must be transferred through the step environment"
+        )
+    _require_shell_markers(
+        dispatch_gate,
+        (
+            '"$EVENT_NAME" != "workflow_dispatch"',
+            '"$LOGICAL_ENVIRONMENT" != "dev"',
+            '"$REF_NAME" != "refs/heads/main"',
+            '"$REF_PROTECTED" != "true"',
+            '"$RUN_SHA" != "$MAIN_SHA"',
+            '! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$',
+            '"$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev"',
+        ),
+    )
+
+    reusable_workflow = _load_workflow(
+        repo_root / ".github/workflows/_terraform-layer.yml"
+    )
+    if set(_workflow_trigger(reusable_workflow)) != {"workflow_call"}:
+        raise GitHubDeploymentIdentityError(
+            "live layer must be restricted to workflow_call"
+        )
+    live_input_gate = reusable_workflow["jobs"].get("live_input_gate")
+    if not isinstance(live_input_gate, dict):
+        raise GitHubDeploymentIdentityError(
+            "live input materializer gate is not unprivileged"
+        )
+    if (
+        set(live_input_gate)
+        != {
+            "name",
+            "needs",
+            "if",
+            "runs-on",
+            "timeout-minutes",
+            "permissions",
+            "steps",
+        }
+        or live_input_gate.get("name") != "Require proven typed live inputs"
+        or live_input_gate.get("needs") != "mode_boundary"
+        or live_input_gate.get("if")
+        != "${{ inputs.allow_live && !inputs.dry_run }}"
+        or live_input_gate.get("runs-on") != "ubuntu-24.04"
+        or live_input_gate.get("timeout-minutes") != 5
+        or live_input_gate.get("permissions") != {}
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live input materializer gate is not unprivileged"
+        )
+    materializer_steps = live_input_gate.get("steps")
+    if not isinstance(materializer_steps, list) or len(materializer_steps) != 1:
+        raise GitHubDeploymentIdentityError(
+            "live input materializer gate is not a terminal denial"
+        )
+    materializer = materializer_steps[0]
+    if (
+        not isinstance(materializer, dict)
+        or set(materializer) != {"name", "run"}
+        or materializer.get("name")
+        != "Require a proven typed live-input materializer"
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live input materializer gate is not a terminal denial"
+        )
+    materializer_script = materializer.get("run")
+    executable_lines = (
+        [
+            line.strip()
+            for line in materializer_script.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if isinstance(materializer_script, str)
+        else []
+    )
+    if executable_lines != [
+        "set -euo pipefail",
+        'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"',
+        "exit 1",
+    ]:
+        raise GitHubDeploymentIdentityError(
+            "live input materializer gate is not a terminal denial"
+        )
+    reusable = reusable_workflow["jobs"]["live_saved_plan"]
+    if (
+        reusable.get("permissions") != LIVE_JOB_PERMISSIONS
+        or reusable.get("needs") != ["mode_boundary", "live_input_gate"]
+        or reusable.get("if") != "${{ inputs.allow_live && !inputs.dry_run }}"
+        or reusable.get("environment")
+        != {"name": "${{ inputs.github_environment }}"}
+    ):
+        raise GitHubDeploymentIdentityError("live saved-plan job boundary is not exact")
+    steps = reusable.get("steps", [])
+    for step in steps:
+        if not isinstance(step, dict):
+            raise GitHubDeploymentIdentityError("repository workflow job is invalid")
+        action = step.get("uses")
+        if (
+            isinstance(action, str)
+            and not action.startswith("./")
+            and not FULL_LENGTH_ACTION_REF.fullmatch(action)
+        ):
+            raise GitHubDeploymentIdentityError("live workflow action is not SHA-pinned")
+    configure_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and step.get("uses") == LIVE_OIDC_ACTION
+    ]
+    preflight_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict)
+        and step.get("name") == "Validate protected Environment bindings before OIDC"
+    ]
+    if (
+        len(configure_indexes) != 1
+        or len(preflight_indexes) != 1
+        or preflight_indexes[0] >= configure_indexes[0]
+    ):
+        raise GitHubDeploymentIdentityError("live OIDC preflight ordering is invalid")
+
+    mode_gate = _named_step(
+        reusable_workflow["jobs"]["mode_boundary"],
+        "Reject unauthorized modes before credentials",
+    )
+    mode_env = mode_gate.get("env", {})
+    if any(
+        mode_env.get(name) != value
+        for name, value in {
+            "ALLOW_LIVE": "${{ inputs.allow_live }}",
+            "DRY_RUN": "${{ inputs.dry_run }}",
+            "EVENT_NAME": "${{ github.event_name }}",
+            "GITHUB_ENVIRONMENT_INPUT": "${{ inputs.github_environment }}",
+            "LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
+            "MAIN_SHA": "${{ inputs.main_sha }}",
+            "REF_NAME": "${{ github.ref }}",
+            "REF_PROTECTED": "${{ github.ref_protected }}",
+            "RUN_SHA": "${{ github.sha }}",
+        }.items()
+    ):
+        raise GitHubDeploymentIdentityError("live layer bindings are incomplete")
+    _require_shell_markers(
+        mode_gate,
+        (
+            '"$EVENT_NAME" != "workflow_dispatch"',
+            '"$LOGICAL_ENVIRONMENT" != "dev"',
+            '"$REF_NAME" != "refs/heads/main"',
+            '"$REF_PROTECTED" != "true"',
+            '"$RUN_SHA" != "$MAIN_SHA"',
+            '"$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev"',
+        ),
+    )
+    configure = steps[configure_indexes[0]]
+    if configure.get("with") != {
+        "audience": "sts.amazonaws.com",
+        "aws-region": "${{ inputs.aws_region }}",
+        "allowed-account-ids": "${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}",
+        "mask-aws-account-id": True,
+        "role-duration-seconds": 900,
+        "role-session-name": "scanalyze-${{ github.run_id }}-${{ github.run_attempt }}",
+        "role-to-assume": "${{ vars.ORCHESTRATOR_ROLE_ARN }}",
+        "unset-current-credentials": True,
+    }:
+        raise GitHubDeploymentIdentityError("live OIDC configuration is not exact")
+    return observed
+
+
 def validate_repository_controls(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     """Validate repository-owned trust and offline/live workflow separation."""
     trust_dir = repo_root / "policies/trust"
@@ -845,25 +1179,12 @@ def validate_repository_controls(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     )
     _validate_break_glass_policy(repo_root / "policies/iam/break-glass-role.json")
 
-    privileged_workflows = sorted(
-        path.relative_to(repo_root).as_posix()
-        for path in (repo_root / ".github/workflows").glob("*.yml")
-        if any(
-            marker in path.read_text(encoding="utf-8")
-            for marker in (
-                "id-token: write",
-                "aws-actions/configure-aws-credentials",
-            )
-        )
-    )
-    if privileged_workflows:
-        raise GitHubDeploymentIdentityError(
-            "repository workflow can bypass deployment authorization"
-        )
+    privileged_jobs = _validate_live_oidc_jobs(repo_root)
     return {
         "trust_policies": sorted(ROLE_OPERATIONS),
         "dry_run_oidc": False,
-        "privileged_workflows": [],
+        "privileged_workflows": sorted(privileged_jobs),
+        "privileged_jobs": privileged_jobs,
         "orchestrator_actions": [
             "sts:AssumeRole",
             "sts:TagSession",

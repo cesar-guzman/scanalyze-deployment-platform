@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tooling.validate_github_deployment_identity import (
     GitHubDeploymentIdentityError,
@@ -755,7 +758,14 @@ def test_repository_controls_are_exact_and_dry_run_remains_unprivileged() -> Non
         "validation",
     ]
     assert result["dry_run_oidc"] is False
-    assert result["privileged_workflows"] == []
+    assert result["privileged_workflows"] == [
+        ".github/workflows/_terraform-layer.yml",
+        ".github/workflows/nonprod-release.yml",
+    ]
+    assert result["privileged_jobs"] == {
+        ".github/workflows/_terraform-layer.yml": ["live_saved_plan"],
+        ".github/workflows/nonprod-release.yml": ["live-layer"],
+    }
     assert result["orchestrator_actions"] == [
         "sts:AssumeRole",
         "sts:TagSession",
@@ -764,10 +774,230 @@ def test_repository_controls_are_exact_and_dry_run_remains_unprivileged() -> Non
 
 
 def test_no_repository_workflow_can_bypass_the_gug123_authorizer() -> None:
-    forbidden = ("id-token: write", "aws-actions/configure-aws-credentials")
-    for workflow_path in sorted((REPO_ROOT / ".github/workflows").glob("*.yml")):
-        workflow = workflow_path.read_text(encoding="utf-8")
-        assert not any(marker in workflow for marker in forbidden), workflow_path.name
+    result = validate_repository_controls(REPO_ROOT)
+    assert result["privileged_jobs"] == {
+        ".github/workflows/_terraform-layer.yml": ["live_saved_plan"],
+        ".github/workflows/nonprod-release.yml": ["live-layer"],
+    }
+
+
+def test_dispatch_deployment_id_is_env_bound_and_shell_payload_is_inert(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/nonprod-release.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["preflight"]["steps"]
+        if item.get("name") == "Validate dispatch execution mode"
+    )
+    script = step["run"]
+    assert step["env"]["DEPLOYMENT_ID"] == "${{ inputs.deployment_id }}"
+    assert "${{" not in script
+
+    sentinel = tmp_path / "expression-injection-ran"
+    valid_env = {
+        "ALLOW_LIVE": "true",
+        "CHANGE_ID": "chg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "DEPLOYMENT_ID": DEPLOYMENT_ID,
+        "DRY_RUN": "false",
+        "EVENT_NAME": "workflow_dispatch",
+        "EXECUTION_ID": "exec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "GITHUB_ENVIRONMENT_INPUT": GITHUB_ENVIRONMENT,
+        "LIVE_OPERATION": "plan",
+        "LOGICAL_ENVIRONMENT": "dev",
+        "MAIN_SHA": "a" * 40,
+        "PLAN_RECORD_DIGEST": "",
+        "REF_NAME": "refs/heads/main",
+        "REF_PROTECTED": "true",
+        "RUN_SHA": "a" * 40,
+        "SENTINEL": str(sentinel),
+        "TARGET_LAYER": "global",
+    }
+    legitimate = subprocess.run(
+        ["/bin/bash", "-c", script],
+        env=valid_env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert legitimate.returncode == 0, legitimate.stdout + legitimate.stderr
+
+    malicious_env = dict(valid_env)
+    malicious_env["DEPLOYMENT_ID"] = 'dep_$(> "$SENTINEL")'
+    malicious_env["GITHUB_ENVIRONMENT_INPUT"] = (
+        f"scanalyze-{malicious_env['DEPLOYMENT_ID']}-dev"
+    )
+    rejected = subprocess.run(
+        ["/bin/bash", "-c", script],
+        env=malicious_env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "Live deployment identifier is invalid" in rejected.stdout
+    assert not sentinel.exists()
+
+
+def _copy_repository_controls(tmp_path: Path) -> Path:
+    repository = tmp_path / "repository"
+    shutil.copytree(REPO_ROOT / "policies", repository / "policies")
+    shutil.copytree(
+        REPO_ROOT / ".github" / "workflows",
+        repository / ".github" / "workflows",
+    )
+    return repository
+
+
+@pytest.mark.parametrize(
+    ("workflow_path", "old", "new"),
+    [
+        (
+            ".github/workflows/nonprod-release.yml",
+            "permissions:\n  contents: read\n\nconcurrency:",
+            "permissions:\n  contents: read\n  id-token: write\n\nconcurrency:",
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            "  preflight:\n    name: Validate GitOps release request\n"
+            "    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n"
+            "    permissions:\n      contents: read",
+            "  preflight:\n    name: Validate GitOps release request\n"
+            "    runs-on: ubuntu-24.04\n    timeout-minutes: 10\n"
+            "    permissions:\n      contents: read\n      id-token: write",
+        ),
+        (
+            ".github/workflows/_terraform-layer.yml",
+            "aws-actions/configure-aws-credentials@"
+            "e6de054238d6b7531b4efff3b6587d9aade6a06c",
+            "aws-actions/configure-aws-credentials@v6",
+        ),
+        (
+            ".github/workflows/_terraform-layer.yml",
+            "Validate protected Environment bindings before OIDC",
+            "Validate protected Environment bindings after OIDC",
+        ),
+        (
+            ".github/workflows/_terraform-layer.yml",
+            'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          exit 1",
+            'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          exit 0",
+        ),
+        (
+            ".github/workflows/_terraform-layer.yml",
+            "name: ${{ inputs.github_environment }}",
+            "name: scanalyze-unscoped-dev",
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            "on:\n  workflow_dispatch:",
+            "on:\n  push:",
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            '\"$LOGICAL_ENVIRONMENT\" != \"dev\"',
+            '\"$LOGICAL_ENVIRONMENT\" != \"staging\"',
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            '\"$GITHUB_ENVIRONMENT_INPUT\" != '
+            '\"scanalyze-${DEPLOYMENT_ID}-dev\"',
+            '\"$GITHUB_ENVIRONMENT_INPUT\" != '
+            '\"scanalyze-${{ inputs.deployment_id }}-dev\"',
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            "      actions: read\n      contents: read\n      id-token: write\n"
+            "    uses: ./.github/workflows/_terraform-layer.yml",
+            "      actions: write\n      contents: read\n      id-token: write\n"
+            "    uses: ./.github/workflows/_terraform-layer.yml",
+        ),
+    ],
+)
+def test_repository_controls_reject_oidc_boundary_mutations(
+    tmp_path: Path,
+    workflow_path: str,
+    old: str,
+    new: str,
+) -> None:
+    repository = _copy_repository_controls(tmp_path)
+    path = repository / workflow_path
+    workflow = path.read_text(encoding="utf-8")
+    assert workflow.count(old) == 1
+    path.write_text(workflow.replace(old, new, 1), encoding="utf-8")
+
+    with pytest.raises(GitHubDeploymentIdentityError):
+        validate_repository_controls(repository)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            "        run: |\n"
+            "          set -euo pipefail\n"
+            "          # GUG-382 intentionally",
+            "        run: |\n"
+            "          set -euo pipefail\n"
+            "          exit 0\n"
+            "          # GUG-382 intentionally",
+        ),
+        (
+            "      - name: Require a proven typed live-input materializer\n"
+            "        run: |",
+            "      - name: Require a proven typed live-input materializer\n"
+            "        if: ${{ always() }}\n"
+            "        run: |",
+        ),
+        (
+            "      - name: Require a proven typed live-input materializer\n"
+            "        run: |",
+            "      - name: Require a proven typed live-input materializer\n"
+            "        continue-on-error: true\n"
+            "        run: |",
+        ),
+        (
+            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          exit 1\n\n"
+            "  live_saved_plan:",
+            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          exit 1\n"
+            "      - name: Bypass terminal denial\n"
+            "        run: exit 0\n\n"
+            "  live_saved_plan:",
+        ),
+        (
+            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          exit 1",
+            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
+            "          true\n"
+            "          exit 1",
+        ),
+    ],
+    ids=[
+        "early-success",
+        "conditional-step",
+        "continue-on-error",
+        "second-step",
+        "extra-command",
+    ],
+)
+def test_repository_controls_reject_hard_gate_bypasses(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    repository = _copy_repository_controls(tmp_path)
+    path = repository / ".github/workflows/_terraform-layer.yml"
+    workflow = path.read_text(encoding="utf-8")
+    assert workflow.count(old) == 1
+    path.write_text(workflow.replace(old, new, 1), encoding="utf-8")
+
+    with pytest.raises(GitHubDeploymentIdentityError):
+        validate_repository_controls(repository)
 
 
 def test_multivalued_session_tag_allowlists_are_non_vacuous() -> None:

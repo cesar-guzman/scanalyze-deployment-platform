@@ -10,13 +10,24 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from tooling.authorize_deployment_backend import AuthorizationError
+from tooling.nonprod_live_engine import (
+    CREDENTIAL_ENVIRONMENT_NAMES,
+    TERRAFORM_LAYERS,
+    require_terminal_role_for_layer,
+    validate_health_receipt_document,
+    validate_reconciliation_receipt_document,
+    validate_saved_plan_approval_document,
+    validate_saved_plan_document,
+)
 
 
 CommandRunner = Callable[[Sequence[str]], str]
+ProcessRunner = Callable[[Sequence[str], Mapping[str, str]], int]
 ROLE_ARN = re.compile(
     r"^arn:aws(?:-[a-z]+)*:sts::(?P<account>[0-9]{12}):"
     r"assumed-role/(?P<role>[A-Za-z0-9+=,.@_/-]+)/[^/]+$"
@@ -36,6 +47,37 @@ TERMINAL_ROLES = frozenset(
     }
 )
 DEPLOYMENT_ID = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
+CUSTOMER_ID = re.compile(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")
+EXECUTION_ID = re.compile(r"^exec_[0-9A-HJKMNP-TV-Z]{26}$")
+CHANGE_ID = re.compile(r"^chg_[0-9A-HJKMNP-TV-Z]{26}$")
+CONTROL_RECORD_TYPES = frozenset({"plan", "approval", "health", "reconciliation"})
+TERMINAL_CHILD_ENVIRONMENT_NAMES = frozenset(
+    {
+        "GITHUB_ACTIONS",
+        "GITHUB_ACTOR_ID",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_REF",
+        "GITHUB_REF_PROTECTED",
+        "GITHUB_REPOSITORY",
+        "GITHUB_REPOSITORY_ID",
+        "GITHUB_REPOSITORY_OWNER_ID",
+        "GITHUB_RUN_ID",
+        "GITHUB_SHA",
+        "GITHUB_WORKFLOW_REF",
+        "PATH",
+        "RUNNER_TEMP",
+        "SCANALYZE_ALLOW_LIVE",
+        "SCANALYZE_DEPLOYMENT_ID",
+        "SCANALYZE_DRY_RUN",
+        "SCANALYZE_EXPECTED_MAIN_SHA",
+        "SCANALYZE_EXPECTED_REPOSITORY_ID",
+        "SCANALYZE_EXPECTED_REPOSITORY_OWNER_ID",
+        "SCANALYZE_GITHUB_ENVIRONMENT",
+        "SCANALYZE_LOGICAL_ENVIRONMENT",
+        "SCANALYZE_OIDC_AUDIENCE",
+        "SCANALYZE_ROLE_DURATION_SECONDS",
+    }
+)
 
 
 def _default_runner(command: Sequence[str]) -> str:
@@ -49,6 +91,24 @@ def _default_runner(command: Sequence[str]) -> str:
     except (OSError, subprocess.CalledProcessError) as exc:
         raise AuthorizationError("AWS live-store operation failed") from exc
     return result.stdout
+
+
+def _default_process_runner(
+    command: Sequence[str],
+    environment: Mapping[str, str],
+) -> int:
+    try:
+        result = subprocess.run(
+            list(command),
+            check=False,
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise AuthorizationError("terminal phase process failed") from exc
+    return result.returncode
 
 
 def _json_output(raw: str, label: str) -> dict[str, Any]:
@@ -72,6 +132,26 @@ def _sha256(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def _validate_plan_location(
+    *,
+    account_id: str,
+    bucket: str,
+    object_key: str,
+) -> None:
+    if bucket != f"scanalyze-{account_id}-tf-state":
+        raise AuthorizationError("saved plan bucket is not canonical")
+    parts = object_key.split("/")
+    if (
+        len(parts) != 5
+        or parts[0] != "plan-execution"
+        or not DEPLOYMENT_ID.fullmatch(parts[1])
+        or not CHANGE_ID.fullmatch(parts[2])
+        or parts[3] not in TERRAFORM_LAYERS
+        or parts[4] != "plan.tfplan"
+    ):
+        raise AuthorizationError("saved plan object key is not canonical")
+
+
 def _ddb_item(document: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "deployment_id": {"S": document["deployment_id"]},
@@ -81,6 +161,54 @@ def _ddb_item(document: Mapping[str, Any]) -> dict[str, Any]:
         "status": {"S": document["status"]},
         "document": {"S": json.dumps(document, sort_keys=True, separators=(",", ":"))},
     }
+
+
+def _control_record_key(kind: str, document: Mapping[str, Any]) -> str:
+    if kind not in CONTROL_RECORD_TYPES:
+        raise AuthorizationError("execution control record type is invalid")
+    try:
+        execution_id = document["execution_id"]
+        layer = document["layer"]
+    except KeyError as exc:
+        raise AuthorizationError("execution control record binding is incomplete") from exc
+    if not isinstance(execution_id, str) or not isinstance(layer, str):
+        raise AuthorizationError("execution control record binding is invalid")
+    return f"{kind}#{execution_id}#{layer}"
+
+
+def _control_item(kind: str, document: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        deployment_id = document["deployment_id"]
+    except KeyError as exc:
+        raise AuthorizationError("execution control record binding is incomplete") from exc
+    return {
+        "deployment_id": {"S": deployment_id},
+        "record_key": {"S": _control_record_key(kind, document)},
+        "document": {"S": json.dumps(document, sort_keys=True, separators=(",", ":"))},
+    }
+
+
+def _validate_control_document(
+    kind: str,
+    document: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+) -> None:
+    if kind == "plan":
+        validate_saved_plan_document(document)
+        return
+    if kind == "approval":
+        if now is None:
+            raise AuthorizationError("approval verification time is required")
+        validate_saved_plan_approval_document(document, now=now)
+        return
+    if kind == "health":
+        validate_health_receipt_document(document)
+        return
+    if kind == "reconciliation":
+        validate_reconciliation_receipt_document(document)
+        return
+    raise AuthorizationError("execution control record type is invalid")
 
 
 class AwsCliPlanStore:
@@ -133,6 +261,17 @@ class AwsCliPlanStore:
         object_key: str,
         kms_key_arn: str,
     ) -> dict[str, Any]:
+        _validate_plan_location(
+            account_id=self.account_id,
+            bucket=bucket,
+            object_key=object_key,
+        )
+        if not re.fullmatch(
+            rf"^arn:aws(?:-[a-z]+)*:kms:{re.escape(self.region)}:"
+            rf"{self.account_id}:key/[A-Za-z0-9/_+=,.@:-]+$",
+            kms_key_arn,
+        ):
+            raise AuthorizationError("saved plan KMS key binding is invalid")
         if not path.is_file() or path.is_symlink():
             raise AuthorizationError("saved plan input must be a regular file")
         response = _json_output(
@@ -183,6 +322,11 @@ class AwsCliPlanStore:
         object_version_id: str,
         destination: Path,
     ) -> dict[str, Any]:
+        _validate_plan_location(
+            account_id=self.account_id,
+            bucket=bucket,
+            object_key=object_key,
+        )
         if destination.exists() or destination.is_symlink():
             raise AuthorizationError("saved plan destination must not already exist")
         if not destination.parent.is_dir() or destination.parent.is_symlink():
@@ -225,6 +369,165 @@ class AwsCliPlanStore:
         except Exception:
             destination.unlink(missing_ok=True)
             raise
+
+
+class AwsCliTerminalSession:
+    """Assume one exact terminal role and run one preselected phase command.
+
+    The adapter never returns, writes, or logs temporary credentials. The
+    caller supplies a fixed repository-owned command, never an operator shell.
+    """
+
+    def __init__(
+        self,
+        *,
+        region: str,
+        account_id: str,
+        runner: CommandRunner = _default_runner,
+        process_runner: ProcessRunner = _default_process_runner,
+    ) -> None:
+        if not re.fullmatch(r"^[a-z]{2}(?:-[a-z]+)+-[0-9]+$", region):
+            raise AuthorizationError("AWS region binding is invalid")
+        if not re.fullmatch(r"^(?!000000000000$)[0-9]{12}$", account_id):
+            raise AuthorizationError("AWS account binding is invalid")
+        self.region = region
+        self.account_id = account_id
+        self._run = runner
+        self._run_process = process_runner
+
+    def run_terminal_phase(
+        self,
+        *,
+        orchestrator_role_arn: str,
+        role_arn: str,
+        customer_id: str,
+        deployment_id: str,
+        execution_id: str,
+        change_id: str,
+        environment: str,
+        operation: str,
+        layer: str,
+        command: Sequence[str],
+        base_environment: Mapping[str, str] | None = None,
+    ) -> None:
+        """Run one fixed plan/apply command under an exact 900-second role."""
+        require_terminal_role_for_layer(
+            layer=layer,
+            role=role_arn.rsplit("/", 1)[-1],
+            operation=operation,
+        )
+        role = IAM_ROLE_ARN.fullmatch(role_arn)
+        if role is None or role.group("account") != self.account_id:
+            raise AuthorizationError("terminal role account binding mismatch")
+        if (
+            not CUSTOMER_ID.fullmatch(customer_id)
+            or not DEPLOYMENT_ID.fullmatch(deployment_id)
+            or not EXECUTION_ID.fullmatch(execution_id)
+            or not CHANGE_ID.fullmatch(change_id)
+            or environment != "dev"
+        ):
+            raise AuthorizationError("terminal session binding is invalid")
+        if not command:
+            raise AuthorizationError("terminal phase command is missing")
+
+        orchestrator = IAM_ROLE_ARN.fullmatch(orchestrator_role_arn)
+        expected_orchestrator_name = f"ScanalyzeOrchestrator-{deployment_id}"
+        if (
+            orchestrator is None
+            or orchestrator.group("account") == self.account_id
+            or orchestrator.group("role") != expected_orchestrator_name
+        ):
+            raise AuthorizationError("orchestrator authority is invalid")
+        identity = _json_output(
+            self._run(
+                (
+                    "aws",
+                    "sts",
+                    "get-caller-identity",
+                    "--region",
+                    self.region,
+                    "--output",
+                    "json",
+                )
+            ),
+            "orchestrator caller identity",
+        )
+        actual = ROLE_ARN.fullmatch(str(identity.get("Arn", "")))
+        if (
+            identity.get("Account") != orchestrator.group("account")
+            or actual is None
+            or actual.group("account") != orchestrator.group("account")
+            or actual.group("role") != expected_orchestrator_name
+        ):
+            raise AuthorizationError("orchestrator caller identity binding mismatch")
+
+        tags = {
+            "customer_id": customer_id,
+            "deployment_id": deployment_id,
+            "account_id": self.account_id,
+            "region": self.region,
+            "environment": environment,
+            "operation": operation,
+            "layer": layer,
+            "change_id": change_id,
+        }
+        assume_command: list[str] = [
+            "aws",
+            "sts",
+            "assume-role",
+            "--region",
+            self.region,
+            "--role-arn",
+            role_arn,
+            "--role-session-name",
+            execution_id,
+            "--duration-seconds",
+            "900",
+            "--source-identity",
+            execution_id,
+            "--tags",
+        ]
+        assume_command.extend(f"Key={key},Value={value}" for key, value in tags.items())
+        assume_command.extend(("--output", "json"))
+        response = _json_output(self._run(tuple(assume_command)), "terminal role session")
+        try:
+            credentials = response["Credentials"]
+            access_key = credentials["AccessKeyId"]
+            secret_key = credentials["SecretAccessKey"]
+            session_token = credentials["SessionToken"]
+        except (KeyError, TypeError) as exc:
+            raise AuthorizationError("terminal role session returned invalid credentials") from exc
+        if not all(isinstance(value, str) and value for value in (access_key, secret_key, session_token)):
+            raise AuthorizationError("terminal role session returned invalid credentials")
+
+        inherited = os.environ if base_environment is None else base_environment
+        child_environment = {
+            key: value
+            for key, value in inherited.items()
+            if key in TERMINAL_CHILD_ENVIRONMENT_NAMES
+        }
+        child_environment.update(
+            {
+                "AWS_ACCESS_KEY_ID": access_key,
+                "AWS_SECRET_ACCESS_KEY": secret_key,
+                "AWS_SESSION_TOKEN": session_token,
+                "AWS_REGION": self.region,
+                "AWS_DEFAULT_REGION": self.region,
+                "AWS_EC2_METADATA_DISABLED": "true",
+                "AWS_PAGER": "",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+            }
+        )
+        try:
+            return_code = self._run_process(tuple(command), child_environment)
+        finally:
+            child_environment.clear()
+            credentials.clear()
+            response.clear()
+        if return_code != 0:
+            raise AuthorizationError("terminal phase command failed")
+
 
 class AwsCliExecutionLedgerStore:
     """Shared-services adapter for the create-only, CAS execution ledger."""
@@ -306,6 +609,167 @@ class AwsCliExecutionLedgerStore:
             "account_id": self.shared_services_account_id,
             "role_arn": expected_role_arn,
         }
+
+    def _put_control_record_once(
+        self,
+        *,
+        kind: str,
+        document: Mapping[str, Any],
+        now: datetime | None = None,
+    ) -> None:
+        """Persist one validated control document without an overwrite path."""
+        _validate_control_document(kind, document, now=now)
+        self._run(
+            (
+                "aws",
+                "dynamodb",
+                "put-item",
+                "--region",
+                self.region,
+                "--table-name",
+                self.ledger_table,
+                "--item",
+                json.dumps(_control_item(kind, document), sort_keys=True),
+                "--condition-expression",
+                "attribute_not_exists(deployment_id) AND attribute_not_exists(record_key)",
+                "--return-consumed-capacity",
+                "NONE",
+                "--output",
+                "json",
+            )
+        )
+
+    def _get_control_record(
+        self,
+        *,
+        kind: str,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Read one exact control document consistently and revalidate it."""
+        request = {
+            "deployment_id": deployment_id,
+            "execution_id": execution_id,
+            "layer": layer,
+        }
+        key = {
+            "deployment_id": {"S": deployment_id},
+            "record_key": {"S": _control_record_key(kind, request)},
+        }
+        response = _json_output(
+            self._run(
+                (
+                    "aws",
+                    "dynamodb",
+                    "get-item",
+                    "--region",
+                    self.region,
+                    "--table-name",
+                    self.ledger_table,
+                    "--key",
+                    json.dumps(key, sort_keys=True),
+                    "--consistent-read",
+                    "--projection-expression",
+                    "document",
+                    "--output",
+                    "json",
+                )
+            ),
+            "execution control record read",
+        )
+        try:
+            document = json.loads(response["Item"]["document"]["S"])
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise AuthorizationError(
+                "execution control record is missing or malformed"
+            ) from exc
+        if not isinstance(document, dict):
+            raise AuthorizationError("execution control record is missing or malformed")
+        if any(document.get(field) != value for field, value in request.items()):
+            raise AuthorizationError("execution control record storage key binding mismatch")
+        _validate_control_document(kind, document, now=now)
+        return document
+
+    def put_plan_record_once(self, plan_record: Mapping[str, Any]) -> None:
+        self._put_control_record_once(kind="plan", document=plan_record)
+
+    def get_plan_record(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+    ) -> dict[str, Any]:
+        return self._get_control_record(
+            kind="plan",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+        )
+
+    def put_approval_record_once(
+        self,
+        approval_record: Mapping[str, Any],
+        *,
+        now: datetime,
+    ) -> None:
+        self._put_control_record_once(
+            kind="approval",
+            document=approval_record,
+            now=now,
+        )
+
+    def get_approval_record(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        return self._get_control_record(
+            kind="approval",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+            now=now,
+        )
+
+    def put_health_receipt_once(self, receipt: Mapping[str, Any]) -> None:
+        self._put_control_record_once(kind="health", document=receipt)
+
+    def get_health_receipt(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+    ) -> dict[str, Any]:
+        return self._get_control_record(
+            kind="health",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+        )
+
+    def put_reconciliation_receipt_once(self, receipt: Mapping[str, Any]) -> None:
+        self._put_control_record_once(kind="reconciliation", document=receipt)
+
+    def get_reconciliation_receipt(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+    ) -> dict[str, Any]:
+        return self._get_control_record(
+            kind="reconciliation",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+        )
 
     def create_ledger(self, ledger: Mapping[str, Any]) -> None:
         self._run(

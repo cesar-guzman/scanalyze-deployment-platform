@@ -4,8 +4,9 @@
 
 SSM envelopes are the accepted target interface between Terraform layers.
 GUG-121 implements real root payloads, strict offline resolution, and the
-pre-plan consumer guard. IAM enforcement and live SSM publication remain
-blocked by GUG-123 through GUG-125.
+pre-plan consumer guard. GUG-381 makes contract resolution v3 the only active
+offline artifact. IAM enforcement, live SSM resolution/publication, and the
+typed live-input materializer remain blocked; GUG-382 does not enable them.
 
 ## Canonical Contract
 
@@ -87,17 +88,25 @@ make gitops-orchestrator-check
 
 `publish-contract.py` renders a candidate envelope to a local output file. It
 does not write SSM. `resolve-contracts.py` accepts only explicitly acknowledged
-test fixtures and creates a content-bound owner-readable resolution v2 outside
-the repository. Resolution v2 carries the canonical Terraform envelopes needed
-for deterministic catalog projection and does not carry independently editable
-materialized variables. `terraform-layer.sh` requires that resolution, rejects
-ambient `TF_*`, and has no fallback. Live reads and writes remain disabled.
+test fixtures and creates a content-bound owner-readable resolution v3 outside
+the repository. Resolution v3 carries canonical Terraform v2 envelopes and the
+catalog-owned `account-ready/v2` evidence in disjoint, closed record shapes. It
+binds ACCOUNT_READY to the already authorized backend-binding digest and does
+not carry independently editable materialized variables. `terraform-layer.sh`
+requires resolution v3, rejects ambient `TF_*`, and has no fallback.
+
+Both `resolve-contracts.py --live` and `publish-contract.py --live` remain
+blocked before AWS I/O. GUG-382's protected workflow also stops before OIDC
+with `LIVE_INPUT_MATERIALIZATION_NOT_PROVEN`; a variable, workflow artifact, or
+caller-supplied path cannot substitute for an authenticated registry/SSM
+materializer. No live read or publication is enabled by this documentation.
 
 The identity stage's local fixture and mock-provider tests prove only schema,
 binding, DAG, and Terraform configuration behavior. They do not prove live SSM
 publication, writer IAM, provider creation, token issuance, bootstrap, M2M
 credential custody, migration, or consumer readback. Those remain **Blocked**
-and production remains **NO-GO**.
+and production remains **NO-GO**. GUG-382 is classified
+`REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN`; no AWS action was executed.
 
 ## Legacy Per-Key Parameters
 

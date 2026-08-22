@@ -1,5 +1,13 @@
 # Non-Production Live Engine
 
+## Current classification
+
+GUG-382 is `REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN`. It adds and tests the
+repository and CI control shape, but it has not minted an OIDC token, assumed an
+AWS role, run a remote Terraform plan, stored or applied a saved plan, performed
+a health check, reconciled an uncertain apply, or exercised rollback. No AWS
+action was executed for this work package. Staging and production are blocked.
+
 ## Purpose
 
 GUG-125 provides the fail-closed boundary between a reviewed Terraform plan and
@@ -17,7 +25,11 @@ The machine-readable contracts are:
 The pure policy core is `tooling/nonprod_live_engine.py`. Destination plan
 storage and shared-services ledger storage are deliberately split in
 `tooling/nonprod_live_store.py`. `scripts/deployment/nonprod-live-engine.py`
-exposes the guarded operational boundary.
+exposes the guarded operational boundary. `tooling/nonprod_live_orchestrator.py`
+builds immutable plan/apply intents bound to one exact main SHA and protected
+workflow run. `scripts/deployment/terraform-saved-plan.sh` is the only
+allowlisted plan/apply program and remains inaccessible from a local operator
+session.
 
 In this document, shared-services is not a generic corporate account. It is the
 dedicated or formally designated Scanalyze platform-authority account. It owns
@@ -41,7 +53,7 @@ remote backend or IAM Identity Center assignment; those are one-time human
 bootstrap prerequisites documented in
 `docs/deployment/platform-authority-bootstrap.md`.
 
-## Authority flow
+## Target authority flow after activation
 
 ```text
 registry + ACCOUNT_READY + contracts + release + state
@@ -79,6 +91,11 @@ The shared ledger accepts only the exact per-deployment GUG-123 authority,
 release role, a role path, or another deployment's orchestrator by supplying a
 different ARN.
 
+Plan, approval, health, and reconciliation documents are create-only durable
+records in the platform-authority execution table. Consistent readback repeats
+schema, digest, and deployment-tuple validation. GitHub artifacts, job outputs,
+mutable paths, and caller-supplied JSON are not durable authorization.
+
 ## Saved-plan apply invariants
 
 Apply is allowed only when all of the following are exactly equal and current:
@@ -97,7 +114,7 @@ Any difference creates a new plan and a new approval. Destructive/replacement
 plans are a separate reviewed recovery path and are denied by the normal plan
 classifier.
 
-## CLI boundary
+## Protected workflow and CLI boundary
 
 Offline validation is always safe and must run without ambient AWS variables:
 
@@ -111,28 +128,38 @@ already assumed exact role. Operational inputs and outputs must be in an
 ephemeral directory outside the repository. Never attach them to GitHub,
 Linear, NotebookLM, or a PR.
 
-The intended protected sequence is:
+The workflow shape enforces these boundaries:
 
-1. `store-plan` under the exact generic or identity Plan terminal role;
-2. `create-ledger` under the exact shared-services orchestrator role;
-3. build a saved-plan approval from fresh GitHub API evidence;
-4. `transition-ledger` to `APPROVED` with that exact approval;
-5. `fetch-plan` under the exact generic or identity Apply terminal role;
-6. `authorize-apply`, transition to `APPLYING`, and execute only the fetched
-   saved binary;
-7. transition to `APPLIED` or `UNCERTAIN`;
-8. build and commit an exact health or reconciliation receipt;
-9. require HEALTHY evidence before the next DAG layer.
+1. one manual `dev` dispatch selects exactly one `plan` or `apply` phase and an
+   exact protected-main SHA;
+2. only `live-layer` in `nonprod-release.yml` and `live_saved_plan` in the
+   reusable workflow may request `id-token: write`; only the latter contains
+   the pinned AWS credential action;
+3. a separate unprivileged prerequisite job currently stops unconditionally
+   with `LIVE_INPUT_MATERIALIZATION_NOT_PROVEN`, so the OIDC-capable job is not
+   scheduled;
+4. a deployment-scoped protected Environment gates the live job;
+5. the future plan phase must create the exact versioned plan, saved-plan record
+   and `PLANNED` ledger under separated terminal/orchestrator authorities;
+6. independent plan-specific approval occurs after that plan run and is stored
+   durably before a separate apply dispatch can reference its exact digest;
+7. the future apply phase must consistently read back the plan and approval,
+   consume `APPROVED -> APPLYING` with compare-and-swap, revalidate after the
+   transition, and apply the downloaded binary once without replanning;
+8. post-apply readback must persist exact health or reconciliation evidence;
+   the next DAG layer remains blocked until matching `HEALTHY` evidence exists.
 
-The repository workflow remains dry-run-only until all activation prerequisites
-in the runbook are independently proven.
+The materialization stop has no variable-based enablement path. The workflow
+therefore describes the protected control topology but cannot yet
+reach checkout, OIDC, STS, Terraform, or AWS data-plane operations.
 
 ## Evidence handling
 
-Raw saved plans are R0 ephemeral execution data. They use the evidence bucket's
-`plan-execution/` prefix, KMS encryption, S3 versioning, create-only write, and
-no default Object Lock. Delete only the exact object version after apply,
-rejection, expiry, or reviewed reconciliation and no later than 24 hours.
+Raw saved plans are R0 ephemeral execution data. They use the destination
+`scanalyze-<account-id>-tf-state` bucket's `plan-execution/` prefix, KMS
+encryption, S3 versioning, create-only write, and no default Object Lock. Delete
+only the exact object version after apply, rejection, expiry, or reviewed
+reconciliation and no later than 24 hours.
 
 Durable evidence contains only sanitized digests and status codes. It must not
 contain state, plan JSON, AWS responses, tokens, role sessions, ARNs, bucket
@@ -140,8 +167,24 @@ keys, customer payloads, PII, documents, or presigned URLs.
 
 ## Current evidence boundary
 
-Implemented and locally validated means the contracts, portable authority
-declarations, and offline enforcement exist. CI remains pending until the PR
-checks pass. No live AWS identity,
-Terraform plan/apply, deployment, failure injection, health check, two-account
-isolation, or cleanup has succeeded for this package. Production is **NO-GO**.
+Implemented and locally validated means repository building blocks exist:
+contracts, typed orchestration intents, record adapters, a canonical workflow
+allowlist, runner guards, and offline enforcement. It does not mean those
+building blocks form a connected live controller. CI remains pending until the
+exact PR checks pass.
+
+The following remain **NOT_PROVEN** and block removal of the materialization
+stop: a typed authenticated live-input materializer; the exact separate
+platform-authority account, read profile, backend and orchestrator role; the
+destination baseline, state resources and terminal roles; a reviewed
+non-overlapping CIDR or existing VPC; the exact protected Environment and
+verified second P0 reviewer; immutable plan/apply/health evidence; and connected
+rollback proof. Production is **NO-GO**.
+
+Activation also requires a separately reviewed controller that connects the
+terminal sessions, immutable plan storage, consistent ledger readbacks, CAS,
+single-use apply, authenticated GitHub approval provenance, outcome receipts,
+and reconciliation. It must bind `github.run_attempt`, consume private
+identity-stable file snapshots, use a hash-verified toolchain outside the OIDC
+job, and validate the exact KMS key policy needed by all four terminal roles.
+None of those activation controls is asserted by this repository candidate.

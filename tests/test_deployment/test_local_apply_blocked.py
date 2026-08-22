@@ -474,6 +474,137 @@ def test_direct_layer_apply_is_blocked_before_aws_access() -> None:
     assert "Local Terraform apply is disabled" in result.stderr
 
 
+def test_saved_plan_apply_is_blocked_outside_github_before_argument_or_aws_access(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    aws_marker = tmp_path / "aws-called"
+    terraform_marker = tmp_path / "terraform-called"
+    _write_executable(
+        fake_bin / "aws",
+        f"""
+        #!/usr/bin/env bash
+        touch {shlex.quote(str(aws_marker))}
+        exit 99
+        """,
+    )
+    _write_executable(
+        fake_bin / "terraform",
+        f"""
+        #!/usr/bin/env bash
+        touch {shlex.quote(str(terraform_marker))}
+        exit 99
+        """,
+    )
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    for variable_name in (
+        "GITHUB_ACTIONS",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_REF",
+        "GITHUB_REF_PROTECTED",
+        "GITHUB_SHA",
+        "GITHUB_WORKFLOW_REF",
+        "SCANALYZE_ALLOW_LIVE",
+    ):
+        env.pop(variable_name, None)
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "scripts" / "deployment" / "terraform-saved-plan.sh"),
+            "apply",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "restricted to GitHub Actions" in result.stderr
+    assert not aws_marker.exists()
+    assert not terraform_marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("event_name", "ref", "protected", "logical_environment"),
+    [
+        ("pull_request", "refs/heads/main", "true", "dev"),
+        ("workflow_dispatch", "refs/heads/feature", "true", "dev"),
+        ("workflow_dispatch", "refs/heads/main", "false", "dev"),
+        ("workflow_dispatch", "refs/heads/main", "true", "staging"),
+        ("workflow_dispatch", "refs/heads/main", "true", "production"),
+    ],
+)
+def test_saved_plan_apply_rejects_noncanonical_ci_context_before_aws_access(
+    tmp_path: Path,
+    event_name: str,
+    ref: str,
+    protected: str,
+    logical_environment: str,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        fake_bin / "aws",
+        f"""
+        #!/usr/bin/env bash
+        touch {shlex.quote(str(aws_marker))}
+        exit 99
+        """,
+    )
+    repository = "synthetic-owner/synthetic-repository"
+    main_sha = "a" * 40
+    deployment_id = "dep_" + ("A" * 26)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_REF": ref,
+            "GITHUB_REF_PROTECTED": protected,
+            "GITHUB_SHA": main_sha,
+            "GITHUB_REPOSITORY": repository,
+            "GITHUB_REPOSITORY_ID": "22",
+            "GITHUB_REPOSITORY_OWNER_ID": "11",
+            "GITHUB_WORKFLOW_REF": (
+                f"{repository}/.github/workflows/nonprod-release.yml@refs/heads/main"
+            ),
+            "SCANALYZE_ALLOW_LIVE": "true",
+            "SCANALYZE_DRY_RUN": "false",
+            "SCANALYZE_DEPLOYMENT_ID": deployment_id,
+            "SCANALYZE_EXPECTED_MAIN_SHA": main_sha,
+            "SCANALYZE_EXPECTED_REPOSITORY_ID": "22",
+            "SCANALYZE_EXPECTED_REPOSITORY_OWNER_ID": "11",
+            "SCANALYZE_GITHUB_ENVIRONMENT": f"scanalyze-{deployment_id}-dev",
+            "SCANALYZE_LOGICAL_ENVIRONMENT": logical_environment,
+            "SCANALYZE_OIDC_AUDIENCE": "sts.amazonaws.com",
+            "SCANALYZE_ROLE_DURATION_SECONDS": "900",
+        }
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "scripts" / "deployment" / "terraform-saved-plan.sh"),
+            "apply",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert not aws_marker.exists()
+
+
 def test_plan_all_reads_canonical_dag_order(tmp_path: Path) -> None:
     result = _run(
         REPO_ROOT / "scripts" / "deployment" / "scanalyze-deploy.sh",

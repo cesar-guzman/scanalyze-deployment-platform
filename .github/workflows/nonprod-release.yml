@@ -40,10 +40,51 @@ on:
         default: true
         type: boolean
       allow_live:
-        description: Reserved; true is deliberately rejected as NO-GO in this revision
+        description: Enable one protected dev saved-plan phase
         required: true
         default: false
         type: boolean
+      live_operation:
+        description: Separate live phase; plan and apply require distinct dispatches
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - plan
+          - apply
+      target_layer:
+        description: Exact Terraform layer for a protected live phase
+        required: true
+        default: global
+        type: choice
+        options:
+          - global
+          - network
+          - platform
+          - data-foundation
+          - cicd
+          - identity-control-plane
+          - services
+          - edge-identity
+          - edge
+          - addons
+      execution_id:
+        description: Exact live execution ULID; unused by dry-run
+        required: false
+        type: string
+      change_id:
+        description: Exact live change ULID; unused by dry-run
+        required: false
+        type: string
+      main_sha:
+        description: Exact reviewed main SHA; required for live
+        required: false
+        type: string
+      plan_record_digest:
+        description: Exact saved-plan record digest; required only by apply
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -77,11 +118,23 @@ jobs:
           set -euo pipefail
           python -m pip install '.[test]'
 
-      - name: Validate offline-only execution mode
+      - name: Validate dispatch execution mode
         env:
           ALLOW_LIVE: ${{ inputs.allow_live }}
+          CHANGE_ID: ${{ inputs.change_id }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           DRY_RUN: ${{ inputs.dry_run }}
           EVENT_NAME: ${{ github.event_name }}
+          EXECUTION_ID: ${{ inputs.execution_id }}
+          GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
+          LIVE_OPERATION: ${{ inputs.live_operation }}
+          LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
+          MAIN_SHA: ${{ inputs.main_sha }}
+          PLAN_RECORD_DIGEST: ${{ inputs.plan_record_digest }}
+          REF_NAME: ${{ github.ref }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          RUN_SHA: ${{ github.sha }}
+          TARGET_LAYER: ${{ inputs.target_layer }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
@@ -90,6 +143,56 @@ jobs:
           fi
           if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
             echo "::error::Exactly one of dry_run or allow_live must be true"
+            exit 1
+          fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" ]]; then
+              echo "::error::Dry-run cannot carry live saved-plan inputs"
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ "$LOGICAL_ENVIRONMENT" != "dev" ]]; then
+            echo "::error::Live orchestration is restricted to dev"
+            exit 1
+          fi
+          case "$LIVE_OPERATION" in
+            plan|apply) ;;
+            *) echo "::error::Live orchestration requires one plan or apply phase"; exit 1 ;;
+          esac
+          case "$TARGET_LAYER" in
+            global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
+            *) echo "::error::Live target layer is not authorized"; exit 1 ;;
+          esac
+          if [[ "$REF_NAME" != "refs/heads/main" || "$REF_PROTECTED" != "true" ]]; then
+            echo "::error::Live orchestration requires the protected main ref"
+            exit 1
+          fi
+          if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ || "$RUN_SHA" != "$MAIN_SHA" ]]; then
+            echo "::error::Live orchestration is not bound to the exact main SHA"
+            exit 1
+          fi
+          if [[ ! "$EXECUTION_ID" =~ ^exec_[0-9A-HJKMNP-TV-Z]{26}$ ]] || \
+             [[ ! "$CHANGE_ID" =~ ^chg_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+            echo "::error::Live execution identifiers are invalid"
+            exit 1
+          fi
+          if [[ ! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
+            echo "::error::Live deployment identifier is invalid"
+            exit 1
+          fi
+          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" ]]; then
+            echo "::error::Protected Environment name is not canonical"
+            exit 1
+          fi
+          if [[ "$LIVE_OPERATION" == "apply" ]]; then
+            if [[ ! "$PLAN_RECORD_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Apply requires one exact saved-plan record digest"
+              exit 1
+            fi
+          elif [[ -n "$PLAN_RECORD_DIGEST" ]]; then
+            echo "::error::Plan cannot accept an existing saved-plan record digest"
             exit 1
           fi
 
@@ -179,56 +282,62 @@ jobs:
           PY
 
   go-no-go:
-    name: Protected non-production gate
+    name: Dispatch mode gate
     needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    environment:
-      name: ${{ inputs.github_environment }}
     permissions: {}
     steps:
-      - name: Enforce dry-run authorization boundary
+      - name: Confirm separated dry-run or live phase
         env:
           ALLOW_LIVE: ${{ inputs.allow_live }}
           DRY_RUN: ${{ inputs.dry_run }}
-          DISPATCH_AWS_REGION: ${{ inputs.aws_region }}
-          DISPATCH_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
-          DISPATCH_LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
-          ENVIRONMENT_AWS_REGION: ${{ vars.AWS_REGION }}
-          ENVIRONMENT_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
-          ENVIRONMENT_LOGICAL_ENVIRONMENT: ${{ vars.LOGICAL_ENVIRONMENT }}
+          LIVE_OPERATION: ${{ inputs.live_operation }}
         run: |
           set -euo pipefail
-          if [[ "$ALLOW_LIVE" == "true" ]]; then
-            echo "::error::NO-GO: live AWS access, artifact publication, and Terraform apply are intentionally disabled"
+          if [[ "$DRY_RUN" == "$ALLOW_LIVE" ]]; then
+            echo "::error::Exactly one execution mode must remain active"
             exit 1
           fi
-          if [[ "$DRY_RUN" != "true" ]]; then
-            echo "::error::Only dry-run mode is authorized"
+          if [[ "$DRY_RUN" == "true" && "$LIVE_OPERATION" != "none" ]]; then
+            echo "::error::Dry-run cannot select a live phase"
             exit 1
           fi
+          if [[ "$ALLOW_LIVE" == "true" && "$LIVE_OPERATION" == "none" ]]; then
+            echo "::error::Live mode requires a separately dispatched plan or apply phase"
+            exit 1
+          fi
+          echo "GO: execution mode is explicit and fail-closed"
 
-          for binding in \
-            "$ENVIRONMENT_DEPLOYMENT_ID" \
-            "$ENVIRONMENT_LOGICAL_ENVIRONMENT" \
-            "$ENVIRONMENT_AWS_REGION"; do
-            if [[ -z "$binding" ]]; then
-              echo "::error::Selected GitHub Environment is missing a required deployment binding"
-              exit 1
-            fi
-          done
-
-          if [[ "$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID" ]] || \
-             [[ "$ENVIRONMENT_LOGICAL_ENVIRONMENT" != "$DISPATCH_LOGICAL_ENVIRONMENT" ]] || \
-             [[ "$ENVIRONMENT_AWS_REGION" != "$DISPATCH_AWS_REGION" ]]; then
-            echo "::error::Selected GitHub Environment does not match the requested deployment bindings"
-            exit 1
-          fi
-          echo "GO: protected environment approved offline orchestration only"
+  live-layer:
+    name: Protected dev / ${{ inputs.live_operation }} / ${{ inputs.target_layer }}
+    needs: go-no-go
+    if: ${{ inputs.allow_live && !inputs.dry_run }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_terraform-layer.yml
+    with:
+      deployment_id: ${{ inputs.deployment_id }}
+      logical_environment: ${{ inputs.logical_environment }}
+      layer: ${{ inputs.target_layer }}
+      release_digest: ${{ inputs.release_digest }}
+      request_path: ${{ inputs.request_path }}
+      aws_region: ${{ inputs.aws_region }}
+      dry_run: false
+      allow_live: true
+      live_operation: ${{ inputs.live_operation }}
+      github_environment: ${{ inputs.github_environment }}
+      main_sha: ${{ inputs.main_sha }}
+      execution_id: ${{ inputs.execution_id }}
+      change_id: ${{ inputs.change_id }}
+      plan_record_digest: ${{ inputs.plan_record_digest }}
 
   account-ready-gate:
     name: 01 / Account readiness gate
     needs: go-no-go
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -245,6 +354,7 @@ jobs:
   global:
     name: 02 / Global
     needs: account-ready-gate
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -261,6 +371,7 @@ jobs:
   network:
     name: 03 / Network
     needs: global
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -277,6 +388,7 @@ jobs:
   platform:
     name: 04 / Platform
     needs: network
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -293,6 +405,7 @@ jobs:
   data-foundation:
     name: 05 / Data foundation
     needs: platform
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -309,6 +422,7 @@ jobs:
   cicd:
     name: 06 / CI/CD foundation
     needs: data-foundation
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -325,6 +439,7 @@ jobs:
   artifact-publication:
     name: 07 / Artifact publication (dry-run)
     needs: cicd
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -366,6 +481,7 @@ jobs:
   identity-control-plane:
     name: 08 / Identity control plane
     needs: artifact-publication
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -382,6 +498,7 @@ jobs:
   services:
     name: 09 / Services
     needs: identity-control-plane
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -398,6 +515,7 @@ jobs:
   edge-identity:
     name: 10 / Edge identity
     needs: services
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -414,6 +532,7 @@ jobs:
   edge:
     name: 11 / Edge
     needs: edge-identity
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -430,6 +549,7 @@ jobs:
   addons:
     name: 12 / Addons
     needs: edge
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     permissions:
       contents: read
     uses: ./.github/workflows/_terraform-layer.yml
@@ -446,6 +566,7 @@ jobs:
   synthetic-validation:
     name: 13 / Synthetic validation and evidence
     needs: addons
+    if: ${{ inputs.dry_run && !inputs.allow_live }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -76,7 +76,7 @@ def _plan() -> dict:
         bindings=bindings,
         plan_sha256=_sha("3"),
         plan_size_bytes=4096,
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-evidence",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/{bindings['change_id']}/"
             "network/plan.tfplan"
@@ -522,13 +522,26 @@ def test_health_transition_requires_receipt_bound_to_source_ledger_and_plan() ->
     assert healthy["status"] == "HEALTHY"
 
 
-def test_dry_run_has_zero_cloud_write_surface() -> None:
+@pytest.mark.parametrize(
+    "credential_name",
+    [
+        "AWS_PROFILE",
+        "AWS_DEFAULT_PROFILE",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_CONFIG_FILE",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+    ],
+)
+def test_dry_run_has_zero_cloud_write_surface(credential_name: str) -> None:
     validate_dry_run_boundary(dry_run=True, allow_live=False, environment={})
     with pytest.raises(AuthorizationError, match="credential"):
         validate_dry_run_boundary(
             dry_run=True,
             allow_live=False,
-            environment={"AWS_PROFILE": "fixture-profile"},
+            environment={credential_name: "synthetic-value"},
         )
 
 

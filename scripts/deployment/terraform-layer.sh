@@ -28,7 +28,7 @@ ACTION="${1:-}"
 shift || die "usage: terraform-layer.sh plan [options]"
 
 if [[ "$ACTION" == "apply" ]]; then
-  die "Local Terraform apply is disabled by ADR-017. Only verified plans are supported."
+  die "Local Terraform apply is disabled by ADR-017. Exact saved-plan apply is restricted to the protected GitHub runner."
 fi
 [[ "$ACTION" == "plan" ]] || die "Unknown action: ${ACTION}. Only local plan is supported."
 reject_ambient_terraform_environment
