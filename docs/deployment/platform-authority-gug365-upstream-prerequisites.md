@@ -14,6 +14,11 @@ checked-in CLI supplies no live provider factory, does not collect the Identity
 Center surfaces and does not alter the existing nine-surface envelope.
 
 GUG-385 adds the inert repository-only Identity Center contract: bounded discovery, exact typed reads, two private snapshots and a schema-closed digest/count receipt; it supplies no live factory.
+GUG-386 adds only an offline GUG-383 composer. It strictly validates terminal
+GUG-384/GUG-385 receipts and a separately pinned private-run envelope, then
+emits a schema-closed digest-only public handoff. The envelope's session,
+window, authorization, run and source bindings are synthetic contract inputs;
+they are not provider observations or live causal certification.
 This PR performs no AWS call or provider/package-registry network operation,
 creates no private root or live artifact and grants no mutation authority.
 Production remains **NO-GO**.
@@ -391,6 +396,20 @@ completion and rollback package digests. It contains no provider identifier,
 private-root claim or live topology certification. `LIVE` remains reserved for
 a future separately reviewed private orchestrator and cannot be obtained by
 resealing either v1 or v2.
+
+The separate GUG-386 public handoff binds the exact source commit/tree, both
+validated receipt digests, window digest, authorization digest, expected
+private-run digest and a combined session-isolation digest. The expected
+values are supplied independently; source receipts must each be complete and
+stable, snapshot sets must not overlap, and the two trust-domain session sets
+must be disjoint. Only variable evidence digests and source SHAs are public;
+all other public fields are fixed non-live metadata. The composer
+does not persist or delete private evidence and never turns this contractual
+binding into live evidence. Its terminal classification is
+`REPOSITORY_VALIDATED_NO_LIVE_EXECUTION`, with
+`live_provider_evidence=false`, `aws_calls=0`, `aws_mutations=0`,
+`deployment_authorized=false`, `two_human_status=NOT_PROVEN`,
+`independent_approval_present=false` and `production_status=NO-GO`.
 
 The consumer must refresh all provider facts read-only before compiling a
 fresh GUG-365 plan. Handoff equality does not authorize compilation, AWS
