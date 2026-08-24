@@ -120,6 +120,7 @@ schema-check:
 		  echo "JSON syntax validation is available via 'make json-syntax-check'."; \
 		  exit 1; }
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR)
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_cli.py -k public_receipt_schema
 	@echo "Schema check complete (Draft 2020-12 validated)."
 
 # ── Enterprise Authorization Contract ────────────────────────────────
@@ -471,6 +472,7 @@ platform-authority-upstream-prerequisites-check:
 		$(TOOLING_DIR)/platform_authority_gug365_upstream_inventory.py \
 		$(TOOLING_DIR)/platform_authority_gug365_upstream_runner.py \
 		$(TOOLING_DIR)/platform_authority_gug365_upstream_prerequisites.py \
+		$(TOOLING_DIR)/platform_authority_gug376_identity_center_inventory_collector.py \
 		$(TOOLING_DIR)/platform_authority_retirement_entrypoint_materializer.py \
 		$(TOOLING_DIR)/platform_authority_retirement_entrypoint_service_role_materializer.py \
 		scripts/deployment/platform-authority-gug365-upstream.py
