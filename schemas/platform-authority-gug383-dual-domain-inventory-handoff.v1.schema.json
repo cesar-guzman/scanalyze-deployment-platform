@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug383-dual-domain-inventory-handoff.v1.schema.json",
+  "title": "GUG-386 digest-bound public dual-domain inventory handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_type", "status", "classification", "authority_receipt_digest", "identity_center_receipt_digest", "source_commit_sha", "source_tree_sha", "window_digest", "authorization_digest", "private_run_digest", "session_isolation_digest", "evidence_complete", "evidence_stable", "live_provider_evidence", "read_only", "aws_calls", "aws_mutations", "deployment_authorized", "two_human_status", "independent_approval_present", "production_status", "handoff_digest"],
+  "properties": {
+    "record_type": { "const": "scanalyze.platform_authority.gug383_dual_domain_inventory_handoff.v1" },
+    "status": { "const": "STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED" },
+    "classification": { "const": "REPOSITORY_VALIDATED_NO_LIVE_EXECUTION" },
+    "authority_receipt_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_receipt_digest": { "$ref": "#/$defs/digest" },
+    "source_commit_sha": { "$ref": "#/$defs/gitSha" },
+    "source_tree_sha": { "$ref": "#/$defs/gitSha" },
+    "window_digest": { "$ref": "#/$defs/digest" },
+    "authorization_digest": { "$ref": "#/$defs/digest" },
+    "private_run_digest": { "$ref": "#/$defs/digest" },
+    "session_isolation_digest": { "$ref": "#/$defs/digest" },
+    "evidence_complete": { "const": true },
+    "evidence_stable": { "const": true },
+    "live_provider_evidence": { "const": false },
+    "read_only": { "const": true },
+    "aws_calls": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "deployment_authorized": { "const": false },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "handoff_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+  }
+}

@@ -13,6 +13,9 @@ This runbook records two deliberately separate repository boundaries:
   custody contracts. Its checked-in CLI has no provider factory and remains
   inert; repository tests inject deterministic fakes only.
 - GUG-385 adds the inert management-account Identity Center contract: bounded discovery precedes exact reads of the fixed targets, and only the pre-approved UserId can be described.
+- GUG-386 adds an offline-only composer for two terminal receipts and one
+  independently pinned private-run envelope. It emits only a digest-bound
+  public record and cannot capture, log in, construct clients or call AWS.
 
 Neither path constructs an AWS SDK client, performs provider network I/O,
 opens a private evidence root or implements a live ledger. Any live-adapter
@@ -473,6 +476,24 @@ remains `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`, with
 `consumer_fresh_checkpoint_required=true`,
 `two_human_status=NOT_PROVEN` and
 `independent_approval_present=false`.
+
+The GUG-386 wrapper is also inert by default: `capture` always returns
+`STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`. Operators may inspect the explicit
+offline `compose` inputs with:
+
+```bash
+python3 scripts/deployment/platform-authority-gug383-dual-domain-inventory-handoff.py compose --help
+```
+
+Composition requires independently expected source commit/tree, window,
+authorization, run-id and private-run digests. It rejects receipt substitution,
+cross-run bindings, overlapping snapshot/session sets and incomplete or
+unstable evidence. The private envelope is read-only input and is never emitted
+wholesale, persisted or removed; only its approved SHA/digest projections are
+emitted. The public result contains no account, ARN, profile,
+UserId, name, email, path, filename, request ID, token or provider payload.
+This repository checkpoint does not close GUG-383 or GUG-376 and authorizes no
+live inventory, deployment, staging or production action.
 
 The inventory, plan, completion, rollback and handoff are separate
 digest-bound records. The rollback package is empty, non-automatic and
