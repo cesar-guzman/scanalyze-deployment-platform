@@ -15,6 +15,12 @@ handoff records using only an inert default adapter or deterministic scripted
 test adapter. It does not implement private causal custody, provider-backed
 execution or live certification.
 
+GUG-384 adds the authority-account collector contract only. Policy digest,
+ambient-environment, STS-first identity, pagination and private-custody gates
+precede its injected typed reader; the checked-in CLI injects no reader and
+tests use deterministic fakes. Exact runtime-target-bound snapshots and a closed
+external certification gate exact-present state; public output is digest-only. Live inventory remains unproven.
+
 It excludes GUG-365 IAM/Lambda/Logs/DynamoDB materialization, GUG-357
 `CreateStack`, GUG-215 broker invocation or Change Set effects, GUG-206,
 GUG-361, Terraform, customer accounts/data, staging and production.
@@ -179,6 +185,7 @@ operation contracts; live job/object proof remains false.
 | A v1 record is substituted for v2, or a future version is accepted | Distinct record types and `schema_version`; v1/v2 cross-substitution and unsupported versions are rejected | Validation failure; no migration-by-guessing |
 | A terminal ledger is resealed or its in-flight boundary is hidden | Trusted owner-only append-only store, full history validation, predecessor hash chain and CAS read-after-write | Stop before any provider callback |
 | STS identity is not the first signed call | Session protocol and client-construction guard | No provider client/write |
+| A collector factory is reached before local policy, environment or custody gates | Fixed-template digest and fail-closed preflight run before the injected factory | No session or reader construction |
 | Phase authorization is stale or belongs to another phase | Exact phase/digest/window/caller/write-set binding; revalidate before each write | Stop with current state preserved |
 | SDK/provider retries duplicate a write | Per-operation attempt limit one, SDK retry count zero and CAS consumed before the scripted/live call | `UNCERTAIN_RECONCILE_ONLY`; rerun rejected |
 | Exact-looking pre-existing resource is adopted | Approved causal provenance required for `EXACT_PRESENT_NO_TOUCH` | `PREEXISTING_NO_TOUCH` |

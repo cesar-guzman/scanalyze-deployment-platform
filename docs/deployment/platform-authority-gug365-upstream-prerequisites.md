@@ -8,6 +8,11 @@ GUG-377 adds repository-only inventory, plan and final-handoff v2 contracts and
 a deterministic materializer that can exercise them only through inert or
 scripted adapters. It is not a deployed materializer.
 
+GUG-384 separately implements the authority-account policy/render, typed
+capture, exact-target-bound double-snapshot certification and digest-only public receipt. Its
+checked-in CLI supplies no live provider factory, does not collect the Identity
+Center surfaces and does not alter the existing nine-surface envelope.
+
 This PR performs no AWS call or provider/package-registry network operation,
 creates no private root or live artifact and grants no mutation authority.
 Production remains **NO-GO**.
