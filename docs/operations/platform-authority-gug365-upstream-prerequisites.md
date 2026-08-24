@@ -9,6 +9,9 @@ This runbook records two deliberately separate repository boundaries:
 - GUG-377 adds v2 inventory, plan and final-handoff records plus a
   repository-only materializer. Its default adapter is inert and its scripted
   adapter is a deterministic test double, not an AWS/provider adapter.
+- GUG-384 adds only the authority-account policy, session, capture and private
+  custody contracts. Its checked-in CLI has no provider factory and remains
+  inert; repository tests inject deterministic fakes only.
 
 Neither path constructs an AWS SDK client, performs provider network I/O,
 opens a private evidence root or implements a live ledger. Any live-adapter
@@ -79,6 +82,13 @@ Render every placeholder from the private owner-approved target set, bind the
 same window used by the inventory request, and compare the canonical rendered
 policy digest before opening either session. The templates grant no write,
 session-chaining or generic administration action.
+
+The GUG-384 authority child exposes only `capture` and `certify`. `capture`
+must pass the local target, policy-digest, environment and custody gates before
+an injected typed factory can be called. The checked-in wrapper injects none
+and stops with `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`; `certify` is offline,
+requires an independently pinned runtime-target digest, and exact-present requires a closed external verifier with digest-only output.
+This child does not relax or populate the existing nine-surface envelope.
 
 Never use Audit, Log Archive, customer, generic administrator or default
 profiles. Collect two complete, stable, paginated snapshots. `AccessDenied`,
