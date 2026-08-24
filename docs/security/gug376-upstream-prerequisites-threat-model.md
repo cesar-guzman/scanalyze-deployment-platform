@@ -21,6 +21,7 @@ precede its injected typed reader; the checked-in CLI injects no reader and
 tests use deterministic fakes. Exact runtime-target-bound snapshots and a closed
 external certification gate exact-present state; public output is digest-only. Live inventory remains unproven.
 
+GUG-385 independently binds discovery/exact Identity Center sessions, excludes user enumeration and generic execution, keeps malformed/denied/unstable evidence from becoming absence, and emits only schema-closed digest/count NO-GO receipts.
 It excludes GUG-365 IAM/Lambda/Logs/DynamoDB materialization, GUG-357
 `CreateStack`, GUG-215 broker invocation or Change Set effects, GUG-206,
 GUG-361, Terraform, customer accounts/data, staging and production.

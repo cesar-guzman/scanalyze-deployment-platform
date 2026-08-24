@@ -12,6 +12,7 @@ This runbook records two deliberately separate repository boundaries:
 - GUG-384 adds only the authority-account policy, session, capture and private
   custody contracts. Its checked-in CLI has no provider factory and remains
   inert; repository tests inject deterministic fakes only.
+- GUG-385 adds the inert management-account Identity Center contract: bounded discovery precedes exact reads of the fixed targets, and only the pre-approved UserId can be described.
 
 Neither path constructs an AWS SDK client, performs provider network I/O,
 opens a private evidence root or implements a live ledger. Any live-adapter

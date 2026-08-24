@@ -13,6 +13,7 @@ capture, exact-target-bound double-snapshot certification and digest-only public
 checked-in CLI supplies no live provider factory, does not collect the Identity
 Center surfaces and does not alter the existing nine-surface envelope.
 
+GUG-385 adds the inert repository-only Identity Center contract: bounded discovery, exact typed reads, two private snapshots and a schema-closed digest/count receipt; it supplies no live factory.
 This PR performs no AWS call or provider/package-registry network operation,
 creates no private root or live artifact and grants no mutation authority.
 Production remains **NO-GO**.
