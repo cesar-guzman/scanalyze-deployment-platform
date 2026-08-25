@@ -415,6 +415,32 @@ The consumer must refresh all provider facts read-only before compiling a
 fresh GUG-365 plan. Handoff equality does not authorize compilation, AWS
 mutation or deployment.
 
+## GUG-387 guarded read-only executor boundary
+
+GUG-387 adds a default-off, provider-injected executor without changing the
+GUG-384, GUG-385 or GUG-386 v1 STOP contracts. Before a provider factory can
+be invoked it requires the exact opt-in, two distinct non-default direct SSO
+profiles, a current one-hour-or-less window, exact commit/tree, and verified
+policy, authorization, attestation and trust-anchor digests. Caller identity is
+the first signed operation in every session; only the closed List/Get/Describe
+set is accepted, SDK retries are zero, and pagination is complete, bounded and
+cycle-safe.
+
+This repository slice admits only the injected `SYNTHETIC` mode. A caller
+claiming `LIVE` is rejected before any provider is constructed; a future live
+path requires a separately reviewed, repository-attested adapter and fresh UTC
+clock semantics. Until then no injected provider can promote synthetic calls
+to live evidence.
+
+Each domain requires two stable snapshots. Raw evidence remains in an
+owner-only `0700` root with atomic `0600` files; symlinks, File Provider paths
+and Git worktrees are rejected. Only digests, counts and non-identifying
+classification reach the public handoff. Partial, unstable or ambiguous state
+stops at read-only reconciliation. Repository tests use injected fakes only:
+`AWS_CALLS=0`, `AWS_MUTATIONS=0`, `deployment_authorized=false`,
+`two_human_status=NOT_PROVEN`, `independent_approval_present=false`, and
+production remains `NO-GO`.
+
 ## Acceptance gates
 
 GUG-377 repository completion requires all of the following:

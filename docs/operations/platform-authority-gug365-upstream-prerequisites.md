@@ -495,6 +495,32 @@ UserId, name, email, path, filename, request ID, token or provider payload.
 This repository checkpoint does not close GUG-383 or GUG-376 and authorizes no
 live inventory, deployment, staging or production action.
 
+## GUG-387 operator checkpoint
+
+The new GUG-387 wrapper is inert unless a reviewed Python caller injects a
+synthetic provider and supplies the exact opt-in. This repository slice rejects
+`LIVE` before constructing a provider; enabling live collection requires a
+separate repository-attested adapter and fresh UTC clock contract. The core
+rejects default, duplicate or chained profiles and all ambient credentials or
+endpoint overrides before the factory is called. It verifies the expected
+account, Region and principal by making STS the first signed operation, then
+admits only the closed
+List/Get/Describe ledger with zero retries and at most 50 complete pages per
+stream.
+
+Do not place private evidence in this repository, a Git worktree, a symlink or
+a File Provider path. Use a pre-existing owner-only `0700` root; the executor
+writes new `0600` artifacts atomically and never overwrites them. Two stable
+snapshots per domain are mandatory. Any access denial, partial page, repeated
+token, retry, unstable result or cross-domain receipt/session substitution
+stops with read-only reconciliation only.
+
+CI exercises only injected synthetic providers. Its handoff must remain
+`LIVE_INVENTORY_NOT_PROVEN`, `AWS_CALLS=0`, `AWS_MUTATIONS=0`,
+`NOT_DEPLOYED`, `two_human_status=NOT_PROVEN` and production `NO-GO`. The
+existing GUG-384/GUG-385/GUG-386 v1 wrappers retain
+`STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED` unchanged.
+
 The inventory, plan, completion, rollback and handoff are separate
 digest-bound records. The rollback package is empty, non-automatic and
 non-executable; it does not imply any compensating provider mutation. Neither

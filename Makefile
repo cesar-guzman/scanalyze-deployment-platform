@@ -120,6 +120,7 @@ schema-check:
 		  echo "JSON syntax validation is available via 'make json-syntax-check'."; \
 		  exit 1; }
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR)
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug376_live_readonly_orchestrator.py -k schema_contracts_and_fixtures
 	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_cli.py -k public_receipt_schema
 	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug383_dual_domain_inventory_handoff.py -k public_handoff_schema
 	@echo "Schema check complete (Draft 2020-12 validated)."
@@ -475,15 +476,19 @@ platform-authority-upstream-prerequisites-check:
 		$(TOOLING_DIR)/platform_authority_gug365_upstream_runner.py \
 		$(TOOLING_DIR)/platform_authority_gug365_upstream_prerequisites.py \
 		$(TOOLING_DIR)/platform_authority_gug383_dual_domain_inventory_handoff.py \
+		$(TOOLING_DIR)/platform_authority_gug376_live_readonly_orchestrator.py \
 		$(TOOLING_DIR)/platform_authority_gug376_identity_center_inventory_collector.py \
 		$(TOOLING_DIR)/platform_authority_retirement_entrypoint_materializer.py \
 		$(TOOLING_DIR)/platform_authority_retirement_entrypoint_service_role_materializer.py \
 		scripts/deployment/platform-authority-gug365-upstream.py \
-		scripts/deployment/platform-authority-gug383-dual-domain-inventory-handoff.py
+		scripts/deployment/platform-authority-gug383-dual-domain-inventory-handoff.py \
+		scripts/deployment/platform-authority-gug376-live-readonly-orchestrator.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-gug365-upstream.py --help >/dev/null
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-gug383-dual-domain-inventory-handoff.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug376-live-readonly-orchestrator.py --help >/dev/null
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug365-upstream-owner-decisions
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug365-upstream-inventory
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug365-upstream-plan
