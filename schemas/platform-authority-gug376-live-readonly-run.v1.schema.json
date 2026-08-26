@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug376-live-readonly-run.v1.schema.json",
+  "title": "GUG-387 guarded dual-domain live read-only run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type", "status", "classification", "source_commit_sha", "source_tree_sha", "window_digest", "policy_digest", "authorization_digest", "attestation_digest", "trust_anchor_digest", "run_id_digest", "profile_binding_digest", "authority_receipt_digest", "identity_center_receipt_digest", "authority_snapshot_digests", "identity_center_snapshot_digests", "authority_session_digests", "identity_center_session_digests", "transcript_digest", "provider_calls", "aws_calls", "evidence_complete", "evidence_stable", "live_provider_evidence", "read_only", "aws_mutations", "reconciliation_only", "deployment_authorized", "two_human_status", "independent_approval_present", "production_status", "run_digest"
+  ],
+  "properties": {
+    "record_type": { "const": "scanalyze.platform_authority.gug376_live_readonly_run.v1" },
+    "status": { "const": "LIVE_INVENTORY_NOT_PROVEN" },
+    "classification": { "const": "SYNTHETIC_VALIDATED" },
+    "source_commit_sha": { "$ref": "#/$defs/gitSha" },
+    "source_tree_sha": { "$ref": "#/$defs/gitSha" },
+    "window_digest": { "$ref": "#/$defs/digest" },
+    "policy_digest": { "$ref": "#/$defs/digest" },
+    "authorization_digest": { "$ref": "#/$defs/digest" },
+    "attestation_digest": { "$ref": "#/$defs/digest" },
+    "trust_anchor_digest": { "$ref": "#/$defs/digest" },
+    "run_id_digest": { "$ref": "#/$defs/digest" },
+    "profile_binding_digest": { "$ref": "#/$defs/digest" },
+    "authority_receipt_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_receipt_digest": { "$ref": "#/$defs/digest" },
+    "authority_snapshot_digests": { "$ref": "#/$defs/twoDigests" },
+    "identity_center_snapshot_digests": { "$ref": "#/$defs/twoDigests" },
+    "authority_session_digests": { "$ref": "#/$defs/twoDigests" },
+    "identity_center_session_digests": { "type": "array", "minItems": 2, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+    "transcript_digest": { "$ref": "#/$defs/digest" },
+    "provider_calls": { "type": "integer", "minimum": 1 },
+    "aws_calls": { "const": 0 },
+    "evidence_complete": { "const": true },
+    "evidence_stable": { "const": true },
+    "live_provider_evidence": { "const": false },
+    "read_only": { "const": true },
+    "aws_mutations": { "const": 0 },
+    "reconciliation_only": { "const": false },
+    "deployment_authorized": { "const": false },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "run_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "twoDigests": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } }
+  }
+}
