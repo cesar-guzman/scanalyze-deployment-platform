@@ -2543,12 +2543,13 @@ def _frozen_client_session(
     """Build a profile-independent client session from reviewed SSO material."""
 
     try:
-        session = session_factory(
-            aws_access_key_id=frozen_credentials.access_key,
-            aws_secret_access_key=frozen_credentials.secret_key,
-            aws_session_token=frozen_credentials.token,
-            region_name=region,
-        )
+        session_parameters = {
+            "aws_access_key_id": frozen_credentials.access_key,
+            "aws_secret_access_key": frozen_credentials.secret_key,
+            "aws_session_token": frozen_credentials.token,
+            "region_name": region,
+        }
+        session = session_factory(**session_parameters)
         credentials = session.get_credentials()
         observed = credentials.get_frozen_credentials()
     except Exception as exc:
