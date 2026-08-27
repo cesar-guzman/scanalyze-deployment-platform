@@ -2,10 +2,18 @@ from __future__ import annotations
 import copy, json, os, stat, subprocess, sys
 from datetime import UTC, datetime, timedelta; from pathlib import Path; import pytest
 from tooling.platform_authority_gug365_upstream_inventory import canonical_digest
-from tooling.platform_authority_gug376_identity_center_inventory_collector import AuthorityAccessDenied, CollectorError, NAMES, POLICY, _exact, _pages, _render, capture, certify, plan_binding, read_private_json, render_policy, validate_public_receipt
+from tooling.platform_authority_gug376_identity_center_inventory_collector import AuthorityAccessDenied, CollectorError, NAMES, POLICY, _exact, _pages, _render, capture, capture_live, certify, certify_live, plan_binding, read_private_json, render_live_policy, render_policy, validate_public_receipt
 START = datetime(2026, 8, 24, 16, 0, tzinfo=UTC); MGMT, AUTH = "111111111111", "222222222222"
 def _d(char: str) -> str: return "sha256:" + char * 64
 PRIVATE = {"application_name": "ScanalyzeAuthority", "approved_user_id": "12345678-1234-1234-1234-123456789012", "approved_single_operator_user_arn": "arn:aws:identitystore:::user/d-1234567890/12345678-1234-1234-1234-123456789012", "authority_account_arn": f"arn:aws:sso:::account/{AUTH}", "identity_center_kms_key_arn": f"arn:aws:kms:us-east-1:{MGMT}:key/11111111-1111-1111-1111-111111111111", "identity_store_arn": "arn:aws:identitystore:::identitystore/d-1234567890", "identity_store_id": "d-1234567890"}
+LIVE_PRIVATE = {
+    **PRIVATE,
+    "application_actor_policy_digest": canonical_digest(
+        {"actor": "approved-user"}
+    ),
+    "application_provider_arn": "arn:aws:sso::aws:applicationProvider/custom",
+    "application_redirect_uri": "http://127.0.0.1:18443/callback",
+}
 INSTANCE = "arn:aws:sso:::instance/ssoins-1234567890abcdef"; APP = f"arn:aws:sso::{MGMT}:application/ssoins-1234567890abcdef/apl-1234567890abcdef"
 TARGETS = {"management_account_id": MGMT, "authority_account_arn": PRIVATE["authority_account_arn"], "identity_center_instance_arn": INSTANCE, "identity_store_arn": PRIVATE["identity_store_arn"], "approved_single_operator_user_arn": PRIVATE["approved_single_operator_user_arn"], "identity_center_kms_key_arn": PRIVATE["identity_center_kms_key_arn"], "identity_center_application_arn": APP, "retire_approve_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve", "retire_class_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-class"}
 DISCOVERY = {"instances": [{"identity_store_id": PRIVATE["identity_store_id"], "instance_arn": INSTANCE, "owner_account_id": MGMT, "status": "ACTIVE"}], "applications": [{"application_arn": APP, "name": PRIVATE["application_name"]}], "permission_sets": [{"name": NAMES[0], "permission_set_arn": TARGETS["retire_approve_permission_set_arn"]}, {"name": NAMES[1], "permission_set_arn": TARGETS["retire_class_permission_set_arn"]}]}
@@ -21,8 +29,8 @@ class Reader:
         if self.mode == "denied": raise AuthorityAccessDenied("private provider text")
         if self.mode == "timeout": raise TimeoutError("private provider text")
         values = [] if self.mode == "absent" else DISCOVERY["instances"] * (2 if self.mode == "multiple" else 1); return _page([dict(DISCOVERY["instances"][0], instance_arn="not-an-arn")] if self.mode == "malformed" else [dict(item, status="INACTIVE") for item in values] if self.mode == "inactive" else values)
-    def list_applications(self, instance, name, token): self.events.append("list_applications"); assert instance == INSTANCE and name == PRIVATE["application_name"]; return _page([] if self.mode == "missing" else DISCOVERY["applications"])
-    def list_permission_sets(self, instance, names, token): self.events.append("list_permission_sets"); assert instance == INSTANCE and names == NAMES; values = copy.deepcopy(DISCOVERY["permission_sets"]); values[0]["name"] = "Foreign" if self.mode == "wrong_name" else values[0]["name"]; values[1]["name"] = values[0]["name"] if self.mode == "duplicate" else values[1]["name"]; return _page(values)
+    def list_applications(self, instance, name, token): self.events.append("list_applications"); assert instance == INSTANCE and name == PRIVATE["application_name"]; return _page([] if self.mode in {"missing", "live_absent"} else DISCOVERY["applications"])
+    def list_permission_sets(self, instance, names, token): self.events.append("list_permission_sets"); assert instance == INSTANCE and names == NAMES; values = [] if self.mode == "live_absent" else copy.deepcopy(DISCOVERY["permission_sets"]); values and values.__setitem__(0, dict(values[0], name="Foreign" if self.mode == "wrong_name" else values[0]["name"])); len(values) > 1 and values.__setitem__(1, dict(values[1], name=values[0]["name"] if self.mode == "duplicate" else values[1]["name"])); return _page(values)
     def describe_instance(self, arn): self.events.append("describe_instance"); return {"complete": True, "value": {"instance_arn": arn, "identity_store_id": PRIVATE["identity_store_id"], "owner_account_id": MGMT, "status": "ACTIVE"}}
     def read_application(self, arn): self.events.append("read_application"); value = {"application_arn": arn, "grants": ["authorization_code"], "scopes": ["openid"], "redirect_uris": [], "authentication_methods": [], "assignment_configuration": {}, "actor_policy": {}, "tags": []}; value.update({"redirect_url": "https://drift.invalid"} if self.mode == "additive" else {"redirect_uris": "malformed"} if self.mode == "malformed_exact" else {}); return {"complete": True, "value": value}
     def read_permission_set(self, instance, arn): self.events.append("read_permission_set"); return {"complete": True, "value": {"instance_arn": instance, "permission_set_arn": arn, "managed_policies": [], "customer_managed_policies": [], "inline_policy": None, "boundary": None, "tags": []}}
@@ -34,6 +42,14 @@ def _plan() -> dict[str, object]:
     plan: dict[str, object] = {"private_targets": PRIVATE, "not_before": START, "not_after": START + timedelta(minutes=30), "expected_account_id": MGMT, "expected_principal_arn": f"arn:aws:sts::{MGMT}:assumed-role/ScanalyzeIdentityInventory/operator", "authority_verification_digest": _d("a"), "expected_discovery_policy_digest": _d("b"), "expected_exact_policy_digest": _d("c"), "expected_target_digest": canonical_digest(TARGETS), "expected_facts_digest": _d("d")}
     plan["expected_discovery_policy_digest"] = _render(plan, None)[1]; plan["expected_exact_policy_digest"] = _render(plan, TARGETS)[1]
     facts, _ = _exact(Reader(), plan, TARGETS, DISCOVERY); plan["expected_facts_digest"] = canonical_digest(facts); return plan
+def _live_plan() -> dict[str, object]:
+    plan = _plan()
+    plan["private_targets"] = LIVE_PRIVATE
+    plan["expected_discovery_policy_digest"] = _render(
+        plan, None, live_discovery=True
+    )[1]
+    plan["expected_exact_policy_digest"] = _render(plan, TARGETS)[1]
+    return plan
 class Session:
     def __init__(self, factory, stage, digest): self.factory, self.stage, self.digest = factory, stage, digest
     def get_caller_identity(self):
@@ -56,6 +72,160 @@ def test_staged_policy_typed_capture_and_private_public_split(tmp_path: Path) ->
     assert private["classification"] == "EXACT_PRESENT_NO_TOUCH" and receipt["classification"] == "UNCERTAIN_RECONCILE_ONLY" and receipt["stable"] is False and receipt["aws_calls"] == receipt["aws_mutations"] == 0 and receipt["two_human_status"] == "NOT_PROVEN" and receipt["independent_approval_present"] is False
     public = json.dumps(receipt); assert MGMT not in public and "arn:aws:" not in public and PRIVATE["approved_user_id"] not in public and "private@example" not in public
     item = (root / "one.json").stat(); assert stat.S_IMODE(item.st_mode) == 0o600 and item.st_nlink == 1 and private["facts"]["operator"]["UserId"] == PRIVATE["approved_user_id"]
+
+
+def test_live_discovery_supplement_is_narrow_and_does_not_change_v1() -> None:
+    legacy_plan = _plan()
+    legacy_policy, legacy_digest = render_policy(legacy_plan)
+    assert all(item["Sid"] != "DiscoverPermissionSetNames" for item in legacy_policy["Statement"])
+
+    live_plan = _live_plan()
+    live_policy, live_digest = render_live_policy(live_plan)
+    list_permission_sets = [
+        item for item in live_policy["Statement"]
+        if item["Sid"] == "DiscoverExactPermissionSets"
+    ]
+    supplement = [
+        item for item in live_policy["Statement"]
+        if item["Sid"] in {
+            "DiscoverPermissionSetNames",
+            "DecryptDiscoveryMetadataThroughIdentityCenter",
+        }
+    ]
+    assert live_digest != legacy_digest
+    assert list_permission_sets[0]["Resource"] == "arn:aws:sso:::instance/*"
+    assert next(
+        item for item in legacy_policy["Statement"]
+        if item["Sid"] == "DiscoverExactPermissionSets"
+    )["Resource"] == "*"
+    assert supplement == [
+        {
+            "Sid": "DiscoverPermissionSetNames",
+            "Effect": "Allow",
+            "Action": "sso:DescribePermissionSet",
+            "Resource": [
+                "arn:aws:sso:::instance/*",
+                "arn:aws:sso:::permissionSet/*",
+            ],
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-1",
+                    "sso:PrimaryRegion": "us-east-1",
+                },
+                "DateGreaterThanEquals": {
+                    "aws:CurrentTime": "2026-08-24T16:00:00Z",
+                },
+                "DateLessThan": {
+                    "aws:CurrentTime": "2026-08-24T16:30:00Z",
+                },
+            },
+        },
+        {
+            "Sid": "DecryptDiscoveryMetadataThroughIdentityCenter",
+            "Effect": "Allow",
+            "Action": "kms:Decrypt",
+            "Resource": PRIVATE["identity_center_kms_key_arn"],
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-1",
+                    "kms:CallerAccount": MGMT,
+                    "kms:ViaService": "sso.us-east-1.amazonaws.com",
+                },
+                "StringLike": {
+                    "kms:EncryptionContext:aws:sso:instance-arn": (
+                        "arn:aws:sso:::instance/ssoins-*"
+                    ),
+                },
+                "DateGreaterThanEquals": {
+                    "aws:CurrentTime": "2026-08-24T16:00:00Z",
+                },
+                "DateLessThan": {
+                    "aws:CurrentTime": "2026-08-24T16:30:00Z",
+                },
+            },
+        },
+    ]
+
+
+def test_capture_live_uses_post_sts_validation_clock(tmp_path: Path) -> None:
+    plan = _live_plan()
+    initial_now = START + timedelta(minutes=5)
+    observed_at = initial_now + timedelta(seconds=1)
+    factory = Factory(mode="absent", identity={"observed_at": observed_at})
+    clock_events: list[str] = []
+
+    def validation_clock() -> datetime:
+        assert factory.events == ["open_sts:discovery", "sts:discovery"]
+        clock_events.append("validation_clock")
+        return observed_at + timedelta(seconds=1)
+
+    root = _root(tmp_path)
+    receipt = capture_live(
+        plan,
+        factory,
+        private_root=root,
+        artifact_name="live.json",
+        now=initial_now,
+        validation_clock=validation_clock,
+    )
+
+    assert clock_events == ["validation_clock"]
+    assert factory.events[:3] == [
+        "open_sts:discovery",
+        "sts:discovery",
+        "open_discovery",
+    ]
+    assert receipt["read_only"] is True
+    assert receipt["aws_calls"] == receipt["aws_mutations"] == 0
+    assert read_private_json(root, "live.json")["classification"] == (
+        "DRIFT_BLOCKED_NO_REPAIR"
+    )
+
+
+def test_live_private_v2_allows_same_second_but_v1_remains_strict(
+    tmp_path: Path,
+) -> None:
+    plan = _live_plan()
+    observed = START + timedelta(minutes=5, seconds=1)
+    root = _root(tmp_path)
+    for name, seed in (("first.json", "3"), ("second.json", "4")):
+        capture_live(
+            plan,
+            Factory(seed=seed, mode="live_absent", identity={"observed_at": observed}),
+            private_root=root,
+            artifact_name=name,
+            now=observed - timedelta(seconds=1),
+            validation_clock=lambda: observed + timedelta(seconds=1),
+        )
+    first = read_private_json(root, "first.json")
+    second = read_private_json(root, "second.json")
+    expected = plan_binding(plan)[1]
+    assert first["record_type"].endswith("private.v2")
+    live_receipt = certify_live(
+        first, second, expected_plan_binding_digest=expected
+    )
+    assert live_receipt["stable"] is True
+    assert live_receipt["classification"] == "ABSENT_READY"
+
+    legacy_plan = _plan()
+    legacy_root = tmp_path / "legacy"
+    legacy_root.mkdir(mode=0o700)
+    legacy_root.chmod(0o700)
+    for name, seed in (("first.json", "3"), ("second.json", "4")):
+        capture(
+            legacy_plan,
+            Factory(seed=seed, mode="absent", identity={"observed_at": observed}),
+            private_root=legacy_root,
+            artifact_name=name,
+            now=observed,
+        )
+    legacy = [
+        read_private_json(legacy_root, name)
+        for name in ("first.json", "second.json")
+    ]
+    expected = plan_binding(legacy_plan)[1]
+    with pytest.raises(CollectorError, match="SESSIONS_NOT_INDEPENDENT"):
+        certify(*legacy, expected_plan_binding_digest=expected)
 @pytest.mark.parametrize("mode,expected", [("absent", "ABSENT_READY"), ("missing", "DRIFT_BLOCKED_NO_REPAIR"), ("multiple", "DRIFT_BLOCKED_NO_REPAIR"), ("wrong_name", "DRIFT_BLOCKED_NO_REPAIR"), ("duplicate", "DRIFT_BLOCKED_NO_REPAIR"), ("inactive", "DRIFT_BLOCKED_NO_REPAIR"), ("malformed", "UNCERTAIN_RECONCILE_ONLY"), ("malformed_exact", "UNCERTAIN_RECONCILE_ONLY"), ("denied", "NOT_AUTHORIZED"), ("timeout", "UNCERTAIN_RECONCILE_ONLY")])
 def test_absence_drift_and_provider_failures_never_expand_authority(tmp_path: Path, mode: str, expected: str) -> None:
     factory = Factory(mode=mode); _, receipt, private = _capture(tmp_path / mode, "one.json", factory)

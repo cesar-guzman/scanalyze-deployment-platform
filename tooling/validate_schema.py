@@ -111,6 +111,12 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-gug390-live-run": (
             "platform-authority-gug390-live-run.v{version}.schema.json"
         ),
+        "platform-authority-gug376-live-readonly-run": (
+            "platform-authority-gug376-live-readonly-run.v{version}.schema.json"
+        ),
+        "platform-authority-gug376-live-readonly-handoff": (
+            "platform-authority-gug376-live-readonly-handoff.v{version}.schema.json"
+        ),
         "platform-authority-gug365-upstream-owner-decisions": (
             "platform-authority-gug365-upstream-owner-decisions.v{version}.schema.json"
         ),
@@ -3624,6 +3630,27 @@ def _validate_gug390_live_run(instance: dict) -> list[str]:
     return errors
 
 
+def _validate_gug392_live_record(instance: dict, *, handoff: bool) -> list[str]:
+    """Apply the runtime v2 seal, policy and call-count invariants."""
+
+    try:
+        from tooling.platform_authority_gug376_live_executor import (
+            LiveExecutorError,
+            validate_live_public_handoff,
+            validate_live_run_record,
+        )
+    except ImportError as exc:
+        return [f"GUG-392 live-record validator unavailable: {exc}"]
+    try:
+        if handoff:
+            validate_live_public_handoff(instance)
+        else:
+            validate_live_run_record(instance)
+    except LiveExecutorError as exc:
+        return [f"GUG-392 live-record contract invalid: {exc.code}"]
+    return []
+
+
 def validate_semantics(
     instance: dict,
     schema_path: Path,
@@ -4112,6 +4139,12 @@ def validate_semantics(
 
     if schema_name == "platform-authority-gug390-live-run.v1.schema.json":
         errors.extend(_validate_gug390_live_run(instance))
+
+    if schema_name == "platform-authority-gug376-live-readonly-run.v2.schema.json":
+        errors.extend(_validate_gug392_live_record(instance, handoff=False))
+
+    if schema_name == "platform-authority-gug376-live-readonly-handoff.v2.schema.json":
+        errors.extend(_validate_gug392_live_record(instance, handoff=True))
 
     return errors
 

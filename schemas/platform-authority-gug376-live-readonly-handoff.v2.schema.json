@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug376-live-readonly-handoff.v2.schema.json",
+  "title": "GUG-392 sanitized dual-domain live read-only handoff",
+  "description": "Digest-only public claim for one complete, stable, provider-backed GUG-376 dual-domain read-only capture, bound to a recomputable owner-only evidence manifest. Standalone shape validation is not external authenticity proof and never authorizes mutation, deployment, production use, or an independent-approval claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "status",
+    "classification",
+    "source_commit_sha",
+    "source_tree_sha",
+    "run_digest",
+    "window_digest",
+    "policy_digest",
+    "authorization_digest",
+    "attestation_digest",
+    "trust_anchor_digest",
+    "request_digest",
+    "checkpoint_digest",
+    "approval_reference_digest",
+    "authority_receipt_digest",
+    "identity_center_receipt_digest",
+    "authority_classification",
+    "identity_center_classification",
+    "evidence_manifest_digest",
+    "sealed_at",
+    "transcript_digest",
+    "provider_calls",
+    "aws_calls",
+    "evidence_complete",
+    "evidence_stable",
+    "live_provider_evidence",
+    "read_only",
+    "aws_mutations",
+    "reconciliation_only",
+    "deployment_authorized",
+    "two_human_status",
+    "independent_approval_present",
+    "production_status",
+    "handoff_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug376_live_readonly_handoff.v2"
+    },
+    "status": {
+      "const": "LIVE_READ_ONLY_CAPTURED"
+    },
+    "classification": {
+      "const": "LIVE_DUAL_DOMAIN_CAPTURED"
+    },
+    "source_commit_sha": {
+      "$ref": "#/$defs/gitSha"
+    },
+    "source_tree_sha": {
+      "$ref": "#/$defs/gitSha"
+    },
+    "run_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "window_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "policy_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "authorization_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "attestation_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "trust_anchor_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "request_digest": {
+      "description": "Digest of the exact private live request consumed by the run.",
+      "$ref": "#/$defs/digest"
+    },
+    "checkpoint_digest": {
+      "description": "Digest of the fresh private owner checkpoint consumed by the run.",
+      "$ref": "#/$defs/digest"
+    },
+    "approval_reference_digest": {
+      "description": "Digest-only reference to the bounded owner approval; it is not proof of independent approval.",
+      "$ref": "#/$defs/digest"
+    },
+    "authority_receipt_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "identity_center_receipt_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "authority_classification": {
+      "$ref": "#/$defs/authorityClassification"
+    },
+    "identity_center_classification": {
+      "$ref": "#/$defs/identityCenterClassification"
+    },
+    "evidence_manifest_digest": {
+      "description": "Digest of the create-only owner-private receipt and digest-only transcript manifest required for evidence verification.",
+      "$ref": "#/$defs/digest"
+    },
+    "sealed_at": {
+      "$ref": "#/$defs/stamp"
+    },
+    "transcript_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "provider_calls": {
+      "description": "Count of closed, ledgered STS and read-only inventory provider operations after direct-SSO credential resolution.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "aws_calls": {
+      "description": "Count of signed STS and read-only inventory AWS API calls represented by the provider transcript; credential vending is separately constrained and committed in session digests.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "evidence_complete": {
+      "const": true
+    },
+    "evidence_stable": {
+      "const": true
+    },
+    "live_provider_evidence": {
+      "const": true
+    },
+    "read_only": {
+      "const": true
+    },
+    "aws_mutations": {
+      "const": 0
+    },
+    "reconciliation_only": {
+      "const": false
+    },
+    "deployment_authorized": {
+      "const": false
+    },
+    "two_human_status": {
+      "const": "NOT_PROVEN"
+    },
+    "independent_approval_present": {
+      "const": false
+    },
+    "production_status": {
+      "const": "NO-GO"
+    },
+    "handoff_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "authorityClassification": {
+      "enum": [
+        "ABSENT_READY",
+        "PREEXISTING_NO_TOUCH"
+      ]
+    },
+    "identityCenterClassification": {
+      "enum": [
+        "ABSENT_READY",
+        "EXACT_PRESENT_NO_TOUCH",
+        "DRIFT_BLOCKED_NO_REPAIR"
+      ]
+    }
+  }
+}

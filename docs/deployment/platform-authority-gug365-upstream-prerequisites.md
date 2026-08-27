@@ -19,6 +19,10 @@ GUG-384/GUG-385 receipts and a separately pinned private-run envelope, then
 emits a schema-closed digest-only public handoff. The envelope's session,
 window, authorization, run and source bindings are synthetic contract inputs;
 they are not provider observations or live causal certification.
+GUG-392 adds a separate attested read-only lane: a concrete boto3 adapter for
+the two existing collectors, a create-only private request/checkpoint
+materializer, and schema-closed v2 run/handoff records. It does not change the
+legacy v1 STOP or synthetic contracts and does not authorize any AWS mutation.
 This PR performs no AWS call or provider/package-registry network operation,
 creates no private root or live artifact and grants no mutation authority.
 Production remains **NO-GO**.
@@ -426,11 +430,9 @@ the first signed operation in every session; only the closed List/Get/Describe
 set is accepted, SDK retries are zero, and pagination is complete, bounded and
 cycle-safe.
 
-This repository slice admits only the injected `SYNTHETIC` mode. A caller
-claiming `LIVE` is rejected before any provider is constructed; a future live
-path requires a separately reviewed, repository-attested adapter and fresh UTC
-clock semantics. Until then no injected provider can promote synthetic calls
-to live evidence.
+The GUG-387 entrypoint continues to admit only the injected `SYNTHETIC` mode. A
+caller claiming `LIVE` there is rejected before any provider is constructed.
+No injected provider can promote synthetic calls to live evidence.
 
 Each domain requires two stable snapshots. Raw evidence remains in an
 owner-only `0700` root with atomic `0600` files; symlinks, File Provider paths
@@ -440,6 +442,179 @@ stops at read-only reconciliation. Repository tests use injected fakes only:
 `AWS_CALLS=0`, `AWS_MUTATIONS=0`, `deployment_authorized=false`,
 `two_human_status=NOT_PROVEN`, `independent_approval_present=false`, and
 production remains `NO-GO`.
+
+## GUG-392 attested live read-only boundary
+
+GUG-392 provides the separate repository-attested path that GUG-387 reserved.
+Its private materializer binds one fresh request and one owner checkpoint to the
+exact clean source commit/tree, two different direct-SSO profiles, the complete
+authority and Identity Center plans, the closed read policies, a maximum
+fifteen-minute activation window, and an externally supplied approval-reference
+digest. The digest is a causal reference only: it does not prove a second human
+and cannot authorize deployment or mutation.
+The effective authority and management accounts must be distinct, and the
+private Identity Center `authority_account_arn` must bind exactly to the
+authority plan account; two aliases of one principal are not two domains.
+
+The concrete adapter loads boto3 only after the local request, custody, source,
+window and policy gates pass. Each collector session uses the explicitly bound
+non-default direct-SSO profile, opens STS first, proves the exact account and
+principal, disables SDK retries, ignores configured endpoint overrides, admits
+only the policy-derived List/Get/Describe operations, and closes every paginated
+stream within 50 pages. Required normalized inventory fields, including private
+account identifiers and ARNs, remain in the owner-only `0700` root as
+create-only, atomic `0600` JSON. Transport metadata and provider request IDs are
+discarded before persistence. Profile names and UserIds remain private; their
+public bindings are digests. The public v2 records expose digests and closed
+classifications only.
+Every STS and inventory client is constructed with `verify=true`. The
+authenticated botocore CA bytes are loaded directly into a freshly minted TLS
+context; the mutable CA path is never reopened. Endpoint, CA-bundle,
+per-service transport and custom proxy-TLS overrides are rejected instead of
+being inherited from an ambient or default profile.
+
+The operator must complete both direct-SSO browser/cache logins before `live`;
+GUG-392 never invokes `aws sso login`. Before resolution, the botocore session
+is fixed to one total attempt and the vend client's effective configuration is
+verified at call time. Credential resolution may perform at most one observed
+`sso:GetRoleCredentials` vend per collector session. Any OIDC refresh, other
+pre-STS AWS operation, retriable vend or second vend fails closed. The
+temporary result is copied into a non-refreshable in-memory client session and
+keeps the same reviewed profile binding rather than falling back to `default`
+transport settings. Its access-key digest, expiry and bootstrap-call count are
+committed in the session digest; secret material is never persisted or emitted.
+Credential vending is not an inventory call and is excluded from
+`provider_calls` and `aws_calls`. The first ledgered signed inventory operation is therefore
+`sts:GetCallerIdentity`; closed List/Get/Describe calls remain blocked until
+its exact account and principal binding succeeds.
+
+An unexpired cached SSO role credential can legitimately be reused by botocore
+across the two captures. The session digest binds its real fingerprint together
+with a module-minted domain, capture, stage, policy and session ordinal, so the
+two ledgered capture sessions remain distinct without representing cached
+credential reuse as a second human or a second IAM identity.
+
+Profile names must be distinct and cannot be `default` or contain the normalized
+fragments `administrator`, `admin`, `bootstrap`, `seed`, `deploy` or `destroy`;
+the same forbidden fragments apply to the bound SSO role names. Static access
+keys or session tokens, `credential_process`, role chaining through
+`role_arn`/`source_profile`/`credential_source`, web identity, endpoint, CA and
+service overrides are rejected. Only direct-SSO profile metadata is admitted.
+
+Repository modules are imported only after a clean source preflight. Git is
+invoked with an isolated environment, the reported worktree root must equal this
+repository, and a stable commit/tree plus two clean status reads are required.
+The same source and exact request/checkpoint digests are revalidated immediately
+before and after every provider call and once more before the public bundle is
+sealed. Materialization and live execution require isolated Python `3.11.14`;
+boto3 must be exact `1.42.57`, botocore `1.42.97`, jmespath `1.1.0`,
+s3transfer `0.16.1`, python-dateutil `2.9.0.post0`, six `1.17.0` and urllib3
+`2.7.0`. The interpreter runs with `-I -S`; the seven distributions are
+installed with `--target`, `--no-compile`, `--require-hashes` and
+`--only-binary=:all:` into one dedicated runtime root bound by the private
+request/checkpoint. After a pre-prune distribution/version check, the generated
+script directory and seven `.dist-info` directories are removed; the execution
+root then contains only the seven import roots. Before importing boto3, the live
+provider verifies the lock, exact top-level closure, custody and a bounded
+byte-level manifest of all seven package trees, then checks every imported
+module version. It rejects `.pth`, cache/bytecode, symlinks, optional
+`certifi`/`awscrt`, unexpected files and metadata-only version spoofing. SDK
+source is compiled from authenticated in-memory bytes, while botocore models,
+endpoints and retry data come from a closed in-memory loader that never searches
+`~/.aws/models` or `AWS_DATA_PATH`.
+
+The owner-reviewed `request_digest` and `checkpoint_digest` are mandatory
+independent inputs to `live`; merely naming the private request file is not
+sufficient. Before constructing the provider, the CLI atomically publishes a
+create-only `gug376-live-consumption-claim.json` bound to both digests, source,
+host, root and approval reference. That claim makes the request one-shot. It is
+never removed automatically: expiry, identity failure, partial inventory or any
+later error consumes the attempt and requires a new root, request, checkpoint,
+activation window and reviewed digest pair.
+
+The activation interval is enforced against the real UTC clock at startup,
+before and after every provider response, and immediately before sealing the
+public bundle. A response that returns at or after `expires_at` is ledgered as
+an error and cannot become evidence. The cached direct-SSO credential expiry is
+also inspected and must cover the complete plan window. Neither an expired
+request nor an existing consumption claim can be renewed or reused in place.
+
+Artifact-version capture requests only non-paginated S3 object attributes:
+ETag, checksum, storage class and object size. `ObjectParts` is deliberately
+excluded; any unexpected parts response fails closed so multipart truncation
+cannot be represented as complete evidence.
+
+Identity Center discovery has one reviewed GUG-392 supplement:
+`sso:DescribePermissionSet` on both required instance and permission-set
+resource classes, bounded by `us-east-1` and the same absolute inventory
+window. AWS declares `kms:Decrypt` as a dependent action for this call,
+`ListApplications` and `ListPermissionSets`; the supplement permits it only on
+the exact private KMS key, through the regional Identity Center service, for
+the management account,
+an Identity Center instance encryption context and the same window. The KMS key
+policy must admit the same direct-SSO principal and conditions, and the adapter
+cannot dispatch `kms:Decrypt` directly. This is required because
+`ListPermissionSets` returns ARNs rather than names. The GUG-376 v1 discovery
+policy and digest remain unchanged. Only the live rendering narrows
+`ListPermissionSets` from the legacy wildcard to the IAM Identity Center
+instance resource class. Exact presence also requires `DescribeInstance` to
+report `CUSTOMER_MANAGED_KEY`, the owner-reviewed KMS key ARN and
+`EncryptionStatus=ENABLED`; any missing or different encryption fact is drift.
+
+Live v2 output is possible only when the factory is the concrete adapter and
+its digest-only transcript exactly equals the executor ledger, including
+`provider_calls=aws_calls>=1`, `aws_mutations=0` and
+`live_provider_evidence=true`. Injected SDK/session factories are always
+`INJECTED_NON_LIVE` and cannot emit v2 evidence. Access denial, incomplete or
+repeated pagination, identity mismatch, expired custody, unstable snapshots or
+cross-domain reuse stops without retry at `RECONCILIATION_READ_ONLY_REQUIRED`.
+The private live transcript retains a non-sensitive digest for every list
+pagination stream. Archival validation replays the ledger invariants: exactly
+one successful STS-first event per session, one domain per session, exact token
+continuity within the bound stream, at most 50 pages and no open stream at
+finalization.
+The authority classification is causally limited to `ABSENT_READY` or
+`PREEXISTING_NO_TOUCH`. Identity Center `ABSENT_READY` requires exactly two
+discovery-only sessions, while `EXACT_PRESENT_NO_TOUCH` requires exactly four
+discovery-plus-exact sessions. `DRIFT_BLOCKED_NO_REPAIR` permits two or four
+sessions according to the stage that causally detected drift. Every other
+classification/session combination is rejected even when resealed.
+
+Identity Center absence requires exactly one reviewed ACTIVE management-account
+instance, no matching application or permission set and no generated role with
+either fixed `AWSReservedSSO_ScanalyzeAuthorityRetire*` prefix. The authority
+plan uses all-zero suffixes only as non-existent collision sentinels; the
+provider evaluates every real suffix returned by `ListRoles`. Zero or multiple
+instances is drift, not absence.
+
+Exact presence requires the closed custom application shape: `ENABLED`, direct
+assignment required, one approved user, one `authorization_code` grant, one
+`sts:identity_context` scope authorized to the instance, one reviewed loopback
+PKCE callback, one IAM actor policy, fixed description/tags and two `PT1H`
+permission sets with inline policies only. `materialize-plans` pins and renders
+the repository actor/classifier/approver sources and rejects alternate policy
+digests. The shared policy canonicalizer accepts boto mappings or JSON strings,
+rejects duplicate keys and malformed IAM policy shapes, and preserves one
+source/live digest contract. Exact presence also requires authority
+`PREEXISTING_NO_TOUCH` and the
+two reviewed generated roles. Each role's sole inline policy must match the
+corresponding source-pinned permission-set policy; its provider-generated trust
+policy must match the separately owner-pinned expected digest. The role has no
+permissions boundary, attached managed policy or tags. Cross-domain mismatch
+fails closed.
+
+The durable validator rereads the request, checkpoint, consumption claim,
+manifest and all four physical snapshots from the same owner-only root,
+recomputes their plan/source bindings and recertifies both collectors. Record
+self-hashes detect internal substitution but are neither external signatures nor
+independent approval; the manifest or public run/handoff alone is insufficient
+evidence.
+
+This lane captures inventory only. It does not compile GUG-365, run any of the
+nine mutation phases, invoke GUG-357/GUG-215/GUG-206, deploy, or establish
+production acceptance. Every v2 handoff therefore keeps
+`deployment_authorized=false`, `two_human_status=NOT_PROVEN`,
+`independent_approval_present=false` and `production_status=NO-GO`.
 
 ## Acceptance gates
 
@@ -475,6 +650,17 @@ Future GUG-376 live completion separately requires all of the following:
 - sanitized Linear manifest and private digest-bound handoff; and
 - `GUG365_AWS_WRITES=0`, `GUG357_CREATE_STACK=0`, `GUG215_EFFECTS=0`,
   `GUG206_EFFECTS=0` and production `NO-GO`.
+
+GUG-392 provides an offline, create-only `materialize-plans` command before
+request materialization. It accepts closed owner-reviewed authority and
+Identity Center inputs, computes the exact GUG-384 authority policy digest and
+the GUG-392 live discovery supplement digest, validates either `ABSENT_READY`
+or a PII-minimized `EXACT_PRESENT_NO_TOUCH` expected state, and writes the two
+0600 plans under the 0700 private root. No hand-authored canonical digest or
+legacy GUG-385 discovery digest is accepted as a substitute.
+The exact-state path also raw-byte pins and renders the checked-in application
+actor, classifier and approver policy templates. The operations runbook carries
+separate validated synthetic input pairs for absence and exact presence.
 
 GUG-377 closes provider-output, polling, generated-role, KMS/S3/Signer
 destination and result contracts only at the repository/scripted level. It does

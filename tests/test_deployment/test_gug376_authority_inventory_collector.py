@@ -3,7 +3,7 @@ import copy, json, os, stat, subprocess, sys
 from datetime import UTC, datetime, timedelta; from hashlib import sha256
 from pathlib import Path; import pytest
 from tooling.platform_authority_gug365_upstream_inventory import canonical_digest
-from tooling.platform_authority_gug376_authority_inventory_collector import AuthorityAccessDenied, CollectorError, POLICY, SURFACES, _collect, capture, certify, read_private_json, render_policy, write_private_json
+from tooling.platform_authority_gug376_authority_inventory_collector import AuthorityAccessDenied, CollectorError, MAX_PRIVATE_JSON_BYTES, POLICY, SURFACES, _collect, capture, capture_live, certify, certify_live, read_private_json, render_policy, write_private_json
 START = datetime(2026, 8, 23, 20, 0, tzinfo=UTC)
 D1, D2 = "sha256:" + "1" * 64, "sha256:" + "2" * 64
 ACCOUNT = "042360977644"
@@ -18,6 +18,13 @@ def _plan() -> dict[str, object]:
     text = POLICY.read_text()
     for key, value in dict(targets, inventory_not_before="2026-08-23T20:00:00Z", inventory_not_after="2026-08-23T20:30:00Z").items(): text = text.replace("${" + key + "}", value)
     rendered = json.loads(text); plan["expected_policy_digest"] = "sha256:" + sha256(json.dumps(rendered, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()).hexdigest(); return plan
+def _live_plan() -> dict[str, object]:
+    plan = _plan()
+    plan["expected_generated_role_trust_policy_digests"] = {
+        "retire_approve": canonical_digest("synthetic-approve-trust"),
+        "retire_class": canonical_digest("synthetic-class-trust"),
+    }
+    return plan
 def _root(tmp_path: Path, name: str = "private") -> Path:
     root = tmp_path / name; root.mkdir(mode=0o700, parents=True); root.chmod(0o700); return root
 class Reader:
@@ -80,6 +87,161 @@ def test_capture_is_sts_first_private_atomic_and_publicly_sanitized(tmp_path: Pa
     public = json.dumps(receipt); assert ACCOUNT not in public and "arn:aws:" not in public and "never-public" not in public
     item = (root / "one.json").stat(); assert stat.S_IMODE(item.st_mode) == 0o600 and item.st_nlink == 1 and private["identity"]["account_id"] == ACCOUNT
     with pytest.raises(CollectorError): write_private_json(root, "one.json", {"replacement": True})
+
+
+def test_private_atomic_write_removes_partial_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    real_write = os.write
+    attempts = 0
+
+    def partial_then_fail(descriptor: int, payload: bytes) -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return real_write(descriptor, payload[:1])
+        raise OSError("synthetic partial write")
+
+    monkeypatch.setattr(os, "write", partial_then_fail)
+    with pytest.raises(CollectorError, match="PRIVATE_OUTPUT_WRITE_FAILED"):
+        write_private_json(root, "partial.json", {"value": "never-published"})
+    assert list(root.iterdir()) == []
+
+
+def test_private_atomic_write_rejects_oversize_before_creating_files(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    with pytest.raises(CollectorError, match="PRIVATE_OUTPUT_TOO_LARGE"):
+        write_private_json(
+            root,
+            "oversize.json",
+            {"payload": "x" * MAX_PRIVATE_JSON_BYTES},
+        )
+    assert list(root.iterdir()) == []
+
+
+def test_private_atomic_write_preserves_a_preexisting_temporary_file(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    value = {"value": "new-writer"}
+    temporary = root / f".collision.json.{canonical_digest(value)[7:23]}.tmp"
+    temporary.write_text('{"value":"other-writer"}\n', encoding="utf-8")
+    temporary.chmod(0o600)
+
+    with pytest.raises(CollectorError, match="PRIVATE_OUTPUT_WRITE_FAILED"):
+        write_private_json(root, "collision.json", value)
+
+    assert temporary.read_text(encoding="utf-8") == '{"value":"other-writer"}\n'
+    assert not (root / "collision.json").exists()
+
+
+def test_private_atomic_write_preserves_published_target_after_post_link_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _root(tmp_path)
+    value = {"value": "published"}
+    temporary_name = f".published.json.{canonical_digest(value)[7:23]}.tmp"
+    real_unlink = os.unlink
+    failed_once = False
+
+    def fail_first_temporary_unlink(path, *args, **kwargs):
+        nonlocal failed_once
+        if path == temporary_name and not failed_once:
+            failed_once = True
+            raise OSError("synthetic post-link cleanup failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", fail_first_temporary_unlink)
+    with pytest.raises(CollectorError, match="PRIVATE_OUTPUT_WRITE_FAILED"):
+        write_private_json(root, "published.json", value)
+
+    assert failed_once is True
+    assert read_private_json(root, "published.json") == value
+    assert not (root / temporary_name).exists()
+
+
+def test_capture_live_uses_post_sts_validation_clock(
+    tmp_path: Path,
+) -> None:
+    plan = _live_plan()
+    initial_now = START + timedelta(minutes=5)
+    observed_at = initial_now + timedelta(seconds=1)
+    stale_actor = Factory(plan, observed=observed_at)
+
+    with pytest.raises(CollectorError, match="DIRECT_SESSION_BINDING_INVALID"):
+        capture(
+            plan,
+            stale_actor,
+            private_root=_root(tmp_path, "legacy"),
+            artifact_name="legacy.json",
+            now=initial_now,
+        )
+
+    actor = Factory(plan, observed=observed_at)
+    clock_events: list[str] = []
+
+    def validation_clock() -> datetime:
+        assert actor.events == ["open_sts", "sts"]
+        clock_events.append("validation_clock")
+        return observed_at + timedelta(seconds=1)
+
+    receipt = capture_live(
+        plan,
+        actor,
+        private_root=_root(tmp_path, "live"),
+        artifact_name="live.json",
+        now=initial_now,
+        validation_clock=validation_clock,
+    )
+
+    assert clock_events == ["validation_clock"]
+    assert actor.events[:3] == ["open_sts", "sts", "open_reader"]
+    assert receipt["read_only"] is True
+    assert receipt["aws_mutations"] == 0
+
+
+def test_live_private_v2_allows_same_second_but_v1_remains_strict(
+    tmp_path: Path,
+) -> None:
+    plan = _live_plan()
+    observed = START + timedelta(minutes=5, seconds=1)
+    root = _root(tmp_path)
+    for name, session in (("first.json", D1), ("second.json", D2)):
+        capture_live(
+            plan,
+            Factory(plan, session=session, observed=observed),
+            private_root=root,
+            artifact_name=name,
+            now=observed - timedelta(seconds=1),
+            validation_clock=lambda: observed + timedelta(seconds=1),
+        )
+    first = read_private_json(root, "first.json")
+    second = read_private_json(root, "second.json")
+    assert first["record_type"].endswith("private.v2")
+    assert certify_live(
+        first,
+        second,
+        expected_runtime_target_digest=first["runtime_target_digest"],
+    )["stable"] is True
+
+    legacy = []
+    for snapshot in (first, second):
+        value = copy.deepcopy(snapshot)
+        value["record_type"] = (
+            "scanalyze.platform_authority.gug376_authority_inventory_private.v1"
+        )
+        value["snapshot_digest"] = canonical_digest(
+            {key: item for key, item in value.items() if key != "snapshot_digest"}
+        )
+        legacy.append(value)
+    with pytest.raises(CollectorError, match="SESSIONS_NOT_INDEPENDENT"):
+        certify(
+            *legacy,
+            expected_runtime_target_digest=first["runtime_target_digest"],
+        )
 @pytest.mark.parametrize("fault,expected", [("denied", "NOT_AUTHORIZED"), ("timeout", "UNCERTAIN_RECONCILE_ONLY"), ("repeat", "UNCERTAIN_RECONCILE_ONLY"), ("truncation", "UNCERTAIN_RECONCILE_ONLY")])
 def test_pagination_and_provider_failures_are_never_absence(fault: str, expected: str) -> None:
     reader = Reader([], fault=fault); result = _collect("s3", reader.s3, "unused")
