@@ -1414,7 +1414,7 @@
       "sequence": 9
     }
   ],
-  "plan_digest": "sha256:e7abd7bc04314be7e9541ba00d0a5b78e66746a48950d2f845cd6e16391bdef8",
+  "plan_digest": "sha256:b1c664caaf7375e2b21a7e6cb747a2266510fff9317870009158dcd73b0c20a8",
   "production": false,
   "record_type": "scanalyze.platform_authority.gug365_upstream_plan.v2",
   "rollback_manifest": {
@@ -1505,14 +1505,14 @@
         "schema_version": 1
       }
     ],
-    "implementation_source_set_digest": "sha256:c143eb36292cbf2dd113c8f76f42136f7325c1de776a68a51dab0577120bfb60",
+    "implementation_source_set_digest": "sha256:ee732f56578a640b1b397d0f82c8dde19b6891740eff8461e9da043db128163e",
     "implementation_sources": [
       {
         "content_digest": "sha256:83a0bad74847c636aa37c0526983e607d54809f9597b2833b182efff594d39b5",
         "repository_path": "tooling/platform_authority_gug365_upstream_prerequisites.py"
       },
       {
-        "content_digest": "sha256:1de11322acc73e9714bbed83a75cf5b1989b06f31116ade9cc630deca43a9364",
+        "content_digest": "sha256:ade2d98d3ace73fc41b45e713e762520801c52d4a20703523e6e1db92a32edbc",
         "repository_path": "tooling/platform_authority_gug365_phase_execution_ledger.py"
       },
       {
@@ -1524,7 +1524,7 @@
         "repository_path": "tooling/platform_authority_gug365_upstream_dry_run_runner.py"
       },
       {
-        "content_digest": "sha256:a13e3ab8797bb229821d28de244482df22215aef948c45b2b37afbc32796764e",
+        "content_digest": "sha256:40815cbed5731e70b3091e511aadd88f58470ab543e0a21834947270ab556d62",
         "repository_path": "tooling/platform_authority_gug365_upstream_materializer.py"
       },
       {
@@ -1549,7 +1549,7 @@
     "record_type": "scanalyze.platform_authority.gug365_upstream_source_manifest.v1",
     "source_head_role": "BASELINE_MAIN",
     "source_head_sha": "27cfe380557c18f4b5318f3369bf27f3caa3b08f",
-    "source_manifest_digest": "sha256:3d9815c14769b02859727621800daf788ea238c640cdd27eb7057460c2590f23",
+    "source_manifest_digest": "sha256:7490a92e79a24b0f2caf443da51b8a8186fb3b191063aa8e89ed80ecfd716f04",
     "source_tree_sha": "e4d6ffdef4057e2d16cdc02a4a125a530b34b081",
     "upstream_catalog_digest": "sha256:d8580f361efff5bf4c3d2b112fdc98661b6b403206190efde5d208abfa47144f"
   },

@@ -6,6 +6,7 @@ import copy
 from datetime import datetime, timedelta, timezone
 import fcntl
 import io
+import json
 import multiprocessing
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import sys
 from typing import Any, Mapping, Sequence
 
 import pytest
+from jsonschema import Draft202012Validator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -478,6 +480,71 @@ def _in_flight(
         at=NOW + timedelta(seconds=sequence),
         operation_sequence=sequence,
     ).proposed_record
+
+
+def _ambiguous_first_operation() -> dict[str, Any]:
+    claimed = _claimed(_prepared()).proposed_record
+    in_flight = _in_flight(claimed)
+    return ledger.prepare_operation_record(
+        in_flight,
+        expected_version=in_flight["ledger_version"],
+        expected_digest=in_flight["ledger_digest"],
+        at=NOW + timedelta(seconds=2),
+        operation_sequence=1,
+        outcome="AMBIGUOUS",
+        provider_result_digest=None,
+    ).proposed_record
+
+
+def _bound_reconciliation_binding(
+    ambiguous: Mapping[str, Any],
+    *,
+    expected_effect_state_digest: str,
+    expected_no_effect_state_digest: str,
+) -> dict[str, Any]:
+    outcome = ambiguous["operation_outcomes"][-1]
+    binding: dict[str, Any] = {
+        "ambiguous_ledger_digest": ambiguous["ledger_digest"],
+        "ambiguous_operation_sequence": outcome["operation_sequence"],
+        "ambiguous_request_digest": outcome["request_digest"],
+        "ambiguous_operation_digest": ledger.canonical_digest(
+            {"phase": ambiguous["phase"], "operation_sequence": 1}
+        ),
+        "readback_contract_digest": ledger.canonical_digest(
+            {"contract": "exact-read-only", "operation_sequence": 1}
+        ),
+        "caller_arn_digest": ambiguous["caller_arn_digest"],
+        "session_identifier_digest": ambiguous[
+            "authority_session_identifier_digest"
+        ],
+        "identity_receipt_digest": ledger.canonical_digest(
+            {"identity": "current-sts-session"}
+        ),
+        "provider_transcript_digest": ledger.canonical_digest(
+            {"provider_writes": 0, "readback_contract": "exact-read-only"}
+        ),
+        "expectation_binding_digest": "",
+    }
+    expectation = {
+        "ledger_id": ambiguous["ledger_id"],
+        "ambiguous_ledger_digest": ambiguous["ledger_digest"],
+        "plan_digest": ambiguous["plan_digest"],
+        "phase": ambiguous["phase"],
+        "ordered_operations_digest": ambiguous["ordered_operations_digest"],
+        "ambiguous_operation_sequence": binding[
+            "ambiguous_operation_sequence"
+        ],
+        "ambiguous_request_digest": binding["ambiguous_request_digest"],
+        "ambiguous_operation_digest": binding["ambiguous_operation_digest"],
+        "readback_contract_digest": binding["readback_contract_digest"],
+        "caller_arn_digest": binding["caller_arn_digest"],
+        "session_identifier_digest": binding["session_identifier_digest"],
+        "identity_receipt_digest": binding["identity_receipt_digest"],
+        "expected_effect_state_digest": expected_effect_state_digest,
+        "expected_no_effect_state_digest": expected_no_effect_state_digest,
+    }
+    binding["expectation_binding_digest"] = ledger.canonical_digest(expectation)
+    return binding
 
 
 def test_prepare_binds_plan_bundle_target_authority_window_host_and_order() -> None:
@@ -1124,6 +1191,218 @@ def test_ambiguous_result_allows_read_only_reconcile_and_never_blind_retry() -> 
             observed_state_digest=DIGESTS[5],
             classification="EFFECT_PROVEN",
         )
+
+
+@pytest.mark.parametrize(
+    ("observed_kind", "expected_classification"),
+    [
+        ("effect", "EFFECT_PROVEN"),
+        ("no_effect", "NO_EFFECT_PROVEN"),
+        ("other", "INCONCLUSIVE"),
+    ],
+)
+def test_bound_reconciliation_derives_classification_and_persists_causal_evidence(
+    observed_kind: str,
+    expected_classification: str,
+) -> None:
+    ambiguous = _ambiguous_first_operation()
+    effect = ledger.canonical_digest({"state": "effect"})
+    no_effect = ledger.canonical_digest({"state": "no-effect"})
+    observed = {
+        "effect": effect,
+        "no_effect": no_effect,
+        "other": ledger.canonical_digest({"state": "inconclusive"}),
+    }[observed_kind]
+    binding = _bound_reconciliation_binding(
+        ambiguous,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+    )
+
+    transition = ledger.prepare_read_only_reconciliation(
+        ambiguous,
+        expected_version=ambiguous["ledger_version"],
+        expected_digest=ambiguous["ledger_digest"],
+        at=NOW + timedelta(seconds=3),
+        observed_state_digest=observed,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+        reconciliation_binding=binding,
+    )
+
+    record = transition.proposed_record
+    reconciliation = record["reconciliation"]
+    assert reconciliation["classification"] == expected_classification
+    assert reconciliation["binding_mode"] == "CAUSAL_EXPECTATIONS_BOUND"
+    assert reconciliation["ambiguous_ledger_digest"] == ambiguous["ledger_digest"]
+    assert reconciliation["ambiguous_operation_sequence"] == 1
+    assert reconciliation["ambiguous_request_digest"] == ambiguous[
+        "operation_outcomes"
+    ][-1]["request_digest"]
+    assert reconciliation["expected_effect_state_digest"] == effect
+    assert reconciliation["expected_no_effect_state_digest"] == no_effect
+    assert reconciliation["caller_arn_digest"] == ambiguous["caller_arn_digest"]
+    assert reconciliation["session_identifier_digest"] == ambiguous[
+        "authority_session_identifier_digest"
+    ]
+    receipt_facts = record["receipt_chain"][-1]["facts"]
+    assert receipt_facts["expectation_binding_digest"] == binding[
+        "expectation_binding_digest"
+    ]
+    assert receipt_facts["provider_transcript_digest"] == binding[
+        "provider_transcript_digest"
+    ]
+    assert receipt_facts["provider_writes_performed"] == 0
+    ledger.validate_ledger(record)
+
+
+def test_bound_reconciliation_matches_the_draft_2020_ledger_schema() -> None:
+    ambiguous = _ambiguous_first_operation()
+    effect = ledger.canonical_digest({"state": "effect"})
+    no_effect = ledger.canonical_digest({"state": "no-effect"})
+    binding = _bound_reconciliation_binding(
+        ambiguous,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+    )
+    record = ledger.prepare_read_only_reconciliation(
+        ambiguous,
+        expected_version=ambiguous["ledger_version"],
+        expected_digest=ambiguous["ledger_digest"],
+        at=NOW + timedelta(seconds=3),
+        observed_state_digest=effect,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+        reconciliation_binding=binding,
+    ).proposed_record
+    schema = json.loads(
+        (
+            REPO_ROOT
+            / "schemas/platform-authority-gug365-phase-execution-ledger.v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(record)
+
+
+def test_bound_reconciliation_rejects_partial_substituted_or_caller_classified_evidence() -> None:
+    ambiguous = _ambiguous_first_operation()
+    effect = ledger.canonical_digest({"state": "effect"})
+    no_effect = ledger.canonical_digest({"state": "no-effect"})
+    binding = _bound_reconciliation_binding(
+        ambiguous,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+    )
+    common = {
+        "expected_version": ambiguous["ledger_version"],
+        "expected_digest": ambiguous["ledger_digest"],
+        "at": NOW + timedelta(seconds=3),
+        "observed_state_digest": effect,
+    }
+
+    with pytest.raises(
+        ledger.PhaseLedgerError, match="RECONCILIATION_BINDING_INCOMPLETE"
+    ):
+        ledger.prepare_read_only_reconciliation(
+            ambiguous,
+            **common,
+            expected_effect_state_digest=effect,
+        )
+    with pytest.raises(
+        ledger.PhaseLedgerError, match="RECONCILIATION_EXPECTATIONS_INVALID"
+    ):
+        ledger.prepare_read_only_reconciliation(
+            ambiguous,
+            **common,
+            expected_effect_state_digest=effect,
+            expected_no_effect_state_digest=effect,
+            reconciliation_binding=binding,
+        )
+    with pytest.raises(
+        ledger.PhaseLedgerError, match="RECONCILIATION_CLASSIFICATION_MISMATCH"
+    ):
+        ledger.prepare_read_only_reconciliation(
+            ambiguous,
+            **common,
+            classification="NO_EFFECT_PROVEN",
+            expected_effect_state_digest=effect,
+            expected_no_effect_state_digest=no_effect,
+            reconciliation_binding=binding,
+        )
+    substituted = copy.deepcopy(binding)
+    substituted["session_identifier_digest"] = DIGESTS[6]
+    with pytest.raises(
+        ledger.PhaseLedgerError, match="RECONCILIATION_BINDING_MISMATCH"
+    ):
+        ledger.prepare_read_only_reconciliation(
+            ambiguous,
+            **common,
+            expected_effect_state_digest=effect,
+            expected_no_effect_state_digest=no_effect,
+            reconciliation_binding=substituted,
+        )
+    with pytest.raises(
+        ledger.PhaseLedgerError,
+        match="RECONCILIATION_EXPECTATION_BINDING_MISMATCH",
+    ):
+        ledger.prepare_read_only_reconciliation(
+            ambiguous,
+            **common,
+            expected_effect_state_digest=no_effect,
+            expected_no_effect_state_digest=ledger.canonical_digest(
+                {"state": "different-no-effect"}
+            ),
+            reconciliation_binding=binding,
+        )
+
+
+def test_bound_reconciliation_resealed_causal_substitution_fails_validation() -> None:
+    ambiguous = _ambiguous_first_operation()
+    effect = ledger.canonical_digest({"state": "effect"})
+    no_effect = ledger.canonical_digest({"state": "no-effect"})
+    binding = _bound_reconciliation_binding(
+        ambiguous,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+    )
+    record = ledger.prepare_read_only_reconciliation(
+        ambiguous,
+        expected_version=ambiguous["ledger_version"],
+        expected_digest=ambiguous["ledger_digest"],
+        at=NOW + timedelta(seconds=3),
+        observed_state_digest=effect,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+        reconciliation_binding=binding,
+    ).proposed_record
+
+    cases: list[dict[str, Any]] = []
+    wrong_expectation = copy.deepcopy(record)
+    wrong_expectation["reconciliation"]["expected_effect_state_digest"] = DIGESTS[5]
+    cases.append(wrong_expectation)
+    wrong_operation = copy.deepcopy(record)
+    wrong_operation["reconciliation"]["ambiguous_operation_digest"] = DIGESTS[5]
+    wrong_operation["receipt_chain"][-1]["facts"][
+        "ambiguous_operation_digest"
+    ] = DIGESTS[5]
+    cases.append(wrong_operation)
+    wrong_classification = copy.deepcopy(record)
+    wrong_classification["reconciliation"]["classification"] = "NO_EFFECT_PROVEN"
+    wrong_classification["receipt_chain"][-1]["facts"][
+        "classification"
+    ] = "NO_EFFECT_PROVEN"
+    cases.append(wrong_classification)
+    missing_receipt_evidence = copy.deepcopy(record)
+    del missing_receipt_evidence["receipt_chain"][-1]["facts"][
+        "provider_transcript_digest"
+    ]
+    cases.append(missing_receipt_evidence)
+
+    for case in cases:
+        _reseal_receipts_and_ledger(case)
+        with pytest.raises(ledger.PhaseLedgerError):
+            ledger.validate_ledger(case)
 
 
 def test_classifier_accepts_consumed_record_not_naked_equal_digests() -> None:

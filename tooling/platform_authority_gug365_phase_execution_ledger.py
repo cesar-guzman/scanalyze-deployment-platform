@@ -38,6 +38,46 @@ _ACCOUNT_RE = re.compile(r"^[0-9]{12}$")
 _HOST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ALLOWED_RESULT = frozenset({"SUCCEEDED", "FAILED", "AMBIGUOUS"})
 _TERMINAL = frozenset({"CONSUMED", "RECONCILED"})
+_EXECUTION_CONTEXT_FIELDS = frozenset(
+    {
+        "issue",
+        "owner_checkpoint_digest",
+        "live_request_digest",
+        "activator_checkpoint_digest",
+        "context_digest",
+    }
+)
+_DURABLE_PROVIDER_EVIDENCE_FIELDS = frozenset(
+    {
+        "record_type",
+        "schema_version",
+        "issue",
+        "phase",
+        "operation_sequence",
+        "operation_digest",
+        "provider_request_digest",
+        "outcome",
+        "provider_result_digest",
+        "provider_mode",
+        "identity_receipt",
+        "identity_receipt_digest",
+        "caller_arn_digest",
+        "session_identifier_digest",
+        "transcript_before",
+        "transcript_before_receipt_digest",
+        "transcript",
+        "transcript_receipt_digest",
+        "owner_checkpoint_digest",
+        "live_request_digest",
+        "execution_context_digest",
+        "activator_checkpoint_digest",
+        "causal_receipt_evidence",
+        "causal_receipt_evidence_digest",
+        "private_provider_evidence_file",
+        "private_provider_evidence_digest",
+        "evidence_digest",
+    }
+)
 FORWARD_PHASES = (
     "POLICY_FACTORY",
     "FOUNDATION_FACTORY",
@@ -558,6 +598,7 @@ class DurablePhaseLedgerStore:
 class OperationResult:
     outcome: str
     provider_result_digest: str | None
+    durable_provider_evidence: Mapping[str, Any] | None = None
 
 
 def execute_claimed_phase(
@@ -794,6 +835,7 @@ def _execute_claimed_phase_under_lease(
             operation_sequence=sequence,
             outcome=result.outcome,
             provider_result_digest=result.provider_result_digest,
+            durable_provider_evidence=result.durable_provider_evidence,
         )
         current = store._compare_and_swap_under_lease(  # noqa: SLF001
             transition, lease_descriptor
@@ -804,7 +846,11 @@ def _execute_claimed_phase_under_lease(
 
 
 def recover_persisted_in_flight(
-    *, store: DurablePhaseLedgerStore, ledger_id: str, at: datetime
+    *,
+    store: DurablePhaseLedgerStore,
+    ledger_id: str,
+    at: datetime,
+    durable_provider_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert a crash-surviving IN_FLIGHT record to durable AMBIGUOUS."""
 
@@ -821,6 +867,7 @@ def recover_persisted_in_flight(
             operation_sequence=operation["operation_sequence"],
             outcome="AMBIGUOUS",
             provider_result_digest=None,
+            durable_provider_evidence=durable_provider_evidence,
         )
         return store._compare_and_swap_under_lease(  # noqa: SLF001
             transition, lease_descriptor
@@ -1487,6 +1534,244 @@ def _require_digest(value: Any, code: str) -> str:
     if not isinstance(value, str) or _DIGEST_RE.fullmatch(value) is None:
         _fail(code)
     return value
+
+
+def validate_execution_context(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and detach the optional GUG-390 action-time claim context."""
+
+    context = _canonical_snapshot(value, "EXECUTION_CONTEXT_INVALID")
+    if (
+        not isinstance(context, dict)
+        or set(context) != _EXECUTION_CONTEXT_FIELDS
+        or context.get("issue") != "GUG-390"
+    ):
+        _fail("EXECUTION_CONTEXT_INVALID")
+    for field in ("owner_checkpoint_digest", "live_request_digest"):
+        _require_digest(context.get(field), "EXECUTION_CONTEXT_INVALID")
+    activator = context.get("activator_checkpoint_digest")
+    if activator is not None:
+        _require_digest(activator, "EXECUTION_CONTEXT_INVALID")
+    expected = canonical_digest(
+        {key: item for key, item in context.items() if key != "context_digest"}
+    )
+    if context.get("context_digest") != expected:
+        _fail("EXECUTION_CONTEXT_DIGEST_MISMATCH")
+    return context
+
+
+def _embedded_receipt_digest(
+    value: Mapping[str, Any], *, self_digest_field: str, code: str
+) -> str:
+    receipt = _canonical_snapshot(value, code)
+    if not isinstance(receipt, dict) or not receipt:
+        _fail(code)
+    supplied = receipt.get(self_digest_field)
+    if supplied is None:
+        return canonical_digest(receipt)
+    digest = _require_digest(supplied, code)
+    if digest != canonical_digest(
+        {key: item for key, item in receipt.items() if key != self_digest_field}
+    ):
+        _fail(code)
+    return digest
+
+
+def _provider_transcript_counts(
+    transcript: Mapping[str, Any], *, code: str
+) -> tuple[int, int]:
+    calls = transcript.get("call_count", transcript.get("provider_calls"))
+    writes = transcript.get(
+        "write_call_count", transcript.get("provider_mutation_calls")
+    )
+    if (
+        type(calls) is not int
+        or calls < 1
+        or type(writes) is not int
+        or not 0 <= writes <= calls
+    ):
+        _fail(code)
+    return calls, writes
+
+
+def validate_durable_provider_evidence(
+    value: Mapping[str, Any],
+    *,
+    record: Mapping[str, Any],
+    operation_sequence: int,
+    outcome: str,
+    provider_result_digest: str | None,
+) -> dict[str, Any]:
+    """Validate private provider proof sealed into an operation outcome.
+
+    Legacy GUG-365 outcomes omit this object.  Once present, however, every
+    action-time, operation, identity, transcript, and result binding is exact.
+    """
+
+    evidence = _canonical_snapshot(value, "DURABLE_PROVIDER_EVIDENCE_INVALID")
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != _DURABLE_PROVIDER_EVIDENCE_FIELDS
+        or evidence.get("record_type")
+        != "scanalyze.platform_authority.gug390_durable_provider_evidence.v1"
+        or evidence.get("schema_version") != 1
+        or evidence.get("issue") != "GUG-390"
+        or evidence.get("phase") != record.get("phase")
+        or evidence.get("operation_sequence") != operation_sequence
+        or evidence.get("outcome") != outcome
+        or evidence.get("provider_result_digest") != provider_result_digest
+        or evidence.get("provider_mode") not in {"LIVE", "SYNTHETIC"}
+    ):
+        _fail("DURABLE_PROVIDER_EVIDENCE_INVALID")
+    for field in (
+        "operation_digest",
+        "provider_request_digest",
+        "identity_receipt_digest",
+        "caller_arn_digest",
+        "session_identifier_digest",
+        "transcript_before_receipt_digest",
+        "transcript_receipt_digest",
+        "owner_checkpoint_digest",
+        "live_request_digest",
+        "execution_context_digest",
+        "private_provider_evidence_digest",
+        "evidence_digest",
+    ):
+        _require_digest(evidence.get(field), "DURABLE_PROVIDER_EVIDENCE_INVALID")
+    requests = record.get("ordered_request_digests")
+    if (
+        not isinstance(requests, list)
+        or evidence.get("provider_request_digest")
+        != requests[operation_sequence - 1]
+        or evidence.get("caller_arn_digest") != record.get("caller_arn_digest")
+        or evidence.get("session_identifier_digest")
+        != record.get("authority_session_identifier_digest")
+    ):
+        _fail("DURABLE_PROVIDER_EVIDENCE_BINDING_MISMATCH")
+    claim = record.get("claim")
+    context = claim.get("execution_context") if isinstance(claim, Mapping) else None
+    if not isinstance(context, Mapping):
+        _fail("DURABLE_PROVIDER_EVIDENCE_CONTEXT_MISSING")
+    checked_context = validate_execution_context(context)
+    if any(
+        evidence.get(field) != checked_context.get(field)
+        for field in (
+            "owner_checkpoint_digest",
+            "live_request_digest",
+            "activator_checkpoint_digest",
+        )
+    ) or evidence.get("execution_context_digest") != checked_context.get(
+        "context_digest"
+    ):
+        _fail("DURABLE_PROVIDER_EVIDENCE_CONTEXT_MISMATCH")
+    identity = evidence.get("identity_receipt")
+    transcript_before = evidence.get("transcript_before")
+    transcript = evidence.get("transcript")
+    if (
+        not isinstance(identity, Mapping)
+        or not isinstance(transcript_before, Mapping)
+        or not isinstance(transcript, Mapping)
+    ):
+        _fail("DURABLE_PROVIDER_EVIDENCE_INVALID")
+    if evidence.get("identity_receipt_digest") != _embedded_receipt_digest(
+        identity,
+        self_digest_field="receipt_digest",
+        code="DURABLE_PROVIDER_IDENTITY_RECEIPT_INVALID",
+    ):
+        _fail("DURABLE_PROVIDER_IDENTITY_RECEIPT_INVALID")
+    identity_caller = identity.get(
+        "principal_digest", identity.get("caller_arn_digest")
+    )
+    identity_session = identity.get(
+        "session_digest", identity.get("session_identifier_digest")
+    )
+    if (
+        identity_caller != evidence.get("caller_arn_digest")
+        or identity_session != evidence.get("session_identifier_digest")
+    ):
+        _fail("DURABLE_PROVIDER_IDENTITY_BINDING_MISMATCH")
+    if evidence.get(
+        "transcript_before_receipt_digest"
+    ) != _embedded_receipt_digest(
+        transcript_before,
+        self_digest_field="summary_digest",
+        code="DURABLE_PROVIDER_TRANSCRIPT_INVALID",
+    ) or evidence.get("transcript_receipt_digest") != _embedded_receipt_digest(
+        transcript,
+        self_digest_field="summary_digest",
+        code="DURABLE_PROVIDER_TRANSCRIPT_INVALID",
+    ):
+        _fail("DURABLE_PROVIDER_TRANSCRIPT_INVALID")
+    before_calls, before_writes = _provider_transcript_counts(
+        transcript_before, code="DURABLE_PROVIDER_TRANSCRIPT_INVALID"
+    )
+    after_calls, after_writes = _provider_transcript_counts(
+        transcript, code="DURABLE_PROVIDER_TRANSCRIPT_INVALID"
+    )
+    if (
+        after_calls <= before_calls
+        or after_writes < before_writes
+        or after_writes - before_writes > 1
+    ):
+        _fail("DURABLE_PROVIDER_TRANSCRIPT_DELTA_INVALID")
+    transcript_identity = transcript.get("identity_receipt_digest")
+    before_identity = transcript_before.get("identity_receipt_digest")
+    if (
+        (transcript_identity is not None and transcript_identity != evidence.get(
+            "identity_receipt_digest"
+        ))
+        or (before_identity is not None and before_identity != evidence.get(
+            "identity_receipt_digest"
+        ))
+    ):
+        _fail("DURABLE_PROVIDER_TRANSCRIPT_IDENTITY_MISMATCH")
+    transcript_mode = transcript.get("provider_mode")
+    before_mode = transcript_before.get("provider_mode")
+    accepted_transcript_modes = {
+        "LIVE": {None, "LIVE", "CONCRETE_DIRECT_SSO"},
+        "SYNTHETIC": {None, "SYNTHETIC", "INJECTED_NON_LIVE"},
+    }[str(evidence.get("provider_mode"))]
+    if (
+        transcript_mode not in accepted_transcript_modes
+        or before_mode not in accepted_transcript_modes
+    ):
+        _fail("DURABLE_PROVIDER_TRANSCRIPT_MODE_MISMATCH")
+    causal = evidence.get("causal_receipt_evidence")
+    causal_digest = evidence.get("causal_receipt_evidence_digest")
+    if causal is None:
+        if causal_digest is not None:
+            _fail("DURABLE_PROVIDER_CAUSAL_EVIDENCE_INVALID")
+    else:
+        if (
+            record.get("phase") != "LEDGER_FACTORY_INVOKER"
+            or not isinstance(causal, Mapping)
+            or causal_digest != canonical_digest(causal)
+            or causal.get("private_evidence_digest")
+            != canonical_digest(
+                {
+                    key: item
+                    for key, item in causal.items()
+                    if key != "private_evidence_digest"
+                }
+            )
+            or transcript.get("accepted_causal_receipt_binding_digest")
+            != causal.get("binding_digest")
+        ):
+            _fail("DURABLE_PROVIDER_CAUSAL_EVIDENCE_INVALID")
+    activator = evidence.get("activator_checkpoint_digest")
+    if activator is not None:
+        _require_digest(activator, "DURABLE_PROVIDER_EVIDENCE_INVALID")
+    private_file = evidence.get("private_provider_evidence_file")
+    if (
+        not isinstance(private_file, str)
+        or re.fullmatch(r"gug390-provider-[0-9a-f]{64}-[0-9]{3}\.json", private_file)
+        is None
+    ):
+        _fail("DURABLE_PROVIDER_PRIVATE_EVIDENCE_LINK_INVALID")
+    if evidence.get("evidence_digest") != canonical_digest(
+        {key: item for key, item in evidence.items() if key != "evidence_digest"}
+    ):
+        _fail("DURABLE_PROVIDER_EVIDENCE_DIGEST_MISMATCH")
+    return evidence
 
 
 def _utc(value: datetime, code: str) -> datetime:
@@ -2184,6 +2469,7 @@ def prepare_claim(
     expected_initial_bundle_absence_digest: str | None,
     predecessor_record: Mapping[str, Any] | None,
     expected_predecessor_binding: Mapping[str, Any] | None,
+    execution_context: Mapping[str, Any] | None = None,
 ) -> CasTransition:
     """Claim one phase once; no operation may run before this CAS succeeds."""
 
@@ -2263,22 +2549,38 @@ def prepare_claim(
     if any(current[key] != value for key, value in exact.items()):
         _fail("CLAIM_BINDING_MISMATCH")
     _require_digest(claim_nonce_digest, "CLAIM_NONCE_DIGEST_INVALID")
+    context = (
+        validate_execution_context(execution_context)
+        if execution_context is not None
+        else None
+    )
+    if context is not None and (
+        (current.get("phase") == "ACTIVATOR")
+        is (context.get("activator_checkpoint_digest") is None)
+    ):
+        _fail("EXECUTION_CONTEXT_ACTIVATOR_BINDING_INVALID")
+    claim_facts = {"claim_nonce_digest": claim_nonce_digest, "attempt": 1}
+    if context is not None:
+        claim_facts["execution_context_digest"] = context["context_digest"]
     receipt = _receipt(
         source=current,
         event="CLAIMED",
         at=now,
-        facts={"claim_nonce_digest": claim_nonce_digest, "attempt": 1},
+        facts=claim_facts,
     )
+    claim_record: dict[str, Any] = {
+        "claim_nonce_digest": claim_nonce_digest,
+        "claimed_at": _timestamp(now),
+        "first_operation_sequence": 1,
+        "next_operation_sequence": 1,
+    }
+    if context is not None:
+        claim_record["execution_context"] = context
     proposed.update(
         {
             "status": "CLAIMED",
             "attempt_count": 1,
-            "claim": {
-                "claim_nonce_digest": claim_nonce_digest,
-                "claimed_at": _timestamp(now),
-                "first_operation_sequence": 1,
-                "next_operation_sequence": 1,
-            },
+            "claim": claim_record,
             "receipt_chain": [*current["receipt_chain"], receipt],
         }
     )
@@ -2289,6 +2591,7 @@ def prepare_operation_record(
     current: Mapping[str, Any], *, expected_version: int, expected_digest: str,
     at: datetime, operation_sequence: int, outcome: str,
     provider_result_digest: str | None,
+    durable_provider_evidence: Mapping[str, Any] | None = None,
 ) -> CasTransition:
     """Consume the claim after exactly one operation attempt or ambiguity."""
 
@@ -2344,34 +2647,53 @@ def prepare_operation_record(
     )
     if now < started_at or now < claimed_at:
         _fail("OPERATION_OUTCOME_TIME_NOT_MONOTONIC")
+    durable_evidence = (
+        validate_durable_provider_evidence(
+            durable_provider_evidence,
+            record=current,
+            operation_sequence=operation_sequence,
+            outcome=outcome,
+            provider_result_digest=provider_result_digest,
+        )
+        if durable_provider_evidence is not None
+        else None
+    )
+    outcome_facts: dict[str, Any] = {
+        "operation_sequence": operation_sequence,
+        "request_digest": request_digest,
+        "outcome": outcome,
+        "provider_result_digest": provider_result_digest,
+        "next_required_action": next_required_action,
+    }
+    if durable_evidence is not None:
+        outcome_facts["durable_provider_evidence_digest"] = durable_evidence[
+            "evidence_digest"
+        ]
     receipt = _receipt(
         source=current,
         event=f"OPERATION_{outcome}",
         at=now,
-        facts={
-            "operation_sequence": operation_sequence,
-            "request_digest": request_digest,
-            "outcome": outcome,
-            "provider_result_digest": provider_result_digest,
-            "next_required_action": next_required_action,
-        },
+        facts=outcome_facts,
     )
+    outcome_record: dict[str, Any] = {
+        "operation_sequence": operation_sequence,
+        "request_digest": request_digest,
+        "result": outcome,
+        "provider_result_digest": provider_result_digest,
+        "recorded_at": _timestamp(now),
+        "write_attempt_count": 1,
+        "blind_retry_permitted": False,
+        "next_required_action": next_required_action,
+    }
+    if durable_evidence is not None:
+        outcome_record["durable_provider_evidence"] = durable_evidence
     proposed.update(
         {
             "status": status,
             "in_flight_operation": None,
             "operation_outcomes": [
                 *current["operation_outcomes"],
-                {
-                "operation_sequence": operation_sequence,
-                "request_digest": request_digest,
-                "result": outcome,
-                "provider_result_digest": provider_result_digest,
-                "recorded_at": _timestamp(now),
-                "write_attempt_count": 1,
-                "blind_retry_permitted": False,
-                "next_required_action": next_required_action,
-                },
+                outcome_record,
             ],
             "receipt_chain": [*current["receipt_chain"], receipt],
         }
@@ -2455,7 +2777,10 @@ def prepare_operation_in_flight(
 
 def prepare_read_only_reconciliation(
     current: Mapping[str, Any], *, expected_version: int, expected_digest: str,
-    at: datetime, observed_state_digest: str, classification: str,
+    at: datetime, observed_state_digest: str, classification: str | None = None,
+    expected_effect_state_digest: str | None = None,
+    expected_no_effect_state_digest: str | None = None,
+    reconciliation_binding: Mapping[str, Any] | None = None,
 ) -> CasTransition:
     """Close only an AMBIGUOUS record from independently read provider state."""
 
@@ -2470,40 +2795,289 @@ def prepare_read_only_reconciliation(
         or outcomes[-1].get("next_required_action") != "RECONCILE_READ_ONLY"
     ):
         _fail("RECONCILIATION_NOT_PERMITTED")
-    if classification not in {"EFFECT_PROVEN", "NO_EFFECT_PROVEN", "INCONCLUSIVE"}:
-        _fail("RECONCILIATION_CLASSIFICATION_INVALID")
-    _require_digest(observed_state_digest, "OBSERVED_STATE_DIGEST_INVALID")
+    observed = _require_digest(
+        observed_state_digest, "OBSERVED_STATE_DIGEST_INVALID"
+    )
+    bound_inputs = (
+        expected_effect_state_digest,
+        expected_no_effect_state_digest,
+        reconciliation_binding,
+    )
+    bound_mode = any(item is not None for item in bound_inputs)
+    if bound_mode and not all(item is not None for item in bound_inputs):
+        _fail("RECONCILIATION_BINDING_INCOMPLETE")
+    if bound_mode:
+        effect = _require_digest(
+            expected_effect_state_digest,
+            "EXPECTED_EFFECT_STATE_DIGEST_INVALID",
+        )
+        no_effect = _require_digest(
+            expected_no_effect_state_digest,
+            "EXPECTED_NO_EFFECT_STATE_DIGEST_INVALID",
+        )
+        if effect == no_effect:
+            _fail("RECONCILIATION_EXPECTATIONS_INVALID")
+        derived_classification = _reconciliation_classification(
+            observed, effect, no_effect
+        )
+        if classification is not None and classification != derived_classification:
+            _fail("RECONCILIATION_CLASSIFICATION_MISMATCH")
+        classification = derived_classification
+        binding = _validate_reconciliation_binding(
+            current,
+            reconciliation_binding,
+            expected_effect_state_digest=effect,
+            expected_no_effect_state_digest=no_effect,
+        )
+    else:
+        if classification not in {
+            "EFFECT_PROVEN",
+            "NO_EFFECT_PROVEN",
+            "INCONCLUSIVE",
+        }:
+            _fail("RECONCILIATION_CLASSIFICATION_INVALID")
+        binding = None
     now = _utc(at, "RECONCILIATION_TIME_INVALID")
     ambiguous_at = _parse_timestamp(
         outcomes[-1].get("recorded_at"), "OUTCOME_RECORDED_AT_INVALID"
     )
     if now < ambiguous_at:
         _fail("RECONCILIATION_TIME_NOT_MONOTONIC")
+    reconciliation: dict[str, Any] = {
+        "classification": classification,
+        "observed_state_digest": observed,
+        "recorded_at": _timestamp(now),
+        "read_only": True,
+        "provider_writes_performed": 0,
+        "retry_of_ambiguous_write_permitted": False,
+    }
+    if binding is not None:
+        reconciliation.update(
+            {
+                "binding_mode": "CAUSAL_EXPECTATIONS_BOUND",
+                **binding,
+                "expected_effect_state_digest": effect,
+                "expected_no_effect_state_digest": no_effect,
+            }
+        )
     receipt = _receipt(
         source=current,
         event="RECONCILED",
         at=now,
-        facts={
-            "classification": classification,
-            "observed_state_digest": observed_state_digest,
-            "provider_writes_performed": 0,
-        },
+        facts=_reconciliation_receipt_facts(reconciliation),
     )
     proposed.update(
         {
             "status": "RECONCILED",
-            "reconciliation": {
-                "classification": classification,
-                "observed_state_digest": observed_state_digest,
-                "recorded_at": _timestamp(now),
-                "read_only": True,
-                "provider_writes_performed": 0,
-                "retry_of_ambiguous_write_permitted": False,
-            },
+            "reconciliation": reconciliation,
             "receipt_chain": [*current["receipt_chain"], receipt],
         }
     )
     return _finalize_transition(proposed, current)
+
+
+def _reconciliation_classification(
+    observed_state_digest: str,
+    expected_effect_state_digest: str,
+    expected_no_effect_state_digest: str,
+) -> str:
+    if observed_state_digest == expected_effect_state_digest:
+        return "EFFECT_PROVEN"
+    if observed_state_digest == expected_no_effect_state_digest:
+        return "NO_EFFECT_PROVEN"
+    return "INCONCLUSIVE"
+
+
+def _reconciliation_expectation_body(
+    source: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    *,
+    expected_effect_state_digest: str,
+    expected_no_effect_state_digest: str,
+) -> dict[str, Any]:
+    body = {
+        "ledger_id": source["ledger_id"],
+        "ambiguous_ledger_digest": binding["ambiguous_ledger_digest"],
+        "plan_digest": source["plan_digest"],
+        "phase": source["phase"],
+        "ordered_operations_digest": source["ordered_operations_digest"],
+        "ambiguous_operation_sequence": binding[
+            "ambiguous_operation_sequence"
+        ],
+        "ambiguous_request_digest": binding["ambiguous_request_digest"],
+        "ambiguous_operation_digest": binding["ambiguous_operation_digest"],
+        "readback_contract_digest": binding["readback_contract_digest"],
+        "caller_arn_digest": binding["caller_arn_digest"],
+        "session_identifier_digest": binding["session_identifier_digest"],
+        "identity_receipt_digest": binding["identity_receipt_digest"],
+        "expected_effect_state_digest": expected_effect_state_digest,
+        "expected_no_effect_state_digest": expected_no_effect_state_digest,
+    }
+    context_fields = {
+        key: binding.get(key)
+        for key in (
+            "owner_checkpoint_digest",
+            "live_request_digest",
+            "execution_context_digest",
+        )
+    }
+    if all(value is not None for value in context_fields.values()):
+        body.update(context_fields)
+    return body
+
+
+def _validate_reconciliation_binding(
+    source: Mapping[str, Any],
+    value: Mapping[str, Any] | None,
+    *,
+    expected_effect_state_digest: str,
+    expected_no_effect_state_digest: str,
+) -> dict[str, Any]:
+    legacy_fields = {
+        "ambiguous_ledger_digest",
+        "ambiguous_operation_sequence",
+        "ambiguous_request_digest",
+        "ambiguous_operation_digest",
+        "readback_contract_digest",
+        "caller_arn_digest",
+        "session_identifier_digest",
+        "identity_receipt_digest",
+        "provider_transcript_digest",
+        "expectation_binding_digest",
+    }
+    fields = legacy_fields | {
+        "owner_checkpoint_digest",
+        "live_request_digest",
+        "execution_context_digest",
+        "provider_transcript_summary_digest",
+        "provider_call_count",
+    }
+    private_fields = fields | {
+        "private_reconciliation_evidence_file",
+        "private_reconciliation_evidence_digest",
+    }
+    if not isinstance(value, Mapping) or frozenset(value) not in {
+        frozenset(legacy_fields),
+        frozenset(fields),
+        frozenset(private_fields),
+    }:
+        _fail("RECONCILIATION_BINDING_FIELDS_INVALID")
+    binding = _canonical_snapshot(value, "RECONCILIATION_BINDING_INVALID")
+    if not isinstance(binding, dict):
+        _fail("RECONCILIATION_BINDING_INVALID")
+    for field in set(binding) - {
+        "ambiguous_operation_sequence",
+        "provider_call_count",
+        "private_reconciliation_evidence_file",
+    }:
+        _require_digest(binding.get(field), "RECONCILIATION_BINDING_INVALID")
+    outcomes = source.get("operation_outcomes")
+    ambiguous = outcomes[-1] if isinstance(outcomes, list) and outcomes else None
+    sequence = binding.get("ambiguous_operation_sequence")
+    if (
+        not isinstance(ambiguous, Mapping)
+        or ambiguous.get("result") != "AMBIGUOUS"
+        or type(sequence) is not int
+        or sequence != ambiguous.get("operation_sequence")
+        or binding.get("ambiguous_request_digest")
+        != ambiguous.get("request_digest")
+        or binding.get("ambiguous_ledger_digest") != source.get("ledger_digest")
+        or binding.get("caller_arn_digest") != source.get("caller_arn_digest")
+        or binding.get("session_identifier_digest")
+        != source.get("authority_session_identifier_digest")
+    ):
+        _fail("RECONCILIATION_BINDING_MISMATCH")
+    if set(binding) == fields or set(binding) == private_fields:
+        claim = source.get("claim")
+        stored_context = (
+            claim.get("execution_context")
+            if isinstance(claim, Mapping)
+            else None
+        )
+        checked_claim_context = validate_execution_context(stored_context)
+        reconciliation_context = validate_execution_context(
+            {
+                "issue": "GUG-390",
+                "owner_checkpoint_digest": binding[
+                    "owner_checkpoint_digest"
+                ],
+                "live_request_digest": binding["live_request_digest"],
+                "activator_checkpoint_digest": checked_claim_context[
+                    "activator_checkpoint_digest"
+                ],
+                "context_digest": binding["execution_context_digest"],
+            }
+        )
+        if (
+            type(binding.get("provider_call_count")) is not int
+            or binding["provider_call_count"] < 3
+            or reconciliation_context["context_digest"]
+            != binding["execution_context_digest"]
+        ):
+            _fail("RECONCILIATION_BINDING_MISMATCH")
+    if set(binding) == private_fields:
+        private_file = binding.get("private_reconciliation_evidence_file")
+        if (
+            not isinstance(private_file, str)
+            or re.fullmatch(
+                r"gug390-reconcile-[0-9a-f]{64}\.json", private_file
+            )
+            is None
+        ):
+            _fail("RECONCILIATION_PRIVATE_EVIDENCE_LINK_INVALID")
+    expected_binding = canonical_digest(
+        _reconciliation_expectation_body(
+            source,
+            binding,
+            expected_effect_state_digest=expected_effect_state_digest,
+            expected_no_effect_state_digest=expected_no_effect_state_digest,
+        )
+    )
+    if binding.get("expectation_binding_digest") != expected_binding:
+        _fail("RECONCILIATION_EXPECTATION_BINDING_MISMATCH")
+    return binding
+
+
+def _reconciliation_receipt_facts(
+    reconciliation: Mapping[str, Any],
+) -> dict[str, Any]:
+    facts = {
+        "classification": reconciliation.get("classification"),
+        "observed_state_digest": reconciliation.get("observed_state_digest"),
+        "provider_writes_performed": 0,
+    }
+    if reconciliation.get("binding_mode") == "CAUSAL_EXPECTATIONS_BOUND":
+        facts.update(
+            {
+                "ambiguous_operation_digest": reconciliation.get(
+                    "ambiguous_operation_digest"
+                ),
+                "readback_contract_digest": reconciliation.get(
+                    "readback_contract_digest"
+                ),
+                "expectation_binding_digest": reconciliation.get(
+                    "expectation_binding_digest"
+                ),
+                "identity_receipt_digest": reconciliation.get(
+                    "identity_receipt_digest"
+                ),
+                "provider_transcript_digest": reconciliation.get(
+                    "provider_transcript_digest"
+                ),
+            }
+        )
+        for field in (
+            "owner_checkpoint_digest",
+            "live_request_digest",
+            "execution_context_digest",
+            "provider_transcript_summary_digest",
+            "provider_call_count",
+            "private_reconciliation_evidence_file",
+            "private_reconciliation_evidence_digest",
+        ):
+            if field in reconciliation:
+                facts[field] = reconciliation.get(field)
+    return facts
 
 
 def _finalize_transition(
@@ -2524,11 +3098,15 @@ def _validate_claim(record: Mapping[str, Any], count: int) -> None:
     claim = record.get("claim")
     if claim is None:
         return
-    if not isinstance(claim, Mapping) or set(claim) != {
+    legacy_fields = {
         "claim_nonce_digest",
         "claimed_at",
         "first_operation_sequence",
         "next_operation_sequence",
+    }
+    if not isinstance(claim, Mapping) or frozenset(claim) not in {
+        frozenset(legacy_fields),
+        frozenset({*legacy_fields, "execution_context"}),
     }:
         _fail("LEDGER_CLAIM_INVALID")
     _require_digest(claim.get("claim_nonce_digest"), "CLAIM_NONCE_DIGEST_INVALID")
@@ -2541,15 +3119,26 @@ def _validate_claim(record: Mapping[str, Any], count: int) -> None:
         or not 1 <= next_sequence <= count
     ):
         _fail("LEDGER_CLAIM_SEQUENCE_INVALID")
+    context = claim.get("execution_context")
+    if context is not None:
+        checked = validate_execution_context(context)
+        if (
+            (record.get("phase") == "ACTIVATOR")
+            is (checked.get("activator_checkpoint_digest") is None)
+        ):
+            _fail("EXECUTION_CONTEXT_ACTIVATOR_BINDING_INVALID")
 
 
 def _validate_operation_outcomes(
-    outcomes: Any, requests: Sequence[str], count: int
+    outcomes: Any,
+    requests: Sequence[str],
+    count: int,
+    record: Mapping[str, Any],
 ) -> list[Mapping[str, Any]]:
     if not isinstance(outcomes, list):
         _fail("LEDGER_OUTCOMES_INVALID")
     validated: list[Mapping[str, Any]] = []
-    exact_fields = {
+    legacy_fields = {
         "operation_sequence",
         "request_digest",
         "result",
@@ -2560,7 +3149,10 @@ def _validate_operation_outcomes(
         "next_required_action",
     }
     for index, item in enumerate(outcomes, 1):
-        if not isinstance(item, Mapping) or set(item) != exact_fields:
+        if not isinstance(item, Mapping) or frozenset(item) not in {
+            frozenset(legacy_fields),
+            frozenset({*legacy_fields, "durable_provider_evidence"}),
+        }:
             _fail("LEDGER_OUTCOME_FIELDS_INVALID")
         result = item.get("result")
         provider_digest = item.get("provider_result_digest")
@@ -2591,6 +3183,17 @@ def _validate_operation_outcomes(
             or item.get("next_required_action") != expected_next
         ):
             _fail("LEDGER_OUTCOME_SEMANTICS_INVALID")
+        durable = item.get("durable_provider_evidence")
+        if durable is not None:
+            validate_durable_provider_evidence(
+                durable,
+                record=record,
+                operation_sequence=index,
+                outcome=str(result),
+                provider_result_digest=(
+                    str(provider_digest) if provider_digest is not None else None
+                ),
+            )
         validated.append(item)
     return validated
 
@@ -2625,13 +3228,48 @@ def _validate_reconciliation(record: Mapping[str, Any]) -> None:
     reconciliation = record.get("reconciliation")
     if reconciliation is None:
         return
-    if not isinstance(reconciliation, Mapping) or set(reconciliation) != {
+    common_fields = {
         "classification",
         "observed_state_digest",
         "recorded_at",
         "read_only",
         "provider_writes_performed",
         "retry_of_ambiguous_write_permitted",
+    }
+    legacy_bound_fields = common_fields | {
+        "binding_mode",
+        "ambiguous_ledger_digest",
+        "ambiguous_operation_sequence",
+        "ambiguous_request_digest",
+        "ambiguous_operation_digest",
+        "readback_contract_digest",
+        "caller_arn_digest",
+        "session_identifier_digest",
+        "identity_receipt_digest",
+        "provider_transcript_digest",
+        "expectation_binding_digest",
+        "expected_effect_state_digest",
+        "expected_no_effect_state_digest",
+    }
+    bound_fields = legacy_bound_fields | {
+        "owner_checkpoint_digest",
+        "live_request_digest",
+        "execution_context_digest",
+        "provider_transcript_summary_digest",
+        "provider_call_count",
+    }
+    private_bound_fields = bound_fields | {
+        "private_reconciliation_evidence_file",
+        "private_reconciliation_evidence_digest",
+    }
+    reconciliation_fields = (
+        frozenset(reconciliation) if isinstance(reconciliation, Mapping) else None
+    )
+    if reconciliation_fields not in {
+        frozenset(common_fields),
+        frozenset(legacy_bound_fields),
+        frozenset(bound_fields),
+        frozenset(private_bound_fields),
     }:
         _fail("LEDGER_RECONCILIATION_FIELDS_INVALID")
     if reconciliation.get("classification") not in {
@@ -2656,6 +3294,96 @@ def _validate_reconciliation(record: Mapping[str, Any]) -> None:
         or reconciliation.get("retry_of_ambiguous_write_permitted") is not False
     ):
         _fail("LEDGER_RECONCILIATION_SEMANTICS_INVALID")
+    if set(reconciliation) == common_fields:
+        return
+    digest_fields = set(reconciliation) - common_fields - {
+        "binding_mode",
+        "ambiguous_operation_sequence",
+        "provider_call_count",
+        "private_reconciliation_evidence_file",
+    }
+    for field in digest_fields:
+        _require_digest(
+            reconciliation.get(field),
+            "LEDGER_RECONCILIATION_BINDING_INVALID",
+        )
+    outcomes = record.get("operation_outcomes")
+    ambiguous = outcomes[-1] if isinstance(outcomes, list) and outcomes else None
+    sequence = reconciliation.get("ambiguous_operation_sequence")
+    effect = str(reconciliation.get("expected_effect_state_digest"))
+    no_effect = str(reconciliation.get("expected_no_effect_state_digest"))
+    observed = str(reconciliation.get("observed_state_digest"))
+    if (
+        reconciliation.get("binding_mode") != "CAUSAL_EXPECTATIONS_BOUND"
+        or not isinstance(ambiguous, Mapping)
+        or ambiguous.get("result") != "AMBIGUOUS"
+        or type(sequence) is not int
+        or sequence != ambiguous.get("operation_sequence")
+        or reconciliation.get("ambiguous_request_digest")
+        != ambiguous.get("request_digest")
+        or reconciliation.get("ambiguous_ledger_digest")
+        != record.get("previous_ledger_digest")
+        or reconciliation.get("caller_arn_digest")
+        != record.get("caller_arn_digest")
+        or reconciliation.get("session_identifier_digest")
+        != record.get("authority_session_identifier_digest")
+        or effect == no_effect
+        or reconciliation.get("classification")
+        != _reconciliation_classification(observed, effect, no_effect)
+    ):
+        _fail("LEDGER_RECONCILIATION_BINDING_INVALID")
+    if set(reconciliation) == bound_fields or set(reconciliation) == private_bound_fields:
+        claim = record.get("claim")
+        stored_context = (
+            claim.get("execution_context")
+            if isinstance(claim, Mapping)
+            else None
+        )
+        checked_claim_context = validate_execution_context(stored_context)
+        validate_execution_context(
+            {
+                "issue": "GUG-390",
+                "owner_checkpoint_digest": reconciliation[
+                    "owner_checkpoint_digest"
+                ],
+                "live_request_digest": reconciliation[
+                    "live_request_digest"
+                ],
+                "activator_checkpoint_digest": checked_claim_context[
+                    "activator_checkpoint_digest"
+                ],
+                "context_digest": reconciliation[
+                    "execution_context_digest"
+                ],
+            }
+        )
+        if (
+            type(reconciliation.get("provider_call_count")) is not int
+            or reconciliation["provider_call_count"] < 3
+        ):
+            _fail("LEDGER_RECONCILIATION_BINDING_INVALID")
+    if set(reconciliation) == private_bound_fields:
+        private_file = reconciliation.get(
+            "private_reconciliation_evidence_file"
+        )
+        if (
+            not isinstance(private_file, str)
+            or re.fullmatch(
+                r"gug390-reconcile-[0-9a-f]{64}\.json", private_file
+            )
+            is None
+        ):
+            _fail("LEDGER_RECONCILIATION_PRIVATE_EVIDENCE_LINK_INVALID")
+    expectation_body = _reconciliation_expectation_body(
+        record,
+        reconciliation,
+        expected_effect_state_digest=effect,
+        expected_no_effect_state_digest=no_effect,
+    )
+    if reconciliation.get("expectation_binding_digest") != canonical_digest(
+        expectation_body
+    ):
+        _fail("LEDGER_RECONCILIATION_EXPECTATION_BINDING_INVALID")
 
 
 def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
@@ -2700,9 +3428,24 @@ def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
         next_state["receipt_chain"] = [*state["receipt_chain"], receipt]
 
         if state["status"] == "PREPARED":
+            target_claim = record.get("claim")
+            target_context = (
+                target_claim.get("execution_context")
+                if isinstance(target_claim, Mapping)
+                else None
+            )
+            expected_claim_facts = {
+                "claim_nonce_digest": facts.get("claim_nonce_digest"),
+                "attempt": 1,
+            }
+            if target_context is not None:
+                checked_context = validate_execution_context(target_context)
+                expected_claim_facts["execution_context_digest"] = checked_context[
+                    "context_digest"
+                ]
             if (
                 event != "CLAIMED"
-                or set(facts) != {"claim_nonce_digest", "attempt"}
+                or facts != expected_claim_facts
                 or facts.get("attempt") != 1
                 or not authority_evaluation <= start <= at < min(end, session_end)
             ):
@@ -2710,16 +3453,19 @@ def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
             _require_digest(
                 facts.get("claim_nonce_digest"), "CLAIM_NONCE_DIGEST_INVALID"
             )
+            replayed_claim: dict[str, Any] = {
+                "claim_nonce_digest": facts["claim_nonce_digest"],
+                "claimed_at": receipt["at"],
+                "first_operation_sequence": 1,
+                "next_operation_sequence": 1,
+            }
+            if target_context is not None:
+                replayed_claim["execution_context"] = checked_context
             next_state.update(
                 {
                     "status": "CLAIMED",
                     "attempt_count": 1,
-                    "claim": {
-                        "claim_nonce_digest": facts["claim_nonce_digest"],
-                        "claimed_at": receipt["at"],
-                        "first_operation_sequence": 1,
-                        "next_operation_sequence": 1,
-                    },
+                    "claim": replayed_claim,
                 }
             )
         elif state["status"] == "CLAIMED":
@@ -2765,6 +3511,18 @@ def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
             if index >= len(terminal_outcomes):
                 _fail("OPERATION_RECEIPT_INVALID")
             outcome = terminal_outcomes[index]
+            expected_outcome_facts = {
+                "operation_sequence": outcome["operation_sequence"],
+                "request_digest": outcome["request_digest"],
+                "outcome": outcome["result"],
+                "provider_result_digest": outcome["provider_result_digest"],
+                "next_required_action": outcome["next_required_action"],
+            }
+            durable_evidence = outcome.get("durable_provider_evidence")
+            if durable_evidence is not None:
+                expected_outcome_facts["durable_provider_evidence_digest"] = (
+                    durable_evidence["evidence_digest"]
+                )
             started_at = _parse_timestamp(
                 state["in_flight_operation"]["started_at"],
                 "IN_FLIGHT_STARTED_AT_INVALID",
@@ -2772,16 +3530,7 @@ def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
             if (
                 event != f"OPERATION_{outcome['result']}"
                 or receipt["at"] != outcome["recorded_at"]
-                or facts
-                != {
-                    "operation_sequence": outcome["operation_sequence"],
-                    "request_digest": outcome["request_digest"],
-                    "outcome": outcome["result"],
-                    "provider_result_digest": outcome[
-                        "provider_result_digest"
-                    ],
-                    "next_required_action": outcome["next_required_action"],
-                }
+                or facts != expected_outcome_facts
                 or at < started_at
                 or (outcome["result"] != "AMBIGUOUS" and at >= end)
             ):
@@ -2814,14 +3563,7 @@ def _replay_receipt_chain(record: Mapping[str, Any]) -> None:
                 or not isinstance(reconciliation, Mapping)
                 or receipt["at"] != reconciliation.get("recorded_at")
                 or at < ambiguous_at
-                or facts
-                != {
-                    "classification": reconciliation.get("classification"),
-                    "observed_state_digest": reconciliation.get(
-                        "observed_state_digest"
-                    ),
-                    "provider_writes_performed": 0,
-                }
+                or facts != _reconciliation_receipt_facts(reconciliation)
             ):
                 _fail("RECONCILIATION_RECEIPT_INVALID")
             next_state["status"] = "RECONCILED"
@@ -2883,7 +3625,7 @@ def validate_ledger(
         _require_digest(digest, "LEDGER_REQUEST_DIGEST_INVALID")
     _validate_claim(record, count)
     outcomes = _validate_operation_outcomes(
-        record.get("operation_outcomes"), requests, count
+        record.get("operation_outcomes"), requests, count, record
     )
     _validate_in_flight(record, requests)
     _validate_reconciliation(record)
@@ -2976,14 +3718,23 @@ def validate_ledger(
     if receipts:
         claim = record.get("claim")
         first = receipts[0]
+        expected_claim_facts = {
+            "claim_nonce_digest": claim.get("claim_nonce_digest")
+            if isinstance(claim, Mapping)
+            else None,
+            "attempt": 1,
+        }
+        claim_context = (
+            claim.get("execution_context") if isinstance(claim, Mapping) else None
+        )
+        if isinstance(claim_context, Mapping):
+            expected_claim_facts["execution_context_digest"] = claim_context.get(
+                "context_digest"
+            )
         if (
             first.get("event") != "CLAIMED"
             or not isinstance(claim, Mapping)
-            or first.get("facts")
-            != {
-                "claim_nonce_digest": claim.get("claim_nonce_digest"),
-                "attempt": 1,
-            }
+            or first.get("facts") != expected_claim_facts
             or first.get("at") != claim.get("claimed_at")
         ):
             _fail("CLAIM_RECEIPT_INVALID")
@@ -3014,21 +3765,22 @@ def validate_ledger(
                 _fail("OPERATION_IN_FLIGHT_RECEIPT_INVALID")
         for offset, outcome in enumerate(outcomes):
             receipt = outcome_receipts[offset]
+            expected_outcome_facts = {
+                "operation_sequence": outcome.get("operation_sequence"),
+                "request_digest": outcome.get("request_digest"),
+                "outcome": outcome.get("result"),
+                "provider_result_digest": outcome.get("provider_result_digest"),
+                "next_required_action": outcome.get("next_required_action"),
+            }
+            durable_evidence = outcome.get("durable_provider_evidence")
+            if isinstance(durable_evidence, Mapping):
+                expected_outcome_facts["durable_provider_evidence_digest"] = (
+                    durable_evidence.get("evidence_digest")
+                )
             if (
                 receipt.get("event") != f"OPERATION_{outcome.get('result')}"
                 or receipt.get("at") != outcome.get("recorded_at")
-                or receipt.get("facts")
-                != {
-                    "operation_sequence": outcome.get("operation_sequence"),
-                    "request_digest": outcome.get("request_digest"),
-                    "outcome": outcome.get("result"),
-                    "provider_result_digest": outcome.get(
-                        "provider_result_digest"
-                    ),
-                    "next_required_action": (
-                        outcome.get("next_required_action")
-                    ),
-                }
+                or receipt.get("facts") != expected_outcome_facts
             ):
                 _fail("OPERATION_RECEIPT_INVALID")
         if record.get("status") == "RECONCILED":
@@ -3038,13 +3790,7 @@ def validate_ledger(
                 receipt.get("event") != "RECONCILED"
                 or receipt.get("at") != reconciliation.get("recorded_at")
                 or receipt.get("facts")
-                != {
-                    "classification": reconciliation.get("classification"),
-                    "observed_state_digest": reconciliation.get(
-                        "observed_state_digest"
-                    ),
-                    "provider_writes_performed": 0,
-                }
+                != _reconciliation_receipt_facts(reconciliation)
             ):
                 _fail("RECONCILIATION_RECEIPT_INVALID")
     status = record.get("status")

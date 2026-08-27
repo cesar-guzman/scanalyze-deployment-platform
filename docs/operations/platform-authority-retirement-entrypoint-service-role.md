@@ -101,6 +101,227 @@ This command is create-only and refuses to overwrite an earlier output. A new
 attempt requires a new reviewed private root; historical artifacts are never
 resumed in place.
 
+## GUG-390 — guarded live CLI mechanism
+
+GUG-390 provides a reviewed bridge from the offline plan to a guarded provider.
+The mechanism is present; no AWS execution, deployment or production use is
+authorized by this runbook. Every command takes one owner-only request under a
+private root:
+
+Before creating that request, refresh the source binding. The CLI intentionally
+does not fetch; its `HEAD == refs/remotes/origin/main` check only proves equality
+with the local remote-tracking ref. Run the following in the same maximum
+15-minute window used by the new owner checkpoint:
+
+```console
+git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+git rev-parse --verify HEAD^{commit}
+git rev-parse --verify HEAD^{tree}
+git rev-parse --verify refs/remotes/origin/main^{commit}
+git rev-parse --verify refs/remotes/origin/main^{tree}
+test "$(git rev-parse --verify HEAD^{commit})" = "$(git rev-parse --verify refs/remotes/origin/main^{commit})"
+test "$(git rev-parse --verify HEAD^{tree})" = "$(git rev-parse --verify refs/remotes/origin/main^{tree})"
+git diff --quiet
+git diff --cached --quiet
+test -z "$(git ls-files --others --exclude-standard)"
+```
+
+Require the fetched commit to equal `HEAD`, bind that commit and its tree into
+both request and owner checkpoint, and record the fetch time privately. Stop on
+a failed/stale fetch, mismatch, dirty or untracked file, or any source change
+after fetch. Re-fetch and issue a new request/checkpoint; never refresh only the
+digest on an old request.
+
+```console
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py inventory --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py execute-phase --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py reconcile --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py certify --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+```
+
+The CLI selects no default command. Do not run these commands with an
+improvised request or profile; a later owner checkpoint must name the exact
+command, phase, account, region, profile, source commit/tree, plan, validity
+window and custody bindings. AWS-capable requests also bind the exact STS
+principal digest and direct SSO role-name digest; `execute-phase` binds both
+inventory snapshot digests and their complete facts digest; `certify` binds
+all eight phase-run digests, both final snapshot digests and the independent
+ACTIVATOR checkpoint digest.
+
+Set `APPROVED_PRIVATE_ROOT` to the already reviewed absolute owner-only `0700`
+directory. Before each invocation, set `PRIVATE_REQUEST_BASENAME` to that
+command's exact `0600` request filename inside the root; it must be a basename
+ending in `.json`, never a path or one request reused across commands.
+
+Do not omit the environment cleanup or `-I`. The CLI fails closed before
+repository imports if any listed variable is present, if a `tooling` or
+boto3/botocore module is already loaded, if another `tooling` package would win
+resolution, or if any loaded repository module's `__file__`, import origin or
+package path is outside the exact Git root. The bootstrap replaces custom
+meta/path finders with a closed standard loader set, removes every repository
+path from `sys.path`, and explicitly loads the package entry modules from the
+Git-blob manifest. The manifest-bound `tooling` loader reads reviewed `.py`
+bytes directly and cannot fall back to an ignored `.pyc`, extension or
+sourceless module. A separately installed, unimported `tooling` package is
+admissible only below the isolated interpreter's exact `purelib`/`platlib`
+root; it remains discoverable for dependency resolution but is never executed
+or accepted as repository provenance. That exact site root is retained even
+for an in-repository clean-clone `.venv`; other repository paths are removed.
+The gate rejects `PYTHONPATH`, `PYTHONHOME`, `_PYTHON_PROJECT_BASE` and
+`_PYTHON_SYSCONFIGDATA_NAME` before discovering those roots.
+Use `-S` only for
+parser/help import-inert checks: an authorized
+live command intentionally retains isolated non-repository site-package
+discovery so the pinned boto3 runtime remains available, and the provider
+imports it only after all local source, request, custody and
+provider-construction gates pass.
+
+Keep the similarly named digests distinct throughout custody and review:
+
+| Binding | Meaning |
+| --- | --- |
+| `owner_checkpoint_digest` | Seal of the fresh owner checkpoint consumed by the command. |
+| Private `request_digest` / public `live_request_digest` | Seal of the complete private live request. The public record must use `live_request_digest`, never the ambiguous private name. |
+| `checkpoint_digest` | Result checkpoint for inventory, phase ledger or ACTIVATOR certification; it is not the owner checkpoint. |
+| Ledger operation `request_digest` | Seal of one exact provider operation request in the ordered phase plan. |
+
+For `execute-phase`, the ledger claim's GUG-390 `execution_context` binds the
+owner checkpoint, live request, nullable ACTIVATOR checkpoint and their
+`context_digest`. Each durably recorded provider outcome may bind the exact
+identity receipt, transcript, request/result and optional causal receipt in
+`durable_provider_evidence`. Legacy claims/outcomes omit these fields. Omission
+after a hard crash remains visible and is never treated as complete evidence.
+
+The closed verb contract is:
+
+| Verb | AWS effect boundary | Admissible result |
+| --- | --- | --- |
+| `inventory` | Read-only, with STS first, all pagination closed and canonical plan-vs-provider comparison. | Two equal complete snapshots and a classification; never mutation. |
+| `execute-phase` | One explicitly named phase in one fresh process. | One terminal phase receipt or `UNCERTAIN_RECONCILE_ONLY`; never automatic continuation. |
+| `reconcile` | Read-only provider state for one recorded ambiguous/in-flight operation. | Conclusive reconciled receipt or preserved uncertainty; never a repeated write. |
+| `certify` | Receipt/readback validation only. | Sanitized manifest or fail-closed rejection; never AWS mutation. |
+
+Repository and CI exercises must use injected fakes. Their maximum truthful
+claim is `AWS_CALLS=0`, `AWS_MUTATIONS=0`, `LIVE_PROVIDER_EVIDENCE=false`,
+`status=LIVE_PROVIDER_NOT_PROVEN`, `deployment_authorized=false`,
+`deployment_status=NOT_DEPLOYED` and `production_status=NO-GO`. Passing tests
+or merging the implementation does not prove AWS identity, inventory,
+authorization, execution or deployment.
+
+Before any separately authorized live process constructs an effect-capable
+client, all of the following must be present and exact:
+
+- the reviewed merged commit/tree, private plan and independently delivered
+  expected digests;
+- an explicit non-default short-lived profile, exact account and `us-east-1`;
+- a fresh phase-specific owner checkpoint, exact principal/SSO-role binding, validity window,
+  workstation/custody binding and unused ledger root;
+- stable complete before-state snapshots whose independent digests and full
+  facts digest are request-bound, closed pagination, exact predecessor
+  receipts and the phase's closed operation/request digests; and
+- effective-authority evidence proving the phase grant is both the sole grant
+  and its maximum cap, with no ambient/default/chained credential fallback.
+
+STS caller identity is the first AWS call and must match the checkpoint. The
+window gate runs again immediately before initial STS and before every later
+SDK call or page; expiration stops before that call.
+Missing, stale, incomplete or extra evidence is `STOP_NO_MUTATION`; a process
+must not borrow another phase's session or authority.
+
+The two live snapshots must also pass semantic comparison against the sealed
+plan. Equality of two observed digests alone is insufficient: signed S3 body,
+version and KMS binding; KMS metadata; Code Signing Config; IAM documents,
+relationships and tags; Lambda configuration/runtime/concurrency/version/tag
+state; log-group controls/tags; and DynamoDB table/PITR/TTL/policy/tag/count
+state must match their exact projections. Stable drift remains no-touch.
+
+### One phase per process
+
+`execute-phase` accepts exactly one named phase. It creates one fresh
+phase-specific session, consumes that phase's ledger root and exits after a
+terminal or ambiguous result; it never selects or starts the next phase. A
+phase may contain multiple ordered operations. Each top-level provider/SDK
+operation is locally invoked once with retries disabled, after its durable
+pre-invocation CAS transition and before its durable outcome receipt.
+After a delivered mutation the provider executes only the action's closed
+canonical readback sequence. Policy/role/function/log creation is not
+successful until documents or configuration and tags match. A readback error,
+missing field or mismatch is persisted as ambiguous and never triggers a
+write retry.
+
+The `LEDGER_FACTORY_INVOKER` top-level operation invokes the exact signed
+immutable version once. Its internal `CreateTable` and PITR writes are not
+additional CLI operations; they are accepted only through the factory's own
+causal receipt and exact `1/1` call counts. A single local invocation does not
+eliminate ambiguous provider delivery.
+
+Use the ledger, not the process exit or output file, to decide recovery:
+
+| Last durable state | Operator action |
+| --- | --- |
+| No claim or no `OPERATION_IN_FLIGHT` transition | Confirm that no provider operation started, then revalidate the exact request/authority window. Never infer a call from a missing output. |
+| `CLAIMED`, prior outcomes complete, no in-flight operation | The exact same request, execution context, claim nonce, caller/session/authority and unexpired window may resume only `next_operation_sequence`. It must not repeat an earlier outcome. Expiry requires a recovery issue. |
+| `IN_FLIGHT`, including a crash after delivery/readback but before outcome CAS | Stop writes. Preserve artifacts and use only the operation-derived read-only reconciliation contract. |
+| Outcome plus `durable_provider_evidence` committed, output file missing | Trust the ledger. Do not recreate the provider call; continue only under the exact non-terminal rule above or inspect the terminal state. |
+| Outcome without `durable_provider_evidence` | Preserve as incomplete crash evidence. Do not backfill it from memory and do not certify it. |
+
+### Ambiguity, activation and no-go
+
+Timeout, lost response, ambiguous provider delivery or an in-flight ledger
+record is `UNCERTAIN_RECONCILE_ONLY`. Stop the process and preserve all private
+artifacts. `reconcile` may issue only bounded provider reads and must never
+call the write callback again, repair, adopt, delete, roll back or advance the
+phase. The request binds the ambiguous ledger/operation digests, exact derived
+readback-contract digest, current session digest, effect/no-effect state
+digests and their combined binding digest. The executor derives that contract
+from the final ambiguous ledger outcome; no caller-selected plan readback or
+slot substitution is accepted. It takes two equal complete read captures,
+checks fresh STS continuity before reads and before CAS, and persists the
+causal expectation/transcript binding. `lambda:InvokeFunction` has no
+sufficient post-hoc causal read contract, so its ambiguity remains unresolved.
+Non-conclusive or unstable reconciliation requires a separate recovery issue
+and owner decision.
+
+A `RECONCILED` ledger is recovery evidence only, even when its classification
+is `EFFECT_PROVEN`. It cannot satisfy the next phase's predecessor gate and
+cannot enter the eight-record certification bundle. Do not advance, certify or
+translate it into authority; open a separate recovery issue and obtain a fresh
+owner decision for any subsequent action. This is the phase-ledger status; the
+separate ledger-factory causal outcome `CREATED_RECONCILED` remains governed by
+its own exact receipt checks.
+
+`ACTIVATOR` must reject unless every predecessor phase is `CONSUMED` with
+complete durable evidence (`RECONCILED` is expressly excluded), the
+ledger-factory receipt is causally accepted as
+`CREATED|CREATED_RECONCILED`, the factory role is proof-bound and detached,
+and a separately produced GUG-357 `FUNCTION_CONFIGURATOR` checkpoint and
+provider readback are supplied. GUG-390 neither creates that checkpoint nor
+authorizes GUG-357 configuration or CloudFormation `CreateStack`.
+
+`certify` runs with no AWS client. It accepts exactly eight `CONSUMED` phase
+records with complete durable evidence and eight independently bound phase-run
+digests, recomputes every private seal, recertifies the full ledger-factory
+receipt and its consumed provider-result binding, and requires two fresh
+post-ACTIVATOR snapshot digests in causal time order. A filename or self-resealed
+run without its expected digest is rejected.
+
+Offline repository validation is:
+
+```console
+make platform-authority-gug390-live-provider-check
+```
+
+That target uses injected clients and schema fixtures only; its truthful
+result remains `AWS_CALLS=0`, `AWS_MUTATIONS=0` and
+`LIVE_PROVIDER_NOT_PROVEN`.
+
+Rollback of a repository-only change is a reviewed revert. No live rollback
+is automatic. Ambiguous/drifted state stays preserved for read-only
+reconciliation; remediation, revocation or deletion requires a separate issue
+and authorization. Without a separately authorized live run, exact owner
+checkpoint and conclusive provider evidence, stop at
+`production_status=NO-GO`.
+
 ## Phase 3 — live read-only before-state
 
 This phase requires an explicitly approved read-only profile and `us-east-1`.
