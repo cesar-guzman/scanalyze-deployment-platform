@@ -298,6 +298,63 @@ assert isinstance(boto3_spec.origin, str)
 assert "boto3" not in sys.modules
 print("SDK_DISCOVERY_AFTER_IMPORT_GATE_OK")
 """
+TRUSTED_INSTALLED_TOOLING_DISCOVERY = r"""
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import sys
+
+cli_path = Path(sys.argv[1]).resolve()
+repository = Path(sys.argv[2]).resolve()
+trusted_site_root = Path(sys.argv[3]).resolve()
+spec = importlib.util.spec_from_file_location("gug390_cli", cli_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.REPO_ROOT = repository
+module._trusted_site_roots = lambda: (trusted_site_root,)
+repository_sibling = repository / "sibling"
+sys.path[:0] = [
+    str(repository),
+    str(repository_sibling),
+    str(trusted_site_root),
+]
+module._prepare_repository_imports()
+assert str(repository) not in sys.path
+assert str(repository_sibling) not in sys.path
+assert str(trusted_site_root) in sys.path
+selected = importlib.machinery.PathFinder.find_spec("tooling", sys.path)
+assert selected is not None
+assert isinstance(selected.origin, str)
+assert Path(selected.origin).resolve() == (
+    trusted_site_root / "tooling/__init__.py"
+).resolve()
+assert importlib.machinery.PathFinder.find_spec("boto3", sys.path) is not None
+assert "tooling" not in sys.modules
+assert "boto3" not in sys.modules
+print("TRUSTED_INSTALLED_TOOLING_IGNORED")
+"""
+NESTED_INSTALLED_TOOLING_DISCOVERY = r"""
+import importlib.util
+from pathlib import Path
+import sys
+
+cli_path = Path(sys.argv[1]).resolve()
+trusted_site_root = Path(sys.argv[2]).resolve()
+nested_root = Path(sys.argv[3]).resolve()
+spec = importlib.util.spec_from_file_location("gug390_cli", cli_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module._trusted_site_roots = lambda: (trusted_site_root,)
+sys.path.insert(0, str(nested_root))
+try:
+    module._prepare_repository_imports()
+except module.CliError as exc:
+    assert exc.code == "IMPORT_PATH_PREEMPTED"
+else:
+    raise AssertionError("NESTED_TOOLING_ACCEPTED")
+assert "tooling" not in sys.modules
+print("NESTED_INSTALLED_TOOLING_REJECTED")
+"""
 IGNORED_ROOT_SDK_SHADOWS = r"""
 import importlib.machinery
 import importlib.util
@@ -558,7 +615,15 @@ def test_ignored_root_sdk_shadows_cannot_preempt_sanitized_import_path(
     assert result.stderr == ""
 
 
-@pytest.mark.parametrize("variable", ["PYTHONPATH", "PYTHONHOME"])
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "_PYTHON_PROJECT_BASE",
+        "_PYTHON_SYSCONFIGDATA_NAME",
+    ],
+)
 def test_import_environment_variables_fail_closed_before_repository_import(
     variable: str,
 ) -> None:
@@ -634,6 +699,69 @@ def test_isolated_runtime_keeps_sdk_discoverable_after_import_gate() -> None:
     result = _isolated_with_site(SITE_SDK_DISCOVERY)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "SDK_DISCOVERY_AFTER_IMPORT_GATE_OK\n"
+    assert result.stderr == ""
+
+
+def test_isolated_runtime_ignores_nonexecuted_tooling_in_trusted_site_root(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "sibling").mkdir()
+    trusted_site_root = repository / ".venv/lib/python3.11/site-packages"
+    tooling_root = trusted_site_root / "tooling"
+    tooling_root.mkdir(parents=True)
+    (tooling_root / "__init__.py").write_text(
+        'raise AssertionError("INSTALLED_TOOLING_EXECUTED")\n',
+        encoding="utf-8",
+    )
+    boto3_root = trusted_site_root / "boto3"
+    boto3_root.mkdir()
+    (boto3_root / "__init__.py").write_text(
+        'raise AssertionError("INSTALLED_BOTO3_EXECUTED")\n',
+        encoding="utf-8",
+    )
+    result = _isolated(
+        TRUSTED_INSTALLED_TOOLING_DISCOVERY,
+        str(repository),
+        str(trusted_site_root),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "TRUSTED_INSTALLED_TOOLING_IGNORED\n"
+    assert result.stderr == ""
+
+
+def test_trusted_site_roots_include_exact_interpreter_root_inside_repository(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cli = _load_cli()
+    repository = tmp_path / "repository"
+    site_root = repository / ".venv/lib/python3.11/site-packages"
+    site_root.mkdir(parents=True)
+    monkeypatch.setattr(cli, "REPO_ROOT", repository)
+    monkeypatch.setattr(cli.sysconfig, "get_path", lambda _name: str(site_root))
+    assert cli._trusted_site_roots() == (site_root.resolve(),)  # noqa: SLF001
+
+
+def test_nested_tooling_below_trusted_site_root_is_rejected(
+    tmp_path: Path,
+) -> None:
+    trusted_site_root = tmp_path / "trusted-site"
+    nested_root = trusted_site_root / "nested"
+    tooling_root = nested_root / "tooling"
+    tooling_root.mkdir(parents=True)
+    (tooling_root / "__init__.py").write_text(
+        'raise AssertionError("NESTED_TOOLING_EXECUTED")\n',
+        encoding="utf-8",
+    )
+    result = _isolated(
+        NESTED_INSTALLED_TOOLING_DISCOVERY,
+        str(trusted_site_root),
+        str(nested_root),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "NESTED_INSTALLED_TOOLING_REJECTED\n"
     assert result.stderr == ""
 
 

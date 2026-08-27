@@ -133,10 +133,10 @@ after fetch. Re-fetch and issue a new request/checkpoint; never refresh only the
 digest on an old request.
 
 ```console
-env -u PYTHONPATH -u PYTHONHOME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py inventory --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
-env -u PYTHONPATH -u PYTHONHOME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py execute-phase --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
-env -u PYTHONPATH -u PYTHONHOME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py reconcile --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
-env -u PYTHONPATH -u PYTHONHOME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py certify --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py inventory --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py execute-phase --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py reconcile --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
+env -u PYTHONPATH -u PYTHONHOME -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME python3 -I scripts/deployment/platform-authority-gug390-live-provider.py certify --private-root "$APPROVED_PRIVATE_ROOT" --request "$PRIVATE_REQUEST_BASENAME"
 ```
 
 The CLI selects no default command. Do not run these commands with an
@@ -154,7 +154,7 @@ command's exact `0600` request filename inside the root; it must be a basename
 ending in `.json`, never a path or one request reused across commands.
 
 Do not omit the environment cleanup or `-I`. The CLI fails closed before
-repository imports if either injection variable is present, if a `tooling` or
+repository imports if any listed variable is present, if a `tooling` or
 boto3/botocore module is already loaded, if another `tooling` package would win
 resolution, or if any loaded repository module's `__file__`, import origin or
 package path is outside the exact Git root. The bootstrap replaces custom
@@ -162,7 +162,14 @@ meta/path finders with a closed standard loader set, removes every repository
 path from `sys.path`, and explicitly loads the package entry modules from the
 Git-blob manifest. The manifest-bound `tooling` loader reads reviewed `.py`
 bytes directly and cannot fall back to an ignored `.pyc`, extension or
-sourceless module. Use `-S` only for
+sourceless module. A separately installed, unimported `tooling` package is
+admissible only below the isolated interpreter's exact `purelib`/`platlib`
+root; it remains discoverable for dependency resolution but is never executed
+or accepted as repository provenance. That exact site root is retained even
+for an in-repository clean-clone `.venv`; other repository paths are removed.
+The gate rejects `PYTHONPATH`, `PYTHONHOME`, `_PYTHON_PROJECT_BASE` and
+`_PYTHON_SYSCONFIGDATA_NAME` before discovering those roots.
+Use `-S` only for
 parser/help import-inert checks: an authorized
 live command intentionally retains isolated non-repository site-package
 discovery so the pinned boto3 runtime remains available, and the provider

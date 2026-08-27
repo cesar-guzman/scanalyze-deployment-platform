@@ -148,20 +148,30 @@ The entry point is
 and CI validation use injected fakes only and must finish with all of the
 following boundaries:
 
-Before any repository module is loaded, the entry point rejects
-`PYTHONPATH`/`PYTHONHOME`, any preloaded or preempting `tooling` module, and any
-preloaded boto3/botocore module. It then replaces the import finder/hook state
+Before any repository module is loaded, the entry point rejects the four
+documented Python import/configuration variables, any preloaded or preempting
+`tooling` module, and any preloaded boto3/botocore module. It then replaces the
+import finder/hook state
 with the closed built-in, frozen, path and filesystem loaders and removes every
 `sys.path` entry that resolves inside the repository. The package and three
 entry modules are loaded explicitly from the Git-blob manifest instead of
 through the repository root. The manifest-bound loader always reads and
 compiles reviewed `.py` bytes; ignored timestamp bytecode caches, extensions
 and sourceless modules are not admissible for `tooling`.
+An unimported `tooling` copy installed under the isolated interpreter's exact
+`purelib`/`platlib` root may remain discoverable so pinned site dependencies
+stay available, but it is never executed: the repository package still enters
+`sys.modules` only through the manifest-bound loader. Arbitrary import roots
+and every preloaded `tooling` module remain inadmissible. The exact interpreter
+site root remains admissible when a clean-clone `.venv` places it below the
+repository; sibling repository paths are still removed.
+`PYTHONPATH`, `PYTHONHOME`, `_PYTHON_PROJECT_BASE` and
+`_PYTHON_SYSCONFIGDATA_NAME` all fail closed before site-root discovery.
 Every transitively loaded `tooling` module's `__file__`, import origin and
 package path must remain below that root. The Git root, clean tree and exact
 `origin/main` commit are validated before provider/executor import.
-Operational invocations must therefore unset both injection variables and use
-Python isolated mode as shown in the runbook. `-S` remains appropriate for
+Operational invocations must therefore unset all four variables and use Python
+isolated mode as shown in the runbook. `-S` remains appropriate for
 parser/help import-inert checks only; it is not used for an authorized live
 command because it removes the installed boto3 SDK from discovery. The SDK
 remains lazy, is discoverable only through retained non-repository paths, and

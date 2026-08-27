@@ -34,6 +34,7 @@ import socket
 import stat
 import subprocess
 import sys
+import sysconfig
 from types import MappingProxyType
 from typing import Any, Mapping
 from zipimport import zipimporter
@@ -61,6 +62,14 @@ _SAFE_FILE_FINDER_DETAILS = (
     (ExtensionFileLoader, EXTENSION_SUFFIXES),
     (SourceFileLoader, SOURCE_SUFFIXES),
     (SourcelessFileLoader, BYTECODE_SUFFIXES),
+)
+_UNSAFE_IMPORT_ENVIRONMENT = frozenset(
+    {
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "_PYTHON_PROJECT_BASE",
+        "_PYTHON_SYSCONFIGDATA_NAME",
+    }
 )
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\.json$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -405,12 +414,63 @@ def _reject_preloaded_sdk_modules() -> None:
 def _is_repository_import_path(item: str) -> bool:
     try:
         candidate = Path.cwd() if item == "" else Path(item)
-        candidate.resolve().relative_to(REPO_ROOT)
+        resolved = candidate.resolve()
+        if resolved in _trusted_site_roots():
+            return False
+        resolved.relative_to(REPO_ROOT)
     except ValueError:
         return False
     except (OSError, RuntimeError) as exc:
         raise CliError("IMPORT_PATH_INVALID") from exc
     return True
+
+
+def _trusted_site_roots() -> tuple[Path, ...]:
+    roots: set[Path] = set()
+    for name in ("purelib", "platlib"):
+        raw_path = sysconfig.get_path(name)
+        if not isinstance(raw_path, str) or not raw_path:
+            continue
+        try:
+            root = Path(raw_path).resolve(strict=True)
+        except OSError:
+            continue
+        roots.add(root)
+    return tuple(sorted(roots, key=str))
+
+
+def _validate_discovered_tooling_spec(spec: Any | None) -> None:
+    if spec is None:
+        return
+    raw_origin = getattr(spec, "origin", None)
+    loader = getattr(spec, "loader", None)
+    raw_locations = getattr(spec, "submodule_search_locations", None)
+    if (
+        not isinstance(raw_origin, str)
+        or not isinstance(loader, SourceFileLoader)
+        or raw_locations is None
+    ):
+        raise CliError("IMPORT_PATH_PREEMPTED")
+    try:
+        origin = Path(raw_origin).resolve(strict=True)
+        locations = tuple(
+            Path(item).resolve(strict=True) for item in raw_locations
+        )
+    except (OSError, TypeError) as exc:
+        raise CliError("IMPORT_PATH_PREEMPTED") from exc
+    if locations != (origin.parent,) or origin.name != "__init__.py":
+        raise CliError("IMPORT_PATH_PREEMPTED")
+    expected = (_TOOLING_ROOT / "__init__.py").resolve(strict=True)
+    if origin == expected:
+        return
+    if sys.flags.isolated != 1 or origin.parent.name != "tooling":
+        raise CliError("IMPORT_PATH_PREEMPTED")
+    if any(
+        origin == root / "tooling" / "__init__.py"
+        for root in _trusted_site_roots()
+    ):
+        return
+    raise CliError("IMPORT_PATH_PREEMPTED")
 
 
 def _establish_safe_import_runtime() -> None:
@@ -433,7 +493,7 @@ def _establish_safe_import_runtime() -> None:
 
 
 def _prepare_repository_imports() -> None:
-    if "PYTHONPATH" in os.environ or "PYTHONHOME" in os.environ:
+    if any(name in os.environ for name in _UNSAFE_IMPORT_ENVIRONMENT):
         raise CliError("IMPORT_ENVIRONMENT_UNSAFE")
     if type(sys.path) is not list or any(
         not isinstance(item, str) for item in sys.path
@@ -446,16 +506,7 @@ def _prepare_repository_imports() -> None:
         current_spec = PathFinder.find_spec("tooling", sys.path)
     except (ImportError, AttributeError, TypeError, ValueError) as exc:
         raise CliError("IMPORT_PATH_INVALID") from exc
-    if current_spec is not None:
-        raw_origin = getattr(current_spec, "origin", None)
-        if not isinstance(raw_origin, str):
-            raise CliError("IMPORT_PATH_PREEMPTED")
-        try:
-            origin = Path(raw_origin).resolve(strict=True)
-        except OSError as exc:
-            raise CliError("IMPORT_PATH_PREEMPTED") from exc
-        if origin != (_TOOLING_ROOT / "__init__.py").resolve(strict=True):
-            raise CliError("IMPORT_PATH_PREEMPTED")
+    _validate_discovered_tooling_spec(current_spec)
 
     sys.path[:] = [
         item for item in sys.path if not _is_repository_import_path(item)
@@ -465,8 +516,7 @@ def _prepare_repository_imports() -> None:
         remaining_spec = PathFinder.find_spec("tooling", sys.path)
     except (ImportError, AttributeError, TypeError, ValueError) as exc:
         raise CliError("IMPORT_PATH_INVALID") from exc
-    if remaining_spec is not None:
-        raise CliError("IMPORT_PATH_PREEMPTED")
+    _validate_discovered_tooling_spec(remaining_spec)
     if any(_is_repository_import_path(item) for item in sys.path):
         raise CliError("IMPORT_PATH_INVALID")
 
