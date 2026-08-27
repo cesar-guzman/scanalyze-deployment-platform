@@ -164,11 +164,11 @@ def execute_private_input_discovery(
             identity_snapshots.append(snapshot)
 
         proposal = build_discovery_proposal(
+            private_root=private_root,
             request=request,
             execution_capability=execution_capability,
             authority_snapshots=authority_snapshots,
             identity_snapshots=identity_snapshots,
-            now=provider_factory.evaluation_time(),
             provider_factory=provider_factory,
         )
         persist_discovery_proposal(
