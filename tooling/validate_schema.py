@@ -108,6 +108,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-gug365-phase-execution-ledger": (
             "platform-authority-gug365-phase-execution-ledger.v{version}.schema.json"
         ),
+        "platform-authority-gug390-live-run": (
+            "platform-authority-gug390-live-run.v{version}.schema.json"
+        ),
         "platform-authority-gug365-upstream-owner-decisions": (
             "platform-authority-gug365-upstream-owner-decisions.v{version}.schema.json"
         ),
@@ -3592,6 +3595,35 @@ def _validate_gug274_signed_artifact_receipt(
     return []
 
 
+def _validate_gug390_live_run(instance: dict) -> list[str]:
+    """Reject stale seals and cross-field AWS/mutation overclaims."""
+
+    errors: list[str] = []
+    run_body = {
+        key: value for key, value in instance.items() if key != "run_digest"
+    }
+    if instance.get("run_digest") != _canonical_sha256(run_body):
+        errors.append("GUG-390 run_digest must seal the complete public record")
+    aws_calls = instance.get("aws_calls")
+    aws_mutations = instance.get("aws_mutations")
+    if type(aws_calls) is not int or type(aws_mutations) is not int:
+        return errors
+
+    if aws_mutations > aws_calls:
+        errors.append("GUG-390 aws_mutations must not exceed aws_calls")
+    if instance.get("status") == "STOP_NO_MUTATION" and aws_mutations != 0:
+        errors.append("GUG-390 STOP_NO_MUTATION requires aws_mutations = 0")
+    if aws_mutations > 0 and (
+        instance.get("command") != "execute-phase"
+        or instance.get("classification") != "LIVE_PROVIDER_EVIDENCE"
+    ):
+        errors.append(
+            "GUG-390 aws_mutations > 0 requires command=execute-phase "
+            "and classification=LIVE_PROVIDER_EVIDENCE"
+        )
+    return errors
+
+
 def validate_semantics(
     instance: dict,
     schema_path: Path,
@@ -4077,6 +4109,9 @@ def validate_semantics(
                 instance, schema_name=schema_name
             )
         )
+
+    if schema_name == "platform-authority-gug390-live-run.v1.schema.json":
+        errors.extend(_validate_gug390_live_run(instance))
 
     return errors
 

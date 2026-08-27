@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug390-live-run.v1.schema.json",
+  "title": "GUG-390 sanitized guarded live-provider run evidence",
+  "description": "Public evidence for one closed GUG-390 command. It never authorizes or proves deployment, production readiness or two-human separation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "issue",
+    "command",
+    "phase",
+    "classification",
+    "status",
+    "source_commit_sha",
+    "source_tree_sha",
+    "plan_digest",
+    "owner_checkpoint_digest",
+    "live_request_digest",
+    "checkpoint_digest",
+    "receipt_digest",
+    "transcript_digest",
+    "aws_calls",
+    "aws_mutations",
+    "live_receipt_count",
+    "live_provider_evidence",
+    "read_only",
+    "reconciliation_only",
+    "deployment_authorized",
+    "deployment_status",
+    "production",
+    "production_status",
+    "two_human_status",
+    "independent_approval_present",
+    "sanitized",
+    "created_at",
+    "run_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug390_live_run.v1"
+    },
+    "schema_version": { "const": 1 },
+    "issue": { "const": "GUG-390" },
+    "command": {
+      "enum": ["inventory", "execute-phase", "reconcile", "certify"]
+    },
+    "phase": {
+      "oneOf": [
+        { "$ref": "#/$defs/phase" },
+        { "const": "NONE" }
+      ]
+    },
+    "classification": {
+      "enum": ["SYNTHETIC_VALIDATED", "LIVE_PROVIDER_EVIDENCE"]
+    },
+    "status": {
+      "enum": [
+        "LIVE_PROVIDER_NOT_PROVEN",
+        "LIVE_INVENTORY_RECORDED",
+        "LIVE_PHASE_TERMINAL",
+        "LIVE_RECONCILIATION_RECORDED",
+        "LIVE_CERTIFICATION_RECORDED",
+        "UNCERTAIN_RECONCILE_ONLY",
+        "STOP_NO_MUTATION"
+      ]
+    },
+    "source_commit_sha": { "$ref": "#/$defs/gitSha" },
+    "source_tree_sha": { "$ref": "#/$defs/gitSha" },
+    "plan_digest": { "$ref": "#/$defs/digest" },
+    "owner_checkpoint_digest": {
+      "description": "Digest of the exact GUG-390 owner checkpoint consumed by this command.",
+      "$ref": "#/$defs/digest"
+    },
+    "live_request_digest": {
+      "description": "Digest of the complete private GUG-390 live request. The private request calls this field request_digest; the public projection deliberately uses the unambiguous live_request_digest name.",
+      "$ref": "#/$defs/digest"
+    },
+    "checkpoint_digest": {
+      "description": "Command result checkpoint: inventory facts, terminal ledger, or ACTIVATOR certification checkpoint. This is distinct from owner_checkpoint_digest.",
+      "$ref": "#/$defs/digest"
+    },
+    "receipt_digest": { "$ref": "#/$defs/digest" },
+    "transcript_digest": { "$ref": "#/$defs/digest" },
+    "aws_calls": { "type": "integer", "minimum": 0 },
+    "aws_mutations": { "type": "integer", "minimum": 0 },
+    "live_receipt_count": { "type": "integer", "minimum": 0 },
+    "live_provider_evidence": { "type": "boolean" },
+    "read_only": { "type": "boolean" },
+    "reconciliation_only": { "type": "boolean" },
+    "deployment_authorized": { "const": false },
+    "deployment_status": { "const": "NOT_DEPLOYED" },
+    "production": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "sanitized": { "const": true },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "run_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "command": { "const": "inventory" } }
+      },
+      "then": {
+        "properties": {
+          "phase": { "$ref": "#/$defs/phase" },
+          "read_only": { "const": true },
+          "reconciliation_only": { "const": false },
+          "aws_mutations": { "const": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "command": { "const": "execute-phase" } }
+      },
+      "then": {
+        "properties": {
+          "phase": { "$ref": "#/$defs/phase" },
+          "read_only": { "const": false },
+          "reconciliation_only": { "const": false }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "command": { "const": "reconcile" } }
+      },
+      "then": {
+        "properties": {
+          "phase": { "$ref": "#/$defs/phase" },
+          "read_only": { "const": true },
+          "reconciliation_only": { "const": true },
+          "aws_mutations": { "const": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "command": { "const": "certify" } }
+      },
+      "then": {
+        "properties": {
+          "phase": { "const": "NONE" },
+          "read_only": { "const": true },
+          "reconciliation_only": { "const": false },
+          "aws_mutations": { "const": 0 }
+        }
+      }
+    }
+  ],
+  "oneOf": [
+    {
+      "title": "Synthetic repository evidence",
+      "properties": {
+        "classification": { "const": "SYNTHETIC_VALIDATED" },
+        "status": { "const": "LIVE_PROVIDER_NOT_PROVEN" },
+        "aws_calls": { "const": 0 },
+        "aws_mutations": { "const": 0 },
+        "live_receipt_count": { "const": 0 },
+        "live_provider_evidence": { "const": false }
+      }
+    },
+    {
+      "title": "Future separately authorized live-provider evidence",
+      "properties": {
+        "classification": { "const": "LIVE_PROVIDER_EVIDENCE" },
+        "live_provider_evidence": { "const": true }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "command": { "const": "inventory" } }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": ["LIVE_INVENTORY_RECORDED", "STOP_NO_MUTATION"]
+              },
+              "aws_calls": { "type": "integer", "minimum": 1 },
+              "live_receipt_count": { "const": 2 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "command": { "const": "execute-phase" } }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "LIVE_PHASE_TERMINAL",
+                  "UNCERTAIN_RECONCILE_ONLY",
+                  "STOP_NO_MUTATION"
+                ]
+              },
+              "aws_calls": { "type": "integer", "minimum": 1 },
+              "live_receipt_count": { "const": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "command": { "const": "reconcile" } }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "LIVE_RECONCILIATION_RECORDED",
+                  "UNCERTAIN_RECONCILE_ONLY"
+                ]
+              },
+              "aws_calls": { "type": "integer", "minimum": 1 },
+              "live_receipt_count": { "const": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "command": { "const": "certify" } }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "enum": ["LIVE_CERTIFICATION_RECORDED", "STOP_NO_MUTATION"]
+              },
+              "aws_calls": { "const": 0 },
+              "live_receipt_count": { "const": 11 }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "phase": {
+      "enum": [
+        "POLICY_FACTORY",
+        "FOUNDATION_FACTORY",
+        "FUNCTION_FACTORY",
+        "LEDGER_FACTORY_FUNCTION_FACTORY",
+        "LEDGER_FACTORY_ACTIVATOR",
+        "LEDGER_FACTORY_INVOKER",
+        "LEDGER_FACTORY_REVOKER",
+        "ACTIVATOR"
+      ]
+    }
+  }
+}

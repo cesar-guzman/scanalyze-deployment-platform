@@ -126,6 +126,186 @@ Provider actions and condition keys are a closed reviewed list, not a generic
 readback must return through a new repository review; it must not be added at
 runtime.
 
+## GUG-390 guarded live-provider boundary
+
+GUG-390 implements the smallest repository interface needed to connect the
+reviewed GUG-365 plan and phase ledger to a separately authorized live
+provider. This is a mechanism contract, not a claim that the provider has been
+run against AWS. Repository validation uses only injected clients and creates
+no AWS session or client.
+
+The implemented closed command surface is:
+
+| Command | Permitted responsibility |
+| --- | --- |
+| `inventory` | Take two complete, stable, paginated read-only snapshots and compare their canonical IAM/Lambda/Logs/DynamoDB/S3/KMS projections with the plan. |
+| `execute-phase` | Execute exactly one named, checkpoint-bound phase in one fresh process; it cannot select or enter a later phase. |
+| `reconcile` | Resolve only a recorded ambiguous/in-flight operation with provider reads; it cannot call the write callback. |
+| `certify` | Validate the complete causal receipt/readback chain and emit a sanitized manifest; it cannot mutate AWS. |
+
+The entry point is
+`scripts/deployment/platform-authority-gug390-live-provider.py`. Repository
+and CI validation use injected fakes only and must finish with all of the
+following boundaries:
+
+Before any repository module is loaded, the entry point rejects
+`PYTHONPATH`/`PYTHONHOME`, any preloaded or preempting `tooling` module, and any
+preloaded boto3/botocore module. It then replaces the import finder/hook state
+with the closed built-in, frozen, path and filesystem loaders and removes every
+`sys.path` entry that resolves inside the repository. The package and three
+entry modules are loaded explicitly from the Git-blob manifest instead of
+through the repository root. The manifest-bound loader always reads and
+compiles reviewed `.py` bytes; ignored timestamp bytecode caches, extensions
+and sourceless modules are not admissible for `tooling`.
+Every transitively loaded `tooling` module's `__file__`, import origin and
+package path must remain below that root. The Git root, clean tree and exact
+`origin/main` commit are validated before provider/executor import.
+Operational invocations must therefore unset both injection variables and use
+Python isolated mode as shown in the runbook. `-S` remains appropriate for
+parser/help import-inert checks only; it is not used for an authorized live
+command because it removes the installed boto3 SDK from discovery. The SDK
+remains lazy, is discoverable only through retained non-repository paths, and
+cannot be imported before the source, request and provider gates.
+
+- `AWS_CALLS=0` and `AWS_MUTATIONS=0`;
+- `LIVE_PROVIDER_EVIDENCE=false` and `status=LIVE_PROVIDER_NOT_PROVEN`;
+- `deployment_authorized=false`, `deployment_status=NOT_DEPLOYED` and
+  `production_status=NO-GO`.
+
+### Exact owner, request and runtime bindings
+
+The sanitized public record carries three different bindings and never aliases
+them:
+
+- `owner_checkpoint_digest` seals the fresh owner checkpoint;
+- `live_request_digest` is the public name for the private live request's
+  `request_digest`; and
+- `checkpoint_digest` remains the command-result checkpoint (inventory facts,
+  terminal ledger state or the independent ACTIVATOR checkpoint).
+
+For an execution claim, the ledger's optional GUG-390 `execution_context`
+binds `issue=GUG-390`, `owner_checkpoint_digest`, `live_request_digest`, the
+nullable `activator_checkpoint_digest`, and a `context_digest` over those four
+fields. Legacy GUG-365 claims omit `execution_context`; omission is visible and
+cannot be upgraded to GUG-390 evidence. A completed provider operation may
+carry `durable_provider_evidence`, binding its operation/request/result,
+identity receipt, transcript, execution context and optional causal receipt.
+Legacy outcomes and a hard-crash outcome may omit it, but an omitted evidence
+record is never equivalent to a null or complete live receipt and is not
+certifiable.
+
+A green test, merge or repository manifest cannot promote any of those values
+to live evidence. A separately authorized live process must fail before client
+construction unless it has the exact merged commit/tree and private plan digests, an
+explicit non-default profile and `us-east-1`, a fresh phase-specific owner
+checkpoint and validity window, complete custody bindings, and a stable
+before-state. The checkpoint binds the exact STS principal digest and direct
+SSO role-name digest in addition to the profile/account/region. STS caller
+identity must be the first provider call and must match those bindings. The
+validity window is rechecked immediately before initial STS and every later
+SDK call/page. Ambient/default/chained credentials, missing pagination,
+drift, stale evidence, extra effective authority or an expired checkpoint are
+`STOP_NO_MUTATION`.
+
+### Fresh `origin/main` source custody
+
+The CLI compares `HEAD` with the local `refs/remotes/origin/main`, but that
+local comparison is not freshness evidence. Before the owner creates the
+checkpoint and within the same maximum 15-minute request window, the operator
+must run a successful direct fetch and exact readback:
+
+```console
+git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+git rev-parse --verify HEAD^{commit}
+git rev-parse --verify HEAD^{tree}
+git rev-parse --verify refs/remotes/origin/main^{commit}
+git rev-parse --verify refs/remotes/origin/main^{tree}
+test "$(git rev-parse --verify HEAD^{commit})" = "$(git rev-parse --verify refs/remotes/origin/main^{commit})"
+test "$(git rev-parse --verify HEAD^{tree})" = "$(git rev-parse --verify refs/remotes/origin/main^{tree})"
+git diff --quiet
+git diff --cached --quiet
+test -z "$(git ls-files --others --exclude-standard)"
+```
+
+The fetched `origin/main` commit must equal `HEAD`; its tree must equal the
+`source_tree_sha` sealed into both request and checkpoint. Record the fetch
+time and exact commit/tree in the private operator evidence. A cached ref,
+failed fetch, fetch outside the request window, dirty/untracked file, or any
+source change after fetch is `STOP_NO_MUTATION`; refresh and issue a new owner
+request rather than reusing the old digest.
+
+Inventory discovery may emit a review-required digest, but it cannot enable a
+write until the owner request independently binds both exact snapshot digests
+and the complete facts digest and the live semantic projection matches the
+sealed plan. Stable-but-wrong S3 content, KMS metadata, code-signing policy,
+IAM graph, Lambda configuration, log controls or DynamoDB controls is drift,
+not `ABSENT_READY` or `EXACT_PRESENT_NO_TOUCH`.
+
+Each `execute-phase` process accepts one explicit phase, creates one fresh
+phase-specific session, consumes one phase ledger root, and exits after that
+phase becomes terminal or ambiguous. A phase may contain several ordered
+top-level operations, but each top-level provider/SDK operation has one local
+invocation with retries disabled and a durable pre-invocation transition.
+Every successful mutation is followed by its closed canonical readback
+sequence. Create-policy, create-role, create-function and create-log-group
+readbacks include their documents/configuration and tags; a missing field or
+mismatch after a delivered write is `AMBIGUOUS`, never success.
+`LEDGER_FACTORY_INVOKER` is one such top-level invocation; its signed runtime's
+internal `CreateTable` and PITR operations remain governed by the separate
+causal factory receipt and exact call counts. Provider delivery can still be
+ambiguous, so “one invocation” is not proof that an effect occurred exactly
+once.
+
+Crash recovery follows the durable boundary, not process memory:
+
+| Last durable boundary | Restart rule |
+| --- | --- |
+| Before the phase claim or `OPERATION_IN_FLIGHT` CAS | No provider operation may have started. Re-evaluate the exact request and authority window; never infer progress from a missing file. |
+| `CLAIMED` after one or more complete outcomes, with no in-flight operation | Resume only the exact `next_operation_sequence` under the same execution context, request, claim nonce, caller/session/authority and still-valid window. Never replay a recorded outcome. Expiry stops with no new effect and requires a recovery issue. |
+| `IN_FLIGHT`, or provider response/readback received but outcome/evidence CAS missing | Treat delivery as ambiguous. Do not call the write again or advance; only the closed read-only reconciliation path is admissible. |
+| Outcome and `durable_provider_evidence` committed, but private/public output missing | The ledger is authoritative. Recreate no provider effect. A non-terminal claim may continue only under the exact same-context rule above; a terminal record is inspected, not replayed. |
+| Outcome exists without `durable_provider_evidence` | Preserve the record as crash evidence. It cannot certify live execution or be silently backfilled from process memory. |
+
+An ambiguous or in-flight result is `UNCERTAIN_RECONCILE_ONLY`. The process
+must stop, preserve its artifacts and allow only the read-only `reconcile`
+path. Reconciliation cannot replay, repair, adopt, delete, roll back or advance
+to another phase. The caller cannot select an unrelated readback: the executor
+derives the closed read contract from the ledger's exact ambiguous phase,
+operation sequence and request digest, binds both expected state digests, and
+requires two equal captures. Fresh STS continuity is checked before reads and
+again before CAS. `lambda:InvokeFunction` ambiguity has no sufficient causal
+read contract and therefore remains unresolved. Any unstable or
+non-conclusive readback requires a new recovery issue and owner decision.
+
+`RECONCILED`, including `EFFECT_PROVEN`, is a terminal recovery classification
+only. It does not satisfy predecessor progression, cannot start the next phase,
+and is excluded from the certification bundle. A separate recovery issue and
+fresh owner decision must define any later action; GUG-390 never converts a
+reconciliation receipt into forward authorization. This restriction concerns
+the phase-ledger status `RECONCILED`; it does not rename the separate,
+independently validated ledger-factory receipt outcome `CREATED_RECONCILED`.
+
+`certify` requires independent digests for all eight `CONSUMED` private
+phase-run files, both final inventory snapshots and the GUG-357 ACTIVATOR
+checkpoint. It recomputes each private seal, revalidates the ledger-factory
+causal receipt and binds the receipt's provider-result digest to the consumed
+ledger outcome.
+
+`ACTIVATOR` must fail closed until every predecessor phase is `CONSUMED` with
+its complete durable evidence (`RECONCILED` is expressly excluded), the
+accepted ledger-factory causal receipt is `CREATED|CREATED_RECONCILED`, the
+factory role is proof-bound and detached, and an independently produced
+GUG-357 `FUNCTION_CONFIGURATOR` checkpoint and provider readback are supplied.
+GUG-390 cannot create that GUG-357 evidence and does not authorize
+CloudFormation `CreateStack` or any other GUG-357 effect.
+
+Repository rollback is a revert of the reviewed GUG-390 change. There is no
+automatic live rollback: uncertainty and drift are preserved for read-only
+reconciliation, while remediation, revocation or deletion requires its own
+issue and authorization. Until an exact live checkpoint and conclusive
+provider evidence both exist, the deployment decision remains
+`production_status=NO-GO`.
+
 ## Ordered future prerequisite mutations
 
 After exact-head review/merge, GUG-365 separates all effect capabilities. Each

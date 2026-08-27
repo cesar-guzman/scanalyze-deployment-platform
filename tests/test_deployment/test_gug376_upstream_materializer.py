@@ -173,7 +173,7 @@ def test_source_manifest_pins_imported_dependencies_and_snapshots_catalogs(
     ] == "sha256:83a0bad74847c636aa37c0526983e607d54809f9597b2833b182efff594d39b5"
     assert sources[
         "tooling/platform_authority_gug365_phase_execution_ledger.py"
-    ] == "sha256:1de11322acc73e9714bbed83a75cf5b1989b06f31116ade9cc630deca43a9364"
+    ] == "sha256:ade2d98d3ace73fc41b45e713e762520801c52d4a20703523e6e1db92a32edbc"
 
     import tooling.platform_authority_gug365_upstream_prerequisites as prerequisites
 
