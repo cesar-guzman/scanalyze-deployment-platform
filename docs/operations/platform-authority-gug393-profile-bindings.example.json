@@ -1,0 +1,20 @@
+{
+  "authority": {
+    "name": "replace-authority-read-only",
+    "source": "DIRECT_SSO",
+    "chain_depth": 0,
+    "expected_account_id": "111122223333",
+    "expected_principal_arn": "arn:aws:sts::111122223333:assumed-role/ReplaceAuthorityReadOnly/operator",
+    "expected_sso_role_name": "ReplaceAuthorityReadOnly",
+    "authority_verification_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "identity_center": {
+    "name": "replace-identity-center-read-only",
+    "source": "DIRECT_SSO",
+    "chain_depth": 0,
+    "expected_account_id": "444455556666",
+    "expected_principal_arn": "arn:aws:sts::444455556666:assumed-role/ReplaceIdentityCenterReadOnly/operator",
+    "expected_sso_role_name": "ReplaceIdentityCenterReadOnly",
+    "authority_verification_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

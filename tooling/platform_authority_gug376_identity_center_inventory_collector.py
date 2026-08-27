@@ -51,6 +51,7 @@ class DiscoveryReader(Protocol):
     def list_instances(self, token: object | None) -> Mapping[str, Any]: ...
     def list_applications(self, instance_arn: str, application_name: str, token: object | None) -> Mapping[str, Any]: ...
     def list_permission_sets(self, instance_arn: str, names: tuple[str, str], token: object | None) -> Mapping[str, Any]: ...
+    def attest_transition(self, discovery_digest: str) -> object: ...
 class ExactReader(Protocol):
     def describe_instance(self, instance_arn: str) -> Mapping[str, Any]: ...
     def read_application(self, application_arn: str) -> Mapping[str, Any]: ...
@@ -192,6 +193,20 @@ def _bind(plan: Mapping[str, Any], discovery: Mapping[str, list[dict[str, Any]]]
     instance_id = targets["identity_center_instance_arn"].rsplit("/", 1)[-1]
     if any(_ARN.fullmatch(value) is None for key, value in targets.items() if key != "management_account_id") or len(set(by_name.values())) != 2 or any(targets[key].split("/")[-2] != instance_id for key in ("identity_center_application_arn", "retire_approve_permission_set_arn", "retire_class_permission_set_arn")) or f"::{plan['expected_account_id']}:application/" not in targets["identity_center_application_arn"] or canonical_digest(targets) != plan["expected_target_digest"]: return "DRIFT_BLOCKED_NO_REPAIR", targets
     return "EXACT_PRESENT_NO_TOUCH", targets
+
+
+def bind_live_discovery_transition(
+    plan: Mapping[str, Any], discovery: Mapping[str, Any]
+) -> tuple[str, dict[str, str]]:
+    """Recompute target binding from one provider-attested live discovery."""
+
+    _validate_live_private(_validate_plan(plan))
+    normalized = canonical_snapshot(
+        discovery, code="DISCOVERY_EXACT_TRANSITION_INVALID"
+    )
+    if not isinstance(normalized, dict) or not _valid_discovery(normalized):
+        _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+    return _bind(plan, normalized, live=True)
 def _bound_discovery(discovery: Mapping[str, Any], targets: Mapping[str, Any]) -> bool: return len(discovery["instances"]) == len(discovery["applications"]) == 1 and len(discovery["permission_sets"]) == 2 and discovery["instances"][0].get("instance_arn") == targets["identity_center_instance_arn"] and discovery["instances"][0].get("identity_store_id") == str(targets["identity_store_arn"]).rsplit("/", 1)[-1] and discovery["instances"][0].get("owner_account_id") == targets["management_account_id"] and discovery["instances"][0].get("status") == "ACTIVE" and discovery["applications"][0].get("application_arn") == targets["identity_center_application_arn"] and {item["name"]: item["permission_set_arn"] for item in discovery["permission_sets"]} == {name: targets["retire_approve_permission_set_arn" if name == NAMES[0] else "retire_class_permission_set_arn"] for name in NAMES}
 
 
@@ -678,18 +693,45 @@ def _save(root: Path, name: str, plan: Mapping[str, Any], classification: str, p
     snapshot["snapshot_digest"] = canonical_digest(snapshot); write_private_json(root, name, snapshot)
     provisional = "NOT_AUTHORIZED" if classification == "NOT_AUTHORIZED" else "UNCERTAIN_RECONCILE_ONLY"
     return _receipt(provisional, policy_digest, binding["expected_target_digest"], facts_digest, [snapshot["snapshot_digest"]], counts, False)
-def _capture(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime, live: bool, validation_clock: Callable[[], datetime] | None) -> dict[str, Any]:
+def _capture(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime, live: bool, validation_clock: Callable[[], datetime] | None, exact_plan_materializer: Callable[[Mapping[str, Any], Mapping[str, Any], object], Mapping[str, Any]] | None = None) -> dict[str, Any]:
     _validate_plan(plan); private_target_absent(private_root, artifact_name)
     if any(key.startswith("AWS_") or key in {"BOTO_CONFIG", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR"} for key in os.environ): _fail("AMBIENT_AWS_OVERRIDE_FORBIDDEN")
     renderer = render_live_policy if live else render_policy
     discovery_policy, discovery_digest = renderer(plan); policies: dict[str, Any] = {"discovery": discovery_policy}; identities: list[Mapping[str, Any]] = []
     session = factory.open_sts(stage="discovery", policy=discovery_policy, policy_digest=discovery_digest, region=REGION); identities.append(_checked_identity(session, plan, discovery_digest, now, validation_clock))
-    discovery, failure = _provider(lambda: _discover(session.open_discovery(), plan)); empty_counts = {key: None for key in COUNTS}
+    discovery_reader = session.open_discovery()
+    discovery, failure = _provider(lambda: _discover(discovery_reader, plan)); empty_counts = {key: None for key in COUNTS}
     if failure: return _save(private_root, artifact_name, plan, failure, policies, {}, {"classification": failure}, identities, empty_counts, live=live)
     counts = dict(empty_counts, instances=len(discovery["instances"]), applications=len(discovery["applications"]), permission_sets=len(discovery["permission_sets"]))
     bound, failure = _provider(lambda: _bind(plan, discovery, live=live))
     if failure: return _save(private_root, artifact_name, plan, failure, policies, {}, {"discovery": discovery, "classification": failure}, identities, counts, live=live)
     classification, targets = bound
+    if classification != "EXACT_PRESENT_NO_TOUCH" and exact_plan_materializer is not None and targets:
+        if not live or classification != "DRIFT_BLOCKED_NO_REPAIR": _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+        callback_plan = dict(plan)
+        try:
+            transition_attestation = discovery_reader.attest_transition(
+                canonical_digest(discovery)
+            )
+            raw_transition = exact_plan_materializer(
+                callback_plan, targets, transition_attestation
+            )
+            if not isinstance(raw_transition, Mapping): _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+            transition_start, transition_end = raw_transition.get("not_before"), raw_transition.get("not_after")
+            transitioned = canonical_snapshot({key: item for key, item in raw_transition.items() if key not in {"not_before", "not_after"}}, code="DISCOVERY_EXACT_TRANSITION_INVALID")
+            if not isinstance(transitioned, dict): _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+            transitioned["not_before"], transitioned["not_after"] = transition_start, transition_end
+        except CollectorError: raise
+        except Exception as exc: raise CollectorError("DISCOVERY_EXACT_TRANSITION_INVALID") from exc
+        _validate_live_private(_validate_plan(transitioned))
+        mutable = {"expected_target_digest", "expected_exact_policy_digest"}
+        if any(transitioned[key] != callback_plan[key] for key in PLAN_FIELDS - mutable) or transitioned["expected_target_digest"] != canonical_digest(targets): _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+        transitioned_discovery, transitioned_discovery_digest = renderer(transitioned)
+        _, transitioned_exact_digest = renderer(transitioned, targets)
+        if transitioned_discovery != discovery_policy or transitioned_discovery_digest != discovery_digest or transitioned_exact_digest != transitioned["expected_exact_policy_digest"]: _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+        rebound = _bind(transitioned, discovery, live=True)
+        if rebound != ("EXACT_PRESENT_NO_TOUCH", targets): _fail("DISCOVERY_EXACT_TRANSITION_INVALID")
+        plan, classification = transitioned, "EXACT_PRESENT_NO_TOUCH"
     if classification != "EXACT_PRESENT_NO_TOUCH": return _save(private_root, artifact_name, plan, classification, policies, targets, {"discovery": discovery}, identities, counts, live=live)
     exact_policy, exact_digest = renderer(plan, targets); policies["exact"] = exact_policy
     session = factory.open_sts(stage="exact", policy=exact_policy, policy_digest=exact_digest, region=REGION); identities.append(_checked_identity(session, plan, exact_digest, now, validation_clock)); result, failure = _provider(lambda: _exact(session.open_exact(), plan, targets, discovery, live=live))
@@ -702,6 +744,10 @@ def capture_live(plan: Mapping[str, Any], factory: DirectSessionFactory, *, priv
     if not callable(validation_clock): _fail("VALIDATION_CLOCK_INVALID")
     _validate_live_private(_validate_plan(plan))
     return _capture(plan, factory, private_root=private_root, artifact_name=artifact_name, now=now, live=True, validation_clock=validation_clock)
+def capture_live_discovery(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime, validation_clock: Callable[[], datetime], exact_plan_materializer: Callable[[Mapping[str, Any], Mapping[str, Any], object], Mapping[str, Any]]) -> dict[str, Any]:
+    if not callable(validation_clock) or not callable(exact_plan_materializer): _fail("VALIDATION_CLOCK_INVALID")
+    _validate_live_private(_validate_plan(plan))
+    return _capture(plan, factory, private_root=private_root, artifact_name=artifact_name, now=now, live=True, validation_clock=validation_clock, exact_plan_materializer=exact_plan_materializer)
 def _outcome(value: Mapping[str, Any], binding: Mapping[str, Any]) -> tuple[str, dict[str, int | None]]:
     facts, targets = value["facts"], value["targets"]; counts: dict[str, int | None] = {key: None for key in COUNTS}
     if set(facts) == {"classification"} and isinstance(facts["classification"], str) and facts["classification"] in {"NOT_AUTHORIZED", "UNCERTAIN_RECONCILE_ONLY"} and not targets and set(value["policies"]) == {"discovery"}: return facts["classification"], counts

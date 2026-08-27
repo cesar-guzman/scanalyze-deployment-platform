@@ -24,6 +24,7 @@ def _clean_aws(monkeypatch: pytest.MonkeyPatch) -> None:
 def _page(items): return {"items": items, "next_token": None, "truncated": False, "complete": True}
 class Reader:
     def __init__(self, events: list[str] | None = None, mode: str = "ok"): self.events, self.mode = events if events is not None else [], mode
+    def attest_transition(self, discovery_digest): self.events.append("attest_transition"); assert discovery_digest == canonical_digest(DISCOVERY); return {"test_transition_attestation": discovery_digest}
     def list_instances(self, token):
         self.events.append("list_instances")
         if self.mode == "denied": raise AuthorityAccessDenied("private provider text")

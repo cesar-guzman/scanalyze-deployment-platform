@@ -82,6 +82,7 @@ def test_source_identity_ignores_real_git_replace_refs(
     git("commit", "-q", "-m", "second")
     second_commit = git("rev-parse", "HEAD", no_replace=True)
     second_tree = git("show", "-s", "--format=%T", "HEAD", no_replace=True)
+    git("update-ref", "refs/remotes/origin/main", second_commit)
     git("replace", second_commit, first_commit)
     assert git("show", "-s", "--format=%T", "HEAD") == first_tree
     assert second_tree != first_tree
@@ -93,6 +94,11 @@ def test_source_identity_ignores_real_git_replace_refs(
         second_commit,
         second_tree,
     )
+    git("update-ref", "refs/remotes/origin/main", first_commit)
+    with pytest.raises(
+        cli.CliError, match="SOURCE_CHECKOUT_NOT_ORIGIN_MAIN"
+    ):
+        cli._source_identity()
 
 
 def _operational_arguments(command: str) -> list[str]:

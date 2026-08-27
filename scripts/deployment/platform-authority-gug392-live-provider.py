@@ -63,6 +63,17 @@ _REPOSITORY_MODULE_PATHS = {
         _TOOLING_ROOT
         / "platform_authority_gug376_live_readonly_orchestrator.py"
     ),
+    "tooling.platform_authority_gug393_discovery_budget": (
+        _TOOLING_ROOT / "platform_authority_gug393_discovery_budget.py"
+    ),
+    "tooling.platform_authority_gug393_private_input_discovery": (
+        _TOOLING_ROOT
+        / "platform_authority_gug393_private_input_discovery.py"
+    ),
+    "tooling.platform_authority_gug393_private_input_discovery_executor": (
+        _TOOLING_ROOT
+        / "platform_authority_gug393_private_input_discovery_executor.py"
+    ),
 }
 _MATERIALIZE_MODULES = (
     "tooling.platform_authority_gug365_upstream_inventory",
@@ -80,6 +91,17 @@ _LIVE_MODULES = (
 )
 _VALIDATE_MODULES = (
     "tooling.platform_authority_gug376_live_executor",
+)
+_DISCOVERY_OFFLINE_MODULES = (
+    "tooling.platform_authority_gug365_upstream_inventory",
+    "tooling.platform_authority_gug376_authority_inventory_collector",
+    "tooling.platform_authority_gug393_private_input_discovery",
+)
+_DISCOVERY_LIVE_MODULES = (
+    "tooling.platform_authority_gug376_live_provider",
+    "tooling.platform_authority_gug393_discovery_budget",
+    "tooling.platform_authority_gug393_private_input_discovery",
+    "tooling.platform_authority_gug393_private_input_discovery_executor",
 )
 _SAFE_META_PATH = (BuiltinImporter, FrozenImporter, PathFinder)
 _SAFE_FILE_FINDER_DETAILS = (
@@ -265,6 +287,61 @@ def _parser() -> argparse.ArgumentParser:
     )
     validate_evidence.add_argument("run_input", type=Path)
     validate_evidence.add_argument("handoff_input", type=Path)
+
+    discovery_request = sub.add_parser(
+        "materialize-discovery-request",
+        help="derive and seal the owner-reviewed GUG-393 discovery preflight",
+    )
+    discovery_request.add_argument("--private-root", required=True, type=Path)
+    discovery_request.add_argument("--source-bundle-file", required=True)
+    discovery_request.add_argument("--profile-bindings-file", required=True)
+    discovery_request.add_argument("--budget-file", required=True)
+    discovery_request.add_argument("--sdk-runtime-root", required=True)
+    discovery_request.add_argument("--not-before", required=True)
+    discovery_request.add_argument("--expires-at", required=True)
+    discovery_request.add_argument("--approval-reference-digest", required=True)
+    discovery_request.add_argument(
+        "--request-file", default="gug393-discovery-request.json"
+    )
+    discovery_request.add_argument(
+        "--owner-checkpoint-file",
+        default="gug393-discovery-checkpoint.json",
+    )
+
+    discover = sub.add_parser(
+        "discover-inputs",
+        help="consume one approved GUG-393 request through the budgeted provider",
+    )
+    discover.add_argument("--private-root", required=True, type=Path)
+    discover.add_argument(
+        "--request-file", default="gug393-discovery-request.json"
+    )
+    discover.add_argument(
+        "--owner-checkpoint-file",
+        default="gug393-discovery-checkpoint.json",
+    )
+    discover.add_argument("--expected-request-digest", required=True)
+    discover.add_argument("--expected-checkpoint-digest", required=True)
+    discover.add_argument("--approval-reference-digest", required=True)
+
+    owner_decision = sub.add_parser(
+        "materialize-discovery-decision",
+        help="seal a distinct owner approval for one exact private proposal",
+    )
+    owner_decision.add_argument("--private-root", required=True, type=Path)
+    owner_decision.add_argument("--expected-proposal-digest", required=True)
+    owner_decision.add_argument("--approval-reference-digest", required=True)
+    owner_decision.add_argument("--expires-at", required=True)
+
+    approved = sub.add_parser(
+        "materialize-approved-inputs",
+        help="materialize GUG-392 plans only from the separately sealed decision",
+    )
+    approved.add_argument("--private-root", required=True, type=Path)
+    approved.add_argument("--expected-proposal-digest", required=True)
+    approved.add_argument("--expected-decision-digest", required=True)
+    validate_discovery = sub.add_parser("validate-discovery-receipt")
+    validate_discovery.add_argument("input", type=Path)
     return parser
 
 
@@ -317,13 +394,21 @@ def _source_identity() -> tuple[str, str]:
     if reported_root != expected_root:
         raise CliError("SOURCE_CHECKOUT_INVALID")
 
-    def snapshot() -> tuple[str, str]:
-        values = _git("show", "-s", "--format=%H%n%T", "HEAD").splitlines()
+    def object_identity(revision: str) -> tuple[str, str]:
+        values = _git(
+            "show", "-s", "--format=%H%n%T", revision
+        ).splitlines()
         if len(values) != 2 or any(
             re.fullmatch(r"[0-9a-f]{40,64}", value) is None for value in values
         ):
             raise CliError("SOURCE_CHECKOUT_INVALID")
         return values[0], values[1]
+
+    def snapshot() -> tuple[tuple[str, str], tuple[str, str]]:
+        return (
+            object_identity("HEAD"),
+            object_identity("refs/remotes/origin/main"),
+        )
 
     before = snapshot()
     first_status = _git("status", "--porcelain=v1", "--untracked-files=normal")
@@ -333,7 +418,10 @@ def _source_identity() -> tuple[str, str]:
         raise CliError("SOURCE_CHECKOUT_CHANGED")
     if first_status or second_status:
         raise CliError("SOURCE_CHECKOUT_NOT_CLEAN")
-    return after
+    head, origin_main = after
+    if head != origin_main:
+        raise CliError("SOURCE_CHECKOUT_NOT_ORIGIN_MAIN")
+    return head
 
 
 def _regular_source_bytes(path: Path) -> bytes:
@@ -1094,6 +1182,267 @@ def _live(
     return {"run_record": run, "public_handoff": handoff}
 
 
+def _cli_timestamp(value: str) -> datetime:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise CliError("DISCOVERY_WINDOW_INVALID")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise CliError("DISCOVERY_WINDOW_INVALID") from exc
+    canonical = (
+        parsed.astimezone(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    if canonical != value:
+        raise CliError("DISCOVERY_WINDOW_INVALID")
+    return parsed.astimezone(UTC).replace(microsecond=0)
+
+
+def _materialize_discovery_request(
+    args: argparse.Namespace,
+    *,
+    repository_bundle: _ReviewedRepositoryModules,
+) -> dict[str, Any]:
+    (commit, tree), modules = _validated_repository_bundle(
+        repository_bundle, _DISCOVERY_OFFLINE_MODULES
+    )
+    authority = modules[_DISCOVERY_OFFLINE_MODULES[1]]
+    discovery = modules[_DISCOVERY_OFFLINE_MODULES[2]]
+    read_private_json = authority.read_private_json
+    source_contract = discovery.derive_source_contract(
+        source_bundle=read_private_json(
+            args.private_root, args.source_bundle_file
+        ),
+        source_commit_sha=commit,
+        source_tree_sha=tree,
+        repo_root=REPO_ROOT,
+    )
+    materialization = discovery.materialize_discovery_request(
+        source_contract=source_contract,
+        profiles=read_private_json(
+            args.private_root, args.profile_bindings_file
+        ),
+        discovery_budget=read_private_json(
+            args.private_root, args.budget_file
+        ),
+        sdk_runtime_root=args.sdk_runtime_root,
+        private_root=args.private_root,
+        source_commit_sha=commit,
+        source_tree_sha=tree,
+        host_digest=discovery.operational_host_digest(),
+        not_before=args.not_before,
+        expires_at=args.expires_at,
+        approval_reference_digest=_checked_digest(
+            args.approval_reference_digest
+        ),
+        request_file=args.request_file,
+        owner_checkpoint_file=args.owner_checkpoint_file,
+    )
+    discovery.persist_discovery_request(args.private_root, materialization)
+    return {
+        "record_type": (
+            "scanalyze.platform_authority.gug393_discovery_"
+            "request_materialization_result.v1"
+        ),
+        "status": "PRIVATE_DISCOVERY_REQUEST_MATERIALIZED",
+        "source_contract_digest": materialization.request[
+            "source_contract_digest"
+        ],
+        "request_digest": materialization.request["request_digest"],
+        "checkpoint_digest": materialization.owner_checkpoint[
+            "checkpoint_digest"
+        ],
+        "budget_digest": materialization.request["budget_digest"],
+        "read_only": True,
+        "aws_calls": 0,
+        "aws_mutations": 0,
+        "deployment_authorized": False,
+        "production_status": "NO-GO",
+    }
+
+
+def _discover_inputs(
+    args: argparse.Namespace,
+    *,
+    repository_bundle: _ReviewedRepositoryModules,
+) -> dict[str, Any]:
+    (commit, tree), modules = _validated_repository_bundle(
+        repository_bundle, _DISCOVERY_LIVE_MODULES
+    )
+    provider_module = modules[_DISCOVERY_LIVE_MODULES[0]]
+    budget_module = modules[_DISCOVERY_LIVE_MODULES[1]]
+    discovery = modules[_DISCOVERY_LIVE_MODULES[2]]
+    executor = modules[_DISCOVERY_LIVE_MODULES[3]]
+    now = datetime.now(UTC).replace(microsecond=0)
+    request, capability = discovery.read_and_claim_discovery_request(
+        private_root=args.private_root,
+        request_file=args.request_file,
+        owner_checkpoint_file=args.owner_checkpoint_file,
+        expected_request_digest=_checked_digest(
+            args.expected_request_digest
+        ),
+        expected_checkpoint_digest=_checked_digest(
+            args.expected_checkpoint_digest
+        ),
+        approval_reference_digest=_checked_digest(
+            args.approval_reference_digest
+        ),
+        source_commit_sha=commit,
+        source_tree_sha=tree,
+        host_digest=discovery.operational_host_digest(),
+        now=now,
+    )
+    validated_budget = budget_module.validate_discovery_budget(
+        request["discovery_budget"], now=now, require_active=True
+    )
+    budget = budget_module.GlobalDiscoveryBudget(validated_budget)
+    profiles = request["profiles"]
+    provider = provider_module.build_discovery_provider_factory(
+        sdk_runtime_root=request["sdk_runtime_root"],
+        authority_profile=profiles["authority"]["name"],
+        identity_center_profile=profiles["identity_center"]["name"],
+        authority_expected_account_id=profiles["authority"][
+            "expected_account_id"
+        ],
+        authority_expected_principal_digest=profiles["authority"][
+            "expected_principal_digest"
+        ],
+        authority_expected_sso_role_name_digest=profiles["authority"][
+            "expected_sso_role_name_digest"
+        ],
+        identity_expected_account_id=profiles["identity_center"][
+            "expected_account_id"
+        ],
+        identity_expected_principal_digest=profiles["identity_center"][
+            "expected_principal_digest"
+        ],
+        identity_expected_sso_role_name_digest=profiles["identity_center"][
+            "expected_sso_role_name_digest"
+        ],
+        authority_verification_digest=profiles["authority"][
+            "authority_verification_digest"
+        ],
+        identity_authority_verification_digest=profiles["identity_center"][
+            "authority_verification_digest"
+        ],
+        discovery_budget=budget,
+        execution_capability=capability,
+    )
+    proposal = executor.execute_private_input_discovery(
+        provider_factory=provider,
+        execution_capability=capability,
+        private_root=args.private_root,
+        now=now,
+    )
+    return proposal.public_receipt
+
+
+def _materialize_discovery_decision(
+    args: argparse.Namespace,
+    *,
+    repository_bundle: _ReviewedRepositoryModules,
+) -> dict[str, Any]:
+    source_identity, modules = _validated_repository_bundle(
+        repository_bundle, _DISCOVERY_OFFLINE_MODULES
+    )
+    authority = modules[_DISCOVERY_OFFLINE_MODULES[1]]
+    discovery = modules[_DISCOVERY_OFFLINE_MODULES[2]]
+    now = datetime.now(UTC).replace(microsecond=0)
+    decision = discovery.materialize_owner_decision(
+        private_root=args.private_root,
+        source_commit_sha=source_identity[0],
+        source_tree_sha=source_identity[1],
+        candidate=authority.read_private_json(
+            args.private_root, discovery.DEFAULT_PROPOSAL_FILE
+        ),
+        expected_proposal_digest=_checked_digest(
+            args.expected_proposal_digest
+        ),
+        approval_reference_digest=_checked_digest(
+            args.approval_reference_digest
+        ),
+        now=now,
+        expires_at=_cli_timestamp(args.expires_at),
+    )
+    discovery.persist_owner_decision(
+        args.private_root,
+        decision,
+    )
+    return {
+        "record_type": (
+            "scanalyze.platform_authority.gug393_discovery_"
+            "owner_decision_result.v1"
+        ),
+        "status": "PRIVATE_OWNER_DECISION_MATERIALIZED",
+        "proposal_digest": decision["proposal_digest"],
+        "decision_digest": decision["decision_digest"],
+        "approval_reference_digest": decision["approval_reference_digest"],
+        "read_only": True,
+        "aws_calls": 0,
+        "aws_mutations": 0,
+        "deployment_authorized": False,
+        "production_status": "NO-GO",
+    }
+
+
+def _materialize_approved_inputs(
+    args: argparse.Namespace,
+    *,
+    repository_bundle: _ReviewedRepositoryModules,
+) -> dict[str, Any]:
+    source_identity, modules = _validated_repository_bundle(
+        repository_bundle, _DISCOVERY_OFFLINE_MODULES
+    )
+    authority = modules[_DISCOVERY_OFFLINE_MODULES[1]]
+    discovery = modules[_DISCOVERY_OFFLINE_MODULES[2]]
+    read_private_json = authority.read_private_json
+    materialization = discovery.materialize_approved_gug392_inputs(
+        private_root=args.private_root,
+        source_commit_sha=source_identity[0],
+        source_tree_sha=source_identity[1],
+        candidate=read_private_json(
+            args.private_root, discovery.DEFAULT_PROPOSAL_FILE
+        ),
+        decision=read_private_json(
+            args.private_root, discovery.DEFAULT_DECISION_FILE
+        ),
+        expected_proposal_digest=_checked_digest(
+            args.expected_proposal_digest
+        ),
+        expected_decision_digest=_checked_digest(
+            args.expected_decision_digest
+        ),
+        now=datetime.now(UTC).replace(microsecond=0),
+    )
+    discovery.persist_approved_gug392_inputs(
+        args.private_root, materialization
+    )
+    manifest = materialization.manifest
+    return {
+        "record_type": (
+            "scanalyze.platform_authority.gug393_private_input_"
+            "materialization_result.v1"
+        ),
+        "status": "APPROVED_GUG392_INPUTS_MATERIALIZED",
+        "proposal_digest": manifest["proposal_digest"],
+        "decision_digest": manifest["decision_digest"],
+        "manifest_digest": manifest["manifest_digest"],
+        "authority_plan_digest": manifest["artifact_digests"][
+            discovery.DEFAULT_AUTHORITY_PLAN_FILE
+        ],
+        "identity_center_plan_digest": manifest["artifact_digests"][
+            discovery.DEFAULT_IDENTITY_PLAN_FILE
+        ],
+        "read_only": True,
+        "aws_calls": 0,
+        "aws_mutations": 0,
+        "deployment_authorized": False,
+        "production_status": "NO-GO",
+    }
+
+
 def _reviewed_command_bundle(
     module_names: tuple[str, ...],
 ) -> _ReviewedRepositoryModules:
@@ -1134,6 +1483,42 @@ def main(argv: list[str] | None = None) -> int:
                 args,
                 repository_bundle=_reviewed_command_bundle(_LIVE_MODULES),
             )
+        elif args.command == "materialize-discovery-request":
+            result = _materialize_discovery_request(
+                args,
+                repository_bundle=_reviewed_command_bundle(
+                    _DISCOVERY_OFFLINE_MODULES
+                ),
+            )
+        elif args.command == "discover-inputs":
+            result = _discover_inputs(
+                args,
+                repository_bundle=_reviewed_command_bundle(
+                    _DISCOVERY_LIVE_MODULES
+                ),
+            )
+        elif args.command == "materialize-discovery-decision":
+            result = _materialize_discovery_decision(
+                args,
+                repository_bundle=_reviewed_command_bundle(
+                    _DISCOVERY_OFFLINE_MODULES
+                ),
+            )
+        elif args.command == "materialize-approved-inputs":
+            result = _materialize_approved_inputs(
+                args,
+                repository_bundle=_reviewed_command_bundle(
+                    _DISCOVERY_OFFLINE_MODULES
+                ),
+            )
+        elif args.command == "validate-discovery-receipt":
+            _, modules = _validated_repository_bundle(
+                _reviewed_command_bundle(_DISCOVERY_OFFLINE_MODULES),
+                _DISCOVERY_OFFLINE_MODULES,
+            )
+            result = modules[
+                _DISCOVERY_OFFLINE_MODULES[2]
+            ].validate_public_discovery_receipt(_read_public(args.input))
         else:
             _, modules = _validated_repository_bundle(
                 _reviewed_command_bundle(_VALIDATE_MODULES),

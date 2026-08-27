@@ -235,6 +235,194 @@ relationships and tags; Lambda configuration/runtime/concurrency/version/tag
 state; log-group controls/tags; and DynamoDB table/PITR/TTL/policy/tag/count
 state must match their exact projections. Stable drift remains no-touch.
 
+## GUG-393 — materialize the missing GUG-392 inputs
+
+Use this lane only after the exact merged `origin/main` commit/tree has been
+fetched and the checkout is clean. It is a non-production read-only preflight,
+not a shortcut to deployment. Do not use any administrator, bootstrap, seed,
+deploy, destroy, default, chained, or production-write profile.
+
+Use the reviewed `GUG392_PYTHON` runtime prepared by the GUG-392 prerequisite
+runbook. It must report exactly Python 3.11.14. Every operational invocation
+below deliberately disables Python path overrides and starts in isolated,
+no-site mode.
+
+Create one local directory outside Git, worktrees, synced/File Provider paths,
+and repository roots. Set the directory to 0700 and every prepared JSON input
+to 0600. Set `umask 077` and `set -o noclobber` before creating any final
+artifact. Prepare these three owner-private files from the exact field maps:
+
+- the [source-bundle template](platform-authority-gug393-source-bundle.example.json),
+  replacing both empty plan objects with the complete GUG-363 and GUG-365
+  plans and replacing the application name/provider ARN/KMS key before sealing
+  its self-digest;
+- the [profile-bindings template](platform-authority-gug393-profile-bindings.example.json),
+  replacing both direct-SSO profile names, accounts, expected STS principals,
+  expected SSO role names, and authority-verification digests; and
+- the [global-budget template](platform-authority-gug393-discovery-budget.example.json),
+  replacing every illustrative USD value, pricing-reference digest and window
+  with an owner-reviewed model. The selected call/page/byte ceilings may be
+  lower than, but never exceed, the template's hard ceilings.
+
+The templates are deliberately non-runnable: their replacement markers,
+placeholder accounts, empty plans and zero digests fail closed. Never modify a
+template in the repository. Prepare a private candidate and seal the final
+source bundle create-only. This recipe uses the same canonical JSON encoding as
+the materializer and prints no private content:
+
+```console
+GUG393_SOURCE_CANDIDATE=/absolute/private/root/source-bundle.candidate.json
+GUG393_SOURCE_BUNDLE=/absolute/private/root/source-bundle.json
+test ! -e "$GUG393_SOURCE_BUNDLE"
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  GUG393_SOURCE_CANDIDATE="$GUG393_SOURCE_CANDIDATE" \
+  GUG393_SOURCE_BUNDLE="$GUG393_SOURCE_BUNDLE" \
+  "$GUG392_PYTHON" -I -S -c 'import hashlib,json,os; from pathlib import Path; source=Path(os.environ["GUG393_SOURCE_CANDIDATE"]); target=Path(os.environ["GUG393_SOURCE_BUNDLE"]); value=json.loads(source.read_text(encoding="utf-8")); value.pop("source_bundle_digest",None); encoded=json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("utf-8"); value["source_bundle_digest"]="sha256:"+hashlib.sha256(encoded).hexdigest(); payload=(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False)+"\n").encode("utf-8"); fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600); stream=os.fdopen(fd,"wb"); stream.write(payload); stream.flush(); os.fsync(stream.fileno()); stream.close()'
+```
+
+Record a digest-only custody readback for all three final inputs. These three
+file digests prove local canonical integrity only; they are not aliases for
+the derived `source_contract_digest`, transformed `profile_binding_digest`, or
+validated `budget_digest` later sealed in the request/checkpoint:
+
+```console
+for GUG393_INPUT_BASENAME in \
+  source-bundle.json profile-bindings.json discovery-budget.json
+do
+  env -u PYTHONPATH -u PYTHONHOME \
+    -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+    GUG393_INPUT_FILE="/absolute/private/root/$GUG393_INPUT_BASENAME" \
+    "$GUG392_PYTHON" -I -S -c 'import hashlib,json,os; from pathlib import Path; path=Path(os.environ["GUG393_INPUT_FILE"]); value=json.loads(path.read_text(encoding="utf-8")); encoded=json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("utf-8"); print(path.name+" sha256:"+hashlib.sha256(encoded).hexdigest())'
+done
+unset GUG393_INPUT_BASENAME GUG393_INPUT_FILE
+```
+
+First materialize the request and checkpoint offline. Replace every bracketed
+token locally; do not paste private values into logs or issue comments.
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG392_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug392-live-provider.py \
+  materialize-discovery-request \
+  --private-root /absolute/private/root \
+  --source-bundle-file source-bundle.json \
+  --profile-bindings-file profile-bindings.json \
+  --budget-file discovery-budget.json \
+  --sdk-runtime-root /absolute/reviewed-sdk-target \
+  --not-before 2099-01-01T00:00:00Z \
+  --expires-at 2099-01-01T00:15:00Z \
+  --approval-reference-digest sha256:REDACTED
+```
+
+The illustrative future timestamps and redacted digest above are not valid
+runtime substitutions. The owner must review the real source-contract,
+request, checkpoint, profile-binding, and budget digests. Only then run the
+connected preflight with the exact independently delivered values:
+
+```console
+GUG393_DISCOVERY_RECEIPT=/absolute/private/root/gug393-discovery-receipt.json
+test ! -e "$GUG393_DISCOVERY_RECEIPT"
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG392_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug392-live-provider.py \
+  discover-inputs \
+  --private-root /absolute/private/root \
+  --expected-request-digest sha256:REDACTED \
+  --expected-checkpoint-digest sha256:REDACTED \
+  --approval-reference-digest sha256:REDACTED \
+  > "$GUG393_DISCOVERY_RECEIPT"
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG392_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug392-live-provider.py \
+  validate-discovery-receipt "$GUG393_DISCOVERY_RECEIPT"
+```
+
+This command claims the request once, rechecks the host/source/private-root/
+SDK/window/budget bindings, and then constructs the connected provider. It
+also proves every fixed proposal, decision, GUG-392 input/plan, snapshot, and
+manifest target absent before the claim or any provider call. A custom request
+or checkpoint filename cannot reuse any reserved lifecycle output name. It
+counts actual SSO credential-vending attempts plus every closed inventory API
+call in one atomic budget. Each session performs STS first. Authority uses two
+sessions. Identity Center absence uses two sessions; exact state uses two
+discovery/exact session pairs. All snapshots and the proposal remain private.
+Only the digest-only receipt is captured; the second command reconstructively
+validates its seal and closed no-mutation/no-production fields before owner
+review.
+
+Every session is one-shot and exact-policy bound. The Identity exact stage is
+opened only after the same capture's concrete discovery reader attests the
+successful STS/discovery transcript and normalized discovery result; targets
+are recomputed from that attested result. A free-form target mapping or an
+unexecuted discovery authorization cannot authorize an exact session.
+
+Both post-discovery commands enforce the same full private provenance chain.
+They reread the fixed canonical proposal, original request/checkpoint, fixed
+claim, and the two canonical snapshots for each domain; validate the exact
+root, host, source, profile, policy, budget, window, and artifact digests; and
+reconstruct the complete proposal using its recorded creation time. The
+reconstruction must equal the persisted proposal value-for-value before an
+owner decision or GUG-392 materialization is accepted. The claim timestamp
+must be no later than every snapshot identity observation, and the latest
+observation must be no later than proposal creation. A missing artifact,
+alternate filename, self-resealed proposal, or proposal recomputed from
+altered profile/principal inputs stops without producing downstream files.
+
+If the receipt is `READY_FOR_OWNER_DECISION`, obtain a new approval that names
+the exact proposal digest within 15 minutes of proposal creation. Seal that
+decision separately. Its approval and expiry timestamps establish the fresh
+maximum 15-minute window that will be written into both GUG-392 plans; it does
+not reopen or extend the completed discovery authorization:
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG392_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug392-live-provider.py \
+  materialize-discovery-decision \
+  --private-root /absolute/private/root \
+  --expected-proposal-digest sha256:REDACTED \
+  --approval-reference-digest sha256:REDACTED \
+  --expires-at 2099-01-01T00:15:00Z
+```
+
+Finally, provide both exact digests to materialize the two GUG-392 inputs and
+their recomputed closed plans. The existing decision file is verified and is
+never overwritten; the manifest is written last as the commit marker. The
+proposal, decision, four GUG-392 artifacts, and manifest have fixed canonical
+filenames, and the CLI intentionally exposes no filename override for this
+one-shot transition. Run both post-discovery commands on the same operational
+host, private root, and exact merged source commit/tree that created the
+proposal; any host or `origin/main` drift fails closed and requires a new
+request.
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG392_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug392-live-provider.py \
+  materialize-approved-inputs \
+  --private-root /absolute/private/root \
+  --expected-proposal-digest sha256:REDACTED \
+  --expected-decision-digest sha256:REDACTED
+```
+
+Any denial, timeout, malformed or repeated page token, budget limit, unstable
+pair, partial state, collision, expired approval, readback mismatch, or
+existing output is terminal for that request. Preserve the private artifacts
+and start a fresh owner-reviewed request; never remove a claim to retry.
+
+The resulting plans still require the separate GUG-392 request/checkpoint and
+live read-only execution. A green repository check, GUG-393 receipt, GUG-392
+receipt, or merged PR does not satisfy staging or production. GUG-127 must
+certify staging first; GUG-128 requires its own independent production pilot
+approval. Until then: `AWS_MUTATIONS=0`, `NOT_DEPLOYED`, `PRODUCTION_NO_GO`.
+
 ### One phase per process
 
 `execute-phase` accepts exactly one named phase. It creates one fresh

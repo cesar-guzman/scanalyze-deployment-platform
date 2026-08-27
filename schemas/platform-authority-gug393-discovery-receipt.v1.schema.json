@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug393-discovery-receipt.v1.schema.json",
+  "title": "GUG-393 sanitized private-input discovery receipt",
+  "description": "Digest-only public evidence for one bounded dual-domain read-only discovery. It never authorizes deployment, staging, production, mutation, or two-human separation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "status",
+    "classification",
+    "source_commit_sha",
+    "source_tree_sha",
+    "source_contract_digest",
+    "proposal_digest",
+    "budget_digest",
+    "network_calls",
+    "provider_calls",
+    "credential_vending_calls",
+    "page_calls",
+    "projected_response_bytes",
+    "modeled_cost_usd_upper",
+    "cost_status",
+    "transcript_digest",
+    "missing_input_categories",
+    "live_provider_evidence",
+    "read_only",
+    "aws_calls",
+    "aws_mutations",
+    "deployment_authorized",
+    "two_human_status",
+    "independent_approval_present",
+    "production_status",
+    "receipt_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug393_discovery_receipt.v1"
+    },
+    "status": { "const": "READY_FOR_OWNER_DECISION" },
+    "classification": {
+      "enum": ["ABSENT_READY", "EXACT_PRESENT_NO_TOUCH"]
+    },
+    "source_commit_sha": { "$ref": "#/$defs/gitSha" },
+    "source_tree_sha": { "$ref": "#/$defs/gitSha" },
+    "source_contract_digest": { "$ref": "#/$defs/digest" },
+    "proposal_digest": { "$ref": "#/$defs/digest" },
+    "budget_digest": { "$ref": "#/$defs/digest" },
+    "network_calls": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5006
+    },
+    "provider_calls": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "credential_vending_calls": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 6
+    },
+    "page_calls": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4300
+    },
+    "projected_response_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 33554432
+    },
+    "modeled_cost_usd_upper": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{9}$"
+    },
+    "cost_status": { "const": "COST_WITHIN_BOUND" },
+    "transcript_digest": { "$ref": "#/$defs/digest" },
+    "missing_input_categories": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "live_provider_evidence": { "const": true },
+    "read_only": { "const": true },
+    "aws_calls": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "aws_mutations": { "const": 0 },
+    "deployment_authorized": { "const": false },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$"
+    }
+  }
+}

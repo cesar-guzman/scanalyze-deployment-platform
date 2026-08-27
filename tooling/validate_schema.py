@@ -21,6 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_GUG393_DISCOVERY_RECEIPT_MAXIMUMS = (
+    ("provider_calls", 5_000),
+    ("credential_vending_calls", 6),
+    ("network_calls", 5_006),
+    ("page_calls", 4_300),
+    ("projected_response_bytes", 33_554_432),
+)
+
 try:
     import jsonschema
     from jsonschema import Draft202012Validator, FormatChecker, ValidationError
@@ -110,6 +118,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         ),
         "platform-authority-gug390-live-run": (
             "platform-authority-gug390-live-run.v{version}.schema.json"
+        ),
+        "platform-authority-gug393-discovery-receipt": (
+            "platform-authority-gug393-discovery-receipt.v{version}.schema.json"
         ),
         "platform-authority-gug376-live-readonly-run": (
             "platform-authority-gug376-live-readonly-run.v{version}.schema.json"
@@ -3630,6 +3641,31 @@ def _validate_gug390_live_run(instance: dict) -> list[str]:
     return errors
 
 
+def _validate_gug393_discovery_receipt(instance: dict) -> list[str]:
+    """Apply the exact public receipt seal and counter invariants."""
+
+    errors = [
+        f"GUG-393 {field} must not exceed {maximum}"
+        for field, maximum in _GUG393_DISCOVERY_RECEIPT_MAXIMUMS
+        if type(instance.get(field)) is int and instance[field] > maximum
+    ]
+    if errors:
+        return errors
+
+    try:
+        from tooling.platform_authority_gug393_private_input_discovery import (
+            PrivateInputDiscoveryError,
+            validate_public_discovery_receipt,
+        )
+    except ImportError as exc:
+        return errors + [f"GUG-393 discovery receipt validator unavailable: {exc}"]
+    try:
+        validate_public_discovery_receipt(instance)
+    except PrivateInputDiscoveryError as exc:
+        errors.append(f"GUG-393 discovery receipt contract invalid: {exc.code}")
+    return errors
+
+
 def _validate_gug392_live_record(instance: dict, *, handoff: bool) -> list[str]:
     """Apply the runtime v2 seal, policy and call-count invariants."""
 
@@ -4139,6 +4175,9 @@ def validate_semantics(
 
     if schema_name == "platform-authority-gug390-live-run.v1.schema.json":
         errors.extend(_validate_gug390_live_run(instance))
+
+    if schema_name == "platform-authority-gug393-discovery-receipt.v1.schema.json":
+        errors.extend(_validate_gug393_discovery_receipt(instance))
 
     if schema_name == "platform-authority-gug376-live-readonly-run.v2.schema.json":
         errors.extend(_validate_gug392_live_record(instance, handoff=False))
