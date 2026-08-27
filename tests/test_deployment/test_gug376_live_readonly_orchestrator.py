@@ -6,6 +6,7 @@ import os
 import socket
 import stat
 import subprocess
+import sys
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,33 @@ AUTH_ACCOUNT, IDENTITY_ACCOUNT = "111122223333", "444455556666"
 SOURCE_SHA, TREE_SHA = "1" * 40, "2" * 40
 VALID = ROOT / "fixtures/valid/platform-authority-gug376-live-readonly-handoff-v1-synthetic.json"
 INVALID = ROOT / "fixtures/invalid/platform-authority-gug376-live-readonly-handoff-v1-overclaim.json"
+
+
+def test_legacy_import_does_not_read_the_gug392_live_supplement() -> None:
+    code = r'''
+from pathlib import Path
+
+original = Path.read_bytes
+
+def guarded_read(path):
+    if path.name == "platform-authority-gug392-identity-center-discovery-read-only.json":
+        raise AssertionError("legacy import read the GUG-392 supplement")
+    return original(path)
+
+Path.read_bytes = guarded_read
+import tooling.platform_authority_gug376_live_readonly_orchestrator as legacy
+assert legacy._closed_policy() == legacy._CLOSED_POLICY
+assert legacy.POLICY_DIGEST.startswith("sha256:")
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def _d(seed: str) -> str:
@@ -111,15 +139,19 @@ class _Actor:
         if operation != "sts:GetCallerIdentity" and self.owner.fault == "unapproved": requested = "iam:DeleteRole"
         if operation != "sts:GetCallerIdentity" and self.owner.fault == "retry": retries = 1
         self.owner.attempts.append((self.domain, self.capture, self.stage, requested))
-        ticket = self.ledger.authorize(domain=self.domain, session_digest=self.session, operation=requested, retries=retries, request={"capture": self.capture, "stage": self.stage}, page_token=token)
+        call_stamp = (START + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+        live_time = {"started_at": call_stamp} if self.ledger.mode == "ATTESTED_LIVE" else {}
+        ticket = self.ledger.authorize(domain=self.domain, session_digest=self.session, operation=requested, retries=retries, request={"capture": self.capture, "stage": self.stage}, page_token=token, **live_time)
         broken = self.domain == "authority" and self.capture == 1 and operation == AUTHORITY_OPERATIONS["s3"] and self.owner.fault in {"partial", "ambiguous"}
         if broken:
-            self.ledger.complete(ticket, _d("provider-error"), outcome="ERROR"); self.owner.completed += 1
+            completed = {"completed_at": call_stamp} if self.ledger.mode == "ATTESTED_LIVE" else {}
+            self.ledger.complete(ticket, _d("provider-error"), outcome="ERROR", **completed); self.owner.completed += 1
             if self.owner.fault == "partial": raise TimeoutError("synthetic-provider-error")
             return {"items": [], "next_cursor": None, "truncated": True}
         next_token = response.get("next_cursor", response.get("next_token")) if isinstance(response, Mapping) else None
         truncated = bool(response.get("truncated")) if isinstance(response, Mapping) else False
-        self.ledger.complete(ticket, _d(f"{self.domain}-{self.capture}-{self.stage}-{operation}-{token}"), complete=next_token is None, truncated=truncated, next_token=next_token)
+        completed = {"completed_at": call_stamp} if self.ledger.mode == "ATTESTED_LIVE" else {}
+        self.ledger.complete(ticket, _d(f"{self.domain}-{self.capture}-{self.stage}-{operation}-{token}"), complete=next_token is None, truncated=truncated, next_token=next_token, **completed)
         self.owner.completed += 1; return response
 
 
@@ -233,6 +265,24 @@ def test_local_preflight_gates_stop_before_provider(tmp_path: Path, monkeypatch:
     else: monkeypatch.setenv("AWS_ENDPOINT_URL", "https://synthetic.invalid")
     root, factory = _root(tmp_path), FakeProvider(config)
     with pytest.raises(live.OrchestratorError, match=code): live.execute(config, factory, private_root=root, now=now, actual_source_commit_sha=commit, actual_source_tree_sha=tree)
+    assert factory.builds == [] and factory.attempts == []
+
+
+def test_v1_preflight_rejects_live_only_sdk_runtime_root(tmp_path: Path) -> None:
+    config = _config()
+    config["sdk_runtime_root"] = "/private/tmp/gug392-live-only-runtime"
+    root, factory = _root(tmp_path), FakeProvider(config)
+
+    with pytest.raises(live.OrchestratorError, match="EXPLICIT_OPT_IN_REQUIRED"):
+        live.execute(
+            config,
+            factory,
+            private_root=root,
+            now=NOW,
+            actual_source_commit_sha=SOURCE_SHA,
+            actual_source_tree_sha=TREE_SHA,
+        )
+
     assert factory.builds == [] and factory.attempts == []
 
 

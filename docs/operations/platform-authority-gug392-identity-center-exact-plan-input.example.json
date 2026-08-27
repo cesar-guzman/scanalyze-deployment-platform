@@ -1,0 +1,281 @@
+{
+  "authority_verification_digest": "sha256:38b29fd51a91f427f67ad342c0d2eda4e8449732800fdf531d9180f67efd59ed",
+  "expected_account_id": "444455556666",
+  "expected_principal_arn": "arn:aws:sts::444455556666:assumed-role/SyntheticIdentity/operator",
+  "expected_state": {
+    "classification": "EXACT_PRESENT_NO_TOUCH",
+    "facts": {
+      "application": {
+        "actor_policy": {
+          "policy_digest": "sha256:067d6dc5bd822a70ba6cd95db8d2a7a854b72ecf9e90b26b58c0de2d933eabc0"
+        },
+        "application_arn": "arn:aws:sso::444455556666:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+        "assignment_configuration": {
+          "AssignmentRequired": true
+        },
+        "assignments": [
+          {
+            "application_arn": "arn:aws:sso::444455556666:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+            "principal_id": "sha256:1fc121471b257538840b8648de4c987764b9c14e323e9c467b095a1c1a239e2d",
+            "principal_type": "USER"
+          }
+        ],
+        "authentication_methods": [
+          {
+            "AuthenticationMethod": {
+              "Iam": {
+                "ActorPolicy": {
+                  "policy_digest": "sha256:067d6dc5bd822a70ba6cd95db8d2a7a854b72ecf9e90b26b58c0de2d933eabc0"
+                }
+              }
+            }
+          }
+        ],
+        "description": {
+          "ApplicationAccount": "444455556666",
+          "ApplicationArn": "arn:aws:sso::444455556666:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+          "ApplicationProviderArn": "arn:aws:sso::aws:applicationProvider/custom",
+          "CreatedDate": "2026-08-26T17:55:00Z",
+          "CreatedFrom": "us-east-1",
+          "DescriptionDigest": "sha256:1ce2ca2908ac37e074859fde017b34719f2c02356433152cd14e32b7888aaf06",
+          "InstanceArn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+          "NameDigest": "sha256:273a7e77ba11b3f8307e094b522adaf851b80e0cb21249686735d3e214f252bb",
+          "PortalOptionsDigest": "sha256:9d88178efc46b3b430a8b88f026f22229c21ac54d6450c4ccd2e4c7ea63528db",
+          "Status": "ENABLED"
+        },
+        "grants": [
+          "authorization_code"
+        ],
+        "redirect_uris": [
+          {
+            "loopback_pkce": true,
+            "uri_digest": "sha256:11c6b31a760606595c6bbdbd42b466e3fa986de7b8fa7cad3ea1bbb22322c8b0"
+          }
+        ],
+        "scopes": [
+          {
+            "authorized_targets_digest": "sha256:ed394ab2d61960b484ea7f1690ba96504d913061ce9634053eaa0a172de98241",
+            "scope": "sts:identity_context"
+          }
+        ],
+        "tags": [
+          {
+            "key_digest": "sha256:023c6b3cf949ac2aed2301766830cfe7954dc5f305141d8d87c564cc6eb749d0",
+            "value_digest": "sha256:1716d9d1bbab0aaa8d8b77a7c182ebcf9569ca7951f4c947f3c682fa6fb61a27"
+          },
+          {
+            "key_digest": "sha256:3e9b10a4431746317edc4ca1ac711ea80956f15927b5e89b88a4120106da0e74",
+            "value_digest": "sha256:6ca25d0b11acc566fab68158b095ccca0b6f503a7a23e101a2e7ae158a4dac56"
+          },
+          {
+            "key_digest": "sha256:77c14283c58bbf3de1ec75e1c4d5544522fe0438c0869f4ffd6a7ef091da4838",
+            "value_digest": "sha256:adfeeabbfed50354c115aee7397289732b43d80b2b68949085755422350681c6"
+          },
+          {
+            "key_digest": "sha256:80be2eb0944c0453a6ad339a56e1c8f39f8cc57a4e627758246ccfd274176fd8",
+            "value_digest": "sha256:076de6e730df0b4c3860877a0f619c6ac11f8aefd78313ac793a2a703c026869"
+          },
+          {
+            "key_digest": "sha256:ed411849974b17f43347f1dc01a171a5a9eabdb0d722af7102efa45edfbfe8bb",
+            "value_digest": "sha256:d75b04685597543f927bdf4b8072b4fc86dd11cef9643b04f1f6760c9700b396"
+          }
+        ]
+      },
+      "assignments": {
+        "ScanalyzeAuthorityRetireApprove": [
+          {
+            "account_arn": "arn:aws:sso:::account/111122223333",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890",
+            "principal_id": "sha256:1fc121471b257538840b8648de4c987764b9c14e323e9c467b095a1c1a239e2d",
+            "principal_type": "USER"
+          }
+        ],
+        "ScanalyzeAuthorityRetireClass": [
+          {
+            "account_arn": "arn:aws:sso:::account/111122223333",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789",
+            "principal_id": "sha256:1fc121471b257538840b8648de4c987764b9c14e323e9c467b095a1c1a239e2d",
+            "principal_type": "USER"
+          }
+        ]
+      },
+      "discovery": {
+        "applications": [
+          {
+            "application_arn": "arn:aws:sso::444455556666:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+            "name": "SyntheticAuthority"
+          }
+        ],
+        "instances": [
+          {
+            "identity_store_id": "d-1234567890",
+            "instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+            "owner_account_id": "444455556666",
+            "status": "ACTIVE"
+          }
+        ],
+        "permission_sets": [
+          {
+            "name": "ScanalyzeAuthorityRetireApprove",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890"
+          },
+          {
+            "name": "ScanalyzeAuthorityRetireClass",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789"
+          }
+        ]
+      },
+      "instance": {
+        "encryption": {
+          "key_type": "CUSTOMER_MANAGED_KEY",
+          "kms_key_arn": "arn:aws:kms:us-east-1:444455556666:key/22222222-2222-2222-2222-222222222222",
+          "status": "ENABLED"
+        },
+        "identity_store_id": "d-1234567890",
+        "instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+        "owner_account_id": "444455556666",
+        "status": "ACTIVE"
+      },
+      "operator": {
+        "UserId": "12345678-1234-1234-1234-123456789012"
+      },
+      "permission_sets": {
+        "ScanalyzeAuthorityRetireApprove": {
+          "boundary": null,
+          "customer_managed_policies": [],
+          "description": {
+            "PermissionSet": {
+              "CreatedDate": "2026-08-26T17:55:00Z",
+              "DescriptionDigest": "sha256:5e0038d0dc9867f8e1402a09049a6bbae803ab601edd7328f6fc1c78dd2c6f38",
+              "Name": "ScanalyzeAuthorityRetireApprove",
+              "PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890",
+              "SessionDuration": "PT1H"
+            }
+          },
+          "inline_policy": {
+            "policy_digest": "sha256:c0b0b7be45abd3dd6c0f64112e1db78a9a957748108bc7266eef5be2c3a3476f"
+          },
+          "instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+          "managed_policies": [],
+          "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890",
+          "tags": [
+            {
+              "key_digest": "sha256:023c6b3cf949ac2aed2301766830cfe7954dc5f305141d8d87c564cc6eb749d0",
+              "value_digest": "sha256:1716d9d1bbab0aaa8d8b77a7c182ebcf9569ca7951f4c947f3c682fa6fb61a27"
+            },
+            {
+              "key_digest": "sha256:3e9b10a4431746317edc4ca1ac711ea80956f15927b5e89b88a4120106da0e74",
+              "value_digest": "sha256:6ca25d0b11acc566fab68158b095ccca0b6f503a7a23e101a2e7ae158a4dac56"
+            },
+            {
+              "key_digest": "sha256:77c14283c58bbf3de1ec75e1c4d5544522fe0438c0869f4ffd6a7ef091da4838",
+              "value_digest": "sha256:adfeeabbfed50354c115aee7397289732b43d80b2b68949085755422350681c6"
+            },
+            {
+              "key_digest": "sha256:80be2eb0944c0453a6ad339a56e1c8f39f8cc57a4e627758246ccfd274176fd8",
+              "value_digest": "sha256:076de6e730df0b4c3860877a0f619c6ac11f8aefd78313ac793a2a703c026869"
+            },
+            {
+              "key_digest": "sha256:ed411849974b17f43347f1dc01a171a5a9eabdb0d722af7102efa45edfbfe8bb",
+              "value_digest": "sha256:d75b04685597543f927bdf4b8072b4fc86dd11cef9643b04f1f6760c9700b396"
+            }
+          ]
+        },
+        "ScanalyzeAuthorityRetireClass": {
+          "boundary": null,
+          "customer_managed_policies": [],
+          "description": {
+            "PermissionSet": {
+              "CreatedDate": "2026-08-26T17:55:00Z",
+              "DescriptionDigest": "sha256:b05e9477d739c106c40ea6be91dccb7f36bfa90f93519e5bef120f8df9cc9470",
+              "Name": "ScanalyzeAuthorityRetireClass",
+              "PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789",
+              "SessionDuration": "PT1H"
+            }
+          },
+          "inline_policy": {
+            "policy_digest": "sha256:ab5ba2e892410bacbfdea10c57b74e760ca0f0d6170165b2d6f0da8e786004b9"
+          },
+          "instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+          "managed_policies": [],
+          "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789",
+          "tags": [
+            {
+              "key_digest": "sha256:023c6b3cf949ac2aed2301766830cfe7954dc5f305141d8d87c564cc6eb749d0",
+              "value_digest": "sha256:1716d9d1bbab0aaa8d8b77a7c182ebcf9569ca7951f4c947f3c682fa6fb61a27"
+            },
+            {
+              "key_digest": "sha256:3e9b10a4431746317edc4ca1ac711ea80956f15927b5e89b88a4120106da0e74",
+              "value_digest": "sha256:6ca25d0b11acc566fab68158b095ccca0b6f503a7a23e101a2e7ae158a4dac56"
+            },
+            {
+              "key_digest": "sha256:77c14283c58bbf3de1ec75e1c4d5544522fe0438c0869f4ffd6a7ef091da4838",
+              "value_digest": "sha256:adfeeabbfed50354c115aee7397289732b43d80b2b68949085755422350681c6"
+            },
+            {
+              "key_digest": "sha256:80be2eb0944c0453a6ad339a56e1c8f39f8cc57a4e627758246ccfd274176fd8",
+              "value_digest": "sha256:076de6e730df0b4c3860877a0f619c6ac11f8aefd78313ac793a2a703c026869"
+            },
+            {
+              "key_digest": "sha256:ed411849974b17f43347f1dc01a171a5a9eabdb0d722af7102efa45edfbfe8bb",
+              "value_digest": "sha256:d75b04685597543f927bdf4b8072b4fc86dd11cef9643b04f1f6760c9700b396"
+            }
+          ]
+        }
+      },
+      "provisioning": {
+        "ScanalyzeAuthorityRetireApprove": [
+          {
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890",
+            "status": "SUCCEEDED"
+          }
+        ],
+        "ScanalyzeAuthorityRetireClass": [
+          {
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789",
+            "status": "SUCCEEDED"
+          }
+        ]
+      },
+      "target_accounts": {
+        "ScanalyzeAuthorityRetireApprove": [
+          {
+            "account_arn": "arn:aws:sso:::account/111122223333",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890"
+          }
+        ],
+        "ScanalyzeAuthorityRetireClass": [
+          {
+            "account_arn": "arn:aws:sso:::account/111122223333",
+            "permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789"
+          }
+        ]
+      }
+    },
+    "targets": {
+      "approved_single_operator_user_arn": "arn:aws:identitystore:::user/d-1234567890/12345678-1234-1234-1234-123456789012",
+      "authority_account_arn": "arn:aws:sso:::account/111122223333",
+      "identity_center_application_arn": "arn:aws:sso::444455556666:application/ssoins-1234567890abcdef/apl-1234567890abcdef",
+      "identity_center_instance_arn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+      "identity_center_kms_key_arn": "arn:aws:kms:us-east-1:444455556666:key/22222222-2222-2222-2222-222222222222",
+      "identity_store_arn": "arn:aws:identitystore:::identitystore/d-1234567890",
+      "management_account_id": "444455556666",
+      "retire_approve_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-approve1234567890",
+      "retire_class_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-classify123456789"
+    }
+  },
+  "not_after": "2026-08-26T18:30:00Z",
+  "not_before": "2026-08-26T18:00:00Z",
+  "private_targets": {
+    "application_actor_policy_digest": "sha256:067d6dc5bd822a70ba6cd95db8d2a7a854b72ecf9e90b26b58c0de2d933eabc0",
+    "application_name": "SyntheticAuthority",
+    "application_provider_arn": "arn:aws:sso::aws:applicationProvider/custom",
+    "application_redirect_uri": "http://127.0.0.1:18443/callback",
+    "approved_single_operator_user_arn": "arn:aws:identitystore:::user/d-1234567890/12345678-1234-1234-1234-123456789012",
+    "approved_user_id": "12345678-1234-1234-1234-123456789012",
+    "authority_account_arn": "arn:aws:sso:::account/111122223333",
+    "identity_center_kms_key_arn": "arn:aws:kms:us-east-1:444455556666:key/22222222-2222-2222-2222-222222222222",
+    "identity_store_arn": "arn:aws:identitystore:::identitystore/d-1234567890",
+    "identity_store_id": "d-1234567890"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DiscoverPermissionSetNames",
+      "Effect": "Allow",
+      "Action": "sso:DescribePermissionSet",
+      "Resource": [
+        "arn:aws:sso:::instance/*",
+        "arn:aws:sso:::permissionSet/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DecryptDiscoveryMetadataThroughIdentityCenter",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${identity_center_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "kms:CallerAccount": "${management_account_id}",
+          "kms:ViaService": "sso.us-east-1.amazonaws.com"
+        },
+        "StringLike": {
+          "kms:EncryptionContext:aws:sso:instance-arn": "arn:aws:sso:::instance/ssoins-*"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    }
+  ]
+}

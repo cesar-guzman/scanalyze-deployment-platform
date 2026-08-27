@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -33,7 +33,8 @@ help:
 	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
 	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
 	@echo "  make platform-authority-gug390-live-provider-check Validate the GUG-390 provider/executor contract in an AWS-free environment"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-390 platform-authority controls offline"
+	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392 dual-domain provider/materializer contract offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-392 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
 	@echo "  GUG-363 entrypoint: python3 scripts/deployment/platform-authority-retirement-entrypoint-materializer.py --help"
@@ -128,6 +129,7 @@ schema-check:
 		  exit 1; }
 	@$(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR)
 	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug376_live_readonly_orchestrator.py -k schema_contracts_and_fixtures
+	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug392_schema_contracts.py
 	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_cli.py -k public_receipt_schema
 	@$(PYTHON) -m pytest -q $(TESTS_DIR)/test_deployment/test_gug383_dual_domain_inventory_handoff.py -k public_handoff_schema
 	@echo "Schema check complete (Draft 2020-12 validated)."
@@ -575,9 +577,42 @@ platform-authority-gug390-live-provider-check:
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug390-live-run
 	@echo "GUG-390 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_PROVIDER_NOT_PROVEN / AWS_CALLS=0 / AWS_MUTATIONS=0"
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-390, offline) ──
-platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390 Platform-Authority Bootstrap Check ==="
+# ── GUG-392 Dual-Domain Live Read-Only Check (offline only) ──────────
+platform-authority-gug392-live-provider-check:
+	@echo "=== GUG-392 Dual-Domain Live Read-Only Contract Check (offline) ==="
+	@ACTUAL_PY=$$($(PYTHON) -c "import sys; print('.'.join(map(str, sys.version_info[:3])))"); \
+		test "$$ACTUAL_PY" = "$(PINNED_PYTHON_VERSION)" || \
+		(echo "GUG-392 requires Python $(PINNED_PYTHON_VERSION), got $$ACTUAL_PY" >&2; exit 1)
+	@$(PYTHON) -c "from importlib.metadata import version; expected={'boto3':'1.42.57','botocore':'1.42.97','jmespath':'1.1.0','python-dateutil':'2.9.0.post0','s3transfer':'0.16.1','six':'1.17.0','urllib3':'2.7.0'}; assert {name: version(name) for name in expected} == expected"
+	@$(GUG390_HERMETIC_ENV) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_gug376_authority_inventory_collector.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_collector.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_live_readonly_orchestrator.py \
+		$(TESTS_DIR)/test_deployment/test_gug383_dual_domain_inventory_handoff.py \
+		$(TESTS_DIR)/test_deployment/test_gug392_*.py
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -B -c "import ast,pathlib; [ast.parse(pathlib.Path(path).read_text(encoding='utf-8')) for path in ('$(TOOLING_DIR)/platform_authority_gug376_live_readonly_orchestrator.py','$(TOOLING_DIR)/platform_authority_gug376_live_request_materializer.py','$(TOOLING_DIR)/platform_authority_gug376_live_provider.py','$(TOOLING_DIR)/platform_authority_gug376_live_executor.py','scripts/deployment/platform-authority-gug392-live-provider.py')]"
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py materialize-plans --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py materialize-request --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py live --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py validate-run-v2 --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py validate-handoff-v2 --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py validate-evidence-v2 --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug376-live-readonly-run
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug376-live-readonly-handoff
+	@echo "GUG-392 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0"
+
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-392, offline) ──
+platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \

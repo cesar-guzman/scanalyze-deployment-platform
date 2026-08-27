@@ -8,9 +8,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 POLICY = REPO_ROOT / "policies/iam/platform-authority-gug376-authority-inventory-read-only.json"
 POLICY_SHA256 = "7e0de088559d9c13d28e446cc97d246e58eafe45c71d2e261893dc0ce235ddf0"
 REGION, MAX_PAGES = "us-east-1", 50
+MAX_PRIVATE_JSON_BYTES = 4 * 1024 * 1024
 SURFACES = ("s3", "kms", "signer", "lambda_code_signing", "lambda_runtime", "iam_roles", "artifact_objects")
 TARGETS = frozenset({"artifact_bucket_arn", "broker_signed_object_arn", "broker_unsigned_object_arn", "ledger_factory_signed_object_arn", "ledger_factory_unsigned_object_arn", "artifact_kms_key_arn", "signing_profile_arn", "code_signing_config_arn", "runtime_source_function_arn", "runtime_source_function_version_arn", "retire_approve_generated_role_arn", "retire_class_generated_role_arn"})
 PLAN_FIELDS = {"targets", "not_before", "not_after", "expected_policy_digest", "expected_account_id", "expected_principal_arn", "authority_verification_digest"}
+GENERATED_ROLE_TRUST_FIELDS = {"retire_approve", "retire_class"}
+LIVE_PLAN_FIELDS = PLAN_FIELDS | {"expected_generated_role_trust_policy_digests"}
 IDENTITY_FIELDS = {"source", "chain_depth", "account_id", "region", "principal_arn", "session_id_digest", "started_at", "expires_at", "observed_at", "policy_digest", "authority_verification_digest"}
 CLASSES = frozenset({"ABSENT_READY", "EXACT_PRESENT_NO_TOUCH", "PREEXISTING_NO_TOUCH", "DRIFT_BLOCKED_NO_REPAIR", "UNCERTAIN_RECONCILE_ONLY", "NOT_AUTHORIZED"})
 _DIGEST, _TOKEN, _ARN, _STAMP = re.compile(r"^sha256:[0-9a-f]{64}$"), re.compile(r"^[A-Z][A-Z0-9_]{2,95}$"), re.compile(r"^arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]*:[A-Za-z0-9/.:_+=,@%-]+$"), re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
@@ -40,9 +43,12 @@ def _time(value: object) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None: _fail("INVENTORY_TIME_INVALID")
     return value.astimezone(UTC).replace(microsecond=0)
 def _stamp(value: object) -> str: return _time(value).isoformat().replace("+00:00", "Z")
-def render_policy(plan: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+def _render_policy(plan: Mapping[str, Any], *, verify_digest: bool) -> tuple[dict[str, Any], str]:
     raw = POLICY.read_bytes()
-    if set(plan) != PLAN_FIELDS or sha256(raw).hexdigest() != POLICY_SHA256: _fail("POLICY_INPUT_INVALID")
+    if set(plan) not in (PLAN_FIELDS, LIVE_PLAN_FIELDS) or sha256(raw).hexdigest() != POLICY_SHA256: _fail("POLICY_INPUT_INVALID")
+    if set(plan) == LIVE_PLAN_FIELDS:
+        trust_digests = plan["expected_generated_role_trust_policy_digests"]
+        if not isinstance(trust_digests, Mapping) or set(trust_digests) != GENERATED_ROLE_TRUST_FIELDS or any(_DIGEST.fullmatch(str(value)) is None for value in trust_digests.values()): _fail("GENERATED_ROLE_TRUST_EXPECTATION_INVALID")
     targets, account, principal = plan["targets"], plan["expected_account_id"], plan["expected_principal_arn"]
     if not isinstance(targets, Mapping) or set(targets) != TARGETS or not isinstance(account, str) or re.fullmatch(r"[0-9]{12}", account) is None: _fail("POLICY_TARGET_SET_INVALID")
     if any(not isinstance(v, str) or _ARN.fullmatch(v) is None for v in targets.values()): _fail("POLICY_TARGET_NOT_EXACT")
@@ -60,8 +66,12 @@ def render_policy(plan: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
     try: result = json.loads(rendered)
     except json.JSONDecodeError as exc: raise CollectorError("POLICY_RENDER_INVALID") from exc
     digest = "sha256:" + sha256(canonical_json(result).encode("utf-8")).hexdigest()
-    if digest != plan["expected_policy_digest"] or _DIGEST.fullmatch(str(plan["authority_verification_digest"])) is None: _fail("POLICY_DIGEST_NOT_VERIFIED")
+    if (verify_digest and digest != plan["expected_policy_digest"]) or _DIGEST.fullmatch(str(plan["authority_verification_digest"])) is None: _fail("POLICY_DIGEST_NOT_VERIFIED")
     return result, digest
+def render_policy_candidate(plan: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+    return _render_policy(plan, verify_digest=False)
+def render_policy(plan: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+    return _render_policy(plan, verify_digest=True)
 def _root(root: Path) -> int:
     if not root.is_absolute(): _fail("PRIVATE_ROOT_NOT_ABSOLUTE")
     try:
@@ -87,16 +97,19 @@ def private_target_absent(root: Path, name: str) -> None:
     finally: os.close(directory)
 def write_private_json(root: Path, name: str, value: Mapping[str, Any]) -> None:
     directory, target = _target(root, name); payload = (canonical_json(value) + "\n").encode()
+    if not 0 < len(payload) <= MAX_PRIVATE_JSON_BYTES:
+        os.close(directory); _fail("PRIVATE_OUTPUT_TOO_LARGE")
     temporary, descriptor = f".{target}.{canonical_digest(value)[7:23]}.tmp", None
+    temporary_created, target_linked = False, False
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory); remaining = payload
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory); temporary_created = True; remaining = payload
         while remaining:
             written = os.write(descriptor, remaining)
             if written <= 0: _fail("PRIVATE_OUTPUT_WRITE_FAILED")
             remaining = remaining[written:]
         os.fchmod(descriptor, 0o600); os.fsync(descriptor); item = os.fstat(descriptor)
         if not stat.S_ISREG(item.st_mode) or item.st_uid != os.geteuid() or item.st_nlink != 1 or stat.S_IMODE(item.st_mode) != 0o600: _fail("PRIVATE_OUTPUT_CUSTODY_INVALID")
-        os.link(temporary, target, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False); published = os.stat(target, dir_fd=directory, follow_symlinks=False)
+        os.link(temporary, target, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False); target_linked = True; published = os.stat(target, dir_fd=directory, follow_symlinks=False)
         if (published.st_dev, published.st_ino) != (item.st_dev, item.st_ino): _fail("PRIVATE_OUTPUT_CUSTODY_INVALID")
         os.fsync(directory)
         os.unlink(temporary, dir_fd=directory); os.fsync(directory)
@@ -105,6 +118,16 @@ def write_private_json(root: Path, name: str, value: Mapping[str, Any]) -> None:
     except OSError as exc: raise CollectorError("PRIVATE_OUTPUT_WRITE_FAILED") from exc
     finally:
         if descriptor is not None: os.close(descriptor)
+        if temporary_created:
+            try: os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError: pass
+            except OSError: pass
+        if target_linked:
+            # Once linked, preserve the create-only target even when a later
+            # durability or custody check fails. A retry must observe the
+            # ambiguous publication instead of silently replacing evidence.
+            try: os.fsync(directory)
+            except OSError: pass
         os.close(directory)
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -117,7 +140,7 @@ def read_private_json(root: Path, name: str) -> dict[str, Any]:
     try:
         descriptor = os.open(target, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
         opened, path_item = os.fstat(descriptor), os.stat(target, dir_fd=directory, follow_symlinks=False)
-        if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.geteuid() or opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) != 0o600 or not 0 < opened.st_size <= 4 * 1024 * 1024 or (opened.st_dev, opened.st_ino) != (path_item.st_dev, path_item.st_ino): _fail("PRIVATE_INPUT_CUSTODY_INVALID")
+        if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.geteuid() or opened.st_nlink != 1 or stat.S_IMODE(opened.st_mode) != 0o600 or not 0 < opened.st_size <= MAX_PRIVATE_JSON_BYTES or (opened.st_dev, opened.st_ino) != (path_item.st_dev, path_item.st_ino): _fail("PRIVATE_INPUT_CUSTODY_INVALID")
         raw = b""
         while len(raw) <= opened.st_size:
             chunk = os.read(descriptor, min(65536, opened.st_size + 1 - len(raw)))
@@ -155,34 +178,49 @@ def _collect(name: str, read: Callable[[object | None], Mapping[str, Any]], runt
     except AuthorityAccessDenied: classification = "NOT_AUTHORIZED"
     except Exception: classification = "UNCERTAIN_RECONCILE_ONLY"
     return {"complete": False, "classification": classification, "count": None, "page_count": None, "evidence_digest": canonical_digest({"surface": name, "classification": classification})}
-def _identity(value: Mapping[str, Any], plan: Mapping[str, Any], policy_digest: str, now: datetime) -> None:
+def _identity(value: Mapping[str, Any], plan: Mapping[str, Any], policy_digest: str, now: datetime, *, live: bool = False) -> None:
     if not isinstance(value, Mapping) or set(value) != IDENTITY_FIELDS: _fail("SESSION_IDENTITY_INVALID")
     start, end, observed, expires = _time(plan["not_before"]), _time(plan["not_after"]), _time(value["observed_at"]), _time(value["expires_at"])
-    if value["source"] != "DIRECT_SSO" or value["chain_depth"] != 0 or value["account_id"] != plan["expected_account_id"] or value["region"] != REGION or value["principal_arn"] != plan["expected_principal_arn"] or value["policy_digest"] != policy_digest or value["authority_verification_digest"] != plan["authority_verification_digest"] or _DIGEST.fullmatch(str(value["session_id_digest"])) is None or not _time(value["started_at"]) <= start <= observed <= now < end <= expires or expires - _time(value["started_at"]) > timedelta(hours=1): _fail("DIRECT_SESSION_BINDING_INVALID")
+    started = _time(value["started_at"])
+    window_valid = (
+        started <= observed <= now < end <= expires
+        and start <= observed
+        and (live or started <= start)
+    )
+    if value["source"] != "DIRECT_SSO" or value["chain_depth"] != 0 or value["account_id"] != plan["expected_account_id"] or value["region"] != REGION or value["principal_arn"] != plan["expected_principal_arn"] or value["policy_digest"] != policy_digest or value["authority_verification_digest"] != plan["authority_verification_digest"] or _DIGEST.fullmatch(str(value["session_id_digest"])) is None or not window_valid or expires - started > timedelta(hours=1): _fail("DIRECT_SESSION_BINDING_INVALID")
 def _receipt(classification: str, policy_digest: str, facts_digest: str, runtime_target_digest: str, snapshots: list[str], counts: Mapping[str, Any], stable: bool, external: tuple[str, str, str] | None = None) -> dict[str, Any]:
     if classification not in CLASSES: _fail("INVENTORY_CLASSIFICATION_INVALID")
     certification, verifier, trust = external or (None, None, None)
     if any(_DIGEST.fullmatch(str(value)) is None for value in (policy_digest, facts_digest, runtime_target_digest, *snapshots)) or len(snapshots) not in (1, 2) or len(set(snapshots)) != len(snapshots) or set(counts) != set(SURFACES) or any(value is not None and (type(value) is not int or value < 0) for value in counts.values()) or type(stable) is not bool or any(value is not None and _DIGEST.fullmatch(str(value)) is None for value in (certification, verifier, trust)) or ((classification == "EXACT_PRESENT_NO_TOUCH") != (external is not None)): _fail("PUBLIC_RECEIPT_INPUT_INVALID")
     result = {"record_type": "scanalyze.platform_authority.gug376_authority_inventory_receipt.v1", "status": "AUTHORITY_INVENTORY_LIVE_NOT_PROVEN", "classification": classification, "policy_digest": policy_digest, "facts_digest": facts_digest, "runtime_target_digest": runtime_target_digest, "snapshot_digests": snapshots, "surface_counts_digest": canonical_digest(dict(counts)), "external_certification_digest": certification, "external_verifier_identity_digest": verifier, "external_trust_anchor_digest": trust, "session_count": len(snapshots), "stable": stable, "read_only": True, "aws_mutations": 0, "two_human_status": "NOT_PROVEN", "independent_approval_present": False, "deployment_authorized": False, "production_status": "NO-GO"}
     result["receipt_digest"] = canonical_digest(result); return result
-def capture(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime) -> dict[str, Any]:
+def _capture(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime, validation_clock: Callable[[], datetime] | None) -> dict[str, Any]:
     policy, policy_digest = render_policy(plan); private_target_absent(private_root, artifact_name)
     if any(key.startswith("AWS_") or key in {"BOTO_CONFIG", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR"} for key in os.environ): _fail("AMBIENT_AWS_OVERRIDE_FORBIDDEN")
     session = factory.open_sts(policy=policy, policy_digest=policy_digest, region=REGION); identity = session.get_caller_identity()
-    _identity(identity, plan, policy_digest, _time(now)); reader = session.open_reader()
+    validation_now = now if validation_clock is None else validation_clock()
+    _identity(identity, plan, policy_digest, _time(validation_now), live=validation_clock is not None); reader = session.open_reader()
     calls = (("s3", reader.s3), ("kms", reader.kms), ("signer", reader.signer), ("lambda_code_signing", reader.lambda_code_signing), ("lambda_runtime", reader.lambda_runtime), ("iam_roles", reader.iam_roles), ("artifact_objects", reader.artifact_objects))
     surfaces = {name: _collect(name, method, plan["targets"]["runtime_source_function_version_arn"]) for name, method in calls}
     facts = {name: (item["items"] if item["complete"] else {"classification": item["classification"]}) for name, item in surfaces.items()}; facts_digest = canonical_digest(facts)
     failures = {item.get("classification") for item in surfaces.values() if not item["complete"]}; classification = "NOT_AUTHORIZED" if "NOT_AUTHORIZED" in failures else "UNCERTAIN_RECONCILE_ONLY"
     private_identity = {key: (_stamp(value) if key.endswith("_at") else value) for key, value in identity.items()}
-    snapshot: dict[str, Any] = {"record_type": "scanalyze.platform_authority.gug376_authority_inventory_private.v1", "policy_digest": policy_digest, "runtime_target_digest": canonical_digest({"policy_digest": policy_digest, "runtime_source_function_version_arn": plan["targets"]["runtime_source_function_version_arn"]}), "classification": classification, "identity": private_identity, "surfaces": surfaces, "facts_digest": facts_digest, "read_only": True, "aws_mutations": 0, "repository_persisted": False}
+    record_version = "v2" if validation_clock is not None else "v1"
+    snapshot: dict[str, Any] = {"record_type": f"scanalyze.platform_authority.gug376_authority_inventory_private.{record_version}", "policy_digest": policy_digest, "runtime_target_digest": canonical_digest({"policy_digest": policy_digest, "runtime_source_function_version_arn": plan["targets"]["runtime_source_function_version_arn"]}), "classification": classification, "identity": private_identity, "surfaces": surfaces, "facts_digest": facts_digest, "read_only": True, "aws_mutations": 0, "repository_persisted": False}
     snapshot["snapshot_digest"] = canonical_digest(snapshot); write_private_json(private_root, artifact_name, snapshot)
     return _receipt(classification, policy_digest, facts_digest, snapshot["runtime_target_digest"], [snapshot["snapshot_digest"]], {name: item["count"] for name, item in surfaces.items()}, False)
-def _snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
+def capture(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime) -> dict[str, Any]:
+    return _capture(plan, factory, private_root=private_root, artifact_name=artifact_name, now=now, validation_clock=None)
+def capture_live(plan: Mapping[str, Any], factory: DirectSessionFactory, *, private_root: Path, artifact_name: str, now: datetime, validation_clock: Callable[[], datetime]) -> dict[str, Any]:
+    if set(plan) != LIVE_PLAN_FIELDS: _fail("GENERATED_ROLE_TRUST_EXPECTATION_INVALID")
+    if not callable(validation_clock): _fail("VALIDATION_CLOCK_INVALID")
+    return _capture(plan, factory, private_root=private_root, artifact_name=artifact_name, now=now, validation_clock=validation_clock)
+def _snapshot(value: Mapping[str, Any], *, live: bool = False) -> dict[str, Any]:
     try: value = json.loads(canonical_json(value))
     except Exception as exc: raise CollectorError("PRIVATE_SNAPSHOT_INVALID") from exc
     expected = {"record_type", "policy_digest", "runtime_target_digest", "classification", "identity", "surfaces", "facts_digest", "read_only", "aws_mutations", "repository_persisted", "snapshot_digest"}
-    if not isinstance(value, Mapping) or set(value) != expected or value["record_type"] != "scanalyze.platform_authority.gug376_authority_inventory_private.v1" or not isinstance(value["identity"], Mapping) or not isinstance(value["surfaces"], Mapping) or set(value["surfaces"]) != set(SURFACES) or value["read_only"] is not True or value["aws_mutations"] != 0 or value["repository_persisted"] is not False or value["classification"] not in {"NOT_AUTHORIZED", "UNCERTAIN_RECONCILE_ONLY"}: _fail("PRIVATE_SNAPSHOT_INVALID")
+    record_version = "v2" if live else "v1"
+    if not isinstance(value, Mapping) or set(value) != expected or value["record_type"] != f"scanalyze.platform_authority.gug376_authority_inventory_private.{record_version}" or not isinstance(value["identity"], Mapping) or not isinstance(value["surfaces"], Mapping) or set(value["surfaces"]) != set(SURFACES) or value["read_only"] is not True or value["aws_mutations"] != 0 or value["repository_persisted"] is not False or value["classification"] not in {"NOT_AUTHORIZED", "UNCERTAIN_RECONCILE_ONLY"}: _fail("PRIVATE_SNAPSHOT_INVALID")
     identity = value["identity"]
     if set(identity) != IDENTITY_FIELDS or identity["source"] != "DIRECT_SSO" or identity["chain_depth"] != 0 or identity["region"] != REGION or re.fullmatch(r"[0-9]{12}", str(identity["account_id"])) is None or re.fullmatch(rf"arn:aws:sts::{identity['account_id']}:assumed-role/[A-Za-z0-9+=,.@_/-]+/[A-Za-z0-9+=,.@_-]+", str(identity["principal_arn"])) is None or any(_DIGEST.fullmatch(str(identity[key])) is None for key in ("session_id_digest", "policy_digest", "authority_verification_digest")) or any(_STAMP.fullmatch(str(identity[key])) is None for key in ("started_at", "expires_at", "observed_at")) or identity["policy_digest"] != value["policy_digest"]: _fail("PRIVATE_SNAPSHOT_INVALID")
     try: started, observed, expires = (datetime.fromisoformat(str(identity[key]).replace("Z", "+00:00")) for key in ("started_at", "observed_at", "expires_at"))
@@ -202,10 +240,145 @@ def _snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
     failures = {item.get("classification") for item in value["surfaces"].values() if not item["complete"]}; expected = "NOT_AUTHORIZED" if "NOT_AUTHORIZED" in failures else "UNCERTAIN_RECONCILE_ONLY"
     if value["classification"] != expected or value["facts_digest"] != canonical_digest(facts) or value["snapshot_digest"] != canonical_digest({key: item for key, item in value.items() if key != "snapshot_digest"}): _fail("PRIVATE_SNAPSHOT_INVALID")
     return dict(value)
-def certify(first: Mapping[str, Any], second: Mapping[str, Any], *, expected_runtime_target_digest: str, expected_facts_digest: str | None = None, external_verifier: ExternalCertificationVerifier | None = None) -> dict[str, Any]:
-    first, second = _snapshot(first), _snapshot(second)
+
+
+def _valid_generated_role_summary(value: object, role_arn: str) -> bool:
+    required = {
+        "Path",
+        "RoleName",
+        "Arn",
+        "CreateDate",
+        "MaxSessionDuration",
+        "RoleIdDigest",
+        "AssumeRolePolicyDocumentDigest",
+    }
+    allowed = required | {"DescriptionDigest", "TagsDigest"}
+    if not isinstance(value, Mapping) or not required <= set(value) <= allowed:
+        return False
+    resource = role_arn.split(":role/", 1)[-1]
+    role_name = resource.rsplit("/", 1)[-1]
+    path = "/" + resource.removesuffix(role_name)
+    return (
+        value.get("Arn") == role_arn
+        and value.get("RoleName") == role_name
+        and value.get("Path") == path
+        and type(value.get("MaxSessionDuration")) is int
+        and value.get("MaxSessionDuration") == 3600
+        and _STAMP.fullmatch(str(value.get("CreateDate"))) is not None
+        and all(
+            _DIGEST.fullmatch(str(value.get(key))) is not None
+            for key in (
+                "RoleIdDigest",
+                "AssumeRolePolicyDocumentDigest",
+                *(
+                    key
+                    for key in ("DescriptionDigest", "TagsDigest")
+                    if key in value
+                ),
+            )
+        )
+        and "PermissionsBoundary" not in value
+    )
+
+
+def validate_live_generated_identity_center_roles(
+    snapshot: Mapping[str, Any],
+    *,
+    expected_role_policy_digests: Mapping[str, str],
+    expected_role_trust_policy_digests: Mapping[str, str],
+) -> dict[str, Any]:
+    """Recertify the two generated roles required by an Identity EXACT state."""
+
+    item = _snapshot(snapshot, live=True)
+    if (
+        not isinstance(expected_role_policy_digests, Mapping)
+        or len(expected_role_policy_digests) != 2
+        or not isinstance(expected_role_trust_policy_digests, Mapping)
+        or set(expected_role_trust_policy_digests)
+        != set(expected_role_policy_digests)
+        or any(
+            not isinstance(role_arn, str)
+            or _ARN.fullmatch(role_arn) is None
+            or _DIGEST.fullmatch(str(policy_digest)) is None
+            for role_arn, policy_digest in expected_role_policy_digests.items()
+        )
+        or any(
+            _DIGEST.fullmatch(str(policy_digest)) is None
+            for policy_digest in expected_role_trust_policy_digests.values()
+        )
+    ):
+        _fail("GENERATED_ROLE_EXPECTATION_INVALID")
+    role_surface = item["surfaces"]["iam_roles"]
+    roles = role_surface.get("items")
+    if (
+        role_surface.get("complete") is not True
+        or role_surface.get("count") != 2
+        or not isinstance(roles, list)
+        or len(roles) != 2
+        or {role.get("role_arn") for role in roles if isinstance(role, Mapping)}
+        != set(expected_role_policy_digests)
+    ):
+        _fail("GENERATED_IDENTITY_CENTER_ROLES_INVALID")
+    for role in roles:
+        if not isinstance(role, Mapping) or set(role) != {
+            "role_arn",
+            "discovered",
+            "role",
+            "attached_policies",
+            "inline_policies",
+            "tags",
+        }:
+            _fail("GENERATED_IDENTITY_CENTER_ROLES_INVALID")
+        role_arn = role["role_arn"]
+        discovered = role["discovered"]
+        described = role["role"]
+        inline = role["inline_policies"]
+        role_name = str(role_arn).rsplit("/", 1)[-1]
+        if (
+            not isinstance(discovered, list)
+            or len(discovered) != 1
+            or not _valid_generated_role_summary(discovered[0], role_arn)
+            or not isinstance(described, Mapping)
+            or set(described) != {"Role"}
+            or not _valid_generated_role_summary(described["Role"], role_arn)
+            or any(
+                discovered[0].get(key) != described["Role"].get(key)
+                for key in (
+                    "Path",
+                    "RoleName",
+                    "Arn",
+                    "CreateDate",
+                    "MaxSessionDuration",
+                    "RoleIdDigest",
+                    "AssumeRolePolicyDocumentDigest",
+                )
+            )
+            or discovered[0].get("AssumeRolePolicyDocumentDigest")
+            != expected_role_trust_policy_digests[role_arn]
+            or role["attached_policies"] != []
+            or role["tags"] != []
+            or not isinstance(inline, list)
+            or len(inline) != 1
+            or not isinstance(inline[0], Mapping)
+            or set(inline[0])
+            != {"RoleName", "PolicyName", "PolicyDocumentDigest"}
+            or inline[0].get("RoleName") != role_name
+            or not isinstance(inline[0].get("PolicyName"), str)
+            or not inline[0]["PolicyName"]
+            or inline[0].get("PolicyDocumentDigest")
+            != expected_role_policy_digests[role_arn]
+        ):
+            _fail("GENERATED_IDENTITY_CENTER_ROLES_INVALID")
+    return item
+def _certify(first: Mapping[str, Any], second: Mapping[str, Any], *, expected_runtime_target_digest: str, expected_facts_digest: str | None = None, external_verifier: ExternalCertificationVerifier | None = None, live: bool) -> dict[str, Any]:
+    first, second = _snapshot(first, live=live), _snapshot(second, live=live)
     bound = ("source", "chain_depth", "account_id", "region", "principal_arn", "policy_digest", "authority_verification_digest")
-    if any(first["identity"][key] != second["identity"][key] for key in bound) or first["identity"]["session_id_digest"] == second["identity"]["session_id_digest"] or first["identity"]["observed_at"] >= second["identity"]["observed_at"]: _fail("SESSIONS_NOT_INDEPENDENT")
+    time_order_invalid = (
+        first["identity"]["observed_at"] > second["identity"]["observed_at"]
+        if live
+        else first["identity"]["observed_at"] >= second["identity"]["observed_at"]
+    )
+    if any(first["identity"][key] != second["identity"][key] for key in bound) or first["identity"]["session_id_digest"] == second["identity"]["session_id_digest"] or time_order_invalid: _fail("SESSIONS_NOT_INDEPENDENT")
     if (target_invalid := _DIGEST.fullmatch(str(expected_runtime_target_digest)) is None or any(snapshot["runtime_target_digest"] != expected_runtime_target_digest for snapshot in (first, second))) or expected_facts_digest is not None and _DIGEST.fullmatch(str(expected_facts_digest)) is None: _fail("RUNTIME_TARGET_BINDING_INVALID" if target_invalid else "EXPECTED_FACTS_DIGEST_INVALID")
     counts = {name: second["surfaces"][name]["count"] for name in SURFACES}
     external = None
@@ -223,3 +396,7 @@ def certify(first: Mapping[str, Any], second: Mapping[str, Any], *, expected_run
         classification, stable = "EXACT_PRESENT_NO_TOUCH", True
     else: classification, stable = "PREEXISTING_NO_TOUCH", True
     return _receipt(classification, second["policy_digest"], second["facts_digest"], second["runtime_target_digest"], [first["snapshot_digest"], second["snapshot_digest"]], counts, stable, external)
+def certify(first: Mapping[str, Any], second: Mapping[str, Any], *, expected_runtime_target_digest: str, expected_facts_digest: str | None = None, external_verifier: ExternalCertificationVerifier | None = None) -> dict[str, Any]:
+    return _certify(first, second, expected_runtime_target_digest=expected_runtime_target_digest, expected_facts_digest=expected_facts_digest, external_verifier=external_verifier, live=False)
+def certify_live(first: Mapping[str, Any], second: Mapping[str, Any], *, expected_runtime_target_digest: str, expected_facts_digest: str | None = None, external_verifier: ExternalCertificationVerifier | None = None) -> dict[str, Any]:
+    return _certify(first, second, expected_runtime_target_digest=expected_runtime_target_digest, expected_facts_digest=expected_facts_digest, external_verifier=external_verifier, live=True)

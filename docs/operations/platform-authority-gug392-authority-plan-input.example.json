@@ -1,0 +1,25 @@
+{
+  "targets": {
+    "artifact_bucket_arn": "arn:aws:s3:::replace-approved-artifact-bucket",
+    "broker_signed_object_arn": "arn:aws:s3:::replace-approved-artifact-bucket/broker-signed.zip",
+    "broker_unsigned_object_arn": "arn:aws:s3:::replace-approved-artifact-bucket/broker-unsigned.zip",
+    "ledger_factory_signed_object_arn": "arn:aws:s3:::replace-approved-artifact-bucket/ledger-factory-signed.zip",
+    "ledger_factory_unsigned_object_arn": "arn:aws:s3:::replace-approved-artifact-bucket/ledger-factory-unsigned.zip",
+    "artifact_kms_key_arn": "arn:aws:kms:us-east-1:111122223333:key/11111111-1111-1111-1111-111111111111",
+    "signing_profile_arn": "arn:aws:signer:us-east-1:111122223333:/signing-profiles/replace-approved-profile",
+    "code_signing_config_arn": "arn:aws:lambda:us-east-1:111122223333:code-signing-config:csc-0123456789abcdef0",
+    "runtime_source_function_arn": "arn:aws:lambda:us-east-1:111122223333:function:replace-approved-source",
+    "runtime_source_function_version_arn": "arn:aws:lambda:us-east-1:111122223333:function:replace-approved-source:7",
+    "retire_approve_generated_role_arn": "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityRetireApprove_0000000000000000",
+    "retire_class_generated_role_arn": "arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityRetireClass_0000000000000000"
+  },
+  "not_before": "2026-08-27T00:00:00Z",
+  "not_after": "2026-08-27T00:30:00Z",
+  "expected_account_id": "111122223333",
+  "expected_principal_arn": "arn:aws:sts::111122223333:assumed-role/ReplaceAuthorityReadOnly/operator",
+  "authority_verification_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expected_generated_role_trust_policy_digests": {
+    "retire_approve": "sha256:3eb00c97661f3dc4e210aa8979f1138eaa2724c57f92206a8584033a006924d3",
+    "retire_class": "sha256:d85f920047a5d0c1d2f6954be677a484079176778fdac23e972e2b3c70a71405"
+  }
+}

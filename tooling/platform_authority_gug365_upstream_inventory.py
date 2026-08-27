@@ -312,6 +312,103 @@ def canonical_digest(value: Any) -> str:
     return "sha256:" + sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def canonical_policy_digest(value: Mapping[str, Any] | str) -> str:
+    """Digest an IAM policy independently of its boto representation.
+
+    Botocore returns some policy documents as mappings and others as JSON
+    strings. Parse both representations through one strict path so source
+    materialization and live projection cannot silently use different digest
+    algorithms. Statement order and value-list order are intentionally
+    preserved; only JSON object ordering and insignificant serialization
+    whitespace are normalized.
+    """
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in result:
+                _fail("POLICY_DOCUMENT_INVALID")
+            result[key] = item
+        return result
+
+    try:
+        if isinstance(value, str):
+            policy = json.loads(
+                value,
+                object_pairs_hook=reject_duplicate_keys,
+                parse_constant=lambda _value: _fail(
+                    "POLICY_DOCUMENT_INVALID"
+                ),
+            )
+        elif isinstance(value, Mapping):
+            # Detach non-dict Mapping implementations and reject non-JSON
+            # values before validating the policy grammar below.
+            policy = json.loads(canonical_json(dict(value)))
+        else:
+            _fail("POLICY_DOCUMENT_INVALID")
+    except (TypeError, ValueError):
+        _fail("POLICY_DOCUMENT_INVALID")
+
+    if (
+        not isinstance(policy, dict)
+        or not set(policy).issubset({"Version", "Id", "Statement"})
+        or policy.get("Version") != "2012-10-17"
+        or ("Id" in policy and not isinstance(policy["Id"], str))
+    ):
+        _fail("POLICY_DOCUMENT_INVALID")
+
+    statements = policy.get("Statement")
+    if isinstance(statements, Mapping):
+        statements = [dict(statements)]
+    if (
+        not isinstance(statements, list)
+        or not statements
+        or any(not isinstance(statement, dict) for statement in statements)
+    ):
+        _fail("POLICY_DOCUMENT_INVALID")
+
+    allowed_statement_fields = {
+        "Sid",
+        "Effect",
+        "Principal",
+        "NotPrincipal",
+        "Action",
+        "NotAction",
+        "Resource",
+        "NotResource",
+        "Condition",
+    }
+    for statement in statements:
+        if (
+            not statement
+            or not set(statement).issubset(allowed_statement_fields)
+            or statement.get("Effect") not in {"Allow", "Deny"}
+            or (("Action" in statement) == ("NotAction" in statement))
+            or ("Principal" in statement and "NotPrincipal" in statement)
+            or ("Resource" in statement and "NotResource" in statement)
+            or ("Sid" in statement and not isinstance(statement["Sid"], str))
+        ):
+            _fail("POLICY_DOCUMENT_INVALID")
+        action = statement.get("Action", statement.get("NotAction"))
+        if not (
+            (isinstance(action, str) and bool(action))
+            or (
+                isinstance(action, list)
+                and bool(action)
+                and all(isinstance(item, str) and bool(item) for item in action)
+            )
+        ):
+            _fail("POLICY_DOCUMENT_INVALID")
+
+    normalized = dict(policy)
+    normalized["Statement"] = statements
+    try:
+        return canonical_digest(normalized)
+    except UpstreamInventoryError:
+        _fail("POLICY_DOCUMENT_INVALID")
+    raise AssertionError("unreachable")
+
+
 def canonical_snapshot(value: Any, *, code: str) -> Any:
     try:
         return json.loads(canonical_json(value))

@@ -16,15 +16,20 @@ This runbook records two deliberately separate repository boundaries:
 - GUG-386 adds an offline-only composer for two terminal receipts and one
   independently pinned private-run envelope. It emits only a digest-bound
   public record and cannot capture, log in, construct clients or call AWS.
+- GUG-392 adds a separate attested boto3 read-only provider and private request
+  materializer for those two inventory domains. It does not modify any legacy
+  STOP entrypoint or authorize a mutation phase.
 
-Neither path constructs an AWS SDK client, performs provider network I/O,
-opens a private evidence root or implements a live ledger. Any live-adapter
-request stops with `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED`. Do not translate
-the reserved future steps below into ad hoc AWS CLI/SDK calls.
+The GUG-376/GUG-377/GUG-384/GUG-385/GUG-386/GUG-387 paths above remain inert
+or synthetic and still stop live-adapter requests. Only the dedicated GUG-392
+entrypoint may construct an SDK client, and only after the private materialized
+request, clean source, UTC window, profile metadata and STS-first gates pass.
+Do not translate the reserved future steps below into ad hoc AWS CLI/SDK calls.
 
-This PR is offline and makes **zero AWS calls and zero provider network
-calls**. Neither the PR, ADR, Linear status, upstream plan nor an
-owner-decision approval authorizes AWS writes.
+Repository validation is offline and makes **zero AWS calls and zero provider
+network calls**. A separately activated GUG-392 run performs only the closed
+read-only inventory calls. Neither the PR, ADR, Linear status, upstream plan,
+inventory request nor owner-decision approval authorizes AWS writes.
 Every live phase requires a new exact phase-specific owner authorization.
 Production remains **NO-GO**.
 
@@ -521,12 +526,368 @@ CI exercises only injected synthetic providers. Its handoff must remain
 existing GUG-384/GUG-385/GUG-386 v1 wrappers retain
 `STOP_LIVE_ORCHESTRATOR_NOT_IMPLEMENTED` unchanged.
 
+## GUG-392 attested read-only operator checkpoint
+
+GUG-392 is a separate entrypoint; it does not enable `LIVE` in the GUG-387
+wrapper. Before materializing anything, use an absolute, pre-existing,
+owner-owned `0700` directory outside this repository, every Git worktree and all
+File Provider or synchronization locations. Place the two complete private plan
+input JSON files there as owner-owned `0600` regular files. The examples are
+synthetic and authorize nothing: use the
+[absence authority input](platform-authority-gug392-authority-plan-input.example.json)
+with the
+[absence Identity Center input](platform-authority-gug392-identity-center-absent-plan-input.example.json),
+or the paired
+[exact authority input](platform-authority-gug392-authority-exact-plan-input.example.json)
+and
+[exact Identity Center input](platform-authority-gug392-identity-center-exact-plan-input.example.json).
+Replace every example account, ARN, identifier, timestamp and digest through the
+owner-controlled channel. Do not set ambient
+`AWS_*`, endpoint or CA-bundle SDK overrides for the command.
+
+The request binds two distinct non-default direct-SSO profiles. The authority
+profile must be least-privilege read-only in the authority account; the
+Identity Center profile must be a separate least-privilege read-only profile in
+the management account. Administrator, bootstrap, seed, deploy and destroy
+permission sets are not substitutes. Both SSO sessions must already be valid,
+and the corresponding plans must contain the exact expected account and
+principal.
+The effective authority and management accounts must be different. The private
+Identity Center `authority_account_arn` must equal the authority plan's exact
+account; two aliases of one principal are not two domains.
+
+The profile names are rejected if they are `default` or duplicates. Both
+profile names and exact SSO role names are rejected if they contain the
+normalized fragments `administrator`, `admin`, `bootstrap`, `seed`, `deploy` or
+`destroy`. Each profile must be direct SSO. Do not use static access
+keys/session tokens, `credential_process`,
+`credential_source`, `role_arn`, `source_profile`, web identity, `external_id`,
+`mfa_serial`, endpoint or CA overrides, or named service overrides. The profile
+document may contain only the direct-SSO fields plus the accepted Region/output
+metadata.
+
+Bootstrap both SSO sessions before the GUG-392 `live` command, for example with
+`aws sso login --profile '<exact-profile>'` for each profile. This browser/cache
+bootstrap can call the SSO/OIDC control plane and remains outside the GUG-392
+provider transcript. During `live`, the botocore session is fixed to one total
+attempt before credential resolution. The effective vend-client configuration
+is verified at call time. Credential resolution permits at most one observed
+`sso:GetRoleCredentials` vend per collector session; an OIDC refresh, any other
+pre-STS AWS operation, a retriable vend or a second vend stops the attempt. The
+temporary credentials are then copied into a non-refreshable in-memory client
+session that retains the same reviewed profile binding, so it cannot fall back
+to transport settings from `default`. Every STS and inventory client explicitly
+uses `verify=true`; the authenticated botocore CA bytes are loaded into a fresh
+TLS context from memory and the mutable CA path is never reopened. Optional
+`certifi`, profile/ambient CA overrides and custom proxy-TLS settings are
+excluded, so an unselected profile cannot change TLS roots after validation. Their access-key
+digest, real expiry and bootstrap-call count are committed in the private
+session digest; keys and tokens are never written or printed. Credential vending is excluded from
+inventory `provider_calls` and `aws_calls`. The first ledgered signed inventory
+call is `sts:GetCallerIdentity`; bounded List/Get/Describe calls remain blocked
+until the exact account and principal pass.
+
+Botocore may legitimately reuse the same unexpired cached SSO role credential
+for both captures. Each private session digest therefore binds both that real
+credential fingerprint and a module-minted domain, capture, stage, policy and
+session ordinal. This distinguishes two separately ledgered capture sessions
+without claiming that cached credential reuse constitutes a second human or a
+second IAM identity.
+
+First run the offline materializer. It performs no AWS call and publishes one
+new request and checkpoint with create-only semantics. Review their digests
+through the owner-controlled channel before invoking the live command. The
+live command re-reads and reconstructively validates both files, verifies a
+clean exact source commit/tree and fresh activation window, and only then loads
+the AWS SDK. It performs STS-first List/Get/Describe inventory only, with no SDK
+retry and no mutation API in the closed operation set.
+
+S3 object-version evidence requests only the non-paginated ETag, checksum,
+storage-class and object-size attributes. It never requests `ObjectParts`; an
+unexpected parts payload, including `IsTruncated=true`, fails closed instead of
+sealing partial multipart evidence.
+
+The Identity Center discovery stage additionally needs the reviewed GUG-392
+`sso:DescribePermissionSet` supplement, scoped to both required instance and
+permission-set resource classes, `us-east-1` and the same absolute window. AWS
+also declares `kms:Decrypt` as a dependent action for `ListApplications`,
+`ListPermissionSets` and `DescribePermissionSet`. The supplement permits that
+dependency only on the exact private KMS key, through the `us-east-1` Identity
+Center service, for the
+management account, an Identity Center instance encryption context and the
+same absolute window. The KMS key policy must admit the same direct-SSO
+principal and conditions. The adapter never dispatches `kms:Decrypt` directly.
+This resolves names from the ARN-only `ListPermissionSets` response without
+changing the legacy v1 policy. In the live rendering only,
+`ListPermissionSets` is narrowed from the legacy wildcard to the IAM Identity
+Center instance resource class. Exact presence additionally requires the live
+`DescribeInstance` encryption details to be `CUSTOMER_MANAGED_KEY`, the exact
+owner-reviewed KMS key ARN and `ENABLED`; absence or drift blocks certification.
+
+Use the dedicated help to obtain the exact argument contract:
+
+```bash
+GUG392_BASE_PYTHON='/absolute/path/to/reviewed-python-3.11.14'
+GUG392_RUNTIME_ROOT='/absolute/new/owner-controlled/gug392-runtime'
+test ! -e "$GUG392_RUNTIME_ROOT"
+test "$("$GUG392_BASE_PYTHON" -c 'import platform; print(platform.python_version())')" = '3.11.14'
+mkdir -m 700 "$GUG392_RUNTIME_ROOT"
+mkdir -m 700 "$GUG392_RUNTIME_ROOT/site-packages"
+GUG392_PYTHON="$GUG392_BASE_PYTHON"
+PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 \
+  "$GUG392_PYTHON" -m pip install \
+  --target "$GUG392_RUNTIME_ROOT/site-packages" \
+  --no-compile --require-hashes --only-binary=:all: \
+  --requirement scripts/deployment/platform-authority-gug392-live-provider.requirements.lock
+test "$("$GUG392_PYTHON" -c 'import platform; print(platform.python_version())')" = '3.11.14'
+GUG392_RUNTIME_ROOT="$GUG392_RUNTIME_ROOT" "$GUG392_PYTHON" -I -S -c "import os,re; from importlib.metadata import distributions; expected={'boto3':'1.42.57','botocore':'1.42.97','jmespath':'1.1.0','python-dateutil':'2.9.0.post0','s3transfer':'0.16.1','six':'1.17.0','urllib3':'2.7.0'}; path=os.path.join(os.environ['GUG392_RUNTIME_ROOT'],'site-packages'); observed={re.sub(r'[-_.]+','-',d.metadata['Name']).lower():d.version for d in distributions(path=[path])}; assert observed == expected"
+for GUG392_PRUNE_PATH in \
+  "$GUG392_RUNTIME_ROOT/site-packages/bin" \
+  "$GUG392_RUNTIME_ROOT/site-packages/boto3-1.42.57.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/botocore-1.42.97.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/jmespath-1.1.0.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/python_dateutil-2.9.0.post0.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/s3transfer-0.16.1.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/six-1.17.0.dist-info" \
+  "$GUG392_RUNTIME_ROOT/site-packages/urllib3-2.7.0.dist-info"
+do
+  test -e "$GUG392_PRUNE_PATH"
+  find "$GUG392_PRUNE_PATH" -depth -delete
+done
+unset GUG392_PRUNE_PATH
+GUG392_RUNTIME_ROOT="$GUG392_RUNTIME_ROOT" "$GUG392_PYTHON" -I -S -c "import os; from pathlib import Path; root=Path(os.environ['GUG392_RUNTIME_ROOT'])/'site-packages'; expected={'boto3','botocore','dateutil','jmespath','s3transfer','six.py','urllib3'}; assert {item.name for item in root.iterdir()} == expected"
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py materialize-plans --help
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py materialize-request --help
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py live --help
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py validate-run-v2 --help
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py validate-handoff-v2 --help
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py validate-evidence-v2 --help
+```
+
+Do not install the operational SDK from `pyproject.toml` or an unconstrained
+index command. The dedicated lock contains one reviewed pure-Python wheel hash
+for each direct and transitive runtime distribution. After the exact
+pre-prune version check, remove only the generated `bin` directory and seven
+exact `.dist-info` directories shown above; they are not part of the immutable
+execution runtime. At live startup the provider requires `-I -S`, accepts only
+the seven import roots, rejects every `.pth`, cache/bytecode file, symlink or
+extra top-level entry, and checks both the lock bytes and the complete immutable
+package-content manifest before importing boto3. It then verifies all seven
+module `__version__` values. The dedicated root is bound into the private
+request/checkpoint. SDK source is compiled only from authenticated in-memory
+bytes. Botocore service, endpoint and retry models are served by a closed
+in-memory loader, so neither `~/.aws/models` nor an ambient data path
+participates. Optional `certifi`/`awscrt` imports and a post-install package edit
+fail closed. Treat this pruned root as disposable; do not use it for package
+inspection, uninstallation or redistribution.
+
+The complete operator sequence is materialize, owner readback, one live capture,
+then public-v2 and physical private-evidence validation. Replace every shell
+placeholder and every synthetic value in the selected JSON pair. Use a new
+absolute private root and a new activation window for every attempt:
+
+The inventory plan window may be at most 60 minutes. The one-shot request window
+must be wholly contained in that plan and may be at most 15 minutes; neither
+window is renewable in place.
+
+```bash
+GUG392_PRIVATE_ROOT="/absolute/owner-only/gug392-<run-id>"
+umask 077
+set -o noclobber
+mkdir -m 700 "$GUG392_PRIVATE_ROOT"
+
+# Deliver the two owner-reviewed inputs through the private channel. They must
+# be owner-owned 0600 regular files and must not be copied into the repository.
+install -m 600 '<approved-authority-input>' \
+  "$GUG392_PRIVATE_ROOT/authority-input.json"
+install -m 600 '<approved-identity-center-input>' \
+  "$GUG392_PRIVATE_ROOT/identity-center-input.json"
+
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  materialize-plans \
+  --private-root "$GUG392_PRIVATE_ROOT" \
+  --authority-input-file authority-input.json \
+  --identity-center-input-file identity-center-input.json \
+  --authority-plan-file authority-plan.json \
+  --identity-center-plan-file identity-center-plan.json \
+  > "$GUG392_PRIVATE_ROOT/plan-materialization-result.json"
+
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  materialize-request \
+  --private-root "$GUG392_PRIVATE_ROOT" \
+  --authority-plan-file authority-plan.json \
+  --identity-center-plan-file identity-center-plan.json \
+  --authority-profile '<authority-direct-sso-read-only-profile>' \
+  --identity-center-profile '<identity-center-direct-sso-read-only-profile>' \
+  --authority-sso-role-name '<exact-authority-role-name>' \
+  --identity-center-sso-role-name '<exact-identity-center-role-name>' \
+  --sdk-runtime-root "$GUG392_RUNTIME_ROOT" \
+  --run-id '<opaque-run-id>' \
+  --not-before '<UTC-RFC3339>' \
+  --expires-at '<UTC-RFC3339-no-more-than-15-minutes-later>' \
+  --approval-reference-digest 'sha256:<64-lowercase-hex>' \
+  > "$GUG392_PRIVATE_ROOT/materialization-result.json"
+
+# Compare the emitted request/checkpoint digests through the owner-controlled
+# approval channel. Copy the exact reviewed values below; do not derive or
+# substitute them inside the live invocation.
+GUG392_EXPECTED_REQUEST_DIGEST='sha256:<reviewed-request-64-lowercase-hex>'
+GUG392_EXPECTED_CHECKPOINT_DIGEST='sha256:<reviewed-checkpoint-64-lowercase-hex>'
+
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  live \
+  --private-root "$GUG392_PRIVATE_ROOT" \
+  --request-file gug376-live-request.json \
+  --approval-reference-digest 'sha256:<same-64-lowercase-hex>' \
+  --expected-request-digest "$GUG392_EXPECTED_REQUEST_DIGEST" \
+  --expected-checkpoint-digest "$GUG392_EXPECTED_CHECKPOINT_DIGEST" \
+  > "$GUG392_PRIVATE_ROOT/live-result.json"
+
+jq -c '.run_record' "$GUG392_PRIVATE_ROOT/live-result.json" \
+  > "$GUG392_PRIVATE_ROOT/run-v2.json"
+jq -c '.public_handoff' "$GUG392_PRIVATE_ROOT/live-result.json" \
+  > "$GUG392_PRIVATE_ROOT/handoff-v2.json"
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  validate-run-v2 "$GUG392_PRIVATE_ROOT/run-v2.json"
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  validate-handoff-v2 \
+  "$GUG392_PRIVATE_ROOT/run-v2.json" \
+  "$GUG392_PRIVATE_ROOT/handoff-v2.json"
+"$GUG392_PYTHON" -I -S scripts/deployment/platform-authority-gug392-live-provider.py \
+  validate-evidence-v2 \
+  --private-root "$GUG392_PRIVATE_ROOT" \
+  --evidence-file gug376-live-evidence-manifest.json \
+  "$GUG392_PRIVATE_ROOT/run-v2.json" \
+  "$GUG392_PRIVATE_ROOT/handoff-v2.json"
+```
+
+`authority-input.json` has exactly `targets`, `not_before`, `not_after`,
+`expected_account_id`, `expected_principal_arn`,
+`authority_verification_digest` and
+`expected_generated_role_trust_policy_digests`. `targets` is the closed
+twelve-target set accepted by the GUG-384 collector. For absence, both generated
+role ARNs use the fixed all-zero suffix shown in the example as non-existent
+collision sentinels, and the trust digests are the fixed not-applicable values.
+The provider still examines every listed role with either fixed permission-set
+prefix; any real suffix is drift. For exact presence, use the observed full role
+ARNs and owner-reviewed `GetRole` trust-policy digests. These digests pin the
+expected provider-generated trust; unlike the three repository policies below,
+they are not source-certified.
+`identity-center-input.json` has exactly
+`private_targets`, the same two window fields, `expected_account_id`,
+`expected_principal_arn`, `authority_verification_digest` and
+`expected_state`. For a reviewed empty GUG-376 target, `expected_state` binds
+the one already-active management-account instance exactly as
+`{"classification":"ABSENT_READY","instance":{"identity_store_id":"...",
+"instance_arn":"arn:aws:sso:::instance/ssoins-...",
+"owner_account_id":"<12 digits>","status":"ACTIVE"}}`. Absence means no
+matching application and no matching permission sets; it never means that IAM
+Identity Center itself is absent. For a reviewed pre-existing target it
+is exactly `{"classification":"EXACT_PRESENT_NO_TOUCH","targets":{...},
+"facts":{...}}`; the facts must satisfy the live-v2 collector contract and
+the operator fact is exactly `{"UserId":"<approved-user-id>"}`. Never place
+`UserName`, `Emails`, Lambda environment variables or credentials in either
+input. The command computes the authority policy digest, the GUG-392 live
+Identity Center discovery-policy digest, and the exact target/facts/policy
+digests. It rejects unknown fields, inconsistent accounts/windows, malformed
+exact facts, pre-existing outputs, or a legacy GUG-385 discovery digest.
+
+`EXACT_PRESENT_NO_TOUCH` is a closed application contract, not a name match.
+The application must be `ENABLED` in the reviewed ACTIVE instance and management
+account, use the reviewed custom provider ARN, have the exact description
+`GUG-376 non-production authority application`, and expose only the reviewed
+loopback PKCE callback `http://127.0.0.1:<1024-65535>/callback`. Its portal URL
+is that callback without `/callback`. The only grant is `authorization_code`,
+the only scope is `sts:identity_context` authorized to the reviewed instance,
+the only authentication method is IAM with the reviewed actor policy, direct
+assignment is required, and exactly the approved user is assigned.
+
+The application and both permission sets have exactly
+`managed_by=identity-center`, `service=scanalyze-platform-authority`,
+`work_package=GUG-376`, `environment=non-production` and `production=false`.
+Both permission sets use `PT1H`, the fixed GUG-215 descriptions, one inline
+policy each, and no managed/customer-managed policy, permissions boundary or
+relay state. Each is provisioned `SUCCEEDED` only to the reviewed authority
+account and assigned only to the same approved user. `materialize-plans` pins
+the raw repository sources for the actor, classifier and approver policies,
+renders every placeholder from the two plans, and requires the owner-provided
+and observed canonical digests to equal those renderings. A caller-supplied
+digest cannot select alternate policy content. Live projection canonicalizes
+the boto mapping and JSON-string policy response shapes through the same strict
+parser; duplicate keys or malformed IAM policy documents stop the run.
+
+`validate-handoff-v2` validates the exact run-to-handoff projection as one
+bundle. A self-sealed handoff with a substituted or nonexistent `run_digest`
+is rejected; standalone handoff shape validation is not causal proof.
+
+`validate-evidence-v2` is archival and performs no AWS call. It custody-checks
+and reconstructively validates the manifest-named request and owner checkpoint,
+the fixed consumption claim, all four physical snapshots, the evidence manifest
+and the supplied run/handoff. It evaluates the historical request at its
+attested start, so an expired activation window does not invalidate archived
+evidence. Missing, tampered, substituted, cross-root or non-owner artefacts fail
+closed. It also replays STS-first exactly once per session and each digest-bound
+pagination stream, including token continuity, the 50-page ceiling and terminal
+closure. Preserve the request, checkpoint, claim, manifest and four snapshots
+together in the same private root. The manifest alone is insufficient.
+Canonical self-digests prove integrity and binding, not external owner/provider
+authenticity, a second human, deployment authorization or production acceptance.
+
+The CLI rejects a dirty or replaced checkout before repository imports and
+again before each provider call. It also compares the action-time private
+request/checkpoint digests with the pair accepted at startup. Do not set Git
+directory/worktree overrides; the CLI intentionally ignores inherited Git
+configuration and local replacement refs (`GIT_NO_REPLACE_OBJECTS=1`) and
+validates the exact reported worktree root. The two public validation commands
+use the same exact Python, clean-source and reviewed-loader gates as
+materialization and live execution.
+
+`live` publishes the create-only
+`gug376-live-consumption-claim.json`, bound to the reviewed request/checkpoint
+digests, before the provider is constructed. The claim consumes the request even
+if SSO credentials have expired, STS fails, no inventory call completes, or the
+command otherwise returns an error. All four private snapshots are also
+create-only. Preserve the private root for reconciliation; every later attempt
+requires a new root, request, checkpoint, activation window and owner-reviewed
+digest pair. Never delete or overwrite the claim or ambiguous evidence.
+
+Both clocks are real action-time gates. The request must satisfy
+`not_before <= now < expires_at` at startup, before and after every provider
+response, and immediately before the public bundle is sealed. A response that
+returns at or after `expires_at` is ledgered as an error and cannot be published
+as live evidence. The cached SSO credentials expose their own expiry and must
+remain valid through the complete plan window. Logging in again does not renew
+or make an existing request/claim reusable; materialize and review a new pair
+instead.
+
+The only successful public status is `LIVE_READ_ONLY_CAPTURED` with
+`provider_calls=aws_calls>=1`, `aws_mutations=0` and a schema-valid v2 handoff.
+The authority collector can causally publish only `ABSENT_READY` or
+`PREEXISTING_NO_TOUCH` in this lane. Identity Center `ABSENT_READY` requires
+exactly two discovery-only sessions and `EXACT_PRESENT_NO_TOUCH` requires four
+discovery-plus-exact sessions. `DRIFT_BLOCKED_NO_REPAIR` admits two or four
+sessions according to the stage that observed drift. Every other pairing is
+rejected even when resealed.
+Identity Center `ABSENT_READY` also requires an empty generated-role surface;
+any `AWSReservedSSO_ScanalyzeAuthorityRetireApprove_*` or
+`AWSReservedSSO_ScanalyzeAuthorityRetireClass_*` suffix is a collision. Exact
+presence requires authority `PREEXISTING_NO_TOUCH` and exactly the two reviewed
+roles. Each role has a 3600-second maximum session, the owner-pinned trust-policy
+digest, no permissions boundary, attached managed policy or tags, and exactly
+one inline policy whose digest equals both the corresponding permission set and
+its rendered repository source. Missing, extra or mismatched roles fail closed;
+this lane never treats them as eventual consistency and never repairs them.
+That is inventory proof, not deployment or production acceptance. The handoff
+still states `deployment_authorized=false`, `two_human_status=NOT_PROVEN`,
+`independent_approval_present=false` and `production_status=NO-GO`.
+
 The inventory, plan, completion, rollback and handoff are separate
 digest-bound records. The rollback package is empty, non-automatic and
-non-executable; it does not imply any compensating provider mutation. Neither
-v1 nor v2 emits or accepts `LIVE`. A future separately reviewed private
-orchestrator must rebuild all nine certifications from a private raw causal
-bundle; repository evidence cannot be promoted. Both paths record:
+non-executable; it does not imply any compensating provider mutation. The v1
+path never emits or accepts `LIVE`; the v2 path is limited to the GUG-392
+read-only inventory contract. A future separately reviewed private orchestrator
+must still rebuild all nine certifications from a private raw causal bundle;
+repository or GUG-392 inventory evidence cannot be promoted. Offline CI records:
 
 ```text
 GUG365_AWS_WRITES=0
@@ -539,13 +900,18 @@ PROVIDER_NETWORK_CALLS=0
 production=NO-GO
 ```
 
+A successful GUG-392 live run instead records a positive, transcript-equal
+`AWS_CALLS_PERFORMED` count while retaining `AWS_MUTATIONS=0` and production
+`NO-GO`.
+
 GUG-377 repository completion neither marks GUG-376 Done nor unblocks or
 executes GUG-365. It has zero effects on GUG-365, GUG-357, GUG-215 and GUG-206.
 GUG-365 remains In Progress and must refresh provider state before compiling
-its own fresh plan. Live completion requires the independently reviewed
-private orchestrator, provider evidence, owner/verifier checkpoints and
-consumer refresh. Until then, preserve the exact STOP code and production
-**NO-GO**.
+its own fresh plan. GUG-392 can provide provider-backed read-only inventory and
+owner checkpoint inputs, but live completion still requires the independently
+reviewed mutation orchestrator, phase-specific authorization/verifier
+checkpoints and consumer refresh. Preserve every legacy STOP code and
+production **NO-GO**.
 
 ## References
 
