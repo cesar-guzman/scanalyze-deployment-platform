@@ -33,8 +33,8 @@ help:
 	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
 	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
 	@echo "  make platform-authority-gug390-live-provider-check Validate the GUG-390 provider/executor contract in an AWS-free environment"
-	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392 dual-domain provider/materializer contract offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-392 platform-authority controls offline"
+	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392/GUG-393 dual-domain provider, discovery, and materializer contracts offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-393 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
 	@echo "  GUG-363 entrypoint: python3 scripts/deployment/platform-authority-retirement-entrypoint-materializer.py --help"
@@ -577,12 +577,12 @@ platform-authority-gug390-live-provider-check:
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug390-live-run
 	@echo "GUG-390 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_PROVIDER_NOT_PROVEN / AWS_CALLS=0 / AWS_MUTATIONS=0"
 
-# ── GUG-392 Dual-Domain Live Read-Only Check (offline only) ──────────
+# ── GUG-392/GUG-393 Dual-Domain Read-Only Check (offline only) ──────
 platform-authority-gug392-live-provider-check:
-	@echo "=== GUG-392 Dual-Domain Live Read-Only Contract Check (offline) ==="
+	@echo "=== GUG-392/GUG-393 Dual-Domain Read-Only Contract Check (offline) ==="
 	@ACTUAL_PY=$$($(PYTHON) -c "import sys; print('.'.join(map(str, sys.version_info[:3])))"); \
 		test "$$ACTUAL_PY" = "$(PINNED_PYTHON_VERSION)" || \
-		(echo "GUG-392 requires Python $(PINNED_PYTHON_VERSION), got $$ACTUAL_PY" >&2; exit 1)
+		(echo "GUG-392/GUG-393 requires Python $(PINNED_PYTHON_VERSION), got $$ACTUAL_PY" >&2; exit 1)
 	@$(PYTHON) -c "from importlib.metadata import version; expected={'boto3':'1.42.57','botocore':'1.42.97','jmespath':'1.1.0','python-dateutil':'2.9.0.post0','s3transfer':'0.16.1','six':'1.17.0','urllib3':'2.7.0'}; assert {name: version(name) for name in expected} == expected"
 	@$(GUG390_HERMETIC_ENV) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug376_authority_inventory_collector.py \
@@ -590,8 +590,9 @@ platform-authority-gug392-live-provider-check:
 		$(TESTS_DIR)/test_deployment/test_gug376_identity_center_inventory_cli.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_live_readonly_orchestrator.py \
 		$(TESTS_DIR)/test_deployment/test_gug383_dual_domain_inventory_handoff.py \
-		$(TESTS_DIR)/test_deployment/test_gug392_*.py
-	@$(GUG390_HERMETIC_ENV) $(PYTHON) -B -c "import ast,pathlib; [ast.parse(pathlib.Path(path).read_text(encoding='utf-8')) for path in ('$(TOOLING_DIR)/platform_authority_gug376_live_readonly_orchestrator.py','$(TOOLING_DIR)/platform_authority_gug376_live_request_materializer.py','$(TOOLING_DIR)/platform_authority_gug376_live_provider.py','$(TOOLING_DIR)/platform_authority_gug376_live_executor.py','scripts/deployment/platform-authority-gug392-live-provider.py')]"
+		$(TESTS_DIR)/test_deployment/test_gug392_*.py \
+		$(TESTS_DIR)/test_deployment/test_gug393_*.py
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -B -c "import ast,pathlib; [ast.parse(pathlib.Path(path).read_text(encoding='utf-8')) for path in ('$(TOOLING_DIR)/platform_authority_gug376_live_readonly_orchestrator.py','$(TOOLING_DIR)/platform_authority_gug376_live_request_materializer.py','$(TOOLING_DIR)/platform_authority_gug376_live_provider.py','$(TOOLING_DIR)/platform_authority_gug376_live_executor.py','$(TOOLING_DIR)/platform_authority_gug393_discovery_budget.py','$(TOOLING_DIR)/platform_authority_gug393_private_input_discovery.py','$(TOOLING_DIR)/platform_authority_gug393_private_input_discovery_executor.py','scripts/deployment/platform-authority-gug392-live-provider.py')]"
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-gug392-live-provider.py --help >/dev/null
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
@@ -606,13 +607,24 @@ platform-authority-gug392-live-provider-check:
 		scripts/deployment/platform-authority-gug392-live-provider.py validate-handoff-v2 --help >/dev/null
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-gug392-live-provider.py validate-evidence-v2 --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py materialize-discovery-request --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py discover-inputs --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py materialize-discovery-decision --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py materialize-approved-inputs --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug392-live-provider.py validate-discovery-receipt --help >/dev/null
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug376-live-readonly-run
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug376-live-readonly-handoff
-	@echo "GUG-392 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0"
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug393-discovery-receipt
+	@echo "GUG-392/GUG-393 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0"
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-392, offline) ──
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-393, offline) ──
 platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392 Platform-Authority Bootstrap Check ==="
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
@@ -678,7 +690,7 @@ platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-ch
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test

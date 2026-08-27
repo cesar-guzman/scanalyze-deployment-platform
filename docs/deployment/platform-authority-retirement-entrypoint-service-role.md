@@ -171,11 +171,10 @@ Every transitively loaded `tooling` module's `__file__`, import origin and
 package path must remain below that root. The Git root, clean tree and exact
 `origin/main` commit are validated before provider/executor import.
 Operational invocations must therefore unset all four variables and use Python
-isolated mode as shown in the runbook. `-S` remains appropriate for
-parser/help import-inert checks only; it is not used for an authorized live
-command because it removes the installed boto3 SDK from discovery. The SDK
-remains lazy, is discoverable only through retained non-repository paths, and
-cannot be imported before the source, request and provider gates.
+isolated, no-site mode as shown in the runbook. `-I -S` is required for both
+import-inert checks and authorized read-only commands. The reviewed SDK is
+loaded only from the separately bound SDK runtime root after the source,
+request, and provider gates; ambient site packages are not an authority.
 
 - `AWS_CALLS=0` and `AWS_MUTATIONS=0`;
 - `LIVE_PROVIDER_EVIDENCE=false` and `status=LIVE_PROVIDER_NOT_PROVEN`;
@@ -216,6 +215,91 @@ validity window is rechecked immediately before initial STS and every later
 SDK call/page. Ambient/default/chained credentials, missing pagination,
 drift, stale evidence, extra effective authority or an expired checkpoint are
 `STOP_NO_MUTATION`.
+
+### GUG-393 private input discovery boundary
+
+GUG-393 closes only the missing-input preflight for the GUG-392 read-only
+lane. It does not deploy, mutate, accept staging, or certify production. The
+reviewed GUG-363 and GUG-365 plans are revalidated and used only as fixed
+selectors; none of their historical classifications is accepted as current
+AWS truth. A source contract can be minted only in-process from both complete
+validated plans.
+
+The preflight requires two different direct SSO profiles, one per account.
+Both profiles are non-default, unchained, read-only, exact-account and
+exact-principal bound. Names containing administrator, bootstrap, seed,
+deploy, or destroy authority are rejected. Every session performs
+`sts:GetCallerIdentity` first, has SDK retries disabled, and is restricted to
+the existing closed List/Get/Describe inventory surface in `us-east-1`.
+
+One owner-supplied global budget covers both domains and SSO credential
+vending. The implementation hard ceilings are 5,000 provider calls, six
+`sso:GetRoleCredentials` attempts, 5,006 total network attempts, 4,300 page
+calls, 256 KiB per projected response, and 32 MiB total projected response
+bytes. The owner may choose lower limits. The owner also supplies a
+digest-bound, time-bounded cost model with fixed, per-attempt, and per-byte
+upper bounds; repository code invents no cloud price. Reservation occurs
+before a provider call and projected bytes are charged before a response can
+enter evidence.
+
+The workflow has two distinct owner approvals:
+
+1. a maximum 15-minute request/checkpoint binds source commit/tree, host,
+   private root, reviewed SDK runtime, both exact profiles, and the global
+   call/cost budget;
+2. after two stable snapshots per domain, a new maximum 15-minute decision
+   binds the exact private proposal digest before GUG-392 inputs or plans are
+   materialized. Approval must occur within 15 minutes of proposal creation.
+   Its `approved_at`/`expires_at` values become a fresh, separate GUG-392 plan
+   window rather than reusing the discovery window.
+
+Identity Center exact discovery transitions from its closed discovery policy
+to a target-derived exact policy within each capture. This keeps the maximum
+session topology at two Authority sessions plus two Identity Center
+discovery/exact pairs: six possible SSO credential vends. Absence remains one
+Identity Center session per capture. Generated Identity Center roles are
+cross-certified against their fresh inline-policy and trust-policy digests;
+partial, colliding, inaccessible, unstable, or stale state stops with no
+materialization.
+
+The execution capability authorizes each `(domain, capture, stage)` only once
+and only after execution starts. Authority and Identity discovery sessions
+must use the exact policy digests derived from the sealed request. An Identity
+exact policy cannot be registered from caller-supplied targets: the concrete
+discovery reader first seals a one-shot attestation over the successful STS
+and complete discovery operations and their normalized output. The transition
+then recomputes targets from that attested output before authorizing the exact
+policy digest.
+
+All requests, checkpoints, claims, snapshots, proposals, decisions, inputs,
+plans, and manifests are create-only owner-private artifacts under the
+existing 0700-directory/0600-file custody rules. The proposal, decision,
+approved inputs, plans, and commit-marker manifest use fixed canonical
+filenames; callers cannot select alternate names to replay one approval into
+a second materialization. Request/checkpoint names cannot collide with any
+reserved lifecycle output, and every fixed downstream target must be absent
+before request persistence and again before the executor claims or performs a
+provider call. Decision, persistence, and final materialization must remain on
+the proposal's exact operational host and exact source commit/tree; moving the
+private root to an equivalent path or advancing `origin/main` requires a new
+request. Before both the owner decision and final materialization, the library
+rereads the canonical persisted proposal, original request/checkpoint, fixed
+claim, and all four canonical snapshots. It validates every seal and binding,
+then reconstructs the complete proposal at its historical creation time and
+requires exact equality. The sealed timeline must also order the claim before
+every snapshot identity observation and the latest observation no later than
+proposal creation. A caller-supplied or self-resealed proposal, including
+one whose plans were recomputed from altered profile/principal inputs, cannot
+replace that evidence chain. The public receipt contains
+only source and evidence digests, scalar budget counters, the modeled cost
+upper bound, and truthful no-mutation/no-production flags. A consumed claim,
+expired window, replaced file, copied host binding, budget exhaustion, or
+incomplete pagination cannot be retried; create a fresh request instead.
+
+Even a valid GUG-393 receipt and approved GUG-392 plans leave
+`two_human_status=NOT_PROVEN`, `deployment_authorized=false`, and
+`production_status=NO-GO`. GUG-127 staging certification and GUG-128's
+independently authorized production pilot remain separate gates.
 
 ### Fresh `origin/main` source custody
 

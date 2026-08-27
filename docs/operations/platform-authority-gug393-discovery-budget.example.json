@@ -1,0 +1,19 @@
+{
+  "record_type": "scanalyze.platform_authority.gug393_discovery_budget.v1",
+  "schema_version": 1,
+  "max_network_calls": 5006,
+  "max_provider_calls": 5000,
+  "max_credential_vending_calls": 6,
+  "max_page_calls": 4300,
+  "max_response_bytes": 262144,
+  "max_total_response_bytes": 33554432,
+  "maximum_cost_usd": "0.038560432",
+  "cost_model": {
+    "fixed_run_cost_usd_upper": "0.000000000",
+    "per_network_attempt_cost_usd_upper": "0.000001000",
+    "per_projected_response_byte_cost_usd_upper": "0.000000001",
+    "pricing_reference_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "valid_from": "2099-01-01T00:00:00Z",
+    "valid_until": "2099-01-01T00:15:00Z"
+  }
+}

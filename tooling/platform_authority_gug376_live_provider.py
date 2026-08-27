@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import threading
 from types import MappingProxyType
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -122,6 +123,8 @@ _ABSENT = frozenset(
     }
 )
 _CONCRETE_PROVIDER_ATTESTATION = object()
+_DISCOVERY_PROVIDER_ATTESTATION = object()
+_IDENTITY_DISCOVERY_TRANSITION_ATTESTATION = object()
 _SDK_RUNTIME_SITE_PATH = Path("site-packages")
 _SDK_VIRTUAL_DATA_ROOT = "/__scanalyze_gug392_authenticated_botocore_data__"
 _REVIEWED_BOTO3_VERSION = "1.42.57"
@@ -241,6 +244,21 @@ class LiveProviderError(RuntimeError):
 
 def _fail(code: str) -> None:
     raise LiveProviderError(code)
+
+
+def _safe_discovery_error(
+    exc: Exception, fallback: str
+) -> LiveProviderError:
+    """Translate only stable GUG-393 boundary codes across lazy imports."""
+
+    code = getattr(exc, "code", None)
+    if (
+        isinstance(code, str)
+        and code.startswith("DISCOVERY_")
+        and _TOKEN.fullmatch(code) is not None
+    ):
+        return LiveProviderError(code)
+    return LiveProviderError(fallback)
 
 
 class CallLedger(Protocol):
@@ -2362,7 +2380,12 @@ def _validate_direct_sso_profile(
     opened_at: datetime,
     required_end: datetime,
     observe_credential_bootstrap: bool,
+    credential_vend_recorder: Callable[[str], None] | None = None,
 ) -> tuple[datetime, str, Any]:
+    if credential_vend_recorder is not None and not callable(
+        credential_vend_recorder
+    ):
+        _fail("DISCOVERY_BUDGET_BINDING_INVALID")
     full, profile = _profile_document(session, profile_name)
     if set(profile) & _PROFILE_FORBIDDEN or not set(profile) <= _PROFILE_ALLOWED:
         _fail("DIRECT_SSO_PROFILE_REQUIRED")
@@ -2423,6 +2446,8 @@ def _validate_direct_sso_profile(
             "total_max_attempts": 1,
         }:
             _fail("DIRECT_SSO_CREDENTIAL_RETRIES_FORBIDDEN")
+        if credential_vend_recorder is not None:
+            credential_vend_recorder("sso:GetRoleCredentials")
         bootstrap_calls += 1
         if bootstrap_calls > 1:
             _fail("DIRECT_SSO_CREDENTIAL_BOOTSTRAP_FORBIDDEN")
@@ -2607,6 +2632,7 @@ class LiveProviderFactory:
         clock: Callable[[], datetime],
         environment: Mapping[str, str],
         execution_capability: object | None,
+        discovery_budget: object | None = None,
     ) -> "LiveProviderFactory":
         _validate_config(config)
         _ambient_gate(environment)
@@ -2616,6 +2642,8 @@ class LiveProviderFactory:
             _fail("LIVE_REQUEST_EXECUTION_CAPABILITY_REQUIRED")
         if not concrete and execution_capability is not None:
             _fail("INJECTED_CAPABILITY_FORBIDDEN")
+        if not concrete and discovery_budget is not None:
+            _fail("DISCOVERY_PROVIDER_INJECTION_FORBIDDEN")
         if not concrete and (not callable(session_factory) or not callable(config_factory)):
             _fail("INJECTED_SDK_REQUIRED")
         if not callable(clock):
@@ -2638,15 +2666,102 @@ class LiveProviderFactory:
         self._clock = clock
         self._environment = environment
         self._execution_capability = execution_capability
+        self._discovery_budget = discovery_budget
         self._events: list[dict[str, Any]] = []
         self._session_ordinal = 0
         self._ledger: CallLedger | None = None
-        self._provider_attestation = (
-            _CONCRETE_PROVIDER_ATTESTATION if concrete else None
-        )
+        self._provider_attestation = None
+        if concrete:
+            self._provider_attestation = (
+                _DISCOVERY_PROVIDER_ATTESTATION
+                if discovery_budget is not None
+                else _CONCRETE_PROVIDER_ATTESTATION
+            )
         self.concrete_provider = concrete
-        self.mode = "ATTESTED_LIVE" if concrete else "INJECTED_NON_LIVE"
+        self.discovery_provider = discovery_budget is not None
+        self.mode = (
+            "ATTESTED_DISCOVERY"
+            if discovery_budget is not None
+            else ("ATTESTED_LIVE" if concrete else "INJECTED_NON_LIVE")
+        )
         return self
+
+    def _reserve_discovery_provider_call(
+        self, operation: str, *, is_page: bool
+    ) -> None:
+        if self._discovery_budget is None:
+            return
+        reserve = getattr(self._discovery_budget, "reserve_provider_call", None)
+        if not callable(reserve):
+            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+        try:
+            reserve(operation, is_page=is_page)
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_BUDGET_BLOCKED"
+            ) from exc
+
+    def _record_discovery_credential_vend(self, operation: str) -> None:
+        if self._discovery_budget is None:
+            return
+        record = getattr(self._discovery_budget, "record_credential_vend", None)
+        if not callable(record):
+            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+        try:
+            record(operation)
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_BUDGET_BLOCKED"
+            ) from exc
+
+    def _record_discovery_response(self, response: Mapping[str, Any]) -> None:
+        if self._discovery_budget is None:
+            return
+        record = getattr(self._discovery_budget, "record_response", None)
+        if not callable(record):
+            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+        byte_count = len(canonical_json(response).encode("utf-8"))
+        try:
+            record(byte_count)
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_BUDGET_BLOCKED"
+            ) from exc
+
+    def _authorize_discovery_session(
+        self,
+        *,
+        domain: str,
+        capture_index: int,
+        stage: str,
+        policy_digest: str,
+    ) -> None:
+        if self._discovery_budget is None:
+            return
+        authorize = getattr(
+            self._config.validity_gate, "authorize_session", None
+        )
+        if not callable(authorize):
+            _fail("DISCOVERY_EXECUTION_CAPABILITY_REQUIRED")
+        try:
+            authorize(
+                domain=domain,
+                capture_index=capture_index,
+                stage=stage,
+                policy_digest=policy_digest,
+            )
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_PROVIDER_SESSION_NOT_AUTHORIZED"
+            ) from exc
 
     def _sdk(self) -> tuple[Callable[..., Any], Callable[..., Any]]:
         if self._concrete:
@@ -2798,6 +2913,29 @@ class LiveProviderFactory:
             "transcript_digest": transcript_digest,
         }
 
+    def discovery_budget_summary(self) -> dict[str, Any]:
+        """Return the shared discovery budget's digest-only counters."""
+
+        if (
+            self._provider_attestation is not _DISCOVERY_PROVIDER_ATTESTATION
+            or self._discovery_budget is None
+        ):
+            _fail("DISCOVERY_PROVIDER_REQUIRED")
+        summary = getattr(self._discovery_budget, "summary", None)
+        if not callable(summary):
+            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+        try:
+            value = summary()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_BUDGET_SUMMARY_INVALID"
+            ) from exc
+        if not isinstance(value, Mapping):
+            _fail("DISCOVERY_BUDGET_SUMMARY_INVALID")
+        return dict(value)
+
     def evaluation_time(self) -> datetime:
         """Return the post-call trusted time after revalidating local custody."""
 
@@ -2847,6 +2985,13 @@ class _DomainFactory:
             _fail("PROVIDER_STAGE_INVALID")
         if region != self._owner._config.region:
             _fail("REGION_BINDING_INVALID")
+        assert expected_stage is not None
+        self._owner._authorize_discovery_session(
+            domain=self._domain,
+            capture_index=self._capture_index,
+            stage=expected_stage,
+            policy_digest=policy_digest,
+        )
         now = self._owner._clock()
         if not isinstance(now, datetime) or now.tzinfo is None:
             _fail("PROVIDER_CLOCK_INVALID")
@@ -2867,7 +3012,11 @@ class _DomainFactory:
                 parameter_validation=True,
                 tcp_keepalive=True,
                 ignore_configured_endpoint_urls=True,
-                user_agent_extra="scanalyze-gug392-live-provider/1",
+                user_agent_extra=(
+                    "scanalyze-gug393-discovery-provider/1"
+                    if self._owner._discovery_budget is not None
+                    else "scanalyze-gug392-live-provider/1"
+                ),
             )
             sdk_session = session_factory(profile_name=self._profile, region_name=region)
         except Exception as exc:
@@ -2882,9 +3031,13 @@ class _DomainFactory:
             opened_at=now,
             required_end=end,
             observe_credential_bootstrap=self._owner._concrete,
+            credential_vend_recorder=(
+                self._owner._record_discovery_credential_vend
+                if self._owner._discovery_budget is not None
+                else None
+            ),
         )
         )
-        assert expected_stage is not None
         session_digest = self._owner._next_session_digest(
             domain=self._domain,
             profile=self._profile,
@@ -2927,6 +3080,8 @@ class _DomainFactory:
             credential_expires_at=credential_expires_at,
             policy_actions=policy_actions,
             region=region,
+            capture_index=self._capture_index,
+            stage=expected_stage,
         )
 
 
@@ -2952,6 +3107,8 @@ class _StsSession:
         credential_expires_at: datetime,
         policy_actions: frozenset[str],
         region: str,
+        capture_index: int = 1,
+        stage: str | None = None,
     ) -> None:
         self._owner = owner
         self._domain = domain
@@ -2971,6 +3128,8 @@ class _StsSession:
         self._credential_expires_at = credential_expires_at
         self._policy_actions = policy_actions
         self._region = region
+        self._capture_index = capture_index
+        self._stage = stage
         self._identity_validated = False
 
     def _client(self, service: str) -> Any:
@@ -3046,6 +3205,9 @@ class _StsSession:
         started_at = self._assert_active_window()
         request_digest = canonical_digest(request)
         ledger_token = canonical_digest(page_token) if page_token is not None else None
+        self._owner._reserve_discovery_provider_call(
+            operation, is_page=pagination_key is not None
+        )
         ticket = self._ledger.authorize(
             domain=self._domain,
             session_digest=self._session_digest,
@@ -3072,6 +3234,16 @@ class _StsSession:
                 raise
             if absent_ok and code in _ABSENT:
                 detached = {"Absent": code}
+                try:
+                    self._owner._record_discovery_response(detached)
+                except LiveProviderError:
+                    self._fail_pending_post_response(
+                        ticket=ticket,
+                        operation=operation,
+                        request_digest=request_digest,
+                        completed_at=completed_at,
+                    )
+                    raise
                 response_digest = canonical_digest(detached)
                 self._ledger.complete(
                     ticket,
@@ -3087,7 +3259,18 @@ class _StsSession:
                     outcome="SUCCESS",
                 )
                 return detached
-            response_digest = canonical_digest({"error_code": code})
+            detached_error = {"error_code": code}
+            try:
+                self._owner._record_discovery_response(detached_error)
+            except LiveProviderError:
+                self._fail_pending_post_response(
+                    ticket=ticket,
+                    operation=operation,
+                    request_digest=request_digest,
+                    completed_at=completed_at,
+                )
+                raise
+            response_digest = canonical_digest(detached_error)
             self._ledger.complete(
                 ticket,
                 response_digest,
@@ -3126,6 +3309,7 @@ class _StsSession:
                 _fail("PROVIDER_RESPONSE_INVALID")
             detached = _bounded(response)
             assert isinstance(detached, Mapping)
+            self._owner._record_discovery_response(detached)
             next_token = _next_page_token(
                 detached, response_token_key, secondary_response_token_key
             )
@@ -3341,14 +3525,14 @@ class _StsSession:
         return _AuthorityReader(self, _PolicyScope(self._policy))
 
     def open_discovery(self) -> "_IdentityDiscoveryReader":
-        if self._domain != "identity_center":
+        if self._domain != "identity_center" or self._stage != "discovery":
             _fail("PROVIDER_DOMAIN_INVALID")
         if not self._identity_validated:
             _fail("STS_FIRST_REQUIRED")
         return _IdentityDiscoveryReader(self)
 
     def open_exact(self) -> "_IdentityExactReader":
-        if self._domain != "identity_center":
+        if self._domain != "identity_center" or self._stage != "exact":
             _fail("PROVIDER_DOMAIN_INVALID")
         if not self._identity_validated:
             _fail("STS_FIRST_REQUIRED")
@@ -3707,9 +3891,119 @@ class _AuthorityReader:
         return _single_page(items)
 
 
+class _IdentityDiscoveryTransitionAttestation:
+    """Opaque one-shot proof of the concrete discovery session's outputs."""
+
+    __slots__ = (
+        "_token",
+        "_owner",
+        "_execution_capability",
+        "_capture_index",
+        "_session_digest",
+        "_policy_digest",
+        "_discovery",
+        "_discovery_digest",
+        "_session_events_digest",
+        "_consumed",
+        "_lock",
+    )
+
+    def __init__(
+        self,
+        token: object,
+        *,
+        owner: LiveProviderFactory,
+        execution_capability: object,
+        capture_index: int,
+        session_digest: str,
+        policy_digest: str,
+        discovery: Mapping[str, Any],
+        discovery_digest: str,
+        session_events_digest: str,
+    ) -> None:
+        if token is not _IDENTITY_DISCOVERY_TRANSITION_ATTESTATION:
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_REQUIRED")
+        self._token = token
+        self._owner = owner
+        self._execution_capability = execution_capability
+        self._capture_index = capture_index
+        self._session_digest = session_digest
+        self._policy_digest = policy_digest
+        self._discovery = json.loads(canonical_json(discovery))
+        self._discovery_digest = discovery_digest
+        self._session_events_digest = session_events_digest
+        self._consumed = False
+        self._lock = threading.Lock()
+
+
+def consume_identity_discovery_transition_attestation(
+    value: object,
+    *,
+    execution_capability: object,
+    capture_index: int,
+    expected_policy_digest: str,
+) -> dict[str, Any]:
+    """Consume concrete discovery proof without exposing provider internals."""
+
+    if (
+        type(value) is not _IdentityDiscoveryTransitionAttestation
+        or value._token  # type: ignore[attr-defined]
+        is not _IDENTITY_DISCOVERY_TRANSITION_ATTESTATION
+        or value._execution_capability  # type: ignore[attr-defined]
+        is not execution_capability
+        or value._capture_index != capture_index  # type: ignore[attr-defined]
+        or value._policy_digest  # type: ignore[attr-defined]
+        != expected_policy_digest
+        or not is_attested_discovery_provider(
+            value._owner, execution_capability  # type: ignore[attr-defined]
+        )
+    ):
+        _fail("DISCOVERY_TRANSITION_ATTESTATION_REQUIRED")
+    owner = value._owner  # type: ignore[attr-defined]
+    session_events = [
+        item
+        for item in owner._events
+        if item.get("session_digest")
+        == value._session_digest  # type: ignore[attr-defined]
+    ]
+    if (
+        canonical_digest(session_events)
+        != value._session_events_digest  # type: ignore[attr-defined]
+        or canonical_digest(value._discovery)  # type: ignore[attr-defined]
+        != value._discovery_digest  # type: ignore[attr-defined]
+    ):
+        _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+    with value._lock:  # type: ignore[attr-defined]
+        if value._consumed:  # type: ignore[attr-defined]
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_CONSUMED")
+        value._consumed = True  # type: ignore[attr-defined]
+    return json.loads(canonical_json(value._discovery))  # type: ignore[attr-defined]
+
+
 class _IdentityDiscoveryReader:
     def __init__(self, session: _StsSession) -> None:
         self._session = session
+        self._observed: dict[str, list[dict[str, Any]]] = {}
+        self._attested = False
+
+    def _record_surface(
+        self, name: str, items: Sequence[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if name in self._observed:
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+        try:
+            detached = json.loads(canonical_json(list(items)))
+        except Exception as exc:
+            raise LiveProviderError(
+                "DISCOVERY_TRANSITION_ATTESTATION_INVALID"
+            ) from exc
+        if not isinstance(detached, list) or any(
+            not isinstance(item, dict) for item in detached
+        ):
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+        result = sorted(detached, key=canonical_json)
+        self._observed[name] = result
+        return result
 
     def list_instances(self, token: object | None) -> Mapping[str, Any]:
         _require_first_cursor(token)
@@ -3720,14 +4014,15 @@ class _IdentityDiscoveryReader:
             "owner_account_id": item.get("OwnerAccountId"),
             "status": item.get("Status"),
         } for item in values if isinstance(item, Mapping)]
-        return _identity_page(items)
+        return _identity_page(self._record_surface("instances", items))
 
     def list_applications(self, instance_arn: str, application_name: str, token: object | None) -> Mapping[str, Any]:
         _require_first_cursor(token)
         values = self._session._paginate(operation="sso:ListApplications", service="sso-admin", method="list_applications", request={"InstanceArn": instance_arn}, item_key="Applications", request_token_key="NextToken", response_token_key="NextToken")
-        return _identity_page([{
+        items = [{
             "application_arn": item.get("ApplicationArn"), "name": item.get("Name")
-        } for item in values if isinstance(item, Mapping) and item.get("Name") == application_name])
+        } for item in values if isinstance(item, Mapping) and item.get("Name") == application_name]
+        return _identity_page(self._record_surface("applications", items))
 
     def list_permission_sets(self, instance_arn: str, names: tuple[str, str], token: object | None) -> Mapping[str, Any]:
         _require_first_cursor(token)
@@ -3756,7 +4051,58 @@ class _IdentityDiscoveryReader:
                 _fail("PROVIDER_RESPONSE_INVALID")
             if name in expected_names:
                 items.append({"name": name, "permission_set_arn": arn})
-        return _identity_page(items)
+        return _identity_page(self._record_surface("permission_sets", items))
+
+    def attest_transition(
+        self, discovery_digest: str
+    ) -> _IdentityDiscoveryTransitionAttestation:
+        owner = self._session._owner
+        execution_capability = owner._execution_capability
+        discovery = {
+            key: self._observed[key]
+            for key in ("instances", "applications", "permission_sets")
+            if key in self._observed
+        }
+        session_events = [
+            item
+            for item in owner._events
+            if item.get("session_digest") == self._session._session_digest
+        ]
+        required_operations = {
+            "sts:GetCallerIdentity",
+            "sso:ListInstances",
+            "sso:ListApplications",
+            "sso:ListPermissionSets",
+        }
+        if (
+            self._attested
+            or owner._provider_attestation is not _DISCOVERY_PROVIDER_ATTESTATION
+            or execution_capability is None
+            or self._session._stage != "discovery"
+            or self._session._identity_validated is not True
+            or set(discovery)
+            != {"instances", "applications", "permission_sets"}
+            or _DIGEST.fullmatch(str(discovery_digest)) is None
+            or canonical_digest(discovery) != discovery_digest
+            or not session_events
+            or session_events[0].get("operation") != "sts:GetCallerIdentity"
+            or required_operations
+            - {item.get("operation") for item in session_events}
+            or any(item.get("outcome") != "SUCCESS" for item in session_events)
+        ):
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+        self._attested = True
+        return _IdentityDiscoveryTransitionAttestation(
+            _IDENTITY_DISCOVERY_TRANSITION_ATTESTATION,
+            owner=owner,
+            execution_capability=execution_capability,
+            capture_index=self._session._capture_index,
+            session_digest=self._session._session_digest,
+            policy_digest=self._session._policy_digest,
+            discovery=discovery,
+            discovery_digest=discovery_digest,
+            session_events_digest=canonical_digest(session_events),
+        )
 
 
 def _one(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -3978,6 +4324,144 @@ class _IdentityExactReader:
         return _one({"UserId": value.get("UserId")})
 
 
+def build_discovery_provider_factory(
+    *,
+    sdk_runtime_root: str,
+    authority_profile: str,
+    identity_center_profile: str,
+    authority_expected_account_id: str,
+    authority_expected_principal_digest: str,
+    authority_expected_sso_role_name_digest: str,
+    identity_expected_account_id: str,
+    identity_expected_principal_digest: str,
+    identity_expected_sso_role_name_digest: str,
+    authority_verification_digest: str,
+    identity_authority_verification_digest: str,
+    discovery_budget: object,
+    execution_capability: object,
+) -> LiveProviderFactory:
+    """Build the concrete, budgeted GUG-393 discovery provider."""
+
+    try:
+        from tooling.platform_authority_gug393_discovery_budget import (
+            GlobalDiscoveryBudget,
+        )
+        from tooling.platform_authority_gug393_private_input_discovery import (
+            assert_preflight_provider_capability_bindings,
+        )
+    except Exception as exc:
+        raise LiveProviderError(
+            "DISCOVERY_PROVIDER_DEPENDENCY_REQUIRED"
+        ) from exc
+
+    if type(discovery_budget) is not GlobalDiscoveryBudget:
+        _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+    try:
+        budget_summary = discovery_budget.summary()
+    except Exception as exc:
+        raise _safe_discovery_error(
+            exc, "DISCOVERY_BUDGET_BINDING_INVALID"
+        ) from exc
+    budget_digest = (
+        budget_summary.get("budget_digest")
+        if isinstance(budget_summary, Mapping)
+        else None
+    )
+    zero_counters = (
+        "provider_calls",
+        "credential_vending_calls",
+        "network_calls",
+        "page_calls",
+        "projected_response_bytes",
+    )
+    if (
+        not isinstance(budget_digest, str)
+        or _DIGEST.fullmatch(budget_digest) is None
+        or any(
+            type(budget_summary.get(field)) is not int
+            or budget_summary.get(field) != 0
+            for field in zero_counters
+        )
+    ):
+        _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+
+    try:
+        validity_gate = assert_preflight_provider_capability_bindings(
+            execution_capability,
+            sdk_runtime_root=sdk_runtime_root,
+            authority_profile=authority_profile,
+            identity_center_profile=identity_center_profile,
+            authority_expected_account_id=authority_expected_account_id,
+            authority_expected_principal_digest=(
+                authority_expected_principal_digest
+            ),
+            authority_expected_sso_role_name_digest=(
+                authority_expected_sso_role_name_digest
+            ),
+            identity_expected_account_id=identity_expected_account_id,
+            identity_expected_principal_digest=(
+                identity_expected_principal_digest
+            ),
+            identity_expected_sso_role_name_digest=(
+                identity_expected_sso_role_name_digest
+            ),
+            authority_verification_digest=authority_verification_digest,
+            identity_authority_verification_digest=(
+                identity_authority_verification_digest
+            ),
+            budget_digest=budget_digest,
+        )
+        if not callable(getattr(validity_gate, "authorize_session", None)):
+            _fail("DISCOVERY_EXECUTION_CAPABILITY_REQUIRED")
+    except Exception as exc:
+        raise _safe_discovery_error(
+            exc, "DISCOVERY_EXECUTION_CAPABILITY_REQUIRED"
+        ) from exc
+
+    try:
+        checked_sdk_runtime_root = Path(sdk_runtime_root)
+        if (
+            not checked_sdk_runtime_root.is_absolute()
+            or checked_sdk_runtime_root.resolve(strict=True)
+            != checked_sdk_runtime_root
+        ):
+            _fail("AWS_SDK_RUNTIME_ROOT_INVALID")
+    except LiveProviderError:
+        raise
+    except (OSError, TypeError) as exc:
+        raise LiveProviderError("AWS_SDK_RUNTIME_ROOT_INVALID") from exc
+
+    return LiveProviderFactory._open(
+        ProviderConfig(
+            authority_profile=authority_profile,
+            identity_center_profile=identity_center_profile,
+            authority_expected_account_id=authority_expected_account_id,
+            authority_expected_principal_digest=authority_expected_principal_digest,
+            authority_expected_sso_role_name_digest=(
+                authority_expected_sso_role_name_digest
+            ),
+            authority_verification_digest=authority_verification_digest,
+            identity_expected_account_id=identity_expected_account_id,
+            identity_expected_principal_digest=identity_expected_principal_digest,
+            identity_expected_sso_role_name_digest=(
+                identity_expected_sso_role_name_digest
+            ),
+            identity_authority_verification_digest=(
+                identity_authority_verification_digest
+            ),
+            validity_gate=validity_gate,
+            sdk_runtime_root=checked_sdk_runtime_root,
+        ),
+        concrete=True,
+        session_factory=None,
+        config_factory=None,
+        clock=lambda: datetime.now(UTC),
+        environment=os.environ,
+        execution_capability=execution_capability,
+        discovery_budget=discovery_budget,
+    )
+
+
 def build_live_provider_factory(
     *,
     sdk_runtime_root: str,
@@ -4119,6 +4603,26 @@ def is_attested_live_provider(
     )
 
 
+def is_attested_discovery_provider(
+    value: object, execution_capability: object | None = None
+) -> bool:
+    """Return true only for the concrete GUG-393 discovery builder."""
+
+    return (
+        type(value) is LiveProviderFactory
+        and getattr(value, "_concrete", None) is True
+        and getattr(value, "_provider_attestation", None)
+        is _DISCOVERY_PROVIDER_ATTESTATION
+        and getattr(value, "concrete_provider", None) is True
+        and getattr(value, "discovery_provider", None) is True
+        and getattr(value, "mode", None) == "ATTESTED_DISCOVERY"
+        and getattr(value, "_discovery_budget", None) is not None
+        and execution_capability is not None
+        and getattr(value, "_execution_capability", None)
+        is execution_capability
+    )
+
+
 __all__ = [
     "LiveProviderError",
     "LiveProviderFactory",
@@ -4126,7 +4630,10 @@ __all__ = [
     "OPERATION_ALLOWLIST",
     "ProviderConfig",
     "REGION",
+    "build_discovery_provider_factory",
     "build_injected_provider_factory",
     "build_live_provider_factory",
+    "consume_identity_discovery_transition_attestation",
+    "is_attested_discovery_provider",
     "is_attested_live_provider",
 ]
