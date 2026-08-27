@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -144,7 +145,37 @@ class _Ledger:
 
     def finalize(self) -> tuple[int, str]:
         assert len(self.authorized) == len(self.completed)
-        return len(self.completed), provider.canonical_digest(self.completed)
+        events = self.evidence_events()
+        return len(events), provider.canonical_digest(events)
+
+    def evidence_events(self) -> list[dict[str, Any]]:
+        assert len(self.authorized) == len(self.completed)
+        events: list[dict[str, Any]] = []
+        for ordinal, (authorized, completed) in enumerate(
+            zip(self.authorized, self.completed, strict=True), 1
+        ):
+            assert completed["ticket"] == authorized["ticket"]
+            events.append(
+                {
+                    "ordinal": ordinal,
+                    "domain": authorized["domain"],
+                    "session_digest": authorized["session_digest"],
+                    "operation": authorized["operation"],
+                    "request_digest": authorized["request"],
+                    "pagination_stream_digest": authorized.get(
+                        "pagination_key"
+                    ),
+                    "page_token_digest": authorized.get("page_token"),
+                    "started_at": authorized["started_at"],
+                    "response_digest": completed["response"],
+                    "outcome": completed.get("outcome", "SUCCESS"),
+                    "complete": completed.get("complete", True),
+                    "truncated": completed.get("truncated", False),
+                    "next_token_digest": completed.get("next_token"),
+                    "completed_at": completed["completed_at"],
+                }
+            )
+        return copy.deepcopy(events)
 
 
 class _StsClient:
@@ -275,7 +306,7 @@ def test_provider_calls_pages_and_detached_bytes_share_one_budget_and_keep_trans
     factory, _, _ = _build_discovery_factory(
         monkeypatch, tmp_path, shared_budget
     )
-    session, _, sts_client = _identity_session(factory)
+    session, ledger, sts_client = _identity_session(factory)
     sso_client = _SsoClient()
     session._clients["sso-admin"] = sso_client
 
@@ -313,6 +344,26 @@ def test_provider_calls_pages_and_detached_bytes_share_one_budget_and_keep_trans
     assert transcript["aws_calls"] == 2
     assert transcript["aws_mutations"] == 0
     assert transcript["live_provider_evidence"] is True
+
+    transcript_events = factory.transcript_events()
+    assert transcript_events == ledger.evidence_events()
+    assert [event["operation"] for event in transcript_events] == [
+        "sts:GetCallerIdentity",
+        "sso:ListInstances",
+    ]
+    transcript_events[0]["operation"] = "tampered:Locally"
+    assert factory.transcript_events()[0]["operation"] == (
+        "sts:GetCallerIdentity"
+    )
+
+    budget_events = factory.discovery_budget_evidence_events()
+    assert budget.replay_discovery_budget_evidence(
+        budget.validate_discovery_budget(_budget_document()), budget_events
+    ) == budget_summary
+    budget_events[0]["operation"] = "tampered:Locally"
+    assert factory.discovery_budget_evidence_events()[0]["operation"] == (
+        "sts:GetCallerIdentity"
+    )
 
 
 def test_provider_budget_failure_happens_before_sdk_invocation(

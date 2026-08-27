@@ -271,30 +271,47 @@ and complete discovery operations and their normalized output. The transition
 then recomputes targets from that attested output before authorizing the exact
 policy digest.
 
-All requests, checkpoints, claims, snapshots, proposals, decisions, inputs,
-plans, and manifests are create-only owner-private artifacts under the
-existing 0700-directory/0600-file custody rules. The proposal, decision,
-approved inputs, plans, and commit-marker manifest use fixed canonical
-filenames; callers cannot select alternate names to replay one approval into
-a second materialization. Request/checkpoint names cannot collide with any
-reserved lifecycle output, and every fixed downstream target must be absent
-before request persistence and again before the executor claims or performs a
-provider call. Decision, persistence, and final materialization must remain on
-the proposal's exact operational host and exact source commit/tree; moving the
-private root to an equivalent path or advancing `origin/main` requires a new
-request. Before both the owner decision and final materialization, the library
-rereads the canonical persisted proposal, original request/checkpoint, fixed
-claim, and all four canonical snapshots. It validates every seal and binding,
-then reconstructs the complete proposal at its historical creation time and
-requires exact equality. The sealed timeline must also order the claim before
-every snapshot identity observation and the latest observation no later than
-proposal creation. A caller-supplied or self-resealed proposal, including
-one whose plans were recomputed from altered profile/principal inputs, cannot
-replace that evidence chain. The public receipt contains
-only source and evidence digests, scalar budget counters, the modeled cost
-upper bound, and truthful no-mutation/no-production flags. A consumed claim,
-expired window, replaced file, copied host binding, budget exhaustion, or
-incomplete pagination cannot be retried; create a fresh request instead.
+All requests, checkpoints, claims, snapshots, provider evidence, proposals,
+decisions, inputs, plans, and manifests are create-only owner-private
+artifacts under the existing 0700-directory/0600-file custody rules. The
+provider evidence is written first to the fixed canonical filename
+`gug393-discovery-provider-evidence.json`; callers cannot supply, rename, or
+overwrite it. It seals the provider transcript events and the global-budget
+event journal so validation can independently replay the events and derive
+the counters, transcript digest, and modeled cost instead of trusting values
+copied from the proposal. Both journals use fixed, self-describing compact
+rows; validation reconstructs the exact full events before replay. Even at
+the hard ceilings of 5,000 provider calls, 4,300 page calls, and six
+credential-vending calls, the complete evidence document remains within the
+unchanged 4 MiB private JSON custody limit. Its `sealed_at` is the proposal's
+exact `created_at`, so self-resealing a later creation time cannot extend the
+15-minute owner-review deadline.
+
+The provider evidence, proposal, decision, approved inputs, plans, and
+commit-marker manifest use fixed canonical filenames; callers cannot select
+alternate names to replay one approval into a second materialization.
+Request/checkpoint names cannot collide with any reserved lifecycle output,
+and every fixed downstream target must be absent before request persistence
+and again before the executor claims or performs a provider call. Decision,
+persistence, and final materialization must remain on the proposal's exact
+operational host and exact source commit/tree; moving the private root to an
+equivalent path or advancing `origin/main` requires a new request. Before both
+the owner decision and final materialization, the library rereads the
+canonical persisted provider evidence, proposal, original request/checkpoint,
+fixed claim, and all four canonical snapshots. It validates every seal and
+binding, replays the provider and budget events, then reconstructs the
+complete proposal at the independently sealed evidence time and requires
+exact equality. The sealed timeline must also order the claim before every
+provider event and snapshot identity observation, with the latest observation
+no later than evidence sealing/proposal creation. Missing or changed provider
+evidence is fail-closed. A caller-supplied or self-resealed proposal,
+including one whose plans were recomputed from altered profile/principal
+inputs, cannot replace that evidence chain. The public receipt contains only
+source and evidence digests (including `provider_evidence_digest`), scalar
+budget counters, the modeled cost upper bound, and truthful
+no-mutation/no-production flags. A consumed claim, expired window, replaced
+file, copied host binding, budget exhaustion, or incomplete pagination cannot
+be retried; create a fresh request instead.
 
 Even a valid GUG-393 receipt and approved GUG-392 plans leave
 `two_human_status=NOT_PROVEN`, `deployment_authorized=false`, and

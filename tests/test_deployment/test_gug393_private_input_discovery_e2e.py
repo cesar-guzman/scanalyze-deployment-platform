@@ -288,7 +288,7 @@ class _BudgetedActor(collector_harness._Actor):  # noqa: SLF001
         self.owner.attempts.append(
             (self.domain, self.capture, self.stage, operation)
         )
-        call_time = _stamp(START + timedelta(minutes=6))
+        call_time = _stamp(START + timedelta(minutes=4))
         ticket = self.ledger.authorize(
             domain=self.domain,
             session_digest=self.session,
@@ -477,6 +477,12 @@ class _AttestedOfflineProvider(collector_harness.FakeProvider):
             "transcript_digest": transcript_digest,
         }
 
+    def transcript_events(self) -> list[dict[str, Any]]:
+        return self._ledger.evidence_events()
+
+    def discovery_budget_evidence_events(self) -> list[dict[str, Any]]:
+        return self.discovery_budget.evidence_events()
+
 
 @pytest.fixture(autouse=True)
 def _closed_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -492,6 +498,11 @@ def _closed_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gug392_data, "IDENTITY_ACCOUNT", IDENTITY_ACCOUNT)
     monkeypatch.setattr(collector_harness, "START", START)
     monkeypatch.setattr(collector_harness, "END", END)
+    monkeypatch.setattr(
+        discovery,
+        "_observed_utc_now",
+        lambda: START + timedelta(minutes=8),
+    )
 
 
 def test_executor_rejects_preexisting_downstream_output_before_claim_or_calls(
@@ -654,6 +665,28 @@ def test_private_discovery_runs_through_approved_gug392_inputs_offline(
     candidate = proposal.private_candidate
     assert candidate["classification"] == classification
     assert read_private_json(root, discovery.DEFAULT_PROPOSAL_FILE) == candidate
+    provider_evidence_path = root / discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    provider_evidence = read_private_json(
+        root, discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+    assert provider_evidence_path.is_file()
+    assert provider_evidence_path.stat().st_mode & 0o777 == 0o600
+    assert provider_evidence["provider_evidence_digest"] == candidate[
+        "provider_evidence_digest"
+    ]
+    assert provider_evidence["sealed_at"] == candidate["created_at"]
+    provider_events = discovery._decode_provider_event_journal(  # noqa: SLF001
+        provider_evidence["provider_events"]
+    )
+    budget_events = discovery._decode_budget_event_journal(  # noqa: SLF001
+        provider_evidence["budget_events"]
+    )
+    assert provider_events == provider.transcript_events()
+    assert budget_events == provider.discovery_budget_evidence_events()
+    assert budget_module.replay_discovery_budget_evidence(
+        budget_module.validate_discovery_budget(request["discovery_budget"]),
+        budget_events,
+    ) == candidate["provider_summary"]
     assert provider.builds == [
         ("authority", 1),
         ("authority", 2),

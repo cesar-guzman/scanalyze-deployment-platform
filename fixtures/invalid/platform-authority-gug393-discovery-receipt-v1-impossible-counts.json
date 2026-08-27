@@ -7,6 +7,7 @@
   "source_contract_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
   "proposal_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
   "budget_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "provider_evidence_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
   "network_calls": 7,
   "provider_calls": 4,
   "credential_vending_calls": 2,
@@ -24,5 +25,5 @@
   "two_human_status": "NOT_PROVEN",
   "independent_approval_present": false,
   "production_status": "NO-GO",
-  "receipt_digest": "sha256:25933c08cd605d0e6cab40218fb457f48d4a4eedc0af7840d5e81c2921915c8d"
+  "receipt_digest": "sha256:13a285e516962c30f3becd1c373fb4f23d2c32880eb7caa73f466a6bf35ebcb8"
 }

@@ -344,14 +344,23 @@ env -u PYTHONPATH -u PYTHONHOME \
 
 This command claims the request once, rechecks the host/source/private-root/
 SDK/window/budget bindings, and then constructs the connected provider. It
-also proves every fixed proposal, decision, GUG-392 input/plan, snapshot, and
-manifest target absent before the claim or any provider call. A custom request
-or checkpoint filename cannot reuse any reserved lifecycle output name. It
-counts actual SSO credential-vending attempts plus every closed inventory API
-call in one atomic budget. Each session performs STS first. Authority uses two
-sessions. Identity Center absence uses two sessions; exact state uses two
-discovery/exact session pairs. All snapshots and the proposal remain private.
-Only the digest-only receipt is captured; the second command reconstructively
+also proves every fixed provider-evidence, proposal, decision, GUG-392
+input/plan, snapshot, and manifest target absent before the claim or any
+provider call. A custom request or checkpoint filename cannot reuse any
+reserved lifecycle output name. It counts actual SSO credential-vending
+attempts plus every closed inventory API call in one atomic budget. Each
+session performs STS first. Authority uses two sessions. Identity Center
+absence uses two sessions; exact state uses two discovery/exact session pairs.
+All snapshots, the fixed create-only
+`gug393-discovery-provider-evidence.json`, and the proposal remain private.
+The provider-evidence file is written before the proposal, is never selected
+by the caller, and seals both the provider transcript events and the global
+budget event journal. The journals use fixed, self-describing compact rows,
+and validation reconstructs the exact full events before replay. The complete
+document remains inside the unchanged 4 MiB private JSON custody limit at the
+hard ceilings of 5,000 provider calls, 4,300 page calls, and six
+credential-vending calls. Only the digest-only receipt is captured; it
+includes `provider_evidence_digest`, and the second command reconstructively
 validates its seal and closed no-mutation/no-production fields before owner
 review.
 
@@ -362,16 +371,22 @@ are recomputed from that attested result. A free-form target mapping or an
 unexecuted discovery authorization cannot authorize an exact session.
 
 Both post-discovery commands enforce the same full private provenance chain.
-They reread the fixed canonical proposal, original request/checkpoint, fixed
-claim, and the two canonical snapshots for each domain; validate the exact
-root, host, source, profile, policy, budget, window, and artifact digests; and
-reconstruct the complete proposal using its recorded creation time. The
-reconstruction must equal the persisted proposal value-for-value before an
-owner decision or GUG-392 materialization is accepted. The claim timestamp
-must be no later than every snapshot identity observation, and the latest
-observation must be no later than proposal creation. A missing artifact,
-alternate filename, self-resealed proposal, or proposal recomputed from
-altered profile/principal inputs stops without producing downstream files.
+They reread the fixed canonical provider evidence, proposal, original
+request/checkpoint, fixed claim, and the two canonical snapshots for each
+domain; validate the exact root, host, source, profile, policy, budget, window,
+and artifact digests; independently replay the provider and global-budget
+events; and reconstruct the complete proposal using the evidence's sealed
+time. The replayed counters, transcript digest, operation order, session
+bindings, and modeled cost must match value-for-value. Proposal `created_at`
+must equal provider-evidence `sealed_at`; it cannot be self-resealed later to
+extend the owner-review deadline. The reconstruction must equal the persisted
+proposal value-for-value before an owner decision or GUG-392 materialization
+is accepted. The claim timestamp must be no later than every provider event
+and snapshot identity observation, and the latest observation must be no
+later than evidence sealing/proposal creation. A missing or changed
+`gug393-discovery-provider-evidence.json`, alternate filename, self-resealed
+proposal, or proposal recomputed from altered profile/principal inputs stops
+without producing downstream files.
 
 If the receipt is `READY_FOR_OWNER_DECISION`, obtain a new approval that names
 the exact proposal digest within 15 minutes of proposal creation. Seal that

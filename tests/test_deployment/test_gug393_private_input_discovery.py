@@ -29,6 +29,9 @@ from tooling.platform_authority_gug376_authority_inventory_collector import (
 from tooling.platform_authority_gug376_identity_center_inventory_collector import (
     capture_live as capture_identity_live,
 )
+from tooling.platform_authority_gug376_live_readonly_orchestrator import (
+    CallLedger,
+)
 from tooling import platform_authority_gug376_live_provider as provider_module
 from tooling import platform_authority_gug393_discovery_budget as budget_module
 from tooling import (
@@ -97,6 +100,11 @@ def _closed_test_context(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(authority_data, "ACCOUNT", AUTHORITY_ACCOUNT)
     monkeypatch.setattr(authority_data, "START", START)
     monkeypatch.setattr(identity_data, "START", START)
+    monkeypatch.setattr(
+        discovery,
+        "_observed_utc_now",
+        lambda: START + timedelta(minutes=4),
+    )
 
 
 def _budget() -> dict[str, Any]:
@@ -104,9 +112,9 @@ def _budget() -> dict[str, Any]:
         "record_type": budget_module.RECORD_TYPE,
         "schema_version": budget_module.SCHEMA_VERSION,
         "max_network_calls": 4,
-        "max_provider_calls": 3,
-        "max_credential_vending_calls": 1,
-        "max_page_calls": 3,
+        "max_provider_calls": 4,
+        "max_credential_vending_calls": 0,
+        "max_page_calls": 4,
         "max_response_bytes": 500,
         "max_total_response_bytes": 1_000,
         "maximum_cost_usd": "0.000001140",
@@ -641,6 +649,25 @@ def test_capability_revalidates_the_original_pair_not_a_resealed_replacement(
         discovery.claim_discovery_execution(capability)
 
 
+def test_capability_revalidates_expiry_against_the_runtime_clock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _root(tmp_path)
+    materialized = _materialize(root)
+    discovery.persist_discovery_request(root, materialized)
+    request, capability = _claim(root, materialized)
+    monkeypatch.setattr(discovery, "_observed_utc_now", lambda: END)
+
+    with pytest.raises(
+        discovery.PrivateInputDiscoveryError,
+        match="PROPOSAL_EXPIRED",
+    ):
+        discovery.assert_preflight_provider_capability_bindings(
+            capability, **_provider_binding(request)
+        )
+
+
 def test_provider_session_gate_requires_claim_and_exact_bound_policy(
     tmp_path: Path,
 ) -> None:
@@ -884,17 +911,22 @@ def _proposal_context(
         )
         identity_snapshots.append(read_private_json(root, identity_name))
 
+    provider_events = _provider_events(
+        authority_snapshots, identity_snapshots
+    )
     ledger = budget_module.GlobalDiscoveryBudget(
         budget_module.validate_discovery_budget(request["discovery_budget"])
     )
-    ledger.reserve_provider_call("sts:GetCallerIdentity", is_page=False)
+    for event in provider_events:
+        ledger.reserve_provider_call(event["operation"], is_page=False)
+        ledger.record_response(0)
     summary = ledger.summary()
     transcript = {
-        "provider_calls": 1,
-        "aws_calls": 1,
+        "provider_calls": len(provider_events),
+        "aws_calls": len(provider_events),
         "aws_mutations": 0,
         "live_provider_evidence": True,
-        "transcript_digest": canonical_digest({"transcript": "offline-fake"}),
+        "transcript_digest": canonical_digest(provider_events),
     }
     return (
         root,
@@ -909,10 +941,16 @@ def _proposal_context(
 
 class _OfflineAttestedProvider:
     def __init__(
-        self, summary: dict[str, Any], transcript: dict[str, Any]
+        self,
+        summary: dict[str, Any],
+        transcript: dict[str, Any],
+        provider_events: list[dict[str, Any]],
+        budget_events: list[dict[str, Any]],
     ) -> None:
         self._summary = summary
         self._transcript = transcript
+        self._provider_events = provider_events
+        self._budget_events = budget_events
 
     def discovery_budget_summary(self) -> dict[str, Any]:
         return copy.deepcopy(self._summary)
@@ -920,14 +958,90 @@ class _OfflineAttestedProvider:
     def transcript_summary(self) -> dict[str, Any]:
         return copy.deepcopy(self._transcript)
 
+    def transcript_events(self) -> list[dict[str, Any]]:
+        return copy.deepcopy(self._provider_events)
+
+    def discovery_budget_evidence_events(self) -> list[dict[str, Any]]:
+        return copy.deepcopy(self._budget_events)
+
+    def evaluation_time(self) -> datetime:
+        return START + timedelta(minutes=4)
+
+
+def _provider_events(
+    authority_snapshots: list[dict[str, Any]],
+    identity_snapshots: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    sessions = [
+        *(
+            ("authority", snapshot["identity"]["session_id_digest"])
+            for snapshot in authority_snapshots
+        ),
+        *(
+            ("identity_center", session_digest)
+            for snapshot in identity_snapshots
+            for session_digest in snapshot["session_digests"]
+        ),
+    ]
+    ledger = CallLedger("ATTESTED_LIVE")
+    observed_at = _stamp(START + timedelta(minutes=2))
+    for ordinal, (domain, session_digest) in enumerate(sessions, 1):
+        ticket = ledger.authorize(
+            domain=domain,
+            session_digest=session_digest,
+            operation="sts:GetCallerIdentity",
+            retries=0,
+            request={"offline_event": ordinal},
+            started_at=observed_at,
+        )
+        ledger.complete(
+            ticket,
+            {"offline_response": ordinal},
+            completed_at=observed_at,
+        )
+    return ledger.evidence_events()
+
+
+def _budget_events(
+    provider_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for provider_event in provider_events:
+        events.extend(
+            (
+                {
+                    "ordinal": len(events) + 1,
+                    "kind": "PROVIDER_CALL",
+                    "operation": provider_event["operation"],
+                    "page_call": False,
+                },
+                {
+                    "ordinal": len(events) + 2,
+                    "kind": "PROJECTED_RESPONSE",
+                    "byte_count": 0,
+                },
+            )
+        )
+    return events
+
 
 def _offline_provider(
     monkeypatch: pytest.MonkeyPatch,
     capability: discovery.DiscoveryExecutionCapability,
     summary: dict[str, Any],
     transcript: dict[str, Any],
+    authority_snapshots: list[dict[str, Any]],
+    identity_snapshots: list[dict[str, Any]],
 ) -> _OfflineAttestedProvider:
-    provider = _OfflineAttestedProvider(summary, transcript)
+    provider_events = _provider_events(
+        authority_snapshots, identity_snapshots
+    )
+    provider = _OfflineAttestedProvider(
+        summary,
+        transcript,
+        provider_events,
+        _budget_events(provider_events),
+    )
     monkeypatch.setattr(
         provider_module,
         "is_attested_discovery_provider",
@@ -954,7 +1068,12 @@ def test_provider_summary_rejects_more_pages_than_provider_calls(
     impossible["page_calls"] = impossible["provider_calls"] + 1
     _reseal(impossible, "summary_digest")
     provider = _offline_provider(
-        monkeypatch, capability, impossible, transcript
+        monkeypatch,
+        capability,
+        impossible,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
     )
 
     with pytest.raises(
@@ -962,11 +1081,11 @@ def test_provider_summary_rejects_more_pages_than_provider_calls(
         match="DISCOVERY_BUDGET_BINDING_INVALID",
     ):
         discovery.build_discovery_proposal(
+            private_root=root,
             request=request,
             execution_capability=capability,
             authority_snapshots=authority_snapshots,
             identity_snapshots=identity_snapshots,
-            now=START + timedelta(minutes=4),
             provider_factory=provider,
         )
 
@@ -983,13 +1102,20 @@ def test_resealed_proposal_cannot_hide_impossible_provider_counters(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     candidate = copy.deepcopy(proposal.private_candidate)
@@ -1014,11 +1140,270 @@ def test_resealed_proposal_cannot_hide_impossible_provider_counters(
     assert not (root / discovery.DEFAULT_PROPOSAL_FILE).exists()
 
 
+def test_proposal_build_seals_provider_evidence_before_proposal_persistence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (
+        root,
+        request,
+        capability,
+        authority_snapshots,
+        identity_snapshots,
+        summary,
+        transcript,
+    ) = _proposal_context(tmp_path)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
+
+    proposal = discovery.build_discovery_proposal(
+        private_root=root,
+        request=request,
+        execution_capability=capability,
+        authority_snapshots=authority_snapshots,
+        identity_snapshots=identity_snapshots,
+        provider_factory=provider,
+    )
+
+    evidence_path = root / discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    evidence = read_private_json(
+        root, discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+    assert evidence_path.is_file()
+    assert stat.S_IMODE(evidence_path.stat().st_mode) == 0o600
+    assert not (root / discovery.DEFAULT_PROPOSAL_FILE).exists()
+    assert proposal.private_candidate["provider_evidence_file"] == (
+        discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+    assert proposal.private_candidate["provider_evidence_digest"] == (
+        evidence["provider_evidence_digest"]
+    )
+    assert proposal.private_candidate["created_at"] == evidence["sealed_at"]
+    provider_events = discovery._decode_provider_event_journal(  # noqa: SLF001
+        evidence["provider_events"]
+    )
+    budget_events = discovery._decode_budget_event_journal(  # noqa: SLF001
+        evidence["budget_events"]
+    )
+    assert provider_events == provider.transcript_events()
+    assert budget_events == provider.discovery_budget_evidence_events()
+    assert discovery._encode_provider_event_journal(  # noqa: SLF001
+        provider_events
+    ) == evidence["provider_events"]
+    assert discovery._encode_budget_event_journal(  # noqa: SLF001
+        budget_events
+    ) == evidence["budget_events"]
+
+
+def test_compact_provider_evidence_fits_the_private_four_mib_ceiling() -> None:
+    """The complete hard-ceiling journal must remain persistable."""
+
+    maximum_digest = "sha256:" + "f" * 64
+    maximum_stamp = "9999-12-31T23:59:59Z"
+    page_operation = (
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet"
+    )
+    non_page_operation = "sso:DescribePermissionSetProvisioningStatus"
+    assert page_operation in provider_module.OPERATION_ALLOWLIST[
+        "identity_center"
+    ]
+    assert non_page_operation in provider_module.OPERATION_ALLOWLIST[
+        "identity_center"
+    ]
+
+    session_digests = [
+        canonical_digest({"maximum_session": index}) for index in range(6)
+    ]
+    provider_events: list[dict[str, Any]] = []
+
+    def append_provider_event(
+        *,
+        domain: str,
+        session_digest: str,
+        operation: str,
+        pagination_stream_digest: str | None = None,
+        page_token_digest: str | None = None,
+        truncated: bool = False,
+        next_token_digest: str | None = None,
+    ) -> None:
+        provider_events.append(
+            {
+                "ordinal": len(provider_events) + 1,
+                "domain": domain,
+                "session_digest": session_digest,
+                "operation": operation,
+                "request_digest": maximum_digest,
+                "pagination_stream_digest": pagination_stream_digest,
+                "page_token_digest": page_token_digest,
+                "started_at": maximum_stamp,
+                "response_digest": maximum_digest,
+                "truncated": truncated,
+                "next_token_digest": next_token_digest,
+                "completed_at": maximum_stamp,
+                "outcome": "SUCCESS",
+                "complete": not truncated,
+            }
+        )
+
+    for index, session_digest in enumerate(session_digests):
+        append_provider_event(
+            domain="authority" if index < 2 else "identity_center",
+            session_digest=session_digest,
+            operation="sts:GetCallerIdentity",
+        )
+
+    previous_token: str | None = None
+    for page_index in range(budget_module.HARD_MAX_PAGE_CALLS):
+        truncated = page_index + 1 < budget_module.HARD_MAX_PAGE_CALLS
+        next_token = (
+            canonical_digest({"maximum_page_token": page_index})
+            if truncated
+            else None
+        )
+        append_provider_event(
+            domain="identity_center",
+            session_digest=session_digests[-1],
+            operation=page_operation,
+            pagination_stream_digest=maximum_digest,
+            page_token_digest=previous_token,
+            truncated=truncated,
+            next_token_digest=next_token,
+        )
+        previous_token = next_token
+
+    while len(provider_events) < budget_module.HARD_MAX_PROVIDER_CALLS:
+        append_provider_event(
+            domain="identity_center",
+            session_digest=session_digests[-1],
+            operation=non_page_operation,
+        )
+
+    budget_events: list[dict[str, Any]] = [
+        {
+            "ordinal": ordinal,
+            "kind": "CREDENTIAL_VEND",
+            "operation": "sso:GetRoleCredentials",
+        }
+        for ordinal in range(
+            1, budget_module.HARD_MAX_CREDENTIAL_VENDING_CALLS + 1
+        )
+    ]
+    for provider_event in provider_events:
+        budget_events.extend(
+            (
+                {
+                    "ordinal": len(budget_events) + 1,
+                    "kind": "PROVIDER_CALL",
+                    "operation": provider_event["operation"],
+                    "page_call": provider_event["operation"]
+                    == page_operation,
+                },
+                {
+                    "ordinal": len(budget_events) + 2,
+                    "kind": "PROJECTED_RESPONSE",
+                    "byte_count": 6_700,
+                },
+            )
+        )
+
+    provider_journal = discovery._encode_provider_event_journal(  # noqa: SLF001
+        provider_events
+    )
+    budget_journal = discovery._encode_budget_event_journal(  # noqa: SLF001
+        budget_events
+    )
+    summary_body = {
+        "record_type": budget_module.SUMMARY_RECORD_TYPE,
+        "budget_digest": maximum_digest,
+        "cost_model_digest": maximum_digest,
+        "provider_calls": budget_module.HARD_MAX_PROVIDER_CALLS,
+        "credential_vending_calls": (
+            budget_module.HARD_MAX_CREDENTIAL_VENDING_CALLS
+        ),
+        "network_calls": budget_module.HARD_MAX_NETWORK_CALLS,
+        "page_calls": budget_module.HARD_MAX_PAGE_CALLS,
+        "projected_response_bytes": (
+            6_700 * budget_module.HARD_MAX_PROVIDER_CALLS
+        ),
+        "modeled_cost_nano_usd": 9_999_999_999_999_999_999,
+    }
+    provider_summary = {
+        **summary_body,
+        "summary_digest": canonical_digest(summary_body),
+    }
+    provider_transcript = {
+        "provider_calls": budget_module.HARD_MAX_PROVIDER_CALLS,
+        "aws_calls": budget_module.HARD_MAX_PROVIDER_CALLS,
+        "aws_mutations": 0,
+        "live_provider_evidence": True,
+        "transcript_digest": canonical_digest(provider_events),
+    }
+    maximum_file_name = "a" * 127 + ".json"
+    evidence_body: dict[str, Any] = {
+        "record_type": discovery.PROVIDER_EVIDENCE_TYPE,
+        "schema_version": 1,
+        "implementation_issue": discovery.IMPLEMENTATION_ISSUE,
+        "parent_issue": discovery.PARENT_ISSUE,
+        "live_issue": discovery.LIVE_ISSUE,
+        "source_commit_sha": "f" * 64,
+        "source_tree_sha": "f" * 64,
+        "source_contract_digest": maximum_digest,
+        "request_file": maximum_file_name,
+        "request_digest": maximum_digest,
+        "owner_checkpoint_file": maximum_file_name,
+        "checkpoint_digest": maximum_digest,
+        "claim_digest": maximum_digest,
+        "approval_reference_digest": maximum_digest,
+        "budget_digest": maximum_digest,
+        "private_root_digest": maximum_digest,
+        "host_digest": maximum_digest,
+        "authority_snapshot_digests": [maximum_digest, maximum_digest],
+        "identity_center_snapshot_digests": [
+            maximum_digest,
+            maximum_digest,
+        ],
+        "budget_events": budget_journal,
+        "provider_events": provider_journal,
+        "provider_summary": provider_summary,
+        "provider_transcript": provider_transcript,
+        "not_before": maximum_stamp,
+        "expires_at": maximum_stamp,
+        "sealed_at": maximum_stamp,
+        "read_only": True,
+        "aws_mutations": 0,
+        "repository_persisted": False,
+    }
+    evidence = {
+        **evidence_body,
+        "provider_evidence_digest": canonical_digest(evidence_body),
+    }
+    encoded = (canonical_json(evidence) + "\n").encode("utf-8")
+
+    assert len(provider_journal["rows"]) == (
+        budget_module.HARD_MAX_PROVIDER_CALLS
+    )
+    assert sum(
+        row[2] is True
+        for row in budget_journal["rows"]
+        if row[0] == "P"
+    ) == budget_module.HARD_MAX_PAGE_CALLS
+    assert len(budget_journal["rows"]) == (
+        budget_module.HARD_MAX_CREDENTIAL_VENDING_CALLS
+        + 2 * budget_module.HARD_MAX_PROVIDER_CALLS
+    )
+    assert len(encoded) <= discovery.MAX_PRIVATE_JSON_BYTES
+
+
 def test_proposal_rejects_a_nested_mutation_of_the_claimed_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (
-        _,
+        root,
         request,
         capability,
         authority_snapshots,
@@ -1027,18 +1412,25 @@ def test_proposal_rejects_a_nested_mutation_of_the_claimed_request(
         transcript,
     ) = _proposal_context(tmp_path)
     request["discovery_budget"]["max_network_calls"] -= 1
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
 
     with pytest.raises(
         discovery.PrivateInputDiscoveryError,
         match="DISCOVERY_EXECUTION_CAPABILITY_REQUIRED",
     ):
         discovery.build_discovery_proposal(
+            private_root=root,
             request=request,
             execution_capability=capability,
             authority_snapshots=authority_snapshots,
             identity_snapshots=identity_snapshots,
-            now=START + timedelta(minutes=4),
             provider_factory=provider,
         )
 
@@ -1066,13 +1458,20 @@ def test_approved_materialization_rejects_a_self_digested_invalid_decision(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1118,13 +1517,20 @@ def test_owner_decision_requires_a_distinct_post_proposal_approval(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1173,13 +1579,20 @@ def test_post_discovery_steps_require_the_same_source_and_host(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1245,13 +1658,20 @@ def test_owner_decision_mints_a_fresh_post_discovery_plan_window(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1311,13 +1731,20 @@ def test_owner_decision_and_materialization_reject_naive_clocks(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1395,13 +1822,20 @@ def test_owner_decision_materializes_private_inputs_and_manifest_readback(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1481,13 +1915,20 @@ def test_private_proposal_decision_and_outputs_use_one_canonical_name_set(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1652,13 +2093,20 @@ def _persisted_proposal_context(
         summary,
         transcript,
     ) = _proposal_context(tmp_path)
-    provider = _offline_provider(monkeypatch, capability, summary, transcript)
+    provider = _offline_provider(
+        monkeypatch,
+        capability,
+        summary,
+        transcript,
+        authority_snapshots,
+        identity_snapshots,
+    )
     proposal = discovery.build_discovery_proposal(
+        private_root=root,
         request=request,
         execution_capability=capability,
         authority_snapshots=authority_snapshots,
         identity_snapshots=identity_snapshots,
-        now=START + timedelta(minutes=4),
         provider_factory=provider,
     )
     discovery.persist_discovery_proposal(root, proposal)
@@ -1715,6 +2163,7 @@ def test_owner_decision_requires_the_canonical_persisted_proposal(
         discovery.DEFAULT_REQUEST_FILE,
         discovery.DEFAULT_CHECKPOINT_FILE,
         discovery.DEFAULT_CLAIM_FILE,
+        discovery.DEFAULT_PROVIDER_EVIDENCE_FILE,
         *discovery.AUTHORITY_SNAPSHOT_FILES,
         *discovery.IDENTITY_SNAPSHOT_FILES,
     ),
@@ -1744,6 +2193,246 @@ def test_owner_decision_requires_every_canonical_provenance_artifact(
             ),
             now=START + timedelta(minutes=4),
             expires_at=START + timedelta(minutes=7),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("provider_summary", "provider_transcript", "created_at"),
+)
+def test_owner_decision_rejects_resealed_proposal_owned_provider_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    root, _, proposal = _persisted_proposal_context(tmp_path, monkeypatch)
+    changed = copy.deepcopy(proposal.private_candidate)
+    if mutation == "provider_summary":
+        changed["provider_summary"]["projected_response_bytes"] += 1
+        changed["provider_summary"]["modeled_cost_nano_usd"] += 1
+        _reseal(changed["provider_summary"], "summary_digest")
+    elif mutation == "provider_transcript":
+        changed["provider_transcript"]["transcript_digest"] = canonical_digest(
+            {"resealed": "proposal-owned-transcript"}
+        )
+    else:
+        changed["created_at"] = _stamp(START + timedelta(minutes=5))
+    _reseal(changed, "proposal_digest")
+    proposal_path = root / discovery.DEFAULT_PROPOSAL_FILE
+    proposal_path.write_text(canonical_json(changed) + "\n", encoding="utf-8")
+    proposal_path.chmod(0o600)
+
+    with pytest.raises(
+        discovery.PrivateInputDiscoveryError,
+        match="DISCOVERY_PROVENANCE_MISMATCH",
+    ):
+        discovery.materialize_owner_decision(
+            private_root=root,
+            source_commit_sha=SOURCE_SHA,
+            source_tree_sha=TREE_SHA,
+            candidate=changed,
+            expected_proposal_digest=changed["proposal_digest"],
+            approval_reference_digest=canonical_digest(
+                {"owner_decision": f"reject-{mutation}-reseal"}
+            ),
+            now=START + timedelta(minutes=5, seconds=1),
+            expires_at=START + timedelta(minutes=8),
+        )
+
+
+def test_owner_decision_rejects_resealed_replacement_provider_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _, proposal = _persisted_proposal_context(tmp_path, monkeypatch)
+    evidence = read_private_json(
+        root, discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+    response_digest_index = evidence["provider_events"]["fields"].index(
+        "response_digest"
+    )
+    evidence["provider_events"]["rows"][0][
+        response_digest_index
+    ] = canonical_digest(
+        {"replacement": "provider-response"}
+    )
+    provider_events = discovery._decode_provider_event_journal(  # noqa: SLF001
+        evidence["provider_events"]
+    )
+    evidence["provider_transcript"]["transcript_digest"] = canonical_digest(
+        provider_events
+    )
+    _reseal(evidence, "provider_evidence_digest")
+    evidence_path = root / discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    evidence_path.write_text(canonical_json(evidence) + "\n", encoding="utf-8")
+    evidence_path.chmod(0o600)
+
+    candidate = proposal.private_candidate
+    with pytest.raises(
+        discovery.PrivateInputDiscoveryError,
+        match="DISCOVERY_PROVENANCE_MISMATCH",
+    ):
+        discovery.materialize_owner_decision(
+            private_root=root,
+            source_commit_sha=SOURCE_SHA,
+            source_tree_sha=TREE_SHA,
+            candidate=candidate,
+            expected_proposal_digest=candidate["proposal_digest"],
+            approval_reference_digest=canonical_digest(
+                {"owner_decision": "reject-replaced-provider-evidence"}
+            ),
+            now=START + timedelta(minutes=4, seconds=1),
+            expires_at=START + timedelta(minutes=7),
+        )
+
+
+def test_provider_evidence_rejects_a_resealed_cross_domain_session_reuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request, _ = _persisted_proposal_context(tmp_path, monkeypatch)
+    claim = read_private_json(root, discovery.DEFAULT_CLAIM_FILE)
+    authority_snapshots = [
+        read_private_json(root, name)
+        for name in discovery.AUTHORITY_SNAPSHOT_FILES
+    ]
+    identity_snapshots = [
+        read_private_json(root, name)
+        for name in discovery.IDENTITY_SNAPSHOT_FILES
+    ]
+    evidence = read_private_json(
+        root, discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+
+    authority_session = authority_snapshots[0]["identity"][
+        "session_id_digest"
+    ]
+    replaced_identity_session = identity_snapshots[0]["session_digests"][0]
+    identity_snapshots[0]["session_digests"][0] = authority_session
+    identity_snapshots[0]["identities"][0][
+        "session_id_digest"
+    ] = authority_session
+    _reseal(identity_snapshots[0], "snapshot_digest")
+
+    provider_events = discovery._decode_provider_event_journal(  # noqa: SLF001
+        evidence["provider_events"]
+    )
+    provider_events = [
+        event
+        for event in provider_events
+        if not (
+            event["domain"] == "identity_center"
+            and event["session_digest"] == replaced_identity_session
+        )
+    ]
+    for ordinal, event in enumerate(provider_events, 1):
+        event["ordinal"] = ordinal
+    budget_events = _budget_events(provider_events)
+    evidence["provider_events"] = (
+        discovery._encode_provider_event_journal(  # noqa: SLF001
+            provider_events
+        )
+    )
+    evidence["budget_events"] = (
+        discovery._encode_budget_event_journal(  # noqa: SLF001
+            budget_events
+        )
+    )
+    evidence["provider_summary"] = (
+        budget_module.replay_discovery_budget_evidence(
+            budget_module.validate_discovery_budget(
+                request["discovery_budget"]
+            ),
+            budget_events,
+        )
+    )
+    evidence["provider_transcript"] = {
+        "provider_calls": len(provider_events),
+        "aws_calls": len(provider_events),
+        "aws_mutations": 0,
+        "live_provider_evidence": True,
+        "transcript_digest": canonical_digest(provider_events),
+    }
+    evidence["identity_center_snapshot_digests"][0] = identity_snapshots[0][
+        "snapshot_digest"
+    ]
+    _reseal(evidence, "provider_evidence_digest")
+
+    assert discovery._validate_provider_transcript_events(  # noqa: SLF001
+        provider_events,
+        claimed_at=datetime.fromisoformat(
+            claim["claimed_at"].replace("Z", "+00:00")
+        ),
+        sealed_at=datetime.fromisoformat(
+            evidence["sealed_at"].replace("Z", "+00:00")
+        ),
+    ) == provider_events
+
+    with pytest.raises(
+        discovery.PrivateInputDiscoveryError,
+        match="PROVIDER_EVIDENCE_INVALID",
+    ):
+        discovery._validate_provider_evidence_document(  # noqa: SLF001
+            evidence,
+            request=request,
+            claim=claim,
+            authority_snapshots=authority_snapshots,
+            identity_snapshots=identity_snapshots,
+        )
+
+
+def test_provider_evidence_rejects_sts_completion_after_identity_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request, _ = _persisted_proposal_context(tmp_path, monkeypatch)
+    claim = read_private_json(root, discovery.DEFAULT_CLAIM_FILE)
+    authority_snapshots = [
+        read_private_json(root, name)
+        for name in discovery.AUTHORITY_SNAPSHOT_FILES
+    ]
+    identity_snapshots = [
+        read_private_json(root, name)
+        for name in discovery.IDENTITY_SNAPSHOT_FILES
+    ]
+    evidence = read_private_json(
+        root, discovery.DEFAULT_PROVIDER_EVIDENCE_FILE
+    )
+    observed_at = datetime.fromisoformat(
+        identity_snapshots[-1]["identities"][-1]["observed_at"].replace(
+            "Z", "+00:00"
+        )
+    )
+    target_session = identity_snapshots[-1]["session_digests"][-1]
+    provider_events = discovery._decode_provider_event_journal(  # noqa: SLF001
+        evidence["provider_events"]
+    )
+    target_event = next(
+        event
+        for event in provider_events
+        if event["operation"] == "sts:GetCallerIdentity"
+        and event["session_digest"] == target_session
+    )
+    target_event["completed_at"] = _stamp(
+        observed_at + timedelta(seconds=1)
+    )
+    evidence["provider_events"] = (
+        discovery._encode_provider_event_journal(  # noqa: SLF001
+            provider_events
+        )
+    )
+    evidence["provider_transcript"]["transcript_digest"] = canonical_digest(
+        provider_events
+    )
+    _reseal(evidence, "provider_evidence_digest")
+
+    with pytest.raises(
+        discovery.PrivateInputDiscoveryError,
+        match="PROVIDER_EVIDENCE_INVALID",
+    ):
+        discovery._validate_provider_evidence_document(  # noqa: SLF001
+            evidence,
+            request=request,
+            claim=claim,
+            authority_snapshots=authority_snapshots,
+            identity_snapshots=identity_snapshots,
         )
 
 

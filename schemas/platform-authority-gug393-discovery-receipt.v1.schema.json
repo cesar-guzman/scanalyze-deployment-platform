@@ -14,6 +14,7 @@
     "source_contract_digest",
     "proposal_digest",
     "budget_digest",
+    "provider_evidence_digest",
     "network_calls",
     "provider_calls",
     "credential_vending_calls",
@@ -46,6 +47,7 @@
     "source_contract_digest": { "$ref": "#/$defs/digest" },
     "proposal_digest": { "$ref": "#/$defs/digest" },
     "budget_digest": { "$ref": "#/$defs/digest" },
+    "provider_evidence_digest": { "$ref": "#/$defs/digest" },
     "network_calls": {
       "type": "integer",
       "minimum": 1,

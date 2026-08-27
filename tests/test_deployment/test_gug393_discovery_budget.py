@@ -472,3 +472,99 @@ def test_summary_is_a_fresh_digest_bound_copy() -> None:
     assert second["provider_calls"] == 0
     assert second["budget_digest"].startswith("sha256:")
     assert second["summary_digest"] == _summary_digest(second)
+
+
+def test_budget_evidence_is_detached_and_replays_to_the_exact_summary() -> None:
+    validated = budget.validate_discovery_budget(_document())
+    ledger = budget.GlobalDiscoveryBudget(validated)
+    ledger.record_credential_vend("sso:GetRoleCredentials")
+    ledger.reserve_provider_call("sts:GetCallerIdentity", is_page=False)
+    ledger.record_response(3)
+    ledger.reserve_provider_call("sso:ListInstances", is_page=False)
+    ledger.record_response(4)
+
+    events = ledger.evidence_events()
+    assert budget.replay_discovery_budget_evidence(
+        validated, events
+    ) == ledger.summary()
+    assert [event["ordinal"] for event in events] == list(
+        range(1, len(events) + 1)
+    )
+    assert [event["kind"] for event in events] == [
+        "CREDENTIAL_VEND",
+        "PROVIDER_CALL",
+        "PROJECTED_RESPONSE",
+        "PROVIDER_CALL",
+        "PROJECTED_RESPONSE",
+    ]
+
+    events[1]["operation"] = "iam:DeleteRole"
+    assert ledger.evidence_events()[1]["operation"] == "sts:GetCallerIdentity"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    (
+        ("ordinal", "DISCOVERY_BUDGET_EVIDENCE_INVALID"),
+        ("extra_field", "DISCOVERY_BUDGET_EVIDENCE_INVALID"),
+        ("response_before_call", "DISCOVERY_BUDGET_EVIDENCE_INVALID"),
+        ("second_call_pending", "DISCOVERY_BUDGET_EVIDENCE_INVALID"),
+        ("missing_response", "DISCOVERY_BUDGET_EVIDENCE_INVALID"),
+    ),
+)
+def test_budget_evidence_replay_rejects_tampering(
+    mutation: str, expected_code: str,
+) -> None:
+    validated = budget.validate_discovery_budget(_document())
+    ledger = budget.GlobalDiscoveryBudget(validated)
+    ledger.reserve_provider_call("sts:GetCallerIdentity", is_page=False)
+    ledger.record_response(3)
+    events = ledger.evidence_events()
+    changed = copy.deepcopy(events)
+    if mutation == "ordinal":
+        changed[0]["ordinal"] = 2
+    elif mutation == "extra_field":
+        changed[0]["unreviewed"] = True
+    elif mutation == "response_before_call":
+        changed.reverse()
+        for ordinal, event in enumerate(changed, 1):
+            event["ordinal"] = ordinal
+    elif mutation == "second_call_pending":
+        changed.insert(
+            1,
+            {
+                "ordinal": 2,
+                "kind": "PROVIDER_CALL",
+                "operation": "sso:ListInstances",
+                "page_call": True,
+            },
+        )
+        for ordinal, event in enumerate(changed, 1):
+            event["ordinal"] = ordinal
+    else:
+        changed.pop()
+
+    with pytest.raises(budget.DiscoveryBudgetError) as captured:
+        budget.replay_discovery_budget_evidence(validated, changed)
+    assert captured.value.code == expected_code
+
+
+@pytest.mark.parametrize("invalid_sequence", ("second_call", "response_first"))
+def test_budget_evidence_export_rejects_noncausal_runtime_sequence(
+    invalid_sequence: str,
+) -> None:
+    ledger = budget.GlobalDiscoveryBudget(
+        budget.validate_discovery_budget(_document())
+    )
+    if invalid_sequence == "second_call":
+        ledger.reserve_provider_call("sts:GetCallerIdentity", is_page=False)
+        ledger.reserve_provider_call("sso:ListInstances", is_page=False)
+        ledger.record_response(3)
+        ledger.record_response(4)
+    else:
+        ledger.record_response(3)
+        ledger.reserve_provider_call("sts:GetCallerIdentity", is_page=False)
+
+    with pytest.raises(budget.DiscoveryBudgetError) as captured:
+        ledger.evidence_events()
+    assert captured.value.code == "DISCOVERY_BUDGET_EVIDENCE_INCOMPLETE"

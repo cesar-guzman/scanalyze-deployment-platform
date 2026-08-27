@@ -287,6 +287,10 @@ class CallLedger(Protocol):
         completed_at: str | None = None,
     ) -> None: ...
 
+    def finalize(self) -> tuple[int, str]: ...
+
+    def evidence_events(self) -> list[dict[str, Any]]: ...
+
 
 @dataclass(frozen=True)
 class ProviderConfig:
@@ -2913,6 +2917,24 @@ class LiveProviderFactory:
             "transcript_digest": transcript_digest,
         }
 
+    def transcript_events(self) -> list[dict[str, Any]]:
+        """Return the finalized digest-only provider journal."""
+
+        if self._ledger is None:
+            _fail("CALL_LEDGER_FINALIZE_REQUIRED")
+        evidence = getattr(self._ledger, "evidence_events", None)
+        if not callable(evidence):
+            _fail("PROVIDER_TRANSCRIPT_MISMATCH")
+        try:
+            events = evidence()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise LiveProviderError("PROVIDER_TRANSCRIPT_MISMATCH") from exc
+        if not isinstance(events, list) or not events:
+            _fail("PROVIDER_TRANSCRIPT_MISMATCH")
+        return events
+
     def discovery_budget_summary(self) -> dict[str, Any]:
         """Return the shared discovery budget's digest-only counters."""
 
@@ -2935,6 +2957,29 @@ class LiveProviderFactory:
         if not isinstance(value, Mapping):
             _fail("DISCOVERY_BUDGET_SUMMARY_INVALID")
         return dict(value)
+
+    def discovery_budget_evidence_events(self) -> list[dict[str, Any]]:
+        """Return the replayable sanitized journal behind the budget summary."""
+
+        if (
+            self._provider_attestation is not _DISCOVERY_PROVIDER_ATTESTATION
+            or self._discovery_budget is None
+        ):
+            _fail("DISCOVERY_PROVIDER_REQUIRED")
+        evidence = getattr(self._discovery_budget, "evidence_events", None)
+        if not callable(evidence):
+            _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+        try:
+            events = evidence()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_discovery_error(
+                exc, "DISCOVERY_BUDGET_EVIDENCE_INVALID"
+            ) from exc
+        if not isinstance(events, list) or not events:
+            _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+        return events
 
     def evaluation_time(self) -> datetime:
         """Return the post-call trusted time after revalidating local custody."""

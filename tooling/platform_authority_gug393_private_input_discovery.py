@@ -31,6 +31,7 @@ from tooling.platform_authority_gug365_upstream_inventory import (
     canonical_json,
 )
 from tooling.platform_authority_gug376_authority_inventory_collector import (
+    MAX_PRIVATE_JSON_BYTES,
     TARGETS as AUTHORITY_TARGET_FIELDS,
     CollectorError,
     certify_live as certify_authority_live,
@@ -74,6 +75,7 @@ from tooling.platform_authority_gug393_discovery_budget import (
     NANO_USD_PER_USD,
     SUMMARY_RECORD_TYPE,
     ValidatedDiscoveryBudget,
+    replay_discovery_budget_evidence,
     validate_discovery_budget,
 )
 
@@ -92,6 +94,9 @@ SOURCE_CONTRACT_TYPE = (
 REQUEST_TYPE = "scanalyze.platform_authority.gug393_discovery_request.v2"
 CHECKPOINT_TYPE = "scanalyze.platform_authority.gug393_discovery_checkpoint.v2"
 CLAIM_TYPE = "scanalyze.platform_authority.gug393_discovery_claim.v1"
+PROVIDER_EVIDENCE_TYPE = (
+    "scanalyze.platform_authority.gug393_discovery_provider_evidence.v1"
+)
 PROPOSAL_TYPE = "scanalyze.platform_authority.gug393_private_input_candidate.v1"
 DECISION_TYPE = (
     "scanalyze.platform_authority.gug393_private_input_owner_decision.v1"
@@ -103,6 +108,7 @@ OPT_IN = "DISCOVER_GUG392_PRIVATE_INPUTS_READ_ONLY"
 DEFAULT_REQUEST_FILE = "gug393-discovery-request.json"
 DEFAULT_CHECKPOINT_FILE = "gug393-discovery-checkpoint.json"
 DEFAULT_CLAIM_FILE = "gug393-discovery-claim.json"
+DEFAULT_PROVIDER_EVIDENCE_FILE = "gug393-discovery-provider-evidence.json"
 DEFAULT_PROPOSAL_FILE = "gug393-private-input-proposal.json"
 DEFAULT_DECISION_FILE = "gug393-private-input-owner-decision.json"
 DEFAULT_MANIFEST_FILE = "gug393-private-input-materialization-manifest.json"
@@ -110,6 +116,56 @@ DEFAULT_AUTHORITY_INPUT_FILE = "gug392-authority-plan-input.json"
 DEFAULT_IDENTITY_INPUT_FILE = "gug392-identity-center-plan-input.json"
 DEFAULT_AUTHORITY_PLAN_FILE = "gug392-authority-plan.json"
 DEFAULT_IDENTITY_PLAN_FILE = "gug392-identity-center-plan.json"
+PROVIDER_EVENT_JOURNAL_TYPE = (
+    "scanalyze.platform_authority.gug393_provider_event_journal.v1"
+)
+BUDGET_EVENT_JOURNAL_TYPE = (
+    "scanalyze.platform_authority.gug393_budget_event_journal.v1"
+)
+_PROVIDER_EVENT_COMPACT_FIELDS = (
+    "domain",
+    "session_digest",
+    "operation",
+    "request_digest",
+    "pagination_stream_digest",
+    "page_token_digest",
+    "started_at",
+    "response_digest",
+    "truncated",
+    "next_token_digest",
+    "completed_at",
+)
+_PROVIDER_EVENT_FIELDS = frozenset(
+    {
+        "ordinal",
+        *_PROVIDER_EVENT_COMPACT_FIELDS,
+        "outcome",
+        "complete",
+    }
+)
+_PROVIDER_EVENT_JOURNAL_FIELDS = frozenset(
+    {"record_type", "fields", "inferred_fields", "rows"}
+)
+_PROVIDER_EVENT_INFERRED_FIELDS = {
+    "ordinal": "ONE_BASED_ROW_INDEX",
+    "outcome": "SUCCESS",
+    "complete": "NOT_TRUNCATED",
+}
+_BUDGET_EVENT_JOURNAL_FIELDS = frozenset(
+    {"record_type", "row_types", "inferred_fields", "rows"}
+)
+_BUDGET_EVENT_INFERRED_FIELDS = {"ordinal": "ONE_BASED_ROW_INDEX"}
+_BUDGET_ROW_TYPES = {
+    "P": ["operation", "page_call"],
+    "V": ["operation"],
+    "R": ["byte_count"],
+}
+# The evidence document outside both journals is closed by
+# ``_PROVIDER_EVIDENCE_FIELDS`` and contains only bounded names, digests,
+# timestamps and scalar counters.  Keep a deliberately generous reserve so a
+# future allowlist or budget expansion fails during request validation, before
+# the connected provider can make any calls.
+_PROVIDER_EVIDENCE_METADATA_CAPACITY_BYTES = 512 * 1024
 AUTHORITY_SNAPSHOT_FILES = (
     "gug393-authority-snapshot-1.json",
     "gug393-authority-snapshot-2.json",
@@ -123,6 +179,7 @@ RESERVED_LIFECYCLE_OUTPUT_FILES = frozenset(
         *AUTHORITY_SNAPSHOT_FILES,
         *IDENTITY_SNAPSHOT_FILES,
         DEFAULT_CLAIM_FILE,
+        DEFAULT_PROVIDER_EVIDENCE_FILE,
         DEFAULT_PROPOSAL_FILE,
         DEFAULT_DECISION_FILE,
         DEFAULT_MANIFEST_FILE,
@@ -307,6 +364,40 @@ _DECISION_FIELDS = frozenset(
         "decision_digest",
     }
 )
+_PROVIDER_EVIDENCE_FIELDS = frozenset(
+    {
+        "record_type",
+        "schema_version",
+        "implementation_issue",
+        "parent_issue",
+        "live_issue",
+        "source_commit_sha",
+        "source_tree_sha",
+        "source_contract_digest",
+        "request_file",
+        "request_digest",
+        "owner_checkpoint_file",
+        "checkpoint_digest",
+        "claim_digest",
+        "approval_reference_digest",
+        "budget_digest",
+        "provider_evidence_digest",
+        "private_root_digest",
+        "host_digest",
+        "authority_snapshot_digests",
+        "identity_center_snapshot_digests",
+        "budget_events",
+        "provider_events",
+        "provider_summary",
+        "provider_transcript",
+        "not_before",
+        "expires_at",
+        "sealed_at",
+        "read_only",
+        "aws_mutations",
+        "repository_persisted",
+    }
+)
 _PROPOSAL_FIELDS = frozenset(
     {
         "record_type",
@@ -329,6 +420,8 @@ _PROPOSAL_FIELDS = frozenset(
         "discovery_budget",
         "private_root_digest",
         "host_digest",
+        "provider_evidence_file",
+        "provider_evidence_digest",
         "provider_summary",
         "provider_transcript",
         "authority_snapshot_digests",
@@ -393,6 +486,7 @@ _RECEIPT_FIELDS = frozenset(
         "source_contract_digest",
         "proposal_digest",
         "budget_digest",
+        "provider_evidence_digest",
         "network_calls",
         "provider_calls",
         "credential_vending_calls",
@@ -643,6 +737,12 @@ def _stamp(value: datetime) -> str:
     return (
         checked.isoformat().replace("+00:00", "Z")
     )
+
+
+def _observed_utc_now() -> datetime:
+    """Return the wall clock used for active-window revalidation."""
+
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 def _window(start: Any, end: Any, *, now: datetime | None = None) -> tuple[str, str]:
@@ -1005,22 +1105,63 @@ def derive_source_contract(
     _assert_no_placeholder(identity_private)
     digest363 = str(plan363["plan_digest"])
     digest365 = str(plan365["plan_digest"])
+    selector_sources = {
+        "artifact_bucket_arn": (
+            digest363,
+            "/derived/authority_targets/artifact_bucket_arn",
+        ),
+        "broker_signed_object_arn": (
+            digest363,
+            "/artifact_signing_contract/signed_destination",
+        ),
+        "broker_unsigned_object_arn": (
+            digest363,
+            "/artifact_signing_contract/unsigned_source",
+        ),
+        "ledger_factory_signed_object_arn": (
+            digest365,
+            "/ledger_factory_artifact_signing_contract/signed_destination",
+        ),
+        "ledger_factory_unsigned_object_arn": (
+            digest365,
+            "/ledger_factory_artifact_signing_contract/unsigned_source",
+        ),
+        "artifact_kms_key_arn": (
+            digest363,
+            "/derived/authority_targets/artifact_kms_key_arn",
+        ),
+        "signing_profile_arn": (
+            digest363,
+            "/artifact_signing_contract/signer/profile_version_arn",
+        ),
+        "code_signing_config_arn": (
+            digest363,
+            "/artifact_signing_contract/code_signing_config/arn",
+        ),
+        "runtime_source_function_arn": (
+            digest365,
+            "/ledger_factory_function/arn",
+        ),
+        "runtime_source_function_version_arn": (
+            digest365,
+            "/ledger_factory_function/immutable_version_arn",
+        ),
+        "retire_approve_generated_role_arn": (
+            digest363,
+            "/parameters/ApproverPermissionSetRoleArn",
+        ),
+        "retire_class_generated_role_arn": (
+            digest363,
+            "/parameters/ClassifierPermissionSetRoleArn",
+        ),
+    }
+    if set(selector_sources) != set(authority_targets):
+        _fail("SOURCE_SELECTOR_MISSING")
     source_selectors = {
         key: _selector(
             value,
-            artifact_digest=digest363 if not key.startswith("ledger_factory") else digest365,
-            pointer=(
-                f"/derived/authority_targets/{key}"
-                if key not in {
-                    "retire_approve_generated_role_arn",
-                    "retire_class_generated_role_arn",
-                }
-                else (
-                    "/gug363_plan/parameters/ApproverPermissionSetRoleArn"
-                    if key.startswith("retire_approve")
-                    else "/gug363_plan/parameters/ClassifierPermissionSetRoleArn"
-                )
-            ),
+            artifact_digest=selector_sources[key][0],
+            pointer=selector_sources[key][1],
         )
         for key, value in authority_targets.items()
     }
@@ -1231,6 +1372,7 @@ def materialize_discovery_request(
             now=_parse_stamp(not_before, "DISCOVERY_WINDOW_INVALID"),
             require_active=True,
         )
+        _assert_provider_evidence_capacity(checked_budget)
         sdk_root, sdk_root_digest = live_materializer._sdk_runtime_root_binding(  # noqa: SLF001
             sdk_runtime_root
         )
@@ -1449,6 +1591,7 @@ def _validate_request_pair(
         ) from exc
     if budget.digest != checked_request.get("budget_digest"):
         _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+    _assert_provider_evidence_capacity(budget)
     model = budget.document["cost_model"]
     if (
         _parse_stamp(model["valid_from"], "DISCOVERY_BUDGET_BINDING_INVALID")
@@ -1890,7 +2033,7 @@ def read_and_claim_discovery_request(
         raise PrivateInputDiscoveryError(exc.code) from exc
 
     def validity_gate() -> None:
-        observed_now = datetime.now(UTC).replace(microsecond=0)
+        observed_now = _observed_utc_now()
         current_request = read_private_json(private_root, request_name)
         current_checkpoint = read_private_json(private_root, checkpoint_name)
         validated_request, validated_checkpoint, _ = _validate_request_pair(
@@ -2328,6 +2471,594 @@ def _stable_pair(values: Sequence[Mapping[str, Any]], *, kind: str) -> tuple[dic
     return first, second
 
 
+def _encode_provider_event_journal(value: Any) -> dict[str, Any]:
+    """Compact the finalized transcript without dropping replayable facts."""
+
+    events = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    if not isinstance(events, list) or not events:
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    rows: list[list[Any]] = []
+    for ordinal, event in enumerate(events, 1):
+        if (
+            not isinstance(event, dict)
+            or set(event) != _PROVIDER_EVENT_FIELDS
+            or type(event.get("ordinal")) is not int
+            or event["ordinal"] != ordinal
+            or event.get("outcome") != "SUCCESS"
+            or type(event.get("complete")) is not bool
+            or type(event.get("truncated")) is not bool
+            or event["complete"] is event["truncated"]
+        ):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        rows.append([event[field] for field in _PROVIDER_EVENT_COMPACT_FIELDS])
+    return {
+        "record_type": PROVIDER_EVENT_JOURNAL_TYPE,
+        "fields": list(_PROVIDER_EVENT_COMPACT_FIELDS),
+        "inferred_fields": dict(_PROVIDER_EVENT_INFERRED_FIELDS),
+        "rows": rows,
+    }
+
+
+def _decode_provider_event_journal(value: Any) -> list[dict[str, Any]]:
+    journal = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    if (
+        not isinstance(journal, dict)
+        or set(journal) != _PROVIDER_EVENT_JOURNAL_FIELDS
+        or journal.get("record_type") != PROVIDER_EVENT_JOURNAL_TYPE
+        or journal.get("fields") != list(_PROVIDER_EVENT_COMPACT_FIELDS)
+        or journal.get("inferred_fields")
+        != _PROVIDER_EVENT_INFERRED_FIELDS
+        or not isinstance(journal.get("rows"), list)
+        or not journal["rows"]
+        or len(journal["rows"]) > HARD_MAX_PROVIDER_CALLS
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    events: list[dict[str, Any]] = []
+    for ordinal, row in enumerate(journal["rows"], 1):
+        if (
+            not isinstance(row, list)
+            or len(row) != len(_PROVIDER_EVENT_COMPACT_FIELDS)
+        ):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        compact = dict(zip(_PROVIDER_EVENT_COMPACT_FIELDS, row, strict=True))
+        truncated = compact["truncated"]
+        events.append(
+            {
+                "ordinal": ordinal,
+                **compact,
+                "outcome": "SUCCESS",
+                "complete": not truncated,
+            }
+        )
+    return events
+
+
+def _encode_budget_event_journal(value: Any) -> dict[str, Any]:
+    """Compact the global budget journal while retaining exact event order."""
+
+    events = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    if not isinstance(events, list) or not events:
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    rows: list[list[Any]] = []
+    for ordinal, event in enumerate(events, 1):
+        if (
+            not isinstance(event, dict)
+            or type(event.get("ordinal")) is not int
+            or event["ordinal"] != ordinal
+        ):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        kind = event.get("kind")
+        if kind == "PROVIDER_CALL" and set(event) == {
+            "ordinal",
+            "kind",
+            "operation",
+            "page_call",
+        }:
+            rows.append(["P", event["operation"], event["page_call"]])
+        elif kind == "CREDENTIAL_VEND" and set(event) == {
+            "ordinal",
+            "kind",
+            "operation",
+        }:
+            rows.append(["V", event["operation"]])
+        elif kind == "PROJECTED_RESPONSE" and set(event) == {
+            "ordinal",
+            "kind",
+            "byte_count",
+        }:
+            rows.append(["R", event["byte_count"]])
+        else:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+    return {
+        "record_type": BUDGET_EVENT_JOURNAL_TYPE,
+        "row_types": _copy(_BUDGET_ROW_TYPES, "PROVIDER_EVIDENCE_INVALID"),
+        "inferred_fields": dict(_BUDGET_EVENT_INFERRED_FIELDS),
+        "rows": rows,
+    }
+
+
+def _decode_budget_event_journal(value: Any) -> list[dict[str, Any]]:
+    journal = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    if (
+        not isinstance(journal, dict)
+        or set(journal) != _BUDGET_EVENT_JOURNAL_FIELDS
+        or journal.get("record_type") != BUDGET_EVENT_JOURNAL_TYPE
+        or journal.get("row_types") != _BUDGET_ROW_TYPES
+        or journal.get("inferred_fields") != _BUDGET_EVENT_INFERRED_FIELDS
+        or not isinstance(journal.get("rows"), list)
+        or not journal["rows"]
+        or len(journal["rows"])
+        > (
+            HARD_MAX_PROVIDER_CALLS * 2
+            + HARD_MAX_CREDENTIAL_VENDING_CALLS
+        )
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    events: list[dict[str, Any]] = []
+    for ordinal, row in enumerate(journal["rows"], 1):
+        if not isinstance(row, list) or not row:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        kind = row[0]
+        if kind == "P" and len(row) == 3:
+            event = {
+                "ordinal": ordinal,
+                "kind": "PROVIDER_CALL",
+                "operation": row[1],
+                "page_call": row[2],
+            }
+        elif kind == "V" and len(row) == 2:
+            event = {
+                "ordinal": ordinal,
+                "kind": "CREDENTIAL_VEND",
+                "operation": row[1],
+            }
+        elif kind == "R" and len(row) == 2:
+            event = {
+                "ordinal": ordinal,
+                "kind": "PROJECTED_RESPONSE",
+                "byte_count": row[1],
+            }
+        else:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        events.append(event)
+    return events
+
+
+def _assert_provider_evidence_capacity(
+    budget: ValidatedDiscoveryBudget,
+) -> None:
+    """Prove the maximum compact evidence fits before connected execution."""
+
+    try:
+        from tooling.platform_authority_gug376_live_provider import (
+            OPERATION_ALLOWLIST,
+        )
+
+        longest_operation = max(
+            (
+                operation
+                for domain in ("authority", "identity_center")
+                for operation in OPERATION_ALLOWLIST[domain]
+            ),
+            key=len,
+            default="sts:GetCallerIdentity",
+        )
+    except Exception as exc:  # pragma: no cover - repository import closure
+        raise PrivateInputDiscoveryError(
+            "DISCOVERY_BUDGET_EVIDENCE_CAPACITY_INVALID"
+        ) from exc
+    document = budget.document
+    provider_calls = document["max_provider_calls"]
+    credential_vends = document["max_credential_vending_calls"]
+    digest = "sha256:" + "f" * 64
+    stamp = "9999-12-31T23:59:59Z"
+    provider_row = [
+        "identity_center",
+        digest,
+        longest_operation,
+        digest,
+        digest,
+        digest,
+        stamp,
+        digest,
+        True,
+        digest,
+        stamp,
+    ]
+    provider_header = {
+        "record_type": PROVIDER_EVENT_JOURNAL_TYPE,
+        "fields": list(_PROVIDER_EVENT_COMPACT_FIELDS),
+        "inferred_fields": dict(_PROVIDER_EVENT_INFERRED_FIELDS),
+        "rows": [],
+    }
+    budget_header = {
+        "record_type": BUDGET_EVENT_JOURNAL_TYPE,
+        "row_types": _copy(
+            _BUDGET_ROW_TYPES, "DISCOVERY_BUDGET_EVIDENCE_CAPACITY_INVALID"
+        ),
+        "inferred_fields": dict(_BUDGET_EVENT_INFERRED_FIELDS),
+        "rows": [],
+    }
+    provider_row_bytes = len(canonical_json(provider_row).encode("utf-8"))
+    provider_bytes = len(
+        canonical_json(provider_header).encode("utf-8")
+    ) + provider_calls * (provider_row_bytes + 1)
+    provider_budget_row_bytes = len(
+        canonical_json(["P", longest_operation, True]).encode("utf-8")
+    )
+    response_budget_row_bytes = len(
+        canonical_json(
+            ["R", document["max_response_bytes"]]
+        ).encode("utf-8")
+    )
+    vend_budget_row_bytes = len(
+        canonical_json(["V", "sso:GetRoleCredentials"]).encode("utf-8")
+    )
+    budget_bytes = (
+        len(canonical_json(budget_header).encode("utf-8"))
+        + provider_calls
+        * (provider_budget_row_bytes + response_budget_row_bytes + 2)
+        + credential_vends * (vend_budget_row_bytes + 1)
+    )
+    upper_bound = (
+        provider_bytes
+        + budget_bytes
+        + _PROVIDER_EVIDENCE_METADATA_CAPACITY_BYTES
+        + 1
+    )
+    if upper_bound > MAX_PRIVATE_JSON_BYTES:
+        _fail("DISCOVERY_BUDGET_EVIDENCE_CAPACITY_EXCEEDED")
+
+
+def _validate_provider_transcript_events(
+    value: Any,
+    *,
+    claimed_at: datetime,
+    sealed_at: datetime,
+) -> list[dict[str, Any]]:
+    """Validate the finalized digest-only call journal and its causality."""
+
+    events = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    try:
+        from tooling.platform_authority_gug376_live_provider import (
+            OPERATION_ALLOWLIST,
+        )
+    except Exception as exc:  # pragma: no cover - repository import closure
+        raise PrivateInputDiscoveryError("PROVIDER_EVIDENCE_INVALID") from exc
+    if not isinstance(events, list) or not events:
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    session_domains: dict[str, str] = {}
+    completed_sessions: set[str] = set()
+    streams: dict[str, dict[str, Any]] = {}
+    previous_completed: datetime | None = None
+    for ordinal, event in enumerate(events, 1):
+        if not isinstance(event, dict) or set(event) != _PROVIDER_EVENT_FIELDS:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        domain = event.get("domain")
+        operation = event.get("operation")
+        session_digest = event.get("session_digest")
+        optional_digests = (
+            event.get("pagination_stream_digest"),
+            event.get("page_token_digest"),
+            event.get("next_token_digest"),
+        )
+        started_at = _parse_stamp(
+            event.get("started_at"), "PROVIDER_EVIDENCE_INVALID"
+        )
+        completed_at = _parse_stamp(
+            event.get("completed_at"), "PROVIDER_EVIDENCE_INVALID"
+        )
+        if (
+            type(event.get("ordinal")) is not int
+            or event["ordinal"] != ordinal
+            or not isinstance(domain, str)
+            or domain not in {"authority", "identity_center"}
+            or not isinstance(operation, str)
+            or operation not in OPERATION_ALLOWLIST[domain]
+            or _DIGEST.fullmatch(str(session_digest)) is None
+            or _DIGEST.fullmatch(str(event.get("request_digest"))) is None
+            or _DIGEST.fullmatch(str(event.get("response_digest"))) is None
+            or any(
+                item is not None and _DIGEST.fullmatch(str(item)) is None
+                for item in optional_digests
+            )
+            or event.get("outcome") != "SUCCESS"
+            or type(event.get("complete")) is not bool
+            or type(event.get("truncated")) is not bool
+            or event["complete"] is event["truncated"]
+            or (event["next_token_digest"] is not None)
+            is not event["truncated"]
+            or not claimed_at <= started_at <= completed_at <= sealed_at
+            or (
+                previous_completed is not None
+                and started_at < previous_completed
+            )
+        ):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        previous_completed = completed_at
+
+        owner = session_domains.get(session_digest)
+        if owner is None:
+            if operation != "sts:GetCallerIdentity":
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            session_domains[session_digest] = domain
+        elif owner != domain or operation == "sts:GetCallerIdentity":
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        if operation == "sts:GetCallerIdentity":
+            if any(item is not None for item in optional_digests):
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            completed_sessions.add(session_digest)
+            continue
+        if session_digest not in completed_sessions:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+
+        is_list = operation.split(":", 1)[1].startswith("List")
+        if not is_list:
+            if any(item is not None for item in optional_digests):
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            continue
+        stream_digest = event["pagination_stream_digest"]
+        if _DIGEST.fullmatch(str(stream_digest)) is None:
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        token = event["page_token_digest"]
+        stream = streams.get(stream_digest)
+        binding = (domain, session_digest, operation)
+        if stream is None:
+            if token is not None:
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            stream = {
+                "binding": binding,
+                "expected": None,
+                "seen": set(),
+                "closed": False,
+            }
+            streams[stream_digest] = stream
+        elif (
+            stream["binding"] != binding
+            or stream["closed"] is not False
+            or stream["expected"] != token
+        ):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        if event["truncated"]:
+            next_token = event["next_token_digest"]
+            if next_token == token or next_token in stream["seen"]:
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            stream["seen"].add(next_token)
+            stream["expected"] = next_token
+        else:
+            stream["expected"] = None
+            stream["closed"] = True
+    if any(stream["closed"] is not True for stream in streams.values()):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    return events
+
+
+def _validate_provider_evidence_document(
+    value: Mapping[str, Any],
+    *,
+    request: Mapping[str, Any],
+    claim: Mapping[str, Any],
+    authority_snapshots: Sequence[Mapping[str, Any]],
+    identity_snapshots: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Recompute counters, cost, transcript and physical snapshot bindings."""
+
+    evidence = _copy(value, "PROVIDER_EVIDENCE_INVALID")
+    if (
+        len((canonical_json(evidence) + "\n").encode("utf-8"))
+        > MAX_PRIVATE_JSON_BYTES
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    authority_first, authority_second = _stable_pair(
+        authority_snapshots, kind="AUTHORITY"
+    )
+    identity_first, identity_second = _stable_pair(
+        identity_snapshots, kind="IDENTITY"
+    )
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != _PROVIDER_EVIDENCE_FIELDS
+        or evidence.get("record_type") != PROVIDER_EVIDENCE_TYPE
+        or evidence.get("schema_version") != 1
+        or evidence.get("implementation_issue") != IMPLEMENTATION_ISSUE
+        or evidence.get("parent_issue") != PARENT_ISSUE
+        or evidence.get("live_issue") != LIVE_ISSUE
+        or evidence.get("source_commit_sha") != request.get("source_commit_sha")
+        or evidence.get("source_tree_sha") != request.get("source_tree_sha")
+        or evidence.get("source_contract_digest")
+        != request.get("source_contract_digest")
+        or evidence.get("request_file") != request.get("request_file")
+        or evidence.get("request_digest") != request.get("request_digest")
+        or evidence.get("owner_checkpoint_file")
+        != request.get("owner_checkpoint_file")
+        or evidence.get("checkpoint_digest")
+        != request.get("owner_checkpoint_digest")
+        or evidence.get("claim_digest") != claim.get("claim_digest")
+        or evidence.get("approval_reference_digest")
+        != request.get("approval_reference_digest")
+        or evidence.get("budget_digest") != request.get("budget_digest")
+        or evidence.get("private_root_digest")
+        != request.get("private_root_digest")
+        or evidence.get("host_digest") != request.get("host_digest")
+        or evidence.get("not_before") != request.get("not_before")
+        or evidence.get("expires_at") != request.get("expires_at")
+        or evidence.get("read_only") is not True
+        or type(evidence.get("aws_mutations")) is not int
+        or evidence.get("aws_mutations") != 0
+        or evidence.get("repository_persisted") is not False
+        or evidence.get("provider_evidence_digest")
+        != canonical_digest(
+            {
+                key: item
+                for key, item in evidence.items()
+                if key != "provider_evidence_digest"
+            }
+        )
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    _sha(evidence["source_commit_sha"], "PROVIDER_EVIDENCE_INVALID")
+    _sha(evidence["source_tree_sha"], "PROVIDER_EVIDENCE_INVALID")
+    for field in (
+        "source_contract_digest",
+        "request_digest",
+        "checkpoint_digest",
+        "claim_digest",
+        "approval_reference_digest",
+        "budget_digest",
+        "private_root_digest",
+        "host_digest",
+        "provider_evidence_digest",
+    ):
+        _digest(evidence.get(field), "PROVIDER_EVIDENCE_INVALID")
+    sealed_at = _parse_stamp(
+        evidence.get("sealed_at"), "PROVIDER_EVIDENCE_INVALID"
+    )
+    start, end = (
+        _parse_stamp(evidence["not_before"], "PROVIDER_EVIDENCE_INVALID"),
+        _parse_stamp(evidence["expires_at"], "PROVIDER_EVIDENCE_INVALID"),
+    )
+    claimed_at = _parse_stamp(
+        claim.get("claimed_at"), "PROVIDER_EVIDENCE_INVALID"
+    )
+    if not start <= claimed_at <= sealed_at < end:
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    try:
+        expected_authority_digests = [
+            authority_first["snapshot_digest"],
+            authority_second["snapshot_digest"],
+        ]
+        expected_identity_digests = [
+            identity_first["snapshot_digest"],
+            identity_second["snapshot_digest"],
+        ]
+    except (KeyError, TypeError) as exc:
+        raise PrivateInputDiscoveryError("PROVIDER_EVIDENCE_INVALID") from exc
+    if (
+        evidence.get("authority_snapshot_digests")
+        != expected_authority_digests
+        or evidence.get("identity_center_snapshot_digests")
+        != expected_identity_digests
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+
+    provider_events = _validate_provider_transcript_events(
+        _decode_provider_event_journal(evidence.get("provider_events")),
+        claimed_at=claimed_at,
+        sealed_at=sealed_at,
+    )
+    try:
+        validated_budget = validate_discovery_budget(
+            request["discovery_budget"]
+        )
+        budget_events = _decode_budget_event_journal(
+            evidence.get("budget_events")
+        )
+        replayed_summary = replay_discovery_budget_evidence(
+            validated_budget, budget_events
+        )
+    except (DiscoveryBudgetError, KeyError) as exc:
+        raise PrivateInputDiscoveryError("PROVIDER_EVIDENCE_INVALID") from exc
+    expected_transcript = {
+        "provider_calls": len(provider_events),
+        "aws_calls": len(provider_events),
+        "aws_mutations": 0,
+        "live_provider_evidence": True,
+        "transcript_digest": canonical_digest(provider_events),
+    }
+    summary, transcript, _ = _validate_provider_evidence(
+        provider_summary=evidence.get("provider_summary"),
+        provider_transcript=evidence.get("provider_transcript"),
+        discovery_budget=request["discovery_budget"],
+        expected_budget_digest=request["budget_digest"],
+    )
+    budget_operations = [
+        item["operation"]
+        for item in budget_events
+        if item.get("kind") == "PROVIDER_CALL"
+    ]
+    if (
+        summary != replayed_summary
+        or transcript != expected_transcript
+        or budget_operations
+        != [item["operation"] for item in provider_events]
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+
+    try:
+        authority_sessions = [
+            authority_first["identity"]["session_id_digest"],
+            authority_second["identity"]["session_id_digest"],
+        ]
+        identity_sessions = [
+            *identity_first["session_digests"],
+            *identity_second["session_digests"],
+        ]
+        expected_by_domain = {
+            "authority": set(authority_sessions),
+            "identity_center": set(identity_sessions),
+        }
+        observed_by_domain = {
+            domain: {
+                item["session_digest"]
+                for item in provider_events
+                if item["domain"] == domain
+            }
+            for domain in ("authority", "identity_center")
+        }
+        identity_records = [
+            *identity_first["identities"],
+            *identity_second["identities"],
+        ]
+        if len(identity_records) != len(identity_sessions):
+            _fail("PROVIDER_EVIDENCE_INVALID")
+        observed_at_by_session = {
+            authority_sessions[0]: _parse_stamp(
+                authority_first["identity"]["observed_at"],
+                "PROVIDER_EVIDENCE_INVALID",
+            ),
+            authority_sessions[1]: _parse_stamp(
+                authority_second["identity"]["observed_at"],
+                "PROVIDER_EVIDENCE_INVALID",
+            ),
+        }
+        for session_digest, identity in zip(
+            identity_sessions, identity_records, strict=True
+        ):
+            if identity["session_id_digest"] != session_digest:
+                _fail("PROVIDER_EVIDENCE_INVALID")
+            observed_at_by_session[session_digest] = _parse_stamp(
+                identity["observed_at"], "PROVIDER_EVIDENCE_INVALID"
+            )
+        observed_times = [
+            *observed_at_by_session.values(),
+        ]
+    except (KeyError, TypeError) as exc:
+        raise PrivateInputDiscoveryError("PROVIDER_EVIDENCE_INVALID") from exc
+    if (
+        len(expected_by_domain["authority"]) != len(authority_sessions)
+        or len(expected_by_domain["identity_center"])
+        != len(identity_sessions)
+        or expected_by_domain["authority"]
+        & expected_by_domain["identity_center"]
+        or expected_by_domain != observed_by_domain
+        or len(observed_at_by_session)
+        != len(authority_sessions) + len(identity_sessions)
+        or any(
+            _parse_stamp(
+                item["completed_at"], "PROVIDER_EVIDENCE_INVALID"
+            )
+            > observed_at_by_session[item["session_digest"]]
+            for item in provider_events
+            if item["operation"] == "sts:GetCallerIdentity"
+        )
+        or not observed_times
+        or claimed_at > min(observed_times)
+        or max(observed_times) > sealed_at
+    ):
+        _fail("PROVIDER_EVIDENCE_INVALID")
+    return evidence
+
+
 def _derive_discovery_proposal(
     *,
     request: Mapping[str, Any],
@@ -2336,6 +3067,7 @@ def _derive_discovery_proposal(
     now: datetime,
     provider_summary: Mapping[str, Any],
     provider_transcript: Mapping[str, Any],
+    provider_evidence_digest: str,
     claim_digest: str,
 ) -> DiscoveryProposal:
     """Purely derive the proposal from the complete persisted evidence chain."""
@@ -2345,6 +3077,7 @@ def _derive_discovery_proposal(
         _fail("DISCOVERY_REQUEST_INVALID")
     request = checked_request
     _digest(claim_digest, "DISCOVERY_CLAIM_BINDING_MISMATCH")
+    _digest(provider_evidence_digest, "PROVIDER_EVIDENCE_INVALID")
     _window(request["not_before"], request["expires_at"], now=now)
     authority_plan, provisional_identity_plan = provisional_discovery_plans(request)
     authority_first, authority_second = _stable_pair(
@@ -2628,6 +3361,8 @@ def _derive_discovery_proposal(
         "discovery_budget": budget,
         "private_root_digest": request["private_root_digest"],
         "host_digest": request["host_digest"],
+        "provider_evidence_file": DEFAULT_PROVIDER_EVIDENCE_FILE,
+        "provider_evidence_digest": provider_evidence_digest,
         "provider_summary": summary,
         "provider_transcript": transcript,
         "authority_snapshot_digests": [
@@ -2665,6 +3400,7 @@ def _derive_discovery_proposal(
         "source_contract_digest": request["source_contract_digest"],
         "proposal_digest": proposal["proposal_digest"],
         "budget_digest": request["budget_digest"],
+        "provider_evidence_digest": provider_evidence_digest,
         "network_calls": summary["network_calls"],
         "provider_calls": summary["provider_calls"],
         "credential_vending_calls": summary["credential_vending_calls"],
@@ -2692,14 +3428,14 @@ def _derive_discovery_proposal(
 
 def build_discovery_proposal(
     *,
+    private_root: Path,
     request: Mapping[str, Any],
     execution_capability: object,
     authority_snapshots: Sequence[Mapping[str, Any]],
     identity_snapshots: Sequence[Mapping[str, Any]],
-    now: datetime,
     provider_factory: object,
 ) -> DiscoveryProposal:
-    """Build an owner-reviewable exact proposal from attested fresh snapshots."""
+    """Seal independent provider evidence, then derive the exact proposal."""
 
     checked_request = _copy(request, "DISCOVERY_REQUEST_INVALID")
     if not isinstance(checked_request, dict):
@@ -2714,22 +3450,126 @@ def build_discovery_proposal(
             provider_factory, execution_capability
         ):
             _fail("ATTESTED_DISCOVERY_PROVIDER_REQUIRED")
+        private_target_absent(private_root, DEFAULT_PROVIDER_EVIDENCE_FILE)
+        persisted_request = read_private_json(
+            private_root, checked_request["request_file"]
+        )
+        persisted_checkpoint = read_private_json(
+            private_root, checked_request["owner_checkpoint_file"]
+        )
+        persisted_request, persisted_checkpoint, _ = _validate_request_pair(
+            persisted_request,
+            persisted_checkpoint,
+            private_root=private_root,
+            now=None,
+            require_active=False,
+        )
+        if persisted_request != checked_request:
+            _fail("DISCOVERY_PROVENANCE_MISMATCH")
+        claim = _validate_claim_document(
+            read_private_json(private_root, DEFAULT_CLAIM_FILE),
+            request=persisted_request,
+            checkpoint=persisted_checkpoint,
+        )
+        canonical_authority = [
+            read_private_json(private_root, name)
+            for name in AUTHORITY_SNAPSHOT_FILES
+        ]
+        canonical_identity = [
+            read_private_json(private_root, name)
+            for name in IDENTITY_SNAPSHOT_FILES
+        ]
+        if (
+            canonical_authority
+            != _copy(authority_snapshots, "DISCOVERY_PROVENANCE_MISMATCH")
+            or canonical_identity
+            != _copy(identity_snapshots, "DISCOVERY_PROVENANCE_MISMATCH")
+        ):
+            _fail("DISCOVERY_PROVENANCE_MISMATCH")
         provider_summary = provider_factory.discovery_budget_summary()  # type: ignore[attr-defined]
         provider_transcript = provider_factory.transcript_summary()  # type: ignore[attr-defined]
+        provider_events = provider_factory.transcript_events()  # type: ignore[attr-defined]
+        budget_events = provider_factory.discovery_budget_evidence_events()  # type: ignore[attr-defined]
+        sealed_at = _checked_clock(
+            provider_factory.evaluation_time(),  # type: ignore[attr-defined]
+            "PROVIDER_CLOCK_INVALID",
+        )
         claim_digest = execution_capability._claim_digest  # type: ignore[attr-defined]
     except PrivateInputDiscoveryError:
         raise
+    except CollectorError as exc:
+        raise PrivateInputDiscoveryError("DISCOVERY_PROVENANCE_MISMATCH") from exc
     except Exception as exc:
         raise PrivateInputDiscoveryError(
             "ATTESTED_DISCOVERY_PROVIDER_REQUIRED"
         ) from exc
+    evidence_body: dict[str, Any] = {
+        "record_type": PROVIDER_EVIDENCE_TYPE,
+        "schema_version": 1,
+        "implementation_issue": IMPLEMENTATION_ISSUE,
+        "parent_issue": PARENT_ISSUE,
+        "live_issue": LIVE_ISSUE,
+        "source_commit_sha": checked_request["source_commit_sha"],
+        "source_tree_sha": checked_request["source_tree_sha"],
+        "source_contract_digest": checked_request["source_contract_digest"],
+        "request_file": checked_request["request_file"],
+        "request_digest": checked_request["request_digest"],
+        "owner_checkpoint_file": checked_request["owner_checkpoint_file"],
+        "checkpoint_digest": checked_request["owner_checkpoint_digest"],
+        "claim_digest": claim_digest,
+        "approval_reference_digest": checked_request[
+            "approval_reference_digest"
+        ],
+        "budget_digest": checked_request["budget_digest"],
+        "private_root_digest": checked_request["private_root_digest"],
+        "host_digest": checked_request["host_digest"],
+        "authority_snapshot_digests": [
+            item["snapshot_digest"] for item in canonical_authority
+        ],
+        "identity_center_snapshot_digests": [
+            item["snapshot_digest"] for item in canonical_identity
+        ],
+        "budget_events": _encode_budget_event_journal(budget_events),
+        "provider_events": _encode_provider_event_journal(provider_events),
+        "provider_summary": provider_summary,
+        "provider_transcript": provider_transcript,
+        "not_before": checked_request["not_before"],
+        "expires_at": checked_request["expires_at"],
+        "sealed_at": _stamp(sealed_at),
+        "read_only": True,
+        "aws_mutations": 0,
+        "repository_persisted": False,
+    }
+    evidence = {
+        **evidence_body,
+        "provider_evidence_digest": canonical_digest(evidence_body),
+    }
+    evidence = _validate_provider_evidence_document(
+        evidence,
+        request=checked_request,
+        claim=claim,
+        authority_snapshots=canonical_authority,
+        identity_snapshots=canonical_identity,
+    )
+    try:
+        write_private_json(
+            private_root, DEFAULT_PROVIDER_EVIDENCE_FILE, evidence
+        )
+        persisted_evidence = read_private_json(
+            private_root, DEFAULT_PROVIDER_EVIDENCE_FILE
+        )
+    except CollectorError as exc:
+        raise PrivateInputDiscoveryError(exc.code) from exc
+    if persisted_evidence != evidence:
+        _fail("PROVIDER_EVIDENCE_READBACK_MISMATCH")
     return _derive_discovery_proposal(
         request=checked_request,
-        authority_snapshots=authority_snapshots,
-        identity_snapshots=identity_snapshots,
-        now=now,
-        provider_summary=provider_summary,
-        provider_transcript=provider_transcript,
+        authority_snapshots=canonical_authority,
+        identity_snapshots=canonical_identity,
+        now=sealed_at,
+        provider_summary=evidence["provider_summary"],
+        provider_transcript=evidence["provider_transcript"],
+        provider_evidence_digest=evidence["provider_evidence_digest"],
         claim_digest=claim_digest,
     )
 
@@ -2793,6 +3633,7 @@ def validate_public_discovery_receipt(
         "source_contract_digest",
         "proposal_digest",
         "budget_digest",
+        "provider_evidence_digest",
         "transcript_digest",
         "receipt_digest",
     ):
@@ -2820,6 +3661,8 @@ def persist_discovery_proposal(
         or receipt["source_contract_digest"]
         != value["source_contract_digest"]
         or receipt["budget_digest"] != value["budget_digest"]
+        or receipt["provider_evidence_digest"]
+        != value["provider_evidence_digest"]
         or receipt["transcript_digest"]
         != value["provider_transcript"]["transcript_digest"]
         or receipt["classification"] != value["classification"]
@@ -2885,6 +3728,7 @@ def _validate_proposal_document(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "claim_digest",
         "approval_reference_digest",
         "budget_digest",
+        "provider_evidence_digest",
         "private_root_digest",
         "host_digest",
         "proposal_digest",
@@ -2898,6 +3742,8 @@ def _validate_proposal_document(candidate: Mapping[str, Any]) -> dict[str, Any]:
     if (
         request_name != proposal.get("request_file")
         or checkpoint_name != proposal.get("owner_checkpoint_file")
+        or proposal.get("provider_evidence_file")
+        != DEFAULT_PROVIDER_EVIDENCE_FILE
     ):
         _fail("PROPOSAL_NOT_COMPLETE")
     proposal_start, proposal_end = _window(
@@ -3002,6 +3848,9 @@ def _validate_proposal_evidence_chain(
             read_private_json(private_root, name)
             for name in IDENTITY_SNAPSHOT_FILES
         ]
+        provider_evidence = read_private_json(
+            private_root, DEFAULT_PROVIDER_EVIDENCE_FILE
+        )
     except PrivateInputDiscoveryError:
         raise
     except CollectorError as exc:
@@ -3012,18 +3861,37 @@ def _validate_proposal_evidence_chain(
         proposal["claim_digest"] != claim["claim_digest"]
         or proposal["request_digest"] != request["request_digest"]
         or proposal["checkpoint_digest"] != checkpoint["checkpoint_digest"]
+        or proposal["provider_evidence_file"]
+        != DEFAULT_PROVIDER_EVIDENCE_FILE
     ):
         _fail("DISCOVERY_PROVENANCE_MISMATCH")
     try:
+        provider_evidence = _validate_provider_evidence_document(
+            provider_evidence,
+            request=request,
+            claim=claim,
+            authority_snapshots=authority_snapshots,
+            identity_snapshots=identity_snapshots,
+        )
+        if (
+            proposal["provider_evidence_digest"]
+            != provider_evidence["provider_evidence_digest"]
+            or proposal["created_at"] != provider_evidence["sealed_at"]
+        ):
+            _fail("DISCOVERY_PROVENANCE_MISMATCH")
         reconstructed = _derive_discovery_proposal(
             request=request,
             authority_snapshots=authority_snapshots,
             identity_snapshots=identity_snapshots,
             now=_parse_stamp(
-                proposal["created_at"], "DISCOVERY_PROVENANCE_MISMATCH"
+                provider_evidence["sealed_at"],
+                "DISCOVERY_PROVENANCE_MISMATCH",
             ),
-            provider_summary=proposal["provider_summary"],
-            provider_transcript=proposal["provider_transcript"],
+            provider_summary=provider_evidence["provider_summary"],
+            provider_transcript=provider_evidence["provider_transcript"],
+            provider_evidence_digest=provider_evidence[
+                "provider_evidence_digest"
+            ],
             claim_digest=claim["claim_digest"],
         ).private_candidate
     except PrivateInputDiscoveryError as exc:
@@ -3617,6 +4485,7 @@ __all__ = [
     "DEFAULT_IDENTITY_INPUT_FILE",
     "DEFAULT_IDENTITY_PLAN_FILE",
     "DEFAULT_MANIFEST_FILE",
+    "DEFAULT_PROVIDER_EVIDENCE_FILE",
     "DEFAULT_PROPOSAL_FILE",
     "DEFAULT_REQUEST_FILE",
     "DerivedSourceContract",
@@ -3626,6 +4495,7 @@ __all__ = [
     "MaterializedApprovedInputs",
     "MaterializedDiscoveryRequest",
     "PrivateInputDiscoveryError",
+    "PROVIDER_EVIDENCE_TYPE",
     "RESERVED_LIFECYCLE_OUTPUT_FILES",
     "assert_preflight_provider_capability_bindings",
     "approved_discovery_request",

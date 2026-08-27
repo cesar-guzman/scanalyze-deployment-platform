@@ -112,6 +112,35 @@ def _digest(value: Any) -> str:
     return "sha256:" + sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _validate_evidence_causality(
+    events: list[dict[str, Any]], *, error_code: str
+) -> None:
+    """Require every provider call to own exactly one later response.
+
+    Credential vending is an independent network event: an SDK may refresh
+    credentials before reserving its first provider operation or between two
+    completed call/response pairs.
+    """
+
+    provider_call_pending = False
+    for event in events:
+        kind = event.get("kind")
+        if kind == "PROVIDER_CALL":
+            if provider_call_pending:
+                _fail(error_code)
+            provider_call_pending = True
+        elif kind == "CREDENTIAL_VEND":
+            continue
+        elif kind == "PROJECTED_RESPONSE":
+            if not provider_call_pending:
+                _fail(error_code)
+            provider_call_pending = False
+        else:
+            _fail(error_code)
+    if provider_call_pending:
+        _fail(error_code)
+
+
 def _nano_usd(value: Any) -> int:
     if not isinstance(value, str):
         _fail("DISCOVERY_BUDGET_COST_INVALID")
@@ -277,6 +306,7 @@ class GlobalDiscoveryBudget:
         self._network_calls = 0
         self._page_calls = 0
         self._response_bytes = 0
+        self._evidence_events: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
     def _require_cost(self, value: int) -> None:
@@ -310,6 +340,14 @@ class GlobalDiscoveryBudget:
             self._network_calls = next_network
             self._page_calls = next_pages
             self._modeled_cost = next_cost
+            self._evidence_events.append(
+                {
+                    "ordinal": len(self._evidence_events) + 1,
+                    "kind": "PROVIDER_CALL",
+                    "operation": operation,
+                    "page_call": page_call,
+                }
+            )
 
     def record_credential_vend(self, operation: str) -> None:
         """Count the sole permitted direct-SSO credential network operation."""
@@ -328,6 +366,13 @@ class GlobalDiscoveryBudget:
             self._credential_vending_calls = next_vending
             self._network_calls = next_network
             self._modeled_cost = next_cost
+            self._evidence_events.append(
+                {
+                    "ordinal": len(self._evidence_events) + 1,
+                    "kind": "CREDENTIAL_VEND",
+                    "operation": operation,
+                }
+            )
 
     def record_response(self, byte_count: int) -> None:
         """Commit one sanitized/projected provider response byte count."""
@@ -344,6 +389,13 @@ class GlobalDiscoveryBudget:
             self._require_cost(next_cost)
             self._response_bytes = next_bytes
             self._modeled_cost = next_cost
+            self._evidence_events.append(
+                {
+                    "ordinal": len(self._evidence_events) + 1,
+                    "kind": "PROJECTED_RESPONSE",
+                    "byte_count": byte_count,
+                }
+            )
 
     def summary(self) -> dict[str, Any]:
         """Return digest-only bindings and scalar counters, never raw inputs."""
@@ -362,6 +414,108 @@ class GlobalDiscoveryBudget:
             }
             return {**body, "summary_digest": _digest(body)}
 
+    def evidence_events(self) -> list[dict[str, Any]]:
+        """Return the replayable, sanitized budget journal after completion."""
+
+        with self._lock:
+            provider_calls = sum(
+                event["kind"] == "PROVIDER_CALL"
+                for event in self._evidence_events
+            )
+            responses = sum(
+                event["kind"] == "PROJECTED_RESPONSE"
+                for event in self._evidence_events
+            )
+            credential_vends = sum(
+                event["kind"] == "CREDENTIAL_VEND"
+                for event in self._evidence_events
+            )
+            if (
+                provider_calls != self._provider_calls
+                or credential_vends != self._credential_vending_calls
+                or responses != provider_calls
+            ):
+                _fail("DISCOVERY_BUDGET_EVIDENCE_INCOMPLETE")
+            _validate_evidence_causality(
+                self._evidence_events,
+                error_code="DISCOVERY_BUDGET_EVIDENCE_INCOMPLETE",
+            )
+            return _canonical_copy(self._evidence_events)
+
+
+def replay_discovery_budget_evidence(
+    validated: ValidatedDiscoveryBudget,
+    events: Any,
+) -> dict[str, Any]:
+    """Replay one sanitized journal and return its independently derived summary."""
+
+    if not isinstance(events, list) or not events:
+        _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+    try:
+        supplied = _canonical_copy(events)
+    except DiscoveryBudgetError as exc:
+        raise DiscoveryBudgetError(
+            "DISCOVERY_BUDGET_EVIDENCE_INVALID"
+        ) from exc
+    for ordinal, event in enumerate(supplied, 1):
+        if (
+            not isinstance(event, dict)
+            or type(event.get("ordinal")) is not int
+            or event["ordinal"] != ordinal
+        ):
+            _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+        kind = event.get("kind")
+        if kind == "PROVIDER_CALL" and set(event) == {
+            "ordinal",
+            "kind",
+            "operation",
+            "page_call",
+        }:
+            continue
+        if kind == "CREDENTIAL_VEND" and set(event) == {
+            "ordinal",
+            "kind",
+            "operation",
+        }:
+            continue
+        if kind == "PROJECTED_RESPONSE" and set(event) == {
+            "ordinal",
+            "kind",
+            "byte_count",
+        }:
+            continue
+        _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+
+    _validate_evidence_causality(
+        supplied, error_code="DISCOVERY_BUDGET_EVIDENCE_INVALID"
+    )
+
+    ledger = GlobalDiscoveryBudget(validated)
+    for event in supplied:
+        kind = event["kind"]
+        try:
+            if kind == "PROVIDER_CALL":
+                ledger.reserve_provider_call(
+                    event["operation"], is_page=event["page_call"]
+                )
+            elif kind == "CREDENTIAL_VEND":
+                ledger.record_credential_vend(event["operation"])
+            else:
+                ledger.record_response(event["byte_count"])
+        except DiscoveryBudgetError as exc:
+            raise DiscoveryBudgetError(
+                "DISCOVERY_BUDGET_EVIDENCE_INVALID"
+            ) from exc
+    try:
+        replayed = ledger.evidence_events()
+    except DiscoveryBudgetError as exc:
+        raise DiscoveryBudgetError(
+            "DISCOVERY_BUDGET_EVIDENCE_INVALID"
+        ) from exc
+    if replayed != supplied:
+        _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
+    return ledger.summary()
+
 
 __all__ = [
     "DiscoveryBudgetError",
@@ -374,6 +528,7 @@ __all__ = [
     "HARD_MAX_TOTAL_RESPONSE_BYTES",
     "NANO_USD_PER_USD",
     "RECORD_TYPE",
+    "replay_discovery_budget_evidence",
     "SCHEMA_VERSION",
     "SUMMARY_RECORD_TYPE",
     "ValidatedDiscoveryBudget",
