@@ -839,6 +839,50 @@ def _validate_ledger_factory_artifact_signing_contract(
         _fail("LEDGER_FACTORY_CODE_SIGNING_CONFIG_INVALID")
 
 
+def validate_ledger_factory_artifact_signing_contract(
+    *,
+    contract: Mapping[str, Any],
+    expected_contract_digest: str,
+    gug363_plan: Mapping[str, Any],
+    repo_root: Path,
+) -> None:
+    """Public fail-closed validator for the exact ledger-factory contract."""
+
+    contract_snapshot = _canonical_snapshot(
+        contract, "LEDGER_FACTORY_SIGNING_CONTRACT_SNAPSHOT_INVALID"
+    )
+    gug363_snapshot = _canonical_snapshot(
+        gug363_plan, "LEDGER_FACTORY_GUG363_PLAN_SNAPSHOT_INVALID"
+    )
+    if not isinstance(contract_snapshot, Mapping):
+        _fail("LEDGER_FACTORY_SIGNING_CONTRACT_FIELDS_INVALID")
+    if not isinstance(gug363_snapshot, Mapping):
+        _fail("LEDGER_FACTORY_GUG363_PLAN_FIELDS_INVALID")
+    if not isinstance(repo_root, Path) or not repo_root.is_absolute():
+        _fail("LEDGER_FACTORY_REPOSITORY_ROOT_INVALID")
+    try:
+        root = repo_root.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ServiceRoleMaterializationError(
+            "LEDGER_FACTORY_REPOSITORY_ROOT_INVALID"
+        ) from exc
+    if root != repo_root or not root.is_dir():
+        _fail("LEDGER_FACTORY_REPOSITORY_ROOT_INVALID")
+    try:
+        _validate_ledger_factory_artifact_signing_contract(
+            contract=contract_snapshot,
+            expected_contract_digest=expected_contract_digest,
+            gug363_plan=gug363_snapshot,
+            repo_root=root,
+        )
+    except ServiceRoleMaterializationError:
+        raise
+    except Exception as exc:
+        raise ServiceRoleMaterializationError(
+            "LEDGER_FACTORY_SIGNING_CONTRACT_VALIDATION_FAILED"
+        ) from exc
+
+
 def _function_contract(gug363_plan: Mapping[str, Any]) -> dict[str, Any]:
     parameters = _parameter_values(gug363_plan)
     signed = gug363_plan["artifact_signing_contract"]["signed_destination"]

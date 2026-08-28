@@ -216,14 +216,66 @@ SDK call/page. Ambient/default/chained credentials, missing pagination,
 drift, stale evidence, extra effective authority or an expired checkpoint are
 `STOP_NO_MUTATION`.
 
-### GUG-393 private input discovery boundary
+### GUG-395 causal bootstrap and downstream GUG-393 boundary
 
-GUG-393 closes only the missing-input preflight for the GUG-392 read-only
-lane. It does not deploy, mutate, accept staging, or certify production. The
-reviewed GUG-363 and GUG-365 plans are revalidated and used only as fixed
-selectors; none of their historical classifications is accepted as current
-AWS truth. A source contract can be minted only in-process from both complete
-validated plans.
+GUG-393 does not provide the pre-plan bootstrap for GUG-376. Its current
+source contract requires complete GUG-363 and GUG-365 plans and exact generated
+ARNs, so it is valid only after all nine GUG-376 phases and terminal readback.
+Using it before those phases would require the outputs of the run as inputs to
+the same run.
+
+GUG-395 removes that cycle only at the offline contract layer. It derives one
+private pre-plan seed and one pending nine-phase/thirty-operation plan from a
+clean checkout whose HEAD/tree and required bytes equal fetched `origin/main`,
+the fourteen owner decisions, two repository-derived bindings, deterministic
+package inputs and
+unresolved typed provider slots. Neither a GUG-363 plan nor a GUG-365 plan is
+accepted or required. The seed and plan perform no AWS call, authorize no
+mutation and cannot be used as exact provider evidence.
+
+The causal order is fixed:
+
+1. materialize and review the GUG-395 seed and pending plan offline;
+2. add a separately reviewed name/tag collision probe that does not require
+   generated ARNs;
+3. implement the live provider, closed request/readback routes, durable ledger
+   and external verifier;
+4. execute and certify all nine GUG-376 phases under fresh phase-specific
+   authorization;
+5. after a separately reviewed trusted terminal-capability minter exists, use
+   the gated GUG-395 downstream checkpoint builder to validate the GUG-363
+   intent/plan, both package archives and both signing contracts, ending only
+   at `READY_FOR_GUG365_FRESH_CHECKPOINT`;
+6. perform the original GUG-365 run's fresh read-only checkpoint, bind the
+   authoritative downstream receipt and private-manifest digests, and compile
+   its plan;
+7. use the separate post-checkpoint helper to validate that receipt, the exact
+   terminal GUG-363/package/signing bindings and the fresh plan before deriving
+   the GUG-393 source bundle; and
+8. only then use GUG-393/GUG-392 for exact post-run read-only verification.
+
+The current exact collectors are not the collision probe in step 2. Fourteen
+provider-generated output materialization/readback routes remain unimplemented,
+the Identity Center application authentication-method route remains a
+fail-closed STOP, and GUG-395 implements no live provider or durable executor.
+These blockers must close before any phase can become executable.
+
+GUG-395 exposes no terminal-capability minter. Its public downstream fixture
+is therefore `SYNTHETIC_CONTRACT_ONLY_BLOCKED`, and schema validity is never
+live evidence. A future separately reviewed minter may unlock the gated
+checkpoint builder only after terminal provider evidence is independently
+verified. That builder then validates the GUG-363 intent/plan, actual package
+archives and both signing contracts. Its receipt leaves the GUG-365 plan
+unmaterialized and requires a fresh GUG-365 provider checkpoint. That fresh
+checkpoint must bind the receipt and private-manifest digests. Only after that
+checkpoint and plan may a separate post-checkpoint helper require the
+authoritative receipt, reject any verifier/plan/package/signing cross-run
+splice, validate both complete plans, derive the existing GUG-393 source
+contract and require its exact Authority and Identity Center projections to
+match the terminal handoff. At that point GUG-393 closes only the missing-input preflight for the
+GUG-392 post-run read-only lane. It does not deploy, mutate, accept staging,
+or certify production. Historical plan classifications are never accepted as
+current AWS truth.
 
 The preflight requires two different direct SSO profiles, one per account.
 Both profiles are non-default, unchained, read-only, exact-account and
@@ -313,7 +365,8 @@ no-mutation/no-production flags. A consumed claim, expired window, replaced
 file, copied host binding, budget exhaustion, or incomplete pagination cannot
 be retried; create a fresh request instead.
 
-Even a valid GUG-393 receipt and approved GUG-392 plans leave
+An offline GUG-395 seed/plan, structural terminal validation, a valid GUG-393
+receipt and approved GUG-392 plans all leave
 `two_human_status=NOT_PROVEN`, `deployment_authorized=false`, and
 `production_status=NO-GO`. GUG-127 staging certification and GUG-128's
 independently authorized production pilot remain separate gates.
@@ -522,6 +575,7 @@ certification.
 ## References
 
 - [ADR-052](../../ADR/ADR-052-gug357-cloudformation-service-role-boundaries.md)
+- [ADR-055](../../ADR/ADR-055-gug395-preplan-seed-and-downstream-materialization.md)
 - [Operations runbook](../operations/platform-authority-retirement-entrypoint-service-role.md)
 - [Threat model](../security/gug365-retirement-entrypoint-service-role-threat-model.md)
 - [GUG-363 deployment contract](platform-authority-retirement-entrypoint-materialization.md)

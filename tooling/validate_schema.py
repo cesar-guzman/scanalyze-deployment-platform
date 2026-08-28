@@ -122,6 +122,12 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-gug393-discovery-receipt": (
             "platform-authority-gug393-discovery-receipt.v{version}.schema.json"
         ),
+        "platform-authority-gug395-preplan-seed-receipt": (
+            "platform-authority-gug395-preplan-seed-receipt.v{version}.schema.json"
+        ),
+        "platform-authority-gug395-downstream-materialization-receipt": (
+            "platform-authority-gug395-downstream-materialization-receipt.v{version}.schema.json"
+        ),
         "platform-authority-gug376-live-readonly-run": (
             "platform-authority-gug376-live-readonly-run.v{version}.schema.json"
         ),
@@ -3666,6 +3672,39 @@ def _validate_gug393_discovery_receipt(instance: dict) -> list[str]:
     return errors
 
 
+def _validate_gug395_public_receipt(
+    instance: dict, *, downstream: bool
+) -> list[str]:
+    """Apply the exact GUG-395 digest-only receipt seal and invariants."""
+
+    try:
+        from tooling.platform_authority_gug395_preplan_seed import (
+            PreplanSeedError,
+            validate_downstream_materialization_receipt_shape,
+            validate_preplan_seed_receipt_shape,
+        )
+    except ImportError as exc:
+        return [f"GUG-395 receipt validator unavailable: {exc}"]
+    try:
+        if downstream:
+            validate_downstream_materialization_receipt_shape(instance)
+            if instance.get("status") != "SYNTHETIC_CONTRACT_ONLY_BLOCKED":
+                return [
+                    "GUG-395 receipt contract invalid: "
+                    "TERMINAL_HANDOFF_VERIFICATION_REQUIRED"
+                ]
+        else:
+            validate_preplan_seed_receipt_shape(instance)
+            if instance.get("status") != "SYNTHETIC_CONTRACT_ONLY_BLOCKED":
+                return [
+                    "GUG-395 receipt contract invalid: "
+                    "SOURCE_VERIFICATION_REQUIRED"
+                ]
+    except PreplanSeedError as exc:
+        return [f"GUG-395 receipt contract invalid: {exc.code}"]
+    return []
+
+
 def _validate_gug392_live_record(instance: dict, *, handoff: bool) -> list[str]:
     """Apply the runtime v2 seal, policy and call-count invariants."""
 
@@ -4178,6 +4217,14 @@ def validate_semantics(
 
     if schema_name == "platform-authority-gug393-discovery-receipt.v1.schema.json":
         errors.extend(_validate_gug393_discovery_receipt(instance))
+
+    if schema_name == "platform-authority-gug395-preplan-seed-receipt.v1.schema.json":
+        errors.extend(_validate_gug395_public_receipt(instance, downstream=False))
+
+    if schema_name == (
+        "platform-authority-gug395-downstream-materialization-receipt.v1.schema.json"
+    ):
+        errors.extend(_validate_gug395_public_receipt(instance, downstream=True))
 
     if schema_name == "platform-authority-gug376-live-readonly-run.v2.schema.json":
         errors.extend(_validate_gug392_live_record(instance, handoff=False))

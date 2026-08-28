@@ -235,27 +235,150 @@ relationships and tags; Lambda configuration/runtime/concurrency/version/tag
 state; log-group controls/tags; and DynamoDB table/PITR/TTL/policy/tag/count
 state must match their exact projections. Stable drift remains no-touch.
 
-## GUG-393 — materialize the missing GUG-392 inputs
+## GUG-395 pre-plan seed and downstream GUG-393 verification
 
-Use this lane only after the exact merged `origin/main` commit/tree has been
-fetched and the checkout is clean. It is a non-production read-only preflight,
-not a shortcut to deployment. Do not use any administrator, bootstrap, seed,
-deploy, destroy, default, chained, or production-write profile.
+### Step 1 — materialize only the offline GUG-395 seed and pending plan
+
+Fetch the exact merged `origin/main` commit/tree and require a clean isolated
+checkout. Create one owner-only directory outside Git, worktrees, synced/File
+Provider paths and repository roots. Set the directory to `0700`, every input
+and output to `0600`, `umask 077`, and `set -o noclobber` before creating any
+final artifact.
+
+Prepare `gug395-owner-input.json` privately from the closed GUG-395 contract.
+It binds the exact source commit/tree, the complete ordered owner-decision set
+and both deterministic package inputs. It must not contain a GUG-363 plan, a
+GUG-365 plan or invented provider-generated slots. Never paste its contents,
+accounts, user identifiers, ARNs or paths into Git, CI or issue comments.
+
+Use the reviewed Python 3.11.14 runtime and clear Python path and AWS credential
+bindings. Capture `GUG395_CREATED_AT` from the actual current UTC action time;
+do not reuse an example or prior receipt timestamp. These commands perform no
+AWS call:
+
+```console
+GUG395_PYTHON=/absolute/path/to/reviewed-python-3.11.14
+GUG395_PRIVATE_ROOT=/absolute/private/root
+GUG395_REPO_ROOT=/absolute/clean/origin-main/checkout
+GUG395_CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-seed.py catalog
+
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-seed.py seed \
+  --repo-root "$GUG395_REPO_ROOT" \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --owner-input gug395-owner-input.json \
+  --output gug395-preplan-seed.json \
+  --created-at "$GUG395_CREATED_AT"
+
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-seed.py plan \
+  --repo-root "$GUG395_REPO_ROOT" \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --seed gug395-preplan-seed.json \
+  --output gug395-mutation-plan.json
+```
+
+Review only the emitted status and digests. Expected status remains offline
+with `AWS_CALLS=0`, `AWS_MUTATIONS=0`, `deployment_authorized=false` and
+production `NO-GO`. The `seed` command validates and source-verifies its public
+receipt before publishing the create-only seed, then rereads the seed and
+revalidates the same receipt after publication. An invalid receipt timestamp
+therefore leaves no seed output to recover or overwrite.
+
+Stop here. GUG-395 does not implement the next live boundary. A future
+additive collision probe must inspect source-bound names and tags without
+requiring generated ARNs. Fourteen provider-generated output
+materialization/readback routes remain missing, the Identity Center
+application authentication-method route remains fail-closed, and the live
+provider, durable CAS executor and external authorization verifier are not
+implemented. Do not run GUG-393/GUG-392 v1 as a substitute: their exact
+collectors require final ARNs and are post-run only.
+
+### Step 2 — require nine phases and an independently verified handoff
+
+There is no live command in this runbook. A future separately reviewed
+provider/executor must perform its own name/tag collision preflight, obtain a
+fresh action-time authorization for each phase, consume one durable attempt
+before each write, and certify all nine phases and thirty operations.
+
+After that future run, `validate-terminal` may check the serialized handoff's
+shape and bindings:
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-seed.py \
+  validate-terminal \
+  --repo-root "$GUG395_REPO_ROOT" \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --seed gug395-preplan-seed.json \
+  --plan gug395-mutation-plan.json \
+  --handoff gug376-mutation-terminal-handoff.json
+```
+
+Current v1 always stops with `STOP_LIVE_EXECUTION_PLAN_NOT_IMPLEMENTED`; it
+cannot reach `EXTERNAL_ATTESTATION_REQUIRED` and cannot mint terminal
+authority. GUG-395 deliberately exposes no terminal-capability minter. The
+checked-in downstream fixture therefore reports
+`SYNTHETIC_CONTRACT_ONLY_BLOCKED`, and its shape validator is non-certifying.
+
+After a future separately reviewed provider, executor, terminal contract and
+trusted capability minter close those gates, the in-process downstream builder
+may validate only the post-phase GUG-363 intent/plan, actual package archives
+and both signing contracts. Its capability-gated receipt must report
+`READY_FOR_GUG365_FRESH_CHECKPOINT`,
+`gug365_plan_materialized=false`, zero new AWS calls and zero mutations. It
+does not accept or emit a GUG-365 plan or `source-bundle.json`.
+
+Next, the original GUG-365 run performs a fresh read-only provider checkpoint
+and compiles its own plan. Its capability must bind the authoritative
+downstream receipt digest and private-manifest digest. Only a separate
+post-checkpoint helper may validate that receipt and fresh plan and derive
+`source-bundle.json`; it must require the exact verifier, source, seed,
+mutation-plan, terminal-handoff, GUG-363, package and signing digests from one
+causal run, then prove that the derived exact target projections equal the
+terminal provider handoff. The repository intentionally exposes no CLI that
+can replace either in-process capability with a self-sealed JSON document.
+
+### Step 3 — run GUG-393/GUG-392 exact verification post-phase
+
+Use the remaining lane only after all nine phases, independent terminal
+verification, and certified downstream materialization produced the complete
+GUG-363 plan, fresh GUG-365 plan and `source-bundle.json` from the same source
+commit/tree. It is a non-production read-only verification, not a shortcut to
+deployment. Do not use any administrator, bootstrap, seed, deploy, destroy,
+default, chained, or production-write profile.
 
 Use the reviewed `GUG392_PYTHON` runtime prepared by the GUG-392 prerequisite
 runbook. It must report exactly Python 3.11.14. Every operational invocation
 below deliberately disables Python path overrides and starts in isolated,
 no-site mode.
 
-Create one local directory outside Git, worktrees, synced/File Provider paths,
-and repository roots. Set the directory to 0700 and every prepared JSON input
-to 0600. Set `umask 077` and `set -o noclobber` before creating any final
-artifact. Prepare these three owner-private files from the exact field maps:
+Keep the certified `source-bundle.json` create-only in the same private
+custody. Do not hand-author it from the
+[legacy source-bundle template](platform-authority-gug393-source-bundle.example.json);
+that file illustrates the closed post-phase shape only and its empty plans
+remain deliberately non-runnable. Prepare only these additional private
+inputs from their templates:
 
-- the [source-bundle template](platform-authority-gug393-source-bundle.example.json),
-  replacing both empty plan objects with the complete GUG-363 and GUG-365
-  plans and replacing the application name/provider ARN/KMS key before sealing
-  its self-digest;
 - the [profile-bindings template](platform-authority-gug393-profile-bindings.example.json),
   replacing both direct-SSO profile names, accounts, expected STS principals,
   expected SSO role names, and authority-verification digests; and
@@ -264,22 +387,9 @@ artifact. Prepare these three owner-private files from the exact field maps:
   with an owner-reviewed model. The selected call/page/byte ceilings may be
   lower than, but never exceed, the template's hard ceilings.
 
-The templates are deliberately non-runnable: their replacement markers,
-placeholder accounts, empty plans and zero digests fail closed. Never modify a
-template in the repository. Prepare a private candidate and seal the final
-source bundle create-only. This recipe uses the same canonical JSON encoding as
-the materializer and prints no private content:
-
-```console
-GUG393_SOURCE_CANDIDATE=/absolute/private/root/source-bundle.candidate.json
-GUG393_SOURCE_BUNDLE=/absolute/private/root/source-bundle.json
-test ! -e "$GUG393_SOURCE_BUNDLE"
-env -u PYTHONPATH -u PYTHONHOME \
-  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
-  GUG393_SOURCE_CANDIDATE="$GUG393_SOURCE_CANDIDATE" \
-  GUG393_SOURCE_BUNDLE="$GUG393_SOURCE_BUNDLE" \
-  "$GUG392_PYTHON" -I -S -c 'import hashlib,json,os; from pathlib import Path; source=Path(os.environ["GUG393_SOURCE_CANDIDATE"]); target=Path(os.environ["GUG393_SOURCE_BUNDLE"]); value=json.loads(source.read_text(encoding="utf-8")); value.pop("source_bundle_digest",None); encoded=json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("utf-8"); value["source_bundle_digest"]="sha256:"+hashlib.sha256(encoded).hexdigest(); payload=(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False)+"\n").encode("utf-8"); fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600); stream=os.fdopen(fd,"wb"); stream.write(payload); stream.flush(); os.fsync(stream.fileno()); stream.close()'
-```
+The templates are deliberately non-runnable: replacement markers, placeholder
+accounts and zero digests fail closed. Never modify a template in the
+repository.
 
 Record a digest-only custody readback for all three final inputs. These three
 file digests prove local canonical integrity only; they are not aliases for
@@ -433,8 +543,9 @@ existing output is terminal for that request. Preserve the private artifacts
 and start a fresh owner-reviewed request; never remove a claim to retry.
 
 The resulting plans still require the separate GUG-392 request/checkpoint and
-live read-only execution. A green repository check, GUG-393 receipt, GUG-392
-receipt, or merged PR does not satisfy staging or production. GUG-127 must
+live read-only execution. A GUG-395 seed/plan, structural terminal validation,
+green repository check, GUG-393 receipt, GUG-392 receipt, or merged PR does not
+satisfy staging or production. GUG-127 must
 certify staging first; GUG-128 requires its own independent production pilot
 approval. Until then: `AWS_MUTATIONS=0`, `NOT_DEPLOYED`, `PRODUCTION_NO_GO`.
 
@@ -701,5 +812,6 @@ issue and a separately explicit destructive checkpoint.
 ## References
 
 - [ADR-052](../../ADR/ADR-052-gug357-cloudformation-service-role-boundaries.md)
+- [ADR-055](../../ADR/ADR-055-gug395-preplan-seed-and-downstream-materialization.md)
 - [Deployment contract](../deployment/platform-authority-retirement-entrypoint-service-role.md)
 - [Threat model](../security/gug365-retirement-entrypoint-service-role-threat-model.md)
