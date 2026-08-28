@@ -244,5 +244,19 @@ def test_global_validator_maps_all_gug395_fixtures_without_skips() -> None:
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "SKIP:" not in completed.stdout
-    assert completed.stdout.count("  PASS:") == 2
-    assert completed.stdout.count("  EXPECTED FAIL:") == 7
+    expected_valid = len(
+        list(
+            (FIXTURES / "valid").glob(
+                "platform-authority-gug395-*.json"
+            )
+        )
+    )
+    expected_invalid = len(
+        list(
+            (FIXTURES / "invalid").glob(
+                "platform-authority-gug395-*.json"
+            )
+        )
+    )
+    assert completed.stdout.count("  PASS:") == expected_valid
+    assert completed.stdout.count("  EXPECTED FAIL:") == expected_invalid

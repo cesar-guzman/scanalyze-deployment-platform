@@ -257,10 +257,15 @@ do not reuse an example or prior receipt timestamp. These commands perform no
 AWS call:
 
 ```console
+umask 077
+set -o noclobber
 GUG395_PYTHON=/absolute/path/to/reviewed-python-3.11.14
 GUG395_PRIVATE_ROOT=/absolute/private/root
 GUG395_REPO_ROOT=/absolute/clean/origin-main/checkout
 GUG395_CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+test -d "$GUG395_PRIVATE_ROOT"
+chmod 0700 "$GUG395_PRIVATE_ROOT"
 
 env -u PYTHONPATH -u PYTHONHOME \
   -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
@@ -300,19 +305,242 @@ receipt before publishing the create-only seed, then rereads the seed and
 revalidates the same receipt after publication. An invalid receipt timestamp
 therefore leaves no seed output to recover or overwrite.
 
-Stop here. GUG-395 does not implement the next live boundary. A future
-additive collision probe must inspect source-bound names and tags without
-requiring generated ARNs. Fourteen provider-generated output
-materialization/readback routes remain missing, the Identity Center
-application authentication-method route remains fail-closed, and the live
-provider, durable CAS executor and external authorization verifier are not
-implemented. Do not run GUG-393/GUG-392 v1 as a substitute: their exact
-collectors require final ARNs and are post-run only.
+GUG-395 itself stops here. ADR-056 now provides the next additive read-only
+collision boundary, but a merge or offline test is not a connected run.
+This iteration makes the collision request, concrete read-only provider,
+four-session executor, durable blocked-attempt evidence and public receipt
+repository-ready. It does not authorize or implement a mutation run, staging
+acceptance or production deployment. Do not run GUG-393/GUG-392 v1 as a
+substitute: their exact collectors require final ARNs and are post-run only.
+
+### Step 1b — materialize and run the ADR-056 collision probe
+
+Do not use the dirty primary checkout. After this implementation is reviewed,
+merged and fetched, use one clean worktree at exact `origin/main`. The private
+root must be the same owner-only `0700` root bound by the GUG-395 seed. The
+profile-binding input is a `0600` private JSON file and contains both exact
+direct-SSO read-only profile bindings; never pass a profile or principal on the
+command line and never use a default, administrator, bootstrap, seed, deploy
+or destroy profile.
+
+Its exact shape is shown below. Replace every placeholder privately; each
+digest is `sha256:` plus 64 lowercase hexadecimal characters. The principal
+digest is over the exact expected STS assumed-role ARN, not over the profile
+name, and no ARN is copied into the public receipt.
+`canonical_digest(string)` is SHA-256 over that string's canonical JSON bytes,
+including the JSON quotes and escapes; it is not the digest of the raw unquoted
+bytes. Generate each principal-ARN and direct-role-name digest without echoing
+the private value or putting it in shell history:
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  "$GUG395_PYTHON" -I -S -c 'import getpass,hashlib,json; value=getpass.getpass("Exact private string: "); encoded=json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("utf-8"); print("sha256:"+hashlib.sha256(encoded).hexdigest())'
+```
+
+Run it once for each exact value and copy only the digest into the private
+binding file. Each `authority_verification_digest` must come from an
+independently reviewed effective-authority evidence record for that exact
+profile, account and validity window. It is not the digest of the checked-in
+policy template and must not be invented or self-asserted. If that evidence is
+missing or does not prove the closed read-only surface, stop with
+`HUMAN_DECISION_REQUIRED` before materialization.
+
+```json
+{
+  "authority": {
+    "name": "REDACTED_DIRECT_SSO_READ_ONLY_PROFILE",
+    "expected_account_id": "000000000000",
+    "expected_principal_digest": "sha256:REDACTED_64_HEX",
+    "expected_sso_role_name_digest": "sha256:REDACTED_64_HEX",
+    "authority_verification_digest": "sha256:REDACTED_64_HEX"
+  },
+  "identity_center": {
+    "name": "REDACTED_DISTINCT_DIRECT_SSO_READ_ONLY_PROFILE",
+    "expected_account_id": "111111111111",
+    "expected_principal_digest": "sha256:REDACTED_64_HEX",
+    "expected_sso_role_name_digest": "sha256:REDACTED_64_HEX",
+    "authority_verification_digest": "sha256:REDACTED_64_HEX"
+  }
+}
+```
+
+Before materialization, record the exact merged commit and tree:
+
+```console
+umask 077
+set -o noclobber
+GUG395_COLLISION_SOURCE_COMMIT="$(git rev-parse HEAD)"
+GUG395_COLLISION_SOURCE_TREE="$(git rev-parse HEAD^{tree})"
+test "$(git rev-parse origin/main)" = "$GUG395_COLLISION_SOURCE_COMMIT"
+test -z "$(git status --porcelain)"
+
+# Replace both reviewed values privately before running this block.
+GUG395_SDK_RUNTIME_ROOT=/absolute/reviewed/sdk-runtime-root
+GUG395_COLLISION_APPROVAL_DIGEST=sha256:REVIEWED_64_LOWERCASE_HEX
+
+test -d "$GUG395_SDK_RUNTIME_ROOT"
+case "$GUG395_SDK_RUNTIME_ROOT" in /*) ;; *) exit 1 ;; esac
+"$GUG395_PYTHON" -I -S -c \
+  'import re,sys; assert re.fullmatch(r"sha256:[0-9a-f]{64}",sys.argv[1])' \
+  "$GUG395_COLLISION_APPROVAL_DIGEST" || exit 1
+
+# Capture the freshly approved action-time window. The implementation accepts
+# at most fifteen minutes and treats expires-at as exclusive.
+GUG395_COLLISION_NOT_BEFORE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+GUG395_COLLISION_EXPIRES_AT="$(
+  "$GUG395_PYTHON" -I -S -c \
+  'from datetime import datetime,timedelta,timezone; import sys; value=datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))+timedelta(minutes=15); print(value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"))' \
+  "$GUG395_COLLISION_NOT_BEFORE"
+)"
+
+GUG395_COLLISION_REQUEST_FILE="$GUG395_PRIVATE_ROOT/gug395-preplan-collision-request.json"
+GUG395_COLLISION_MATERIALIZATION_OUTPUT="$GUG395_PRIVATE_ROOT/gug395-preplan-collision-materialization-output.json"
+test ! -e "$GUG395_COLLISION_REQUEST_FILE"
+test ! -e "$GUG395_COLLISION_MATERIALIZATION_OUTPUT"
+```
+
+Materialization is offline and create-only:
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-collision-probe.py \
+  materialize-request \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --seed-file gug395-preplan-seed.json \
+  --plan-file gug395-mutation-plan.json \
+  --profile-bindings-file gug395-preplan-collision-profile-bindings.json \
+  --sdk-runtime-root "$GUG395_SDK_RUNTIME_ROOT" \
+  --source-commit-sha "$GUG395_COLLISION_SOURCE_COMMIT" \
+  --source-tree-sha "$GUG395_COLLISION_SOURCE_TREE" \
+  --approval-reference-digest "$GUG395_COLLISION_APPROVAL_DIGEST" \
+  --not-before "$GUG395_COLLISION_NOT_BEFORE" \
+  --expires-at "$GUG395_COLLISION_EXPIRES_AT" \
+  > "$GUG395_COLLISION_MATERIALIZATION_OUTPUT" || exit 1
+
+chmod 0600 "$GUG395_COLLISION_MATERIALIZATION_OUTPUT"
+GUG395_COLLISION_REQUEST_DIGEST="$(
+  "$GUG395_PYTHON" -I -S -c \
+  'import json,re,sys; from pathlib import Path; request=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); output=json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")); digest=request.get("request_digest"); assert isinstance(digest,str) and re.fullmatch(r"sha256:[0-9a-f]{64}",digest) and output.get("request_digest")==digest; print(digest)' \
+  "$GUG395_COLLISION_REQUEST_FILE" \
+  "$GUG395_COLLISION_MATERIALIZATION_OUTPUT"
+)" || exit 1
+```
+
+Expected output is digest-only with
+`PRIVATE_COLLISION_REQUEST_MATERIALIZED`, `AWS_CALLS=0`, `AWS_MUTATIONS=0`,
+`deployment_authorized=false` and `production_status=NO-GO`.
+The command above captures that output create-only under the private root and
+derives `GUG395_COLLISION_REQUEST_DIGEST` only after the persisted request and
+the digest-only output agree. Review those status fields and digests before
+continuing; do not paste either private file into Git, CI or issue comments.
+
+The connected command is permitted only after the owner freshly confirms both
+profile names, expected accounts, exact expected SSO roles, `us-east-1`, the
+maximum fifteen-minute window and every action in ADR-056. It performs four
+direct-SSO session bootstraps and zero to four actual credential-vending
+requests depending on valid SDK cache state. It performs only the closed
+read-only inventory and no AWS mutation. Launch it from an empty environment
+and restore only `HOME`, `PATH` and `TMPDIR`; a partial `env -u` list is not
+sufficient because every ambient `AWS_*` override is fail-closed:
+
+IAM Identity Center may require the dependent `kms:Decrypt` permission for
+List/Describe reads when its instance uses a customer managed KMS key. The
+deployable Identity policy template includes only the reviewed indirect grant:
+`${identity_center_kms_key_arn}`, `${management_account_id}`,
+`kms:ViaService=sso.us-east-1.amazonaws.com`, the exact
+`${identity_center_instance_arn}` encryption context and the same window. The
+adapter never constructs a KMS client or dispatches a KMS call; it sends only
+the request-bound SSO operations. Before the connected command, the independent
+effective-authority evidence must bind that exact CMK grant. A missing or
+mismatched key/context/grant is reconciliation-only; do not broaden it during a
+running request.
+
+```console
+GUG395_COLLISION_NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+GUG395_COLLISION_PROBE_OUTPUT="$GUG395_PRIVATE_ROOT/gug395-preplan-collision-probe-output.json"
+test ! -e "$GUG395_COLLISION_PROBE_OUTPUT"
+GUG395_COLLISION_PROBE_EXIT=0
+
+env -i \
+  HOME="$HOME" \
+  PATH="$PATH" \
+  TMPDIR="${TMPDIR:-/tmp}" \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-collision-probe.py \
+  probe \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --request-digest "$GUG395_COLLISION_REQUEST_DIGEST" \
+  --source-commit-sha "$GUG395_COLLISION_SOURCE_COMMIT" \
+  --source-tree-sha "$GUG395_COLLISION_SOURCE_TREE" \
+  --now "$GUG395_COLLISION_NOW" \
+  > "$GUG395_COLLISION_PROBE_OUTPUT" || GUG395_COLLISION_PROBE_EXIT=$?
+
+chmod 0600 "$GUG395_COLLISION_PROBE_OUTPUT"
+case "$GUG395_COLLISION_PROBE_EXIT" in 0|2) ;; *) exit "$GUG395_COLLISION_PROBE_EXIT" ;; esac
+```
+
+Exit `0` means a completed collision classification; exit `2` means the
+attempt was durably sealed as blocked. Any other exit is an execution failure:
+preserve the request, claim, output and result paths exactly as written and do
+not delete or overwrite them.
+
+The executor publishes one authoritative create-only private file,
+`gug395-preplan-collision-result.json`, containing private evidence and the
+deterministically reconstructed digest-only receipt. The bundle also binds the
+exact private-root, request and claim digests, and every snapshot binds its
+session transcript segment; copying the bundle without the same request and
+claim custody is invalid. This single-file commit avoids treating two separate
+filesystem writes as atomic. Validate it without AWS calls using:
+
+```console
+env -u PYTHONPATH -u PYTHONHOME \
+  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
+  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+  "$GUG395_PYTHON" -I -S \
+  scripts/deployment/platform-authority-gug395-preplan-collision-probe.py \
+  validate-receipt \
+  --private-root "$GUG395_PRIVATE_ROOT" \
+  --result-file gug395-preplan-collision-result.json
+```
+
+Interpret only the sealed public classification:
+
+| Classification | Meaning and next action |
+|---|---|
+| `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` | Contract classification requiring independently conclusive absence for all seven targets. The current concrete HeadBucket route cannot establish it, so it is not reachable from this connected read-only implementation. |
+| `COLLISION_BLOCKED_NO_MUTATION` | At least one name, alias or tag matched. Preserve evidence; do not adopt, repair, delete or retry. |
+| `UNCERTAIN_RECONCILE_ONLY` | Partial, denied, over-budget, unstable, malformed or prerequisite evidence. Preserve the claim and reconcile read-only under a new reviewed request. |
+
+`s3:HeadBucket` is mandatory for the global bucket name. A non-followed `301`
+or successful response is collision. AWS documents `400`, `403` and `404` as
+generic results for either a missing bucket or missing permission and supplies
+no response body that disambiguates them. All three are uncertainty, never
+absence. Automatic S3 region redirection is disabled so one logical call cannot
+conceal a second unbudgeted request. Because no operation in this read-only
+surface proves global bucket-name absence, do not promote a connected run to
+`ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION`.
+
+Signer inventory explicitly includes `Active`, `Canceled` and `Revoked`
+profiles, and every retained name or reviewed-tag match blocks mutation.
+
+Any denied, timed-out, malformed, over-budget or otherwise blocked attempt is
+sealed as `LIVE_READ_ONLY_PROBE_BLOCKED` when private custody remains writable.
+That receipt leaves `aws_calls`, `network_calls` and
+`modeled_cost_usd_upper` as `null`, reports reconciliation-only, and the CLI
+exits with status `2`. Preserve the atomic bundle and claim; a claim is
+one-shot and must never be deleted to retry.
 
 ### Step 2 — require nine phases and an independently verified handoff
 
-There is no live command in this runbook. A future separately reviewed
-provider/executor must perform its own name/tag collision preflight, obtain a
+There is no live mutation-phase command in this step. A future separately
+reviewed mutation provider/nine-phase executor must perform its own name/tag
+collision preflight, obtain a
 fresh action-time authorization for each phase, consume one durable attempt
 before each write, and certify all nine phases and thirty operations.
 
