@@ -831,6 +831,32 @@ def _verified_source_record(request: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _persist_claimable_request(
+    private_root: Path,
+    *,
+    host_digest: str,
+) -> tuple[dict[str, Any], subject.VerifiedCollisionProbeSource]:
+    request = _request()
+    request["private_custody_digest"] = subject.private_root_digest(
+        private_root
+    )
+    request["operational_host_digest"] = host_digest
+    source_record = _verified_source_record(request)
+    request["source_verification_digest"] = source_record[
+        "verification_digest"
+    ]
+    _reseal(request, "request_digest")
+    subject.persist_collision_probe_request(
+        private_root=private_root,
+        request=request,
+    )
+    return request, subject.VerifiedCollisionProbeSource(
+        subject._VERIFIED_SOURCE_SENTINEL,
+        source_record,
+        private_root.parent.resolve(),
+    )
+
+
 def test_target_catalog_is_the_exact_seven_target_private_selector_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2030,6 +2056,7 @@ def test_source_reverification_failure_before_claim_leaves_no_orphan(
     request["private_custody_digest"] = subject.private_root_digest(
         private_root
     )
+    request["operational_host_digest"] = subject.operational_host_digest()
     source_record = _verified_source_record(request)
     request["source_verification_digest"] = source_record[
         "verification_digest"
@@ -2073,6 +2100,127 @@ def test_source_reverification_failure_before_claim_leaves_no_orphan(
     assert calls == 2
     assert not (private_root / subject.DEFAULT_CLAIM_FILE).exists()
     assert not (private_root / subject.DEFAULT_RESULT_FILE).exists()
+
+
+def test_copied_request_on_another_host_is_rejected_before_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    private_root = tmp_path / "private"
+    private_root.mkdir(mode=0o700)
+    materialization_host = _digest("materialization-host")
+    request, verified = _persist_claimable_request(
+        private_root,
+        host_digest=materialization_host,
+    )
+    monkeypatch.setattr(
+        subject.VerifiedCollisionProbeSource,
+        "reverify",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        subject,
+        "operational_host_digest",
+        lambda: _digest("different-execution-host"),
+    )
+
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_HOST_BINDING_MISMATCH$",
+    ):
+        subject.read_and_claim_collision_probe_request(
+            private_root=private_root,
+            verified_source=verified,
+            expected_request_digest=request["request_digest"],
+            now=datetime(2026, 8, 28, 1, 5, tzinfo=UTC),
+        )
+
+    assert not (private_root / subject.DEFAULT_CLAIM_FILE).exists()
+    assert not (private_root / subject.DEFAULT_RESULT_FILE).exists()
+
+
+def test_live_capability_gate_rechecks_operational_host_before_provider_use(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    private_root = tmp_path / "private"
+    private_root.mkdir(mode=0o700)
+    materialization_host = _digest("materialization-host")
+    monkeypatch.setattr(
+        subject,
+        "operational_host_digest",
+        lambda: materialization_host,
+    )
+    request, verified = _persist_claimable_request(
+        private_root,
+        host_digest=materialization_host,
+    )
+    monkeypatch.setattr(
+        subject.VerifiedCollisionProbeSource,
+        "reverify",
+        lambda self: None,
+    )
+    now = datetime(2026, 8, 28, 1, 5, tzinfo=UTC)
+    capability = subject.read_and_claim_collision_probe_request(
+        private_root=private_root,
+        verified_source=verified,
+        expected_request_digest=request["request_digest"],
+        now=now,
+        clock=lambda: now,
+    )
+    authority = request["profiles"]["authority"]
+    identity = request["profiles"]["identity_center"]
+    binding_arguments = {
+        "sdk_runtime_root": request["sdk_runtime_root"],
+        "authority_profile": authority["name"],
+        "identity_center_profile": identity["name"],
+        "authority_expected_account_id": authority["expected_account_id"],
+        "authority_expected_principal_digest": authority[
+            "expected_principal_digest"
+        ],
+        "authority_expected_sso_role_name_digest": authority[
+            "expected_sso_role_name_digest"
+        ],
+        "identity_expected_account_id": identity["expected_account_id"],
+        "identity_expected_principal_digest": identity[
+            "expected_principal_digest"
+        ],
+        "identity_expected_sso_role_name_digest": identity[
+            "expected_sso_role_name_digest"
+        ],
+        "authority_verification_digest": authority[
+            "authority_verification_digest"
+        ],
+        "identity_authority_verification_digest": identity[
+            "authority_verification_digest"
+        ],
+        "budget_digest": request["budget_digest"],
+    }
+    gate = subject.assert_collision_probe_provider_capability_bindings(
+        capability,
+        **binding_arguments,
+    )
+
+    subject.claim_collision_probe_execution(capability)
+    gate()
+    monkeypatch.setattr(
+        subject,
+        "operational_host_digest",
+        lambda: _digest("different-execution-host"),
+    )
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_HOST_BINDING_MISMATCH$",
+    ):
+        subject.assert_collision_probe_provider_capability_bindings(
+            capability,
+            **binding_arguments,
+        )
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_HOST_BINDING_MISMATCH$",
+    ):
+        gate()
 
 
 def test_atomic_result_persistence_round_trips_and_reprojects(

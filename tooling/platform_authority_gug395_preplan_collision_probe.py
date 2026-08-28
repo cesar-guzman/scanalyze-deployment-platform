@@ -424,6 +424,13 @@ def operational_host_digest() -> str:
     )
 
 
+def _assert_operational_host_binding(request: Mapping[str, Any]) -> None:
+    """Require a persisted request to remain on its materialization host."""
+
+    if request["operational_host_digest"] != operational_host_digest():
+        _fail("COLLISION_HOST_BINDING_MISMATCH")
+
+
 def private_root_digest(private_root: Path) -> str:
     try:
         root = Path(private_root).resolve(strict=True)
@@ -1083,6 +1090,7 @@ def read_and_claim_collision_probe_request(
     except CollectorError as exc:
         raise CollisionProbeError(exc.code) from exc
     validate_collision_probe_request(request)
+    _assert_operational_host_binding(request)
     if private_root_digest(private_root) != request["private_custody_digest"]:
         _fail("COLLISION_PRIVATE_ROOT_BINDING_MISMATCH")
     source_record = verified_source.record
@@ -1215,6 +1223,7 @@ class _CollisionCapabilityGate:
             capability._request["expires_at"], "COLLISION_WINDOW_INVALID"
         ):
             _fail("COLLISION_EXECUTION_WINDOW_INACTIVE")
+        _assert_operational_host_binding(capability._request)
         try:
             request = read_private_json(capability._private_root, DEFAULT_REQUEST_FILE)
             claim = read_private_json(capability._private_root, DEFAULT_CLAIM_FILE)
@@ -1263,6 +1272,7 @@ def assert_collision_probe_provider_capability_bindings(
 
     capability = _validate_capability(execution_capability)
     request = capability._request
+    _assert_operational_host_binding(request)
     authority = request["profiles"]["authority"]
     identity = request["profiles"]["identity_center"]
     supplied = {
