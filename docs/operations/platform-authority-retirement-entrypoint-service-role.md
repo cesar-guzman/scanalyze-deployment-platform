@@ -444,7 +444,9 @@ profile names, expected accounts, exact expected SSO roles, `us-east-1`, the
 maximum fifteen-minute window and every action in ADR-056. It performs four
 direct-SSO session bootstraps and zero to four actual credential-vending
 requests depending on valid SDK cache state. It performs only the closed
-read-only inventory and no AWS mutation:
+read-only inventory and no AWS mutation. Launch it from an empty environment
+and restore only `HOME`, `PATH` and `TMPDIR`; a partial `env -u` list is not
+sufficient because every ambient `AWS_*` override is fail-closed:
 
 IAM Identity Center may require the dependent `kms:Decrypt` permission for
 List/Describe reads when its instance uses a customer managed KMS key. The
@@ -464,10 +466,10 @@ GUG395_COLLISION_PROBE_OUTPUT="$GUG395_PRIVATE_ROOT/gug395-preplan-collision-pro
 test ! -e "$GUG395_COLLISION_PROBE_OUTPUT"
 GUG395_COLLISION_PROBE_EXIT=0
 
-env -u PYTHONPATH -u PYTHONHOME \
-  -u _PYTHON_PROJECT_BASE -u _PYTHON_SYSCONFIGDATA_NAME \
-  -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ACCESS_KEY_ID \
-  -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+env -i \
+  HOME="$HOME" \
+  PATH="$PATH" \
+  TMPDIR="${TMPDIR:-/tmp}" \
   "$GUG395_PYTHON" -I -S \
   scripts/deployment/platform-authority-gug395-preplan-collision-probe.py \
   probe \

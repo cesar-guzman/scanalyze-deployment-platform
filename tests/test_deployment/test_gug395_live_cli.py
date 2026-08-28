@@ -18,6 +18,10 @@ SCRIPT = (
     ROOT
     / "scripts/deployment/platform-authority-gug395-preplan-collision-probe.py"
 )
+RUNBOOK = (
+    ROOT
+    / "docs/operations/platform-authority-retirement-entrypoint-service-role.md"
+)
 
 
 def _module() -> Any:
@@ -39,6 +43,33 @@ def test_all_collision_probe_help_paths_need_no_sdk() -> None:
         assert result.returncode == 0, result.stderr
         assert command in result.stdout
         assert result.stderr == ""
+
+
+def test_connected_runbook_clears_every_ambient_aws_override() -> None:
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    connected = runbook.split(
+        'GUG395_COLLISION_PROBE_OUTPUT="$GUG395_PRIVATE_ROOT/',
+        maxsplit=1,
+    )[1].split(
+        'chmod 0600 "$GUG395_COLLISION_PROBE_OUTPUT"',
+        maxsplit=1,
+    )[0]
+
+    expected_launcher = (
+        "env -i \\\n"
+        '  HOME="$HOME" \\\n'
+        '  PATH="$PATH" \\\n'
+        '  TMPDIR="${TMPDIR:-/tmp}" \\\n'
+        '  "$GUG395_PYTHON" -I -S \\\n'
+        "  scripts/deployment/"
+        "platform-authority-gug395-preplan-collision-probe.py \\\n"
+        "  probe \\\n"
+    )
+    assert expected_launcher in connected
+    assert connected.count("env -i") == 1
+    assert connected.count(
+        "platform-authority-gug395-preplan-collision-probe.py"
+    ) == 1
 
 
 def test_probe_emits_blocked_receipt_and_returns_exit_two(
