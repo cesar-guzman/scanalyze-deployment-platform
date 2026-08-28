@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -34,7 +34,8 @@ help:
 	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
 	@echo "  make platform-authority-gug390-live-provider-check Validate the GUG-390 provider/executor contract in an AWS-free environment"
 	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392/GUG-393 dual-domain provider, discovery, and materializer contracts offline"
-	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-393 platform-authority controls offline"
+	@echo "  make platform-authority-gug395-preplan-seed-check Validate the GUG-395 pre-plan seed and downstream materializer contracts offline"
+	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-395 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
 	@echo "  GUG-363 entrypoint: python3 scripts/deployment/platform-authority-retirement-entrypoint-materializer.py --help"
@@ -622,9 +623,32 @@ platform-authority-gug392-live-provider-check:
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug393-discovery-receipt
 	@echo "GUG-392/GUG-393 status: REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0"
 
-# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-393, offline) ──
-platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check
-	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393 Platform-Authority Bootstrap Check ==="
+# ── GUG-395 Pre-Plan Seed and Downstream Materializer (offline only) ──
+platform-authority-gug395-preplan-seed-check:
+	@echo "=== GUG-395 Pre-Plan Seed and Downstream Materializer Check (offline) ==="
+	@$(GUG390_HERMETIC_ENV) PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_gug395_*.py
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -m py_compile \
+		$(TOOLING_DIR)/platform_authority_gug395_preplan_seed.py \
+		$(TOOLING_DIR)/platform_authority_repository_source_verifier.py \
+		$(TOOLING_DIR)/platform_authority_retirement_entrypoint_service_role_materializer.py \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py catalog --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py seed --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py plan --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug395-preplan-seed.py validate-terminal --help >/dev/null
+	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug395
+	@echo "GUG-395 status: REPOSITORY_OFFLINE_CONTRACT_READY_FOR_REVIEW / CLEAN_ORIGIN_MAIN_SOURCE_REQUIRED / DOWNSTREAM_CHECKPOINT_BUILDER_GATED_NO_TERMINAL_MINTER / PREPLAN_COLLISION_PROBE_NOT_IMPLEMENTED / LIVE_PROVIDER_NOT_IMPLEMENTED / AWS_CALLS=0 / AWS_MUTATIONS=0 / PRODUCTION_NO_GO"
+
+# ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-395, offline) ──
+platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check
+	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393/GUG-395 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug274_bootstrap_artifact_trust_root.py \
@@ -690,7 +714,7 @@ platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-ch
 	@$(PYTHON) scripts/deployment/founder-bootstrap-exception.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep-seed.py --help >/dev/null
 	@$(PYTHON) scripts/deployment/founder-bootstrap-pep.py --help >/dev/null
-	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
+	@echo "GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393/GUG-395 bootstrap check complete. Status: REPOSITORY_VALIDATED_NO_LIVE_EXECUTION"
 
 # ── Preflight M1 (full M1 gate) ─────────────────────────────────────
 preflight-m1: toolchain-status preflight-m0 module-check root-check taskdef-check supply-chain-check git-safety security-check test
@@ -1121,6 +1145,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-051-direct-retirement-entrypoint-materialization.md \
 			ADR/ADR-052-gug357-cloudformation-service-role-boundaries.md \
 			ADR/ADR-053-gug365-upstream-prerequisites-materialization.md \
+			ADR/ADR-055-gug395-preplan-seed-and-downstream-materialization.md \
 			docs/deployment/ssm-contracts.md \
 			docs/deployment/platform-authority-retirement-entrypoint-service-role.md \
 			docs/operations/platform-authority-retirement-entrypoint-service-role.md \
