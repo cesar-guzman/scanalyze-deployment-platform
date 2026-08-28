@@ -1,0 +1,163 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmOnlyTheCurrentCaller",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DiscoverOnlyCollisionCandidates",
+      "Effect": "Allow",
+      "Action": [
+        "kms:ListAliases",
+        "kms:ListKeys",
+        "lambda:ListCodeSigningConfigs",
+        "s3:ListAllMyBuckets",
+        "signer:ListSigningProfiles"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ProbeExactGlobalBucketNameForHeadBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${artifact_bucket_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyOwnedBucketTags",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketTagging",
+      "Resource": "arn:aws:s3:::*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadOnlyAuthorityCollisionDetails",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:ListResourceTags",
+        "lambda:GetCodeSigningConfig",
+        "lambda:ListTags",
+        "signer:GetSigningProfile",
+        "signer:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:kms:us-east-1:${authority_account_id}:key/*",
+        "arn:aws:lambda:us-east-1:${authority_account_id}:code-signing-config:csc-*",
+        "arn:aws:signer:us-east-1:${authority_account_id}:/signing-profiles/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAuthorityReadsOutsideHomeRegion",
+      "Effect": "Deny",
+      "Action": [
+        "kms:*",
+        "lambda:*",
+        "s3:*",
+        "signer:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsBeforeAbsoluteStart",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllActionsAtAbsoluteExpiry",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyEveryUnreviewedAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "kms:DescribeKey",
+        "kms:ListAliases",
+        "kms:ListKeys",
+        "kms:ListResourceTags",
+        "lambda:GetCodeSigningConfig",
+        "lambda:ListCodeSigningConfigs",
+        "lambda:ListTags",
+        "s3:GetBucketTagging",
+        "s3:ListAllMyBuckets",
+        "s3:ListBucket",
+        "signer:GetSigningProfile",
+        "signer:ListSigningProfiles",
+        "signer:ListTagsForResource",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

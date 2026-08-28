@@ -67,7 +67,7 @@ The only accepted order is:
 | Order | Product or action | Evidence boundary |
 |---|---|---|
 | 1 | Exact clean reviewed source, owner input, deterministic package inputs and GUG-395 seed/plan | Offline and private; zero AWS calls |
-| 2 | Future additive pre-plan collision probe by source-bound name and tag | Read-only only; must not require generated ARNs and must not reuse the current exact collectors |
+| 2 | Additive pre-plan collision probe by source-bound name and tag (ADR-056) | Repository implementation available; connected read-only run not executed; must not require generated ARNs and must not reuse the current exact collectors |
 | 3 | Future executable provider, all closed request/readback routes, durable CAS ledger and external verifier | Separately reviewed implementation; still no phase is authorized by repository state |
 | 4 | Nine GUG-376 phases, each under fresh action-time authorization and one-attempt semantics | Live non-production evidence; ambiguous outcomes are read-only reconciliation only |
 | 5 | Complete terminal provider readback and independent transcript verification | Private, digest-bound terminal handoff |
@@ -87,13 +87,14 @@ GUG-395 compiles the closed operation and slot bindings but does not construct
 an AWS client, vend credentials, execute a provider request, persist a live
 ledger or verify a live transcript. The executable boundary remains blocked:
 
-- the future name/tag collision probe is not implemented;
+- the name/tag collision probe is repository-implemented but has no connected
+  dual-domain run or live receipt;
 - fourteen provider-generated output materialization/readback routes are still
   missing from the live adapter boundary;
 - the Identity Center application authentication-method request/readback path
   remains a separate fail-closed STOP; and
-- the live provider, durable executor and action-time authorization verifier
-  are not implemented by GUG-395.
+- the live mutation provider, durable nine-phase executor and action-time
+  mutation authorization verifier are not implemented by GUG-395.
 
 These are implementation blockers, not documentation gaps. The pending plan
 therefore records that request materialization awaits an attested mutation
@@ -185,9 +186,9 @@ mutation package with its own blast-radius analysis and authorization.
 
 ```text
 GUG395_SOURCE_CONTRACT=REPOSITORY_VALIDATED_OFFLINE_ONLY
-PREPLAN_COLLISION_PROBE=NOT_IMPLEMENTED
-LIVE_PROVIDER=NOT_IMPLEMENTED
-DURABLE_EXECUTOR=NOT_IMPLEMENTED
+PREPLAN_COLLISION_PROBE=REPOSITORY_IMPLEMENTED_CONNECTED_RUN_PENDING
+LIVE_MUTATION_PROVIDER=NOT_IMPLEMENTED
+DURABLE_NINE_PHASE_EXECUTOR=NOT_IMPLEMENTED
 AWS_CALLS=0
 AWS_MUTATIONS=0
 DEPLOYMENT_AUTHORIZED=false

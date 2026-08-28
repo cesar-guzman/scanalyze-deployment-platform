@@ -128,6 +128,9 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-gug395-downstream-materialization-receipt": (
             "platform-authority-gug395-downstream-materialization-receipt.v{version}.schema.json"
         ),
+        "platform-authority-gug395-preplan-collision-probe-receipt": (
+            "platform-authority-gug395-preplan-collision-probe-receipt.v{version}.schema.json"
+        ),
         "platform-authority-gug376-live-readonly-run": (
             "platform-authority-gug376-live-readonly-run.v{version}.schema.json"
         ),
@@ -3705,6 +3708,23 @@ def _validate_gug395_public_receipt(
     return []
 
 
+def _validate_gug395_collision_probe_receipt(instance: dict) -> list[str]:
+    """Apply the exact collision-probe receipt seal and overclaim lattice."""
+
+    try:
+        from tooling.platform_authority_gug395_preplan_collision_probe import (
+            CollisionProbeError,
+            validate_public_collision_probe_receipt,
+        )
+    except ImportError as exc:
+        return [f"GUG-395 collision-probe validator unavailable: {exc}"]
+    try:
+        validate_public_collision_probe_receipt(instance)
+    except CollisionProbeError as exc:
+        return [f"GUG-395 collision-probe receipt invalid: {exc.code}"]
+    return []
+
+
 def _validate_gug392_live_record(instance: dict, *, handoff: bool) -> list[str]:
     """Apply the runtime v2 seal, policy and call-count invariants."""
 
@@ -4225,6 +4245,11 @@ def validate_semantics(
         "platform-authority-gug395-downstream-materialization-receipt.v1.schema.json"
     ):
         errors.extend(_validate_gug395_public_receipt(instance, downstream=True))
+
+    if schema_name == (
+        "platform-authority-gug395-preplan-collision-probe-receipt.v1.schema.json"
+    ):
+        errors.extend(_validate_gug395_collision_probe_receipt(instance))
 
     if schema_name == "platform-authority-gug376-live-readonly-run.v2.schema.json":
         errors.extend(_validate_gug392_live_record(instance, handoff=False))

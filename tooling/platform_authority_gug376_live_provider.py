@@ -41,6 +41,9 @@ from tooling.platform_authority_gug376_live_readonly_orchestrator import (
 from tooling.platform_authority_gug376_live_request_materializer import (
     assert_live_provider_capability_bindings,
 )
+from tooling.platform_authority_gug395_preplan_collision_probe import (
+    MAX_OWNED_BUCKETS as MAX_COLLISION_OWNED_BUCKETS,
+)
 
 
 REGION = "us-east-1"
@@ -49,6 +52,52 @@ MAX_RESPONSE_BYTES = 256 * 1024
 OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = MappingProxyType(
     {domain: frozenset(actions) for domain, actions in _CLOSED_OPERATIONS.items()}
 )
+COLLISION_PROBE_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = (
+    MappingProxyType(
+        {
+            "authority": frozenset(
+                {
+                    "sts:GetCallerIdentity",
+                    "s3:ListAllMyBuckets",
+                    "s3:GetBucketTagging",
+                    "s3:HeadBucket",
+                    "kms:ListAliases",
+                    "kms:ListKeys",
+                    "kms:DescribeKey",
+                    "kms:ListResourceTags",
+                    "signer:ListSigningProfiles",
+                    "signer:GetSigningProfile",
+                    "signer:ListTagsForResource",
+                    "lambda:ListCodeSigningConfigs",
+                    "lambda:GetCodeSigningConfig",
+                    "lambda:ListTags",
+                }
+            ),
+            "identity_center": frozenset(
+                {
+                    "sts:GetCallerIdentity",
+                    "sso:ListInstances",
+                    "sso:ListApplications",
+                    "sso:DescribeApplication",
+                    "sso:ListPermissionSets",
+                    "sso:DescribePermissionSet",
+                    "sso:ListTagsForResource",
+                }
+            ),
+        }
+    )
+)
+# ``HeadBucket`` is the SDK/ledger operation. AWS IAM has no
+# ``s3:HeadBucket`` action; the deployable policy grants its exact underlying
+# authorization, ``s3:ListBucket``, only on the request-bound candidate ARN.
+COLLISION_PROBE_IAM_ACTION_MAP: Mapping[str, str] = MappingProxyType(
+    {"s3:HeadBucket": "s3:ListBucket"}
+)
+MAX_COLLISION_KMS_KEYS = 256
+MAX_COLLISION_SIGNING_PROFILES = 256
+MAX_COLLISION_CODE_SIGNING_CONFIGS = 256
+MAX_COLLISION_APPLICATIONS = 256
+MAX_COLLISION_PERMISSION_SETS = 512
 
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SSO_ROLE_NAME = re.compile(r"^[A-Za-z0-9+=,.@_-]{1,64}$")
@@ -124,6 +173,7 @@ _ABSENT = frozenset(
 )
 _CONCRETE_PROVIDER_ATTESTATION = object()
 _DISCOVERY_PROVIDER_ATTESTATION = object()
+_COLLISION_PROBE_PROVIDER_ATTESTATION = object()
 _IDENTITY_DISCOVERY_TRANSITION_ATTESTATION = object()
 _SDK_RUNTIME_SITE_PATH = Path("site-packages")
 _SDK_VIRTUAL_DATA_ROOT = "/__scanalyze_gug392_authenticated_botocore_data__"
@@ -255,6 +305,21 @@ def _safe_discovery_error(
     if (
         isinstance(code, str)
         and code.startswith("DISCOVERY_")
+        and _TOKEN.fullmatch(code) is not None
+    ):
+        return LiveProviderError(code)
+    return LiveProviderError(fallback)
+
+
+def _safe_collision_error(
+    exc: Exception, fallback: str
+) -> LiveProviderError:
+    """Translate only stable collision-probe boundary codes."""
+
+    code = getattr(exc, "code", None)
+    if (
+        isinstance(code, str)
+        and code.startswith("COLLISION_")
         and _TOKEN.fullmatch(code) is not None
     ):
         return LiveProviderError(code)
@@ -507,6 +572,31 @@ def _project_sts_identity(
     result = _selected(value, ("Account", "Arn"))
     user_id = value.get("UserId")
     result["UserIdPresent"] = isinstance(user_id, str) and bool(user_id)
+    return result
+
+
+def _project_s3_head_bucket(
+    value: Mapping[str, Any], request: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """Project only the HTTP existence result of the global name probe."""
+
+    del request
+    metadata = value.get("ResponseMetadata")
+    status = (
+        metadata.get("HTTPStatusCode")
+        if isinstance(metadata, Mapping)
+        else None
+    )
+    if type(status) is not int or not 200 <= status <= 299:
+        _fail("COLLISION_HEAD_BUCKET_RESPONSE_INVALID")
+    result: dict[str, Any] = {
+        "status_code": status,
+        "collision": True,
+        "absent": False,
+    }
+    region_digest = _s3_region_header_digest(value)
+    if region_digest is not None:
+        result["bucket_region_header_digest"] = region_digest
     return result
 
 
@@ -1005,11 +1095,56 @@ def _project_lambda_tags(
     value: Mapping[str, Any], request: Mapping[str, Any]
 ) -> Mapping[str, Any]:
     del request
-    return (
-        {"Tags": {"tags_digest": _fact_digest(value["Tags"])}}
-        if "Tags" in value
-        else {}
-    )
+    if "Tags" not in value:
+        return {}
+    tags = value["Tags"]
+    if not isinstance(tags, Mapping) or any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in tags.items()
+    ):
+        _fail("PROVIDER_RESPONSE_INVALID")
+    return {
+        "Tags": {
+            "tags_digest": _fact_digest(tags),
+            "tag_pairs": sorted(
+                (
+                    {
+                        "key_digest": _fact_digest(key),
+                        "value_digest": _fact_digest(item),
+                    }
+                    for key, item in tags.items()
+                ),
+                key=canonical_json,
+            ),
+        }
+    }
+
+
+def _project_signer_tags(
+    value: Mapping[str, Any], request: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    del request
+    if "tags" not in value:
+        return {}
+    tags = value["tags"]
+    if not isinstance(tags, Mapping) or any(
+        not isinstance(key, str) or not isinstance(item, str)
+        for key, item in tags.items()
+    ):
+        _fail("PROVIDER_RESPONSE_INVALID")
+    return {
+        "tags_digest": _fact_digest(tags),
+        "tag_pairs": sorted(
+            (
+                {
+                    "key_digest": _fact_digest(key),
+                    "value_digest": _fact_digest(item),
+                }
+                for key, item in tags.items()
+            ),
+            key=canonical_json,
+        ),
+    }
 
 
 def _project_iam_role_item(
@@ -1086,7 +1221,15 @@ def _project_sso_application_item(
     del request
     if not isinstance(item, Mapping):
         _fail("PROVIDER_RESPONSE_INVALID")
-    return _selected(item, ("ApplicationArn", "Name"))
+    return _selected(
+        item,
+        (
+            "ApplicationArn",
+            "ApplicationAccount",
+            "InstanceArn",
+            "Name",
+        ),
+    )
 
 
 def _project_sso_application_description(
@@ -1384,9 +1527,7 @@ _RESPONSE_PROJECTORS: Mapping[str, _ResponseProjector] = MappingProxyType(
         "signer:ListProfilePermissions": _page(
             "permissions", _project_signer_permission_item, "nextToken"
         ),
-        "signer:ListTagsForResource": lambda value, request: _digest_member(
-            value, "tags", "tags_digest"
-        ),
+        "signer:ListTagsForResource": _project_signer_tags,
         "signer:GetRevocationStatus": _page(
             "revokedEntities", _digest_item("entity_digest")
         ),
@@ -1497,6 +1638,11 @@ _RESPONSE_PROJECTORS: Mapping[str, _ResponseProjector] = MappingProxyType(
 
 if set(_RESPONSE_PROJECTORS) != set().union(*OPERATION_ALLOWLIST.values()):
     raise RuntimeError("GUG392_RESPONSE_PROJECTOR_COVERAGE_INVALID")
+if (
+    set().union(*COLLISION_PROBE_OPERATION_ALLOWLIST.values())
+    - {"s3:HeadBucket"}
+) - set(_RESPONSE_PROJECTORS):
+    raise RuntimeError("GUG395_RESPONSE_PROJECTOR_COVERAGE_INVALID")
 
 
 def _error_code(exc: BaseException) -> str:
@@ -1506,6 +1652,129 @@ def _error_code(exc: BaseException) -> str:
         if isinstance(error, Mapping) and isinstance(error.get("Code"), str):
             return str(error["Code"])
     return type(exc).__name__
+
+
+def _error_status(exc: BaseException) -> int | None:
+    response = getattr(exc, "response", None)
+    if not isinstance(response, Mapping):
+        return None
+    metadata = response.get("ResponseMetadata")
+    if isinstance(metadata, Mapping):
+        status = metadata.get("HTTPStatusCode")
+        if type(status) is int:
+            return status
+    error = response.get("Error")
+    if isinstance(error, Mapping):
+        code = error.get("Code")
+        if isinstance(code, str) and code.isdigit():
+            parsed = int(code)
+            if 100 <= parsed <= 599:
+                return parsed
+    return None
+
+
+def _s3_region_header_digest(value: object) -> str | None:
+    """Return only a digest of S3's region hint, never its plaintext value."""
+
+    response = (
+        getattr(value, "response", None)
+        if isinstance(value, BaseException)
+        else value
+    )
+    if not isinstance(response, Mapping):
+        return None
+    metadata = response.get("ResponseMetadata")
+    headers = (
+        metadata.get("HTTPHeaders") if isinstance(metadata, Mapping) else None
+    )
+    if not isinstance(headers, Mapping):
+        return None
+    for key, item in headers.items():
+        if (
+            isinstance(key, str)
+            and key.lower() == "x-amz-bucket-region"
+            and isinstance(item, str)
+            and item
+        ):
+            return canonical_digest(item)
+    return None
+
+
+class _S3RegionRedirectBlocked(RuntimeError):
+    """Internal signal that prevents botocore from issuing a redirect retry."""
+
+    code = "COLLISION_S3_REGION_REDIRECT_BLOCKED"
+
+    def __init__(
+        self,
+        *,
+        status: int | None,
+        error_code: str | None,
+        region_header_digest: str | None,
+    ) -> None:
+        safe_status = status if type(status) is int else None
+        safe_error = (
+            error_code
+            if isinstance(error_code, str) and _TOKEN.fullmatch(error_code)
+            else "S3_REGION_REDIRECT"
+        )
+        self.response: dict[str, Any] = {
+            "Error": {"Code": safe_error},
+            "ResponseMetadata": {"HTTPStatusCode": safe_status},
+        }
+        self.region_header_digest = region_header_digest
+        super().__init__(self.code)
+
+
+def _block_s3_region_redirect_retry(**event: Any) -> None:
+    """Fail before botocore's S3 redirector can schedule a second request."""
+
+    response = event.get("response")
+    if (
+        not isinstance(response, tuple)
+        or len(response) != 2
+        or not isinstance(response[1], Mapping)
+    ):
+        return
+    parsed = response[1]
+    error = parsed.get("Error")
+    metadata = parsed.get("ResponseMetadata")
+    error_code = error.get("Code") if isinstance(error, Mapping) else None
+    status = (
+        getattr(response[0], "status_code", None)
+        if response[0] is not None
+        else None
+    )
+    if type(status) is not int and isinstance(metadata, Mapping):
+        status = metadata.get("HTTPStatusCode")
+    operation = event.get("operation")
+    operation_name = getattr(operation, "name", None)
+    headers = (
+        metadata.get("HTTPHeaders") if isinstance(metadata, Mapping) else None
+    )
+    has_region_hint = isinstance(headers, Mapping) and any(
+        isinstance(key, str) and key.lower() == "x-amz-bucket-region"
+        for key in headers
+    )
+    redirect_response = (
+        status in {301, 302, 307}
+        or error_code in {
+            "AuthorizationHeaderMalformed",
+            "IllegalLocationConstraintException",
+            "PermanentRedirect",
+        }
+        or (
+            operation_name in {"HeadBucket", "HeadObject"}
+            and error_code in {"301", "400"}
+            and has_region_hint
+        )
+    )
+    if redirect_response:
+        raise _S3RegionRedirectBlocked(
+            status=status if type(status) is int else None,
+            error_code=error_code if isinstance(error_code, str) else None,
+            region_header_digest=_s3_region_header_digest(parsed),
+        )
 
 
 def _next_page_token(
@@ -2385,11 +2654,16 @@ def _validate_direct_sso_profile(
     required_end: datetime,
     observe_credential_bootstrap: bool,
     credential_vend_recorder: Callable[[str], None] | None = None,
+    session_bootstrap_recorder: Callable[[str], None] | None = None,
 ) -> tuple[datetime, str, Any]:
     if credential_vend_recorder is not None and not callable(
         credential_vend_recorder
     ):
         _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+    if session_bootstrap_recorder is not None and not callable(
+        session_bootstrap_recorder
+    ):
+        _fail("COLLISION_BUDGET_BINDING_INVALID")
     full, profile = _profile_document(session, profile_name)
     if set(profile) & _PROFILE_FORBIDDEN or not set(profile) <= _PROFILE_ALLOWED:
         _fail("DIRECT_SSO_PROFILE_REQUIRED")
@@ -2471,6 +2745,8 @@ def _validate_direct_sso_profile(
                 "DIRECT_SSO_CREDENTIAL_OBSERVER_REQUIRED"
             ) from exc
     try:
+        if session_bootstrap_recorder is not None:
+            session_bootstrap_recorder("sso:GetRoleCredentials")
         credentials = session.get_credentials()
         method = credentials.method
         frozen = credentials.get_frozen_credentials()
@@ -2528,13 +2804,20 @@ def _policy_window(
     domain: str,
     policy_digest: str,
     now: datetime,
+    operation_allowlist: Mapping[str, frozenset[str]] = OPERATION_ALLOWLIST,
+    exact_actions: bool = False,
 ) -> tuple[datetime, datetime, frozenset[str]]:
     if canonical_digest(policy) != policy_digest or "${" in canonical_json(policy):
         _fail("POLICY_DIGEST_INVALID")
     statements = policy.get("Statement")
     if not isinstance(statements, list):
         _fail("CLOSED_POLICY_INVALID")
-    allowed = set(OPERATION_ALLOWLIST[domain]) | {"kms:Decrypt"}
+    try:
+        allowed = set(operation_allowlist[domain])
+    except KeyError as exc:
+        raise LiveProviderError("PROVIDER_DOMAIN_INVALID") from exc
+    if not exact_actions:
+        allowed.add("kms:Decrypt")
     granted: set[str] = set()
     caller: Mapping[str, Any] | None = None
     for statement in statements:
@@ -2560,6 +2843,8 @@ def _policy_window(
         _fail("POLICY_WINDOW_INVALID")
     if "sts:GetCallerIdentity" not in granted:
         _fail("STS_FIRST_REQUIRED")
+    if exact_actions and granted != allowed:
+        _fail("COLLISION_POLICY_ACTIONS_INVALID")
     return start, end, frozenset(granted - {"kms:Decrypt"})
 
 
@@ -2637,6 +2922,7 @@ class LiveProviderFactory:
         environment: Mapping[str, str],
         execution_capability: object | None,
         discovery_budget: object | None = None,
+        collision_budget: object | None = None,
     ) -> "LiveProviderFactory":
         _validate_config(config)
         _ambient_gate(environment)
@@ -2646,7 +2932,11 @@ class LiveProviderFactory:
             _fail("LIVE_REQUEST_EXECUTION_CAPABILITY_REQUIRED")
         if not concrete and execution_capability is not None:
             _fail("INJECTED_CAPABILITY_FORBIDDEN")
-        if not concrete and discovery_budget is not None:
+        if discovery_budget is not None and collision_budget is not None:
+            _fail("PROVIDER_BUDGET_BINDING_INVALID")
+        if not concrete and (
+            discovery_budget is not None or collision_budget is not None
+        ):
             _fail("DISCOVERY_PROVIDER_INJECTION_FORBIDDEN")
         if not concrete and (not callable(session_factory) or not callable(config_factory)):
             _fail("INJECTED_SDK_REQUIRED")
@@ -2671,71 +2961,146 @@ class LiveProviderFactory:
         self._environment = environment
         self._execution_capability = execution_capability
         self._discovery_budget = discovery_budget
+        self._collision_budget = collision_budget
+        self._operation_allowlist = (
+            COLLISION_PROBE_OPERATION_ALLOWLIST
+            if collision_budget is not None
+            else OPERATION_ALLOWLIST
+        )
         self._events: list[dict[str, Any]] = []
         self._session_ordinal = 0
         self._ledger: CallLedger | None = None
         self._provider_attestation = None
         if concrete:
-            self._provider_attestation = (
-                _DISCOVERY_PROVIDER_ATTESTATION
-                if discovery_budget is not None
-                else _CONCRETE_PROVIDER_ATTESTATION
-            )
+            if collision_budget is not None:
+                self._provider_attestation = (
+                    _COLLISION_PROBE_PROVIDER_ATTESTATION
+                )
+            elif discovery_budget is not None:
+                self._provider_attestation = _DISCOVERY_PROVIDER_ATTESTATION
+            else:
+                self._provider_attestation = _CONCRETE_PROVIDER_ATTESTATION
         self.concrete_provider = concrete
         self.discovery_provider = discovery_budget is not None
-        self.mode = (
-            "ATTESTED_DISCOVERY"
-            if discovery_budget is not None
-            else ("ATTESTED_LIVE" if concrete else "INJECTED_NON_LIVE")
-        )
+        self.collision_probe_provider = collision_budget is not None
+        if collision_budget is not None:
+            self.mode = "ATTESTED_PREPLAN_COLLISION_PROBE"
+        elif discovery_budget is not None:
+            self.mode = "ATTESTED_DISCOVERY"
+        else:
+            self.mode = "ATTESTED_LIVE" if concrete else "INJECTED_NON_LIVE"
         return self
+
+    def _active_budget(self) -> tuple[object | None, str]:
+        if self._collision_budget is not None:
+            return self._collision_budget, "collision"
+        if self._discovery_budget is not None:
+            return self._discovery_budget, "discovery"
+        return None, "none"
+
+    @staticmethod
+    def _budget_error(
+        exc: Exception, *, kind: str, fallback: str
+    ) -> LiveProviderError:
+        if kind == "collision":
+            return _safe_collision_error(exc, fallback)
+        return _safe_discovery_error(exc, fallback)
 
     def _reserve_discovery_provider_call(
         self, operation: str, *, is_page: bool
     ) -> None:
-        if self._discovery_budget is None:
+        budget, kind = self._active_budget()
+        if budget is None:
             return
-        reserve = getattr(self._discovery_budget, "reserve_provider_call", None)
+        reserve = getattr(budget, "reserve_provider_call", None)
         if not callable(reserve):
-            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+            _fail(
+                "COLLISION_BUDGET_BINDING_INVALID"
+                if kind == "collision"
+                else "DISCOVERY_BUDGET_BINDING_INVALID"
+            )
         try:
             reserve(operation, is_page=is_page)
         except LiveProviderError:
             raise
         except Exception as exc:
-            raise _safe_discovery_error(
-                exc, "DISCOVERY_BUDGET_BLOCKED"
+            raise self._budget_error(
+                exc,
+                kind=kind,
+                fallback=(
+                    "COLLISION_BUDGET_BLOCKED"
+                    if kind == "collision"
+                    else "DISCOVERY_BUDGET_BLOCKED"
+                ),
             ) from exc
 
     def _record_discovery_credential_vend(self, operation: str) -> None:
-        if self._discovery_budget is None:
+        budget, kind = self._active_budget()
+        if budget is None:
             return
-        record = getattr(self._discovery_budget, "record_credential_vend", None)
+        record = getattr(budget, "record_credential_vend", None)
         if not callable(record):
-            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+            _fail(
+                "COLLISION_BUDGET_BINDING_INVALID"
+                if kind == "collision"
+                else "DISCOVERY_BUDGET_BINDING_INVALID"
+            )
         try:
             record(operation)
         except LiveProviderError:
             raise
         except Exception as exc:
-            raise _safe_discovery_error(
-                exc, "DISCOVERY_BUDGET_BLOCKED"
+            raise self._budget_error(
+                exc,
+                kind=kind,
+                fallback=(
+                    "COLLISION_BUDGET_BLOCKED"
+                    if kind == "collision"
+                    else "DISCOVERY_BUDGET_BLOCKED"
+                ),
+            ) from exc
+
+    def _record_collision_session_bootstrap(self, operation: str) -> None:
+        budget = self._collision_budget
+        if budget is None:
+            _fail("COLLISION_BUDGET_BINDING_INVALID")
+        record = getattr(budget, "record_session_bootstrap", None)
+        if not callable(record):
+            _fail("COLLISION_BUDGET_BINDING_INVALID")
+        try:
+            record(operation)
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_BUDGET_BLOCKED"
             ) from exc
 
     def _record_discovery_response(self, response: Mapping[str, Any]) -> None:
-        if self._discovery_budget is None:
+        budget, kind = self._active_budget()
+        if budget is None:
             return
-        record = getattr(self._discovery_budget, "record_response", None)
+        record = getattr(budget, "record_response", None)
         if not callable(record):
-            _fail("DISCOVERY_BUDGET_BINDING_INVALID")
+            _fail(
+                "COLLISION_BUDGET_BINDING_INVALID"
+                if kind == "collision"
+                else "DISCOVERY_BUDGET_BINDING_INVALID"
+            )
         byte_count = len(canonical_json(response).encode("utf-8"))
         try:
             record(byte_count)
         except LiveProviderError:
             raise
         except Exception as exc:
-            raise _safe_discovery_error(
-                exc, "DISCOVERY_BUDGET_BLOCKED"
+            raise self._budget_error(
+                exc,
+                kind=kind,
+                fallback=(
+                    "COLLISION_BUDGET_BLOCKED"
+                    if kind == "collision"
+                    else "DISCOVERY_BUDGET_BLOCKED"
+                ),
             ) from exc
 
     def _authorize_discovery_session(
@@ -2746,13 +3111,18 @@ class LiveProviderFactory:
         stage: str,
         policy_digest: str,
     ) -> None:
-        if self._discovery_budget is None:
+        budget, kind = self._active_budget()
+        if budget is None:
             return
         authorize = getattr(
             self._config.validity_gate, "authorize_session", None
         )
         if not callable(authorize):
-            _fail("DISCOVERY_EXECUTION_CAPABILITY_REQUIRED")
+            _fail(
+                "COLLISION_EXECUTION_CAPABILITY_REQUIRED"
+                if kind == "collision"
+                else "DISCOVERY_EXECUTION_CAPABILITY_REQUIRED"
+            )
         try:
             authorize(
                 domain=domain,
@@ -2763,8 +3133,14 @@ class LiveProviderFactory:
         except LiveProviderError:
             raise
         except Exception as exc:
-            raise _safe_discovery_error(
-                exc, "DISCOVERY_PROVIDER_SESSION_NOT_AUTHORIZED"
+            raise self._budget_error(
+                exc,
+                kind=kind,
+                fallback=(
+                    "COLLISION_PROVIDER_SESSION_NOT_AUTHORIZED"
+                    if kind == "collision"
+                    else "DISCOVERY_PROVIDER_SESSION_NOT_AUTHORIZED"
+                ),
             ) from exc
 
     def _sdk(self) -> tuple[Callable[..., Any], Callable[..., Any]]:
@@ -2935,6 +3311,66 @@ class LiveProviderFactory:
             _fail("PROVIDER_TRANSCRIPT_MISMATCH")
         return events
 
+    def collision_partial_transcript_summary(self) -> dict[str, Any]:
+        """Return a truthful digest-only journal summary after a blocked probe."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._ledger is None
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        summary = getattr(self._ledger, "partial_summary", None)
+        if not callable(summary):
+            _fail("COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID")
+        try:
+            calls, transcript_digest = summary()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID"
+            ) from exc
+        if (
+            type(calls) is not int
+            or calls < 0
+            or _DIGEST.fullmatch(str(transcript_digest)) is None
+        ):
+            _fail("COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID")
+        return {
+            "provider_calls": calls,
+            # A pending/failing provider event does not prove that a signed
+            # request reached AWS. Keep failure evidence conservative.
+            "aws_calls": None,
+            "aws_mutations": 0,
+            "live_provider_evidence": False,
+            "transcript_digest": transcript_digest,
+        }
+
+    def collision_partial_transcript_events(self) -> list[dict[str, Any]]:
+        """Return completed and sanitized incomplete calls after a blocked probe."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._ledger is None
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        evidence = getattr(self._ledger, "partial_evidence_events", None)
+        if not callable(evidence):
+            _fail("COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID")
+        try:
+            events = evidence()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID"
+            ) from exc
+        if not isinstance(events, list):
+            _fail("COLLISION_PROVIDER_TRANSCRIPT_PARTIAL_INVALID")
+        return events
+
     def discovery_budget_summary(self) -> dict[str, Any]:
         """Return the shared discovery budget's digest-only counters."""
 
@@ -2981,11 +3417,101 @@ class LiveProviderFactory:
             _fail("DISCOVERY_BUDGET_EVIDENCE_INVALID")
         return events
 
+    def collision_budget_summary(self) -> dict[str, Any]:
+        """Return digest-only counters for the collision-probe budget."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._collision_budget is None
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        summary = getattr(self._collision_budget, "summary", None)
+        if not callable(summary):
+            _fail("COLLISION_BUDGET_BINDING_INVALID")
+        try:
+            value = summary()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_BUDGET_SUMMARY_INVALID"
+            ) from exc
+        if not isinstance(value, Mapping):
+            _fail("COLLISION_BUDGET_SUMMARY_INVALID")
+        return dict(value)
+
+    def collision_budget_evidence_events(self) -> list[dict[str, Any]]:
+        """Return the replayable sanitized collision-budget journal."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._collision_budget is None
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        evidence = getattr(self._collision_budget, "evidence_events", None)
+        if not callable(evidence):
+            _fail("COLLISION_BUDGET_EVIDENCE_INVALID")
+        try:
+            events = evidence()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_BUDGET_EVIDENCE_INVALID"
+            ) from exc
+        if not isinstance(events, list) or not events:
+            _fail("COLLISION_BUDGET_EVIDENCE_INVALID")
+        return events
+
+    def collision_budget_partial_evidence_events(self) -> list[dict[str, Any]]:
+        """Return truthful budget events even when a call failed mid-flight."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._collision_budget is None
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        evidence = getattr(self._collision_budget, "partial_evidence_events", None)
+        if not callable(evidence):
+            _fail("COLLISION_BUDGET_EVIDENCE_PARTIAL_INVALID")
+        try:
+            events = evidence()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise _safe_collision_error(
+                exc, "COLLISION_BUDGET_EVIDENCE_PARTIAL_INVALID"
+            ) from exc
+        if not isinstance(events, list):
+            _fail("COLLISION_BUDGET_EVIDENCE_PARTIAL_INVALID")
+        return events
+
     def evaluation_time(self) -> datetime:
         """Return the post-call trusted time after revalidating local custody."""
 
         self._config.validity_gate()
         value = self._clock()
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            _fail("PROVIDER_CLOCK_INVALID")
+        return value.astimezone(UTC).replace(microsecond=0)
+
+    def failure_evaluation_time(self) -> datetime:
+        """Return raw trusted time without re-entering an inactive live gate."""
+
+        if (
+            self._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        try:
+            value = self._clock()
+        except LiveProviderError:
+            raise
+        except Exception as exc:
+            raise LiveProviderError("PROVIDER_CLOCK_INVALID") from exc
         if not isinstance(value, datetime) or value.tzinfo is None:
             _fail("PROVIDER_CLOCK_INVALID")
         return value.astimezone(UTC).replace(microsecond=0)
@@ -3023,11 +3549,17 @@ class _DomainFactory:
         region: str,
         stage: str | None = None,
     ) -> "_StsSession":
-        expected_stage = "authority" if self._domain == "authority" else stage
-        if self._domain == "authority" and stage is not None:
-            _fail("PROVIDER_STAGE_INVALID")
-        if self._domain == "identity_center" and stage not in {"discovery", "exact"}:
-            _fail("PROVIDER_STAGE_INVALID")
+        collision_probe = self._owner._collision_budget is not None
+        if collision_probe:
+            if stage not in {None, "collision_probe"}:
+                _fail("PROVIDER_STAGE_INVALID")
+            expected_stage = "collision_probe"
+        else:
+            expected_stage = "authority" if self._domain == "authority" else stage
+            if self._domain == "authority" and stage is not None:
+                _fail("PROVIDER_STAGE_INVALID")
+            if self._domain == "identity_center" and stage not in {"discovery", "exact"}:
+                _fail("PROVIDER_STAGE_INVALID")
         if region != self._owner._config.region:
             _fail("REGION_BINDING_INVALID")
         assert expected_stage is not None
@@ -3045,6 +3577,8 @@ class _DomainFactory:
             domain=self._domain,
             policy_digest=policy_digest,
             now=now,
+            operation_allowlist=self._owner._operation_allowlist,
+            exact_actions=collision_probe,
         )
         self._owner._config.validity_gate()
         session_factory, config_factory = self._owner._sdk()
@@ -3058,9 +3592,13 @@ class _DomainFactory:
                 tcp_keepalive=True,
                 ignore_configured_endpoint_urls=True,
                 user_agent_extra=(
-                    "scanalyze-gug393-discovery-provider/1"
-                    if self._owner._discovery_budget is not None
-                    else "scanalyze-gug392-live-provider/1"
+                    "scanalyze-gug395-preplan-collision-probe/1"
+                    if collision_probe
+                    else (
+                        "scanalyze-gug393-discovery-provider/1"
+                        if self._owner._discovery_budget is not None
+                        else "scanalyze-gug392-live-provider/1"
+                    )
                 ),
             )
             sdk_session = session_factory(profile_name=self._profile, region_name=region)
@@ -3078,7 +3616,12 @@ class _DomainFactory:
             observe_credential_bootstrap=self._owner._concrete,
             credential_vend_recorder=(
                 self._owner._record_discovery_credential_vend
-                if self._owner._discovery_budget is not None
+                if self._owner._active_budget()[0] is not None
+                else None
+            ),
+            session_bootstrap_recorder=(
+                self._owner._record_collision_session_bootstrap
+                if collision_probe
                 else None
             ),
         )
@@ -3176,6 +3719,37 @@ class _StsSession:
         self._capture_index = capture_index
         self._stage = stage
         self._identity_validated = False
+        self._s3_redirect_guarded_clients: set[int] = set()
+
+    def _guard_s3_redirects(self, client: Any) -> None:
+        """Install a first-priority fail-closed guard on concrete probes."""
+
+        if (
+            not self._owner._concrete
+            or self._owner._collision_budget is None
+            or id(client) in self._s3_redirect_guarded_clients
+        ):
+            return
+        try:
+            events = client.meta.events
+            register_first = events.register_first
+            if not callable(register_first):
+                _fail("COLLISION_S3_REDIRECT_GUARD_REQUIRED")
+            register_first(
+                "needs-retry.s3",
+                _block_s3_region_redirect_retry,
+                unique_id=(
+                    "scanalyze-gug395-s3-region-redirect-guard-"
+                    f"{id(client)}"
+                ),
+            )
+        except LiveProviderError:
+            raise
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise LiveProviderError(
+                "COLLISION_S3_REDIRECT_GUARD_REQUIRED"
+            ) from exc
+        self._s3_redirect_guarded_clients.add(id(client))
 
     def _client(self, service: str) -> Any:
         if service != "sts" and not self._identity_validated:
@@ -3187,7 +3761,10 @@ class _StsSession:
                 )
             except Exception as exc:
                 raise LiveProviderError("AWS_CLIENT_OPEN_FAILED") from exc
-        return self._clients[service]
+        client = self._clients[service]
+        if service == "s3":
+            self._guard_s3_redirects(client)
+        return client
 
     def _assert_active_window(self) -> datetime:
         if self._owner._concrete:
@@ -3242,7 +3819,7 @@ class _StsSession:
         absent_ok: bool = False,
     ) -> Mapping[str, Any]:
         if (
-            operation not in OPERATION_ALLOWLIST[self._domain]
+            operation not in self._owner._operation_allowlist[self._domain]
             or operation not in self._policy_actions
             or operation == "kms:Decrypt"
         ):
@@ -3330,6 +3907,13 @@ class _StsSession:
                 response_digest=response_digest,
                 outcome="ERROR",
             )
+            if isinstance(exc, _S3RegionRedirectBlocked):
+                raise LiveProviderError(exc.code) from exc
+            if (
+                isinstance(exc, LiveProviderError)
+                and str(exc) == "COLLISION_S3_REDIRECT_GUARD_REQUIRED"
+            ):
+                raise
             if code in _ACCESS_DENIED:
                 raise AuthorityAccessDenied(code) from exc
             raise LiveProviderError("PROVIDER_READ_FAILED") from exc
@@ -3399,6 +3983,184 @@ class _StsSession:
             outcome="SUCCESS",
         )
         return detached
+
+    def _head_bucket(self, bucket_name: str) -> Mapping[str, Any]:
+        """Probe the global name without treating generic failures as absence."""
+
+        operation = "s3:HeadBucket"
+        if (
+            operation not in self._owner._operation_allowlist[self._domain]
+            or operation not in self._policy_actions
+        ):
+            _fail("PROVIDER_OPERATION_NOT_ALLOWED")
+        request = {"Bucket": bucket_name}
+        started_at = self._assert_active_window()
+        request_digest = canonical_digest(request)
+        self._owner._reserve_discovery_provider_call(operation, is_page=False)
+        ticket = self._ledger.authorize(
+            domain=self._domain,
+            session_digest=self._session_digest,
+            operation=operation,
+            retries=0,
+            request=request_digest,
+            started_at=_stamp(started_at),
+        )
+        try:
+            response = self._client("s3").head_bucket(**request)
+        except Exception as exc:
+            status = _error_status(exc)
+            code = _error_code(exc)
+            try:
+                completed_at = self._assert_active_window()
+            except Exception as gate_error:
+                self._fail_pending_post_response(
+                    ticket=ticket,
+                    operation=operation,
+                    request_digest=request_digest,
+                    completed_at=getattr(
+                        gate_error, "_observed_at", started_at
+                    ),
+                )
+                raise
+            if status == 301:
+                detached = {
+                    "status_code": status,
+                    "collision": True,
+                    "absent": False,
+                }
+                region_digest = (
+                    getattr(exc, "region_header_digest", None)
+                    or _s3_region_header_digest(exc)
+                )
+                if (
+                    isinstance(region_digest, str)
+                    and _DIGEST.fullmatch(region_digest) is not None
+                ):
+                    detached["bucket_region_header_digest"] = region_digest
+                try:
+                    bounded = _bounded(detached)
+                    assert isinstance(bounded, Mapping)
+                    self._owner._record_discovery_response(bounded)
+                except LiveProviderError:
+                    self._fail_pending_post_response(
+                        ticket=ticket,
+                        operation=operation,
+                        request_digest=request_digest,
+                        completed_at=completed_at,
+                    )
+                    raise
+                response_digest = canonical_digest(bounded)
+                self._ledger.complete(
+                    ticket,
+                    response_digest,
+                    completed_at=_stamp(completed_at),
+                )
+                self._owner._record(
+                    domain=self._domain,
+                    session_digest=self._session_digest,
+                    operation=operation,
+                    request_digest=request_digest,
+                    response_digest=response_digest,
+                    outcome="SUCCESS",
+                )
+                return bounded
+            detached_error = {"error_code": code, "status_code": status}
+            try:
+                self._owner._record_discovery_response(detached_error)
+            except LiveProviderError:
+                self._fail_pending_post_response(
+                    ticket=ticket,
+                    operation=operation,
+                    request_digest=request_digest,
+                    completed_at=completed_at,
+                )
+                raise
+            response_digest = canonical_digest(detached_error)
+            self._ledger.complete(
+                ticket,
+                response_digest,
+                outcome="ERROR",
+                completed_at=_stamp(completed_at),
+            )
+            self._owner._record(
+                domain=self._domain,
+                session_digest=self._session_digest,
+                operation=operation,
+                request_digest=request_digest,
+                response_digest=response_digest,
+                outcome="ERROR",
+            )
+            if status in {400, 403, 404}:
+                # HeadBucket deliberately returns these generic status codes
+                # for either a missing bucket or missing access.  The empty
+                # response body cannot establish global-name absence.
+                raise LiveProviderError(
+                    "COLLISION_HEAD_BUCKET_AMBIGUOUS"
+                ) from exc
+            if isinstance(exc, _S3RegionRedirectBlocked):
+                raise LiveProviderError(exc.code) from exc
+            if (
+                isinstance(exc, LiveProviderError)
+                and str(exc) == "COLLISION_S3_REDIRECT_GUARD_REQUIRED"
+            ):
+                raise
+            if code in _ACCESS_DENIED:
+                raise AuthorityAccessDenied(code) from exc
+            raise LiveProviderError("PROVIDER_READ_FAILED") from exc
+
+        try:
+            completed_at = self._assert_active_window()
+        except Exception as gate_error:
+            self._fail_pending_post_response(
+                ticket=ticket,
+                operation=operation,
+                request_digest=request_digest,
+                completed_at=getattr(gate_error, "_observed_at", started_at),
+            )
+            raise
+        try:
+            if not isinstance(response, Mapping):
+                _fail("COLLISION_HEAD_BUCKET_RESPONSE_INVALID")
+            projected = _project_s3_head_bucket(response, request)
+            bounded = _bounded(projected)
+            assert isinstance(bounded, Mapping)
+            self._owner._record_discovery_response(bounded)
+            response_digest = canonical_digest(bounded)
+        except Exception as exc:
+            blocked_digest = canonical_digest({"blocked": True})
+            self._ledger.complete(
+                ticket,
+                blocked_digest,
+                outcome="ERROR",
+                completed_at=_stamp(completed_at),
+            )
+            self._owner._record(
+                domain=self._domain,
+                session_digest=self._session_digest,
+                operation=operation,
+                request_digest=request_digest,
+                response_digest=blocked_digest,
+                outcome="ERROR",
+            )
+            if isinstance(exc, LiveProviderError):
+                raise
+            raise LiveProviderError(
+                "COLLISION_HEAD_BUCKET_RESPONSE_INVALID"
+            ) from exc
+        self._ledger.complete(
+            ticket,
+            response_digest,
+            completed_at=_stamp(completed_at),
+        )
+        self._owner._record(
+            domain=self._domain,
+            session_digest=self._session_digest,
+            operation=operation,
+            request_digest=request_digest,
+            response_digest=response_digest,
+            outcome="SUCCESS",
+        )
+        return bounded
 
     def _paginate(
         self,
@@ -3582,6 +4344,23 @@ class _StsSession:
         if not self._identity_validated:
             _fail("STS_FIRST_REQUIRED")
         return _IdentityExactReader(self)
+
+    def open_collision_reader(
+        self,
+    ) -> "_CollisionAuthorityReader | _CollisionIdentityReader":
+        if (
+            self._owner._provider_attestation
+            is not _COLLISION_PROBE_PROVIDER_ATTESTATION
+            or self._stage != "collision_probe"
+        ):
+            _fail("COLLISION_PROBE_PROVIDER_REQUIRED")
+        if not self._identity_validated:
+            _fail("STS_FIRST_REQUIRED")
+        if self._domain == "authority":
+            return _CollisionAuthorityReader(self)
+        if self._domain == "identity_center":
+            return _CollisionIdentityReader(self)
+        _fail("PROVIDER_DOMAIN_INVALID")
 
 
 def _single_page(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -4369,6 +5148,974 @@ class _IdentityExactReader:
         return _one({"UserId": value.get("UserId")})
 
 
+def _collision_selector(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 1024
+        or any(ord(character) < 0x20 for character in value)
+    ):
+        _fail("COLLISION_SELECTOR_INVALID")
+    return value
+
+
+def _collision_resource_cap(value: object, *, maximum: int) -> int:
+    if type(value) is not int or not 1 <= value <= maximum:
+        _fail("COLLISION_RESOURCE_CAP_INVALID")
+    return value
+
+
+def _collision_tag_contract(value: object) -> dict[str, str]:
+    candidate: dict[Any, Any]
+    if isinstance(value, Mapping):
+        candidate = dict(value)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        candidate = {}
+        for item in value:
+            if not isinstance(item, Mapping):
+                _fail("COLLISION_TAG_CONTRACT_INVALID")
+            key = item.get("Key", item.get("key"))
+            tag_value = item.get("Value", item.get("value"))
+            if key in candidate:
+                _fail("COLLISION_TAG_CONTRACT_INVALID")
+            candidate[key] = tag_value
+    else:
+        _fail("COLLISION_TAG_CONTRACT_INVALID")
+    if (
+        not candidate
+        or len(candidate) > 32
+        or any(
+            not isinstance(key, str)
+            or not key
+            or len(key) > 128
+            or not isinstance(item, str)
+            or not item
+            or len(item) > 256
+            for key, item in candidate.items()
+        )
+    ):
+        _fail("COLLISION_TAG_CONTRACT_INVALID")
+    return {str(key): str(item) for key, item in candidate.items()}
+
+
+def _collision_tag_pairs(value: Mapping[str, str]) -> set[str]:
+    return {
+        canonical_json(
+            {
+                "key_digest": _fact_digest(key),
+                "value_digest": _fact_digest(item),
+            }
+        )
+        for key, item in value.items()
+    }
+
+
+def _contains_collision_tag_contract(
+    projected_pairs: object, contract: Mapping[str, str]
+) -> bool:
+    if not isinstance(projected_pairs, list) or not all(
+        isinstance(item, Mapping) for item in projected_pairs
+    ):
+        _fail("PROVIDER_RESPONSE_INVALID")
+    observed = {canonical_json(item) for item in projected_pairs}
+    return _collision_tag_pairs(contract) <= observed
+
+
+def _collision_projected_tags_match(
+    value: object, contract: Mapping[str, str]
+) -> bool:
+    if value is None or (
+        isinstance(value, Mapping) and set(value) == {"Absent"}
+    ):
+        return False
+    pairs: object = value
+    if isinstance(value, Mapping):
+        if "TagSet" in value:
+            pairs = value["TagSet"]
+        elif "Tags" in value:
+            tags = value["Tags"]
+            pairs = (
+                tags.get("tag_pairs")
+                if isinstance(tags, Mapping)
+                else tags
+            )
+        elif "tag_pairs" in value:
+            pairs = value["tag_pairs"]
+    return _contains_collision_tag_contract(pairs, contract)
+
+
+def _collision_plaintext_contracts() -> tuple[object, object]:
+    try:
+        from tooling.platform_authority_gug395_preplan_collision_probe import (
+            AUTHORITY_TAG_CONTRACT,
+            IDENTITY_TAG_CONTRACT,
+        )
+    except Exception as exc:
+        raise LiveProviderError(
+            "COLLISION_PROVIDER_DEPENDENCY_REQUIRED"
+        ) from exc
+    return AUTHORITY_TAG_CONTRACT, IDENTITY_TAG_CONTRACT
+
+
+def _collision_target(
+    targets: object,
+    key: str,
+    *,
+    domain: str,
+    selector_field: str | None,
+    expected_contract: object,
+    require_instance: bool = False,
+) -> tuple[Mapping[str, Any], dict[str, str]]:
+    if not isinstance(targets, Mapping):
+        _fail("COLLISION_TARGETS_INVALID")
+    target = targets.get(key)
+    expected_fields = {
+        "domain",
+        "selector_kind",
+        "expected_tag_contract_digest",
+    }
+    if selector_field is not None:
+        expected_fields.add(selector_field)
+    if require_instance:
+        expected_fields.add("instance_arn")
+    if not isinstance(target, Mapping) or set(target) != expected_fields:
+        _fail("COLLISION_TARGETS_INVALID")
+    if (
+        target.get("domain") != domain
+        or not isinstance(target.get("selector_kind"), str)
+        or not target.get("selector_kind")
+    ):
+        _fail("COLLISION_TARGETS_INVALID")
+    if selector_field is not None:
+        _collision_selector(target.get(selector_field))
+    if require_instance:
+        _collision_selector(target.get("instance_arn"))
+    normalized_contract = _collision_tag_contract(expected_contract)
+    expected_digest = target.get("expected_tag_contract_digest")
+    if expected_digest != canonical_digest(expected_contract):
+        _fail("COLLISION_TAG_CONTRACT_INVALID")
+    return target, normalized_contract
+
+
+def _bounded_collision_facts(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    bounded = _bounded(value)
+    if not isinstance(bounded, Mapping):
+        _fail("PROVIDER_RESPONSE_INVALID")
+    return bounded
+
+
+class _CollisionAuthorityReader:
+    """Closed pre-plan collision inventory for the authority account."""
+
+    def __init__(self, session: _StsSession) -> None:
+        self._session = session
+
+    def artifact_bucket(
+        self,
+        bucket_name: str,
+        *,
+        max_owned_buckets: int,
+        tag_contract: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
+        bucket_name = _collision_selector(bucket_name)
+        max_owned_buckets = _collision_resource_cap(
+            max_owned_buckets, maximum=MAX_COLLISION_OWNED_BUCKETS
+        )
+        buckets = self._session._paginate(
+            operation="s3:ListAllMyBuckets",
+            service="s3",
+            method="list_buckets",
+            request={},
+            item_key="Buckets",
+            request_token_key="ContinuationToken",
+            response_token_key="ContinuationToken",
+        )
+        if len(buckets) > max_owned_buckets:
+            _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+        owned_matches = [
+            item
+            for item in buckets
+            if isinstance(item, Mapping) and item.get("Name") == bucket_name
+        ]
+        if len(owned_matches) > 1:
+            _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+        head = self._session._head_bucket(bucket_name)
+        if head.get("absent") is True and owned_matches:
+            _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+        bucket_details: list[dict[str, Any]] = []
+        tag_matches: list[dict[str, Any]] = []
+        for bucket in buckets:
+            discovered_name = (
+                bucket.get("Name") if isinstance(bucket, Mapping) else None
+            )
+            if not isinstance(discovered_name, str):
+                _fail("PROVIDER_RESPONSE_INVALID")
+            tags = self._session._invoke(
+                operation="s3:GetBucketTagging",
+                service="s3",
+                method="get_bucket_tagging",
+                request={"Bucket": discovered_name},
+                absent_ok=True,
+            )
+            matches_contract = (
+                _collision_projected_tags_match(tags, tag_contract)
+                if tag_contract is not None
+                else False
+            )
+            record = {
+                "name": discovered_name,
+                "tags": tags,
+                "tag_contract_matches": matches_contract,
+            }
+            bucket_details.append(record)
+            if matches_contract:
+                tag_matches.append(record)
+        return _bounded_collision_facts(
+            {
+                "target_name": bucket_name,
+                "owned_bucket_count": len(buckets),
+                "owned_matches": owned_matches,
+                "head": head,
+                "bucket_details": bucket_details,
+                "tag_matches": tag_matches,
+                "collision": (
+                    head.get("collision") is True or bool(tag_matches)
+                ),
+            }
+        )
+
+    def kms_alias(
+        self,
+        alias_name: str,
+        *,
+        max_kms_keys: int,
+        tag_contract: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
+        alias_name = _collision_selector(alias_name)
+        max_kms_keys = _collision_resource_cap(
+            max_kms_keys, maximum=MAX_COLLISION_KMS_KEYS
+        )
+        keys = self._session._paginate(
+            operation="kms:ListKeys",
+            service="kms",
+            method="list_keys",
+            request={},
+            item_key="Keys",
+            request_token_key="Marker",
+            response_token_key="NextMarker",
+            truncated_key="Truncated",
+        )
+        if len(keys) > max_kms_keys:
+            _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+        aliases = self._session._paginate(
+            operation="kms:ListAliases",
+            service="kms",
+            method="list_aliases",
+            request={},
+            item_key="Aliases",
+            request_token_key="Marker",
+            response_token_key="NextMarker",
+            truncated_key="Truncated",
+        )
+        alias_matches = [
+            item
+            for item in aliases
+            if isinstance(item, Mapping) and item.get("AliasName") == alias_name
+        ]
+        if len(alias_matches) > 1:
+            _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+        key_details: list[dict[str, Any]] = []
+        tag_matches: list[dict[str, Any]] = []
+        for key in keys:
+            key_id = key.get("KeyId") if isinstance(key, Mapping) else None
+            key_arn = key.get("KeyArn") if isinstance(key, Mapping) else None
+            if not isinstance(key_id, str) or not isinstance(key_arn, str):
+                _fail("PROVIDER_RESPONSE_INVALID")
+            detail = self._session._invoke(
+                operation="kms:DescribeKey",
+                service="kms",
+                method="describe_key",
+                request={"KeyId": key_id},
+                absent_ok=True,
+            )
+            if set(detail) == {"Absent"}:
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            key_metadata = detail.get("KeyMetadata")
+            if (
+                not isinstance(key_metadata, Mapping)
+                or key_metadata.get("KeyId") != key_id
+                or key_metadata.get("Arn") != key_arn
+            ):
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            key_manager = key_metadata.get("KeyManager")
+            if key_manager not in {"AWS", "CUSTOMER"}:
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            tags = (
+                self._session._paginate(
+                    operation="kms:ListResourceTags",
+                    service="kms",
+                    method="list_resource_tags",
+                    request={"KeyId": key_id},
+                    item_key="Tags",
+                    request_token_key="Marker",
+                    response_token_key="NextMarker",
+                    truncated_key="Truncated",
+                )
+                if key_manager == "CUSTOMER"
+                else []
+            )
+            matches_contract = (
+                _collision_projected_tags_match(tags, tag_contract)
+                if tag_contract is not None and key_manager == "CUSTOMER"
+                else False
+            )
+            record = {
+                "key": key,
+                "detail": detail,
+                "tags": tags,
+                "tag_contract_matches": matches_contract,
+            }
+            key_details.append(record)
+            if matches_contract:
+                tag_matches.append(record)
+        if alias_matches:
+            target_key_id = alias_matches[0].get("TargetKeyId")
+            if target_key_id is not None and (
+                not isinstance(target_key_id, str)
+                or not any(
+                    isinstance(item, Mapping)
+                    and target_key_id in {item.get("KeyId"), item.get("KeyArn")}
+                    for item in keys
+                )
+            ):
+                _fail("COLLISION_KMS_TARGET_NOT_DISCOVERED")
+        return _bounded_collision_facts(
+            {
+                "target_alias_name": alias_name,
+                "keys_examined": len(keys),
+                "discovered_keys": keys,
+                "discovered_aliases": aliases,
+                "alias_matches": alias_matches,
+                "key_details": key_details,
+                "tag_matches": tag_matches,
+                "collision": bool(alias_matches or tag_matches),
+            }
+        )
+
+    def signing_profile(
+        self,
+        profile_name: str,
+        *,
+        max_signing_profiles: int,
+        tag_contract: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
+        profile_name = _collision_selector(profile_name)
+        max_signing_profiles = _collision_resource_cap(
+            max_signing_profiles, maximum=MAX_COLLISION_SIGNING_PROFILES
+        )
+        profiles = self._session._paginate(
+            operation="signer:ListSigningProfiles",
+            service="signer",
+            method="list_signing_profiles",
+            # Every retained status remains collision evidence for both the
+            # exact name and the reviewed tag contract. ``includeCanceled``
+            # alone does not include REVOKED profiles, so bind the complete
+            # Signer status enum explicitly.
+            request={
+                "includeCanceled": True,
+                "statuses": ["Active", "Canceled", "Revoked"],
+            },
+            item_key="profiles",
+            request_token_key="nextToken",
+            response_token_key="nextToken",
+        )
+        if len(profiles) > max_signing_profiles:
+            _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+        name_matches = [
+            item
+            for item in profiles
+            if isinstance(item, Mapping)
+            and item.get("profileName") == profile_name
+        ]
+        details: list[dict[str, Any]] = []
+        tag_matches: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for summary in profiles:
+            discovered_name = (
+                summary.get("profileName")
+                if isinstance(summary, Mapping)
+                else None
+            )
+            if (
+                not isinstance(discovered_name, str)
+                or discovered_name in seen_names
+            ):
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            seen_names.add(discovered_name)
+            profile = self._session._invoke(
+                operation="signer:GetSigningProfile",
+                service="signer",
+                method="get_signing_profile",
+                request={"profileName": discovered_name},
+                absent_ok=True,
+            )
+            if set(profile) == {"Absent"}:
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            if profile.get("profileName") != discovered_name:
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            for field in ("profileVersion", "profileVersionArn", "arn"):
+                if field in summary or field in profile:
+                    if (
+                        not isinstance(summary.get(field), str)
+                        or profile.get(field) != summary.get(field)
+                    ):
+                        _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            resource_arn = profile.get("arn") or next(
+                (
+                    summary.get(field)
+                    for field in ("arn", "profileVersionArn")
+                    if isinstance(summary.get(field), str)
+                ),
+                None,
+            )
+            if not isinstance(resource_arn, str):
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            tags = self._session._invoke(
+                operation="signer:ListTagsForResource",
+                service="signer",
+                method="list_tags_for_resource",
+                request={"resourceArn": resource_arn},
+                absent_ok=True,
+            )
+            matches_contract = (
+                _collision_projected_tags_match(tags, tag_contract)
+                if tag_contract is not None
+                else False
+            )
+            record = {
+                "resource_arn": resource_arn,
+                "summary": summary,
+                "profile": profile,
+                "tags": tags,
+                "tag_contract_matches": matches_contract,
+            }
+            details.append(record)
+            if matches_contract:
+                tag_matches.append(record)
+        return _bounded_collision_facts(
+            {
+                "target_profile_name": profile_name,
+                "signing_profiles_examined": len(profiles),
+                "discovered_profiles": profiles,
+                "name_matches": name_matches,
+                "tag_matches": tag_matches,
+                "details": details,
+                "collision": bool(name_matches or tag_matches),
+            }
+        )
+
+    def code_signing_configs(
+        self,
+        tag_contract: Mapping[str, str],
+        *,
+        max_code_signing_configs: int,
+    ) -> Mapping[str, Any]:
+        tag_contract = _collision_tag_contract(tag_contract)
+        max_code_signing_configs = _collision_resource_cap(
+            max_code_signing_configs,
+            maximum=MAX_COLLISION_CODE_SIGNING_CONFIGS,
+        )
+        configurations = self._session._paginate(
+            operation="lambda:ListCodeSigningConfigs",
+            service="lambda",
+            method="list_code_signing_configs",
+            request={},
+            item_key="CodeSigningConfigs",
+            request_token_key="Marker",
+            response_token_key="NextMarker",
+        )
+        if len(configurations) > max_code_signing_configs:
+            _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+        details: list[dict[str, Any]] = []
+        matches: list[dict[str, Any]] = []
+        seen_arns: set[str] = set()
+        seen_ids: set[str] = set()
+        for item in configurations:
+            arn = (
+                item.get("CodeSigningConfigArn")
+                if isinstance(item, Mapping)
+                else None
+            )
+            config_id = (
+                item.get("CodeSigningConfigId")
+                if isinstance(item, Mapping)
+                else None
+            )
+            if (
+                not isinstance(arn, str)
+                or not isinstance(config_id, str)
+                or arn in seen_arns
+                or config_id in seen_ids
+            ):
+                _fail("PROVIDER_RESPONSE_INVALID")
+            seen_arns.add(arn)
+            seen_ids.add(config_id)
+            detail = self._session._invoke(
+                operation="lambda:GetCodeSigningConfig",
+                service="lambda",
+                method="get_code_signing_config",
+                request={"CodeSigningConfigArn": arn},
+                absent_ok=True,
+            )
+            if set(detail) == {"Absent"}:
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            exact_configuration = detail.get("CodeSigningConfig")
+            if (
+                not isinstance(exact_configuration, Mapping)
+                or exact_configuration.get("CodeSigningConfigArn") != arn
+                or exact_configuration.get("CodeSigningConfigId") != config_id
+            ):
+                _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+            tags = self._session._invoke(
+                operation="lambda:ListTags",
+                service="lambda",
+                method="list_tags",
+                request={"Resource": arn},
+                absent_ok=True,
+            )
+            tag_container = tags.get("Tags")
+            projected_pairs = (
+                tag_container.get("tag_pairs")
+                if isinstance(tag_container, Mapping)
+                else []
+            )
+            matches_contract = _contains_collision_tag_contract(
+                projected_pairs, tag_contract
+            )
+            record = {
+                "arn": arn,
+                "configuration": detail,
+                "tags": tags,
+                "tag_contract_matches": matches_contract,
+            }
+            details.append(record)
+            if matches_contract:
+                matches.append(record)
+        return _bounded_collision_facts(
+            {
+                "tag_contract_digest": canonical_digest(tag_contract),
+                "code_signing_configs_examined": len(configurations),
+                "discovered_configurations": configurations,
+                "details": details,
+                "matches": matches,
+                "collision": bool(matches),
+            }
+        )
+
+    def read_collision_facts(
+        self,
+        targets: Mapping[str, Any],
+        *,
+        max_owned_buckets: int,
+        max_kms_keys: int,
+        max_signing_profiles: int,
+        max_code_signing_configs: int,
+    ) -> Mapping[str, Any]:
+        authority_contract_raw, _ = _collision_plaintext_contracts()
+        bucket_target, authority_contract = _collision_target(
+            targets,
+            "artifact_bucket",
+            domain="authority",
+            selector_field="name",
+            expected_contract=authority_contract_raw,
+        )
+        kms_target, _ = _collision_target(
+            targets,
+            "kms_key",
+            domain="authority",
+            selector_field="alias_name",
+            expected_contract=authority_contract_raw,
+        )
+        signer_target, _ = _collision_target(
+            targets,
+            "signing_profile",
+            domain="authority",
+            selector_field="name",
+            expected_contract=authority_contract_raw,
+        )
+        _collision_target(
+            targets,
+            "code_signing_config",
+            domain="authority",
+            selector_field=None,
+            expected_contract=authority_contract_raw,
+        )
+        facts = {
+            "artifact_bucket": self.artifact_bucket(
+                str(bucket_target["name"]),
+                max_owned_buckets=max_owned_buckets,
+                tag_contract=authority_contract,
+            ),
+            "kms_key": self.kms_alias(
+                str(kms_target["alias_name"]),
+                max_kms_keys=max_kms_keys,
+                tag_contract=authority_contract,
+            ),
+            "signing_profile": self.signing_profile(
+                str(signer_target["name"]),
+                max_signing_profiles=max_signing_profiles,
+                tag_contract=authority_contract,
+            ),
+            "code_signing_config": self.code_signing_configs(
+                authority_contract,
+                max_code_signing_configs=max_code_signing_configs,
+            ),
+        }
+        collisions = sorted(
+            key
+            for key, value in facts.items()
+            if isinstance(value, Mapping) and value.get("collision") is True
+        )
+        return _bounded_collision_facts(
+            {
+                "complete": True,
+                "prerequisites_ready": True,
+                "collisions": collisions,
+                "collision_count": len(collisions),
+                "resource_counts": {
+                    "owned_buckets_examined": facts["artifact_bucket"][
+                        "owned_bucket_count"
+                    ],
+                    "kms_keys_examined": facts["kms_key"]["keys_examined"],
+                    "signing_profiles_examined": facts["signing_profile"][
+                        "signing_profiles_examined"
+                    ],
+                    "code_signing_configs_examined": facts[
+                        "code_signing_config"
+                    ]["code_signing_configs_examined"],
+                },
+                "facts": facts,
+            }
+        )
+
+    def snapshot(
+        self, targets: Mapping[str, Any], **caps: Any
+    ) -> Mapping[str, Any]:
+        return self.read_collision_facts(targets, **caps)
+
+
+class _CollisionIdentityReader:
+    """Closed pre-plan collision inventory for the management account."""
+
+    def __init__(self, session: _StsSession) -> None:
+        self._session = session
+
+    def _read_explicit_facts(
+        self,
+        *,
+        instance_arn: str,
+        application_name: str,
+        classifier_permission_set_name: str,
+        approver_permission_set_name: str,
+        tag_contract: Mapping[str, str],
+        max_applications: int,
+        max_permission_sets: int,
+    ) -> Mapping[str, Any]:
+        instance_arn = _collision_selector(instance_arn)
+        application_name = _collision_selector(application_name)
+        classifier_permission_set_name = _collision_selector(
+            classifier_permission_set_name
+        )
+        approver_permission_set_name = _collision_selector(
+            approver_permission_set_name
+        )
+        if classifier_permission_set_name == approver_permission_set_name:
+            _fail("COLLISION_SELECTOR_INVALID")
+        tag_contract = _collision_tag_contract(tag_contract)
+        max_applications = _collision_resource_cap(
+            max_applications, maximum=MAX_COLLISION_APPLICATIONS
+        )
+        max_permission_sets = _collision_resource_cap(
+            max_permission_sets, maximum=MAX_COLLISION_PERMISSION_SETS
+        )
+        instances = self._session._paginate(
+            operation="sso:ListInstances",
+            service="sso-admin",
+            method="list_instances",
+            request={},
+            item_key="Instances",
+            request_token_key="NextToken",
+            response_token_key="NextToken",
+        )
+        instance_matches = [
+            item
+            for item in instances
+            if isinstance(item, Mapping)
+            and item.get("InstanceArn") == instance_arn
+        ]
+        if len(instance_matches) > 1 or any(
+            item.get("OwnerAccountId") != self._session._account_id
+            for item in instance_matches
+        ):
+            _fail("COLLISION_IDENTITY_OWNER_MISMATCH")
+        applications: list[Any] = []
+        described_applications: list[dict[str, Any]] = []
+        application_matches: list[dict[str, Any]] = []
+        permission_set_arns: list[Any] = []
+        described_permission_sets: list[dict[str, Any]] = []
+        permission_set_matches: list[dict[str, Any]] = []
+        if instance_matches:
+            applications = self._session._paginate(
+                operation="sso:ListApplications",
+                service="sso-admin",
+                method="list_applications",
+                request={"InstanceArn": instance_arn},
+                item_key="Applications",
+                request_token_key="NextToken",
+                response_token_key="NextToken",
+            )
+            if len(applications) > max_applications:
+                _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+            for item in applications:
+                arn = (
+                    item.get("ApplicationArn")
+                    if isinstance(item, Mapping)
+                    else None
+                )
+                summary_name = (
+                    item.get("Name") if isinstance(item, Mapping) else None
+                )
+                if not isinstance(arn, str) or not isinstance(
+                    summary_name, str
+                ):
+                    _fail("PROVIDER_RESPONSE_INVALID")
+                if (
+                    item.get("InstanceArn") != instance_arn
+                    or item.get("ApplicationAccount")
+                    != self._session._account_id
+                ):
+                    _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+                description = self._session._invoke(
+                    operation="sso:DescribeApplication",
+                    service="sso-admin",
+                    method="describe_application",
+                    request={"ApplicationArn": arn},
+                )
+                if (
+                    description.get("ApplicationArn") != arn
+                    or description.get("InstanceArn") != instance_arn
+                    or description.get("ApplicationAccount")
+                    != self._session._account_id
+                    or description.get("NameDigest")
+                    != canonical_digest(summary_name)
+                ):
+                    _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+                tags = self._session._paginate(
+                    operation="sso:ListTagsForResource",
+                    service="sso-admin",
+                    method="list_tags_for_resource",
+                    request={"ResourceArn": arn},
+                    item_key="Tags",
+                    request_token_key="NextToken",
+                    response_token_key="NextToken",
+                )
+                matches_contract = _collision_projected_tags_match(
+                    tags, tag_contract
+                )
+                record = {
+                    "summary": item,
+                    "description": description,
+                    "tags": tags,
+                    "name_matches": item.get("Name") == application_name,
+                    "tag_contract_matches": matches_contract,
+                }
+                described_applications.append(record)
+                if record["name_matches"] or matches_contract:
+                    application_matches.append(record)
+            permission_set_arns = self._session._paginate(
+                operation="sso:ListPermissionSets",
+                service="sso-admin",
+                method="list_permission_sets",
+                request={"InstanceArn": instance_arn},
+                item_key="PermissionSets",
+                request_token_key="NextToken",
+                response_token_key="NextToken",
+            )
+            if len(permission_set_arns) > max_permission_sets:
+                _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+            for arn in permission_set_arns:
+                if not isinstance(arn, str):
+                    _fail("PROVIDER_RESPONSE_INVALID")
+                description = self._session._invoke(
+                    operation="sso:DescribePermissionSet",
+                    service="sso-admin",
+                    method="describe_permission_set",
+                    request={
+                        "InstanceArn": instance_arn,
+                        "PermissionSetArn": arn,
+                    },
+                )
+                permission_set = description.get("PermissionSet")
+                name = (
+                    permission_set.get("Name")
+                    if isinstance(permission_set, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(name, str)
+                    or permission_set.get("PermissionSetArn") != arn
+                ):
+                    _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
+                tags = self._session._paginate(
+                    operation="sso:ListTagsForResource",
+                    service="sso-admin",
+                    method="list_tags_for_resource",
+                    request={"ResourceArn": arn},
+                    item_key="Tags",
+                    request_token_key="NextToken",
+                    response_token_key="NextToken",
+                )
+                matches_contract = _collision_projected_tags_match(
+                    tags, tag_contract
+                )
+                record = {
+                    "arn": arn,
+                    "description": description,
+                    "name": name,
+                    "tags": tags,
+                    "tag_contract_matches": matches_contract,
+                }
+                described_permission_sets.append(record)
+                if name in {
+                    classifier_permission_set_name,
+                    approver_permission_set_name,
+                } or matches_contract:
+                    permission_set_matches.append(record)
+        return _bounded_collision_facts(
+            {
+                "target_instance_arn": instance_arn,
+                "target_application_name": application_name,
+                "target_permission_set_names": sorted(
+                    [
+                        classifier_permission_set_name,
+                        approver_permission_set_name,
+                    ]
+                ),
+                "instances": instances,
+                "instance_matches": instance_matches,
+                "applications": applications,
+                "applications_examined": len(applications),
+                "described_applications": described_applications,
+                "application_matches": application_matches,
+                "permission_sets_examined": len(permission_set_arns),
+                "permission_set_arns": permission_set_arns,
+                "described_permission_sets": described_permission_sets,
+                "permission_set_matches": permission_set_matches,
+                "application_collision": bool(application_matches),
+                "classifier_permission_set_collision": any(
+                    item.get("name") == classifier_permission_set_name
+                    or item.get("tag_contract_matches") is True
+                    for item in permission_set_matches
+                ),
+                "approver_permission_set_collision": any(
+                    item.get("name") == approver_permission_set_name
+                    or item.get("tag_contract_matches") is True
+                    for item in permission_set_matches
+                ),
+                "complete": True,
+            }
+        )
+
+    def read_collision_facts(
+        self,
+        targets: Mapping[str, Any],
+        *,
+        max_applications: int,
+        max_permission_sets: int,
+    ) -> Mapping[str, Any]:
+        _, identity_contract_raw = _collision_plaintext_contracts()
+        application_target, identity_contract = _collision_target(
+            targets,
+            "identity_center_application",
+            domain="identity_center",
+            selector_field="name",
+            expected_contract=identity_contract_raw,
+            require_instance=True,
+        )
+        classifier_target, _ = _collision_target(
+            targets,
+            "classifier_permission_set",
+            domain="identity_center",
+            selector_field="name",
+            expected_contract=identity_contract_raw,
+            require_instance=True,
+        )
+        approver_target, _ = _collision_target(
+            targets,
+            "approver_permission_set",
+            domain="identity_center",
+            selector_field="name",
+            expected_contract=identity_contract_raw,
+            require_instance=True,
+        )
+        instance_arns = {
+            application_target["instance_arn"],
+            classifier_target["instance_arn"],
+            approver_target["instance_arn"],
+        }
+        if len(instance_arns) != 1:
+            _fail("COLLISION_TARGETS_INVALID")
+        facts = self._read_explicit_facts(
+            instance_arn=str(application_target["instance_arn"]),
+            application_name=str(application_target["name"]),
+            classifier_permission_set_name=str(classifier_target["name"]),
+            approver_permission_set_name=str(approver_target["name"]),
+            tag_contract=identity_contract,
+            max_applications=max_applications,
+            max_permission_sets=max_permission_sets,
+        )
+        collisions: list[str] = []
+        if facts.get("application_collision") is True:
+            collisions.append("identity_center_application")
+        if facts.get("classifier_permission_set_collision") is True:
+            collisions.append("classifier_permission_set")
+        if facts.get("approver_permission_set_collision") is True:
+            collisions.append("approver_permission_set")
+        instance_matches = facts.get("instance_matches")
+        instances = facts.get("instances")
+        matched_instance = (
+            instance_matches[0]
+            if isinstance(instance_matches, list) and len(instance_matches) == 1
+            else None
+        )
+        prerequisites_ready = (
+            isinstance(instances, list)
+            and len(instances) == 1
+            and isinstance(matched_instance, Mapping)
+            and matched_instance.get("Status") == "ACTIVE"
+        )
+        return _bounded_collision_facts(
+            {
+                "complete": facts.get("complete") is True,
+                "prerequisites_ready": prerequisites_ready,
+                "collisions": sorted(collisions),
+                "collision_count": len(collisions),
+                "resource_counts": {
+                    "applications_examined": facts["applications_examined"],
+                    "permission_sets_examined": facts[
+                        "permission_sets_examined"
+                    ],
+                },
+                "facts": facts,
+            }
+        )
+
+    def snapshot(
+        self, targets: Mapping[str, Any], **caps: Any
+    ) -> Mapping[str, Any]:
+        return self.read_collision_facts(targets, **caps)
+
+
 def build_discovery_provider_factory(
     *,
     sdk_runtime_root: str,
@@ -4504,6 +6251,160 @@ def build_discovery_provider_factory(
         environment=os.environ,
         execution_capability=execution_capability,
         discovery_budget=discovery_budget,
+    )
+
+
+def build_collision_probe_provider_factory(
+    *,
+    sdk_runtime_root: str,
+    authority_profile: str,
+    identity_center_profile: str,
+    authority_expected_account_id: str,
+    authority_expected_principal_digest: str,
+    authority_expected_sso_role_name_digest: str,
+    identity_expected_account_id: str,
+    identity_expected_principal_digest: str,
+    identity_expected_sso_role_name_digest: str,
+    authority_verification_digest: str,
+    identity_authority_verification_digest: str,
+    collision_budget: object,
+    execution_capability: object,
+) -> LiveProviderFactory:
+    """Build the attested, budgeted GUG-395 pre-plan collision provider."""
+
+    try:
+        from tooling.platform_authority_gug395_preplan_collision_probe import (
+            assert_collision_probe_provider_capability_bindings,
+        )
+    except Exception as exc:
+        raise LiveProviderError(
+            "COLLISION_PROVIDER_DEPENDENCY_REQUIRED"
+        ) from exc
+
+    required_budget_methods = (
+        "reserve_provider_call",
+        "record_session_bootstrap",
+        "record_credential_vend",
+        "record_response",
+        "summary",
+        "evidence_events",
+    )
+    if any(
+        not callable(getattr(collision_budget, method, None))
+        for method in required_budget_methods
+    ):
+        _fail("COLLISION_BUDGET_BINDING_INVALID")
+    try:
+        budget_summary = collision_budget.summary()
+    except Exception as exc:
+        raise _safe_collision_error(
+            exc, "COLLISION_BUDGET_BINDING_INVALID"
+        ) from exc
+    budget_digest = (
+        budget_summary.get("budget_digest")
+        if isinstance(budget_summary, Mapping)
+        else None
+    )
+    zero_counters = (
+        "provider_calls",
+        "session_bootstrap_attempts",
+        "credential_vending_calls",
+        "network_calls",
+        "page_calls",
+        "projected_response_bytes",
+    )
+    if (
+        not isinstance(budget_digest, str)
+        or _DIGEST.fullmatch(budget_digest) is None
+        or any(
+            type(budget_summary.get(field)) is not int
+            or budget_summary.get(field) != 0
+            for field in zero_counters
+        )
+    ):
+        _fail("COLLISION_BUDGET_BINDING_INVALID")
+
+    try:
+        validity_gate = assert_collision_probe_provider_capability_bindings(
+            execution_capability,
+            sdk_runtime_root=sdk_runtime_root,
+            authority_profile=authority_profile,
+            identity_center_profile=identity_center_profile,
+            authority_expected_account_id=authority_expected_account_id,
+            authority_expected_principal_digest=(
+                authority_expected_principal_digest
+            ),
+            authority_expected_sso_role_name_digest=(
+                authority_expected_sso_role_name_digest
+            ),
+            identity_expected_account_id=identity_expected_account_id,
+            identity_expected_principal_digest=(
+                identity_expected_principal_digest
+            ),
+            identity_expected_sso_role_name_digest=(
+                identity_expected_sso_role_name_digest
+            ),
+            authority_verification_digest=authority_verification_digest,
+            identity_authority_verification_digest=(
+                identity_authority_verification_digest
+            ),
+            budget_digest=budget_digest,
+        )
+        if (
+            not callable(validity_gate)
+            or not callable(getattr(validity_gate, "authorize_session", None))
+        ):
+            _fail("COLLISION_EXECUTION_CAPABILITY_REQUIRED")
+    except LiveProviderError:
+        raise
+    except Exception as exc:
+        raise _safe_collision_error(
+            exc, "COLLISION_EXECUTION_CAPABILITY_REQUIRED"
+        ) from exc
+
+    try:
+        checked_sdk_runtime_root = Path(sdk_runtime_root)
+        if (
+            not checked_sdk_runtime_root.is_absolute()
+            or checked_sdk_runtime_root.resolve(strict=True)
+            != checked_sdk_runtime_root
+        ):
+            _fail("AWS_SDK_RUNTIME_ROOT_INVALID")
+    except LiveProviderError:
+        raise
+    except (OSError, TypeError) as exc:
+        raise LiveProviderError("AWS_SDK_RUNTIME_ROOT_INVALID") from exc
+
+    return LiveProviderFactory._open(
+        ProviderConfig(
+            authority_profile=authority_profile,
+            identity_center_profile=identity_center_profile,
+            authority_expected_account_id=authority_expected_account_id,
+            authority_expected_principal_digest=(
+                authority_expected_principal_digest
+            ),
+            authority_expected_sso_role_name_digest=(
+                authority_expected_sso_role_name_digest
+            ),
+            authority_verification_digest=authority_verification_digest,
+            identity_expected_account_id=identity_expected_account_id,
+            identity_expected_principal_digest=identity_expected_principal_digest,
+            identity_expected_sso_role_name_digest=(
+                identity_expected_sso_role_name_digest
+            ),
+            identity_authority_verification_digest=(
+                identity_authority_verification_digest
+            ),
+            validity_gate=validity_gate,
+            sdk_runtime_root=checked_sdk_runtime_root,
+        ),
+        concrete=True,
+        session_factory=None,
+        config_factory=None,
+        clock=lambda: datetime.now(UTC),
+        environment=os.environ,
+        execution_capability=execution_capability,
+        collision_budget=collision_budget,
     )
 
 
@@ -4668,17 +6569,48 @@ def is_attested_discovery_provider(
     )
 
 
+def is_attested_collision_probe_provider(
+    value: object, execution_capability: object | None = None
+) -> bool:
+    """Return true only for the concrete GUG-395 collision-probe builder."""
+
+    return (
+        type(value) is LiveProviderFactory
+        and getattr(value, "_concrete", None) is True
+        and getattr(value, "_provider_attestation", None)
+        is _COLLISION_PROBE_PROVIDER_ATTESTATION
+        and getattr(value, "concrete_provider", None) is True
+        and getattr(value, "collision_probe_provider", None) is True
+        and getattr(value, "mode", None)
+        == "ATTESTED_PREPLAN_COLLISION_PROBE"
+        and getattr(value, "_collision_budget", None) is not None
+        and execution_capability is not None
+        and getattr(value, "_execution_capability", None)
+        is execution_capability
+    )
+
+
 __all__ = [
+    "COLLISION_PROBE_IAM_ACTION_MAP",
+    "COLLISION_PROBE_OPERATION_ALLOWLIST",
     "LiveProviderError",
     "LiveProviderFactory",
+    "MAX_COLLISION_APPLICATIONS",
+    "MAX_COLLISION_CODE_SIGNING_CONFIGS",
+    "MAX_COLLISION_KMS_KEYS",
+    "MAX_COLLISION_OWNED_BUCKETS",
+    "MAX_COLLISION_PERMISSION_SETS",
+    "MAX_COLLISION_SIGNING_PROFILES",
     "MAX_PAGES",
     "OPERATION_ALLOWLIST",
     "ProviderConfig",
     "REGION",
+    "build_collision_probe_provider_factory",
     "build_discovery_provider_factory",
     "build_injected_provider_factory",
     "build_live_provider_factory",
     "consume_identity_discovery_transition_attestation",
+    "is_attested_collision_probe_provider",
     "is_attested_discovery_provider",
     "is_attested_live_provider",
 ]

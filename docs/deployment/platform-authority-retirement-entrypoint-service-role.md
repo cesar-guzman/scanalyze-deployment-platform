@@ -236,10 +236,10 @@ mutation and cannot be used as exact provider evidence.
 The causal order is fixed:
 
 1. materialize and review the GUG-395 seed and pending plan offline;
-2. add a separately reviewed name/tag collision probe that does not require
-   generated ARNs;
-3. implement the live provider, closed request/readback routes, durable ledger
-   and external verifier;
+2. materialize and execute the separately reviewed ADR-056 name/tag collision
+   probe, after a fresh exact dual-profile read-only authorization;
+3. implement the live mutation provider, closed request/readback routes,
+   durable nine-phase ledger and external verifier;
 4. execute and certify all nine GUG-376 phases under fresh phase-specific
    authorization;
 5. after a separately reviewed trusted terminal-capability minter exists, use
@@ -254,11 +254,60 @@ The causal order is fixed:
    the GUG-393 source bundle; and
 8. only then use GUG-393/GUG-392 for exact post-run read-only verification.
 
-The current exact collectors are not the collision probe in step 2. Fourteen
-provider-generated output materialization/readback routes remain unimplemented,
-the Identity Center application authentication-method route remains a
-fail-closed STOP, and GUG-395 implements no live provider or durable executor.
-These blockers must close before any phase can become executable.
+The current exact collectors are not the collision probe in step 2. ADR-056
+adds a distinct provider mode, seven source-bound targets, two stable snapshots
+per domain and a digest-only receipt. Its repository implementation is not a
+connected run: until a live receipt exists, the truthful state remains
+`LIVE_RUN_NOT_EXECUTED`. The request, concrete read-only provider,
+four-session executor, replay validation and durable blocked-attempt result are
+implemented for this collision boundary. No mutation authority, staging
+acceptance or production deployment follows from that implementation or from
+a later collision receipt.
+
+The collision action surface is closed to STS plus read-only S3, KMS, Signer,
+Lambda and Identity Center List/Get/Describe calls. `s3:HeadBucket` is required
+because bucket names are global: absence from `ListAllMyBuckets` is not proof
+that the name is globally available. Success or a non-followed `301` means
+collision. AWS returns generic `400`, `403` or `404` for either a missing bucket
+or missing permission, so none of those responses proves absence. They are all
+`UNCERTAIN_RECONCILE_ONLY`. Consequently this read-only implementation can
+detect a global-name collision but cannot certify global-name absence or emit a
+truthful seven-target absent-ready result without a future, separately reviewed
+evidence mechanism.
+
+Signer listing covers the complete retained status set (`Active`, `Canceled`
+and `Revoked`); a retained profile cannot become false absence merely because
+it is no longer active.
+
+The two direct SSO profiles must be different, non-default, read-only and
+bound to the exact expected accounts, role-name digests and principal digests.
+Four independent sessions perform `sts:GetCallerIdentity` first with SDK
+retries and automatic S3 region redirection disabled. Four session-bootstrap
+attempts are required, while zero to four actual
+`sso:GetRoleCredentials` requests may occur because the SDK can safely use a
+still-valid cache entry. A name, alias or tag match is always
+`COLLISION_BLOCKED_NO_MUTATION`; matching tags never authorize adoption,
+repair, deletion or reuse.
+
+The request's `Action` values are an exact SDK-operation allowlist, not an IAM
+document attached to either profile. The checked-in IAM JSON files are
+separate least-privilege templates and their presence proves source custody
+only. Before a connected run, independently verify the dedicated profiles'
+effective read-only authority; do not infer it from the local contract or use
+the templates as additive grants. The resulting
+`authority_verification_digest` binds that exact owner-private effective-policy
+evidence; it is not an arbitrary label or the digest of the template.
+
+`canonical_digest(string)` is SHA-256 over the canonical JSON serialization of
+the string, including JSON quoting and escaping, not over the raw unquoted
+bytes. Identity Center installations backed by a customer managed KMS key can
+also require the dependent `kms:Decrypt` action for List/Describe operations.
+The deployable Identity policy template reuses the reviewed GUG-392 pattern:
+it limits that dependency to `${identity_center_kms_key_arn}`, the management
+account, `sso.us-east-1.amazonaws.com`, the exact instance encryption context
+and the same window. The adapter never constructs a KMS client or dispatches a
+KMS operation. The effective-authority evidence must nevertheless prove this
+indirect grant; a KMS denial remains uncertainty.
 
 GUG-395 exposes no terminal-capability minter. Its public downstream fixture
 is therefore `SYNTHETIC_CONTRACT_ONLY_BLOCKED`, and schema validity is never
