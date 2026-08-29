@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,7 @@ from tooling.nonprod_live_store import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTROLLER_SCRIPT = REPO_ROOT / "scripts/deployment/nonprod-live-controller.py"
 SAVED_PLAN_RUNNER = REPO_ROOT / "scripts/deployment/terraform-saved-plan.sh"
+TERRAFORM_LAYER_RUNNER = REPO_ROOT / "scripts/deployment/terraform-layer.sh"
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 GIT_SHA = re.compile(r"^[a-f0-9]{40}$")
 PRIVATE_JSON_LIMIT = 2_097_152
@@ -749,14 +751,15 @@ def _package_cost_binding(package: LiveInputPackage) -> dict[str, Any]:
     return {field: package.receipt.get(field) for field in COST_BINDING_FIELDS}
 
 
-def read_exact_state(
+def _read_exact_state(
     *,
     backend_binding: Mapping[str, Any],
     account_id: str,
     region: str,
     scratch_path: Path,
+    include_outputs: bool,
     runner: CommandRunner = _default_command_runner,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Read one immutable state version, project lineage/serial, delete payload."""
     backend = backend_binding.get("backend")
     if not isinstance(backend, Mapping):
@@ -831,14 +834,17 @@ def read_exact_state(
                     raise AuthorizationError(
                         "Terraform state absence is ambiguous in the versioned backend"
                     )
-            return {
-                "status": "ABSENT",
-                "lineage": None,
-                "serial": None,
-                "object_version_id": None,
-                "sha256": None,
-                "size_bytes": None,
-            }
+            return (
+                {
+                    "status": "ABSENT",
+                    "lineage": None,
+                    "serial": None,
+                    "object_version_id": None,
+                    "sha256": None,
+                    "size_bytes": None,
+                },
+                {},
+            )
         raise AuthorizationError("Terraform state metadata read failed") from exc
     try:
         head = json.loads(head_raw)
@@ -895,18 +901,92 @@ def read_exact_state(
             or serial < 0
         ):
             raise AuthorizationError("Terraform state binding is invalid")
-        return {
-            "status": "PRESENT",
-            "lineage": lineage,
-            "serial": serial,
-            "object_version_id": version_id,
-            "sha256": fingerprint_before["sha256"],
-            "size_bytes": fingerprint_before["size_bytes"],
-        }
+        outputs: dict[str, Any] = {}
+        if include_outputs:
+            raw_outputs = state.get("outputs")
+            if not isinstance(raw_outputs, Mapping) or len(raw_outputs) > 128:
+                raise AuthorizationError("Terraform state outputs are invalid")
+            for name, descriptor_value in raw_outputs.items():
+                if (
+                    not isinstance(name, str)
+                    or not re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$", name)
+                    or not isinstance(descriptor_value, Mapping)
+                    or "value" not in descriptor_value
+                    or not isinstance(descriptor_value.get("sensitive"), bool)
+                ):
+                    raise AuthorizationError("Terraform state output metadata is invalid")
+                if descriptor_value["sensitive"]:
+                    continue
+                outputs[name] = {
+                    "sensitive": False,
+                    "value": descriptor_value["value"],
+                }
+            try:
+                encoded_outputs = json.dumps(
+                    outputs,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise AuthorizationError("Terraform state outputs are invalid") from exc
+            if len(encoded_outputs) > PRIVATE_JSON_LIMIT:
+                raise AuthorizationError("Terraform state outputs exceed the private limit")
+        return (
+            {
+                "status": "PRESENT",
+                "lineage": lineage,
+                "serial": serial,
+                "object_version_id": version_id,
+                "sha256": fingerprint_before["sha256"],
+                "size_bytes": fingerprint_before["size_bytes"],
+            },
+            outputs,
+        )
     finally:
         if descriptor is not None:
             os.close(descriptor)
         scratch_path.unlink(missing_ok=True)
+
+
+def read_exact_state(
+    *,
+    backend_binding: Mapping[str, Any],
+    account_id: str,
+    region: str,
+    scratch_path: Path,
+    runner: CommandRunner = _default_command_runner,
+) -> dict[str, Any]:
+    """Read one immutable state version and return only its public fingerprint."""
+    state, _outputs = _read_exact_state(
+        backend_binding=backend_binding,
+        account_id=account_id,
+        region=region,
+        scratch_path=scratch_path,
+        include_outputs=False,
+        runner=runner,
+    )
+    return state
+
+
+def read_exact_state_with_outputs(
+    *,
+    backend_binding: Mapping[str, Any],
+    account_id: str,
+    region: str,
+    scratch_path: Path,
+    runner: CommandRunner = _default_command_runner,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read an immutable state and retain only explicitly non-sensitive outputs."""
+    return _read_exact_state(
+        backend_binding=backend_binding,
+        account_id=account_id,
+        region=region,
+        scratch_path=scratch_path,
+        include_outputs=True,
+        runner=runner,
+    )
 
 
 def _expected_state(plan_record: Mapping[str, Any]) -> dict[str, Any]:
@@ -1037,6 +1117,215 @@ def _internal_command(package: LiveInputPackage, subcommand: str, *, receipt_dig
         "--region",
         str(context["region"]),
     )
+
+
+def _request_timestamp(value: datetime) -> str:
+    if value.tzinfo is None:
+        raise AuthorizationError("post-apply request time must be timezone-aware")
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def _post_apply_request_path(package: LiveInputPackage, mode: str) -> Path:
+    if mode not in {"health", "reconciliation"}:
+        raise AuthorizationError("post-apply observation mode is invalid")
+    return package.controller_root / f"post-apply-{mode}-request.json"
+
+
+def _post_apply_artifact_path(package: LiveInputPackage, mode: str) -> Path:
+    if mode not in {"health", "reconciliation"}:
+        raise AuthorizationError("post-apply observation mode is invalid")
+    return package.controller_root / f"post-apply-{mode}-observation.json"
+
+
+def _terminal_artifact(
+    *,
+    record_type: str,
+    request_digest: str,
+    payload_name: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    body = {
+        "schema_version": "1",
+        "record_type": record_type,
+        "request_digest": request_digest,
+        payload_name: dict(payload),
+    }
+    return {**body, "artifact_digest": canonical_digest(body)}
+
+
+def _read_terminal_artifact(
+    path: Path,
+    *,
+    record_type: str,
+    request_digest: str,
+    payload_name: str,
+) -> dict[str, Any]:
+    artifact = _private_json(path)
+    expected_fields = {
+        "schema_version",
+        "record_type",
+        "request_digest",
+        payload_name,
+        "artifact_digest",
+    }
+    body = {key: value for key, value in artifact.items() if key != "artifact_digest"}
+    payload = artifact.get(payload_name)
+    if (
+        set(artifact) != expected_fields
+        or artifact.get("schema_version") != "1"
+        or artifact.get("record_type") != record_type
+        or artifact.get("request_digest") != request_digest
+        or not isinstance(payload, Mapping)
+        or artifact.get("artifact_digest") != canonical_digest(body)
+    ):
+        raise AuthorizationError("terminal post-apply artifact is invalid")
+    return dict(payload)
+
+
+class TerminalPostApplyProbeAdapter:
+    """Invoke one fixed read-only post-apply command under the Plan role."""
+
+    def __init__(
+        self,
+        *,
+        terminal_session: TerminalSession,
+        receipt_digest: str,
+        mode: str,
+    ) -> None:
+        if not DIGEST.fullmatch(receipt_digest) or mode not in {
+            "health",
+            "reconciliation",
+        }:
+            raise AuthorizationError("post-apply probe adapter binding is invalid")
+        self._terminal_session = terminal_session
+        self._receipt_digest = receipt_digest
+        self._mode = mode
+
+    def __call__(
+        self,
+        *,
+        package: LiveInputPackage,
+        plan_record: Mapping[str, Any],
+        ledger: Mapping[str, Any],
+        now: datetime,
+    ) -> dict[str, Any]:
+        validate_saved_plan_document(plan_record)
+        validate_execution_ledger_document(ledger)
+        request_body = {
+            "schema_version": "1",
+            "record_type": "nonprod_live_post_apply_observation_request",
+            "mode": self._mode,
+            "plan_record_digest": plan_record["record_digest"],
+            "source_ledger_digest": ledger["ledger_digest"],
+            "checked_at": _request_timestamp(now),
+        }
+        request = {
+            **request_body,
+            "request_digest": canonical_digest(request_body),
+        }
+        _write_private_json_confirmed(
+            package.controller_root / f"post-apply-{self._mode}-plan-record.json",
+            plan_record,
+        )
+        _write_private_json_confirmed(
+            package.controller_root / f"post-apply-{self._mode}-ledger.json",
+            ledger,
+        )
+        _write_private_json_confirmed(
+            _post_apply_request_path(package, self._mode),
+            request,
+        )
+        subcommand = (
+            "_terminal-observe-health"
+            if self._mode == "health"
+            else "_terminal-observe-reconciliation"
+        )
+        command = _internal_command(
+            package,
+            subcommand,
+            receipt_digest=self._receipt_digest,
+        )
+        self._terminal_session.run_terminal_phase(
+            **_terminal_kwargs(package, "plan", command)
+        )
+        return _read_terminal_artifact(
+            _post_apply_artifact_path(package, self._mode),
+            record_type="nonprod_live_post_apply_observation",
+            request_digest=request["request_digest"],
+            payload_name="observation",
+        )
+
+
+class TerminalContractPublisherAdapter:
+    """Publish one catalog-owned immutable contract under the Apply role."""
+
+    def __init__(
+        self,
+        *,
+        terminal_session: TerminalSession,
+        receipt_digest: str,
+    ) -> None:
+        if not DIGEST.fullmatch(receipt_digest):
+            raise AuthorizationError("contract publisher adapter binding is invalid")
+        self._terminal_session = terminal_session
+        self._receipt_digest = receipt_digest
+
+    def __call__(
+        self,
+        *,
+        package: LiveInputPackage,
+        plan_record: Mapping[str, Any],
+        ledger: Mapping[str, Any],
+        health_receipt: Mapping[str, Any],
+        verified_outputs: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        validate_saved_plan_document(plan_record)
+        validate_execution_ledger_document(ledger)
+        validate_health_receipt_document(health_receipt)
+        outputs_digest = canonical_digest(dict(verified_outputs))
+        request_body = {
+            "schema_version": "1",
+            "record_type": "nonprod_live_contract_publication_request",
+            "plan_record_digest": plan_record["record_digest"],
+            "source_ledger_digest": ledger["ledger_digest"],
+            "health_receipt_digest": health_receipt["receipt_digest"],
+            "verified_outputs_digest": outputs_digest,
+        }
+        request = {
+            **request_body,
+            "request_digest": canonical_digest(request_body),
+        }
+        snapshots = {
+            "plan-record": plan_record,
+            "ledger": ledger,
+            "health-receipt": health_receipt,
+            "verified-outputs": verified_outputs,
+        }
+        for name, document in snapshots.items():
+            _write_private_json_confirmed(
+                package.controller_root / f"contract-publication-{name}.json",
+                document,
+            )
+        _write_private_json_confirmed(
+            package.controller_root / "contract-publication-request.json",
+            request,
+        )
+        command = _internal_command(
+            package,
+            "_terminal-publish-contract",
+            receipt_digest=self._receipt_digest,
+        )
+        self._terminal_session.run_terminal_phase(
+            **_terminal_kwargs(package, "apply", command)
+        )
+        return _read_terminal_artifact(
+            package.controller_root / "contract-publication-result.json",
+            record_type="nonprod_live_contract_publication_result",
+            request_digest=request["request_digest"],
+            payload_name="publication",
+        )
 
 
 def _verify_orchestrator(package: LiveInputPackage, store: LedgerStore) -> None:
@@ -1290,24 +1579,39 @@ def _project_verified_outputs(
 def _expected_output_contract_digest(
     *,
     package: LiveInputPackage,
-    plan_record: Mapping[str, Any],
-    state_readback: Mapping[str, Any],
-    outputs_digest: str,
+    verified_outputs: Mapping[str, Any],
 ) -> str:
-    return canonical_digest(
-        {
-            "schema_version": "1",
-            "record_type": "verified_non_sensitive_output_contract",
-            "deployment_id": package.context["deployment_id"],
-            "execution_id": package.context["execution_id"],
-            "layer": package.context["layer"],
-            "plan_record_digest": plan_record["record_digest"],
-            "release_digest": plan_record["release_digest"],
-            "state_object_version_id": state_readback.get("object_version_id"),
-            "state_sha256": state_readback.get("sha256"),
-            "outputs_digest": outputs_digest,
-        }
-    )
+    """Return the digest used by the canonical immutable SSM contract.
+
+    The health receipt separately binds execution, plan, release, and exact
+    state evidence.  The contract transport's content address is deliberately
+    the digest of the producer's exact output object, matching
+    ``publish_immutable_ssm_contract`` and every downstream resolver.
+    """
+    root_outputs = verified_outputs.get("outputs")
+    if not isinstance(root_outputs, Mapping) or not root_outputs:
+        raise AuthorizationError("verified Terraform contract outputs are invalid")
+    contract_outputs: Mapping[str, Any] = {
+        key: value for key, value in root_outputs.items() if key != "contract_payload"
+    }
+    payload = root_outputs.get("contract_payload")
+    if payload is not None:
+        if not isinstance(payload, Mapping):
+            raise AuthorizationError("Terraform contract payload is invalid")
+        declared_layer = payload.get("layer")
+        if declared_layer is not None and declared_layer != package.context["layer"]:
+            raise AuthorizationError("Terraform contract payload layer mismatch")
+        nested_outputs = payload.get("outputs")
+        if nested_outputs is not None:
+            if not isinstance(nested_outputs, Mapping) or not nested_outputs:
+                raise AuthorizationError("Terraform contract payload outputs are invalid")
+            contract_outputs = nested_outputs
+    if not contract_outputs:
+        raise AuthorizationError("verified Terraform contract outputs are empty")
+    try:
+        return canonical_digest(dict(contract_outputs))
+    except (TypeError, ValueError) as exc:
+        raise AuthorizationError("Terraform contract output digest is invalid") from exc
 
 
 def _validate_contract_publication(
@@ -1421,9 +1725,7 @@ def _finalize_applied(
     state_after = observation["state_after"]
     expected_contract_digest = _expected_output_contract_digest(
         package=package,
-        plan_record=plan_record,
-        state_readback=state_after,
-        outputs_digest=outputs_digest,
+        verified_outputs=output_document,
     )
     candidate = build_health_receipt(
         plan_record=plan_record,
@@ -2279,6 +2581,403 @@ def run_terminal_apply(
         raise AuthorizationError("terminal saved-plan Apply response is not successful")
 
 
+def _load_post_apply_terminal_request(
+    package: LiveInputPackage,
+    mode: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    request = _private_json(_post_apply_request_path(package, mode))
+    plan_record = _private_json(
+        package.controller_root / f"post-apply-{mode}-plan-record.json"
+    )
+    ledger = _private_json(package.controller_root / f"post-apply-{mode}-ledger.json")
+    validate_saved_plan_document(plan_record)
+    validate_execution_ledger_document(ledger)
+    expected_fields = {
+        "schema_version",
+        "record_type",
+        "mode",
+        "plan_record_digest",
+        "source_ledger_digest",
+        "checked_at",
+        "request_digest",
+    }
+    body = {key: value for key, value in request.items() if key != "request_digest"}
+    expected_statuses = (
+        {"APPLIED", "RECONCILED_APPLIED"}
+        if mode == "health"
+        else {"UNCERTAIN"}
+    )
+    try:
+        checked_at = datetime.fromisoformat(
+            str(request["checked_at"]).replace("Z", "+00:00")
+        )
+    except (KeyError, ValueError) as exc:
+        raise AuthorizationError("post-apply request time is invalid") from exc
+    if (
+        set(request) != expected_fields
+        or request.get("schema_version") != "1"
+        or request.get("record_type")
+        != "nonprod_live_post_apply_observation_request"
+        or request.get("mode") != mode
+        or request.get("plan_record_digest") != plan_record["record_digest"]
+        or request.get("source_ledger_digest") != ledger["ledger_digest"]
+        or request.get("request_digest") != canonical_digest(body)
+        or checked_at.tzinfo is None
+        or ledger.get("status") not in expected_statuses
+        or ledger.get("plan_record_digest") != plan_record["record_digest"]
+        or any(
+            ledger.get(field) != plan_record.get(field)
+            for field in LEDGER_BINDING_FIELDS
+        )
+    ):
+        raise AuthorizationError("post-apply terminal request is invalid")
+    _durable_plan_bindings(package, plan_record)
+    return request, plan_record, ledger
+
+
+def _post_apply_observe_command(
+    package: LiveInputPackage,
+    *,
+    plan_record: Mapping[str, Any],
+    plan_dir: Path,
+) -> tuple[str, ...]:
+    paths = package.plan_inputs
+    required_paths = {
+        "resolved_input",
+        "manifest",
+        "target_record",
+        "target_anchor",
+        "account_ready",
+        "execution_lock",
+    }
+    if not required_paths.issubset(paths):
+        raise AuthorizationError("post-apply plan inputs are incomplete")
+    context = package.context
+    command: list[str] = [
+        "/bin/bash",
+        str(TERRAFORM_LAYER_RUNNER),
+        "observe",
+        "--layer",
+        str(context["layer"]),
+        "--plan-dir",
+        str(plan_dir),
+        "--customer-id",
+        str(context["customer_id"]),
+        "--deployment-id",
+        str(context["deployment_id"]),
+        "--account-id",
+        str(context["destination_account_id"]),
+        "--region",
+        str(context["region"]),
+        "--environment",
+        "dev",
+        "--release-version",
+        str(plan_record["release_version"]),
+        "--release-digest",
+        str(plan_record["release_digest"]),
+        "--resolved-input",
+        str(paths["resolved_input"]),
+        "--manifest",
+        str(paths["manifest"]),
+        "--target-record",
+        str(paths["target_record"]),
+        "--target-anchor",
+        str(paths["target_anchor"]),
+        "--account-ready",
+        str(paths["account_ready"]),
+        "--execution-lock",
+        str(paths["execution_lock"]),
+        "--execution-id",
+        str(context["execution_id"]),
+    ]
+    domain = package.backend_binding.get("runtime_origin", {}).get("domain_name")
+    if domain is not None:
+        if not isinstance(domain, str):
+            raise AuthorizationError("post-apply runtime origin is invalid")
+        command.extend(("--domain-name", domain))
+    return tuple(command)
+
+
+def _prospective_contract_envelope(
+    package: LiveInputPackage,
+    *,
+    plan_record: Mapping[str, Any],
+    terraform_outputs: Mapping[str, Any],
+    produced_at: str,
+) -> dict[str, Any]:
+    from tooling.live_contract_envelope import (
+        build_validated_layer_contract_envelope,
+    )
+
+    backend = package.backend_binding.get("backend")
+    state_key = backend.get("key") if isinstance(backend, Mapping) else None
+    if not isinstance(state_key, str):
+        raise AuthorizationError("post-apply state key is invalid")
+    try:
+        return build_validated_layer_contract_envelope(
+            terraform_outputs=dict(terraform_outputs),
+            layer=str(package.context["layer"]),
+            customer_id=str(package.context["customer_id"]),
+            deployment_id=str(package.context["deployment_id"]),
+            account_id=str(package.context["destination_account_id"]),
+            aws_region=str(package.context["region"]),
+            release_version=str(plan_record["release_version"]),
+            release_digest=str(plan_record["release_digest"]),
+            produced_at=produced_at,
+            state_key=state_key,
+            module_source_digest=str(plan_record["root_module_digest"]),
+        )
+    except ValueError as exc:
+        raise AuthorizationError("producer contract schema validation failed") from exc
+
+
+def run_terminal_post_apply_observation(
+    package: LiveInputPackage,
+    *,
+    mode: str,
+    command_runner: CommandRunner = _default_command_runner,
+    process_runner: ProcessRunner = _default_process_runner,
+    plan_show_runner: PlanShowRunner = _default_plan_show_runner,
+) -> None:
+    """Create one sanitized read-only health or reconciliation observation."""
+    _revalidate_materialized_sources(package)
+    request, plan_record, _ledger = _load_post_apply_terminal_request(package, mode)
+    context = package.context
+    plan_role_name = str(context["plan_role_arn"]).rsplit("/", 1)[-1]
+    AwsCliPlanStore(
+        region=context["region"],
+        account_id=context["destination_account_id"],
+        runner=command_runner,
+    ).verify_terminal_identity(plan_role_name)
+    summary: Mapping[str, Any] | None = None
+    result = "ERROR"
+    outputs: dict[str, Any] = {}
+    input_contracts_verified = False
+    with tempfile.TemporaryDirectory(
+        prefix=f".post-apply-{mode}-",
+        dir=package.controller_root,
+    ) as temporary_name:
+        plan_dir = Path(temporary_name)
+        plan_dir.chmod(0o700)
+        before = read_exact_state(
+            backend_binding=package.backend_binding,
+            account_id=context["destination_account_id"],
+            region=context["region"],
+            scratch_path=plan_dir / ".state-before.json",
+            runner=command_runner,
+        )
+        command = _post_apply_observe_command(
+            package,
+            plan_record=plan_record,
+            plan_dir=plan_dir,
+        )
+        if process_runner(command) == 0:
+            input_contracts_verified = True
+            plan_path = plan_dir / f"{context['layer']}.tfplan"
+            summary = inspect_terraform_saved_plan(
+                plan_path=plan_path,
+                scratch_path=plan_dir / ".terraform-observation.json",
+                runner=plan_show_runner,
+            )
+            result = str(summary["classification"])
+        after, outputs = read_exact_state_with_outputs(
+            backend_binding=package.backend_binding,
+            account_id=context["destination_account_id"],
+            region=context["region"],
+            scratch_path=plan_dir / ".state-after.json",
+            runner=command_runner,
+        )
+    contract_verified = False
+    if input_contracts_verified:
+        try:
+            envelope = _prospective_contract_envelope(
+                package,
+                plan_record=plan_record,
+                terraform_outputs=outputs,
+                produced_at=str(request["checked_at"]),
+            )
+            contract_verified = bool(envelope.get("contract_digest"))
+        except AuthorizationError:
+            contract_verified = False
+    if mode == "health":
+        observation: dict[str, Any] = {
+            "state_before": before,
+            "state_after": after,
+            "speculative_plan_result": result,
+            "speculative_plan_summary": dict(summary) if summary is not None else None,
+            "checks": [
+                {
+                    "name": "input_contracts",
+                    "passed": input_contracts_verified,
+                    "code": (
+                        "INPUT_CONTRACTS_VERIFIED"
+                        if input_contracts_verified
+                        else "INPUT_CONTRACTS_FAILED"
+                    ),
+                },
+                {
+                    "name": "terraform_convergence",
+                    "passed": result == "NO_CHANGE",
+                    "code": (
+                        "TERRAFORM_NO_CHANGE"
+                        if result == "NO_CHANGE"
+                        else "TERRAFORM_NOT_CONVERGED"
+                    ),
+                },
+                {
+                    "name": "producer_contract_schema",
+                    "passed": contract_verified,
+                    "code": (
+                        "PRODUCER_CONTRACT_VALID"
+                        if contract_verified
+                        else "PRODUCER_CONTRACT_INVALID"
+                    ),
+                },
+            ],
+            "outputs": outputs,
+        }
+    else:
+        observation = {
+            "state_before": before,
+            "state_after": after,
+            "speculative_plan_result": result,
+            "speculative_plan_summary": dict(summary) if summary is not None else None,
+            "contract_verified": contract_verified,
+        }
+    artifact = _terminal_artifact(
+        record_type="nonprod_live_post_apply_observation",
+        request_digest=str(request["request_digest"]),
+        payload_name="observation",
+        payload=observation,
+    )
+    _write_private_json_confirmed(
+        _post_apply_artifact_path(package, mode),
+        artifact,
+    )
+
+
+def run_terminal_contract_publication(
+    package: LiveInputPackage,
+    *,
+    command_runner: CommandRunner = _default_command_runner,
+    aws_runner: Any | None = None,
+) -> None:
+    """Publish and exactly read back one catalog-owned immutable SSM contract."""
+    from tooling.ssm_contract_live_io import (
+        LiveContractIoError,
+        SubprocessAwsCliRunner,
+        publish_immutable_ssm_contract,
+        verify_caller_identity,
+    )
+
+    _revalidate_materialized_sources(package)
+    request = _private_json(package.controller_root / "contract-publication-request.json")
+    plan_record = _private_json(
+        package.controller_root / "contract-publication-plan-record.json"
+    )
+    ledger = _private_json(package.controller_root / "contract-publication-ledger.json")
+    health = _private_json(
+        package.controller_root / "contract-publication-health-receipt.json"
+    )
+    verified = _private_json(
+        package.controller_root / "contract-publication-verified-outputs.json"
+    )
+    validate_saved_plan_document(plan_record)
+    validate_execution_ledger_document(ledger)
+    validate_health_receipt_document(health)
+    expected_fields = {
+        "schema_version",
+        "record_type",
+        "plan_record_digest",
+        "source_ledger_digest",
+        "health_receipt_digest",
+        "verified_outputs_digest",
+        "request_digest",
+    }
+    request_body = {
+        key: value for key, value in request.items() if key != "request_digest"
+    }
+    if (
+        set(request) != expected_fields
+        or request.get("schema_version") != "1"
+        or request.get("record_type")
+        != "nonprod_live_contract_publication_request"
+        or request.get("plan_record_digest") != plan_record["record_digest"]
+        or request.get("source_ledger_digest") != ledger["ledger_digest"]
+        or request.get("health_receipt_digest") != health["receipt_digest"]
+        or request.get("verified_outputs_digest") != canonical_digest(verified)
+        or request.get("request_digest") != canonical_digest(request_body)
+        or ledger.get("status") not in {"APPLIED", "RECONCILED_APPLIED"}
+        or ledger.get("plan_record_digest") != plan_record["record_digest"]
+        or health.get("plan_record_digest") != plan_record["record_digest"]
+        or health.get("source_ledger_digest") != ledger["ledger_digest"]
+    ):
+        raise AuthorizationError("contract publication terminal request is invalid")
+    root_outputs = verified.get("outputs")
+    if not isinstance(root_outputs, Mapping):
+        raise AuthorizationError("verified contract outputs are invalid")
+    terraform_outputs = {
+        name: {"sensitive": False, "value": value}
+        for name, value in root_outputs.items()
+    }
+    envelope = _prospective_contract_envelope(
+        package,
+        plan_record=plan_record,
+        terraform_outputs=terraform_outputs,
+        produced_at=str(health["checked_at"]),
+    )
+    if envelope.get("contract_digest") != health.get("expected_contract_digest"):
+        raise AuthorizationError("published contract digest differs from health evidence")
+    context = package.context
+    apply_role_name = str(context["apply_role_arn"]).rsplit("/", 1)[-1]
+    AwsCliPlanStore(
+        region=context["region"],
+        account_id=context["destination_account_id"],
+        runner=command_runner,
+    ).verify_terminal_identity(apply_role_name)
+    try:
+        runner = aws_runner or SubprocessAwsCliRunner(use_runtime_credentials=True)
+        identity = verify_caller_identity(
+            runner,
+            expected_account_id=context["destination_account_id"],
+            region=context["region"],
+        )
+        catalog = load_json_strict(REPO_ROOT / "deployment/contract-catalog.v1.json")
+        publish_immutable_ssm_contract(
+            runner,
+            identity=identity,
+            catalog=catalog,
+            envelope=envelope,
+        )
+    except LiveContractIoError as exc:
+        raise AuthorizationError(
+            "immutable SSM contract publication could not be verified"
+        ) from exc
+    publication_body = {
+        "schema_version": "1",
+        "record_type": "live_contract_publication",
+        "status": "EXACT_READBACK_VERIFIED",
+        "health_receipt_digest": health["receipt_digest"],
+        "contract_digest": envelope["contract_digest"],
+        "readback_contract_digest": envelope["contract_digest"],
+    }
+    publication = {
+        **publication_body,
+        "publication_receipt_digest": canonical_digest(publication_body),
+    }
+    validate_contract_publication_receipt(publication, health_receipt=health)
+    artifact = _terminal_artifact(
+        record_type="nonprod_live_contract_publication_result",
+        request_digest=str(request["request_digest"]),
+        payload_name="publication",
+        payload=publication,
+    )
+    _write_private_json_confirmed(
+        package.controller_root / "contract-publication-result.json",
+        artifact,
+    )
+
+
 def validate_action_time_apply(
     package: LiveInputPackage,
     *,
@@ -2331,16 +3030,42 @@ def validate_action_time_apply(
     return decision
 
 
-def real_dependencies(package: LiveInputPackage) -> tuple[AwsCliTerminalSession, AwsCliExecutionLedgerStore]:
+def real_dependencies(
+    package: LiveInputPackage,
+    *,
+    receipt_digest: str,
+) -> tuple[
+    AwsCliTerminalSession,
+    AwsCliExecutionLedgerStore,
+    TerminalPostApplyProbeAdapter,
+    TerminalContractPublisherAdapter,
+    TerminalPostApplyProbeAdapter,
+]:
     context = package.context
+    terminal = AwsCliTerminalSession(
+        region=context["region"], account_id=context["destination_account_id"]
+    )
+    ledger = AwsCliExecutionLedgerStore(
+        region=context["region"],
+        shared_services_account_id=context["platform_authority_account_id"],
+        ledger_table="scanalyze-deployment-executions",
+    )
     return (
-        AwsCliTerminalSession(
-            region=context["region"], account_id=context["destination_account_id"]
+        terminal,
+        ledger,
+        TerminalPostApplyProbeAdapter(
+            terminal_session=terminal,
+            receipt_digest=receipt_digest,
+            mode="health",
         ),
-        AwsCliExecutionLedgerStore(
-            region=context["region"],
-            shared_services_account_id=context["platform_authority_account_id"],
-            ledger_table="scanalyze-deployment-executions",
+        TerminalContractPublisherAdapter(
+            terminal_session=terminal,
+            receipt_digest=receipt_digest,
+        ),
+        TerminalPostApplyProbeAdapter(
+            terminal_session=terminal,
+            receipt_digest=receipt_digest,
+            mode="reconciliation",
         ),
     )
 
@@ -2348,12 +3073,17 @@ def real_dependencies(package: LiveInputPackage) -> tuple[AwsCliTerminalSession,
 __all__ = [
     "AwsCliReadError",
     "LiveInputPackage",
+    "TerminalContractPublisherAdapter",
+    "TerminalPostApplyProbeAdapter",
     "load_live_input_package",
     "read_exact_state",
+    "read_exact_state_with_outputs",
     "real_dependencies",
     "run_apply_controller",
     "run_plan_controller",
     "run_terminal_apply",
+    "run_terminal_contract_publication",
+    "run_terminal_post_apply_observation",
     "validate_action_time_apply",
     "run_terminal_fetch",
     "run_terminal_plan",

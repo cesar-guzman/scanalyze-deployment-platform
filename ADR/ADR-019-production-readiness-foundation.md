@@ -14,13 +14,11 @@
 The repository has an implemented and locally validated dry-run graph plus a
 repository candidate for one protected DEV saved-plan path: sealed private
 materialization, exact Plan/Apply bindings, terminal IAM boundaries, live SSM
-contract I/O adapters, and a remote-backend contract. No connected run,
-deployment evidence, or production evidence has been produced. The real
-post-apply health, contract-publication, and reconciliation adapters are not
-wired into the protected workflow. The public Apply entry therefore stops
-before it constructs destination dependencies, assumes a destination role, or
-consumes the saved-plan attempt, so the candidate remains fail-closed without
-stranding a newly mutated deployment at `APPLIED`.
+contract I/O adapters, a remote-backend contract, and a public DEV Apply path
+wired to real post-apply observation, reconciliation, and publication adapters.
+No connected run, deployment evidence, or production evidence has been
+produced. The candidate therefore remains fail-closed and cannot be promoted by
+inference from repository wiring.
 
 Phase 0 must make the implementation boundary unambiguous without upgrading
 local or documentary evidence into AWS evidence. It must also reconcile several
@@ -156,10 +154,21 @@ This placement refines conflicting text in ADR-003 and adopts its four-bucket
 rev4 inventory: state, tf-plan, evidence, and contracts. The repository now
 contains a protected saved-plan materializer/controller path, but no connected
 live plan or data migration has been proven. The core post-apply state machine
-is implemented, but its real health, contract-publication, and reconciliation
-workflow adapters remain unwired. The protected Apply CLI is disabled before
-destination access until that closure is connected. Connected DEV and
-production therefore remain NO-GO.
+and protected workflow adapters are implemented. Health and reconciliation run
+under fresh Plan authority, bracketing `terraform-layer.sh observe` with two
+exact state reads; the speculative plan uses `-lock=false` and
+`-detailed-exitcode`. Health admits only the minimum named checks
+`input_contracts`, `terraform_convergence`, and `producer_contract_schema`, and
+discards sensitive outputs. It does not claim generic ECS, ALB, API, or
+application runtime health.
+
+Contract publication runs under fresh Apply authority, uses the canonical
+catalog-owned layer-contract envelope, creates the content-addressed SSM
+parameter without overwrite, and requires exact double parameter/tag readback.
+`UNCERTAIN` never retries apply or publishes: its `contract_verified` result is
+prospective schema validation, and a later `RECONCILED_APPLIED` reentry performs
+the normal health/publication path. Connected DEV has not been executed;
+staging and production therefore remain NO-GO.
 
 ### 6. Build once and promote; production never rebuilds
 

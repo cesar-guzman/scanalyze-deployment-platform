@@ -25,12 +25,13 @@ reject_ambient_terraform_environment() {
 }
 
 ACTION="${1:-}"
-shift || die "usage: terraform-layer.sh plan [options]"
+shift || die "usage: terraform-layer.sh {plan|observe} [options]"
 
 if [[ "$ACTION" == "apply" ]]; then
   die "Local Terraform apply is disabled by ADR-017. Exact saved-plan apply is restricted to the protected GitHub runner."
 fi
-[[ "$ACTION" == "plan" ]] || die "Unknown action: ${ACTION}. Only local plan is supported."
+[[ "$ACTION" == "plan" || "$ACTION" == "observe" ]] \
+  || die "Unknown action: ${ACTION}. Only local plan or read-only observation is supported."
 reject_ambient_terraform_environment
 
 LAYER=""
@@ -648,7 +649,46 @@ fi
 require_plan_dir_identity \
   || die "Plan directory identity changed before Terraform plan"
 info "Planning verified layer..."
-if [[ "$BACKENDLESS_GATE" == true ]]; then
+if [[ "$ACTION" == "observe" ]]; then
+  observation_status=()
+  if [[ "$BACKENDLESS_GATE" == true ]]; then
+    if env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
+      -input=false \
+      -no-color \
+      -refresh=false \
+      -lock=false \
+      -detailed-exitcode \
+      -state="${TERRAFORM_HOME}/gate-empty.tfstate" \
+      -out="$PLAN_FILE" \
+      "${terraform_variables[@]}" \
+      2>&1 | tee "$PLAN_SUMMARY"; then
+      observation_status=(0 0)
+    else
+      observation_status=("${PIPESTATUS[@]}")
+    fi
+  else
+    if env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
+      -input=false \
+      -no-color \
+      -lock=false \
+      -detailed-exitcode \
+      -out="$PLAN_FILE" \
+      "${terraform_variables[@]}" \
+      2>&1 | tee "$PLAN_SUMMARY"; then
+      observation_status=(0 0)
+    else
+      observation_status=("${PIPESTATUS[@]}")
+    fi
+  fi
+  [[ "${#observation_status[@]}" -eq 2 ]] \
+    || die "Unable to determine Terraform observation status"
+  [[ "${observation_status[1]}" -eq 0 ]] \
+    || die "Unable to capture private Terraform observation summary"
+  case "${observation_status[0]}" in
+    0|2) ;;
+    *) die "Terraform observation failed" ;;
+  esac
+elif [[ "$BACKENDLESS_GATE" == true ]]; then
   env -i "${terraform_environment[@]}" "$TERRAFORM_BIN" -chdir="$TERRAFORM_ROOT" plan \
     -input=false \
     -no-color \

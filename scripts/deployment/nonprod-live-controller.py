@@ -16,8 +16,13 @@ from tooling.authorize_deployment_backend import AuthorizationError  # noqa: E40
 from tooling.nonprod_live_controller import (  # noqa: E402
     load_live_input_package,
     real_dependencies,
+    run_apply_controller,
     run_plan_controller,
+    run_terminal_apply,
+    run_terminal_contract_publication,
+    run_terminal_fetch,
     run_terminal_plan,
+    run_terminal_post_apply_observation,
 )
 
 
@@ -25,6 +30,9 @@ INTERNAL_OPERATIONS = {
     "_terminal-plan": "plan",
     "_terminal-fetch": "apply",
     "_terminal-apply": "apply",
+    "_terminal-observe-health": "apply",
+    "_terminal-observe-reconciliation": "apply",
+    "_terminal-publish-contract": "apply",
 }
 
 
@@ -76,28 +84,63 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "_terminal-plan":
             run_terminal_plan(package, now=now, clock=_utc_now)
             return 0
-        if args.command in {"apply", "_terminal-fetch", "_terminal-apply"}:
-            print(
-                "STOP: protected Apply and its terminal operations are disabled "
-                "before destination access; "
-                "the real post-apply health, contract-publication, and "
-                "reconciliation adapters are not wired",
-                file=sys.stderr,
+        if args.command == "_terminal-fetch":
+            run_terminal_fetch(package)
+            return 0
+        if args.command == "_terminal-apply":
+            run_terminal_apply(package, now=now, clock=_utc_now)
+            return 0
+        if args.command == "_terminal-observe-health":
+            run_terminal_post_apply_observation(package, mode="health")
+            return 0
+        if args.command == "_terminal-observe-reconciliation":
+            run_terminal_post_apply_observation(package, mode="reconciliation")
+            return 0
+        if args.command == "_terminal-publish-contract":
+            run_terminal_contract_publication(package)
+            return 0
+        (
+            terminal_session,
+            ledger_store,
+            health_probe,
+            contract_publisher,
+            reconciliation_probe,
+        ) = real_dependencies(package, receipt_digest=args.receipt_digest)
+        if args.command == "plan":
+            result = run_plan_controller(
+                package,
+                receipt_digest=args.receipt_digest,
+                terminal_session=terminal_session,
+                ledger_store=ledger_store,
+                now=now,
+                clock=_utc_now,
             )
-            return 2
-        terminal_session, ledger_store = real_dependencies(package)
-        result = run_plan_controller(
+            print(
+                "PASS: exact protected DEV plan stored; "
+                f"plan_record_digest={result['plan_record_digest']}"
+            )
+            return 0
+        result = run_apply_controller(
             package,
             receipt_digest=args.receipt_digest,
+            plan_record_digest=args.plan_record_digest,
+            reviewer_packet_digest=args.reviewer_packet_digest,
+            expected_approver_user_id=args.expected_approver_user_id,
             terminal_session=terminal_session,
             ledger_store=ledger_store,
             now=now,
             clock=_utc_now,
+            health_probe=health_probe,
+            contract_publisher=contract_publisher,
+            reconciliation_probe=reconciliation_probe,
         )
-        print(
-            "PASS: exact protected DEV plan stored; "
-            f"plan_record_digest={result['plan_record_digest']}"
-        )
+        if result.get("status") != "HEALTHY":
+            print(
+                "FAIL: protected DEV apply controller did not reach HEALTHY",
+                file=sys.stderr,
+            )
+            return 1
+        print("PASS: protected DEV apply controller status=HEALTHY")
         return 0
     except AuthorizationError as exc:
         print(f"FAIL: protected live phase stopped: {exc}", file=sys.stderr)

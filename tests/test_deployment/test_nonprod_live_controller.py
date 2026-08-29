@@ -15,14 +15,19 @@ from tooling.authorize_deployment_backend import AuthorizationError, canonical_d
 from tooling.nonprod_live_controller import (
     AwsCliReadError,
     LiveInputPackage,
+    TerminalContractPublisherAdapter,
+    TerminalPostApplyProbeAdapter,
     _private_json,
     inspect_terraform_saved_plan,
     read_exact_state,
+    read_exact_state_with_outputs,
     run_apply_controller,
     run_plan_controller,
     run_terminal_apply,
+    run_terminal_contract_publication,
     run_terminal_fetch,
     run_terminal_plan,
+    run_terminal_post_apply_observation,
     write_private_json_once,
 )
 from tooling.nonprod_live_engine import (
@@ -2150,3 +2155,328 @@ def test_terminal_plan_reads_state_but_stores_plan_in_separate_plan_bucket(
         for command in observed_commands
         if "head-object" in command or "get-object" in command
     )
+
+
+def _package_with_backend(tmp_path: Path) -> LiveInputPackage:
+    package = _package(tmp_path, "apply")
+    backend_body = {
+        "schema_version": "1",
+        "account_id": DESTINATION_ACCOUNT,
+        "backend": {
+            "bucket": f"scanalyze-{DESTINATION_ACCOUNT}-tf-state",
+            "key": f"{DEPLOYMENT_ID}/us-east-1/network/terraform.tfstate",
+            "region": "us-east-1",
+            "encrypt": True,
+            "use_lockfile": True,
+            "allowed_account_ids": [DESTINATION_ACCOUNT],
+        },
+    }
+    return replace(
+        package,
+        backend_binding={
+            **backend_body,
+            "binding_digest": canonical_digest(backend_body),
+        },
+    )
+
+
+def _network_contract_outputs() -> dict[str, Any]:
+    return {
+        "vpc_id": "vpc-abcd1234",
+        "private_subnet_ids": {"us-east-1a": "subnet-abcd1234"},
+        "public_subnet_ids": {"us-east-1a": "subnet-bcde2345"},
+        "vpc_cidr_block": "10.40.0.0/16",
+        "vpc_endpoint_sg_id": "sg-abcd1234",
+    }
+
+
+def _terraform_output_descriptors() -> dict[str, Any]:
+    return {
+        "contract_payload": {
+            "sensitive": False,
+            "type": ["object", {}],
+            "value": {
+                "layer": "network",
+                "schema_version": "2",
+                "outputs": _network_contract_outputs(),
+            },
+        },
+        "private_token": {
+            "sensitive": True,
+            "type": "string",
+            "value": "never-persist",
+        },
+    }
+
+
+class _InlineObservationTerminal:
+    def __init__(self, package: LiveInputPackage) -> None:
+        self.package = package
+        self.calls: list[dict[str, Any]] = []
+        self.state_payload = json.dumps(
+            {
+                "lineage": "synthetic-lineage-0001",
+                "serial": 8,
+                "outputs": _terraform_output_descriptors(),
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+
+    def _command_runner(self, command: Any) -> str:
+        values = list(command)
+        if "get-caller-identity" in values:
+            return json.dumps(
+                {
+                    "Account": DESTINATION_ACCOUNT,
+                    "Arn": (
+                        f"arn:aws:sts::{DESTINATION_ACCOUNT}:assumed-role/"
+                        "ScanalyzeCustomer-Plan/session"
+                    ),
+                }
+            )
+        if "head-object" in values:
+            return json.dumps({"VersionId": "state-version-8"})
+        if "get-object" in values:
+            destination = Path(values[-1])
+            destination.write_bytes(self.state_payload)
+            destination.chmod(0o600)
+            return json.dumps({"VersionId": "state-version-8"})
+        raise AssertionError(values)
+
+    @staticmethod
+    def _process_runner(command: Any) -> int:
+        values = list(command)
+        assert values[:3] == [
+            "/bin/bash",
+            str(live_controller.TERRAFORM_LAYER_RUNNER),
+            "observe",
+        ]
+        plan_dir = Path(values[values.index("--plan-dir") + 1])
+        plan_path = plan_dir / "network.tfplan"
+        plan_path.write_bytes(b"read-only-observation-plan")
+        plan_path.chmod(0o600)
+        return 0
+
+    @staticmethod
+    def _show_runner(_command: Any, output_descriptor: int) -> int:
+        os.write(
+            output_descriptor,
+            json.dumps(_empty_plan_show_document()).encode("utf-8"),
+        )
+        return 0
+
+    def run_terminal_phase(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+        command = tuple(kwargs["command"])
+        mode = (
+            "health"
+            if "_terminal-observe-health" in command
+            else "reconciliation"
+        )
+        assert kwargs["operation"] == "plan"
+        assert kwargs["role_arn"].endswith("/ScanalyzeCustomer-Plan")
+        run_terminal_post_apply_observation(
+            self.package,
+            mode=mode,
+            command_runner=self._command_runner,
+            process_runner=self._process_runner,
+            plan_show_runner=self._show_runner,
+        )
+
+
+def test_real_health_probe_uses_plan_role_and_never_persists_sensitive_outputs(
+    tmp_path: Path,
+) -> None:
+    package = _package_with_backend(tmp_path)
+    plan = _plan_record()
+    store = FakeLedgerStore(plan)
+    _set_ledger_status(store, "APPLIED")
+    terminal = _InlineObservationTerminal(package)
+    health = TerminalPostApplyProbeAdapter(
+        terminal_session=terminal,
+        receipt_digest=_sha("b"),
+        mode="health",
+    )
+
+    result = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=10),
+        health_probe=health,
+        contract_publisher=_exact_publisher,
+    )
+
+    assert result["status"] == "HEALTHY"
+    assert len(terminal.calls) == 1
+    verified = _private_json(
+        package.controller_root / "verified-non-sensitive-outputs.json"
+    )
+    assert set(verified["outputs"]) == {"contract_payload"}
+    assert "never-persist" not in json.dumps(verified)
+    assert not list(package.controller_root.glob(".post-apply-*-state-*.json"))
+
+
+def test_real_reconciliation_probe_is_read_only_and_never_reapplies(
+    tmp_path: Path,
+) -> None:
+    package = _package_with_backend(tmp_path)
+    plan = _plan_record()
+    store = FakeLedgerStore(plan)
+    _set_ledger_status(store, "UNCERTAIN")
+    terminal = _InlineObservationTerminal(package)
+    reconciliation = TerminalPostApplyProbeAdapter(
+        terminal_session=terminal,
+        receipt_digest=_sha("b"),
+        mode="reconciliation",
+    )
+
+    result = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=10),
+        reconciliation_probe=reconciliation,
+    )
+
+    assert result["status"] == "RECONCILED_APPLIED"
+    assert len(terminal.calls) == 1
+    assert terminal.calls[0]["operation"] == "plan"
+    assert store.ledger is not None and store.ledger["attempt_count"] == 1
+    assert not any("_terminal-apply" in call["command"] for call in terminal.calls)
+
+
+class _MemoryContractRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+        self.parameter: dict[str, Any] | None = None
+        self.tags: list[dict[str, str]] | None = None
+
+    def invoke(
+        self,
+        service: str,
+        operation: str,
+        *,
+        region: str,
+        arguments: Any = (),
+    ) -> Mapping[str, Any]:
+        args = tuple(arguments)
+        self.calls.append((service, operation, args))
+        if (service, operation) == ("sts", "get-caller-identity"):
+            return {
+                "Account": DESTINATION_ACCOUNT,
+                "Arn": (
+                    f"arn:aws:sts::{DESTINATION_ACCOUNT}:assumed-role/"
+                    "ScanalyzeCustomer-Apply/session"
+                ),
+                "UserId": "AROATEST:session",
+            }
+        if (service, operation) == ("ssm", "put-parameter"):
+            name = args[args.index("--name") + 1]
+            value = args[args.index("--value") + 1]
+            self.tags = json.loads(args[args.index("--tags") + 1])
+            self.parameter = {
+                "ARN": f"arn:aws:ssm:{region}:{DESTINATION_ACCOUNT}:parameter{name}",
+                "DataType": "text",
+                "Name": name,
+                "Type": "String",
+                "Value": value,
+                "Version": 1,
+            }
+            assert "--no-overwrite" in args
+            return {"Version": 1, "Tier": "Standard"}
+        if (service, operation) == ("ssm", "get-parameter"):
+            assert self.parameter is not None
+            return {"Parameter": dict(self.parameter)}
+        if (service, operation) == ("ssm", "list-tags-for-resource"):
+            assert self.tags is not None
+            return {"TagList": list(self.tags)}
+        raise AssertionError((service, operation, args))
+
+
+class _InlinePublicationTerminal:
+    def __init__(
+        self,
+        package: LiveInputPackage,
+        runner: _MemoryContractRunner,
+    ) -> None:
+        self.package = package
+        self.runner = runner
+        self.calls: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _command_runner(command: Any) -> str:
+        assert "get-caller-identity" in command
+        return json.dumps(
+            {
+                "Account": DESTINATION_ACCOUNT,
+                "Arn": (
+                    f"arn:aws:sts::{DESTINATION_ACCOUNT}:assumed-role/"
+                    "ScanalyzeCustomer-Apply/session"
+                ),
+            }
+        )
+
+    def run_terminal_phase(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+        assert kwargs["operation"] == "apply"
+        assert kwargs["role_arn"].endswith("/ScanalyzeCustomer-Apply")
+        assert "_terminal-publish-contract" in kwargs["command"]
+        run_terminal_contract_publication(
+            self.package,
+            command_runner=self._command_runner,
+            aws_runner=self.runner,
+        )
+
+
+def test_real_contract_publisher_is_create_only_with_exact_double_readback(
+    tmp_path: Path,
+) -> None:
+    package = _package_with_backend(tmp_path)
+    plan = _plan_record()
+    store = FakeLedgerStore(plan)
+    _set_ledger_status(store, "APPLIED")
+    aws_runner = _MemoryContractRunner()
+    terminal = _InlinePublicationTerminal(package, aws_runner)
+    publisher = TerminalContractPublisherAdapter(
+        terminal_session=terminal,
+        receipt_digest=_sha("b"),
+    )
+    observation = _post_apply_observation()
+    observation["outputs"] = {
+        name: {
+            "sensitive": descriptor["sensitive"],
+            "value": descriptor["value"],
+        }
+        for name, descriptor in _terraform_output_descriptors().items()
+    }
+
+    result = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=10),
+        health_probe=lambda **_kwargs: observation,
+        contract_publisher=publisher,
+    )
+
+    assert result["status"] == "HEALTHY"
+    operations = [(service, operation) for service, operation, _args in aws_runner.calls]
+    assert operations.count(("ssm", "put-parameter")) == 1
+    assert operations.count(("ssm", "get-parameter")) == 2
+    assert operations.count(("ssm", "list-tags-for-resource")) == 2
+    assert len(terminal.calls) == 1
+    for path in package.controller_root.glob("*.json"):
+        assert "never-persist" not in path.read_text(encoding="utf-8")

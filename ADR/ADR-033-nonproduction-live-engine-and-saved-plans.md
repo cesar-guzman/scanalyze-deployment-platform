@@ -1,7 +1,7 @@
 # ADR-033: Non-Production Live Engine and Exact Saved Plans
 
 - **Status:** Proposed; protected DEV path implemented in repository, connected live not proven
-- **Date:** 2026-07-15; GUG-382 amendment 2026-08-21; live-path amendment 2026-08-28
+- **Date:** 2026-07-15; GUG-382 amendment 2026-08-21; live-path amendment 2026-08-28; post-apply adapter amendment 2026-08-29
 - **Work package:** GUG-125, amended by GUG-382
 - **GUG-382 baseline:** `2b5f2038d0b7b190e50233713aa4923fb3e95371`
 - **Program / phase gate:** GUG-115 / GUG-117
@@ -142,11 +142,29 @@ sanitized checks. `HEALTHY` requires that exact receipt; the resulting ledger
 stores its digest. A downstream layer requires both the HEALTHY ledger and the
 matching receipt and plan.
 
+The protected adapter performs health and reconciliation under a fresh Plan
+terminal session. It brackets `terraform-layer.sh observe` with two exact state
+reads; the speculative plan uses `-lock=false` and `-detailed-exitcode`.
+Health requires the minimum named checks `input_contracts`,
+`terraform_convergence`, and `producer_contract_schema`, with a structural
+`NO_CHANGE` result. Sensitive Terraform outputs are discarded before they can
+enter controller or contract artifacts. These checks prove Terraform
+convergence and producer-contract validity; they are not generic ECS, ALB, API,
+or application runtime-health checks.
+
+After the health receipt is durable, a fresh Apply terminal session builds the
+catalog-owned canonical layer-contract envelope, creates its content-addressed
+SSM parameter without overwrite, and requires exact double parameter/tag
+readback before `HEALTHY`.
+
 If the Terraform client loses the apply response, the ledger becomes
 `UNCERTAIN`. Reconciliation is read-only. It classifies the result as
 RECONCILED_APPLIED only when lineage matches, state serial advanced, a new
-speculative plan is `NO_CHANGE`, and the producer contract verifies. Every
-other result is `RECONCILIATION_REQUIRED`; it cannot retry or mutate state.
+speculative plan is `NO_CHANGE`, and the prospective canonical producer
+contract passes schema validation. This `contract_verified` observation is not
+publication. Every other result is `RECONCILIATION_REQUIRED`; it cannot retry,
+publish, or mutate state. A later reentry from `RECONCILED_APPLIED` executes the
+normal health and publication path.
 
 ### 6. Dry-run, protected DEV execution, and production activation remain distinct
 
@@ -248,12 +266,11 @@ The controller/engine core introduced by this amendment can resume an
 fetch, or apply. It advances to `HEALTHY` only after exact state bracketing, a
 structural `NO_CHANGE` plan, verified input contracts, non-sensitive outputs, a
 durable health receipt, and exact contract publication/readback. `UNCERTAIN`
-permits only read-only reconciliation and never apply or publication. These
-paths are hermetically tested, but the protected workflow does not yet provide
-their real verification/publication adapters. The public Apply CLI therefore
-stops before destination access or attempt consumption. Historical or
-independently wired `APPLIED`/`UNCERTAIN` records remain fail-closed in the
-controller core and are not `CONNECTED_DEV_APPLY_PROVEN`.
+permits only read-only reconciliation and never apply or publication. The
+public protected DEV Apply CLI is wired to real Plan-role observation and
+Apply-role canonical SSM publication adapters. These paths are hermetically
+tested, but they have not been executed against a connected DEV destination;
+repository wiring alone is not `CONNECTED_DEV_APPLY_PROVEN`.
 
 An orphaned `APPLYING` record is never an apply retry. This workflow exposes no
 recovery operation and no alternate Environment/OIDC job; the record remains
@@ -375,10 +392,10 @@ Never downgrade an in-flight execution to the legacy re-plan/apply path.
 
 | Class | Status |
 |---|---|
-| Implemented | Repository candidate: typed private-input materializer, protected controller boundary, exact saved-plan runner, separated plan/apply workflow shape, durable control-record adapters, canonical OIDC job allowlist, tests, CI target, ADR and runbooks |
+| Implemented | Repository candidate: typed private-input materializer, protected controller boundary, exact saved-plan runner, separated plan/apply workflow shape, durable control-record adapters, Plan-role post-apply observation, Apply-role canonical SSM publication/readback, canonical OIDC job allowlist, tests, CI target, ADR and runbooks |
 | Locally validated | Focused synthetic tests, Python compilation, shell syntax and offline dry-run gate; broader gates reported separately |
 | CI validated | Pending the exact PR commit |
 | Live validated | **NOT_PROVEN**; no AWS action executed |
-| Blocked | Configured and independently reviewed protected Environment transport; real workflow adapters for the implemented health/no-change/reconciliation core; connected plan/apply/health/reconciliation evidence; exact platform-authority account/backend; destination baseline and terminal roles; non-overlapping DEV network decision; exact protected Environment; independent reviewer; GUG-127 staging certification; GUG-128 production authorization |
+| Blocked | Configured and independently reviewed protected Environment transport; connected plan/apply/health/reconciliation evidence; exact platform-authority account/backend; destination baseline and terminal roles; non-overlapping DEV network decision; exact protected Environment; independent reviewer; GUG-127 staging certification; GUG-128 production authorization |
 | Classification | `REPOSITORY_CANDIDATE / CONNECTED_DEV_NOT_PROVEN` |
 | Production | **NO-GO** |

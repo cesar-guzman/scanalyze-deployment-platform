@@ -149,18 +149,30 @@ pre-OIDC stop, not a request to weaken the gate.
 The controller core now treats `APPLIED` as a resumable apply observation, not
 as a healthy deployment or permission to start another layer. Reentry from
 `APPLIED` or `RECONCILED_APPLIED` skips approval, plan fetch and apply. It can
-advance only after two identical exact-state reads, a structural `NO_CHANGE`
-plan, verified input contracts, non-sensitive mode-0600 outputs, a create-only
-health receipt, exact contract publication/readback and the final CAS to
-`HEALTHY`. `UNCERTAIN` admits only the equivalent read-only reconciliation and
-must never publish or retry apply.
+advance only after a fresh Plan terminal session brackets
+`terraform-layer.sh observe` with two identical exact-state reads. The observe
+plan uses `-lock=false` and `-detailed-exitcode`; health requires structural
+`NO_CHANGE` plus `input_contracts`, `terraform_convergence`, and
+`producer_contract_schema`. Sensitive Terraform outputs are discarded. These
+are convergence and producer-contract checks, not generic ECS, ALB, API, or
+application runtime-health probes.
 
-The protected workflow does not yet wire the real verification/publication
-callbacks. Until it does, the public Apply CLI returns a non-success result
-before constructing destination dependencies, assuming a destination role, or
-consuming the saved-plan attempt. Keep any historical `APPLIED` or `UNCERTAIN`
-execution stopped; the hermetic core is repository evidence, not a completed
-connected follow-on.
+After the create-only health receipt is durable, a fresh Apply terminal session
+builds the canonical catalog-owned layer contract, publishes it create-only to
+SSM, and completes exact double parameter/tag readback before the final CAS to
+`HEALTHY`. `UNCERTAIN` admits only the Plan-role read-only reconciliation: it
+must never publish or retry apply. In that state `contract_verified` means that
+the prospective canonical contract validates against its schema; it is not a
+publication claim. Reentry after `RECONCILED_APPLIED` performs health and
+publication normally. The public Apply path is wired in the repository, but no
+connected DEV execution has yet proved it.
+
+The protected job treats the controller exit code as a terminal gate. Only a
+durably read-back `HEALTHY` result exits successfully. `APPLIED`, `UNCERTAIN`,
+`RECONCILIATION_REQUIRED`, and `RECONCILED_APPLIED` exit nonzero for that
+invocation; they must not be reported as a successful deployment. Any later
+reentry follows the state-specific read-only or post-apply path above and never
+repeats the saved-plan apply.
 
 If a runner disappears while the ledger is `APPLYING`, do not send another
 Apply dispatch. The workflow exposes no recovery operation and has no second
@@ -202,16 +214,15 @@ rejects more than 256 non-no-op resource actions or 128 non-no-op output
 actions. A plan containing a resource outside that tuple, an unreviewed IAM
 change, another layer, staging or production is an automatic stop.
 
-## Target sequential execution (currently blocked)
+## Connected sequential execution (not yet executed)
 
-This is the target connected sequence, not an executable claim about the
-current workflow. Execute one destination at a time only after the real
-post-apply state, no-change, health, contract-publication, and durable receipt
-adapters have been implemented and independently reviewed. Today the protected
-CLI stops with a non-success result before destination access or attempt
-consumption; it cannot perform Apply or steps 10 through 12 or advance the DAG.
-Keep the second account untouched until the first has actually reached
-`HEALTHY`, completed a no-change rerun, and passed sanitized evidence review.
+The protected DEV path now implements the post-apply state, no-change,
+producer-contract publication, and durable-receipt adapters, but this is not an
+executable claim that its connected prerequisites are configured or approved.
+Execute one destination at a time only after exact-main review/CI and every
+entry gate above passes. Keep the second account untouched until the first has
+actually reached `HEALTHY`, completed a no-change rerun, and passed sanitized
+evidence review.
 
 For each destination:
 
@@ -229,7 +240,9 @@ For each destination:
    Environment evidence, plan VersionId/digest/size, and ledger immediately
    before apply.
 9. Transition once to APPLYING and apply the fetched binary without re-planning.
-10. Read back state and producer contract; run only sanitized health checks.
+10. Under Plan authority, bracket `terraform-layer.sh observe` with two exact
+    state reads, discard sensitive outputs, and require the three minimum
+    convergence/producer-contract checks. Do not claim generic runtime health.
 11. Commit the exact health receipt and transition to HEALTHY before continuing.
 12. Release the lock only after the ledger and evidence index agree.
 
@@ -237,15 +250,16 @@ After the full DAG, run a new speculative plan from fresh state. The expected
 result is `NO_CHANGE`; it is new evidence and never a reason to reuse an old
 plan.
 
-## Target injected-failure exercise (currently blocked)
+## Connected injected-failure exercise (not yet executed)
 
 Use only a defensive synthetic fault at an approved boundary. Do not kill a
 database write, corrupt state, delete infrastructure, or interrupt a customer
 request.
 
-Do not run this connected exercise until the real reconciliation adapters are
-wired and reviewed. The target scenario is loss of the Terraform client
-response after the apply request. Only the original active controller may
+Do not run this connected exercise until the exact implementation SHA is
+reviewed, merged, and all connected entry gates pass. The target scenario is
+loss of the Terraform client response after the apply request. Only the
+original active controller may
 transition `APPLYING -> UNCERTAIN` when it catches that unknown response. A
 later or reentered controller is read-only when it observes `APPLYING` and must
 not perform that transition. After the original controller records
@@ -254,12 +268,15 @@ not perform that transition. After the original controller records
 1. strongly consistent ledger read;
 2. read-only state lineage/serial readback;
 3. new speculative plan;
-4. exact producer-contract verification.
+4. prospective canonical producer-contract schema verification without
+   publication.
 
 Only matching lineage, advanced serial, `NO_CHANGE`, and a valid contract may
 produce `RECONCILED_APPLIED`. Anything else becomes
 `RECONCILIATION_REQUIRED`. Create a new forward-recovery change and approval;
-never retry the old saved plan.
+never retry the old saved plan. A subsequent reentry from
+`RECONCILED_APPLIED` must run the normal health and Apply-role contract
+publication/readback path before `HEALTHY`.
 
 ## Target isolation proof (currently blocked)
 
