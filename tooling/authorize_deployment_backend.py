@@ -37,6 +37,11 @@ EXPECTED_CONTROLS = {
     "state_public_access_blocked": True,
     "state_object_lock_enabled": False,
     "native_lockfile_enabled": True,
+    "plan_versioning_enabled": True,
+    "plan_default_encryption": "aws:kms",
+    "plan_bucket_key_enabled": True,
+    "plan_public_access_blocked": True,
+    "plan_lifecycle_days": 1,
 }
 DOMAIN_BOUND_LAYERS = frozenset(
     {"identity-control-plane", "edge-identity", "edge"}
@@ -437,8 +442,16 @@ def authorize_backend(
         "contract_digest": account_ready["contract_digest"],
     }:
         raise AuthorizationError("registry and ACCOUNT_READY contract binding mismatch")
-    if account_ready["controls"] != EXPECTED_CONTROLS:
-        raise AuthorizationError("ACCOUNT_READY state controls are not approved")
+    expected_controls = {
+        **EXPECTED_CONTROLS,
+        "plan_kms_key": account_ready["state_infrastructure"][
+            "evidence_kms_key"
+        ],
+    }
+    if account_ready["controls"] != expected_controls:
+        raise AuthorizationError(
+            "ACCOUNT_READY state or plan controls are not approved"
+        )
 
     _exact_bindings(manifest, target, account_ready)
     _validate_roles(account_ready)

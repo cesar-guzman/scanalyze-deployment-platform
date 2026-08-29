@@ -54,12 +54,12 @@ tooling.account_ready_v2_materializer`. It accepts a closed readback from the
 reviewed account-baseline template, the exact approved deployment target, and
 the independently retrieved target anchor. It validates the complete
 customer/deployment/account/region/environment tuple, all eight terminal role
-ARNs and resource tags, the three bucket and three KMS bindings, and all six
+ARNs and resource tags, the four bucket and three KMS bindings, and all six
 state controls before calculating the canonical digest.
 
 The producer has no AWS SDK import, subprocess path, environment/profile
 fallback, resource-discovery path, v1 conversion, or overwrite behavior. It
-requires readback bucket outputs to equal the template's three deterministic
+requires readback bucket outputs to equal the template's four deterministic
 name invariants; equality never proves live existence or ownership. Outputs are
 new owner-only files outside the repository. Repeated identical input produces
 identical contract and sanitized manifest bytes at fresh output paths; any

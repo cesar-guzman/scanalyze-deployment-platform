@@ -42,11 +42,13 @@ IAM.
 If an existing consumer depends on the default subject, the rollout is not
 ready. Updating repository subject customization can break every OIDC consumer.
 
-At the GUG-123 repository baseline, no workflow is allowed to request OIDC or
-invoke the AWS credential action. The legacy microservices publication path is
-an explicit NO-GO while validation remains available. Re-enabling it requires
-the reviewed GUG-124 evidence chain and the GUG-125 live engine; restoring its
-former variable-selected role path is forbidden.
+Under the current protected-live design, only the sole Environment-gated
+`live_saved_plan` job may request OIDC or invoke the pinned AWS credential
+action. The legacy microservices publication path must remain disabled and
+non-OIDC; it must not be re-enabled after later gates. Future publication work
+must extend the single privileged job or adopt a separately reviewed terminal
+identity architecture. Restoring the former variable-selected role path is
+forbidden.
 
 ## Phase B — prepare exact trust before customization
 
@@ -56,7 +58,10 @@ former variable-selected role path is forbidden.
    transition may contain multiple complete exact subjects; it may not contain a
    wildcard, name-only repository prefix, branch-only trust, or pull-request
    subject.
-3. Apply deployment/resource tags and 900-second maximum sessions.
+3. Apply deployment/resource tags and exact session requests: 3,600 seconds for
+   the protected orchestrator and Plan/Apply terminal path, and 900 seconds for
+   the separately controlled human Diagnostic/StateRecovery paths. Negatively
+   test any other duration.
 4. Verify generic Plan/Apply exclude `identity-control-plane`, the dedicated
    Identity-Plan/Identity-Apply roles accept only that layer, Promotion and
    Validation retain their exact stages, and break-glass can target only
@@ -68,14 +73,29 @@ former variable-selected role path is forbidden.
 1. Create or reconcile the exact deployment Environment.
 2. Configure `main`-only deployment, independent named user review,
    prevent-self-review, and no bypass.
-3. Set only the six non-secret deployment variables. Confirm reserved names are
-   absent at repository and organization scope. Store no AWS keys or role
-   credentials in GitHub.
-4. Configure the repository OIDC subject template with the five reviewed claim
+3. Set exactly these 16 non-secret deployment variables, with no extras:
+   `CUSTOMER_ID`, `DEPLOYMENT_ID`, `AWS_ACCOUNT_ID`, `AWS_REGION`,
+   `LOGICAL_ENVIRONMENT`, `OIDC_ORCHESTRATOR_ROLE_ARN`,
+   `ORCHESTRATOR_ROLE_ARN`, `GENERIC_PLAN_ROLE_ARN`,
+   `GENERIC_APPLY_ROLE_ARN`, `IDENTITY_PLAN_ROLE_ARN`,
+   `IDENTITY_APPLY_ROLE_ARN`, `PLATFORM_AUTHORITY_ACCOUNT_ID`, `REPOSITORY_ID`,
+   `REPOSITORY_OWNER_ID`, `SECOND_P0_REVIEWER_ID`, and
+   `GITHUB_ENVIRONMENT_COLLECTOR_APP_ID`. Confirm reserved names are absent at
+   repository and organization scope.
+4. Configure exactly two Environment secret names:
+   `SCANALYZE_LIVE_INPUT_BUNDLE_B64` and
+   `SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY`. Never record, print or
+   expose their values in inventory or evidence. Configure no additional
+   secret names and store no AWS keys or role credentials in GitHub.
+5. Configure the repository OIDC subject template with the five reviewed claim
    keys in exact order.
-5. Use a separate read-only collector to retrieve the new configuration and
-   create a maximum-ten-minute digest anchor.
-6. Run the GUG-123 authorizer against the registry/baseline/anchor chain.
+6. Install the collector App on exactly the intended repository with exactly
+   read-only `actions`, `environments`, `metadata`, `secrets`, and `variables`
+   permissions. Do not add a PAT or partial token-action permission inputs.
+7. Use the sole protected job to verify the App installation with an App JWT,
+   create one repository-scoped installation token, take two complete stable
+   snapshots, and revoke the token before OIDC.
+8. Run the GUG-123 authorizer against the registry/baseline/anchor chain.
 
 The workflow being governed must not create, modify, or attest its own
 Environment or OIDC configuration.
@@ -90,7 +110,8 @@ Prove denial for each synthetic attempt without revealing tokens or ARNs:
 - wrong customer, deployment, account, region, or logical stage;
 - wrong operation or layer;
 - missing/expired/altered GitHub anchor;
-- missing tag, extra tag, long session, or changed source identity;
+- missing tag, extra tag, a duration other than the path's exact 3,600- or
+  900-second request, or changed source identity;
 - absent `aws:TagKeys` context against a multivalued allowlist;
 - orchestrator to Diagnostic/StateRecovery; and
 - break-glass to Plan/Apply/Promotion/Validation.

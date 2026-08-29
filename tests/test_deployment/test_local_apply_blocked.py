@@ -166,11 +166,12 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
         "account_id": ACCOUNT_ID,
         "region": "us-east-1",
         "environment": "sandbox",
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": "2026-07-14T00:00:00Z",
         "roles": roles,
         "state_infrastructure": {
             "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
             "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
             "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
             "state_kms_key": f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:key/00000000-0000-0000-0000-000000000001",
@@ -184,6 +185,15 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
             "state_public_access_blocked": True,
             "state_object_lock_enabled": False,
             "native_lockfile_enabled": True,
+            "plan_versioning_enabled": True,
+            "plan_default_encryption": "aws:kms",
+            "plan_kms_key": (
+                f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:key/"
+                "00000000-0000-0000-0000-000000000002"
+            ),
+            "plan_bucket_key_enabled": True,
+            "plan_public_access_blocked": True,
+            "plan_lifecycle_days": 1,
         },
     }
     account_ready["contract_digest"] = _content_digest(account_ready, "contract_digest")
@@ -199,7 +209,7 @@ def _backend_evidence(tmp_path: Path) -> dict[str, Path]:
         "registry_version": 1,
         "account_ready": {
             "schema_version": "2",
-            "baseline_version": "v2.0.0",
+            "baseline_version": "v2.1.0",
             "contract_digest": account_ready["contract_digest"],
         },
         "state_binding": {
@@ -529,6 +539,25 @@ def test_saved_plan_apply_is_blocked_outside_github_before_argument_or_aws_acces
     assert not terraform_marker.exists()
 
 
+def test_saved_plan_runner_revalidates_freshness_after_init_before_apply() -> None:
+    source = (
+        REPO_ROOT / "scripts/deployment/terraform-saved-plan.sh"
+    ).read_text(encoding="utf-8")
+
+    init_position = source.index('"$TERRAFORM_BIN" -chdir="$ROOT_DIR" init')
+    digest_position = source.index(
+        'die "Controlled saved-plan digest changed before apply"'
+    )
+    action_time_position = source.index(
+        "Terraform init can consume most of a short approval window"
+    )
+    apply_position = source.index('"$TERRAFORM_BIN" -chdir="$ROOT_DIR" apply')
+
+    assert source.count("validate_apply_intent(") == 1
+    assert source.count("validate_action_time_apply(") == 1
+    assert init_position < digest_position < action_time_position < apply_position
+
+
 @pytest.mark.parametrize(
     ("event_name", "ref", "protected", "logical_environment"),
     [
@@ -584,7 +613,7 @@ def test_saved_plan_apply_rejects_noncanonical_ci_context_before_aws_access(
             "SCANALYZE_GITHUB_ENVIRONMENT": f"scanalyze-{deployment_id}-dev",
             "SCANALYZE_LOGICAL_ENVIRONMENT": logical_environment,
             "SCANALYZE_OIDC_AUDIENCE": "sts.amazonaws.com",
-            "SCANALYZE_ROLE_DURATION_SECONDS": "900",
+            "SCANALYZE_ROLE_DURATION_SECONDS": "3600",
         }
     )
 

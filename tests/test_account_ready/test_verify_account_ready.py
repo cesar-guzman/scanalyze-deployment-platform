@@ -39,6 +39,11 @@ EXPECTED_CONTROLS = {
     "state_public_access_blocked": True,
     "state_object_lock_enabled": False,
     "native_lockfile_enabled": True,
+    "plan_versioning_enabled": True,
+    "plan_default_encryption": "aws:kms",
+    "plan_bucket_key_enabled": True,
+    "plan_public_access_blocked": True,
+    "plan_lifecycle_days": 1,
 }
 
 
@@ -60,6 +65,32 @@ def _make_contract(
         "region_tag": region,
         "environment_tag": "sandbox",
     }
+    state_infrastructure = {
+        "state_bucket": (
+            f"arn:{partition}:s3:::scanalyze-{account_id}-tf-state"
+        ),
+        "plan_bucket": (
+            f"arn:{partition}:s3:::scanalyze-{account_id}-tf-plan"
+        ),
+        "evidence_bucket": (
+            f"arn:{partition}:s3:::scanalyze-{account_id}-tf-evidence"
+        ),
+        "contracts_bucket": (
+            f"arn:{partition}:s3:::scanalyze-{account_id}-contracts"
+        ),
+        "state_kms_key": (
+            f"arn:{partition}:kms:{region}:{account_id}:"
+            "key/00000000-0000-0000-0000-000000000001"
+        ),
+        "evidence_kms_key": (
+            f"arn:{partition}:kms:{region}:{account_id}:"
+            "key/00000000-0000-0000-0000-000000000002"
+        ),
+        "contracts_kms_key": (
+            f"arn:{partition}:kms:{region}:{account_id}:"
+            "key/00000000-0000-0000-0000-000000000003"
+        ),
+    }
     contract = {
         "schema_version": "2",
         "customer_id": CUSTOMER_ID,
@@ -67,7 +98,7 @@ def _make_contract(
         "account_id": account_id,
         "region": region,
         "environment": "sandbox",
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": "2026-08-16T00:00:00Z",
         "roles": {
             role: {
@@ -76,30 +107,11 @@ def _make_contract(
             }
             for role, name in ROLE_NAMES.items()
         },
-        "state_infrastructure": {
-            "state_bucket": (
-                f"arn:{partition}:s3:::scanalyze-{account_id}-tf-state"
-            ),
-            "evidence_bucket": (
-                f"arn:{partition}:s3:::scanalyze-{account_id}-tf-evidence"
-            ),
-            "contracts_bucket": (
-                f"arn:{partition}:s3:::scanalyze-{account_id}-contracts"
-            ),
-            "state_kms_key": (
-                f"arn:{partition}:kms:{region}:{account_id}:"
-                "key/00000000-0000-0000-0000-000000000001"
-            ),
-            "evidence_kms_key": (
-                f"arn:{partition}:kms:{region}:{account_id}:"
-                "key/00000000-0000-0000-0000-000000000002"
-            ),
-            "contracts_kms_key": (
-                f"arn:{partition}:kms:{region}:{account_id}:"
-                "key/00000000-0000-0000-0000-000000000003"
-            ),
+        "state_infrastructure": state_infrastructure,
+        "controls": {
+            **copy.deepcopy(EXPECTED_CONTROLS),
+            "plan_kms_key": state_infrastructure["evidence_kms_key"],
         },
-        "controls": copy.deepcopy(EXPECTED_CONTROLS),
     }
     contract["contract_digest"] = canonical_digest(contract)
     return contract
@@ -225,7 +237,7 @@ def test_unexpected_anchor_field_fails_closed(schema):
         ("account_id", OTHER_ACCOUNT_ID),
         ("region", "us-west-2"),
         ("environment", "dev"),
-        ("baseline_version", "v2.1.0"),
+        ("baseline_version", "v2.0.0"),
     ],
 )
 def test_complete_tuple_mismatch_fails(schema, field, other_value):
@@ -418,6 +430,11 @@ def test_arbitrary_same_partition_bucket_name_fails(schema, field):
         ("state_public_access_blocked", False),
         ("state_object_lock_enabled", True),
         ("native_lockfile_enabled", False),
+        ("plan_versioning_enabled", False),
+        ("plan_default_encryption", "AES256"),
+        ("plan_bucket_key_enabled", False),
+        ("plan_public_access_blocked", False),
+        ("plan_lifecycle_days", 2),
     ],
 )
 def test_every_state_control_is_fail_closed(schema, control, invalid_value):
@@ -430,6 +447,20 @@ def test_every_state_control_is_fail_closed(schema, control, invalid_value):
 
     assert not result.passed
     assert _failed_names(result) == {"schema_validation"}
+
+
+def test_plan_kms_control_must_bind_exactly_to_evidence_key(schema):
+    contract = _make_contract()
+    anchor = _make_anchor(contract)
+    contract["controls"]["plan_kms_key"] = contract["state_infrastructure"][
+        "state_kms_key"
+    ]
+    _refresh_digest(contract, anchor)
+
+    result = verify_account_ready(contract, anchor, schema)
+
+    assert not result.passed
+    assert _failed_names(result) == {"state_controls"}
 
 
 def test_cli_valid_output_is_sanitized(schema, tmp_path):

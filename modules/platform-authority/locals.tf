@@ -44,7 +44,7 @@ locals {
       github_oidc_subject                = deployment.github_oidc_subject
       repository_owner_id                = tostring(deployment.repository_owner_id)
       repository_id                      = tostring(deployment.repository_id)
-      requested_session_duration_seconds = 900
+      requested_session_duration_seconds = 3600
     }
   }
 

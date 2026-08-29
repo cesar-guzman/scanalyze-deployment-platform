@@ -3,7 +3,7 @@
 The verifier treats the contract and its expected-value anchor as independent
 inputs. It never substitutes account, customer, deployment, region,
 environment, role, bucket, key, or backend coordinates from caller input. The
-three bucket names are exact baseline-template invariants; matching them does
+four bucket names are exact baseline-template invariants; matching them does
 not prove live existence or ownership.
 """
 
@@ -26,7 +26,7 @@ except ImportError:
 EXPECTED_SCHEMA_ID = "https://scanalyze.dev/schemas/account-ready.v2.schema.json"
 EXPECTED_SCHEMA_VERSION = "2"
 EXPECTED_SCHEMA_SHA256 = (
-    "8fb75663bf42c9b78c0227e45b5110bfea04792cf6df094500b5e2f311ff8464"
+    "2cb97a4e2a9c7a4310a64d90493c706cb9126fd43ec4f25eb4c8d210e05cc0ea"
 )
 ROLE_NAMES = {
     "plan": "ScanalyzeCustomer-Plan",
@@ -42,6 +42,7 @@ REQUIRED_ROLES = frozenset(ROLE_NAMES)
 REQUIRED_INFRA = frozenset(
     {
         "state_bucket",
+        "plan_bucket",
         "evidence_bucket",
         "contracts_bucket",
         "state_kms_key",
@@ -67,6 +68,11 @@ EXPECTED_CONTROLS = {
     "state_public_access_blocked": True,
     "state_object_lock_enabled": False,
     "native_lockfile_enabled": True,
+    "plan_versioning_enabled": True,
+    "plan_default_encryption": "aws:kms",
+    "plan_bucket_key_enabled": True,
+    "plan_public_access_blocked": True,
+    "plan_lifecycle_days": 1,
 }
 ROLE_ARN_PATTERN = re.compile(
     r"^arn:(?P<partition>aws(?:-[a-z]+)*):iam::"
@@ -188,6 +194,7 @@ def _state_bindings_valid(
     infrastructure = contract["state_infrastructure"]
     expected_buckets = {
         "state_bucket": f"scanalyze-{contract['account_id']}-tf-state",
+        "plan_bucket": f"scanalyze-{contract['account_id']}-tf-plan",
         "evidence_bucket": f"scanalyze-{contract['account_id']}-tf-evidence",
         "contracts_bucket": f"scanalyze-{contract['account_id']}-contracts",
     }
@@ -319,11 +326,15 @@ def verify_account_ready(
         else "",
     )
 
-    controls_valid = contract["controls"] == EXPECTED_CONTROLS
+    expected_controls = {
+        **EXPECTED_CONTROLS,
+        "plan_kms_key": infrastructure["evidence_kms_key"],
+    }
+    controls_valid = contract["controls"] == expected_controls
     result.add(
         "state_controls",
         controls_valid,
-        "state controls do not match the approved baseline"
+        "state or plan controls do not match the approved baseline"
         if not controls_valid
         else "",
     )

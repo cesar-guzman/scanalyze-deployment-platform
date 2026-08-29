@@ -90,7 +90,7 @@ def test_oidc_trust_and_orchestrator_roles_are_exact_and_short_lived() -> None:
     assert "(?:@[0-9]+)?" in _read(MODULE / "variables.tf")
     assert "StringLike" not in trust
     assert "max_session_duration = 3600" in identity
-    assert "requested_session_duration_seconds = 900" in _read(MODULE / "locals.tf")
+    assert "requested_session_duration_seconds = 3600" in _read(MODULE / "locals.tf")
     assert "permissions_boundary = aws_iam_policy.orchestrator_boundary.arn" in identity
     assert "aws_iam_role_policy_attachment" in identity
     assert '"iam:*"' not in identity

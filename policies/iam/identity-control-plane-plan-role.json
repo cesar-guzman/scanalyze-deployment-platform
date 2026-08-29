@@ -4,7 +4,7 @@
     {
       "Sid": "ListIdentityState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -42,9 +42,10 @@
       "Sid": "WriteIdentityPlanExecutionZone",
       "Effect": "Allow",
       "Action": [
+        "s3:GetObject",
         "s3:PutObject"
       ],
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/operation": "plan",
@@ -61,7 +62,23 @@
         "kms:Encrypt",
         "kms:GenerateDataKey"
       ],
-      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
+      "Resource": [
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
+      ]
+    },
+    {
+      "Sid": "EncryptExactIdentitySavedPlan",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "plan",
+          "aws:PrincipalTag/layer": "identity-control-plane",
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
+        }
+      }
     },
     {
       "Sid": "ReadIdentityContractsAndArtifacts",
@@ -69,7 +86,8 @@
       "Action": [
         "s3:GetObject",
         "ssm:GetParameter",
-        "ssm:GetParameters"
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
       ],
       "Resource": [
         "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts/${deployment_id}/identity-control-plane/*",

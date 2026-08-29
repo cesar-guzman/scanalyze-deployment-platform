@@ -67,21 +67,53 @@ The protection evidence must prove:
 - self-review and admin bypass are prevented;
 - reserved deployment variables are absent at repository and organization
   scope;
-- the six expected non-secret variables equal the approved deployment tuple;
-- no Environment secrets are present; and
+- the Environment contains exactly these 16 non-secret variables, with values
+  equal to the approved identity contract: `CUSTOMER_ID`, `DEPLOYMENT_ID`,
+  `AWS_ACCOUNT_ID`, `AWS_REGION`, `LOGICAL_ENVIRONMENT`,
+  `OIDC_ORCHESTRATOR_ROLE_ARN`, `ORCHESTRATOR_ROLE_ARN`,
+  `GENERIC_PLAN_ROLE_ARN`, `GENERIC_APPLY_ROLE_ARN`,
+  `IDENTITY_PLAN_ROLE_ARN`, `IDENTITY_APPLY_ROLE_ARN`,
+  `PLATFORM_AUTHORITY_ACCOUNT_ID`, `REPOSITORY_ID`, `REPOSITORY_OWNER_ID`, and
+  `SECOND_P0_REVIEWER_ID`, plus `GITHUB_ENVIRONMENT_COLLECTOR_APP_ID` for the
+  reviewed collector identity;
+- the Environment secret-name inventory contains exactly
+  `SCANALYZE_LIVE_INPUT_BUNDLE_B64` and
+  `SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY`; the contract and
+  evidence bind only those names and never record, print, or expose their
+  values;
+- repository and repository-effective organization variable inventories bind
+  complete name/value maps, while their secret inventories bind names only;
+  coordinated value drift between either snapshot is denied; and
 - the repository OIDC claim customization is exact.
 
-The release workflow cannot generate this proof. A separately authorized
-read-only collector retrieves the GitHub configuration and emits only a
-short-lived digest anchor. The raw API response and real identifiers are not
-committed or sent to NotebookLM.
+The execution SHA is deliberately not an Environment variable and is not part
+of the sealed identity snapshot. The workflow verifies the dispatch SHA against
+GitHub's runtime SHA and exact checked-out `HEAD`, then binds it into the live
+context and source-revision digest. This prevents a tracked claim from needing
+to contain a digest derived from its own eventual commit SHA.
+
+The sole protected job creates one short-lived GitHub App installation token
+from the reviewed Environment App identity. An App JWT first verifies the exact
+installation, account, selected single repository and permission map
+`actions=environments=metadata=secrets=variables=read`, with no extra
+permission. The installation token performs two complete read-only snapshots
+of Environment, repository, repository-effective organization and OIDC state;
+it also supplies apply-approval metadata when applicable. The workflow revokes
+that token and removes its private material before Terraform installation,
+OIDC or the controller. The official token action cannot downscope the
+`variables` permission independently, so partial `permission-*` inputs are
+forbidden; exact installation permissions plus runtime verification are the
+least-privilege boundary. Raw API responses, values and real identifiers are
+not committed, logged, artifacted or sent to NotebookLM.
 
 ## Subject and sessions
 
 The exact subject is derived from immutable repository IDs, Environment,
 workflow ref, and event. AWS trust accepts the complete value with
-`StringEquals`; there is no wildcard or default-subject fallback. OIDC and
-terminal sessions are capped at 900 seconds.
+`StringEquals`; there is no wildcard or default-subject fallback. The protected
+orchestrator OIDC session and its Plan/Apply terminal sessions request exactly
+3,600 seconds. The protected job still ends after 45 minutes. Human Diagnostic
+and StateRecovery sessions remain separate and request exactly 900 seconds.
 
 The orchestrator passes exactly eight tags: customer, deployment, account,
 region, environment, operation, layer, and change ID. Resource tags must match

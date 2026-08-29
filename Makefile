@@ -446,13 +446,24 @@ nonprod-live-engine-check:
 		$(TESTS_DIR)/test_deployment/test_gug125_live_store.py \
 		$(TESTS_DIR)/test_deployment/test_gug125_platform_authority_factory.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_orchestrator.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_controller.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_cli.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_github_approval.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_input_materializer.py \
+		$(TESTS_DIR)/test_deployment/test_protected_live_path_docs.py \
 		$(TESTS_DIR)/test_deployment/test_local_apply_blocked.py \
 		$(TESTS_DIR)/test_governance/test_gug123_terminal_identity.py \
 		$(TESTS_DIR)/test_gitops_schemas.py \
 		-v --tb=short
 	@$(PYTHON) -m py_compile \
+		scripts/deployment/nonprod-live-approval.py \
+		scripts/deployment/nonprod-live-controller.py \
 		scripts/deployment/nonprod-live-engine.py \
+		scripts/deployment/nonprod-live-input-materializer.py \
+		$(TOOLING_DIR)/nonprod_live_controller.py \
 		$(TOOLING_DIR)/nonprod_live_engine.py \
+		$(TOOLING_DIR)/nonprod_live_github_approval.py \
+		$(TOOLING_DIR)/nonprod_live_input_materializer.py \
 		$(TOOLING_DIR)/nonprod_live_store.py \
 		$(TOOLING_DIR)/nonprod_live_orchestrator.py \
 		$(TOOLING_DIR)/validate_github_deployment_identity.py
@@ -469,7 +480,7 @@ nonprod-live-engine-check:
 		-u AWS_CONTAINER_AUTHORIZATION_TOKEN \
 		-u AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE \
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
-	@echo "GUG-382 status: REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN"
+	@echo "Live engine status: REPOSITORY_CANDIDATE / CONNECTED_DEV_NOT_PROVEN / PRODUCTION_NO_GO"
 
 # ── GUG-365 Upstream Prerequisite Check (GUG-376, offline) ───────────
 platform-authority-upstream-prerequisites-check:

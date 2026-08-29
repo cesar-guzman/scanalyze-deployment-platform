@@ -68,6 +68,8 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "github-environment-anchor": "github-environment-anchor.v{version}.schema.json",
         "github-platform-authority": "github-platform-authority.v{version}.schema.json",
         "identity-contract": "identity-contract.v{version}.schema.json",
+        "nonprod-live-input-claim": "nonprod-live-input-claim.v{version}.schema.json",
+        "nonprod-live-input-sealed-request": "nonprod-live-input-sealed-request.v{version}.schema.json",
         "platform-authority-bootstrap-authority-receipt": "platform-authority-bootstrap-authority-receipt.v{version}.schema.json",
         "platform-authority-bootstrap-approval": "platform-authority-bootstrap-approval.v{version}.schema.json",
         "platform-authority-bootstrap-artifact-authority": "platform-authority-bootstrap-artifact-authority.v{version}.schema.json",

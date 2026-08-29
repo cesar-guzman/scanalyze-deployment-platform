@@ -22,6 +22,9 @@
     "github_environment",
     "github_deployment_identity_digest",
     "environment_configuration_digest",
+    "plan_environment_anchor_digest",
+    "expected_approver_user_id",
+    "approval_authority_digest",
     "platform_authority_digest",
     "registry_record_digest",
     "account_ready_digest",
@@ -31,10 +34,16 @@
     "toolchain_digest",
     "root_module_digest",
     "source_revision_digest",
+    "state_status",
     "state_lineage",
     "state_serial",
+    "state_object_version_id",
+    "state_sha256",
+    "state_size_bytes",
     "plan_sha256",
     "plan_size_bytes",
+    "plan_summary",
+    "cost_binding",
     "storage",
     "created_at",
     "expires_at",
@@ -63,6 +72,9 @@
     },
     "github_deployment_identity_digest": { "$ref": "#/$defs/digest" },
     "environment_configuration_digest": { "$ref": "#/$defs/digest" },
+    "plan_environment_anchor_digest": { "$ref": "#/$defs/digest" },
+    "expected_approver_user_id": { "type": "integer", "minimum": 1 },
+    "approval_authority_digest": { "$ref": "#/$defs/digest" },
     "platform_authority_digest": { "$ref": "#/$defs/digest" },
     "registry_record_digest": { "$ref": "#/$defs/digest" },
     "account_ready_digest": { "$ref": "#/$defs/digest" },
@@ -72,10 +84,129 @@
     "toolchain_digest": { "$ref": "#/$defs/digest" },
     "root_module_digest": { "$ref": "#/$defs/digest" },
     "source_revision_digest": { "$ref": "#/$defs/digest" },
-    "state_lineage": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
-    "state_serial": { "type": "integer", "minimum": 0 },
+    "state_status": { "enum": ["PRESENT", "ABSENT"] },
+    "state_lineage": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$" },
+        { "type": "null" }
+      ]
+    },
+    "state_serial": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "null" }
+      ]
+    },
+    "state_object_version_id": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 1024 },
+        { "type": "null" }
+      ]
+    },
+    "state_sha256": {
+      "oneOf": [
+        { "$ref": "#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "state_size_bytes": {
+      "oneOf": [
+        { "type": "integer", "minimum": 2, "maximum": 1073741824 },
+        { "type": "null" }
+      ]
+    },
     "plan_sha256": { "$ref": "#/$defs/digest" },
     "plan_size_bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+    "plan_summary": {
+      "type": "object",
+      "required": [
+        "add_count",
+        "change_count",
+        "read_count",
+        "no_op_count",
+        "destroy_count",
+        "replace_count",
+        "output_create_count",
+        "output_update_count",
+        "output_delete_count",
+        "output_no_op_count",
+        "output_change_count",
+        "output_actions",
+        "applyable",
+        "resource_change_count",
+        "resource_actions",
+        "classification",
+        "summary_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "add_count": { "$ref": "#/$defs/count" },
+        "change_count": { "$ref": "#/$defs/count" },
+        "read_count": { "$ref": "#/$defs/count" },
+        "no_op_count": { "$ref": "#/$defs/count" },
+        "destroy_count": { "const": 0 },
+        "replace_count": { "const": 0 },
+        "output_create_count": { "$ref": "#/$defs/count" },
+        "output_update_count": { "$ref": "#/$defs/count" },
+        "output_delete_count": { "$ref": "#/$defs/count" },
+        "output_no_op_count": { "$ref": "#/$defs/count" },
+        "output_change_count": { "$ref": "#/$defs/count" },
+        "output_actions": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": ["output_name", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "output_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "action": { "enum": ["create", "update", "delete"] }
+            }
+          }
+        },
+        "applyable": { "type": "boolean" },
+        "resource_change_count": { "$ref": "#/$defs/count" },
+        "resource_actions": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["resource_type", "resource_name", "action", "address_digest"],
+            "additionalProperties": false,
+            "properties": {
+              "resource_type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "resource_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "action": { "enum": ["create", "update", "read", "delete", "replace"] },
+              "address_digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "classification": { "enum": ["NO_CHANGE", "CHANGE"] },
+        "summary_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "cost_binding": {
+      "type": "object",
+      "required": [
+        "cost_model_digest",
+        "maximum_cost_usd_micros",
+        "modeled_cost_upper_bound_usd_micros"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cost_model_digest": { "$ref": "#/$defs/digest" },
+        "maximum_cost_usd_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "modeled_cost_upper_bound_usd_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        }
+      }
+    },
     "storage": {
       "type": "object",
       "required": ["bucket", "object_key", "object_version_id"],
@@ -93,11 +224,39 @@
     "expires_at": { "type": "string", "format": "date-time" },
     "record_digest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "state_status": { "const": "PRESENT" } } },
+      "then": {
+        "properties": {
+          "state_lineage": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$"
+          },
+          "state_serial": { "type": "integer", "minimum": 0 }
+          ,
+          "state_object_version_id": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "state_sha256": { "$ref": "#/$defs/digest" },
+          "state_size_bytes": { "type": "integer", "minimum": 2, "maximum": 1073741824 }
+        }
+      },
+      "else": {
+        "properties": {
+          "state_lineage": { "type": "null" },
+          "state_serial": { "type": "null" },
+          "state_object_version_id": { "type": "null" },
+          "state_sha256": { "type": "null" },
+          "state_size_bytes": { "type": "null" }
+        }
+      }
+    }
+  ],
   "$defs": {
     "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
     "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
     "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
     "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
-    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 1000000 }
   }
 }

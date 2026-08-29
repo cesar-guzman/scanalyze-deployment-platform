@@ -4,7 +4,7 @@
     {
       "Sid": "ListIdentityState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -45,7 +45,7 @@
       "Action": [
         "s3:GetObjectVersion"
       ],
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan",
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/operation": "apply",
@@ -57,7 +57,15 @@
       "Sid": "ReadSavedPlanKey",
       "Effect": "Allow",
       "Action": "kms:Decrypt",
-      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": "identity-control-plane",
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
+        }
+      }
     },
     {
       "Sid": "ReadApprovedArtifacts",
@@ -73,8 +81,10 @@
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
+        "ssm:AddTagsToResource",
         "ssm:GetParameter",
         "ssm:GetParameters",
+        "ssm:ListTagsForResource",
         "ssm:PutParameter"
       ],
       "Resource": [

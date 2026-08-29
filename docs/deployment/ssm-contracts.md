@@ -5,8 +5,11 @@
 SSM envelopes are the accepted target interface between Terraform layers.
 GUG-121 implements real root payloads, strict offline resolution, and the
 pre-plan consumer guard. GUG-381 makes contract resolution v3 the only active
-offline artifact. IAM enforcement, live SSM resolution/publication, and the
-typed live-input materializer remain blocked; GUG-382 does not enable them.
+offline artifact. The protected live-path amendment adds typed private
+materialization plus explicit live SSM resolution and publication adapters.
+Those adapters are repository candidates: their AWS behavior is covered by
+hermetic command-contract tests, but no connected AWS execution or deployment
+is claimed by this document.
 
 ## Canonical Contract
 
@@ -86,27 +89,85 @@ python scripts/deployment/validate-layer-dag.py deployment/layers.yaml
 make gitops-orchestrator-check
 ```
 
-`publish-contract.py` renders a candidate envelope to a local output file. It
-does not write SSM. `resolve-contracts.py` accepts only explicitly acknowledged
-test fixtures and creates a content-bound owner-readable resolution v3 outside
-the repository. Resolution v3 carries canonical Terraform v2 envelopes and the
-catalog-owned `account-ready/v2` evidence in disjoint, closed record shapes. It
-binds ACCOUNT_READY to the already authorized backend-binding digest and does
-not carry independently editable materialized variables. `terraform-layer.sh`
+`publish-contract.py` defaults to a local dry run. `resolve-contracts.py`
+accepts fixtures only with `--allow-fixtures`. Both create exclusive mode-0600
+outputs outside the repository. Resolution v3 carries canonical Terraform v2
+envelopes and catalog-owned `account-ready/v2` evidence in disjoint, closed
+record shapes. It binds ACCOUNT_READY to the authorized backend-binding digest
+and never carries independently editable materialized variables.
+
+The explicit `--live` modes implement the AWS transport boundary. They require:
+
+- `SCANALYZE_ALLOW_LIVE=1` as an action-time acknowledgement;
+- an explicit `--aws-region` and exactly one of a named `--aws-profile` or
+  `--use-runtime-credentials`;
+- a successful `sts:GetCallerIdentity` match to the expected 12-digit account,
+  with root identities rejected;
+- canonical repository schemas, catalog, DAG, contract set and action-time
+  timestamps; and
+- an exclusive private output reserved before the first AWS call.
+
+The live resolver performs two bounded, paginated
+`ssm:GetParametersByPath` snapshots for each exact catalog release prefix. It
+requires one immutable digest leaf, then performs two exact
+`ssm:GetParameter` reads and rejects missing, ambiguous, moving or foreign
+content. The conceptual `sha256:<hex>` digest is mapped one-to-one to the
+SSM-safe path component `sha256-<hex>`; no mutable `latest` pointer exists.
+
+The live publisher validates Terraform outputs and the canonical envelope
+before AWS access. It performs one `ssm:PutParameter` with Standard/String,
+version 1, exact tags and `--no-overwrite`, followed by two exact parameter and
+two exact tag readbacks. If the create response is lost, or an earlier protected
+invocation already created the same content-addressed record, those four exact
+readbacks reconcile success without a second write. Missing or different
+content remains a terminal conflict; the tool never overwrites or silently
+selects it. IAM limits the writer to its own deployment/layer contract prefix
+and permits only the readbacks needed to attest publication.
+
+Example shapes (placeholders are intentional):
+
+```bash
+SCANALYZE_ALLOW_LIVE=1 python scripts/deployment/resolve-contracts.py \
+  --live --use-runtime-credentials \
+  --layer <consumer-layer> \
+  --customer-id <cust_ULID> \
+  --deployment-id <deployment-id> \
+  --account-id <12-digit-account-id> \
+  --region <contract-region> --aws-region <aws-api-region> \
+  --release-digest sha256:<64-hex> \
+  --release-version <version> \
+  --resolved-at <RFC3339> \
+  --required-contract <producer>/v1 \
+  --out <private-absolute-path>
+
+SCANALYZE_ALLOW_LIVE=1 python scripts/deployment/publish-contract.py \
+  --live --use-runtime-credentials \
+  --from-terraform-output-json <private-output-json> \
+  --layer <producer-layer> \
+  --customer-id <cust_ULID> \
+  --deployment-id <deployment-id> \
+  --account-id <12-digit-account-id> \
+  --region <contract-region> --aws-region <aws-api-region> \
+  --release-digest sha256:<64-hex> \
+  --release-version <version> \
+  --produced-at <RFC3339> \
+  --state-key <exact-state-key> \
+  --out <private-absolute-path>
+```
+
+These commands are runtime primitives, not permission to execute them. The
+protected workflow must derive every argument from sealed authority and exact
+plan/state evidence; a workflow variable, artifact, repository file or
+caller-supplied substitute cannot become authority. `terraform-layer.sh`
 requires resolution v3, rejects ambient `TF_*`, and has no fallback.
 
-Both `resolve-contracts.py --live` and `publish-contract.py --live` remain
-blocked before AWS I/O. GUG-382's protected workflow also stops before OIDC
-with `LIVE_INPUT_MATERIALIZATION_NOT_PROVEN`; a variable, workflow artifact, or
-caller-supplied path cannot substitute for an authenticated registry/SSM
-materializer. No live read or publication is enabled by this documentation.
-
-The identity stage's local fixture and mock-provider tests prove only schema,
-binding, DAG, and Terraform configuration behavior. They do not prove live SSM
-publication, writer IAM, provider creation, token issuance, bootstrap, M2M
-credential custody, migration, or consumer readback. Those remain **Blocked**
-and production remains **NO-GO**. GUG-382 is classified
-`REPOSITORY_CANDIDATE / LIVE_NOT_PROVEN`; no AWS action was executed.
+The local and hermetic tests prove schema, binding, DAG, command construction,
+failure behavior and Terraform configuration behavior. They do not prove a
+connected SSM read/write, deployed IAM, provider creation, token issuance,
+bootstrap, M2M credential custody, migration, application health or production
+acceptance. The current path is therefore
+`REPOSITORY_CANDIDATE / CONNECTED_DEV_NOT_PROVEN / PRODUCTION_NO_GO`;
+`AWS_CALLS=0` and `AWS_MUTATIONS=0` while implementing this amendment.
 
 ## Legacy Per-Key Parameters
 

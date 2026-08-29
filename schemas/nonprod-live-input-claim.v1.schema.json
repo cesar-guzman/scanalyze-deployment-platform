@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/nonprod-live-input-claim.v1.schema.json",
+  "title": "Scanalyze repository-attested non-production live-input claim v1",
+  "description": "Git-safe reviewed authority for one exact private sealed request. The private request and resolved values remain outside Git.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "repository",
+    "deployment_id",
+    "environment",
+    "region",
+    "layer",
+    "operation",
+    "execution_id",
+    "change_id",
+    "release_digest",
+    "maximum_cost_usd_micros",
+    "deployment_request",
+    "deployment_request_digest",
+    "sealed_request_digest",
+    "valid_from",
+    "expires_at",
+    "claim_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "nonprod_live_input_claim" },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "environment": { "const": "dev" },
+    "region": { "$ref": "#/$defs/region" },
+    "layer": {
+      "enum": [
+        "global",
+        "network",
+        "platform",
+        "data-foundation",
+        "cicd",
+        "identity-control-plane",
+        "services",
+        "edge-identity",
+        "edge",
+        "addons"
+      ]
+    },
+    "operation": { "enum": ["plan", "apply"] },
+    "execution_id": {
+      "type": "string",
+      "pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "change_id": {
+      "type": "string",
+      "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "release_digest": { "$ref": "#/$defs/digest" },
+    "maximum_cost_usd_micros": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000000
+    },
+    "deployment_request": { "type": "object", "minProperties": 1 },
+    "deployment_request_digest": { "$ref": "#/$defs/digest" },
+    "sealed_request_digest": { "$ref": "#/$defs/digest" },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "claim_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

@@ -11,35 +11,35 @@
       "Resource": "*",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan"
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Plan",
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan"
         ]
       },
       "Condition": {
         "StringEquals": {
-          "kms:ViaService": "s3.${region}.amazonaws.com",
-          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
         }
       }
     },
     {
-      "Sid": "AllowApplyEncrypt",
+      "Sid": "AllowPlanReconcile",
       "Effect": "Allow",
       "Action": [
-        "kms:Encrypt",
+        "kms:Decrypt",
         "kms:GenerateDataKey"
       ],
       "Resource": "*",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Plan",
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan"
         ]
       },
       "Condition": {
         "StringEquals": {
-          "kms:ViaService": "s3.${region}.amazonaws.com",
-          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
         }
       }
     },
@@ -52,14 +52,14 @@
       "Resource": "*",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Apply",
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
         ]
       },
       "Condition": {
         "StringEquals": {
-          "kms:ViaService": "s3.${region}.amazonaws.com",
-          "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence"
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
         }
       }
     },
@@ -72,8 +72,8 @@
       "Resource": "*",
       "Principal": {
         "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Validation",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic"
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Validation",
+          "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic"
         ]
       }
     },
@@ -95,7 +95,7 @@
       ],
       "Resource": "*",
       "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:root"
+        "AWS": "arn:${aws_partition}:iam::${account_id}:root"
       }
     },
     {
@@ -106,7 +106,7 @@
       "Principal": "*",
       "Condition": {
         "StringNotLike": {
-          "aws:PrincipalArn": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
+          "aws:PrincipalArn": "arn:${aws_partition}:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
         }
       }
     }

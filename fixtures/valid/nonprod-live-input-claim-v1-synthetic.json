@@ -1,0 +1,36 @@
+{
+  "schema_version": "1",
+  "record_type": "nonprod_live_input_claim",
+  "repository": "synthetic/scanalyze-deployment-platform",
+  "deployment_id": "dep_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "environment": "dev",
+  "region": "us-east-1",
+  "layer": "global",
+  "operation": "plan",
+  "execution_id": "exec_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "change_id": "chg_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "release_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "maximum_cost_usd_micros": 10000000,
+  "deployment_request": {
+    "schema_version": "1",
+    "deployment_id": "dep_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "environment": "dev",
+    "release_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "requested_by": "github:synthetic-author",
+    "requested_at": "2026-08-28T19:00:00Z",
+    "change_ticket": "GUG-125",
+    "target_layer": "global",
+    "approval": {
+      "status": "approved",
+      "requested_reviewers": ["github:synthetic-reviewer"],
+      "decided_by": "github:synthetic-reviewer",
+      "decided_at": "2026-08-28T19:30:00Z"
+    },
+    "non_sensitive_selectors": {"region": "us-east-1"}
+  },
+  "deployment_request_digest": "sha256:7721dee2f1833fe3f3e891047680feb3695a34413bcaf923f2a5a3fd40bd76cc",
+  "sealed_request_digest": "sha256:73654f02e8ade0c71e4665a6809fafeec565944fc4ef6bf175be737cf795a257",
+  "valid_from": "2026-08-28T20:00:00Z",
+  "expires_at": "2026-08-28T21:00:00Z",
+  "claim_digest": "sha256:2aa3f4da9ec914a4d63436a45a4f9c0f42ace2bc257b04405ddd3e9c12c9ed1f"
+}

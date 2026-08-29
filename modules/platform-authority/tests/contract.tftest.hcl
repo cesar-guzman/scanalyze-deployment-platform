@@ -79,7 +79,7 @@ run "creates_two_isolated_customer_orchestrators" {
   assert {
     condition = alltrue([
       for binding in values(output.contract_payload.orchestrator_roles) :
-      binding.requested_session_duration_seconds == 900
+      binding.requested_session_duration_seconds == 3600
     ])
     error_message = "the OIDC caller contract must request the 15-minute STS minimum"
   }

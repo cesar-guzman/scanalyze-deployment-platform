@@ -6,6 +6,7 @@ import os
 import stat
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -131,6 +132,60 @@ def _run(args: list[str], env: dict[str, str] | None = None) -> subprocess.Compl
 
 def _write_json(path: Path, document: dict) -> None:
     path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def _write_stateful_fake_aws(
+    executable: Path,
+    *,
+    state_path: Path,
+    calls_path: Path,
+) -> None:
+    """Create a hermetic AWS CLI fake for the live contract lifecycle."""
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        f"state_path = Path({str(state_path)!r})\n"
+        f"calls_path = Path({str(calls_path)!r})\n"
+        "args = sys.argv[1:]\n"
+        "service, operation = args[0], args[1]\n"
+        "def value(option):\n"
+        "    return args[args.index(option) + 1]\n"
+        "region = value('--region')\n"
+        "account = os.environ['FAKE_AWS_ACCOUNT_ID']\n"
+        "calls = json.loads(calls_path.read_text()) if calls_path.exists() else []\n"
+        "entry = {'service': service, 'operation': operation, 'region': region}\n"
+        "if operation == 'put-parameter':\n"
+        "    entry['no_overwrite'] = '--no-overwrite' in args\n"
+        "    entry['tag_count'] = len(json.loads(value('--tags')))\n"
+        "calls.append(entry)\n"
+        "calls_path.write_text(json.dumps(calls))\n"
+        "state = json.loads(state_path.read_text()) if state_path.exists() else {}\n"
+        "if (service, operation) == ('sts', 'get-caller-identity'):\n"
+        "    result = {'Account': account, 'Arn': f'arn:aws:sts::{account}:assumed-role/ScanalyzePlan/fake', 'UserId': 'AROATEST:fake'}\n"
+        "elif (service, operation) == ('ssm', 'put-parameter'):\n"
+        "    name = value('--name')\n"
+        "    if name in state or '--no-overwrite' not in args:\n"
+        "        sys.exit(254)\n"
+        "    state[name] = {'parameter': {'Name': name, 'Type': 'String', 'Value': value('--value'), 'Version': 1, 'ARN': f'arn:aws:ssm:{region}:{account}:parameter{name}', 'DataType': 'text'}, 'tags': json.loads(value('--tags'))}\n"
+        "    state_path.write_text(json.dumps(state))\n"
+        "    result = {'Version': 1, 'Tier': 'Standard'}\n"
+        "elif (service, operation) == ('ssm', 'get-parameter'):\n"
+        "    result = {'Parameter': state[value('--name')]['parameter']}\n"
+        "elif (service, operation) == ('ssm', 'list-tags-for-resource'):\n"
+        "    result = {'TagList': state[value('--resource-id')]['tags']}\n"
+        "elif (service, operation) == ('ssm', 'get-parameters-by-path'):\n"
+        "    prefix = value('--path') + '/'\n"
+        "    if '--next-token' not in args:\n"
+        "        result = {'Parameters': [], 'NextToken': 'page-2'}\n"
+        "    else:\n"
+        "        result = {'Parameters': [item['parameter'] for name, item in sorted(state.items()) if name.startswith(prefix)]}\n"
+        "else:\n"
+        "    sys.exit(253)\n"
+        "print(json.dumps(result))\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
 
 
 def test_publish_is_dry_run_and_writes_valid_mode_0600_envelope(
@@ -326,31 +381,24 @@ def test_publish_rejects_sensitive_output_without_echoing_secret(tmp_path, globa
     assert not output.exists()
 
 
-@pytest.mark.parametrize("acknowledged", [False, True])
-def test_publish_live_mode_is_always_blocked_before_writing(
-    tmp_path, global_outputs, acknowledged
+def test_publish_live_mode_requires_acknowledgement_before_aws(
+    tmp_path, global_outputs
 ):
     source = tmp_path / "terraform-output.json"
     output = tmp_path / "global-envelope.json"
     _write_json(source, _terraform_output(global_outputs))
     args = _publish_args(source, output) + ["--live"]
     env = os.environ.copy()
-    if acknowledged:
-        env["SCANALYZE_ALLOW_LIVE"] = "1"
-    else:
-        env.pop("SCANALYZE_ALLOW_LIVE", None)
+    env.pop("SCANALYZE_ALLOW_LIVE", None)
 
     result = _run(args, env=env)
 
     assert result.returncode == 2
     assert "BLOCKED_LIVE" in result.stderr
-    if acknowledged:
-        assert "not implemented" in result.stderr
     assert not output.exists()
 
 
-@pytest.mark.parametrize("acknowledged", [False, True])
-def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledged):
+def test_resolve_live_mode_requires_acknowledgement_before_aws(tmp_path):
     output = tmp_path / "network.auto.tfvars.json"
     aws_marker = tmp_path / "aws-called"
     fake_bin = tmp_path / "bin"
@@ -367,22 +415,22 @@ def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledg
         sys.executable,
         str(RESOLVE_SCRIPT),
         "--live",
-            "--layer",
-            "network",
-            "--customer-id",
-            CUSTOMER_ID,
+        "--layer",
+        "network",
+        "--customer-id",
+        CUSTOMER_ID,
         "--deployment-id",
         DEPLOYMENT_ID,
         "--account-id",
         ACCOUNT_ID,
         "--region",
         "us-east-1",
-            "--release-digest",
-            RELEASE_DIGEST,
-            "--release-version",
-            RELEASE_VERSION,
-            "--resolved-at",
-            RESOLVED_AT,
+        "--release-digest",
+        RELEASE_DIGEST,
+        "--release-version",
+        RELEASE_VERSION,
+        "--resolved-at",
+        RESOLVED_AT,
         "--required-contract",
         "global/v1",
         "--out",
@@ -390,16 +438,224 @@ def test_resolve_live_mode_is_always_blocked_before_writing(tmp_path, acknowledg
     ]
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
-    if acknowledged:
-        env["SCANALYZE_ALLOW_LIVE"] = "1"
-    else:
-        env.pop("SCANALYZE_ALLOW_LIVE", None)
+    env.pop("SCANALYZE_ALLOW_LIVE", None)
 
     result = _run(args, env=env)
 
     assert result.returncode == 2
     assert "BLOCKED_LIVE" in result.stderr
-    if acknowledged:
-        assert "not implemented" in result.stderr
     assert not output.exists()
     assert not aws_marker.exists()
+
+
+def test_live_publish_then_resolve_uses_create_only_ssm_and_exact_readback(
+    tmp_path, global_outputs
+):
+    action_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    terraform_output = tmp_path / "terraform-output.json"
+    envelope_path = tmp_path / "global-envelope.json"
+    resolution_path = tmp_path / "network.resolution.json"
+    replay_path = tmp_path / "replay-envelope.json"
+    fake_aws = tmp_path / "aws"
+    state_path = tmp_path / "ssm-state.json"
+    calls_path = tmp_path / "aws-calls.json"
+    _write_json(terraform_output, _terraform_output(global_outputs))
+    _write_stateful_fake_aws(
+        fake_aws,
+        state_path=state_path,
+        calls_path=calls_path,
+    )
+    env = os.environ.copy()
+    env["SCANALYZE_ALLOW_LIVE"] = "1"
+    env["FAKE_AWS_ACCOUNT_ID"] = ACCOUNT_ID
+
+    publish_args = _publish_args(terraform_output, envelope_path) + [
+        "--live",
+        "--aws-region",
+        "us-east-1",
+        "--use-runtime-credentials",
+        "--aws-cli",
+        str(fake_aws),
+    ]
+    publish_args[publish_args.index(PRODUCED_AT)] = action_time
+    published = _run(publish_args, env=env)
+    assert published.returncode == 0, published.stderr
+    assert "published immutable contract" in published.stdout
+    assert ACCOUNT_ID not in published.stdout + published.stderr
+    assert stat.S_IMODE(envelope_path.stat().st_mode) == 0o600
+
+    resolved = _run(
+        [
+            sys.executable,
+            str(RESOLVE_SCRIPT),
+            "--live",
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--aws-region",
+            "us-east-1",
+            "--use-runtime-credentials",
+            "--aws-cli",
+            str(fake_aws),
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--release-version",
+            RELEASE_VERSION,
+            "--resolved-at",
+            action_time,
+            "--required-contract",
+            "global/v1",
+            "--out",
+            str(resolution_path),
+        ],
+        env=env,
+    )
+    assert resolved.returncode == 0, resolved.stderr
+    assert ACCOUNT_ID not in resolved.stdout + resolved.stderr
+    resolution = json.loads(resolution_path.read_text(encoding="utf-8"))
+    assert resolution["required_contracts"] == [
+        json.loads(envelope_path.read_text(encoding="utf-8"))
+    ]
+    assert stat.S_IMODE(resolution_path.stat().st_mode) == 0o600
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert len(state) == 1
+    parameter_name = next(iter(state))
+    assert ":" not in parameter_name
+    assert "/releases/sha256-" in parameter_name
+    calls = json.loads(calls_path.read_text(encoding="utf-8"))
+    assert calls[0]["operation"] == "get-caller-identity"
+    assert [call["operation"] for call in calls].count("put-parameter") == 1
+    put = next(call for call in calls if call["operation"] == "put-parameter")
+    assert put == {
+        "service": "ssm",
+        "operation": "put-parameter",
+        "region": "us-east-1",
+        "no_overwrite": True,
+        "tag_count": 7,
+    }
+    assert all(call["region"] == "us-east-1" for call in calls)
+
+    replay_args = [
+        replay_path.as_posix() if value == envelope_path.as_posix() else value
+        for value in publish_args
+    ]
+    replayed = _run(replay_args, env=env)
+    assert replayed.returncode == 0, replayed.stderr
+    assert "published immutable contract" in replayed.stdout
+    assert json.loads(replay_path.read_text(encoding="utf-8")) == json.loads(
+        envelope_path.read_text(encoding="utf-8")
+    )
+    assert stat.S_IMODE(replay_path.stat().st_mode) == 0o600
+    replay_calls = json.loads(calls_path.read_text(encoding="utf-8"))
+    assert [call["operation"] for call in replay_calls].count("put-parameter") == 2
+    assert [call["operation"] for call in replay_calls].count("get-parameter") >= 6
+    assert [call["operation"] for call in replay_calls].count(
+        "list-tags-for-resource"
+    ) == 4
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("schema", "schema validation failed"),
+        ("digest", "digest verification failed"),
+        ("stale", "contract is stale"),
+    ],
+)
+def test_live_resolution_rejects_invalid_or_stale_ssm_envelope(
+    tmp_path, global_outputs, case, expected
+):
+    action_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    terraform_output = tmp_path / "terraform-output.json"
+    envelope_path = tmp_path / "global-envelope.json"
+    resolution_path = tmp_path / "network.resolution.json"
+    fake_aws = tmp_path / "aws"
+    state_path = tmp_path / "ssm-state.json"
+    calls_path = tmp_path / "aws-calls.json"
+    _write_json(terraform_output, _terraform_output(global_outputs))
+    _write_stateful_fake_aws(
+        fake_aws,
+        state_path=state_path,
+        calls_path=calls_path,
+    )
+    env = os.environ.copy()
+    env["SCANALYZE_ALLOW_LIVE"] = "1"
+    env["FAKE_AWS_ACCOUNT_ID"] = ACCOUNT_ID
+    publish_args = _publish_args(terraform_output, envelope_path) + [
+        "--live",
+        "--aws-region",
+        "us-east-1",
+        "--use-runtime-credentials",
+        "--aws-cli",
+        str(fake_aws),
+    ]
+    publish_args[publish_args.index(PRODUCED_AT)] = action_time
+    published = _run(publish_args, env=env)
+    assert published.returncode == 0, published.stderr
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    stored = next(iter(state.values()))["parameter"]
+    envelope = json.loads(stored["Value"])
+    if case == "schema":
+        envelope.pop("module_source_digest")
+    elif case == "digest":
+        envelope["outputs"]["ecs_execution_role_arn"] = (
+            f"arn:aws:iam::{ACCOUNT_ID}:role/Altered"
+        )
+    else:
+        envelope["produced_at"] = "2026-07-01T00:00:00Z"
+    stored["Value"] = json.dumps(envelope, sort_keys=True, separators=(",", ":"))
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = _run(
+        [
+            sys.executable,
+            str(RESOLVE_SCRIPT),
+            "--live",
+            "--layer",
+            "network",
+            "--customer-id",
+            CUSTOMER_ID,
+            "--deployment-id",
+            DEPLOYMENT_ID,
+            "--account-id",
+            ACCOUNT_ID,
+            "--region",
+            "us-east-1",
+            "--aws-region",
+            "us-east-1",
+            "--use-runtime-credentials",
+            "--aws-cli",
+            str(fake_aws),
+            "--release-digest",
+            RELEASE_DIGEST,
+            "--release-version",
+            RELEASE_VERSION,
+            "--resolved-at",
+            action_time,
+            "--max-contract-age-seconds",
+            "3600",
+            "--required-contract",
+            "global/v1",
+            "--out",
+            str(resolution_path),
+        ],
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert expected in result.stderr
+    assert ACCOUNT_ID not in result.stdout + result.stderr
+    assert not resolution_path.exists()

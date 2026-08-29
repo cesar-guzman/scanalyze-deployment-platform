@@ -5,6 +5,7 @@ responses, plan bytes, object locators, credentials, or ledger documents.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ from tooling.nonprod_live_engine import (
     CREDENTIAL_ENVIRONMENT_NAMES,
     TERRAFORM_LAYERS,
     require_terminal_role_for_layer,
+    validate_execution_ledger_document,
     validate_health_receipt_document,
     validate_reconciliation_receipt_document,
     validate_saved_plan_approval_document,
@@ -50,6 +52,7 @@ DEPLOYMENT_ID = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
 CUSTOMER_ID = re.compile(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")
 EXECUTION_ID = re.compile(r"^exec_[0-9A-HJKMNP-TV-Z]{26}$")
 CHANGE_ID = re.compile(r"^chg_[0-9A-HJKMNP-TV-Z]{26}$")
+DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 CONTROL_RECORD_TYPES = frozenset({"plan", "approval", "health", "reconciliation"})
 TERMINAL_CHILD_ENVIRONMENT_NAMES = frozenset(
     {
@@ -62,8 +65,10 @@ TERMINAL_CHILD_ENVIRONMENT_NAMES = frozenset(
         "GITHUB_REPOSITORY_ID",
         "GITHUB_REPOSITORY_OWNER_ID",
         "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT",
         "GITHUB_SHA",
         "GITHUB_WORKFLOW_REF",
+        "GITHUB_WORKFLOW_SHA",
         "PATH",
         "RUNNER_TEMP",
         "SCANALYZE_ALLOW_LIVE",
@@ -138,7 +143,7 @@ def _validate_plan_location(
     bucket: str,
     object_key: str,
 ) -> None:
-    if bucket != f"scanalyze-{account_id}-tf-state":
+    if bucket != f"scanalyze-{account_id}-tf-plan":
         raise AuthorizationError("saved plan bucket is not canonical")
     parts = object_key.split("/")
     if (
@@ -173,6 +178,13 @@ def _control_record_key(kind: str, document: Mapping[str, Any]) -> str:
         raise AuthorizationError("execution control record binding is incomplete") from exc
     if not isinstance(execution_id, str) or not isinstance(layer, str):
         raise AuthorizationError("execution control record binding is invalid")
+    if kind == "approval":
+        approval_digest = document.get("approval_digest")
+        if not isinstance(approval_digest, str) or not DIGEST.fullmatch(
+            approval_digest
+        ):
+            raise AuthorizationError("approval control record digest is invalid")
+        return f"{kind}#{execution_id}#{layer}#{approval_digest[7:]}"
     return f"{kind}#{execution_id}#{layer}"
 
 
@@ -274,45 +286,109 @@ class AwsCliPlanStore:
             raise AuthorizationError("saved plan KMS key binding is invalid")
         if not path.is_file() or path.is_symlink():
             raise AuthorizationError("saved plan input must be a regular file")
-        response = _json_output(
-            self._run(
-                (
-                    "aws",
-                    "s3api",
-                    "put-object",
-                    "--region",
-                    self.region,
-                    "--bucket",
-                    bucket,
-                    "--key",
-                    object_key,
-                    "--body",
-                    str(path),
-                    "--server-side-encryption",
-                    "aws:kms",
-                    "--ssekms-key-id",
-                    kms_key_arn,
-                    "--bucket-key-enabled",
-                    "--checksum-algorithm",
-                    "SHA256",
-                    "--if-none-match",
-                    "*",
-                    "--output",
-                    "json",
-                )
-            ),
-            "saved plan write",
-        )
-        version_id = response.get("VersionId")
-        if not isinstance(version_id, str) or not version_id or version_id == "null":
-            raise AuthorizationError("saved plan write did not return an immutable version")
-        return {
-            "bucket": bucket,
-            "object_key": object_key,
-            "object_version_id": version_id,
-            "sha256": _sha256(path),
-            "size_bytes": path.stat().st_size,
+        plan_sha256 = _sha256(path)
+        plan_size = path.stat().st_size
+        checksum = base64.b64encode(bytes.fromhex(plan_sha256[7:])).decode("ascii")
+        metadata = {
+            "scanalyze-sha256": plan_sha256[7:],
+            "scanalyze-size-bytes": str(plan_size),
         }
+        put_command = (
+            "aws",
+            "s3api",
+            "put-object",
+            "--region",
+            self.region,
+            "--bucket",
+            bucket,
+            "--key",
+            object_key,
+            "--body",
+            str(path),
+            "--server-side-encryption",
+            "aws:kms",
+            "--ssekms-key-id",
+            kms_key_arn,
+            "--bucket-key-enabled",
+            "--checksum-algorithm",
+            "SHA256",
+            "--checksum-sha256",
+            checksum,
+            "--metadata",
+            json.dumps(metadata, sort_keys=True),
+            "--if-none-match",
+            "*",
+            "--output",
+            "json",
+        )
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = _json_output(self._run(put_command), "saved plan write")
+                version_id = response.get("VersionId")
+                if not isinstance(version_id, str) or not version_id or version_id == "null":
+                    raise AuthorizationError(
+                        "saved plan write did not return an immutable version"
+                    )
+                return {
+                    "bucket": bucket,
+                    "object_key": object_key,
+                    "object_version_id": version_id,
+                    "sha256": plan_sha256,
+                    "size_bytes": plan_size,
+                }
+            except Exception as exc:
+                last_error = exc
+            for _read_attempt in range(2):
+                try:
+                    head = _json_output(
+                        self._run(
+                            (
+                                "aws",
+                                "s3api",
+                                "head-object",
+                                "--region",
+                                self.region,
+                                "--bucket",
+                                bucket,
+                                "--key",
+                                object_key,
+                                "--checksum-mode",
+                                "ENABLED",
+                                "--output",
+                                "json",
+                            )
+                        ),
+                        "saved plan reconciliation read",
+                    )
+                except Exception:
+                    continue
+                version_id = head.get("VersionId")
+                exact = (
+                    isinstance(version_id, str)
+                    and bool(version_id)
+                    and version_id != "null"
+                    and head.get("ContentLength") == plan_size
+                    and head.get("ServerSideEncryption") == "aws:kms"
+                    and head.get("SSEKMSKeyId") == kms_key_arn
+                    and head.get("BucketKeyEnabled") is True
+                    and head.get("ChecksumSHA256") == checksum
+                    and head.get("Metadata") == metadata
+                )
+                if exact:
+                    return {
+                        "bucket": bucket,
+                        "object_key": object_key,
+                        "object_version_id": version_id,
+                        "sha256": plan_sha256,
+                        "size_bytes": plan_size,
+                    }
+                raise AuthorizationError(
+                    "saved plan reconciliation conflicts with the immutable object"
+                ) from last_error
+            if attempt == 1:
+                break
+        raise AuthorizationError("saved plan write could not be confirmed") from last_error
 
     def get_plan_version(
         self,
@@ -331,12 +407,14 @@ class AwsCliPlanStore:
             raise AuthorizationError("saved plan destination must not already exist")
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise AuthorizationError("saved plan destination directory is invalid")
+        created = False
         try:
             descriptor = os.open(
                 destination,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
             )
+            created = True
             os.close(descriptor)
             self._run(
                 (
@@ -367,7 +445,8 @@ class AwsCliPlanStore:
                 "size_bytes": destination.stat().st_size,
             }
         except Exception:
-            destination.unlink(missing_ok=True)
+            if created:
+                destination.unlink(missing_ok=True)
             raise
 
 
@@ -410,7 +489,7 @@ class AwsCliTerminalSession:
         command: Sequence[str],
         base_environment: Mapping[str, str] | None = None,
     ) -> None:
-        """Run one fixed plan/apply command under an exact 900-second role."""
+        """Run one fixed plan/apply command under an exact one-hour role."""
         require_terminal_role_for_layer(
             layer=layer,
             role=role_arn.rsplit("/", 1)[-1],
@@ -482,7 +561,7 @@ class AwsCliTerminalSession:
             "--role-session-name",
             execution_id,
             "--duration-seconds",
-            "900",
+            "3600",
             "--source-identity",
             execution_id,
             "--tags",
@@ -646,14 +725,24 @@ class AwsCliExecutionLedgerStore:
         deployment_id: str,
         execution_id: str,
         layer: str,
+        approval_digest: str | None = None,
         now: datetime | None = None,
-    ) -> dict[str, Any]:
+        allow_missing: bool = False,
+    ) -> dict[str, Any] | None:
         """Read one exact control document consistently and revalidate it."""
         request = {
             "deployment_id": deployment_id,
             "execution_id": execution_id,
             "layer": layer,
         }
+        if kind == "approval":
+            if not isinstance(approval_digest, str) or not DIGEST.fullmatch(
+                approval_digest
+            ):
+                raise AuthorizationError("approval control record digest is invalid")
+            request["approval_digest"] = approval_digest
+        elif approval_digest is not None:
+            raise AuthorizationError("approval digest is invalid for this control record")
         key = {
             "deployment_id": {"S": deployment_id},
             "record_key": {"S": _control_record_key(kind, request)},
@@ -679,8 +768,15 @@ class AwsCliExecutionLedgerStore:
             ),
             "execution control record read",
         )
+        item = response.get("Item")
+        if item is None:
+            if allow_missing:
+                return None
+            raise AuthorizationError(
+                "execution control record is missing or malformed"
+            )
         try:
-            document = json.loads(response["Item"]["document"]["S"])
+            document = json.loads(item["document"]["S"])
         except (KeyError, TypeError, json.JSONDecodeError) as exc:
             raise AuthorizationError(
                 "execution control record is missing or malformed"
@@ -702,12 +798,14 @@ class AwsCliExecutionLedgerStore:
         execution_id: str,
         layer: str,
     ) -> dict[str, Any]:
-        return self._get_control_record(
+        document = self._get_control_record(
             kind="plan",
             deployment_id=deployment_id,
             execution_id=execution_id,
             layer=layer,
         )
+        assert document is not None
+        return document
 
     def put_approval_record_once(
         self,
@@ -727,15 +825,19 @@ class AwsCliExecutionLedgerStore:
         deployment_id: str,
         execution_id: str,
         layer: str,
+        approval_digest: str,
         now: datetime,
     ) -> dict[str, Any]:
-        return self._get_control_record(
+        document = self._get_control_record(
             kind="approval",
             deployment_id=deployment_id,
             execution_id=execution_id,
             layer=layer,
+            approval_digest=approval_digest,
             now=now,
         )
+        assert document is not None
+        return document
 
     def put_health_receipt_once(self, receipt: Mapping[str, Any]) -> None:
         self._put_control_record_once(kind="health", document=receipt)
@@ -747,11 +849,28 @@ class AwsCliExecutionLedgerStore:
         execution_id: str,
         layer: str,
     ) -> dict[str, Any]:
+        document = self._get_control_record(
+            kind="health",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+        )
+        assert document is not None
+        return document
+
+    def find_health_receipt(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+    ) -> dict[str, Any] | None:
         return self._get_control_record(
             kind="health",
             deployment_id=deployment_id,
             execution_id=execution_id,
             layer=layer,
+            allow_missing=True,
         )
 
     def put_reconciliation_receipt_once(self, receipt: Mapping[str, Any]) -> None:
@@ -764,14 +883,32 @@ class AwsCliExecutionLedgerStore:
         execution_id: str,
         layer: str,
     ) -> dict[str, Any]:
-        return self._get_control_record(
+        document = self._get_control_record(
             kind="reconciliation",
             deployment_id=deployment_id,
             execution_id=execution_id,
             layer=layer,
         )
+        assert document is not None
+        return document
+
+    def find_reconciliation_receipt(
+        self,
+        *,
+        deployment_id: str,
+        execution_id: str,
+        layer: str,
+    ) -> dict[str, Any] | None:
+        return self._get_control_record(
+            kind="reconciliation",
+            deployment_id=deployment_id,
+            execution_id=execution_id,
+            layer=layer,
+            allow_missing=True,
+        )
 
     def create_ledger(self, ledger: Mapping[str, Any]) -> None:
+        validate_execution_ledger_document(ledger)
         self._run(
             (
                 "aws",
@@ -803,6 +940,7 @@ class AwsCliExecutionLedgerStore:
         expected_digest: str,
         expected_status: str,
     ) -> None:
+        validate_execution_ledger_document(ledger)
         if (
             ledger.get("deployment_id") != expected_deployment_id
             or ledger.get("execution_id") != expected_execution_id
@@ -879,4 +1017,5 @@ class AwsCliExecutionLedgerStore:
             or document.get("layer") != layer
         ):
             raise AuthorizationError("execution ledger storage key binding mismatch")
+        validate_execution_ledger_document(document)
         return document

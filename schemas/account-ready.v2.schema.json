@@ -61,6 +61,7 @@
       "type": "object",
       "required": [
         "state_bucket",
+        "plan_bucket",
         "evidence_bucket",
         "contracts_bucket",
         "state_kms_key",
@@ -70,6 +71,7 @@
       "additionalProperties": false,
       "properties": {
         "state_bucket": { "$ref": "#/$defs/s3_arn" },
+        "plan_bucket": { "$ref": "#/$defs/s3_arn" },
         "evidence_bucket": { "$ref": "#/$defs/s3_arn" },
         "contracts_bucket": { "$ref": "#/$defs/s3_arn" },
         "state_kms_key": { "$ref": "#/$defs/kms_arn" },
@@ -85,7 +87,13 @@
         "state_bucket_key_enabled",
         "state_public_access_blocked",
         "state_object_lock_enabled",
-        "native_lockfile_enabled"
+        "native_lockfile_enabled",
+        "plan_versioning_enabled",
+        "plan_default_encryption",
+        "plan_kms_key",
+        "plan_bucket_key_enabled",
+        "plan_public_access_blocked",
+        "plan_lifecycle_days"
       ],
       "additionalProperties": false,
       "properties": {
@@ -94,7 +102,13 @@
         "state_bucket_key_enabled": { "const": true },
         "state_public_access_blocked": { "const": true },
         "state_object_lock_enabled": { "const": false },
-        "native_lockfile_enabled": { "const": true }
+        "native_lockfile_enabled": { "const": true },
+        "plan_versioning_enabled": { "const": true },
+        "plan_default_encryption": { "const": "aws:kms" },
+        "plan_kms_key": { "$ref": "#/$defs/kms_arn" },
+        "plan_bucket_key_enabled": { "const": true },
+        "plan_public_access_blocked": { "const": true },
+        "plan_lifecycle_days": { "const": 1 }
       }
     },
     "contract_digest": { "$ref": "#/$defs/digest" }

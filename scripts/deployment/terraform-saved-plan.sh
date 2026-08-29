@@ -64,8 +64,8 @@ require_live_ci_boundary() {
     || die "The protected Environment binding is not canonical"
   [[ "${SCANALYZE_OIDC_AUDIENCE:-}" == "sts.amazonaws.com" ]] \
     || die "The OIDC audience is not authorized"
-  [[ "${SCANALYZE_ROLE_DURATION_SECONDS:-}" == "900" ]] \
-    || die "The role duration is not the authorized minimum"
+  [[ "${SCANALYZE_ROLE_DURATION_SECONDS:-}" == "3600" ]] \
+    || die "The role duration does not cover the bounded terminal phase"
 }
 
 verify_terminal_identity() {
@@ -593,6 +593,60 @@ finally:
 if "sha256:" + digest.hexdigest() != record["plan_sha256"]:
     raise SystemExit(1)
 if size != record["plan_size_bytes"]:
+    raise SystemExit(1)
+PY
+
+# Terraform init can consume most of a short approval window. Revalidate the
+# exact plan, approval and CAS-consumed intent at action time, immediately
+# before the only mutation command in this runner.
+python3 - \
+  "$REPO_ROOT" "$CONTEXT" "$APPLY_INTENT" "$PLAN_RECORD" "$APPROVAL_RECORD" \
+  "$APPROVED_LEDGER" "$APPLYING_LEDGER" "$PLAN_READBACK" "$STATE_READBACK" <<'PY' \
+  || die "Saved-plan approval or plan expired before Terraform apply"
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+(
+    repo,
+    context_name,
+    intent_name,
+    record_name,
+    approval_name,
+    approved_ledger_name,
+    applying_ledger_name,
+    plan_readback_name,
+    state_readback_name,
+) = sys.argv[1:]
+sys.path.insert(0, repo)
+from tooling.authorize_deployment_backend import load_json_strict
+from tooling.nonprod_live_controller import (
+    load_live_input_package,
+    validate_action_time_apply,
+)
+
+context = load_json_strict(Path(context_name))
+materialized_root = Path(context_name).resolve().parent
+private_root = materialized_root.parent
+receipt = load_json_strict(materialized_root / "receipt.json")
+current = datetime.now(UTC)
+decision = validate_action_time_apply(
+    load_live_input_package(
+        private_root=private_root,
+        operation="apply",
+        deployment_id=context["deployment_id"],
+        execution_id=context["execution_id"],
+        change_id=context["change_id"],
+        layer=context["layer"],
+        main_sha=context["main_sha"],
+        region=context["region"],
+        claim_digest=receipt["claim_digest"],
+        receipt_digest=receipt["receipt_digest"],
+        now=current,
+    ),
+    now=current,
+)
+if decision.get("code") != "EXACT_SAVED_PLAN_APPLY_INTENT_VALIDATED":
     raise SystemExit(1)
 PY
 

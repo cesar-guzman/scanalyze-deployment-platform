@@ -16,6 +16,7 @@
     "workflow",
     "oidc",
     "environment_protection",
+    "collector_authority",
     "terminal_roles",
     "diagnostic_access",
     "state_recovery_access",
@@ -34,6 +35,7 @@
     "workflow": { "$ref": "#/$defs/workflow" },
     "oidc": { "$ref": "#/$defs/oidc" },
     "environment_protection": { "$ref": "#/$defs/environment_protection" },
+    "collector_authority": { "$ref": "#/$defs/collector_authority" },
     "terminal_roles": {
       "type": "object",
       "required": [
@@ -78,6 +80,22 @@
     "digest": {
       "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "configuration_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,99}$"
+    },
+    "configuration_name_inventory": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/configuration_name" }
+    },
+    "configuration_variable_map": {
+      "type": "object",
+      "maxProperties": 1000,
+      "propertyNames": { "$ref": "#/$defs/configuration_name" },
+      "additionalProperties": { "type": "string", "maxLength": 49152 }
     },
     "iam_role_arn": {
       "type": "string",
@@ -157,7 +175,7 @@
           "pattern": "^[A-Za-z0-9_./@%-]+(?::[A-Za-z0-9_./@%-]+)+$"
         },
         "orchestrator_role_arn": { "$ref": "#/$defs/iam_role_arn" },
-        "max_session_duration_seconds": { "const": 900 },
+        "max_session_duration_seconds": { "const": 3600 },
         "required_role_tags": {
           "type": "object",
           "required": ["service", "customer_id", "deployment_id", "account_id", "region", "environment"],
@@ -195,7 +213,13 @@
         "prevent_admin_bypass",
         "initiator_login",
         "reserved_variables_absent_at_repository",
-        "reserved_variables_absent_at_organization",
+        "reserved_variables_absent_at_effective_organization",
+        "reserved_secrets_absent_at_repository",
+        "reserved_secrets_absent_at_effective_organization",
+        "repository_variables",
+        "effective_organization_variables",
+        "repository_secret_names",
+        "effective_organization_secret_names",
         "variables",
         "secret_names"
       ],
@@ -224,7 +248,30 @@
         "prevent_admin_bypass": { "const": true },
         "initiator_login": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,100}$" },
         "reserved_variables_absent_at_repository": { "const": true },
-        "reserved_variables_absent_at_organization": { "const": true },
+        "reserved_variables_absent_at_effective_organization": {
+          "description": "All reserved Environment variable names are absent from the organization-variable inventory shared with and effective for this repository.",
+          "const": true
+        },
+        "reserved_secrets_absent_at_repository": { "const": true },
+        "reserved_secrets_absent_at_effective_organization": {
+          "description": "All reserved Environment secret names are absent from the organization-secret inventory shared with and effective for this repository.",
+          "const": true
+        },
+        "repository_variables": {
+          "description": "Complete name-to-value map returned by the repository Actions variables endpoint.",
+          "$ref": "#/$defs/configuration_variable_map"
+        },
+        "effective_organization_variables": {
+          "description": "Complete name-to-value map of organization variables shared with and effective for this repository.",
+          "$ref": "#/$defs/configuration_variable_map"
+        },
+        "repository_secret_names": {
+          "$ref": "#/$defs/configuration_name_inventory"
+        },
+        "effective_organization_secret_names": {
+          "description": "Complete name inventory of organization secrets shared with and effective for this repository; GitHub never exposes secret values.",
+          "$ref": "#/$defs/configuration_name_inventory"
+        },
         "variables": {
           "type": "object",
           "required": [
@@ -233,7 +280,17 @@
             "AWS_ACCOUNT_ID",
             "AWS_REGION",
             "LOGICAL_ENVIRONMENT",
-            "OIDC_ORCHESTRATOR_ROLE_ARN"
+            "OIDC_ORCHESTRATOR_ROLE_ARN",
+            "ORCHESTRATOR_ROLE_ARN",
+            "GENERIC_PLAN_ROLE_ARN",
+            "GENERIC_APPLY_ROLE_ARN",
+            "IDENTITY_PLAN_ROLE_ARN",
+            "IDENTITY_APPLY_ROLE_ARN",
+            "PLATFORM_AUTHORITY_ACCOUNT_ID",
+            "REPOSITORY_ID",
+            "REPOSITORY_OWNER_ID",
+            "SECOND_P0_REVIEWER_ID",
+            "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID"
           ],
           "additionalProperties": false,
           "properties": {
@@ -242,10 +299,84 @@
             "AWS_ACCOUNT_ID": { "$ref": "#/$defs/account_id" },
             "AWS_REGION": { "$ref": "#/$defs/region" },
             "LOGICAL_ENVIRONMENT": { "enum": ["sandbox", "dev", "staging", "production"] },
-            "OIDC_ORCHESTRATOR_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" }
+            "OIDC_ORCHESTRATOR_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "ORCHESTRATOR_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "GENERIC_PLAN_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "GENERIC_APPLY_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "IDENTITY_PLAN_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "IDENTITY_APPLY_ROLE_ARN": { "$ref": "#/$defs/iam_role_arn" },
+            "PLATFORM_AUTHORITY_ACCOUNT_ID": { "$ref": "#/$defs/account_id" },
+            "REPOSITORY_ID": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+            "REPOSITORY_OWNER_ID": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+            "SECOND_P0_REVIEWER_ID": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+            "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" }
           }
         },
-        "secret_names": { "type": "array", "maxItems": 0 }
+        "secret_names": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY",
+              "SCANALYZE_LIVE_INPUT_BUNDLE_B64"
+            ]
+          }
+        }
+      }
+    },
+    "collector_authority": {
+      "type": "object",
+      "required": [
+        "authentication",
+        "installation_verification",
+        "app_id",
+        "app_slug",
+        "installation_id",
+        "installation_account_id",
+        "installation_account_login",
+        "installation_target_type",
+        "repository_selection",
+        "repository_ids",
+        "permissions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "authentication": { "const": "github_app_installation_token" },
+        "installation_verification": { "const": "github_app_jwt" },
+        "app_id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "app_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$"
+        },
+        "installation_id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "installation_account_id": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" },
+        "installation_account_login": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+        },
+        "installation_target_type": { "enum": ["Organization", "User"] },
+        "repository_selection": { "const": "selected" },
+        "repository_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[1-9][0-9]{0,19}$" }
+        },
+        "permissions": {
+          "type": "object",
+          "required": ["actions", "environments", "metadata", "secrets", "variables"],
+          "additionalProperties": false,
+          "properties": {
+            "actions": { "const": "read" },
+            "environments": { "const": "read" },
+            "metadata": { "const": "read" },
+            "secrets": { "const": "read" },
+            "variables": { "const": "read" }
+          }
+        }
       }
     },
     "terminal_role": {
@@ -269,7 +400,7 @@
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" }
         },
-        "max_session_duration_seconds": { "const": 900 },
+        "max_session_duration_seconds": { "const": 3600 },
         "required_session_tags": {
           "type": "array",
           "minItems": 8,

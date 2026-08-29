@@ -380,12 +380,8 @@ def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
 
     assert step["env"] == {
         "DESTINATION_ACCOUNT_ID": "${{ vars.AWS_ACCOUNT_ID }}",
-        "ENVIRONMENT_CONFIGURATION_DIGEST": (
-            "${{ vars.ENVIRONMENT_CONFIGURATION_DIGEST }}"
-        ),
         "ENVIRONMENT_DEPLOYMENT_ID": "${{ vars.DEPLOYMENT_ID }}",
         "ENVIRONMENT_LOGICAL_ENVIRONMENT": "${{ vars.LOGICAL_ENVIRONMENT }}",
-        "ENVIRONMENT_MAIN_SHA": "${{ vars.MAIN_SHA }}",
         "ENVIRONMENT_REGION": "${{ vars.AWS_REGION }}",
         "GENERIC_APPLY_ROLE_ARN": "${{ vars.GENERIC_APPLY_ROLE_ARN }}",
         "GENERIC_PLAN_ROLE_ARN": "${{ vars.GENERIC_PLAN_ROLE_ARN }}",
@@ -398,9 +394,11 @@ def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
         "REPOSITORY_ID": "${{ vars.REPOSITORY_ID }}",
         "REPOSITORY_OWNER_ID": "${{ vars.REPOSITORY_OWNER_ID }}",
         "SECOND_P0_REVIEWER_ID": "${{ vars.SECOND_P0_REVIEWER_ID }}",
+        "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": (
+            "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}"
+        ),
         "DISPATCH_DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
         "DISPATCH_LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
-        "DISPATCH_MAIN_SHA": "${{ inputs.main_sha }}",
         "DISPATCH_REGION": "${{ inputs.aws_region }}",
     }
 
@@ -409,7 +407,6 @@ def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
         "DESTINATION_ACCOUNT_ID",
         "ENVIRONMENT_DEPLOYMENT_ID",
         "ENVIRONMENT_LOGICAL_ENVIRONMENT",
-        "ENVIRONMENT_MAIN_SHA",
         "ENVIRONMENT_REGION",
         "ORCHESTRATOR_ROLE_ARN",
         "PLATFORM_AUTHORITY_ACCOUNT_ID",
@@ -423,7 +420,6 @@ def test_protected_environment_bindings_are_required_and_fail_closed() -> None:
         '"$DISPATCH_LOGICAL_ENVIRONMENT"'
     ) in script
     assert '"$ENVIRONMENT_REGION" != "$DISPATCH_REGION"' in script
-    assert '"$ENVIRONMENT_MAIN_SHA" != "$DISPATCH_MAIN_SHA"' in script
     assert '"$DESTINATION_ACCOUNT_ID" == "$PLATFORM_AUTHORITY_ACCOUNT_ID"' in script
 
     error_lines = [line for line in script.splitlines() if "::error::" in line]
@@ -447,10 +443,8 @@ def _run_environment_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
     env.update(
         {
             "DESTINATION_ACCOUNT_ID": destination_account_id,
-            "ENVIRONMENT_CONFIGURATION_DIGEST": "sha256:" + "a" * 64,
             "ENVIRONMENT_DEPLOYMENT_ID": deployment_id,
             "ENVIRONMENT_LOGICAL_ENVIRONMENT": "dev",
-            "ENVIRONMENT_MAIN_SHA": "b" * 40,
             "ENVIRONMENT_REGION": "us-east-1",
             "GENERIC_APPLY_ROLE_ARN": (
                 f"arn:aws:iam::{destination_account_id}:"
@@ -475,9 +469,9 @@ def _run_environment_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
             "REPOSITORY_ID": "2000002",
             "REPOSITORY_OWNER_ID": "1000001",
             "SECOND_P0_REVIEWER_ID": "3000003",
+            "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": "7000007",
             "DISPATCH_DEPLOYMENT_ID": deployment_id,
             "DISPATCH_LOGICAL_ENVIRONMENT": "dev",
-            "DISPATCH_MAIN_SHA": "b" * 40,
             "DISPATCH_REGION": "us-east-1",
             "GITHUB_REPOSITORY_ID": "2000002",
             "GITHUB_REPOSITORY_OWNER_ID": "1000001",
@@ -535,6 +529,7 @@ def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
     assert workflow["jobs"]["live_saved_plan"]["environment"] == {
         "name": "${{ inputs.github_environment }}"
     }
+    assert "live_input_gate" not in workflow["jobs"]
 
     validation_step = next(
         item
@@ -548,7 +543,7 @@ def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
     assert "sandbox|dev|staging|production" not in validation_step["run"]
 
 
-def test_oidc_is_allowlisted_to_the_two_canonical_live_jobs() -> None:
+def test_oidc_is_allowlisted_to_the_canonical_live_jobs() -> None:
     expected = {
         NONPROD_WORKFLOW_PATH: {"live-layer"},
         LAYER_WORKFLOW_PATH: {"live_saved_plan"},
@@ -574,42 +569,257 @@ def test_oidc_is_allowlisted_to_the_two_canonical_live_jobs() -> None:
                 assert not configure_steps
         assert observed == privileged_jobs
 
-    reusable = _load_workflow(LAYER_WORKFLOW_PATH)["jobs"]["live_saved_plan"]
+    workflow = _load_workflow(LAYER_WORKFLOW_PATH)
+    assert "live_input_gate" not in workflow["jobs"]
+    reusable = workflow["jobs"]["live_saved_plan"]
+    assert reusable["needs"] == "mode_boundary"
     assert reusable["permissions"] == {
         "actions": "read",
         "contents": "read",
         "id-token": "write",
     }
-    configure_index = next(
-        index
-        for index, step in enumerate(reusable["steps"])
-        if str(step.get("uses", "")).startswith(
-            "aws-actions/configure-aws-credentials@"
-        )
+    steps = reusable["steps"]
+    indexes = {step["name"]: index for index, step in enumerate(steps)}
+    assert (
+        indexes["Validate protected Environment bindings before OIDC"]
+        < indexes["Create scoped GitHub App inventory token"]
+        < indexes["Materialize and compare live inputs twice before OIDC"]
+        < indexes["Materialize exact GitHub approval for apply"]
+        < indexes["Validate exact GitHub approval for apply"]
+        < indexes["Revoke GitHub App evidence token before OIDC"]
+        < indexes["Set up Terraform after pre-OIDC evidence gates"]
+        < indexes["Install live-engine dependencies after pre-OIDC evidence gates"]
+        < indexes["Acquire exact platform-authority OIDC session"]
+        < indexes["Execute the exact protected saved-plan phase"]
     )
-    preflight_index = next(
-        index
-        for index, step in enumerate(reusable["steps"])
-        if step.get("name") == "Validate protected Environment bindings before OIDC"
+
+    app_step = steps[indexes["Create scoped GitHub App inventory token"]]
+    assert app_step["id"] == "github_app_token"
+    assert app_step["uses"] == (
+        "actions/create-github-app-token@"
+        "bcd2ba49218906704ab6c1aa796996da409d3eb1"
     )
-    assert preflight_index < configure_index
-    assert reusable["steps"][configure_index]["uses"] == (
-        "aws-actions/configure-aws-credentials@"
-        "e6de054238d6b7531b4efff3b6587d9aade6a06c"
+    assert app_step["with"]["app-id"] == (
+        "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}"
     )
-    materializer_job = _load_workflow(LAYER_WORKFLOW_PATH)["jobs"]["live_input_gate"]
-    assert materializer_job["permissions"] == {}
-    assert materializer_job["needs"] == "mode_boundary"
-    assert "environment" not in materializer_job
-    assert reusable["needs"] == ["mode_boundary", "live_input_gate"]
-    materializer = next(
+    expected_key_input = (
+        "${{ secrets."
+        + "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_"
+        + "PRIVATE"
+        + "_KEY }}"
+    )
+    assert app_step["with"] == {
+        "app-id": "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}",
+        "private-key": expected_key_input,
+        "owner": "${{ github.repository_owner }}",
+        "repositories": "${{ github.event.repository.name }}",
+        "skip-token-revoke": True,
+    }
+    assert not any(key.startswith("permission-") for key in app_step["with"])
+
+    rematerializer = steps[
+        indexes["Materialize and compare live inputs twice before OIDC"]
+    ]
+    assert rematerializer["env"]["GITHUB_APP_TOKEN"] == (
+        "${{ steps.github_app_token.outputs.token }}"
+    )
+    assert rematerializer["env"]["SCANALYZE_GITHUB_APP_INSTALLATION_ID"] == (
+        "${{ steps.github_app_token.outputs.installation-id }}"
+    )
+    assert rematerializer["env"]["SCANALYZE_GITHUB_APP_PRIVATE_KEY"] == (
+        expected_key_input
+    )
+    assert rematerializer["env"]["SCANALYZE_GITHUB_APP_SLUG"] == (
+        "${{ steps.github_app_token.outputs.app-slug }}"
+    )
+    assert "GITHUB_TOKEN" not in rematerializer["env"]
+    assert not any(
+        key.startswith("SCANALYZE_GITHUB_ENVIRONMENT_VALUE_")
+        for key in rematerializer["env"]
+    )
+    rematerialize_script = rematerializer["run"]
+    assert rematerialize_script.count(
+        "nonprod-live-input-materializer.py stage"
+    ) == 2
+    assert 'materialize_pass "$first_root"' in rematerialize_script
+    assert 'materialize_pass "$private_root"' in rematerialize_script
+    assert "--token-env-name GITHUB_APP_TOKEN" in rematerialize_script
+    assert (
+        "sealed_request_digest claim_digest approval_authority_digest; do"
+        in rematerialize_script
+    )
+    assert "SCANALYZE_GITHUB_APP_PRIVATE_KEY" in rematerialize_script
+    assert "receipt_digest receipt_digest" not in rematerialize_script
+
+    approval_materialize = steps[
+        indexes["Materialize exact GitHub approval for apply"]
+    ]
+    approval_validate = steps[
+        indexes["Validate exact GitHub approval for apply"]
+    ]
+    assert approval_materialize["env"]["GH_TOKEN"] == (
+        "${{ steps.github_app_token.outputs.token }}"
+    )
+    assert "GH_TOKEN" not in approval_validate["env"]
+    for approval_step in (approval_materialize, approval_validate):
+        assert '--run-attempt "$GITHUB_RUN_ATTEMPT"' in approval_step["run"]
+        assert (
+            '--apply-environment-anchor-digest '
+            '"$GITHUB_ENVIRONMENT_ANCHOR_DIGEST"'
+        ) in approval_step["run"]
+
+    token_revoker = steps[
+        indexes["Revoke GitHub App evidence token before OIDC"]
+    ]
+    assert token_revoker["if"] == "${{ always() }}"
+    assert token_revoker["env"]["GH_TOKEN"] == (
+        "${{ steps.github_app_token.outputs.token }}"
+    )
+    assert '"DELETE"' in token_revoker["run"]
+    assert '"/installation/token"' in token_revoker["run"]
+    assert "response.status != 204" in token_revoker["run"]
+
+    controller = steps[indexes["Execute the exact protected saved-plan phase"]]
+    assert controller["env"]["RECEIPT_DIGEST"] == (
+        "${{ steps.rematerialize.outputs.receipt_digest }}"
+    )
+    for denied in (
+        "SCANALYZE_LIVE_INPUT_BUNDLE_B64",
+        "GITHUB_APP_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+    ):
+        assert denied not in controller["env"]
+
+    workflow_text = LAYER_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert workflow_text.count(
+        "${{ secrets.SCANALYZE_LIVE_INPUT_BUNDLE_B64 }}"
+    ) == 1
+    assert workflow_text.count(expected_key_input) == 2
+    assert workflow_text.count("${{ github.token }}") == 0
+    assert workflow_text.count(
+        "${{ steps.github_app_token.outputs.token }}"
+    ) == 3
+    assert "stale_apply_recovery" not in workflow["jobs"]
+    assert "recover-stale" not in workflow_text
+
+
+def test_live_claim_digest_is_exact_and_never_a_caller_path() -> None:
+    caller = _load_workflow(NONPROD_WORKFLOW_PATH)
+    reusable = _load_workflow(LAYER_WORKFLOW_PATH)
+    dispatch_inputs = _workflow_trigger(caller)["workflow_dispatch"]["inputs"]
+    call_inputs = _workflow_trigger(reusable)["workflow_call"]["inputs"]
+
+    assert dispatch_inputs["live_operation"]["options"] == [
+        "none",
+        "plan",
+        "apply",
+    ]
+
+    assert dispatch_inputs["live_input_claim_digest"] == {
+        "description": (
+            "Exact tracked live-input claim digest; required only by live phases"
+        ),
+        "required": False,
+        "type": "string",
+    }
+    assert call_inputs["live_input_claim_digest"]["default"] == ""
+    assert caller["jobs"]["live-layer"]["with"]["live_input_claim_digest"] == (
+        "${{ inputs.live_input_claim_digest }}"
+    )
+    assert "private_root" not in dispatch_inputs
+    assert "bundle" not in dispatch_inputs
+
+    dispatch_gate = next(
         step
-        for step in materializer_job["steps"]
-        if step.get("name") == "Require a proven typed live-input materializer"
+        for step in caller["jobs"]["preflight"]["steps"]
+        if step.get("name") == "Validate dispatch execution mode"
     )
-    assert "env" not in materializer
-    assert materializer["run"].rstrip().endswith(
-        'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\nexit 1'
+    reusable_gate = reusable["jobs"]["mode_boundary"]["steps"][0]
+    for gate in (dispatch_gate, reusable_gate):
+        assert gate["env"]["LIVE_INPUT_CLAIM_DIGEST"].endswith(
+            "inputs.live_input_claim_digest }}"
+        )
+        assert "^sha256:[0-9a-f]{64}$" in gate["run"]
+        assert '"$LOGICAL_ENVIRONMENT" != "dev"' in gate["run"]
+        assert gate["env"]["RUN_ATTEMPT"] == "${{ github.run_attempt }}"
+        assert '"$RUN_ATTEMPT" != "1"' in gate["run"]
+        assert "sandbox|dev|staging|production" not in gate["run"]
+
+
+def _run_dispatch_mode_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
+    workflow = _load_workflow(NONPROD_WORKFLOW_PATH)
+    step = next(
+        item
+        for item in workflow["jobs"]["preflight"]["steps"]
+        if item.get("name") == "Validate dispatch execution mode"
+    )
+    deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    env = os.environ.copy()
+    env.update(
+        {
+            "ALLOW_LIVE": "true",
+            "CHANGE_ID": "chg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "DEPLOYMENT_ID": deployment_id,
+            "DRY_RUN": "false",
+            "EVENT_NAME": "workflow_dispatch",
+            "EXECUTION_ID": "exec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "GITHUB_ENVIRONMENT_INPUT": f"scanalyze-{deployment_id}-dev",
+            "LIVE_INPUT_CLAIM_DIGEST": "sha256:" + ("c" * 64),
+            "LIVE_OPERATION": "plan",
+            "LOGICAL_ENVIRONMENT": "dev",
+            "MAIN_SHA": "a" * 40,
+            "PLAN_RECORD_DIGEST": "",
+            "REVIEWER_PACKET_DIGEST": "",
+            "REF_NAME": "refs/heads/main",
+            "REF_PROTECTED": "true",
+            "RUN_ATTEMPT": "1",
+            "RUN_SHA": "a" * 40,
+            "TARGET_LAYER": "network",
+        }
+    )
+    env.update(overrides)
+    return subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_live_dispatch_requires_claim_and_still_rejects_production() -> None:
+    valid = _run_dispatch_mode_gate()
+    assert valid.returncode == 0, valid.stdout + valid.stderr
+
+    missing_claim = _run_dispatch_mode_gate(LIVE_INPUT_CLAIM_DIGEST="")
+    assert missing_claim.returncode != 0
+    assert "tracked input claim digest" in missing_claim.stdout
+
+    rerun = _run_dispatch_mode_gate(RUN_ATTEMPT="2")
+    assert rerun.returncode != 0
+    assert "fresh workflow run" in rerun.stdout
+
+    production = _run_dispatch_mode_gate(
+        LOGICAL_ENVIRONMENT="production",
+        GITHUB_ENVIRONMENT_INPUT="scanalyze-production",
+    )
+    assert production.returncode != 0
+    assert "restricted to dev" in production.stdout
+
+    removed_recovery = _run_dispatch_mode_gate(LIVE_OPERATION="recover-stale")
+    assert removed_recovery.returncode != 0
+    assert "requires plan or apply" in removed_recovery.stdout
+
+    dry_run_with_claim = _run_dispatch_mode_gate(
+        ALLOW_LIVE="false",
+        DRY_RUN="true",
+        LIVE_OPERATION="none",
+    )
+    assert dry_run_with_claim.returncode != 0
+    assert "Dry-run cannot carry live saved-plan inputs" in (
+        dry_run_with_claim.stdout
     )
 
 

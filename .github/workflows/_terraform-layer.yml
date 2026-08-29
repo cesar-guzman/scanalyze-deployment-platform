@@ -67,6 +67,16 @@ on:
         required: false
         default: ""
         type: string
+      reviewer_packet_digest:
+        description: Exact reviewer-packet digest from the prior plan summary
+        required: false
+        default: ""
+        type: string
+      live_input_claim_digest:
+        description: Exact tracked live-input claim digest required by live phases
+        required: false
+        default: ""
+        type: string
     outputs:
       validation_status:
         description: Sanitized offline validation status
@@ -94,12 +104,15 @@ jobs:
           GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
           HEAD_REPOSITORY_ID: ${{ github.event.repository.id }}
           LIVE_OPERATION: ${{ inputs.live_operation }}
+          LIVE_INPUT_CLAIM_DIGEST: ${{ inputs.live_input_claim_digest }}
           LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
           MAIN_SHA: ${{ inputs.main_sha }}
           PLAN_RECORD_DIGEST: ${{ inputs.plan_record_digest }}
+          REVIEWER_PACKET_DIGEST: ${{ inputs.reviewer_packet_digest }}
           REF_NAME: ${{ github.ref }}
           REF_PROTECTED: ${{ github.ref_protected }}
           RELEASE_DIGEST: ${{ inputs.release_digest }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_SHA: ${{ github.sha }}
           TARGET_LAYER: ${{ inputs.layer }}
         run: |
@@ -134,7 +147,9 @@ jobs:
               sandbox|dev|staging) ;;
               *) echo "::error::Dry-run is limited to non-production"; exit 1 ;;
             esac
-            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" ]]; then
+            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" || \
+                  -n "$REVIEWER_PACKET_DIGEST" || \
+                  -n "$LIVE_INPUT_CLAIM_DIGEST" ]]; then
               echo "::error::Dry-run cannot carry a live operation or saved-plan selector"
               exit 1
             fi
@@ -151,14 +166,22 @@ jobs:
           esac
           case "$LIVE_OPERATION" in
             plan|apply) ;;
-            *) echo "::error::Live execution requires one explicit plan or apply phase"; exit 1 ;;
+            *) echo "::error::Live execution requires plan or apply"; exit 1 ;;
           esac
+          if [[ ! "$LIVE_INPUT_CLAIM_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Live execution requires one exact tracked input claim digest"
+            exit 1
+          fi
           if [[ "$REF_NAME" != "refs/heads/main" || "$REF_PROTECTED" != "true" ]]; then
             echo "::error::Live execution requires the protected main ref"
             exit 1
           fi
           if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ || "$RUN_SHA" != "$MAIN_SHA" ]]; then
             echo "::error::Live execution is not bound to the exact requested main SHA"
+            exit 1
+          fi
+          if [[ "$RUN_ATTEMPT" != "1" ]]; then
+            echo "::error::Live execution requires a fresh workflow run"
             exit 1
           fi
           if [[ ! "$EXECUTION_ID" =~ ^exec_[0-9A-HJKMNP-TV-Z]{26}$ ]] || \
@@ -179,8 +202,13 @@ jobs:
               echo "::error::Apply requires one exact saved-plan record digest"
               exit 1
             fi
-          elif [[ -n "$PLAN_RECORD_DIGEST" ]]; then
-            echo "::error::Plan cannot accept a pre-existing saved-plan record"
+            if [[ ! "$REVIEWER_PACKET_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Apply requires the exact reviewer-packet digest from Plan"
+              exit 1
+            fi
+          elif [[ "$LIVE_OPERATION" == "plan" && \
+                  ( -n "$PLAN_RECORD_DIGEST" || -n "$REVIEWER_PACKET_DIGEST" ) ]]; then
+            echo "::error::Plan cannot accept pre-existing saved-plan selectors"
             exit 1
           fi
 
@@ -336,31 +364,9 @@ jobs:
             echo '- Status: `DRY_RUN_VALIDATED`'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  live_input_gate:
-    name: Require proven typed live inputs
-    needs: mode_boundary
-    if: ${{ inputs.allow_live && !inputs.dry_run }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Require a proven typed live-input materializer
-        run: |
-          set -euo pipefail
-          # GUG-382 intentionally does not turn protected variables, mutable
-          # locators, or caller-supplied paths into deployment authority. The
-          # typed live registry/ACCOUNT_READY/backend/contract materializer is
-          # an external prerequisite and is not present in this repository
-          # candidate. This unprivileged job must succeed before an OIDC-capable
-          # job can be scheduled.
-          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"
-          exit 1
-
   live_saved_plan:
     name: Protected non-production saved-plan phase
-    needs:
-      - mode_boundary
-      - live_input_gate
+    needs: mode_boundary
     if: ${{ inputs.allow_live && !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -380,17 +386,15 @@ jobs:
       SCANALYZE_EXPECTED_REPOSITORY_ID: ${{ vars.REPOSITORY_ID }}
       SCANALYZE_EXPECTED_REPOSITORY_OWNER_ID: ${{ vars.REPOSITORY_OWNER_ID }}
       SCANALYZE_OIDC_AUDIENCE: sts.amazonaws.com
-      SCANALYZE_ROLE_DURATION_SECONDS: "900"
+      SCANALYZE_ROLE_DURATION_SECONDS: "3600"
       AWS_REGION: ${{ inputs.aws_region }}
       AWS_DEFAULT_REGION: ${{ inputs.aws_region }}
     steps:
       - name: Validate protected Environment bindings before OIDC
         env:
           DESTINATION_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          ENVIRONMENT_CONFIGURATION_DIGEST: ${{ vars.ENVIRONMENT_CONFIGURATION_DIGEST }}
           ENVIRONMENT_DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
           ENVIRONMENT_LOGICAL_ENVIRONMENT: ${{ vars.LOGICAL_ENVIRONMENT }}
-          ENVIRONMENT_MAIN_SHA: ${{ vars.MAIN_SHA }}
           ENVIRONMENT_REGION: ${{ vars.AWS_REGION }}
           GENERIC_APPLY_ROLE_ARN: ${{ vars.GENERIC_APPLY_ROLE_ARN }}
           GENERIC_PLAN_ROLE_ARN: ${{ vars.GENERIC_PLAN_ROLE_ARN }}
@@ -401,20 +405,20 @@ jobs:
           REPOSITORY_ID: ${{ vars.REPOSITORY_ID }}
           REPOSITORY_OWNER_ID: ${{ vars.REPOSITORY_OWNER_ID }}
           SECOND_P0_REVIEWER_ID: ${{ vars.SECOND_P0_REVIEWER_ID }}
+          GITHUB_ENVIRONMENT_COLLECTOR_APP_ID: ${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}
           DISPATCH_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           DISPATCH_LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
-          DISPATCH_MAIN_SHA: ${{ inputs.main_sha }}
           DISPATCH_REGION: ${{ inputs.aws_region }}
         run: |
           set -euo pipefail
           required=(
-            DESTINATION_ACCOUNT_ID ENVIRONMENT_CONFIGURATION_DIGEST
-            ENVIRONMENT_DEPLOYMENT_ID ENVIRONMENT_LOGICAL_ENVIRONMENT
-            ENVIRONMENT_MAIN_SHA ENVIRONMENT_REGION GENERIC_APPLY_ROLE_ARN
+            DESTINATION_ACCOUNT_ID ENVIRONMENT_DEPLOYMENT_ID
+            ENVIRONMENT_LOGICAL_ENVIRONMENT
+            ENVIRONMENT_REGION GENERIC_APPLY_ROLE_ARN
             GENERIC_PLAN_ROLE_ARN IDENTITY_APPLY_ROLE_ARN
             IDENTITY_PLAN_ROLE_ARN ORCHESTRATOR_ROLE_ARN
             PLATFORM_AUTHORITY_ACCOUNT_ID REPOSITORY_ID REPOSITORY_OWNER_ID
-            SECOND_P0_REVIEWER_ID
+            SECOND_P0_REVIEWER_ID GITHUB_ENVIRONMENT_COLLECTOR_APP_ID
           )
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
@@ -432,15 +436,14 @@ jobs:
           fi
           if [[ "$ENVIRONMENT_DEPLOYMENT_ID" != "$DISPATCH_DEPLOYMENT_ID" ]] || \
              [[ "$ENVIRONMENT_LOGICAL_ENVIRONMENT" != "$DISPATCH_LOGICAL_ENVIRONMENT" ]] || \
-             [[ "$ENVIRONMENT_REGION" != "$DISPATCH_REGION" ]] || \
-             [[ "$ENVIRONMENT_MAIN_SHA" != "$DISPATCH_MAIN_SHA" ]]; then
+             [[ "$ENVIRONMENT_REGION" != "$DISPATCH_REGION" ]]; then
             echo "::error::Protected Environment does not match the dispatch bindings"
             exit 1
           fi
-          if [[ ! "$ENVIRONMENT_CONFIGURATION_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || \
-             [[ ! "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]] || \
+          if [[ ! "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]] || \
              [[ ! "$REPOSITORY_OWNER_ID" =~ ^[1-9][0-9]*$ ]] || \
-             [[ ! "$SECOND_P0_REVIEWER_ID" =~ ^[1-9][0-9]*$ ]]; then
+             [[ ! "$SECOND_P0_REVIEWER_ID" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "$GITHUB_ENVIRONMENT_COLLECTOR_APP_ID" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::Protected Environment identity evidence is invalid"
             exit 1
           fi
@@ -484,13 +487,293 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Set up Terraform
+      - name: Install pre-OIDC evidence dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install \
+            'cryptography==48.0.1' \
+            'jsonschema==4.26.0' \
+            'pyyaml==6.0.2'
+
+      - name: Create scoped GitHub App inventory token
+        id: github_app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}
+          private-key: ${{ secrets.SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          skip-token-revoke: true
+
+      - name: Materialize and compare live inputs twice before OIDC
+        id: rematerialize
+        env:
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          EXPECTED_APPLY_ROLE_ARN: ${{ vars.GENERIC_APPLY_ROLE_ARN }}
+          EXPECTED_DESTINATION_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          EXPECTED_IDENTITY_APPLY_ROLE_ARN: ${{ vars.IDENTITY_APPLY_ROLE_ARN }}
+          EXPECTED_IDENTITY_PLAN_ROLE_ARN: ${{ vars.IDENTITY_PLAN_ROLE_ARN }}
+          EXPECTED_ORCHESTRATOR_ROLE_ARN: ${{ vars.ORCHESTRATOR_ROLE_ARN }}
+          EXPECTED_PLAN_ROLE_ARN: ${{ vars.GENERIC_PLAN_ROLE_ARN }}
+          EXPECTED_PLATFORM_AUTHORITY_ACCOUNT_ID: ${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}
+          EXPECTED_RELEASE_DIGEST: ${{ inputs.release_digest }}
+          EXPECTED_REPOSITORY_ID: ${{ vars.REPOSITORY_ID }}
+          EXPECTED_REPOSITORY_OWNER_ID: ${{ vars.REPOSITORY_OWNER_ID }}
+          EXPECTED_REGION: ${{ inputs.aws_region }}
+          EXPECTED_APPROVER_USER_ID: ${{ vars.SECOND_P0_REVIEWER_ID }}
+          GITHUB_APP_TOKEN: ${{ steps.github_app_token.outputs.token }}
+          LIVE_INPUT_CLAIM_DIGEST: ${{ inputs.live_input_claim_digest }}
+          LIVE_OPERATION: ${{ inputs.live_operation }}
+          REQUEST_PATH: ${{ inputs.request_path }}
+          SCANALYZE_GITHUB_APP_ID: ${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}
+          SCANALYZE_GITHUB_APP_INSTALLATION_ID: ${{ steps.github_app_token.outputs.installation-id }}
+          SCANALYZE_GITHUB_APP_PRIVATE_KEY: ${{ secrets.SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY }}
+          SCANALYZE_GITHUB_APP_SLUG: ${{ steps.github_app_token.outputs.app-slug }}
+          SCANALYZE_LIVE_INPUT_BUNDLE_B64: ${{ secrets.SCANALYZE_LIVE_INPUT_BUNDLE_B64 }}
+          TARGET_LAYER: ${{ inputs.layer }}
+        run: |
+          set -euo pipefail
+          first_root="$RUNNER_TEMP/scanalyze-live-inputs-first"
+          private_root="$RUNNER_TEMP/scanalyze-live-inputs"
+          for root in "$first_root" "$private_root"; do
+            if [[ -e "$root" || -L "$root" ]]; then
+              echo "::error::A private materialization root already exists"
+              exit 1
+            fi
+            install -d -m 0700 "$root"
+          done
+          umask 077
+
+          python scripts/deployment/nonprod-live-input-materializer.py stage \
+            --private-root "$first_root"
+          python scripts/deployment/nonprod-live-input-materializer.py stage \
+            --private-root "$private_root"
+          test -s "$first_root/sealed-request.json"
+          test -s "$private_root/sealed-request.json"
+          unset SCANALYZE_LIVE_INPUT_BUNDLE_B64
+
+          materialize_pass() {
+            local root="$1"
+            local identity_template="$root/github-identity-template.json"
+            export SCANALYZE_DECODED_SECRET_TRANSPORT_PATH="$root/sealed-request.json"
+            jq -e '.sources.github_deployment_identity' \
+              "$root/sealed-request.json" > "$identity_template"
+            chmod 0600 "$identity_template"
+            python scripts/deployment/github-environment-identity-collector.py \
+              --identity-template "$identity_template" \
+              --output-dir "$root/github-environment-evidence" \
+              --token-env-name GITHUB_APP_TOKEN
+            rm -f -- "$identity_template"
+            python scripts/deployment/nonprod-live-input-materializer.py materialize \
+              --private-root "$root" \
+              --deployment-id "$DEPLOYMENT_ID" \
+              --layer "$TARGET_LAYER" \
+              --operation "$LIVE_OPERATION" \
+              --request-path "$REQUEST_PATH" \
+              --claim-digest "$LIVE_INPUT_CLAIM_DIGEST"
+            python scripts/deployment/nonprod-live-input-materializer.py validate \
+              --private-root "$root" \
+              --deployment-id "$DEPLOYMENT_ID" \
+              --layer "$TARGET_LAYER" \
+              --operation "$LIVE_OPERATION" \
+              --request-path "$REQUEST_PATH" \
+              --claim-digest "$LIVE_INPUT_CLAIM_DIGEST"
+          }
+
+          materialize_pass "$first_root"
+          materialize_pass "$private_root"
+          unset \
+            SCANALYZE_DECODED_SECRET_TRANSPORT_PATH \
+            SCANALYZE_GITHUB_APP_PRIVATE_KEY
+
+          expected_plan_role="$EXPECTED_PLAN_ROLE_ARN"
+          expected_apply_role="$EXPECTED_APPLY_ROLE_ARN"
+          if [[ "$TARGET_LAYER" == "identity-control-plane" ]]; then
+            expected_plan_role="$EXPECTED_IDENTITY_PLAN_ROLE_ARN"
+            expected_apply_role="$EXPECTED_IDENTITY_APPLY_ROLE_ARN"
+          fi
+          for root in "$first_root" "$private_root"; do
+            jq -e \
+              --arg release "$EXPECTED_RELEASE_DIGEST" \
+              --arg region "$EXPECTED_REGION" \
+              --arg destination "$EXPECTED_DESTINATION_ACCOUNT_ID" \
+              --arg authority "$EXPECTED_PLATFORM_AUTHORITY_ACCOUNT_ID" \
+              --arg orchestrator "$EXPECTED_ORCHESTRATOR_ROLE_ARN" \
+              --arg plan_role "$expected_plan_role" \
+              --arg apply_role "$expected_apply_role" \
+              --argjson repository_id "$EXPECTED_REPOSITORY_ID" \
+              --argjson repository_owner_id "$EXPECTED_REPOSITORY_OWNER_ID" \
+              --argjson expected_approver_user_id "$EXPECTED_APPROVER_USER_ID" \
+              --argjson run_attempt "$GITHUB_RUN_ATTEMPT" '
+                .release_digest == $release and
+                .region == $region and
+                .destination_account_id == $destination and
+                .platform_authority_account_id == $authority and
+                .orchestrator_role_arn == $orchestrator and
+                .plan_role_arn == $plan_role and
+                .apply_role_arn == $apply_role and
+                .repository_id == $repository_id and
+                .repository_owner_id == $repository_owner_id and
+                .expected_approver_user_id == $expected_approver_user_id and
+                (.github_environment_anchor_digest | type == "string" and
+                  test("^sha256:[0-9a-f]{64}$")) and
+                (.approval_authority_digest | type == "string" and
+                  test("^sha256:[0-9a-f]{64}$")) and
+                .workflow_run_attempt == $run_attempt and
+                .workflow_run_attempt == 1
+              ' "$root/materialized/context.json" >/dev/null
+            jq -e --argjson expected_approver_user_id "$EXPECTED_APPROVER_USER_ID" '
+              .code == "LIVE_INPUTS_MATERIALIZED" and
+              .expected_approver_user_id == $expected_approver_user_id and
+              (.github_environment_anchor_digest | type == "string" and
+                test("^sha256:[0-9a-f]{64}$")) and
+              (.approval_authority_digest | type == "string" and
+                test("^sha256:[0-9a-f]{64}$")) and
+              .materialization_valid == true and
+              .controller_input_ready == true and
+              .oidc_authorized == true and
+              .terminal_operation_authorized == false and
+              (.cost_model_digest | type == "string" and
+                test("^sha256:[0-9a-f]{64}$")) and
+              (.maximum_cost_usd_micros | type == "number" and . >= 0) and
+              (.modeled_cost_upper_bound_usd_micros |
+                type == "number" and . >= 0) and
+              (.modeled_cost_upper_bound_usd_micros <=
+                .maximum_cost_usd_micros)
+            ' "$root/materialized/receipt.json" >/dev/null
+          done
+
+          first_receipt="$first_root/materialized/receipt.json"
+          final_receipt="$private_root/materialized/receipt.json"
+          for stable_field in \
+            sealed_request_digest claim_digest approval_authority_digest; do
+            first_value="$(jq -er --arg field "$stable_field" '.[$field]' "$first_receipt")"
+            final_value="$(jq -er --arg field "$stable_field" '.[$field]' "$final_receipt")"
+            if [[ "$first_value" != "$final_value" ]]; then
+              echo "::error::Live-input sealed authority or claim changed between passes"
+              exit 1
+            fi
+          done
+          if [[ "$(jq -er '.claim_digest' "$final_receipt")" != "$LIVE_INPUT_CLAIM_DIGEST" ]]; then
+            echo "::error::The stable live-input claim does not match dispatch"
+            exit 1
+          fi
+
+          receipt_digest="$(jq -er '.receipt_digest' "$final_receipt")"
+          if [[ ! "$receipt_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Independent live-input materialization is invalid"
+            exit 1
+          fi
+          printf 'receipt_digest=%s\n' "$receipt_digest" >> "$GITHUB_OUTPUT"
+          printf 'expected_approver_user_id=%s\n' \
+            "$(jq -er '.expected_approver_user_id' "$final_receipt")" \
+            >> "$GITHUB_OUTPUT"
+          printf 'github_environment_anchor_digest=%s\n' \
+            "$(jq -er '.github_environment_anchor_digest' "$final_receipt")" \
+            >> "$GITHUB_OUTPUT"
+          printf 'approval_authority_digest=%s\n' \
+            "$(jq -er '.approval_authority_digest' "$final_receipt")" \
+            >> "$GITHUB_OUTPUT"
+          if [[ "$first_root" != "$RUNNER_TEMP/scanalyze-live-inputs-first" ]]; then
+            echo "::error::First-pass cleanup root is not canonical"
+            exit 1
+          fi
+          rm -rf -- "$first_root"
+
+      - name: Materialize exact GitHub approval for apply
+        if: ${{ inputs.live_operation == 'apply' }}
+        env:
+          EXPECTED_APPROVER_USER_ID: ${{ steps.rematerialize.outputs.expected_approver_user_id }}
+          GITHUB_ENVIRONMENT_ANCHOR_DIGEST: ${{ steps.rematerialize.outputs.github_environment_anchor_digest }}
+          APPROVAL_AUTHORITY_DIGEST: ${{ steps.rematerialize.outputs.approval_authority_digest }}
+          GH_TOKEN: ${{ steps.github_app_token.outputs.token }}
+          GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
+          REVIEWER_PACKET_DIGEST: ${{ inputs.reviewer_packet_digest }}
+          WORKFLOW_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/deployment/nonprod-live-approval.py materialize \
+            --private-root "$RUNNER_TEMP/scanalyze-live-inputs" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --workflow-sha "$WORKFLOW_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --environment "$GITHUB_ENVIRONMENT_INPUT" \
+            --reviewer-packet-digest "$REVIEWER_PACKET_DIGEST" \
+            --apply-environment-anchor-digest "$GITHUB_ENVIRONMENT_ANCHOR_DIGEST" \
+            --approval-authority-digest "$APPROVAL_AUTHORITY_DIGEST" \
+            --initiator-user-id "$GITHUB_ACTOR_ID" \
+            --expected-approver-user-id "$EXPECTED_APPROVER_USER_ID"
+          unset GH_TOKEN
+
+      - name: Validate exact GitHub approval for apply
+        if: ${{ inputs.live_operation == 'apply' }}
+        env:
+          EXPECTED_APPROVER_USER_ID: ${{ steps.rematerialize.outputs.expected_approver_user_id }}
+          GITHUB_ENVIRONMENT_ANCHOR_DIGEST: ${{ steps.rematerialize.outputs.github_environment_anchor_digest }}
+          APPROVAL_AUTHORITY_DIGEST: ${{ steps.rematerialize.outputs.approval_authority_digest }}
+          GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
+          REVIEWER_PACKET_DIGEST: ${{ inputs.reviewer_packet_digest }}
+          WORKFLOW_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/deployment/nonprod-live-approval.py validate \
+            --private-root "$RUNNER_TEMP/scanalyze-live-inputs" \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --workflow-sha "$WORKFLOW_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --environment "$GITHUB_ENVIRONMENT_INPUT" \
+            --reviewer-packet-digest "$REVIEWER_PACKET_DIGEST" \
+            --apply-environment-anchor-digest "$GITHUB_ENVIRONMENT_ANCHOR_DIGEST" \
+            --approval-authority-digest "$APPROVAL_AUTHORITY_DIGEST" \
+            --initiator-user-id "$GITHUB_ACTOR_ID" \
+            --expected-approver-user-id "$EXPECTED_APPROVER_USER_ID"
+
+      - name: Revoke GitHub App evidence token before OIDC
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ steps.github_app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import http.client
+          import os
+
+          token = os.environ.pop("GH_TOKEN", "")
+          if not token:
+              raise SystemExit("GitHub App evidence token is unavailable")
+          connection = http.client.HTTPSConnection("api.github.com", timeout=10)
+          try:
+              connection.request(
+                  "DELETE",
+                  "/installation/token",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "scanalyze-live-evidence-token-revoker",
+                      "X-GitHub-Api-Version": "2026-03-10",
+                  },
+              )
+              response = connection.getresponse()
+              response.read(1024)
+              if response.status != 204:
+                  raise SystemExit("GitHub App evidence token revocation failed")
+          finally:
+              connection.close()
+              token = ""
+          PY
+          unset GH_TOKEN
+
+      - name: Set up Terraform after pre-OIDC evidence gates
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "1.14.6"
           terraform_wrapper: false
 
-      - name: Install live-engine dependencies
+      - name: Install live-engine dependencies after pre-OIDC evidence gates
         run: |
           set -euo pipefail
           python -m pip install '.[test]'
@@ -502,7 +785,121 @@ jobs:
           aws-region: ${{ inputs.aws_region }}
           allowed-account-ids: ${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}
           mask-aws-account-id: true
-          role-duration-seconds: 900
+          role-duration-seconds: 3600
           role-session-name: scanalyze-${{ github.run_id }}-${{ github.run_attempt }}
           role-to-assume: ${{ vars.ORCHESTRATOR_ROLE_ARN }}
           unset-current-credentials: true
+
+      - name: Execute the exact protected saved-plan phase
+        env:
+          CHANGE_ID: ${{ inputs.change_id }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          EXECUTION_ID: ${{ inputs.execution_id }}
+          LIVE_INPUT_CLAIM_DIGEST: ${{ inputs.live_input_claim_digest }}
+          LIVE_OPERATION: ${{ inputs.live_operation }}
+          MAIN_SHA: ${{ inputs.main_sha }}
+          PLAN_RECORD_DIGEST: ${{ inputs.plan_record_digest }}
+          REVIEWER_PACKET_DIGEST: ${{ inputs.reviewer_packet_digest }}
+          RECEIPT_DIGEST: ${{ steps.rematerialize.outputs.receipt_digest }}
+          EXPECTED_APPROVER_USER_ID: ${{ steps.rematerialize.outputs.expected_approver_user_id }}
+          TARGET_LAYER: ${{ inputs.layer }}
+        run: |
+          set -euo pipefail
+          private_root="$RUNNER_TEMP/scanalyze-live-inputs"
+          command=(
+            python scripts/deployment/nonprod-live-controller.py "$LIVE_OPERATION"
+            --private-root "$private_root"
+            --claim-digest "$LIVE_INPUT_CLAIM_DIGEST"
+            --receipt-digest "$RECEIPT_DIGEST"
+            --deployment-id "$DEPLOYMENT_ID"
+            --execution-id "$EXECUTION_ID"
+            --change-id "$CHANGE_ID"
+            --layer "$TARGET_LAYER"
+            --main-sha "$MAIN_SHA"
+            --region "$AWS_REGION"
+          )
+          if [[ "$LIVE_OPERATION" == "apply" ]]; then
+            command+=(
+              --plan-record-digest "$PLAN_RECORD_DIGEST"
+              --reviewer-packet-digest "$REVIEWER_PACKET_DIGEST"
+              --expected-approver-user-id "$EXPECTED_APPROVER_USER_ID"
+            )
+          fi
+          "${command[@]}"
+
+      - name: Publish sanitized saved-plan reviewer packet
+        if: ${{ inputs.live_operation == 'plan' }}
+        run: |
+          set -euo pipefail
+          packet="$RUNNER_TEMP/scanalyze-live-inputs/materialized/controller/reviewer-packet.json"
+          python - "$packet" <<'PY'
+          import sys
+          from pathlib import Path
+
+          from tooling.nonprod_live_controller import _private_json
+          from tooling.nonprod_live_engine import (
+              validate_saved_plan_reviewer_packet_document,
+          )
+
+          validate_saved_plan_reviewer_packet_document(
+              _private_json(Path(sys.argv[1]))
+          )
+          PY
+          jq -e '
+            .schema_version == "1" and
+            .record_type == "saved_plan_reviewer_packet" and
+            .production_authorized == false and
+            (.packet_digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.plan_record_digest | test("^sha256:[0-9a-f]{64}$"))
+          ' "$packet" >/dev/null
+          {
+            echo "## Protected DEV saved-plan reviewer packet"
+            jq -r '
+              [
+                "- Reviewer packet digest: \(.packet_digest)",
+                "- Plan record digest: \(.plan_record_digest)",
+                "- Target: \(.environment) / \(.layer) / \(.account_id) / \(.region)",
+                "- Execution/change: \(.execution_id) / \(.change_id)",
+                "- Release/source: \(.release_digest) / \(.source_revision_digest)",
+                "- Anchored reviewer user ID: \(.expected_approver_user_id)",
+                "- Plan Environment anchor: \(.plan_environment_anchor_digest)",
+                "- Approval authority: \(.approval_authority_digest)",
+                "- Plan SHA-256 and bytes: \(.plan_sha256) / \(.plan_size_bytes)",
+                "- State: \(.state_status) / \(.state_binding_digest)",
+                "- Plan classification: \(.plan_summary.classification)",
+                "- Resource add/change/read/no-op: \(.plan_summary.add_count) / \(.plan_summary.change_count) / \(.plan_summary.read_count) / \(.plan_summary.no_op_count)",
+                "- Output create/update/delete: \(.plan_summary.output_create_count) / \(.plan_summary.output_update_count) / \(.plan_summary.output_delete_count)",
+                "- Destructive actions: \(.plan_summary.destroy_count) destroys, \(.plan_summary.replace_count) replacements",
+                "- Cost modeled/max USD micros: \(.cost_binding.modeled_cost_upper_bound_usd_micros) / \(.cost_binding.maximum_cost_usd_micros)",
+                "- Expires: \(.expires_at)",
+                "- Production authorized: false",
+                "",
+                "Copy the reviewer packet digest exactly into the separate Apply dispatch after reviewing this packet."
+              ] | .[]
+            ' "$packet"
+            echo "- Resource action manifest:"
+            jq -r '
+              .plan_summary.resource_actions[] |
+              "  - \(.resource_type).\(.resource_name): \(.action) [\(.address_digest)]"
+            ' "$packet"
+            echo "- Output action manifest:"
+            jq -r '
+              .plan_summary.output_actions[] |
+              "  - \(.output_name): \(.action)"
+            ' "$packet"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove private live inputs
+        if: ${{ always() }}
+        env:
+          FIRST_PRIVATE_ROOT: ${{ runner.temp }}/scanalyze-live-inputs-first
+          PRIVATE_ROOT: ${{ runner.temp }}/scanalyze-live-inputs
+        run: |
+          set -euo pipefail
+          if [[ -z "$RUNNER_TEMP" ]] || \
+             [[ "$FIRST_PRIVATE_ROOT" != "$RUNNER_TEMP/scanalyze-live-inputs-first" ]] || \
+             [[ "$PRIVATE_ROOT" != "$RUNNER_TEMP/scanalyze-live-inputs" ]]; then
+            echo "::error::Private cleanup root is not canonical"
+            exit 1
+          fi
+          rm -rf -- "$FIRST_PRIVATE_ROOT" "$PRIVATE_ROOT"

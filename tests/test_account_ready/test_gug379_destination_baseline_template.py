@@ -25,6 +25,7 @@ KEYS = {
 }
 BUCKETS = {
     "StateBucket": ("StateKmsKey", "StateBucketPolicy"),
+    "PlanBucket": ("EvidenceKmsKey", "PlanBucketPolicy"),
     "EvidenceBucket": ("EvidenceKmsKey", "EvidenceBucketPolicy"),
     "ContractsBucket": ("ContractsKmsKey", "ContractsBucketPolicy"),
 }
@@ -97,6 +98,7 @@ CHILD_PARAMETERS = {
     "SharedServicesAccountId",
     "Environment",
     "StateBucketArn",
+    "PlanBucketArn",
     "EvidenceBucketArn",
     "ContractsBucketArn",
     "StateKmsKeyArn",
@@ -112,6 +114,7 @@ MAX_QUOTA_VALUES = {
     "DeploymentId": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "SharedServicesAccountId": "210987654321",
     "StateBucketArn": "arn:aws-us-gov:s3:::scanalyze-123456789012-tf-state",
+    "PlanBucketArn": "arn:aws-us-gov:s3:::scanalyze-123456789012-tf-plan",
     "EvidenceBucketArn": "arn:aws-us-gov:s3:::scanalyze-123456789012-tf-evidence",
     "ContractsBucketArn": "arn:aws-us-gov:s3:::scanalyze-123456789012-contracts",
     "StateKmsKeyArn": (
@@ -246,6 +249,10 @@ def _normalize_policy_value(value: Any) -> Any:
                 (
                     "${StateBucketArn}",
                     "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+                ),
+                (
+                    "${PlanBucketArn}",
+                    "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan",
                 ),
                 (
                     "${EvidenceBucketArn}",
@@ -384,8 +391,8 @@ def test_parent_is_only_durable_baseline_plus_exact_nested_interface(
     assert Counter(resource["Type"] for resource in resources.values()) == {
         "AWS::KMS::Key": 3,
         "AWS::KMS::Alias": 3,
-        "AWS::S3::Bucket": 3,
-        "AWS::S3::BucketPolicy": 3,
+        "AWS::S3::Bucket": 4,
+        "AWS::S3::BucketPolicy": 4,
         "AWS::CloudFormation::Stack": 1,
     }
     assert "dynamodb" not in parent_source.lower()
@@ -397,6 +404,7 @@ def test_parent_is_only_durable_baseline_plus_exact_nested_interface(
     assert nested["UpdateReplacePolicy"] == "Retain"
     assert nested["DependsOn"] == [
         "StateBucketPolicy",
+        "PlanBucketPolicy",
         "EvidenceBucketPolicy",
         "ContractsBucketPolicy",
     ]
@@ -407,6 +415,7 @@ def test_parent_is_only_durable_baseline_plus_exact_nested_interface(
         "SharedServicesAccountId": {"Ref": "SharedServicesAccountId"},
         "Environment": {"Ref": "Environment"},
         "StateBucketArn": {"Fn::GetAtt": "StateBucket.Arn"},
+        "PlanBucketArn": {"Fn::GetAtt": "PlanBucket.Arn"},
         "EvidenceBucketArn": {"Fn::GetAtt": "EvidenceBucket.Arn"},
         "ContractsBucketArn": {"Fn::GetAtt": "ContractsBucket.Arn"},
         "StateKmsKeyArn": {"Fn::GetAtt": "StateKmsKey.Arn"},
@@ -447,7 +456,7 @@ def test_parent_pins_exact_child_bytes_and_non_null_s3_version(
     assert len(version_prefix + "a" * 900) > 1024
 
 
-def test_three_keys_buckets_and_guard_policies_share_retained_lifecycle(
+def test_three_keys_four_buckets_and_guard_policies_share_retained_lifecycle(
     parent: dict[str, Any]
 ) -> None:
     resources = parent["Resources"]
@@ -484,14 +493,17 @@ def test_three_keys_buckets_and_guard_policies_share_retained_lifecycle(
 
         if bucket_name == "StateBucket":
             assert "ObjectLockEnabled" not in properties
+            assert "LifecycleConfiguration" not in properties
+        elif bucket_name == "PlanBucket":
+            assert "ObjectLockEnabled" not in properties
             assert properties["LifecycleConfiguration"] == {
                 "Rules": [
                     {
                         "Id": "ExpireEphemeralPlanExecution",
                         "Prefix": "plan-execution/",
                         "Status": "Enabled",
-                        "ExpirationInDays": 3,
-                        "NoncurrentVersionExpiration": {"NoncurrentDays": 3},
+                        "ExpirationInDays": 1,
+                        "NoncurrentVersionExpiration": {"NoncurrentDays": 1},
                     }
                 ]
             }
@@ -646,10 +658,32 @@ def test_apply_boundaries_cover_fixture_resources_and_preserve_baseline(
             "DenyBaselineBucketMutation",
             "DenyBaselineKeyMutation",
             "DenyEvidencePublication",
+            "DenyPlanObjectMutation",
         }
-        assert "s3:PutBucketTagging" in _items(
-            boundary_denies["DenyBaselineBucketMutation"]["Action"]
-        )
+        assert set(
+            _items(boundary_denies["DenyBaselineBucketMutation"]["Action"])
+        ) == {
+            "s3:DeleteBucket*",
+            "s3:PutBucket*",
+            "s3:PutEncryptionConfiguration",
+        }
+        assert set(
+            _items(boundary_denies["DenyBaselineBucketMutation"]["Resource"])
+        ) == {
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan",
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence",
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts",
+        }
+        plan_object_deny = boundary_denies["DenyPlanObjectMutation"]
+        assert set(_items(plan_object_deny["Action"])) == {
+            "s3:DeleteObject*",
+            "s3:GetObject",
+            "s3:PutObject*",
+        }
+        assert _items(plan_object_deny["Resource"]) == [
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/*"
+        ]
         assert {"kms:CreateGrant", "kms:TagResource"} <= set(
             _items(boundary_denies["DenyBaselineKeyMutation"]["Action"])
         )
@@ -749,7 +783,12 @@ def test_validation_promotion_shared_release_and_saved_plan_boundaries(
         )
 
     for plan_role, plan_sid, apply_role, apply_sid in (
-        ("PlanRole", "WriteOwnSavedPlan", "ApplyRole", "ReadOwnSavedPlanVersion"),
+        (
+            "PlanRole",
+            "WriteOwnSavedPlan",
+            "ApplyRole",
+            "ReadOwnSavedPlanVersion",
+        ),
         (
             "IdentityPlanRole",
             "WriteIdentityPlanExecutionZone",
@@ -759,11 +798,11 @@ def test_validation_promotion_shared_release_and_saved_plan_boundaries(
     ):
         plan = _normalize_policy_value(_role_statements(companion, plan_role)[plan_sid])
         apply = _normalize_policy_value(_role_statements(companion, apply_role)[apply_sid])
-        assert _items(plan["Action"]) == ["s3:PutObject"]
+        assert _items(plan["Action"]) == ["s3:GetObject", "s3:PutObject"]
         assert _items(apply["Action"]) == ["s3:GetObjectVersion"]
         assert apply["Resource"] == plan["Resource"]
-        assert "-tf-state/plan-execution/" in plan["Resource"]
-        assert "-tf-evidence/plan-execution/" not in plan["Resource"]
+        assert "-tf-plan/plan-execution/" in plan["Resource"]
+        assert "-tf-state/plan-execution/" not in plan["Resource"]
 
 
 def test_generic_apply_cannot_create_persistent_iam_or_touch_foreign_kms(
@@ -822,46 +861,60 @@ def test_generic_apply_cannot_create_persistent_iam_or_touch_foreign_kms(
         assert not boundary_actions & {"kms:CreateKey", "kms:PutKeyPolicy"}
 
 
-def test_roles_that_read_raw_state_cannot_publish_or_encrypt_evidence(
+def test_saved_plan_writers_are_exact_and_nonwriters_cannot_publish_plans(
     companion: dict[str, Any]
 ) -> None:
-    evidence_bucket = (
-        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence"
+    plan_bucket = (
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
     )
     evidence_key = (
         "arn:${aws_partition}:kms:${region}:${account_id}:key/"
         "${evidence_kms_key_id}"
     )
-    for role_name in (
-        "PlanRole",
-        "ApplyRole",
-        "IdentityPlanRole",
-        "IdentityApplyRole",
-        "StateRecoveryRole",
-    ):
+    plan_writers = {"PlanRole", "IdentityPlanRole"}
+    for role_name in (*sorted(plan_writers), "ApplyRole", "IdentityApplyRole", "StateRecoveryRole"):
         statements = {
             sid: _normalize_policy_value(statement)
             for sid, statement in _role_statements(companion, role_name).items()
         }
         serialized = json.dumps(statements, sort_keys=True)
         assert "s3:GetObjectVersion" in serialized
+        plan_writes: list[str] = []
         for statement in statements.values():
             if statement["Effect"] != "Allow":
                 continue
             actions = set(_items(statement["Action"]))
             resources = _items(statement["Resource"])
             if "s3:PutObject" in actions:
-                assert all(
-                    not resource.startswith(evidence_bucket)
+                matching = [
+                    resource
                     for resource in resources
-                ), role_name
+                    if resource.startswith(plan_bucket)
+                ]
+                plan_writes.extend(matching)
+                if role_name in plan_writers:
+                    assert all(
+                        "/plan-execution/${deployment_id}/"
+                        "${aws:PrincipalTag/change_id}/" in resource
+                        and resource.endswith("/plan.tfplan")
+                        for resource in matching
+                    ), role_name
+                else:
+                    assert not matching, role_name
             if actions & {
                 "kms:Encrypt",
                 "kms:GenerateDataKey",
                 "kms:GenerateDataKey*",
                 "kms:GenerateDataKeyWithoutPlaintext",
             }:
-                assert evidence_key not in resources, role_name
+                if evidence_key in resources:
+                    assert role_name in plan_writers, role_name
+                if role_name not in plan_writers:
+                    assert evidence_key not in resources, role_name
+        if role_name in plan_writers:
+            assert len(plan_writes) == 1, role_name
+        else:
+            assert not plan_writes, role_name
 
 
 def test_state_recovery_policy_is_future_authority_but_unreachable(

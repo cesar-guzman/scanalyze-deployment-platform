@@ -1,4 +1,8 @@
-# Rev3 Correction Cycle — Cerrar bloqueadores P0 para ACCEPTED
+# Rev4 Correction Cycle — Cerrar bloqueadores del candidato ejecutable
+
+> **Boundary 2026-08-28**: el repositorio contiene un candidato rev4, pero no
+> se ejecutó AWS, Terraform apply ni deployment conectado para esta corrección.
+> `NOT_DEPLOYED`; producción permanece `PRODUCTION_NO_GO`.
 
 ## Estado de entrada
 
@@ -52,8 +56,11 @@ Cierra **P0-1** y **P0-2**.
 - Agregar `StringEquals: {"aws:RequestTag/operation": "diagnostic"}` a trust policy Diagnostic.
 
 #### 1.6 Bootstrap — account baseline vs golden workload
-- **Mover los 6 control-plane roles a account baseline** (provisioned por AccountVendingProvider).
-- Account baseline crea: Plan, Apply, Promotion, Validation, Diagnostic, StateRecovery, trust policies, permissions boundaries, state/evidence/contracts buckets, infra KMS keys.
+- **Mover los ocho roles terminales a account baseline** (provisioned por AccountVendingProvider).
+- Account baseline crea: Plan, Apply, Identity-Plan, Identity-Apply, Promotion,
+  Validation, Diagnostic y StateRecovery, además de trust policies,
+  permissions boundaries, cuatro buckets (state, plan, evidence, contracts) y
+  tres KMS keys.
 - **Layer global ahora gestiona solo**: ECS task execution role, ECS task role, application-level IAM policies, application permissions boundaries.
 - Documentar secuencia: `AccountVending → ACCOUNT_READY → Orchestrator → global layer → workload layers`.
 
@@ -66,7 +73,7 @@ Cierra **P0-1** y **P0-2**.
 
 ---
 
-## Entrega 2 — ADR-003 rev3: State, Evidence & Bucket Policies
+## Entrega 2 — ADR-003 rev4: State, Evidence & Bucket Policies
 
 Cierra **P0-4** y **P0-5**.
 
@@ -99,28 +106,37 @@ Cierra **P0-4** y **P0-5**.
 #### 2.5 Plan evidence model: efímero + sanitizado
 
 **Plan execution store** (efímero):
-- Prefix: `plan-execution/`
-- TTL: 24–72 horas, Object Lock: ninguno.
-- Contiene: plan binary, plan JSON, SHA-256 del binario, state lineage/serial.
-- Acceso: Plan role (write), Apply role (read), Diagnostic (sin acceso por defecto).
-- Eliminado automáticamente por lifecycle rule.
+- Bucket dedicado: `scanalyze-${account_id}-tf-plan`, prefix `plan-execution/`.
+- TTL: un día para versiones current/noncurrent, Object Lock: ninguno.
+- Contiene sólo el plan binario exacto; plan JSON se elimina del scratch privado.
+- Acceso: Plan/Identity-Plan (create-only write exacto),
+  Apply/Identity-Apply (read-only de `VersionId` exacto), Diagnostic sin acceso.
+- El control durable vincula bucket, key, `VersionId`, SHA-256 y tamaño.
+- No hay delete inmediato tras apply/rechazo/expiración; versiones current y
+  noncurrent se eliminan exclusivamente por lifecycle.
 
-**Evidence store inmutable** (permanente):
+**Evidence store inmutable** (destino reservado):
 - Contiene SOLO: plan digest, plan summary sanitizado, resource action counts, policy evaluation, approval record, apply execution ID, state version IDs, release manifest digest, logs sanitizados.
 - **NO contiene**: plan binario, state completo, raw plan JSON, secrets, variables sensibles.
-- Object Lock: COMPLIANCE 90 días (summaries), 365 días (apply logs).
+- Object Lock: COMPLIANCE con default de 90 días.
+- El Plan/Apply actual no tiene publisher ni write authority al evidence bucket;
+  un publisher aislado requiere una revisión separada.
 
-**Recovery store** (altamente restringido):
-- Pre-apply state snapshots para disaster recovery.
-- Acceso: solo StateRecovery role.
-- No accesible por Diagnostic.
+**Recovery prefix** (reservado, no implementado):
+- No existen snapshots pre-apply ni publisher, consumer o lifecycle para ese
+  prefijo.
+- No existe un flujo de recuperación implementado. El state versionado conserva
+  VersionId/lineage como insumo para un futuro procedimiento break-glass
+  separado y revisado; Apply no puede escribir `recovery/`.
 
 #### 2.6 Matriz KMS coherente
 
 | Role | State KMS | Evidence KMS | Contracts KMS |
 |---|---|---|---|
-| Plan | Decrypt | — | Decrypt |
-| Apply | Encrypt, Decrypt, GenerateDataKey | Encrypt, GenerateDataKey | Encrypt, Decrypt, GenerateDataKey |
+| Plan | Encrypt, Decrypt, GenerateDataKey para state/lock | Encrypt, Decrypt, GenerateDataKey sólo para plan bucket | Encrypt, Decrypt, GenerateDataKey |
+| Apply | Encrypt, Decrypt, GenerateDataKey | Decrypt sólo para plan exacto | Encrypt, Decrypt, GenerateDataKey |
+| Identity-Plan | Encrypt, Decrypt, GenerateDataKey para state/lock | Encrypt, Decrypt, GenerateDataKey sólo para plan identity | Decrypt |
+| Identity-Apply | Encrypt, Decrypt, GenerateDataKey | Decrypt sólo para plan identity exacto | Encrypt, Decrypt, GenerateDataKey |
 | Promotion | — | — | — |
 | Validation | — | Decrypt | Decrypt |
 | Diagnostic | Decrypt | Decrypt | Decrypt |
@@ -129,7 +145,9 @@ Cierra **P0-4** y **P0-5**.
 #### 2.7 Regional state keys
 - Global: `{dep_id}/global/terraform.tfstate`
 - Edge: `{dep_id}/edge/terraform.tfstate`
-- Regional: `{dep_id}/{region}/{layer}/terraform.tfstate`
+- Regional: `{dep_id}/{region}/{layer}/terraform.tfstate` para network,
+  platform, data-foundation, cicd, identity-control-plane, services,
+  edge-identity y addons, conforme a `deployment/layers.yaml`.
 - Aplica a evidence, contract payloads, ownership manifest.
 
 ---
@@ -295,12 +313,14 @@ Cierra P1 threat model y matrix.
   - T9.2: Deployment registry tampering.
   - T9.3: SSM contract tampering/replay.
   - T9.4: Saved-plan substitution.
-- T6.2: reconciliar "no terraform show en CI" con ADR-006 que usa plan JSON.
-- T4.3: reconciliar "state no en artifacts" con evidence snapshots.
+- T6.2: `terraform show -json` sólo puede escribir a scratch privado modo
+  `0600`; el JSON se elimina y nunca se sube.
+- T4.3: state nunca se publica como artifact/evidence; no hay snapshots
+  pre-apply implementados.
 
 ### Ownership Matrix rev2 cambios
 
-1. 6 control-plane roles → account baseline (no global).
+1. 8 roles terminales → account baseline (no global).
 2. SSM contract params owned por producer layer.
 3. edge-identity separado de addons.
 4. "per-tenant" → processing_domain.
@@ -318,7 +338,7 @@ Cierra P1 threat model y matrix.
 ```
 Entrega 1: ADR-004 rev3 (fundacional — identidad, bootstrap)
     ↓
-Entrega 2: ADR-003 rev3 (depende de roles correctos de E1)
+Entrega 2: ADR-003 rev4 (depende de roles correctos de E1)
     ↓
 Entrega 3: ADR-006 rev3 (depende de roles y buckets de E1+E2)
     ↓
@@ -339,7 +359,8 @@ Entrega 7: ADR-009 rev3 + Ownership Matrix rev2 (reconciliación final)
 - No Terraform apply/import/state mutation.
 - No account creation, role creation.
 - No pipeline deployment ni golden-stack implementation.
-- Todos los cambios son documentación y diseño.
+- Este plan ya tiene implementación de repositorio parcial; esta corrección
+  documental no ejecuta ni demuestra infraestructura conectada.
 
 ## Trabajo paralelo autorizado
 

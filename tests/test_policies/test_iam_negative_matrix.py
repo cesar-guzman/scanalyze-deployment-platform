@@ -279,6 +279,22 @@ class TestS3PrefixBoundaries:
                 assert len(parts) > 20, \
                     f"Evidence bucket resource too broad: {r}"
 
+    def test_plan_bucket_is_exact_versioned_execution_only(self):
+        policy = _load_policy(S3_DIR / "plan-bucket.json")
+        serialized = json.dumps(policy, sort_keys=True)
+        assert "-tf-plan/plan-execution/" in serialized
+        assert "s3:GetObjectVersion" in serialized
+        assert "s3:GetObject\"" not in serialized
+        assert "-tf-state/plan-execution/" not in serialized
+        assert "-tf-evidence/plan-execution/" not in serialized
+
+        evidence = json.dumps(
+            _load_policy(S3_DIR / "evidence-bucket.json"), sort_keys=True
+        )
+        assert "/plan-execution/" not in evidence
+        assert "ScanalyzeCustomer-Apply" not in evidence
+        assert "ScanalyzeCustomer-Plan" not in evidence
+
     def test_contracts_bucket_has_prefix_restriction(self):
         policy = _load_policy(S3_DIR / "contracts-bucket.json")
         resources = _resources_in_policy(policy)
@@ -321,12 +337,27 @@ class TestKMSActionMatrix:
                     assert a not in admin_actions, \
                         f"Non-root principal has KMS admin action: {a}"
 
-    def test_evidence_key_no_decrypt_for_evidence_writers(self):
-        """Evidence writers should encrypt only, not decrypt."""
+    def test_evidence_key_limits_plan_decrypt_to_exact_reconciliation_context(self):
+        """Plan decrypt is limited to checksum reconciliation for its plan bucket."""
         policy = _load_policy(KMS_DIR / "evidence-key.json")
-        # This is a structural test — verify the policy exists and is parseable
-        stmts = _get_statements(policy)
-        assert len(stmts) > 0, "Evidence key policy must have statements"
+        statements = {
+            statement["Sid"]: statement for statement in _get_statements(policy)
+        }
+        assert _items(statements["AllowPlanReconcile"]["Action"]) == [
+            "kms:Decrypt",
+            "kms:GenerateDataKey",
+        ]
+
+    def test_saved_plan_key_use_is_bound_to_the_plan_bucket(self):
+        policy = _load_policy(KMS_DIR / "evidence-key.json")
+        statements = {statement["Sid"]: statement for statement in _get_statements(policy)}
+        assert "AllowApplyEncrypt" not in statements
+        for sid in ("AllowPlanEncrypt", "AllowPlanReconcile", "AllowApplyDecrypt"):
+            context = statements[sid]["Condition"]["StringEquals"]
+            assert context["kms:ViaService"] == "s3.${region}.${aws_url_suffix}"
+            assert context["kms:EncryptionContext:aws:s3:arn"] == (
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -462,16 +493,16 @@ def test_gug379_generic_plan_is_read_only_outside_lock_and_saved_plan() -> None:
     assert "sts:GetCallerIdentity" in _items(infrastructure["Action"])
 
 
-def test_gug379_saved_plan_is_tf_state_scoped_and_apply_requires_version_id() -> None:
+def test_gug379_saved_plan_is_ephemeral_evidence_scoped_and_apply_requires_version_id() -> None:
     plan = _load_policy(IAM_DIR / "plan-role.json")
     apply = _load_policy(IAM_DIR / "apply-role.json")
     identity_plan = _load_policy(IAM_DIR / "identity-control-plane-plan-role.json")
     identity_apply = _load_policy(IAM_DIR / "identity-control-plane-apply-role.json")
 
     generic_write = _statement(plan, "WriteOwnSavedPlan")
-    assert _items(generic_write["Action"]) == ["s3:PutObject"]
+    assert _items(generic_write["Action"]) == ["s3:GetObject", "s3:PutObject"]
     assert generic_write["Resource"] == (
-        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/"
+        "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/"
         "plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/"
         "${aws:PrincipalTag/layer}/plan.tfplan"
     )
@@ -483,11 +514,11 @@ def test_gug379_saved_plan_is_tf_state_scoped_and_apply_requires_version_id() ->
     identity_write = _statement(
         identity_plan, "WriteIdentityPlanExecutionZone"
     )
-    assert _items(identity_write["Action"]) == ["s3:PutObject"]
+    assert _items(identity_write["Action"]) == ["s3:GetObject", "s3:PutObject"]
     assert identity_write["Resource"].endswith(
         "/${aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan"
     )
-    assert "-tf-state/plan-execution/" in identity_write["Resource"]
+    assert "-tf-plan/plan-execution/" in identity_write["Resource"]
 
     identity_read = _statement(
         identity_apply, "ReadIdentityPlanExecutionZone"
@@ -497,7 +528,7 @@ def test_gug379_saved_plan_is_tf_state_scoped_and_apply_requires_version_id() ->
 
     for policy in (plan, apply, identity_plan, identity_apply):
         serialized = json.dumps(policy, sort_keys=True)
-        assert "-tf-evidence/plan-execution/" not in serialized
+        assert "-tf-state/plan-execution/" not in serialized
 
     # IAM forces the caller onto the versioned API. Selecting and approving the
     # exact VersionId remains a downstream orchestration/saved-plan gate; this

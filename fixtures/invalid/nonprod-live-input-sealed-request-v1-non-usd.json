@@ -1,0 +1,38 @@
+{
+  "schema_version": "1",
+  "record_type": "nonprod_live_input_sealed_request",
+  "authority_bindings": {
+    "platform_authority_account_id": "555666777888",
+    "orchestrator_role_arn": "arn:aws:iam::555666777888:role/ScanalyzeOrchestrator-dep_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expected_approver_user_id": 55
+  },
+  "cost_model": {
+    "currency": "EUR",
+    "modeled_cost_upper_bound_usd_micros": 5000000,
+    "modeled_at": "2026-08-28T20:00:00Z",
+    "expires_at": "2026-08-28T21:00:00Z",
+    "cost_model_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "release_bindings": {
+    "release_version": "2026.08.28",
+    "release_policy_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "release_projection_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "plan_policy_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "github_deployment_identity_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "environment_configuration_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "platform_authority_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "toolchain_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "root_module_digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "sources": {
+    "manifest": {"synthetic": true},
+    "target_record": {"synthetic": true},
+    "target_anchor": {"synthetic": true},
+    "account_ready": {"synthetic": true},
+    "execution_lock": {"synthetic": true},
+    "contract_resolution": {"synthetic": true},
+    "github_deployment_identity": {"synthetic": true},
+    "github_environment_anchor": {"synthetic": true}
+  },
+  "sealed_request_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

@@ -58,6 +58,7 @@ ROLE_TAG_FIELDS = {
 STATE_INFRASTRUCTURE_FIELDS = frozenset(
     {
         "state_bucket",
+        "plan_bucket",
         "evidence_bucket",
         "contracts_bucket",
         "state_kms_key",
@@ -67,6 +68,7 @@ STATE_INFRASTRUCTURE_FIELDS = frozenset(
 )
 BUCKET_SUFFIXES = {
     "state_bucket": "tf-state",
+    "plan_bucket": "tf-plan",
     "evidence_bucket": "tf-evidence",
     "contracts_bucket": "contracts",
 }
@@ -77,6 +79,11 @@ EXPECTED_CONTROLS = {
     "state_public_access_blocked": True,
     "state_object_lock_enabled": False,
     "native_lockfile_enabled": True,
+    "plan_versioning_enabled": True,
+    "plan_default_encryption": "aws:kms",
+    "plan_bucket_key_enabled": True,
+    "plan_public_access_blocked": True,
+    "plan_lifecycle_days": 1,
 }
 READBACK_FIELDS = frozenset(
     {
@@ -452,7 +459,7 @@ def _validate_state_ownership(
         ):
             _fail("BUCKET_BINDING_MISMATCH")
         bucket_values.add(value)
-    if len(bucket_values) != 3:
+    if len(bucket_values) != 4:
         _fail("BUCKET_BINDING_AMBIGUOUS")
 
     kms_values: set[str] = set()
@@ -487,7 +494,13 @@ def _validate_candidate(account_ready: dict[str, Any]) -> None:
         account_ready,
         expected_partition=partition,
     )
-    if account_ready.get("controls") != EXPECTED_CONTROLS:
+    expected_controls = {
+        **EXPECTED_CONTROLS,
+        "plan_kms_key": account_ready["state_infrastructure"][
+            "evidence_kms_key"
+        ],
+    }
+    if account_ready.get("controls") != expected_controls:
         _fail("CONTROL_BINDING_INVALID")
 
 
@@ -598,9 +611,10 @@ def _operator_manifest(
         "bootstrap_readback_digest": readback["readback_digest"],
         "binding_counts": {
             "terminal_roles": 8,
-            "storage_bindings": 3,
+            "storage_bindings": 4,
             "encryption_bindings": 3,
             "state_controls": 6,
+            "plan_controls": 6,
         },
         "deterministic": True,
         "independent_review_required": True,

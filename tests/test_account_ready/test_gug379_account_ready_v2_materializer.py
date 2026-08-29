@@ -251,6 +251,7 @@ def _roles() -> dict:
 def _state_infrastructure() -> dict:
     return {
         "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+        "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
         "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
         "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
         "state_kms_key": (
@@ -265,6 +266,13 @@ def _state_infrastructure() -> dict:
             f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/"
             "33333333-3333-4333-8333-333333333333"
         ),
+    }
+
+
+def _controls(state_infrastructure: dict) -> dict:
+    return {
+        **copy.deepcopy(EXPECTED_CONTROLS),
+        "plan_kms_key": state_infrastructure["evidence_kms_key"],
     }
 
 
@@ -291,6 +299,7 @@ def _candidate_digest(readback: dict) -> str:
 
 
 def _documents() -> tuple[dict, dict, dict]:
+    state_infrastructure = _state_infrastructure()
     readback = {
         "schema_version": "1",
         "record_type": "account_ready_v2_bootstrap_readback",
@@ -301,11 +310,11 @@ def _documents() -> tuple[dict, dict, dict]:
         "account_id": ACCOUNT_ID,
         "region": REGION,
         "environment": ENVIRONMENT,
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": "2026-08-16T19:59:00Z",
         "roles": _roles(),
-        "state_infrastructure": _state_infrastructure(),
-        "controls": copy.deepcopy(EXPECTED_CONTROLS),
+        "state_infrastructure": state_infrastructure,
+        "controls": _controls(state_infrastructure),
     }
     target = {
         "schema_version": "2",
@@ -396,7 +405,9 @@ def test_materializer_is_deterministic_v2_and_manifest_is_sanitized() -> None:
     assert first.operator_manifest_bytes == second.operator_manifest_bytes
     assert first.account_ready["schema_version"] == "2"
     assert set(first.account_ready["roles"]) == set(_roles())
-    assert first.account_ready["controls"] == EXPECTED_CONTROLS
+    assert first.account_ready["controls"] == _controls(
+        first.account_ready["state_infrastructure"]
+    )
     assert first.account_ready["contract_digest"] == canonical_digest(
         first.account_ready,
         digest_field="contract_digest",
@@ -411,9 +422,10 @@ def test_materializer_is_deterministic_v2_and_manifest_is_sanitized() -> None:
     assert manifest["aws_mutations"] == 0
     assert manifest["binding_counts"] == {
         "terminal_roles": 8,
-        "storage_bindings": 3,
+        "storage_bindings": 4,
         "encryption_bindings": 3,
         "state_controls": 6,
+        "plan_controls": 6,
     }
 
     public_text = first.operator_manifest_bytes.decode("utf-8")
@@ -484,6 +496,7 @@ def test_every_terminal_role_is_required(role: str) -> None:
         ("arbitrary-bucket", "BUCKET_BINDING_MISMATCH"),
         ("foreign-kms", "KMS_BINDING_MISMATCH"),
         ("wrong-control", "ACCOUNT_READY_SCHEMA_INVALID"),
+        ("wrong-plan-kms-control", "CONTROL_BINDING_INVALID"),
         ("target-binding", "TARGET_ACCOUNT_READY_BINDING_MISMATCH"),
         ("target-not-ready", "TARGET_NOT_READY"),
     ],
@@ -527,6 +540,10 @@ def test_v1_partial_placeholder_foreign_and_mismatched_inputs_fail_closed(
         )
     elif mutation == "wrong-control":
         readback["controls"]["native_lockfile_enabled"] = False
+    elif mutation == "wrong-plan-kms-control":
+        readback["controls"]["plan_kms_key"] = readback[
+            "state_infrastructure"
+        ]["state_kms_key"]
     elif mutation == "target-binding":
         target["account_ready"]["contract_digest"] = "sha256:" + ("a" * 64)
         _refresh_bindings(target, anchor, readback)
@@ -544,6 +561,7 @@ def test_v1_partial_placeholder_foreign_and_mismatched_inputs_fail_closed(
         "arbitrary-bucket",
         "foreign-kms",
         "wrong-control",
+        "wrong-plan-kms-control",
     }:
         readback["readback_digest"] = canonical_digest(
             readback,

@@ -4,7 +4,7 @@
     {
       "Sid": "ListRegionalState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -46,7 +46,7 @@
     {
       "Sid": "ListGlobalState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -88,8 +88,8 @@
     {
       "Sid": "WriteOwnSavedPlan",
       "Effect": "Allow",
-      "Action": "s3:PutObject",
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "plan"}}
     },
     {
@@ -145,6 +145,20 @@
         "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}"
       ],
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "plan"}}
+    },
+    {
+      "Sid": "EncryptExactSavedPlan",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "plan",
+          "aws:PrincipalTag/layer": ["global", "network", "platform", "data-foundation", "cicd", "services", "edge-identity", "edge", "addons"],
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
+        }
+      }
     },
     {
       "Sid": "DenyTerminalRoleChaining",

@@ -1,9 +1,14 @@
 # Architecture Ownership Matrix
 
-> **Status**: `DRAFT rev2`  
-> **Date**: 2026-06-25  
+> **Status**: `DRAFT rev3`
+> **Date**: 2026-06-25; executable-manifest reconciliation 2026-08-28
 > **Scope**: Scanalyze Dedicated Deployment Platform  
-> **Cross-references**: ADR-003 rev3, ADR-004 rev3, ADR-006 rev3, ADR-007 rev3, ADR-008 rev3, ADR-010 rev3
+> **Cross-references**: ADR-003 rev4, ADR-004 rev3, ADR-006 rev4, ADR-007 rev3, ADR-008 rev3, ADR-010 rev3, `deployment/layers.yaml`
+
+> [!CAUTION]
+> This matrix describes the repository candidate. No connected deployment or
+> live AWS readback is evidence here. `NOT_DEPLOYED`; production remains
+> `PRODUCTION_NO_GO`.
 
 ---
 
@@ -11,16 +16,25 @@
 
 ### Single-Region Deployment
 
-| Layer | Terraform Root | State Key | Produces Contract | Managed by Role |
+| Stage | Kind / Root | State Key | Produces Contract | Managed by Role |
 |---|---|---|---|---|
+| **account-ready-gate** | gate / `roots/account-ready-gate` | — | — | no terminal role |
 | **global** | `roots/global` | `{dep_id}/global/terraform.tfstate` | `contracts/global/v1` | Plan (read), Apply (write) |
-| **network** | `roots/network` | `{dep_id}/{region}/network/terraform.tfstate` | `contracts/network/v1` | Plan (read), Apply (write) |
-| **platform** | `roots/platform` | `{dep_id}/{region}/platform/terraform.tfstate` | `contracts/platform/v1` | Plan (read), Apply (write) |
+| **network** | `roots/network` | `{dep_id}/{region}/network/terraform.tfstate` | `contracts/network/v2` | Plan (read), Apply (write) |
+| **platform** | `roots/platform` | `{dep_id}/{region}/platform/terraform.tfstate` | `contracts/platform/v2` | Plan (read), Apply (write) |
 | **data-foundation** | `roots/data-foundation` | `{dep_id}/{region}/data-foundation/terraform.tfstate` | `contracts/data-foundation/v2` | Plan (read), Apply (write) |
-| **services** | `roots/services` | `{dep_id}/{region}/services/terraform.tfstate` | `contracts/services/v1` | Plan (read), Apply (write) |
-| **edge-identity** (5a) | `roots/edge-identity` | `{dep_id}/{region}/edge-identity/terraform.tfstate` | `contracts/edge-identity/v1` | Plan (read), Apply (write) |
-| **edge** | `roots/edge` | `{dep_id}/edge/terraform.tfstate` | `contracts/edge/v1` | Plan (read), Apply (write) |
-| **addons** | `roots/addons` | `{dep_id}/{region}/addons/terraform.tfstate` | `contracts/addons/v1` | Plan (read), Apply (write) |
+| **cicd** | `roots/cicd` | `{dep_id}/{region}/cicd/terraform.tfstate` | `contracts/cicd/v2` | Plan (read), Apply (write) |
+| **artifact-publication** | artifact / no Terraform root | — | `release-manifest/v1` | Validation (read), Promotion (write) |
+| **identity-control-plane** | `roots/identity-control-plane` | `{dep_id}/{region}/identity-control-plane/terraform.tfstate` | `contracts/identity-control-plane/v1` | Identity-Plan (read), Identity-Apply (write) |
+| **services** | `roots/services` | `{dep_id}/{region}/services/terraform.tfstate` | `contracts/services/v2` | Plan (read), Apply (write) |
+| **edge-identity** | `roots/edge-identity` | `{dep_id}/{region}/edge-identity/terraform.tfstate` | `contracts/edge-identity/v2` | Plan (read), Apply (write) |
+| **edge** | `roots/edge` | `{dep_id}/edge/terraform.tfstate` | `contracts/edge/v2` | Plan (read), Apply (write) |
+| **addons** | `roots/addons` | `{dep_id}/{region}/addons/terraform.tfstate` | `contracts/addons/v2` | Plan (read), Apply (write) |
+| **synthetic-validation** | validation / no Terraform root | — | — | Validation (read-only) |
+
+This 13-stage order is authoritative because it is generated from
+`deployment/layers.yaml`: ten Terraform state owners and three stages with
+`state_key: null`.
 
 ### Multi-Region Deployment (ADR-008 rev3)
 
@@ -32,6 +46,8 @@ For multi-region deployments, regional layers have separate state per region:
 {dep_id}/us-east-1/network/terraform.tfstate   ← primary
 {dep_id}/us-east-1/platform/terraform.tfstate
 {dep_id}/us-east-1/data-foundation/terraform.tfstate
+{dep_id}/us-east-1/cicd/terraform.tfstate
+{dep_id}/us-east-1/identity-control-plane/terraform.tfstate
 {dep_id}/us-east-1/services/terraform.tfstate
 {dep_id}/us-east-1/edge-identity/terraform.tfstate
 {dep_id}/us-east-1/addons/terraform.tfstate
@@ -57,7 +73,10 @@ SSM contracts are regional natively. Each region has its own Parameter Store nam
 | Workload IAM roles (per service) | `aws_iam_role` | global |
 
 > [!IMPORTANT]
-> **The 6 control-plane deployment roles (Plan, Apply, Promotion, Validation, Diagnostic, StateRecovery) are NOT in the global layer.** They are provisioned by the AccountVendingProvider during account bootstrap (ADR-004 rev3). See §3 Account Baseline.
+> **The eight terminal roles (Plan, Apply, Identity-Plan, Identity-Apply,
+> Promotion, Validation, Diagnostic, StateRecovery) are NOT in the global
+> layer.** The account-baseline candidate provisions them before any workload
+> root may run. See §3 Account Baseline.
 
 ### Network Layer (layer 1) — Regional
 
@@ -166,17 +185,23 @@ SSM contracts are regional natively. Each region has its own Parameter Store nam
 
 ## 3. Account Baseline Resources (NOT in deployment state)
 
-Provisioned by AccountVendingProvider (ADR-004 rev3) or Control Tower. These resources exist BEFORE any deployment layer runs.
+The account-baseline candidate is owned by AccountVendingProvider (ADR-004
+rev3), with organization services owned by Control Tower. A deployment may
+proceed only after exact ACCOUNT_READY v2 readback proves these resources; this
+document does not prove that they currently exist.
 
 | Resource | Provisioner | State |
 |---|---|---|
 | **ScanalyzeCustomer-Plan role** | AccountVendingProvider | Bootstrap state |
 | **ScanalyzeCustomer-Apply role** | AccountVendingProvider | Bootstrap state |
+| **ScanalyzeCustomer-Identity-Plan role** | AccountVendingProvider | Bootstrap state |
+| **ScanalyzeCustomer-Identity-Apply role** | AccountVendingProvider | Bootstrap state |
 | **ScanalyzeCustomer-Promotion role** | AccountVendingProvider | Bootstrap state |
 | **ScanalyzeCustomer-Validation role** | AccountVendingProvider | Bootstrap state |
 | **ScanalyzeCustomer-Diagnostic role** | AccountVendingProvider | Bootstrap state |
 | **ScanalyzeCustomer-StateRecovery role** | AccountVendingProvider | Bootstrap state |
 | State S3 bucket | AccountVendingProvider | Bootstrap state |
+| Plan S3 bucket | AccountVendingProvider | Bootstrap state |
 | Evidence S3 bucket | AccountVendingProvider | Bootstrap state |
 | Contracts S3 bucket | AccountVendingProvider | Bootstrap state |
 | State KMS key | AccountVendingProvider | Bootstrap state |
@@ -189,7 +214,9 @@ Provisioned by AccountVendingProvider (ADR-004 rev3) or Control Tower. These res
 | Security Hub subscription (if delegated) | Organization | Organization state |
 
 > [!IMPORTANT]
-> **The 6 deployment roles are NOT created by the deployment pipeline.** They are created during account bootstrap by the AccountVendingProvider, which runs with a corporate principal identity. This resolves the bootstrap chicken-and-egg problem (ADR-004 rev3).
+> **The eight terminal roles are NOT created by the deployment pipeline.** The
+> account-baseline candidate creates them under AccountVendingProvider custody.
+> Live existence and authority remain unproven until connected readback.
 
 ---
 
@@ -197,73 +224,70 @@ Provisioned by AccountVendingProvider (ADR-004 rev3) or Control Tower. These res
 
 | Role | AssumeRole source | Can read | Can write | Cannot |
 |---|---|---|---|---|
-| **Plan** | Orchestrator | All TF-managed resources, state bucket, SSM contracts | State bucket (.tflock only), plan-execution zone | Infrastructure write, ECR push, SSM contract write |
-| **Apply** | Orchestrator | All | Infrastructure resources, state bucket, SSM contracts (own layer prefix only via session policy), evidence bucket (pre-apply snapshots) | ECR push, IAM user creation, Organizations |
+| **Plan** | Orchestrator | All TF-managed resources, state bucket, SSM contracts | State bucket (`.tflock` only), exact create-only object in the dedicated plan bucket | Infrastructure write, saved-plan delete, ECR push, SSM contract write |
+| **Apply** | Orchestrator | All, including the exact saved-plan object version | Infrastructure resources, state bucket, SSM contracts (own layer prefix through identity policy + mandatory `layer`/`operation` tags) | Evidence/recovery bucket writes, saved-plan put/delete, ECR push, IAM user creation, Organizations |
+| **Identity-Plan** | Orchestrator | Identity-control-plane resources, its state and required contracts | Identity `.tflock`, exact create-only identity saved plan | Identity mutation, saved-plan delete, evidence write |
+| **Identity-Apply** | Orchestrator | Identity-control-plane resources, exact identity saved-plan version and required contracts | Identity resources, its state and own contract | Evidence/recovery writes, saved-plan put/delete, unrelated workload layers |
 | **Promotion** | Orchestrator | ECR (source), S3 (frontend), release manifests | ECR (push images + full OCI artifact graph), S3 (frontend immutable release prefix), CloudFront (invalidation) | Infrastructure, IAM, state |
 | **Validation** | Orchestrator | ECS, ALB, DDB, SQS, CW, SSM, logs | Nothing | All writes |
 | **Diagnostic** | Break-glass | All resources, state (read), logs, evidence (read) | Nothing | All writes |
-| **StateRecovery** | Break-glass | State bucket | State bucket (put/copy/delete, requires `operation=state-recovery` tag) | Infrastructure, ECR, SSM, IAM |
+| **StateRecovery** | Break-glass | Versioned state objects | Restored state via explicit get+put and stale lock delete, with `operation=state-recovery` | Infrastructure, ECR, SSM, IAM, saved-plan/recovery-prefix access |
 
-### Session Policy Enforcement (ADR-006 rev3)
+### Terminal Identity Policy and Session-Tag Enforcement (ADR-006 rev4)
 
-Apply role uses session policy to restrict SSM writes to producer's layer prefix:
+The generic Apply role identity policy resolves the mandatory `layer` principal
+tag into the producer prefix and requires `operation=apply`:
 
 ```
-Session policy restricts ssm:PutParameter to:
-  arn:aws:ssm:{region}:{account}:parameter/scanalyze/deployments/{dep_id}/contracts/{layer}/*
+Identity policy restricts ssm:PutParameter to:
+  arn:aws:ssm:{region}:{account}:parameter/scanalyze/deployments/{dep_id}/contracts/${aws:PrincipalTag/layer}/*
 ```
 
-This prevents a services apply from writing to the network contract.
+This prevents a correctly tagged services Apply session from writing the
+network contract. Identity-Apply has a fixed identity-control-plane prefix.
+The terminal-session adapter does not yet pass a per-execution STS session
+policy; broader per-layer/service/resource narrowing remains downstream.
 
 ---
 
-## 5. Contract Dependency Graph (8-layer)
+## 5. Contract Dependency Graph (`deployment/layers.yaml`)
 
-```
-global/v1 ─────────────────────────────────┐
-    │                                       │
-    ▼                                       │
-network/v1 ────────────────────┐            │
-    │                          │            │
-    ▼                          ▼            ▼
-platform/v1            data-foundation/v2
-    │                          │
-    └──────────┬───────────────┘
-               ▼
-          services/v1
-               │
-        ┌──────┴──────┐
-        ▼             ▼
-  edge-identity/v1  edge/v1
-        │             │
-        └──────┬──────┘
-               ▼
-          addons/v1
-```
+The manifest carries 13 ordered stages. Its exact producer/consumer bindings
+are:
 
-| Contract | Producer | Consumers |
+| Contract | Producer | Direct consumers |
 |---|---|---|
-| `global/v1` | global root | network, platform, data-foundation, services, edge-identity, edge, addons |
-| `network/v1` | network root | platform, data-foundation |
-| `platform/v1` | platform root | services, edge-identity, addons |
-| `data-foundation/v2` | data-foundation root | cicd, services |
-| `services/v1` | services root | edge-identity, edge, addons |
-| `edge-identity/v1` | edge-identity root | addons |
-| `edge/v1` | edge root | addons |
-| `addons/v1` | addons root | (terminal — no consumers) |
+| `account-ready/v2` | external account baseline | account-ready-gate, global |
+| `global/v1` | global | network, identity-control-plane, services |
+| `network/v2` | network | platform, services, edge-identity |
+| `platform/v2` | platform | data-foundation, cicd, services, edge-identity |
+| `data-foundation/v2` | data-foundation | cicd, services |
+| `cicd/v2` | cicd | artifact-publication, services |
+| `release-manifest/v1` | artifact-publication | identity-control-plane, services, synthetic-validation |
+| `identity-contract/v2` | external identity authority | identity-control-plane |
+| `identity-control-plane/v1` | identity-control-plane | services, edge-identity, synthetic-validation |
+| `services/v2` | services | edge-identity, synthetic-validation |
+| `edge-identity/v2` | edge-identity | edge, synthetic-validation |
+| `edge/v2` | edge | addons, synthetic-validation |
+| `addons/v2` | addons | synthetic-validation |
 
 ---
 
-## 6. S3 Buckets per Customer Account (Three-Bucket Model, ADR-003 rev3)
+## 6. S3 Buckets per Customer Account (Four-Bucket Model, ADR-003 rev4)
 
 | Bucket | Purpose | Object Lock | KMS Key | Accessed by roles |
 |---|---|---|---|---|
 | `scanalyze-{acct}-tf-state` | Terraform state + .tflock files | NONE (required for lockfile deletion) | State KMS key | Plan (r + .tflock write/delete), Apply (rw), Diagnostic (r), StateRecovery (rw) |
-| `scanalyze-{acct}-tf-evidence` | Pre-apply snapshots (recovery prefix), applied plan evidence (evidence prefix), plan-execution zone (ephemeral plans, short TTL) | COMPLIANCE on evidence objects; NO default retention on bucket | Evidence KMS key | Apply (write evidence + recovery), Plan (write plan-execution zone), Diagnostic (read) |
+| `scanalyze-{acct}-tf-plan` | Exact versioned saved-plan binaries under `plan-execution/` | NONE; current and noncurrent versions expire after one day | Evidence KMS key | Plan (create exact object), Apply (read exact version) |
+| `scanalyze-{acct}-tf-evidence` | Sanitized immutable audit evidence only; no current Plan/Apply publisher | COMPLIANCE default retention, 90 days | Evidence KMS key | Diagnostic/Validation (read); future isolated evidence publisher (write) |
 | `scanalyze-{acct}-contracts` | Large contract payloads (>8KB SSM limit) | NONE | Contracts KMS key | Apply (write own layer prefix), Plan+Validation (read all) |
 
 > [!NOTE]
-> **Plan-execution zone** within the evidence bucket stores ephemeral saved plans with short retention. Retention is NOT set via bucket-level COMPLIANCE default (which would prevent deletion). Instead, individual evidence objects get per-object COMPLIANCE retention; plan-execution objects get lifecycle-based cleanup.
+> The dedicated plan bucket and its policy use `DeletionPolicy: Retain` and
+> `UpdateReplacePolicy: Retain`; stack deletion or replacement therefore does
+> not erase it. Its lifecycle is the implemented cleanup mechanism for current
+> and noncurrent saved-plan versions. The controller has no saved-plan delete
+> API, so apply, rejection, or expiry does not perform immediate deletion.
 
 ---
 
@@ -333,12 +357,12 @@ platform/v1            data-foundation/v2
 |---|---|---|
 | Two roots own same resource type in same namespace | Dual ownership | CI: ownership.yaml validation |
 | Pipeline step registers ECS task definition | TF sole owner (ADR-010 rev3) | CI: no `aws ecs register-task-definition` in pipeline scripts |
-| Script writes SSM contract | Producer root is sole writer (ADR-006 rev3) | CI: no `aws ssm put-parameter` in pipeline scripts for contract paths |
+| Ad hoc script writes an SSM contract outside the typed producer-layer publisher | Producer layer is the sole authority (ADR-006 rev4) | CI: only the canonical publisher may invoke create-only contract writes |
 | Break-glass assumes Plan/Apply/Promotion role | Break-glass limited to Diagnostic + StateRecovery (ADR-004 rev3) | IAM: trust policy enforcement |
 | `terraform_remote_state` | Cross-layer coupling | CI: grep |
 | Hardcoded account ID | Not replicable | CI: regex `\d{12}` |
 | `timestamp()` in TF code | Non-deterministic plans | CI: grep |
-| `check { assert {} }` for contract validation | Use `precondition` for fail-closed (ADR-006 rev3) | CI: grep for `check {` in contract validation paths |
+| `check { assert {} }` for contract validation | Use `precondition` for fail-closed (ADR-006 rev4) | CI: grep for `check {` in contract validation paths |
 | `deploy_wave` controls resource existence | Must control only digest, not resource lifecycle | CI: review services module for conditional resource creation via deploy_wave |
 | `BatchWriteItem` for delta migration loads | No conditional writes; use PutItem/UpdateItem (ADR-010 rev3 corrections) | Code review of migration utility |
 | Migration utility creates/modifies DynamoDB tables | TF is exclusive table owner | Code review; IAM policy: migration role cannot `dynamodb:CreateTable` |
@@ -355,12 +379,12 @@ platform/v1            data-foundation/v2
 |---|---|---|
 | Tenancy model (1:1 account) | ADR-001 | ADR-002, ADR-004 |
 | Organization / Control Tower | ADR-002 | ADR-001 |
-| State backend (three buckets, regional keys) | ADR-003 rev3 | ADR-004 rev3, ADR-006 rev3, ADR-008 rev3 |
-| Cross-account roles (6 scoped, bootstrap) | ADR-004 rev3 | ADR-003 rev3, ADR-006 rev3, ADR-007 rev3 |
-| Schemas (canonical) | ADR-005 | ADR-006 rev3, ADR-008 rev3 |
-| Modules + contracts (preconditions, session policy) | ADR-006 rev3 | ADR-003 rev3, ADR-004 rev3, ADR-005 |
+| State backend (four buckets, regional keys) | ADR-003 rev4 | ADR-004 rev3, ADR-006 rev4, ADR-008 rev3 |
+| Cross-account roles (eight terminal roles, bootstrap) | ADR-004 rev3 | ADR-003 rev4, ADR-006 rev4, ADR-007 rev3 |
+| Schemas (canonical) | ADR-005 | ADR-006 rev4, ADR-008 rev3 |
+| Modules + contracts (preconditions, tag-scoped identity policy, future session-policy narrowing) | ADR-006 rev4 | ADR-003 rev4, ADR-004 rev3, ADR-005 |
 | Supply chain (OCI graph, DSSE, proxy egress) | ADR-007 rev3 | ADR-004 rev3, ADR-005, ADR-010 rev3 |
-| DR (write fencing, Lambda authorizer, outbox) | ADR-008 rev3 | ADR-003 rev3, ADR-006 rev3, ADR-007 rev3 |
+| DR (write fencing, Lambda authorizer, outbox) | ADR-008 rev3 | ADR-003 rev4, ADR-006 rev4, ADR-007 rev3 |
 | Threat model (10 domains, 28 threats) | ADR-009 rev3 | All others |
-| Testing + rollout + migration (zero write loss, waves) | ADR-010 rev3 | ADR-003 rev3, ADR-006 rev3, ADR-007 rev3, ADR-008 rev3 |
-| Ownership matrix | This document (rev2) | ADR-003 rev3, ADR-004 rev3, ADR-006 rev3, ADR-008 rev3, ADR-010 rev3 |
+| Testing + rollout + migration (zero write loss, waves) | ADR-010 rev3 | ADR-003 rev4, ADR-006 rev4, ADR-007 rev3, ADR-008 rev3 |
+| Ownership matrix | This document (rev3) | ADR-003 rev4, ADR-004 rev3, ADR-006 rev4, ADR-008 rev3, ADR-010 rev3 |
