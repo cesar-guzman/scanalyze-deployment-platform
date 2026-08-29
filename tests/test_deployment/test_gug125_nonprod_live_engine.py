@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import os
 import subprocess
 import sys
@@ -1263,3 +1264,30 @@ def test_cli_has_no_profile_override_or_raw_secret_output_path() -> None:
     assert "AWS_SESSION_TOKEN" not in source
     assert "print(readback" not in source
     assert "print(plan_record" not in source
+
+
+def test_legacy_terminal_apply_command_stops_before_inputs_or_aws(
+    monkeypatch,
+) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "nonprod_live_engine_cli", LIVE_ENGINE_CLI
+    )
+    assert spec is not None and spec.loader is not None
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "load_json_strict",
+        lambda _path: calls.append("input-read"),
+    )
+    monkeypatch.setattr(
+        cli,
+        "AwsCliTerminalSession",
+        lambda **_kwargs: calls.append("terminal-session"),
+    )
+
+    with pytest.raises(AuthorizationError, match="disabled before destination access"):
+        cli._cmd_run_terminal_apply(object())
+
+    assert calls == []

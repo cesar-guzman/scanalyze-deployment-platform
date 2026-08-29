@@ -447,6 +447,7 @@ nonprod-live-engine-check:
 		$(TESTS_DIR)/test_deployment/test_gug125_platform_authority_factory.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_orchestrator.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_controller.py \
+		$(TESTS_DIR)/test_deployment/test_nonprod_live_cli.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_github_approval.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_input_materializer.py \
 		$(TESTS_DIR)/test_deployment/test_protected_live_path_docs.py \

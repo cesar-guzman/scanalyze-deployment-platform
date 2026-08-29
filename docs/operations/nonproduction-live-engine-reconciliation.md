@@ -156,9 +156,11 @@ health receipt, exact contract publication/readback and the final CAS to
 must never publish or retry apply.
 
 The protected workflow does not yet wire the real verification/publication
-callbacks. Until it does, the CLI returns a non-success result when the durable
-state remains `APPLIED` or `UNCERTAIN`. Keep the execution stopped; the
-hermetic core is repository evidence, not a completed connected follow-on.
+callbacks. Until it does, the public Apply CLI returns a non-success result
+before constructing destination dependencies, assuming a destination role, or
+consuming the saved-plan attempt. Keep any historical `APPLIED` or `UNCERTAIN`
+execution stopped; the hermetic core is repository evidence, not a completed
+connected follow-on.
 
 If a runner disappears while the ledger is `APPLYING`, do not send another
 Apply dispatch. The workflow exposes no recovery operation and has no second
@@ -206,10 +208,10 @@ This is the target connected sequence, not an executable claim about the
 current workflow. Execute one destination at a time only after the real
 post-apply state, no-change, health, contract-publication, and durable receipt
 adapters have been implemented and independently reviewed. Today the protected
-CLI stops with a non-success result after `APPLIED` or `UNCERTAIN`; it cannot
-perform steps 10 through 12 or advance the DAG. Keep the second account
-untouched until the first has actually reached `HEALTHY`, completed a
-no-change rerun, and passed sanitized evidence review.
+CLI stops with a non-success result before destination access or attempt
+consumption; it cannot perform Apply or steps 10 through 12 or advance the DAG.
+Keep the second account untouched until the first has actually reached
+`HEALTHY`, completed a no-change rerun, and passed sanitized evidence review.
 
 For each destination:
 

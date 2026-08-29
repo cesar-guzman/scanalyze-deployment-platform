@@ -17,7 +17,10 @@ materialization, exact Plan/Apply bindings, terminal IAM boundaries, live SSM
 contract I/O adapters, and a remote-backend contract. No connected run,
 deployment evidence, or production evidence has been produced. The real
 post-apply health, contract-publication, and reconciliation adapters are not
-wired into the protected workflow, so the candidate remains fail-closed.
+wired into the protected workflow. The public Apply entry therefore stops
+before it constructs destination dependencies, assumes a destination role, or
+consumes the saved-plan attempt, so the candidate remains fail-closed without
+stranding a newly mutated deployment at `APPLIED`.
 
 Phase 0 must make the implementation boundary unambiguous without upgrading
 local or documentary evidence into AWS evidence. It must also reconcile several
@@ -154,8 +157,9 @@ rev4 inventory: state, tf-plan, evidence, and contracts. The repository now
 contains a protected saved-plan materializer/controller path, but no connected
 live plan or data migration has been proven. The core post-apply state machine
 is implemented, but its real health, contract-publication, and reconciliation
-workflow adapters remain unwired. Connected DEV and production therefore remain
-NO-GO.
+workflow adapters remain unwired. The protected Apply CLI is disabled before
+destination access until that closure is connected. Connected DEV and
+production therefore remain NO-GO.
 
 ### 6. Build once and promote; production never rebuilds
 

@@ -31,6 +31,7 @@ def test_live_path_docs_bind_the_exact_private_interface() -> None:
         "$RUNNER_TEMP/scanalyze-live-inputs",
         "nonprod-live-input-materializer.py",
         "nonprod-live-controller.py",
+        "`run-terminal-apply` command is explicitly disabled",
         "nonprod-live-approval.py",
         "nonprod-live-github-approval-evidence.v1.schema.json",
         "deployment/live-input-claims/<deployment_id>/<layer>/<operation>.json",
@@ -93,12 +94,12 @@ def test_live_path_docs_do_not_collapse_repository_dev_staging_and_production() 
     ):
         assert required in deployment
 
-    assert "APPLIED` or `UNCERTAIN" in deployment
+    assert "before it constructs destination dependencies" in deployment
     assert (
         "protected workflow does not yet wire the real verification/publication callbacks"
         in operations
     )
-    assert "`APPLIED`/`UNCERTAIN` remains fail-closed" in _text(ADR)
+    assert "`APPLIED`/`UNCERTAIN` records remain fail-closed" in _text(ADR)
 
     assert "Nothing in this runbook authorizes that pilot" in operations
     ordered = (

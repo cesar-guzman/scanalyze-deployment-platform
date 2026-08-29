@@ -225,11 +225,14 @@ alternate live entrypoint.
 The controller implements APPLIED/RECONCILED_APPLIED re-entry and read-only
 UNCERTAIN reconciliation, but the real post-apply health probe, exact SSM
 contract publisher, and reconciliation probe are not wired into this protected
-workflow. It therefore stops after a durable mutation unless the complete
-post-apply closure reaches HEALTHY; it never claims connected or production
-success from APPLIED alone. There is no workflow recovery/evidence-writer job,
-and the controller never deletes a consumed saved plan; lifecycle is the only
-plan cleanup authority.
+workflow. The public Apply entry therefore stops before constructing
+destination dependencies, assuming the destination role, or consuming the
+saved-plan attempt. The hermetic controller core retains fail-closed
+`APPLIED`/`UNCERTAIN` handling for independently wired adapters and historical
+durable records, but the protected workflow cannot newly create those states
+until complete post-apply closure is available. There is no workflow
+recovery/evidence-writer job, and the controller never deletes a consumed saved
+plan; lifecycle is the only plan cleanup authority.
 
 ## Consequences
 

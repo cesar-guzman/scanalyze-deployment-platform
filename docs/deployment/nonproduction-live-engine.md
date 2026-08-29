@@ -32,7 +32,9 @@ The machine-readable contracts are:
 The pure policy core is `tooling/nonprod_live_engine.py`. Destination plan
 storage and shared-services ledger storage are deliberately split in
 `tooling/nonprod_live_store.py`. `scripts/deployment/nonprod-live-engine.py`
-exposes the guarded operational boundary. `tooling/nonprod_live_orchestrator.py`
+exposes the guarded policy and storage boundary; its legacy
+`run-terminal-apply` command is explicitly disabled before private-input or AWS
+access while post-apply closure is unwired. `tooling/nonprod_live_orchestrator.py`
 builds immutable plan/apply intents bound to one exact main SHA and protected
 workflow run. `scripts/deployment/terraform-saved-plan.sh` is the only
 allowlisted plan/apply program and remains inaccessible from a local operator
@@ -46,8 +48,11 @@ state bracketing, a structural `NO_CHANGE` plan, verified input contracts,
 non-sensitive outputs, exact contract publication/readback and a durable health
 receipt. `UNCERTAIN` permits only the corresponding read-only reconciliation
 core. The real protected-workflow adapters for those post-apply callbacks are
-not yet connected, so the current workflow stops fail-closed at `APPLIED` or
-`UNCERTAIN` and the CLI returns non-success rather than claiming connected DEV.
+not yet connected, so the public Apply CLI returns non-success before it
+constructs destination dependencies, assumes a destination role, or consumes
+the saved-plan attempt. The core still treats historical or independently wired
+`APPLIED` and `UNCERTAIN` records as fail-closed rather than claiming connected
+DEV.
 
 In this document, shared-services is not a generic corporate account. It is the
 dedicated or formally designated Scanalyze platform-authority account. It owns
@@ -106,7 +111,8 @@ state observations including VersionId/hash/size, a structural speculative
 plan result of `NO_CHANGE`, verified input contracts, explicitly non-sensitive
 mode-0600 outputs, a create-only health receipt, and exact publication/readback
 evidence before the `HEALTHY` CAS. The protected workflow does not yet provide
-the real read-only verification and publication adapters, so repository
+the real read-only verification and publication adapters. Its public Apply
+entry is therefore disabled before destination access, so repository
 implementation is not connected execution evidence.
 
 The Plan role cannot write the shared ledger. The shared orchestrator cannot

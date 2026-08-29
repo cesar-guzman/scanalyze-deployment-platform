@@ -250,9 +250,10 @@ structural `NO_CHANGE` plan, verified input contracts, non-sensitive outputs, a
 durable health receipt, and exact contract publication/readback. `UNCERTAIN`
 permits only read-only reconciliation and never apply or publication. These
 paths are hermetically tested, but the protected workflow does not yet provide
-their real verification/publication adapters; therefore a workflow result at
-`APPLIED`/`UNCERTAIN` remains fail-closed and is not
-`CONNECTED_DEV_APPLY_PROVEN`.
+their real verification/publication adapters. The public Apply CLI therefore
+stops before destination access or attempt consumption. Historical or
+independently wired `APPLIED`/`UNCERTAIN` records remain fail-closed in the
+controller core and are not `CONNECTED_DEV_APPLY_PROVEN`.
 
 An orphaned `APPLYING` record is never an apply retry. This workflow exposes no
 recovery operation and no alternate Environment/OIDC job; the record remains

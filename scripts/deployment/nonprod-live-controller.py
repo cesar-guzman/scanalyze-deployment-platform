@@ -16,10 +16,7 @@ from tooling.authorize_deployment_backend import AuthorizationError  # noqa: E40
 from tooling.nonprod_live_controller import (  # noqa: E402
     load_live_input_package,
     real_dependencies,
-    run_apply_controller,
     run_plan_controller,
-    run_terminal_apply,
-    run_terminal_fetch,
     run_terminal_plan,
 )
 
@@ -79,49 +76,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "_terminal-plan":
             run_terminal_plan(package, now=now, clock=_utc_now)
             return 0
-        if args.command == "_terminal-fetch":
-            run_terminal_fetch(package)
-            return 0
-        if args.command == "_terminal-apply":
-            run_terminal_apply(package, now=now, clock=_utc_now)
-            return 0
-        terminal_session, ledger_store = real_dependencies(package)
-        if args.command == "plan":
-            result = run_plan_controller(
-                package,
-                receipt_digest=args.receipt_digest,
-                terminal_session=terminal_session,
-                ledger_store=ledger_store,
-                now=now,
-                clock=_utc_now,
-            )
+        if args.command in {"apply", "_terminal-fetch", "_terminal-apply"}:
             print(
-                "PASS: exact protected DEV plan stored; "
-                f"plan_record_digest={result['plan_record_digest']}"
+                "STOP: protected Apply and its terminal operations are disabled "
+                "before destination access; "
+                "the real post-apply health, contract-publication, and "
+                "reconciliation adapters are not wired",
+                file=sys.stderr,
             )
-            return 0
-        result = run_apply_controller(
+            return 2
+        terminal_session, ledger_store = real_dependencies(package)
+        result = run_plan_controller(
             package,
             receipt_digest=args.receipt_digest,
-            plan_record_digest=args.plan_record_digest,
-            reviewer_packet_digest=args.reviewer_packet_digest,
-            expected_approver_user_id=args.expected_approver_user_id,
             terminal_session=terminal_session,
             ledger_store=ledger_store,
             now=now,
             clock=_utc_now,
         )
-        if result["status"] != "HEALTHY":
-            print(
-                "STOP: saved-plan mutation is durable but post-apply health, "
-                "contract publication, and exact readback are not closed; "
-                f"status={result['status']}",
-                file=sys.stderr,
-            )
-            return 2
         print(
-            "PASS: exact protected DEV saved plan and post-apply closure verified; "
-            "status=HEALTHY"
+            "PASS: exact protected DEV plan stored; "
+            f"plan_record_digest={result['plan_record_digest']}"
         )
         return 0
     except AuthorizationError as exc:

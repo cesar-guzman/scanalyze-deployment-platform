@@ -185,40 +185,10 @@ def _cmd_classify_apply_observation(args: argparse.Namespace) -> None:
 
 
 def _cmd_run_terminal_apply(args: argparse.Namespace) -> None:
-    context = load_json_strict(args.context)
-    intent = load_json_strict(args.apply_intent)
-    validate_apply_intent(
-        intent=intent,
-        context=context,
-        plan_record=load_json_strict(args.plan_record),
-        approval_record=load_json_strict(args.approval_record),
-        approved_ledger=load_json_strict(args.approved_ledger),
-        applying_ledger=load_json_strict(args.applying_ledger),
-        plan_readback=load_json_strict(args.plan_readback),
-        state_readback=load_json_strict(args.state_readback),
-        now=_time(args.now, "now"),
+    raise AuthorizationError(
+        "terminal Apply is disabled before destination access until the real "
+        "post-apply closure adapters are wired"
     )
-    command_spec = intent["command"]
-    if command_spec["program"] != SAVED_PLAN_RUNNER.relative_to(REPO_ROOT).as_posix():
-        raise AuthorizationError("terminal Apply program is not canonical")
-    command = ("/bin/bash", str(SAVED_PLAN_RUNNER), *command_spec["argv"])
-    AwsCliTerminalSession(
-        region=context["region"],
-        account_id=context["destination_account_id"],
-    ).run_terminal_phase(
-        orchestrator_role_arn=context["orchestrator_role_arn"],
-        role_arn=context["apply_role_arn"],
-        customer_id=context["customer_id"],
-        deployment_id=context["deployment_id"],
-        execution_id=context["execution_id"],
-        change_id=context["change_id"],
-        environment=context["environment"],
-        operation="apply",
-        layer=context["layer"],
-        command=command,
-        base_environment=os.environ,
-    )
-    print("PASS: exact saved-plan Apply phase completed once")
 
 
 def _cmd_verify_identity(args: argparse.Namespace) -> None:
