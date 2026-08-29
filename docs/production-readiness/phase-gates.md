@@ -206,6 +206,30 @@ measured recovery objectives, leakage tests, and cost/backpressure evidence.
 **Automatic NO-GO:** missing alert delivery, ownerless alarm, sensitive logging,
 unmeasured recovery, or conflated rollback/restore.
 
+#### Live-path evidence does not skip certification
+
+The protected GUG-125 materializer/controller path is one Phase 7 execution
+mechanism. Its repository implementation satisfies no connected gate by
+itself. A successful protected DEV plan proves only the exact plan tuple; a
+separately approved DEV apply plus health, no-change and reconciliation proves
+only that exact DEV execution. Neither result completes Phase 8, certifies
+staging, authorizes production, or substitutes for an independent reviewer.
+
+Promotion remains strictly ordered:
+
+```text
+repository review/CI
+  -> protected connected DEV plan
+  -> separately approved connected DEV apply and recovery evidence
+  -> Phase 8 operations/resilience exit
+  -> GUG-127 staging certification
+  -> separate GUG-128 limited-production-pilot authorization
+```
+
+Every arrow requires fresh evidence for the exact release and target. Failure,
+staleness or an unavailable independent reviewer leaves the current and every
+downstream phase `NO-GO`.
+
 ### Phase 9 — GUG-127: Staging Certification
 
 **Entry criteria adopted by Phase 0:** Phases 1-8 complete with reviewed

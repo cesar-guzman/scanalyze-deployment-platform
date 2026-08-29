@@ -17,6 +17,9 @@
     "status",
     "ledger_version",
     "plan_record_digest",
+    "plan_environment_anchor_digest",
+    "expected_approver_user_id",
+    "approval_authority_digest",
     "updated_at",
     "attempt_count",
     "ledger_digest"
@@ -52,11 +55,15 @@
     },
     "ledger_version": { "type": "integer", "minimum": 1 },
     "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "plan_environment_anchor_digest": { "$ref": "#/$defs/digest" },
+    "expected_approver_user_id": { "type": "integer", "minimum": 1 },
+    "approval_authority_digest": { "$ref": "#/$defs/digest" },
     "updated_at": { "type": "string", "format": "date-time" },
     "attempt_count": { "type": "integer", "minimum": 0, "maximum": 1 },
     "approval_digest": { "$ref": "#/$defs/digest" },
     "outcome_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
     "outcome_receipt_digest": { "$ref": "#/$defs/digest" },
+    "contract_publication_receipt_digest": { "$ref": "#/$defs/digest" },
     "ledger_digest": { "$ref": "#/$defs/digest" }
   },
   "$defs": {

@@ -383,7 +383,7 @@ def _account_ready_v2() -> dict:
         "account_id": ACCOUNT_ID,
         "region": "us-east-1",
         "environment": "sandbox",
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": PRODUCED_AT,
         "roles": {
             key: {
@@ -394,6 +394,7 @@ def _account_ready_v2() -> dict:
         },
         "state_infrastructure": {
             "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
             "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
             "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
             "state_kms_key": (
@@ -416,6 +417,15 @@ def _account_ready_v2() -> dict:
             "state_public_access_blocked": True,
             "state_object_lock_enabled": False,
             "native_lockfile_enabled": True,
+            "plan_versioning_enabled": True,
+            "plan_default_encryption": "aws:kms",
+            "plan_kms_key": (
+                f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:"
+                "key/00000000-0000-0000-0000-000000000002"
+            ),
+            "plan_bucket_key_enabled": True,
+            "plan_public_access_blocked": True,
+            "plan_lifecycle_days": 1,
         },
     }
     contract["contract_digest"] = account_ready_digest(contract)

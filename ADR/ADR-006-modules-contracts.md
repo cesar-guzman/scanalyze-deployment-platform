@@ -1,11 +1,11 @@
 # ADR-006: Terraform Modules, Roots, States, and Inter-Layer Contracts
 
-> **Status**: `DRAFT rev3`  
+> **Status**: `DRAFT rev4`<br>
 > **Date**: 2026-06-23  
 > **Decision makers**: César Guzmán  
 > **Scope**: Scanalyze Dedicated Deployment Platform  
-> **Depends on**: ADR-003 rev3, ADR-004 rev3, ADR-005  
-> **Rev3 changes**: P0-3 (preconditions bloqueantes, content-addressed contracts, edge-identity split, contract IAM per layer)
+> **Depends on**: ADR-003 rev4, ADR-004 rev3, ADR-005<br>
+> **Rev4 changes**: Retains rev3 contract controls and adds the dedicated tf-plan bucket, exact saved-plan/state object bindings, private plan-JSON handling, and separately approved Plan/Apply runs
 
 ---
 
@@ -28,132 +28,44 @@ The current brownfield implementation has fragmented Terraform roots with unclea
 
 ```
 scanalyze-deployment-platform/
+├── .github/workflows/                 # Validation and protected orchestration
+├── bootstrap/                         # Account-baseline CloudFormation candidates
+├── deployment/
+│   ├── layers.yaml                    # Canonical 13-stage DAG and contracts
+│   └── ownership.yaml                 # Canonical root/resource ownership
 ├── modules/                           # Reusable Terraform modules
-│   ├── global/                        # ECS task/app IAM roles (NOT control-plane roles)
-│   ├── network/                       # VPC, subnets, NAT, endpoints
-│   ├── container-platform/            # ECS cluster, ALB, security groups
-│   ├── data-foundation/               # DynamoDB, S3 doc buckets, SQS, KMS app keys
-│   ├── services/                      # ECS services, task definitions (TF sole owner)
-│   ├── edge-identity/                 # Cognito, API GW, CloudFront, WAF, ACM, Route53
-│   └── addons/                        # CloudWatch dashboards, composite alarms, optional
-│
-├── roots/                             # Deployment roots (instantiate modules)
-│   ├── global/
-│   │   ├── main.tf
-│   │   ├── backend.tf.tmpl            # Templated by orchestrator
-│   │   ├── variables.tf
-│   │   ├── contracts.tf               # This root's contract output
-│   │   └── .terraform.lock.hcl        # Committed
-│   ├── network/
-│   ├── platform/
-│   ├── data-foundation/
-│   ├── services/
-│   ├── edge-identity/                 # NEW — separated from addons
-│   └── addons/
-│
-├── schemas/                           # JSON Schemas (canonical, versioned)
-│   ├── deployment-request.v1.json
-│   ├── deployment-record.v1.json
-│   ├── release.v1.json
-│   ├── release-attestation.v1.json
-│   ├── account-ready.v1.json          # ACCOUNT_READY contract (ADR-004)
-│   ├── contract-envelope.v1.json      # Generic envelope
-│   ├── contract-global.v1.json
-│   ├── contract-network.v1.json
-│   ├── contract-platform.v1.json
-│   ├── contract-data-foundation.v1.json
-│   ├── contract-services.v1.json
-│   ├── contract-edge-identity.v1.json # NEW
-│   └── region-capability.v1.json
-│
-├── session-policies/                  # Per-layer session policies (ADR-004 §9)
-│   ├── plan-global.json
-│   ├── plan-network.json
-│   ├── apply-global.json
-│   ├── apply-network.json
-│   ├── apply-platform.json
-│   ├── apply-data-foundation.json
-│   ├── apply-services.json
-│   ├── apply-edge-identity.json
-│   └── apply-addons.json
-│
-├── configs/
-│   ├── profiles/                      # Deployment profiles (sizing)
-│   ├── retention/                     # Retention profiles
-│   └── regions/                       # Region capability matrices
-│
-├── scripts/
-│   ├── orchestrator/                  # Deployment orchestration
-│   ├── validate/                      # Validation utilities
-│   └── release/                       # Release automation
-│
-├── tests/
-│   ├── modules/                       # Module unit tests (terraform test)
-│   ├── contract/                      # Contract compatibility tests
-│   ├── golden/                        # Golden fixtures (valid + invalid)
-│   ├── sentinel/                      # PII sentinel tests
-│   ├── policy/                        # IAM/S3/KMS policy validation tests
-│   └── integration/                   # Full-stack integration tests
-│
-├── pipelines/                         # CI/CD pipeline definitions
-│   ├── ci.yml                         # PR checks
-│   ├── release.yml                    # Release pipeline
-│   └── deployment.yml                 # Per-customer deployment
-│
-├── ownership.yaml                     # Logical namespace ownership (ADR-003 rev3)
-└── CODEOWNERS                         # GitHub code ownership
+├── roots/                             # Terraform roots selected by the DAG
+├── schemas/                           # Versioned public contracts
+├── policies/                          # IAM, KMS and S3 policy candidates
+├── scripts/deployment/                # Thin reviewed CLI entrypoints
+├── tooling/                           # Typed materializers/controllers/adapters
+└── tests/                             # Python and Terraform contract tests
 ```
+
+`deployment/layers.yaml` is the executable inventory. This layout summary must
+not be used to infer a missing root, stage, contract version or role.
 
 ### 2. Layer Dependency Graph
 
-```
-account-baseline (layer -1) — AccountVendingProvider (NOT a TF root in this repo)
-    │
-    ├── Creates: 6 control-plane roles, state/evidence/contracts buckets, KMS keys
-    ├── Produces: ACCOUNT_READY contract
-    │
-    ▼
-global (layer 0) — ECS task execution role, ECS task roles, app IAM policies
-    │
-    ├── Consumes: ACCOUNT_READY (verified by orchestrator, not TF)
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/global/v1
-    │
-    ▼
-network (layer 1) — VPC, subnets, NAT, endpoints
-    │
-    ├── Consumes: global contract
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/network/v1
-    │
-    ▼
-platform (layer 2) — ECS cluster, ALB, security groups
-    │
-    ├── Consumes: global, network contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/platform/v1
-    │
-    ▼
-data-foundation (layer 3) — DynamoDB, S3 doc buckets, SQS, KMS app keys
-    │
-    ├── Consumes: global, network contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/data-foundation/v2
-    │
-    ▼
-services (layer 4) — ECS services, task definitions (Terraform sole owner)
-    │
-    ├── Consumes: global, platform, data-foundation contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/services/v1
-    │
-    ▼
-edge-identity (layer 5a) — Cognito, API Gateway, CloudFront, WAF, ACM, Route53
-    │
-    ├── Consumes: global, platform, services contracts
-    ├── Produces contract: /scanalyze/deployments/{id}/contracts/edge-identity/v1
-    │
-    ▼
-addons (layer 5b) — CloudWatch dashboards, composite alarms, optional features
-    │
-    ├── Consumes: global, services, edge-identity contracts
-    └── Produces contract: /scanalyze/deployments/{id}/contracts/addons/v1
-```
+The external account baseline is not one of the repository roots. It creates
+the eight terminal roles, four buckets and three KMS keys, then produces the
+`ACCOUNT_READY` v2 prerequisite. The executable repository DAG is:
+
+| Order | Stage | Kind/root | Direct predecessor | Produced contract | Terminal roles |
+|---:|---|---|---|---|---|
+| 1 | `account-ready-gate` | gate / `roots/account-ready-gate` | — | — | none |
+| 2 | `global` | Terraform / `roots/global` | `account-ready-gate` | `global/v1` | Plan / Apply |
+| 3 | `network` | Terraform / `roots/network` | `global` | `network/v2` | Plan / Apply |
+| 4 | `platform` | Terraform / `roots/platform` | `network` | `platform/v2` | Plan / Apply |
+| 5 | `data-foundation` | Terraform / `roots/data-foundation` | `platform` | `data-foundation/v2` | Plan / Apply |
+| 6 | `cicd` | Terraform / `roots/cicd` | `data-foundation` | `cicd/v2` | Plan / Apply |
+| 7 | `artifact-publication` | artifact / no root | `cicd` | `release-manifest/v1` | Validation / Promotion |
+| 8 | `identity-control-plane` | Terraform / `roots/identity-control-plane` | `artifact-publication` | `identity-control-plane/v1` | Identity-Plan / Identity-Apply |
+| 9 | `services` | Terraform / `roots/services` | `identity-control-plane` | `services/v2` | Plan / Apply |
+| 10 | `edge-identity` | Terraform / `roots/edge-identity` | `services` | `edge-identity/v2` | Plan / Apply |
+| 11 | `edge` | Terraform / `roots/edge` | `edge-identity` | `edge/v2` | Plan / Apply |
+| 12 | `addons` | Terraform / `roots/addons` | `edge` | `addons/v2` | Plan / Apply |
+| 13 | `synthetic-validation` | validation / no root | `addons` | — | Validation only |
 
 > [!IMPORTANT]
 > **Dependencies are strictly acyclic.** A layer at level N can only consume contracts from layers at level < N.
@@ -166,103 +78,55 @@ addons (layer 5b) — CloudWatch dashboards, composite alarms, optional features
 
 **`terraform_remote_state` is prohibited.** Layers communicate exclusively via SSM Parameter Store contracts.
 
-#### Single Contract Writer Rule
+#### Single Producer-Layer Authority Rule
 
 > [!WARNING]
-> **Each contract is written by EXACTLY ONE Terraform root** — the producer root for that layer. No other root, script, orchestrator step, or pipeline stage may write to a contract SSM parameter. Consumers read only. This is enforced by IAM session policy (§9).
+> **Each contract has EXACTLY ONE producer layer.** In the connected path, the
+> typed controller invokes the canonical create-only publisher under that
+> producer layer's exact terminal role and mandatory session tags; this is the producer root's
+> publication boundary, not a second writer. Other roots, ad hoc scripts,
+> operators and pipeline stages remain read-only. The deployed terminal-role
+> identity policy scopes the SSM resource by the required `layer` principal tag
+> (or by the dedicated identity role's fixed prefix), and consumers never write.
+> Per-execution session-policy narrowing is a downstream control, not an
+> implemented claim (§9).
 
-#### Contract Producer (example: network root)
+#### Contract producer boundary
 
-```hcl
-# roots/network/contracts.tf
+The Terraform root emits only its declared output object. After the exact saved
+plan is applied and the post-apply gates succeed, the typed controller builds a
+`schemas/layer-contract.v2.schema.json` envelope from the private Terraform
+output plus sealed deployment, release, state-key and module-source bindings.
+For `network/v2`, the immutable parameter name is derived as:
 
-locals {
-  contract_outputs = {
-    vpc_id             = module.network.vpc_id
-    private_subnet_ids = module.network.private_subnet_ids
-    public_subnet_ids  = module.network.public_subnet_ids
-    nat_gateway_ids    = module.network.nat_gateway_ids
-    vpc_endpoint_ids   = module.network.endpoint_ids
-  }
-}
-
-resource "aws_ssm_parameter" "contract" {
-  name  = "/scanalyze/deployments/${var.deployment_id}/contracts/network/v1"
-  type  = "String"
-  value = jsonencode({
-    schema_version        = "scanalyze.contract.v1"
-    layer                 = "network"
-    contract_version      = 1
-    deployment_id         = var.deployment_id
-    account_id            = data.aws_caller_identity.current.account_id
-    region                = data.aws_region.current.name
-    producer_release      = var.release_version
-    producer_module_digest = var.module_digest
-    producer_state_serial = data.terraform_remote_state_serial.self
-    contract_digest       = sha256(jsonencode(local.contract_outputs))
-    output_schema_version = "scanalyze.contract-network.v1"
-    outputs               = local.contract_outputs
-  })
-
-  tags = {
-    Layer        = "network"
-    DeploymentId = var.deployment_id
-    ManagedBy    = "scanalyze-deployment-platform"
-  }
-}
+```text
+/scanalyze/deployments/{deployment_id}/contracts/network/v2/
+  releases/{release_digest}/digests/{contract_digest}
 ```
 
-> [!IMPORTANT]
-> **No `timestamp()` in contract value.** The SSM parameter's `last_modified_date` attribute records when the value was written. `producer_state_serial` provides monotonic advancement tracking without introducing plan non-determinism.
+The conceptual `sha256:<hex>` components are encoded with the repository's
+one-to-one SSM-safe mapping. Publication is one create-only Standard/String
+`PutParameter`, followed by two exact value and tag readbacks. A lost response
+may be reconciled only from those readbacks; it never causes an overwrite or a
+second write.
+
+The explicit `produced_at` value is bound by sealed action-time input. Terraform
+configuration must not call `timestamp()` or derive mutable publication
+authority from SSM metadata.
 
 #### Contract Consumer — Fail-Closed with Preconditions
 
 > [!CAUTION]
 > **`check` blocks produce WARNINGS, not ERRORS.** They do NOT block `terraform plan` or `terraform apply`. For contract validation that MUST prevent deployment on failure, use `precondition` blocks inside `lifecycle` on a `terraform_data` resource. Preconditions cause `terraform plan` to exit with code 1 (error).
 
-```hcl
-# roots/platform/contracts.tf
-
-data "aws_ssm_parameter" "network_contract" {
-  name = "/scanalyze/deployments/${var.deployment_id}/contracts/network/v1"
-}
-
-locals {
-  network_raw = jsondecode(data.aws_ssm_parameter.network_contract.value)
-  network     = local.network_raw.outputs
-}
-
-# === Hard-blocking preconditions ===
-
-resource "terraform_data" "network_contract_gate" {
-  lifecycle {
-    precondition {
-      condition     = local.network_raw.deployment_id == var.deployment_id
-      error_message = "BLOCKED: Network contract deployment_id '${local.network_raw.deployment_id}' does not match expected '${var.deployment_id}'."
-    }
-
-    precondition {
-      condition     = local.network_raw.account_id == data.aws_caller_identity.current.account_id
-      error_message = "BLOCKED: Network contract account_id mismatch — possible cross-account contract confusion."
-    }
-
-    precondition {
-      condition     = local.network_raw.region == data.aws_region.current.name
-      error_message = "BLOCKED: Network contract region '${local.network_raw.region}' does not match current region."
-    }
-
-    precondition {
-      condition     = local.network_raw.output_schema_version == "scanalyze.contract-network.v1"
-      error_message = "BLOCKED: Network contract schema '${local.network_raw.output_schema_version}' is not compatible."
-    }
-
-    precondition {
-      condition     = local.network_raw.contract_digest == sha256(jsonencode(local.network_raw.outputs))
-      error_message = "BLOCKED: Network contract digest mismatch — contract data integrity compromised."
-    }
-  }
-}
-```
+The live resolver, not Terraform, performs bounded discovery and two exact reads
+of each catalog-declared immutable parameter. It validates the closed v2
+envelope, producer, customer/deployment/account/region/scope tuple, release,
+state key, module source, output schema and recomputed output digest. It writes
+only a private mode-`0600` resolution-v3 document. The Terraform wrapper
+validates that resolution again and injects its bounded projection. Each root
+then uses `terraform_data` preconditions to reject a missing or mismatched
+upstream digest/schema before any resource change.
 
 **Why `terraform_data` with `precondition` instead of `check` with `assert`:**
 
@@ -277,63 +141,52 @@ resource "terraform_data" "network_contract_gate" {
 
 ### 4. Content-Addressed Contract Verification
 
-Contracts include `contract_digest` (SHA-256 of the `outputs` JSON) and `producer_state_serial` (monotonically increasing Terraform state serial).
+Contracts include `contract_digest` (SHA-256 of canonical `outputs`) plus exact
+producer, release, `state_key` and `module_source_digest` bindings. State
+VersionId/hash/size, lineage and serial remain in the saved-plan and durable
+execution evidence; they are not duplicated into the public SSM envelope.
 
 #### How consumers verify
 
 ```
-1. Parse contract JSON
-2. Recompute sha256(jsonencode(contract.outputs))
-3. Compare with contract.contract_digest → mismatch = BLOCKED
-4. (Optional) Compare contract.producer_state_serial ≥ last known serial
-   → regression = WARNING (possible state rollback in producer)
+1. Parse with duplicate-key and non-finite-number rejection.
+2. Validate the closed `layer-contract.v2` schema.
+3. Require the exact catalog producer, tuple, release, state key, module digest
+   and output-schema version.
+4. Recompute the canonical outputs SHA-256 and require `contract_digest` equality.
+5. Require two identical exact SSM value/tag readbacks; any absence, ambiguity,
+   denial or movement is `BLOCKED`.
 ```
 
 #### How the orchestrator verifies contract freshness
 
-Before running the consumer layer, the orchestrator verifies the upstream contract is from the expected producer run:
+Before running the consumer layer, the orchestrator verifies that every
+upstream contract is the exact immutable leaf declared by the canonical DAG:
 
 ```
-Orchestrator pre-flight for layer N:
-  For each upstream layer M (where M < N and N consumes M's contract):
-    1. Read SSM parameter last_modified_date
-    2. Read expected_change_id from deployment record
-    3. If this is a fresh deployment: verify last_modified_date is from current run
-    4. If this is an incremental update: verify contract is from expected release
-    5. Compute contract_digest independently → match? Continue. Mismatch? ABORT.
+For each required contract in deployment/layers.yaml:
+  1. Derive its exact versioned release prefix from sealed authority.
+  2. Take two bounded discovery snapshots and require one digest leaf.
+  3. Read that exact parameter and tags twice.
+  4. Validate freshness, tuple, producer, release, state key and digests.
+  5. Persist the private resolution-v3 projection; otherwise ABORT.
 ```
 
 ### 5. Contract Schema Versioning
 
 | Change type | Version action | SSM path | Consumer impact |
 |---|---|---|---|
-| **Additive** (new optional output) | Minor: contract_version + 1 | Same path (`/v1`) | No change needed |
-| **Breaking** (remove field, rename, type change) | Major: new path | New path (`/v2`) | Must update to consume `/v2` |
-| **Deprecation** | Mark old field as deprecated | Same path | Consumer logs warning, migration window |
+| **Additive** (new optional output accepted by the same schema) | Keep the declared contract ID | New content-addressed digest leaf under the same `/vN/releases/...` prefix | Existing consumers remain schema-compatible |
+| **Breaking** (remove field, rename, type change) | Increment the contract ID | New `/vN` prefix and catalog entry | Consumers must explicitly declare the new ID |
+| **Deprecation** | Keep old and new IDs during a reviewed window | Distinct immutable leaves; no mutable alias | Consumers migrate explicitly; unknown IDs block |
 
 ### 6. Contract Size Strategy — Large Payloads
 
-| Size | Approach |
-|---|---|
-| Small (< 4 KB) | JSON directly in SSM Parameter (String type) |
-| Medium (4 KB – 8 KB) | SSM Parameter (Advanced tier) |
-| Large (> 8 KB) | SSM stores compact manifest pointing to S3 contracts bucket |
-
-> [!WARNING]
-> **Large payloads are stored in the dedicated contracts bucket** (`scanalyze-{account_id}-contracts`) — NOT the state bucket or the evidence bucket. Contract payloads have different retention and access patterns from both.
-
-Large payload SSM manifest:
-
-```json
-{
-  "schema_version": "scanalyze.contract.v1",
-  "layer": "services",
-  "payload_location": "s3",
-  "payload_uri": "s3://scanalyze-ACCT-contracts/dep_01J5/us-east-1/services-v1-payload.json",
-  "payload_digest": "sha256:abc123...",
-  "output_schema_version": "scanalyze.contract-services.v1"
-}
-```
+The implemented live transport accepts only one canonical Standard/String SSM
+value of at most 4,096 bytes. An oversized envelope fails before the write.
+Advanced-tier parameters and S3 pointer manifests are not implemented and must
+not be inferred from the retained contracts bucket; either requires a separate
+schema, IAM, lifecycle and connected-validation decision.
 
 ### 7. Variable Injection
 
@@ -345,16 +198,22 @@ Unchanged from rev1.
 
 ### 9. Contract IAM Enforcement per Layer
 
-The Apply role's write access to SSM parameters is restricted by the **session policy** (ADR-004 rev3 §9) to the current layer's contract prefix.
+The generic Apply role's identity policy restricts SSM writes to a resource ARN
+containing `${aws:PrincipalTag/layer}` and requires `operation=apply`. The trust
+and controller require the exact layer and operation session tags. The dedicated
+Identity-Apply role has only the fixed `identity-control-plane` contract prefix.
+The current terminal session does not pass STS `--policy` or `--policy-arns`;
+per-execution session-policy narrowing remains blocked downstream.
 
 ```
 When orchestrator assumes Apply for layer "network":
   Session tag: layer = "network"
-  Session policy includes:
+  Terminal-role identity policy resolves:
     {
       "Effect": "Allow",
       "Action": "ssm:PutParameter",
-      "Resource": "arn:aws:ssm:${region}:${account}:parameter/scanalyze/deployments/${dep_id}/contracts/network/*"
+      "Resource": "arn:aws:ssm:${region}:${account}:parameter/scanalyze/deployments/${dep_id}/contracts/${aws:PrincipalTag/layer}/*",
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
     }
 ```
 
@@ -364,12 +223,18 @@ When orchestrator assumes Apply for layer "network":
 | network | `/scanalyze/deployments/{dep}/contracts/network/*` |
 | platform | `/scanalyze/deployments/{dep}/contracts/platform/*` |
 | data-foundation | `/scanalyze/deployments/{dep}/contracts/data-foundation/*` |
+| cicd | `/scanalyze/deployments/{dep}/contracts/cicd/*` |
+| identity-control-plane | `/scanalyze/deployments/{dep}/contracts/identity-control-plane/*` |
 | services | `/scanalyze/deployments/{dep}/contracts/services/*` |
 | edge-identity | `/scanalyze/deployments/{dep}/contracts/edge-identity/*` |
+| edge | `/scanalyze/deployments/{dep}/contracts/edge/*` |
 | addons | `/scanalyze/deployments/{dep}/contracts/addons/*` |
 
 > [!IMPORTANT]
-> This prevents a compromised or misconfigured Terraform root from overwriting another layer's contract. The restriction is enforced at the IAM level, not just by convention.
+> This prevents the current tagged terminal session from writing another
+> layer's contract. It is an IAM identity-policy control, not proof of the
+> broader service/resource isolation that future per-execution session policies
+> must provide.
 
 ### 10. Module Testing Strategy
 
@@ -379,74 +244,27 @@ When orchestrator assumes Apply for layer "network":
 | **Contract tests** | Custom script + JSON Schema | Producer output matches schema; Consumer can parse | Every PR |
 | **Precondition tests** | `terraform test` with invalid fixtures | Contract gate rejects bad input (exit code 1) | Every PR |
 | **Plan tests** | `terraform plan` with golden fixtures | Resource counts and types match expectations | Every PR |
-| **Session policy tests** | AWS CLI + `--policy` flag | SSM write restricted to layer prefix | Per release |
-| **Integration tests** | Terraform apply in test account | Full stack deployment + validation suite | Per release |
+| **Session policy tests** | Hermetic policy/command tests | SSM write restricted to the exact producer prefix | Every PR |
+| **Connected denial tests** | Authorized short-lived AWS session | Effective IAM and SSM create-only/readback behavior | Separately approved DEV exercise |
+| **Integration tests** | Protected saved-plan workflow | Full stack deployment + validation suite | Separately approved DEV exercise |
 
 #### Precondition test example
 
-```hcl
-# tests/contract/network_contract_validation.tftest.hcl
-
-variables {
-  deployment_id = "dep_test_001"
-}
-
-run "rejects_wrong_deployment_id" {
-  command = plan
-
-  override_data {
-    target = data.aws_ssm_parameter.network_contract
-    values = {
-      value = jsonencode({
-        schema_version        = "scanalyze.contract.v1"
-        layer                 = "network"
-        deployment_id         = "dep_WRONG"
-        account_id            = "123456789012"
-        region                = "us-east-1"
-        output_schema_version = "scanalyze.contract-network.v1"
-        contract_digest       = "sha256:..."
-        outputs               = { vpc_id = "vpc-abc123" }
-      })
-    }
-  }
-
-  expect_failures = [
-    terraform_data.network_contract_gate,
-  ]
-}
-
-run "rejects_tampered_digest" {
-  command = plan
-
-  override_data {
-    target = data.aws_ssm_parameter.network_contract
-    values = {
-      value = jsonencode({
-        schema_version        = "scanalyze.contract.v1"
-        layer                 = "network"
-        deployment_id         = "dep_test_001"
-        account_id            = "123456789012"
-        region                = "us-east-1"
-        output_schema_version = "scanalyze.contract-network.v1"
-        contract_digest       = "sha256:TAMPERED"
-        outputs               = { vpc_id = "vpc-abc123" }
-      })
-    }
-  }
-
-  expect_failures = [
-    terraform_data.network_contract_gate,
-  ]
-}
-```
+The regression matrix must cover wrong deployment/account/region/release,
+foreign producer or state key, unsupported output schema, duplicate keys,
+non-finite values, stale/ambiguous/moving SSM evidence, digest tampering,
+oversize values, overwrite attempts and wrong-layer publication. Terraform
+tests assert that a mismatched injected digest or schema fails at the root's
+`terraform_data.contract_gate`; Python tests exercise the resolver, publisher,
+closed schemas, exact command construction and response-loss reconciliation.
 
 ### 11. Deployment Orchestration Sequence
 
 ```
 For each layer in dependency order:
   global → network → platform → data-foundation → cicd
-    → artifact-publication → services → edge-identity → edge → addons
-    → synthetic-validation
+    → artifact-publication → identity-control-plane → services
+    → edge-identity → edge → addons → synthetic-validation
 
   PRE-DEPLOY (orchestrator logic):
     1. Read deployment record from registry
@@ -454,41 +272,53 @@ For each layer in dependency order:
     3. Render terraform.tfvars from deployment record + profile
     4. terraform init (verify provider lock, download providers)
 
-  VALIDATE (using Plan role, session policy scoped to this layer):
+  PLAN (first protected workflow dispatch/run, using Plan role and a session
+        policy scoped to this layer):
     5. Read upstream contracts from SSM
        → preconditions fire if invalid → plan fails → deployment blocked
     6. terraform validate
-    7. terraform plan -out=plan.tfplan
-    8. terraform show -json plan.tfplan > plan.json (ephemeral)
-    9. Compute plan digest (SHA-256 of plan binary)
-    10. Verify plan within bounds (resource counts, no unexpected deletes)
-    11. Write plan.tfplan + plan.json to plan-execution zone (state bucket,
-        ephemeral prefix, 24-72h TTL)
-    12. Write sanitized summary to evidence bucket:
-        - Plan digest
-        - Resource action counts (create/update/delete/no-op)
-        - Layer name, change_id, release_version
-        - NO plan binary, NO raw JSON, NO secrets
+    7. Read the exact current state object and bind bucket, key, VersionId,
+       SHA-256, size, lineage, and serial; require the same object immediately
+       after planning
+    8. terraform plan -out=plan.tfplan
+    9. Render terraform show -json only in 0600 private scratch, derive the
+       bounded sanitized action manifest, and delete the raw JSON
+    10. Compute the plan binary SHA-256 and verify the plan within bounds
+    11. Write only plan.tfplan to the dedicated tf-plan plan-execution zone
+        (versioned, one-day current/noncurrent lifecycle)
+    12. Persist a saved-plan record binding the exact plan bucket, key,
+        VersionId, SHA-256 and size and the exact state object binding from
+        step 7; stop the Plan run
+    13. Obtain independent approval for the immutable plan record and reviewer
+        packet; store the approval append-only by digest
 
-  APPLY (using Apply role, session policy scoped to this layer):
-    13. Read plan digest from plan-execution zone
-    14. Verify plan digest matches expected
-    15. Write pre-apply state snapshot to recovery prefix (state bucket)
-    16. terraform apply plan.tfplan (from saved plan, not re-planned)
-    17. Record post-apply state version ID
-    18. Terraform writes this layer's contract to SSM
-        (the aws_ssm_parameter.contract resource in contracts.tf)
-    19. Orchestrator verifies contract is readable and valid
-    20. Delete consumed plan artifacts from plan-execution zone
-    21. Write sanitized apply metadata to evidence bucket:
-        - Apply execution ID, state version IDs, release manifest digest
-        - Duration, exit code
-        - NO state contents, NO secrets
-    22. Update deployment record with evidence references
+  APPLY (a separate protected workflow dispatch/run, using the exact Apply role
+         and mandatory layer/operation tags; no STS session policy is wired):
+    14. Load and verify the exact append-only approval and saved-plan record
+    15. Fetch the exact saved-plan VersionId, recheck its hash/size, and require
+        the current state VersionId/hash/size to equal the Plan binding
+    16. terraform apply plan.tfplan (from the saved binary, never re-planned)
+    17. Advance the durable CAS execution ledger to APPLIED, or to UNCERTAIN
+        when the apply result cannot be classified safely
+
+  POST-APPLY (core state machine implemented; live workflow adapters pending):
+    18. Re-enter APPLIED/RECONCILED_APPLIED without reapproval or re-apply
+    19. Require two identical read-only state observations, structural
+        NO_CHANGE, verified input contracts, and explicitly non-sensitive
+        outputs written only to 0600 private scratch
+    20. Create the health receipt once, publish the exact output contract, and
+        verify its exact readback before the CAS transition to HEALTHY
+    21. Reconcile UNCERTAIN through read-only observations only; never retry
+        terraform apply
 ```
 
 > [!IMPORTANT]
-> **Step 18: Contract is written by the Terraform apply itself** (the `aws_ssm_parameter.contract` resource). It is NOT written by the orchestrator. The session policy (§9) ensures the Apply role can only write to its own layer's contract prefix.
+> The protected path does not write a pre-apply recovery snapshot or any
+> COMPLIANCE evidence object, and it never calls `DeleteObject` for the consumed
+> plan. Current and noncurrent saved-plan versions are removed only by the
+> dedicated plan-bucket lifecycle. The post-apply health/contract interfaces are
+> fail-closed but their real workflow adapters are not yet wired, so repository
+> implementation does not prove a connected deployment.
 
 ### 12. Forbidden Patterns
 
@@ -509,7 +339,7 @@ CI checks reject the following patterns in any `.tf` file:
 | `file("ERROR` | Use `precondition` blocks | `grep -r 'file("ERROR' --include='*.tf'` |
 | `check {` for contract validation | Use `precondition` blocks (fail-closed) | Custom linter |
 | Control-plane role resources | Belong to account baseline, not workload | Ownership YAML cross-check |
-| `ssm:PutParameter` without layer scope | Must be enforced by session policy | Policy test |
+| `ssm:PutParameter` without layer scope | Must be enforced by terminal identity policy plus mandatory principal tags | Policy test |
 
 ### 13. Output Sensitivity Rules
 
@@ -524,15 +354,19 @@ Unchanged from rev1.
 - 1:1 root/state/namespace eliminates ownership ambiguity
 - SSM contracts are versioned, validated, and **fail-closed** with preconditions (not warnings)
 - Single contract writer eliminates race conditions
-- Contract writer identity enforced by IAM session policy, not just convention
+- Contract writer identity enforced by terminal IAM policy and mandatory
+  principal tags, not just convention
 - No `timestamp()` means deterministic plans
-- Content-addressed contracts (digest + state serial) detect tampering and staleness
+- Content-addressed contracts plus exact release, state-key and module-source
+  bindings detect tampering and substitution
 - edge-identity separated from addons: auth/routing changes have dedicated approval
-- Plan binaries with secrets are ephemeral (24-72h auto-deletion)
-- Evidence contains only sanitized summaries — no secrets at rest
+- Plan binaries with secrets are ephemeral (one-day current/noncurrent expiry)
+- Evidence-store policy accepts only sanitized summaries; this protected path
+  has no evidence writer
 
 ### Negative
-- 8 layers (up from 6) adds more roots and contracts to manage
+- 13 stages, including 10 state-owning Terraform roots, add more contracts and
+  orchestration boundaries to manage
 - Precondition blocks on `terraform_data` are less intuitive than `check` blocks
 - Session policy per layer adds orchestrator complexity
 - Contract size strategy requires monitoring parameter size growth
@@ -541,8 +375,9 @@ Unchanged from rev1.
 
 ## References
 
-- ADR-003 rev3: State Backend (three storage zones, regional state keys, ownership manifest)
-- ADR-004 rev3: Cross-Account Identity (session policies per layer, Apply SSM scoping)
+- ADR-003 rev4: State Backend (four buckets, dedicated saved-plan lifecycle, regional state keys, ownership manifest)
+- ADR-004 rev3: Cross-Account Identity (terminal roles/tags and Apply SSM
+  scoping; per-execution session-policy narrowing remains downstream)
 - ADR-005: Schemas (contract envelope, deployment record)
 - ADR-007: Supply Chain (module digest verification)
 - ADR-008: Region (network module AZ handling, regional state keys)

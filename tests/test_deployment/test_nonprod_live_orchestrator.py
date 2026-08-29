@@ -10,6 +10,9 @@ from tooling.authorize_deployment_backend import AuthorizationError, canonical_d
 from tooling.nonprod_live_engine import (
     build_saved_plan_approval,
     build_saved_plan_record,
+    build_saved_plan_reviewer_packet,
+    derive_approval_authority_digest,
+    summarize_terraform_plan,
 )
 from tooling.nonprod_live_orchestrator import (
     build_apply_intent,
@@ -42,7 +45,7 @@ def _sha(character: str) -> str:
 
 
 def _context_arguments() -> dict:
-    return {
+    arguments = {
         "event_name": "workflow_dispatch",
         "git_ref": "refs/heads/main",
         "workflow_ref": WORKFLOW_REF,
@@ -51,6 +54,7 @@ def _context_arguments() -> dict:
         "repository_owner_id": 11,
         "repository_id": 22,
         "workflow_run_id": 33,
+        "workflow_run_attempt": 1,
         "initiator_user_id": 44,
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
@@ -66,6 +70,8 @@ def _context_arguments() -> dict:
         "source_revision_digest": derive_source_revision_digest(WORKFLOW_SHA),
         "github_deployment_identity_digest": _sha("9"),
         "environment_configuration_digest": _sha("5"),
+        "github_environment_anchor_digest": _sha("3"),
+        "expected_approver_user_id": 55,
         "platform_authority_digest": _sha("0"),
         "registry_record_digest": _sha("b"),
         "account_ready_digest": _sha("c"),
@@ -80,8 +86,20 @@ def _context_arguments() -> dict:
             f"arn:aws:iam::{DESTINATION_ACCOUNT}:role/ScanalyzeCustomer-Apply"
         ),
         "oidc_audience": "sts.amazonaws.com",
-        "session_duration_seconds": 900,
+        "control_plane_session_duration_seconds": 3600,
+        "terminal_session_duration_seconds": 3600,
     }
+    arguments["approval_authority_digest"] = derive_approval_authority_digest(
+        github_environment=GITHUB_ENVIRONMENT,
+        expected_approver_user_id=55,
+        github_deployment_identity_digest=arguments[
+            "github_deployment_identity_digest"
+        ],
+        environment_configuration_digest=arguments[
+            "environment_configuration_digest"
+        ],
+    )
+    return arguments
 
 
 def _context() -> dict:
@@ -111,6 +129,8 @@ def _bindings() -> dict:
         "environment_configuration_digest": context[
             "environment_configuration_digest"
         ],
+        "expected_approver_user_id": context["expected_approver_user_id"],
+        "approval_authority_digest": context["approval_authority_digest"],
         "platform_authority_digest": context["platform_authority_digest"],
         "registry_record_digest": context["registry_record_digest"],
         "account_ready_digest": context["account_ready_digest"],
@@ -120,40 +140,71 @@ def _bindings() -> dict:
         "toolchain_digest": _sha("1"),
         "root_module_digest": _sha("2"),
         "source_revision_digest": context["source_revision_digest"],
+        "state_status": "PRESENT",
         "state_lineage": "synthetic-lineage-0001",
         "state_serial": 7,
     }
 
 
 def _plan() -> dict:
+    summary = summarize_terraform_plan(
+        dict(
+            format_version="1.2",
+            terraform_version="1.14.6",
+            applyable=False,
+            complete=True,
+            errored=False,
+            resource_changes=list(),
+        )
+    )
     return build_saved_plan_record(
         bindings=_bindings(),
+        plan_environment_anchor_digest=_context()[
+            "github_environment_anchor_digest"
+        ],
         plan_sha256=_sha("3"),
         plan_size_bytes=4096,
-        bucket=f"scanalyze-{DESTINATION_ACCOUNT}-tf-state",
+        plan_summary=summary,
+        cost_binding={
+            "cost_model_digest": _sha("4"),
+            "maximum_cost_usd_micros": 10_000_000,
+            "modeled_cost_upper_bound_usd_micros": 5_000_000,
+        },
+        bucket=f"scanalyze-{DESTINATION_ACCOUNT}-tf-plan",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/{CHANGE_ID}/network/plan.tfplan"
         ),
         object_version_id="synthetic-version-0001",
+        state_readback={"status": "PRESENT", "lineage": "synthetic-lineage-0001", "serial": 7, "object_version_id": "state-version-7", "sha256": _sha("6"), "size_bytes": 128},
         created_at=NOW,
         expires_at=NOW + timedelta(hours=1),
     )
 
 
 def _approval() -> dict:
+    plan = _plan()
     return build_saved_plan_approval(
-        plan_record=_plan(),
+        plan_record=plan,
         repository_owner_id=11,
         repository_id=22,
         workflow_ref=WORKFLOW_REF,
         workflow_sha=WORKFLOW_SHA,
         workflow_run_id=33,
+        workflow_run_attempt=1,
         github_environment=GITHUB_ENVIRONMENT,
         environment_configuration_digest=_sha("5"),
+        apply_environment_anchor_digest=_sha("4"),
         initiator_user_id=44,
+        expected_approver_user_id=55,
         approver_user_id=55,
-        approved_at=NOW + timedelta(minutes=2),
-        expires_at=NOW + timedelta(minutes=45),
+        reviewer_packet_digest=build_saved_plan_reviewer_packet(plan)[
+            "packet_digest"
+        ],
+        approval_evidence_digest=_sha("a"),
+        approval_window_started_at=NOW + timedelta(minutes=1),
+        approval_observed_at=NOW + timedelta(minutes=2),
+        freshness_basis="WORKFLOW_RUN_CREATED_AT_CONSERVATIVE_BOUND",
+        expires_at=NOW + timedelta(minutes=7),
     )
 
 
@@ -172,6 +223,11 @@ def _approved_ledger() -> dict:
         "status": "APPROVED",
         "ledger_version": 4,
         "plan_record_digest": _plan()["record_digest"],
+        "plan_environment_anchor_digest": _plan()[
+            "plan_environment_anchor_digest"
+        ],
+        "expected_approver_user_id": _plan()["expected_approver_user_id"],
+        "approval_authority_digest": _plan()["approval_authority_digest"],
         "updated_at": (NOW + timedelta(minutes=3)).isoformat().replace(
             "+00:00", "Z"
         ),
@@ -194,7 +250,14 @@ def _plan_readback() -> dict:
 
 
 def _state_readback() -> dict:
-    return {"lineage": "synthetic-lineage-0001", "serial": 7}
+    return {
+        "status": "PRESENT",
+        "lineage": "synthetic-lineage-0001",
+        "serial": 7,
+        "object_version_id": "state-version-7",
+        "sha256": _sha("6"),
+        "size_bytes": 128,
+    }
 
 
 def _plan_inputs() -> dict:
@@ -227,9 +290,22 @@ def _apply_inputs() -> dict:
     }
 
 
+def _apply_context() -> dict:
+    apply_context = _context()
+    apply_context["github_environment_anchor_digest"] = _sha("4")
+    apply_context["context_digest"] = canonical_digest(
+        {
+            key: value
+            for key, value in apply_context.items()
+            if key != "context_digest"
+        }
+    )
+    return apply_context
+
+
 def _apply_intent() -> dict:
     return build_apply_intent(
-        context=_context(),
+        context=_apply_context(),
         plan_record=_plan(),
         ledger=_approved_ledger(),
         approval_record=_approval(),
@@ -238,7 +314,7 @@ def _apply_intent() -> dict:
         state_readback=_state_readback(),
         plan_binary_path="/runner/private/apply/network.tfplan",
         apply_inputs=_apply_inputs(),
-        now=NOW + timedelta(minutes=10),
+        now=NOW + timedelta(minutes=5),
     )
 
 
@@ -248,6 +324,7 @@ def test_exact_dev_context_is_digest_bound_to_main_and_authority() -> None:
     assert context["authorized"] is True
     assert context["environment"] == "dev"
     assert context["workflow_sha"] == context["main_sha"]
+    assert context["workflow_run_attempt"] == 1
     assert context["platform_authority_account_id"] != context[
         "destination_account_id"
     ]
@@ -262,9 +339,11 @@ def test_exact_dev_context_is_digest_bound_to_main_and_authority() -> None:
         ("environment", "staging", "dev"),
         ("git_ref", "refs/heads/feature", "main"),
         ("main_sha", "5" * 40, "SHA"),
+        ("workflow_run_attempt", 2, "run attempt 1"),
         ("platform_authority_account_id", DESTINATION_ACCOUNT, "separate"),
         ("oidc_audience", "example.invalid", "audience"),
-        ("session_duration_seconds", 3600, "900"),
+        ("control_plane_session_duration_seconds", 900, "3600"),
+        ("terminal_session_duration_seconds", 900, "3600"),
         (
             "github_environment",
             "scanalyze-foreign-dev",
@@ -329,6 +408,7 @@ def test_plan_intent_uses_complete_fixed_wrapper_command() -> None:
     ):
         assert option in argv
     assert intent["expected_plan_path"] == "/runner/private/plan/network.tfplan"
+    assert intent["workflow_run_attempt"] == 1
     assert intent["storage_mode"] == "CREATE_ONLY_KMS_VERSIONED"
     assert intent["replan_allowed"] is False
     assert intent["intent_digest"] == canonical_digest(
@@ -340,6 +420,50 @@ def test_plan_intent_rejects_binding_and_path_substitution() -> None:
     bindings = _bindings()
     bindings["backend_binding_digest"] = "untrusted"
     with pytest.raises(AuthorizationError, match="digest"):
+        build_plan_intent(
+            context=_context(),
+            expected_bindings=bindings,
+            plan_inputs=_plan_inputs(),
+        )
+
+
+def test_plan_intent_accepts_explicit_absent_initial_state() -> None:
+    bindings = {
+        **_bindings(),
+        "state_status": "ABSENT",
+        "state_lineage": None,
+        "state_serial": None,
+    }
+
+    intent = build_plan_intent(
+        context=_context(),
+        expected_bindings=bindings,
+        plan_inputs=_plan_inputs(),
+    )
+
+    assert intent["allowed"] is True
+    assert intent["binding_digest"] == canonical_digest(bindings)
+
+
+@pytest.mark.parametrize(
+    ("state_status", "state_lineage", "state_serial"),
+    [
+        ("ABSENT", "synthetic-lineage-0001", None),
+        ("ABSENT", None, 0),
+        ("PRESENT", None, None),
+    ],
+)
+def test_plan_intent_rejects_incoherent_state_binding(
+    state_status: str, state_lineage: object, state_serial: object
+) -> None:
+    bindings = {
+        **_bindings(),
+        "state_status": state_status,
+        "state_lineage": state_lineage,
+        "state_serial": state_serial,
+    }
+
+    with pytest.raises(AuthorizationError, match="state"):
         build_plan_intent(
             context=_context(),
             expected_bindings=bindings,
@@ -396,6 +520,7 @@ def test_apply_intent_requires_exact_approval_and_prepares_apply_once_cas() -> N
     intent = _apply_intent()
 
     assert intent["proposed_ledger_status"] == "APPLYING"
+    assert intent["workflow_run_attempt"] == 1
     assert intent["proposed_ledger_version"] == 5
     assert intent["proposed_ledger"]["attempt_count"] == 1
     assert intent["retry_allowed"] is False
@@ -421,6 +546,7 @@ def test_apply_intent_requires_exact_approval_and_prepares_apply_once_cas() -> N
     [
         ("workflow_sha", "5" * 40),
         ("workflow_run_id", 34),
+        ("workflow_run_attempt", 2),
         ("initiator_user_id", 99),
         ("repository_id", 23),
     ],
@@ -436,7 +562,7 @@ def test_apply_intent_rejects_approval_from_another_run(
 
     with pytest.raises(AuthorizationError, match="current run"):
         build_apply_intent(
-            context=_context(),
+            context=_apply_context(),
             plan_record=_plan(),
             ledger=_approved_ledger(),
             approval_record=approval,
@@ -453,14 +579,14 @@ def test_apply_intent_is_revalidated_after_exact_applying_cas_readback() -> None
     intent = _apply_intent()
     result = validate_apply_intent(
         intent=intent,
-        context=_context(),
+        context=_apply_context(),
         plan_record=_plan(),
         approval_record=_approval(),
         approved_ledger=_approved_ledger(),
         applying_ledger=intent["proposed_ledger"],
         plan_readback=_plan_readback(),
         state_readback=_state_readback(),
-        now=NOW + timedelta(minutes=11),
+        now=NOW + timedelta(minutes=6),
     )
 
     assert result["allowed"] is True
@@ -475,14 +601,14 @@ def test_apply_validation_rejects_tampered_intent_or_non_cas_ledger() -> None:
     with pytest.raises(AuthorizationError, match="digest"):
         validate_apply_intent(
             intent=tampered,
-            context=_context(),
+            context=_apply_context(),
             plan_record=_plan(),
             approval_record=_approval(),
             approved_ledger=_approved_ledger(),
             applying_ledger=intent["proposed_ledger"],
             plan_readback=_plan_readback(),
             state_readback=_state_readback(),
-            now=NOW + timedelta(minutes=11),
+            now=NOW + timedelta(minutes=6),
         )
 
     foreign_ledger = copy.deepcopy(intent["proposed_ledger"])
@@ -493,14 +619,14 @@ def test_apply_validation_rejects_tampered_intent_or_non_cas_ledger() -> None:
     with pytest.raises(AuthorizationError, match="CAS"):
         validate_apply_intent(
             intent=intent,
-            context=_context(),
+            context=_apply_context(),
             plan_record=_plan(),
             approval_record=_approval(),
             approved_ledger=_approved_ledger(),
             applying_ledger=foreign_ledger,
             plan_readback=_plan_readback(),
             state_readback=_state_readback(),
-            now=NOW + timedelta(minutes=11),
+            now=NOW + timedelta(minutes=6),
         )
 
 
@@ -510,7 +636,7 @@ def test_apply_validation_rechecks_approval_expiry_immediately_before_execute() 
     with pytest.raises(AuthorizationError, match="approval"):
         validate_apply_intent(
             intent=intent,
-            context=_context(),
+            context=_apply_context(),
             plan_record=_plan(),
             approval_record=_approval(),
             approved_ledger=_approved_ledger(),

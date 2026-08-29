@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Scanalyze external destination-account ACCOUNT_READY v2 baseline. Creates durable state,
-  evidence, and contract storage and delegates terminal IAM roles to an exact content-addressed nested
+  immutable evidence, ephemeral saved-plan, and contract storage and delegates terminal IAM roles to an exact content-addressed nested
   template. It creates no workloads, legacy lock table, or log groups.
 Metadata:
-  Scanalyze: {Contract: account-ready/v2, BaselineVersion: v2.0.0, Ownership: external-account-baseline,
-    TerminalRolesPolicyBundleSha256: 'sha256:d8bf3b47f85522031fd4409dd602e5d98e8d25026e6f5f40737a24b4a88b9a55',
-    TerminalRolesTemplateSha256: 'sha256:628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106'}
+  Scanalyze: {Contract: account-ready/v2, BaselineVersion: v2.1.0, Ownership: external-account-baseline,
+    TerminalRolesPolicyBundleSha256: 'sha256:79634f20c3dafcdd861d853f7f193e28ad3a1016af13886b3d5eb957907c022c',
+    TerminalRolesTemplateSha256: 'sha256:7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2'}
 Parameters:
   CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
   DeploymentId: {Type: String, AllowedPattern: '^dep_[0-9A-HJKMNP-TV-Z]{26}$'}
@@ -14,9 +14,9 @@ Parameters:
     Type: String
     Default: sandbox
     AllowedValues: [sandbox, dev, staging, production]
-  TerminalRolesTemplateUrl: {Type: String, MaxLength: 1024, AllowedPattern: '^https://scanalyze-shared-releases\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/terminal-roles/sha256/628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106/cfn-terminal-roles\.yaml\?versionId=(?![Nn][Uu][Ll][Ll]$)[A-Za-z0-9._~+/=-]+$',
+  TerminalRolesTemplateUrl: {Type: String, MaxLength: 1024, AllowedPattern: '^https://scanalyze-shared-releases\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/terminal-roles/sha256/7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2/cfn-terminal-roles\.yaml\?versionId=(?![Nn][Uu][Ll][Ll]$)[A-Za-z0-9._~+/=-]+$',
     ConstraintDescription: 'must be the non-null version-pinned shared-releases URL whose content-addressed
-      path matches terminal template sha256:628aca0008a5f9978805289bed82d0a09c11baa07645b98a9ff5fc9f823cf106'}
+      path matches terminal template sha256:7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2'}
 Rules:
   SharedServicesMustBeExternal:
     Assertions:
@@ -111,16 +111,38 @@ Resources:
     Properties:
       BucketName: !Sub 'scanalyze-${AWS::AccountId}-tf-state'
       VersioningConfiguration: {Status: Enabled}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'StateKmsKey.Arn'}
+          BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+        - {ObjectOwnership: BucketOwnerEnforced}
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true,
+        RestrictPublicBuckets: true}
+      Tags:
+      - {Key: customer_id, Value: !Ref 'CustomerId'}
+      - {Key: deployment_id, Value: !Ref 'DeploymentId'}
+      - {Key: account_id, Value: !Ref 'AWS::AccountId'}
+      - {Key: region, Value: !Ref 'AWS::Region'}
+      - {Key: environment, Value: !Ref 'Environment'}
+  PlanBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'scanalyze-${AWS::AccountId}-tf-plan'
+      VersioningConfiguration: {Status: Enabled}
       LifecycleConfiguration:
         Rules:
         - Id: ExpireEphemeralPlanExecution
           Prefix: plan-execution/
           Status: Enabled
-          ExpirationInDays: 3
-          NoncurrentVersionExpiration: {NoncurrentDays: 3}
+          ExpirationInDays: 1
+          NoncurrentVersionExpiration: {NoncurrentDays: 1}
       BucketEncryption:
         ServerSideEncryptionConfiguration:
-        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'StateKmsKey.Arn'}
+        - ServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt 'EvidenceKmsKey.Arn'}
           BucketKeyEnabled: true
       OwnershipControls:
         Rules:
@@ -212,6 +234,36 @@ Resources:
           Resource: !Sub '${StateBucket.Arn}/*'
           Condition:
             StringNotEquals: {'s3:x-amz-server-side-encryption-aws-kms-key-id': !GetAtt 'StateKmsKey.Arn'}
+  PlanBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref 'PlanBucket'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: DenyInsecureTransport
+          Effect: Deny
+          Principal: '*'
+          Action: s3:*
+          Resource: [!GetAtt 'PlanBucket.Arn', !Sub '${PlanBucket.Arn}/*']
+          Condition:
+            Bool: {'aws:SecureTransport': 'false'}
+        - Sid: DenyMissingKmsEncryption
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${PlanBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption': 'aws:kms'}
+        - Sid: DenyWrongKmsKey
+          Effect: Deny
+          Principal: '*'
+          Action: s3:PutObject
+          Resource: !Sub '${PlanBucket.Arn}/*'
+          Condition:
+            StringNotEquals: {'s3:x-amz-server-side-encryption-aws-kms-key-id': !GetAtt 'EvidenceKmsKey.Arn'}
   EvidenceBucketPolicy:
     Type: AWS::S3::BucketPolicy
     DeletionPolicy: Retain
@@ -282,11 +334,11 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
-    DependsOn: [StateBucketPolicy, EvidenceBucketPolicy, ContractsBucketPolicy]
+    DependsOn: [StateBucketPolicy, PlanBucketPolicy, EvidenceBucketPolicy, ContractsBucketPolicy]
     Properties:
       TemplateURL: !Ref 'TerminalRolesTemplateUrl'
       Parameters: {CustomerId: !Ref 'CustomerId', DeploymentId: !Ref 'DeploymentId', SharedServicesAccountId: !Ref 'SharedServicesAccountId',
-        Environment: !Ref 'Environment', StateBucketArn: !GetAtt 'StateBucket.Arn', EvidenceBucketArn: !GetAtt 'EvidenceBucket.Arn',
+        Environment: !Ref 'Environment', StateBucketArn: !GetAtt 'StateBucket.Arn', PlanBucketArn: !GetAtt 'PlanBucket.Arn', EvidenceBucketArn: !GetAtt 'EvidenceBucket.Arn',
         ContractsBucketArn: !GetAtt 'ContractsBucket.Arn', StateKmsKeyArn: !GetAtt 'StateKmsKey.Arn',
         EvidenceKmsKeyArn: !GetAtt 'EvidenceKmsKey.Arn', ContractsKmsKeyArn: !GetAtt 'ContractsKmsKey.Arn'}
       Tags:
@@ -296,7 +348,7 @@ Resources:
       - {Key: region, Value: !Ref 'AWS::Region'}
       - {Key: environment, Value: !Ref 'Environment'}
 Outputs:
-  BaselineVersion: {Value: v2.0.0}
+  BaselineVersion: {Value: v2.1.0}
   CustomerId: {Value: !Ref 'CustomerId'}
   DeploymentId: {Value: !Ref 'DeploymentId'}
   AccountId: {Value: !Ref 'AWS::AccountId'}
@@ -304,6 +356,8 @@ Outputs:
   Environment: {Value: !Ref 'Environment'}
   StateBucketName: {Value: !Ref 'StateBucket'}
   StateBucketArn: {Value: !GetAtt 'StateBucket.Arn'}
+  PlanBucketName: {Value: !Ref 'PlanBucket'}
+  PlanBucketArn: {Value: !GetAtt 'PlanBucket.Arn'}
   EvidenceBucketName: {Value: !Ref 'EvidenceBucket'}
   EvidenceBucketArn: {Value: !GetAtt 'EvidenceBucket.Arn'}
   ContractsBucketName: {Value: !Ref 'ContractsBucket'}

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Resolve verified layer contracts into a content-bound consumer input.
 
-Fixture mode is test-only and requires an explicit acknowledgement.  The live
-SSM reader intentionally remains blocked until the protected engine in GUG-125
-can supply the same immutable inputs without adding a second trust path.
+Fixture mode remains test-only and explicitly acknowledged.  Live mode reads
+only the exact immutable SSM transports declared by the canonical catalog,
+using bounded double-read discovery and an explicit AWS identity/region.
 """
 from __future__ import annotations
 
@@ -33,8 +33,15 @@ if str(REPO_ROOT) not in sys.path:
 from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
 from contract_projection import (  # noqa: E402
     ContractProjectionError,
+    expected_resolvable_contracts,
     load_json,
     project_contracts,
+)
+from tooling.ssm_contract_live_io import (  # noqa: E402
+    LiveContractIoError,
+    SubprocessAwsCliRunner,
+    resolve_required_ssm_contracts,
+    verify_caller_identity,
 )
 
 
@@ -44,6 +51,7 @@ class ResolutionError(Exception):
 
 LAYER_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 MAX_CONTRACT_AGE_SECONDS = 86400
+MAX_LIVE_CLOCK_SKEW_SECONDS = 300
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -165,13 +173,32 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--contract", action="append", help="contract fixture JSON; repeatable")
     source.add_argument("--contracts-dir", type=Path, help="directory containing contract fixtures")
-    source.add_argument("--live", action="store_true", help="future read-only SSM resolution mode")
+    source.add_argument("--live", action="store_true", help="read immutable SSM contracts")
     parser.add_argument("--allow-fixtures", action="store_true", help="explicitly permit test fixtures")
     parser.add_argument("--layer", required=True, help="consumer layer")
     parser.add_argument("--customer-id")
     parser.add_argument("--deployment-id", required=True)
     parser.add_argument("--account-id", required=True)
     parser.add_argument("--region", required=True)
+    parser.add_argument(
+        "--aws-region",
+        help="explicit AWS API region; required for live SSM I/O",
+    )
+    credentials = parser.add_mutually_exclusive_group()
+    credentials.add_argument(
+        "--aws-profile",
+        help="explicit named AWS profile for live I/O",
+    )
+    credentials.add_argument(
+        "--use-runtime-credentials",
+        action="store_true",
+        help="use an already established short-lived runtime credential chain",
+    )
+    parser.add_argument(
+        "--aws-cli",
+        default="aws",
+        help="AWS CLI executable (injectable for hermetic validation)",
+    )
     parser.add_argument("--release-digest", required=True)
     parser.add_argument("--release-version", required=True)
     parser.add_argument(
@@ -206,10 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         if os.environ.get("SCANALYZE_ALLOW_LIVE") != "1":
             print("BLOCKED_LIVE: set SCANALYZE_ALLOW_LIVE=1 to acknowledge live mode", file=sys.stderr)
             return 2
-        print("BLOCKED_LIVE: SSM contract resolution is not implemented until GUG-125", file=sys.stderr)
-        return 2
-
-    if not args.allow_fixtures:
+    elif not args.allow_fixtures:
         print("BLOCKED_FIXTURES: fixture input requires explicit --allow-fixtures", file=sys.stderr)
         return 2
 
@@ -223,6 +247,25 @@ def main(argv: list[str] | None = None) -> int:
         if not 0 < args.max_contract_age_seconds <= MAX_CONTRACT_AGE_SECONDS:
             raise ResolutionError("max contract age is outside the approved range")
         resolved_at = _parse_timestamp(args.resolved_at, "resolved_at")
+        if args.live and abs(
+            (datetime.now(timezone.utc) - resolved_at).total_seconds()
+        ) > MAX_LIVE_CLOCK_SKEW_SECONDS:
+            raise ResolutionError(
+                "resolved_at is outside the live action-time window"
+            )
+        if args.live and any(
+            actual.resolve() != expected.resolve()
+            for actual, expected in (
+                (args.schema, DEFAULT_SCHEMA),
+                (args.resolution_schema, DEFAULT_RESOLUTION_SCHEMA),
+                (args.catalog, DEFAULT_CATALOG),
+                (args.catalog_schema, DEFAULT_CATALOG_SCHEMA),
+                (args.dag, DEFAULT_DAG),
+            )
+        ):
+            raise ResolutionError(
+                "live resolution requires canonical repository contracts"
+            )
 
         envelope_schema = load_json(args.schema, "contract schema")
         resolution_schema = load_json(args.resolution_schema, "resolution schema")
@@ -244,11 +287,52 @@ def main(argv: list[str] | None = None) -> int:
         required_contracts = set(args.required_contract)
         if len(required_contracts) != len(args.required_contract):
             raise ResolutionError("--required-contract values must be unique")
+        if args.live and required_contracts != expected_resolvable_contracts(
+            dag, catalog, args.layer
+        ):
+            raise ResolutionError(
+                "required contract set does not match the canonical DAG target"
+            )
+        if args.live and any(
+            not isinstance(record := catalog.get("contracts", {}).get(contract_id), dict)
+            or record.get("authority") != "terraform-root"
+            or record.get("transport", {}).get("kind") != "ssm"
+            for contract_id in required_contracts
+        ):
+            raise ResolutionError(
+                "live SSM resolution cannot substitute a non-SSM authority"
+            )
 
-        contracts = [
-            load_json(path, "contract fixture")
-            for path in _fixture_paths(args)
-        ]
+        if args.live:
+            if not args.aws_region:
+                raise ResolutionError("--aws-region is required for live resolution")
+            if args.aws_region != args.region:
+                raise ResolutionError(
+                    "AWS API region must match the live consumer region"
+                )
+            runner = SubprocessAwsCliRunner(
+                executable=args.aws_cli,
+                profile=args.aws_profile,
+                use_runtime_credentials=args.use_runtime_credentials,
+            )
+            identity = verify_caller_identity(
+                runner,
+                expected_account_id=args.account_id,
+                region=args.aws_region,
+            )
+            contracts = resolve_required_ssm_contracts(
+                runner,
+                identity=identity,
+                catalog=catalog,
+                required_contracts=required_contracts,
+                deployment_id=args.deployment_id,
+                release_digest=args.release_digest,
+            )
+        else:
+            contracts = [
+                load_json(path, "contract fixture")
+                for path in _fixture_paths(args)
+            ]
         resolved, _ = project_contracts(
             contracts,
             envelope_schema,
@@ -285,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
         _validate_schema(resolution, resolution_schema, "resolution")
         output_path, descriptor = _select_output_path(args.layer, args.out)
         _write_document(output_path, descriptor, resolution)
-    except (ResolutionError, ContractProjectionError) as exc:
+    except (ResolutionError, ContractProjectionError, LiveContractIoError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     except (OSError, TypeError, ValueError):

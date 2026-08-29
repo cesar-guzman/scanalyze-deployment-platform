@@ -98,11 +98,12 @@ def _account_ready() -> dict:
         "account_id": ACCOUNT_ID,
         "region": REGION,
         "environment": ENVIRONMENT,
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": "2026-07-14T17:00:00Z",
         "roles": roles,
         "state_infrastructure": {
             "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
             "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
             "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
             "state_kms_key": (
@@ -125,6 +126,15 @@ def _account_ready() -> dict:
             "state_public_access_blocked": True,
             "state_object_lock_enabled": False,
             "native_lockfile_enabled": True,
+            "plan_versioning_enabled": True,
+            "plan_default_encryption": "aws:kms",
+            "plan_kms_key": (
+                f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/"
+                "00000000-0000-0000-0000-000000000002"
+            ),
+            "plan_bucket_key_enabled": True,
+            "plan_public_access_blocked": True,
+            "plan_lifecycle_days": 1,
         },
     }
     document["contract_digest"] = _digest(document, "contract_digest")
@@ -144,7 +154,7 @@ def _target(account_ready: dict) -> dict:
         "registry_version": 7,
         "account_ready": {
             "schema_version": "2",
-            "baseline_version": "v2.0.0",
+            "baseline_version": "v2.1.0",
             "contract_digest": account_ready["contract_digest"],
         },
         "state_binding": {
@@ -644,7 +654,7 @@ def test_backendless_gate_projection_and_preconditions_are_offline(
         "account_id": ACCOUNT_ID,
         "region": REGION,
         "environment": ENVIRONMENT,
-        "expected_baseline_version": "v2.0.0",
+        "expected_baseline_version": "v2.1.0",
         "expected_contract_digest": account_ready["contract_digest"],
         "account_ready_binding": {
             "schema_version": "2",
@@ -653,7 +663,7 @@ def test_backendless_gate_projection_and_preconditions_are_offline(
             "account_id": ACCOUNT_ID,
             "region": REGION,
             "environment": ENVIRONMENT,
-            "baseline_version": "v2.0.0",
+            "baseline_version": "v2.1.0",
             "contract_digest": account_ready["contract_digest"],
         },
     }
@@ -1313,6 +1323,16 @@ def test_registry_anchor_version_and_digest_are_exact() -> None:
         ("state_public_access_blocked", False),
         ("state_object_lock_enabled", True),
         ("native_lockfile_enabled", False),
+        ("plan_versioning_enabled", False),
+        ("plan_default_encryption", "AES256"),
+        (
+            "plan_kms_key",
+            f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/"
+            "00000000-0000-0000-0000-000000000001",
+        ),
+        ("plan_bucket_key_enabled", False),
+        ("plan_public_access_blocked", False),
+        ("plan_lifecycle_days", 2),
     ],
 )
 def test_account_baseline_security_mismatch_fails_closed(
@@ -1513,7 +1533,12 @@ def test_new_contracts_accept_multi_segment_aws_partitions() -> None:
     partition = "aws-us-gov"
     for role in account_ready["roles"].values():
         role["arn"] = role["arn"].replace("arn:aws:", f"arn:{partition}:")
-    for field in ("state_bucket", "evidence_bucket", "contracts_bucket"):
+    for field in (
+        "state_bucket",
+        "plan_bucket",
+        "evidence_bucket",
+        "contracts_bucket",
+    ):
         account_ready["state_infrastructure"][field] = account_ready[
             "state_infrastructure"
         ][field].replace("arn:aws:", f"arn:{partition}:")
@@ -1521,6 +1546,9 @@ def test_new_contracts_accept_multi_segment_aws_partitions() -> None:
         account_ready["state_infrastructure"][field] = account_ready[
             "state_infrastructure"
         ][field].replace("arn:aws:", f"arn:{partition}:")
+    account_ready["controls"]["plan_kms_key"] = account_ready[
+        "state_infrastructure"
+    ]["evidence_kms_key"]
     account_ready["contract_digest"] = _digest(account_ready, "contract_digest")
     target["account_ready"]["contract_digest"] = account_ready["contract_digest"]
     target["state_binding"] = {

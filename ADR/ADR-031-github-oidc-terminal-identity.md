@@ -59,11 +59,12 @@ The repository OIDC subject template contains, in order:
 AWS trust uses exact `StringEquals` for `aud=sts.amazonaws.com` and the complete
 derived subject. Wildcards, default subjects, pull-request events, feature
 branches, arbitrary reusable workflows, and dry-run execution are forbidden.
-The identity contract requires the first-hop caller to request exactly
-`DurationSeconds=900`. IAM role `MaxSessionDuration` cannot be configured below
-one hour, so the role setting alone does not prove a 15-minute session. The
-broker/caller must enforce and negatively test the 900-second request before
-live use.
+The protected live identity contract requires the first-hop OIDC caller to
+request exactly `DurationSeconds=3600`. The protected GitHub job has a separate
+45-minute execution ceiling; the one-hour credential lifetime does not extend
+that job. Human Diagnostic and StateRecovery paths remain independently
+controlled and request exactly 900 seconds rather than inheriting this live
+workflow duration.
 
 The subject template is repository-wide. Its live rollout must first inventory
 every existing OIDC consumer and install each new exact trust subject before
@@ -72,18 +73,50 @@ changing the GitHub customization. GUG-123 performs no such live mutation.
 ### 3. Environment configuration requires independent, fresh evidence
 
 The deployment identity contains an expected Environment snapshot, but it
-cannot attest to itself. A separate `github_environment_anchor` must be fetched
-through an approved read-only GitHub API adapter outside the release workflow.
+cannot attest to itself. A separate `github_environment_anchor` is fetched
+through an approved read-only GitHub API adapter inside the sole protected live
+job, independently of the sealed request and before OIDC.
 It binds immutable repository IDs, exact Environment name, and a canonical
 digest covering reviewer, branch/tag protection, bypass/self-review posture,
-reserved variable scope, deployment variables, secret-name inventory, and OIDC
-subject customization.
+reserved variable scope, the exact 16-variable deployment map, a two-name
+private-transport inventory containing only the live bundle and collector App
+private-key names, complete repository and repository-effective organization
+variable maps, repository/organization secret-name inventories, and OIDC
+subject customization. The anchor never records, prints, or exposes private
+values.
+
+The exact non-secret variable names are `CUSTOMER_ID`, `DEPLOYMENT_ID`,
+`AWS_ACCOUNT_ID`, `AWS_REGION`, `LOGICAL_ENVIRONMENT`,
+`OIDC_ORCHESTRATOR_ROLE_ARN`, `ORCHESTRATOR_ROLE_ARN`,
+`GENERIC_PLAN_ROLE_ARN`, `GENERIC_APPLY_ROLE_ARN`, `IDENTITY_PLAN_ROLE_ARN`,
+`IDENTITY_APPLY_ROLE_ARN`, `PLATFORM_AUTHORITY_ACCOUNT_ID`, `REPOSITORY_ID`,
+`REPOSITORY_OWNER_ID`, `SECOND_P0_REVIEWER_ID`, and
+`GITHUB_ENVIRONMENT_COLLECTOR_APP_ID`. Missing, extra, or value-mismatched
+variables fail the anchor comparison.
+
+The only collector authority is a short-lived GitHub App installation token in
+the sole protected job. An App JWT verifies the exact installation, account,
+selected repository and exact five-permission read-only map before the token is
+trusted. Two complete snapshots must agree, including repository and
+repository-effective organization variable values. Apply approval metadata is
+read through the same token; the automatic workflow token is forbidden. The
+installation token is revoked and all collector private material is removed
+before Terraform installation, OIDC or controller execution. Because the
+pinned official token action cannot independently request the `variables`
+permission, partial `permission-*` inputs are forbidden and the exact verified
+installation permission map is authoritative.
+
+The runtime source SHA is outside this sealed Environment configuration. It is
+verified against the dispatch context and exact checked-out `HEAD`, then bound
+into the live context and source-revision digest. Keeping it out of the tracked
+claim's sealed dependency graph avoids a self-referential commit SHA.
 
 The anchor is integrity-protected, non-future, and valid for no more than ten
 minutes. Only named `User` reviewers are accepted because a team reviewer does
 not prove that the initiator is not a team member. The initiator must differ
 from every reviewer. Generic Environments, repository/organization overrides,
-Environment secrets, tag deployment, admin bypass, and self-review are denied.
+any additional Environment secret name, tag deployment, admin bypass, and
+self-review are denied.
 
 ### 4. The orchestrator and terminal roles are disjoint
 
@@ -102,10 +135,12 @@ Validation remains read-only and is limited to the two validation entrypoints:
 artifact-publication input validation and synthetic validation. The operation is
 always `validate`; Validation never inherits Promotion's publication authority.
 Customer roles are terminal and cannot assume further roles. The child sets the
-minimum supported IAM role maximum of 3,600 seconds, while the identity contract
-requires each AssumeRole request to set `DurationSeconds=900`. That caller-side
-enforcement is downstream and not live-proven; the template by itself does not
-cap a session at 15 minutes.
+IAM role maximum to 3,600 seconds. The protected controller requests exactly
+3,600 seconds for Plan/Apply terminal sessions, matching the first-hop
+orchestrator session; human Diagnostic and StateRecovery callers remain capped
+at exactly 900 seconds. Caller-side duration enforcement and negative live
+evidence remain downstream; `MaxSessionDuration` alone does not prove that the
+correct duration was requested for a particular path.
 
 The dedicated identity roles have a read-only upper bound on objects in
 `scanalyze-shared-releases`; they receive no list, write, or publication action.
@@ -171,17 +206,30 @@ replace those trusts, verify that no usable sessions remain, and only then
 retire the retained child through a separately reviewed forward operation.
 Parent deletion alone is never accepted as IAM revocation evidence.
 
-### 5. Repository workflows remain unprivileged until the live engine exists
+### 5. Exactly one protected workflow job may enter the live saved-plan path
 
-The current non-production release and reusable Terraform workflows remain
-offline/dry-run. The pre-existing microservices publisher selected a role,
-account, and Environment from workflow inputs or mutable variables and could
-therefore bypass this authorization chain. Its validation jobs remain intact,
-but its cloud publication job is now an explicit fail-closed NO-GO with empty
-permissions and no credential action. Repository validation rejects
-`id-token: write` or AWS credential actions in every workflow, not only known
-dry-run paths. Enabling a privileged workflow belongs to GUG-125 after GUG-124
-binds immutable plan and supply-chain evidence.
+The reusable Terraform workflow now contains exactly one deployment
+Environment/OIDC job, `live_saved_plan`. It handles one explicitly selected DEV
+phase per dispatch: Plan or Apply. Plan and Apply therefore run in separate
+workflow runs, each re-entering the same protected Environment and obtaining
+fresh OIDC/terminal sessions. Apply cannot start without an independent,
+append-only GitHub approval bound to the exact plan-record and reviewer-packet
+digests.
+
+Every other Terraform job and workflow route remains non-OIDC and cannot obtain
+AWS credentials. The prior microservices publication route remains fail-closed
+NO-GO. Repository validation rejects any second Environment/OIDC path rather
+than treating a dry-run, validation, recovery, or evidence-writing route as an
+alternate live entrypoint.
+
+The controller implements APPLIED/RECONCILED_APPLIED re-entry and read-only
+UNCERTAIN reconciliation, but the real post-apply health probe, exact SSM
+contract publisher, and reconciliation probe are not wired into this protected
+workflow. It therefore stops after a durable mutation unless the complete
+post-apply closure reaches HEALTHY; it never claims connected or production
+success from APPLIED alone. There is no workflow recovery/evidence-writer job,
+and the controller never deletes a consumed saved plan; lifecycle is the only
+plan cleanup authority.
 
 ## Consequences
 
@@ -215,15 +263,19 @@ default subjects, or broad role trust.
 ## Evidence classification
 
 - **Implemented:** candidate schemas, validator, exact trust/policy fixtures,
-  synthetic tests, Make gate, ADR, runbook, threat delta, and sanitized source.
-  The fixture-to-CloudFormation union is an offline structural guarantee only.
+  protected `live_saved_plan` job, separate Plan/Apply dispatch contract,
+  sealed materializer/controller, live SSM contract I/O primitives, synthetic
+  tests, Make gate, ADR, runbook, threat delta, and sanitized source. The
+  fixture-to-CloudFormation union is an offline structural guarantee only.
 - **Locally validated:** only named offline commands for the candidate tree.
 - **CI validated:** pending the exact PR commit.
 - **Live validated:** no.
-- **Blocked:** per-execution release-digest session-policy reduction,
-  independent StateRecovery approval issuance and trust activation, reviewed
-  PR/main verification, authorized GitHub configuration, IAM Access
-  Analyzer/live STS denial evidence, GUG-124, GUG-125, and GUG-117.
+- **Blocked:** real post-apply workflow adapters, a connected protected DEV run,
+  per-execution release-digest session-policy reduction, independent
+  StateRecovery approval issuance and trust activation, reviewed PR/main
+  verification, authorized GitHub configuration, IAM Access Analyzer/live STS
+  denial evidence, GUG-124 and GUG-117, plus the remaining connected GUG-125
+  configuration and execution evidence.
 - **Production:** **NO-GO**.
 
 ## References

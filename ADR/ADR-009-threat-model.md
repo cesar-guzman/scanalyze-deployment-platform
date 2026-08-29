@@ -1,11 +1,11 @@
 # ADR-009: Threat Model, Data Boundaries, Logging and Observability
 
-> **Status**: `DRAFT rev3`  
+> **Status**: `DRAFT rev4`<br>
 > **Date**: 2026-06-25  
 > **Decision makers**: César Guzmán  
 > **Scope**: Scanalyze Dedicated Deployment Platform  
-> **Depends on**: ADR-001, ADR-002, ADR-003 rev3, ADR-004 rev3, ADR-005, ADR-006 rev3, ADR-007 rev3, ADR-008 rev3, ADR-010 rev3  
-> **Rev3 changes**: Reconciliation with all rev3 ADRs — new Domain 9 (Migration & Rollout, 10 threats), new Domain 10 (Economic & Availability, 4 threats), updated existing threats, corrected cross-references
+> **Depends on**: ADR-001, ADR-002, ADR-003 rev4, ADR-004 rev3, ADR-005, ADR-006 rev4, ADR-007 rev3, ADR-008 rev3, ADR-010 rev3<br>
+> **Rev4 changes**: Retains the rev3 threat inventory and reconciles the four-bucket saved-plan boundary, exact plan/state object bindings, private plan JSON, and separate Plan/Apply runs
 
 ---
 
@@ -39,7 +39,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Attacker compromises the ScanalyzeDeploymentOrchestrator role in Shared Services |
 | **Impact** | Access to all customer accounts via assumed deployment roles |
 | **Likelihood** | Medium (high-value target) |
-| **Controls** | Exact principal trust (ADR-004 rev3), 6 scoped roles (Plan/Apply/Promotion/Validation/Diagnostic/StateRecovery), separate STS statements per action (AssumeRole, TagSession, SetSourceIdentity per ADR-004 rev3), session tags (`deployment_id`, `release_version`, `change_id`), SourceIdentity set once at first hop (`exec_<ULID>`), transitive tag control, short session (1h), CloudTrail, permissions boundary, MFA for human access to Shared Services, no persistent credentials. Roles bootstrapped via AccountVendingProvider (ADR-004 rev3), not by deployment pipeline |
+| **Controls** | Exact principal trust (ADR-004 rev3), 8 terminal roles (Plan/Apply/Identity-Plan/Identity-Apply/Promotion/Validation/Diagnostic/StateRecovery), separate STS statements per action (AssumeRole, TagSession, SetSourceIdentity per ADR-004 rev3), session tags (`deployment_id`, `release_version`, `change_id`), SourceIdentity set once at first hop (`exec_<ULID>`), transitive tag control, short session (1h), CloudTrail, permissions boundary, MFA for human access to Shared Services, no persistent credentials. Roles bootstrapped via AccountVendingProvider (ADR-004 rev3), not by deployment pipeline |
 | **Residual risk** | Medium — blast radius is all customers |
 | **Test** | Assume deployment role without required tags → DENIED; Assume from wrong principal → DENIED; Assume without SourceIdentity → DENIED; TagSession with unauthorized tag → DENIED; SourceIdentity override on chained assume → DENIED |
 | **Owner** | Platform security |
@@ -139,7 +139,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Application encryption key deleted or access compromised |
 | **Impact** | Data loss (deletion) or data breach (compromise) |
 | **Likelihood** | Low |
-| **Controls** | SCP restrict `kms:ScheduleKeyDeletion` to break-glass role with dual approval, key policy per-deployment, per-domain keys (documents, state, queue, evidence, contracts per ADR-003 rev3), 30-day minimum waiting period, key rotation enabled, IAM Access Analyzer for key policy review. Multi-region keys for HA tiers (ADR-008 rev3) — replica key deletion also restricted |
+| **Controls** | SCP restrict `kms:ScheduleKeyDeletion` to break-glass role with dual approval, key policy per-deployment, per-domain keys (documents, state, queue, evidence, contracts per ADR-003 rev4; the plan bucket reuses the evidence key), 30-day minimum waiting period, key rotation enabled, IAM Access Analyzer for key policy review. Multi-region keys for HA tiers (ADR-008 rev3) — replica key deletion also restricted |
 | **Residual risk** | Low |
 | **Test** | Non-authorized role schedules key deletion → DENIED; Key rotation → verified enabled; Waiting period < 30 days → DENIED; Replica key deletion without primary owner → DENIED |
 | **Owner** | Platform security |
@@ -255,9 +255,9 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Unauthorized access to Terraform state (contains resource IDs, some config, potentially sensitive attributes) |
 | **Impact** | Information disclosure, state tampering |
 | **Likelihood** | Low |
-| **Controls** | Three-bucket model (ADR-003 rev3): state bucket (no Object Lock), evidence bucket (COMPLIANCE Object Lock for immutable evidence, separate plan-execution zone for ephemeral plans), contracts bucket (large payloads). KMS encryption at rest per bucket with separate keys. Versioning enabled. S3-native lockfile. `sensitive = true` on outputs. State never in CI logs. **Pre-apply snapshots stored in evidence bucket recovery prefix** — this is authorized evidence, not leakage. Plan JSON output used by orchestrator for bounds verification (ADR-006 rev3) — rendered plan stored in plan-execution zone with short retention, NOT in state bucket |
+| **Controls** | Four-bucket model (ADR-003 rev4): state bucket (no Object Lock), dedicated versioned plan bucket (no Object Lock; retained on stack deletion/replacement; one-day current/noncurrent lifecycle), evidence bucket (90-day COMPLIANCE Object Lock for durable sanitized evidence), and contracts bucket. The plan bucket uses the evidence KMS key; state and contracts retain separate keys. S3-native lockfile, `sensitive = true` outputs, and no state in CI logs remain mandatory. `saved-plan.v1` binds a present state object's exact VersionId, SHA-256, and size, plus the saved-plan VersionId, SHA-256, and size. Raw `terraform show -json` is deleted from private scratch after deriving bounded sanitized action manifests; only the saved binary uses `plan-execution/` |
 | **Residual risk** | Low |
-| **Test** | Non-deployment role reads state bucket → DENIED; State version history preserved; State file not in CI logs or build artifacts; Plan output in plan-execution zone with TTL |
+| **Test** | Non-deployment role reads state bucket → DENIED; state VersionId/hash/size mismatch → DENIED; state version history preserved; state and raw plan JSON absent from logs/artifacts; exact saved-plan version expires through the dedicated plan-bucket lifecycle |
 | **Owner** | Platform security |
 
 #### T4.4 — Environment variable credential leakage (I)
@@ -347,9 +347,9 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Attacker modifies state file to change resource ownership/config |
 | **Impact** | Infrastructure drift, data loss, privilege escalation |
 | **Likelihood** | Low |
-| **Controls** | S3 versioning, KMS encryption (separate state KMS key per ADR-003 rev3), bucket policy scoped to Plan/Apply/Diagnostic/StateRecovery roles. S3-native lockfile (`use_lockfile = true`). Pre-apply state snapshot saved to evidence bucket recovery prefix with COMPLIANCE Object Lock on evidence objects. Conditional apply (plan digest verification). State bucket has NO Object Lock or default retention (required for lockfile deletion and .tflock cleanup). Regional state keys: `{dep_id}/{region}/{layer}/terraform.tfstate` (ADR-003 rev3, ADR-008 rev3) |
+| **Controls** | S3 versioning, KMS encryption (separate state KMS key per ADR-003 rev4), and state access scoped to the reviewed terminal boundaries. S3-native lockfile (`use_lockfile = true`). The saved-plan record binds the state bucket/key and exact VersionId, SHA-256, size, lineage, and serial observed immediately before and after Plan; Apply requires the same exact state binding before mutation. The current protected path has no recovery-snapshot or evidence writer. The state bucket has no Object Lock or default retention, which remains required for lockfile deletion and `.tflock` cleanup. Regional state keys are `{dep_id}/{region}/{layer}/terraform.tfstate` (ADR-003 rev4, ADR-008 rev3) |
 | **Residual risk** | Low |
-| **Test** | Non-authorized role writes to state bucket → DENIED; State version history preserved; .tflock can be deleted by Plan role (no Object Lock interference) |
+| **Test** | Non-authorized role writes to state bucket → DENIED; state VersionId/hash/size drift blocks Apply; state version history is preserved; `.tflock` can be deleted by Plan role without Object Lock interference |
 | **Owner** | Platform security |
 
 #### T6.2 — State leakage (I)
@@ -359,9 +359,9 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | State file contents exposed (resource IDs, ARNs, some sensitive attributes) |
 | **Impact** | Information disclosure enabling further attacks |
 | **Likelihood** | Low |
-| **Controls** | KMS encryption at rest, bucket policy restrict access, no state in CI logs or build artifacts, `sensitive = true` for sensitive outputs, no `terraform show` in CI. **Plan JSON output** (`terraform show -json saved.plan`) is used by orchestrator for bounds verification (ADR-006 rev3) — this is the planned resource changes only, stored in plan-execution zone with short retention, accessible only to Plan/Apply roles. The full state file is NOT rendered to JSON in CI |
+| **Controls** | KMS encryption at rest, restricted bucket policies, no state in CI logs or build artifacts, and `sensitive = true` for sensitive outputs. **Plan JSON output** (`terraform show -json saved.plan`) is written only to mode-0600 private scratch for bounded semantic inspection (ADR-006 rev4) and is deleted immediately after the sanitized action manifest is derived. Only the saved binary enters the dedicated `plan-execution/` prefix. The full state file is never rendered to JSON in CI |
 | **Residual risk** | Low |
-| **Test** | State file not present in build artifacts; Full state not rendered in CI; Plan JSON in plan-execution zone with TTL; Sensitive outputs marked |
+| **Test** | State file absent from build artifacts; full state not rendered in CI; raw plan JSON absent from S3, logs, and artifacts and deleted from 0600 scratch; sensitive outputs marked |
 | **Owner** | Platform security |
 
 #### T6.3 — Dual ownership / orphaned state (T)
@@ -371,7 +371,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Two roots manage the same resource, or no root manages a live resource |
 | **Impact** | Unintended resource modification, invisible drift, failed destroys |
 | **Likelihood** | **HIGH** (current brownfield state — see state audit) |
-| **Controls** | 1:1 root/state key mapping, CI ownership validation (ownership.yaml), state audit procedures, no `terraform import` without evidence/approval, Track B eliminates by design. Ownership manifest (ADR-003 rev3) documents per-region, per-layer ownership |
+| **Controls** | 1:1 root/state key mapping, CI ownership validation (ownership.yaml), state audit procedures, no `terraform import` without evidence/approval, Track B eliminates by design. Ownership manifest (ADR-003 rev4) documents per-region, per-layer ownership |
 | **Residual risk** | **HIGH** for Track A (brownfield); **LOW** for Track B (greenfield by design — not NONE because drift remains possible) |
 | **Test** | CI check: no duplicate backend keys; Ownership YAML validates 1:1 mapping; `terraform state list` matches expected resources |
 | **Owner** | Platform operations |
@@ -423,7 +423,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Release upgrade fails and cannot be reversed |
 | **Impact** | Customer downtime, potential data corruption |
 | **Likelihood** | Medium |
-| **Controls** | Saved plans (plan digest verification). Rollback = **forward apply** with previous release configuration (ADR-003 rev3, ADR-010 rev3 §9). ECS circuit breaker for task failures → reconciliation procedure (ADR-010 rev3 §8): detect DEPLOYMENT_FAILED → confirm active revision → forward apply previous release config. **Wave-based service deployment** (ADR-010 rev3 §6.1): Wave 1 (ingest) → Wave 2 (classifier) → Wave 3 (domain workers) → Wave 4 (supporting). Wave failure stops subsequent waves. Terraform sole owner of task definitions. Rolling deployments. Pre-apply state snapshot in evidence bucket |
+| **Controls** | Saved plans (exact VersionId/hash/size verification). Rollback = **forward apply** with previous release configuration (ADR-003 rev4, ADR-010 rev3 §9). ECS circuit breaker for task failures → reconciliation procedure (ADR-010 rev3 §8): detect DEPLOYMENT_FAILED → confirm active revision → forward apply previous release config. **Wave-based service deployment** (ADR-010 rev3 §6.1): Wave 1 (ingest) → Wave 2 (classifier) → Wave 3 (domain workers) → Wave 4 (supporting). Wave failure stops subsequent waves. Terraform remains sole owner of task definitions. The current protected path relies on state versioning and has no recovery-snapshot/evidence writer |
 | **Residual risk** | Medium until rollback testing is operational per release |
 | **Test** | Upgrade → failure → reconciliation → service restored; ECS circuit breaker triggers → reconciliation aligns TF state; Wave N failure → Waves N+1..4 NOT executed |
 | **Owner** | Platform operations |
@@ -447,7 +447,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Authorized team member with privileged access acts maliciously or negligently |
 | **Impact** | Data breach, infrastructure sabotage, credential theft |
 | **Likelihood** | Low (but high impact) |
-| **Controls** | Least-privilege roles (6 scoped per ADR-004 rev3), separation of duties (build ≠ sign ≠ deploy ≠ approve), dual approval for destructive actions, CloudTrail for all actions, immutable audit logs in evidence bucket, break-glass alarm, no single person can build+sign+deploy, code review mandatory, SourceIdentity provides non-repudiation |
+| **Controls** | Least-privilege boundaries across 8 terminal roles (ADR-004 rev3), separation of duties (build ≠ sign ≠ deploy ≠ approve), dual approval for destructive actions, CloudTrail for all actions, evidence bucket retained for a separately reviewed sanitized publisher, break-glass alarm, no single person can build+sign+deploy, code review mandatory, SourceIdentity provides non-repudiation. The current protected Plan/Apply path has no evidence-bucket writer |
 | **Residual risk** | Medium — insider threats are inherently difficult to prevent |
 | **Test** | Single identity cannot complete full release→deploy cycle; All privileged actions in CloudTrail; Break-glass alarm fires on unauthorized use |
 | **Owner** | Platform security + management |
@@ -630,9 +630,9 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Attacker modifies an SSM contract parameter or replays a previous version's contract to feed stale/malicious data to consumer layers |
 | **Impact** | Consumer layer builds on incorrect or stale data — incorrect resource references, wrong security group IDs, etc. |
 | **Likelihood** | Low |
-| **Controls** | Contract includes `contract_digest` validated by consumer precondition (ADR-006 rev3). Apply role session policy restricts `ssm:PutParameter` to producer's layer prefix only. SSM parameter version tracked in deployment record. Contract includes `producer_release`, `producer_module_digest`, `release_manifest_digest`. Consumer validates all fields. Replay of old contract → digest mismatch → precondition FAILS → plan ABORTED |
+| **Controls** | Contract includes `contract_digest` validated by consumer precondition (ADR-006 rev4). The generic Apply terminal-role identity policy scopes `ssm:PutParameter` with the mandatory `layer` principal tag; Identity-Apply has a fixed identity-control-plane prefix. The immutable path and envelope bind contract ID, release digest/version, producer, state key and module-source digest. Consumers validate the closed v2 envelope and two exact readbacks. Per-execution STS session-policy narrowing remains downstream. Replay of an old or foreign contract fails the catalog/release/digest binding and aborts plan |
 | **Residual risk** | Low |
-| **Test** | Modified contract → digest mismatch → precondition fails; Old contract replayed → version/release mismatch → precondition fails; Non-owner role writes contract → DENIED by session policy |
+| **Test** | Modified contract → digest mismatch → precondition fails; old contract replayed → catalog/release mismatch → precondition fails; wrong-layer tagged session or non-owner role writes contract → DENIED by identity policy |
 | **Owner** | Platform security |
 
 #### T10.4 — Saved-plan substitution (T, E)
@@ -642,7 +642,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Threat** | Attacker substitutes the saved plan file between `terraform plan` and `terraform apply`, causing apply to execute different changes than were reviewed |
 | **Impact** | Unauthorized infrastructure changes, privilege escalation |
 | **Likelihood** | Low |
-| **Controls** | Saved plan stored in plan-execution zone (ADR-003 rev3) with short retention. Plan file content-addressed: digest recorded by orchestrator at plan time, verified before apply. Plan and apply executed in same pipeline execution context with same `change_id` session tag. Separate Plan and Apply roles ensure the plan cannot be generated by the Apply identity. CloudTrail records both operations |
+| **Controls** | The saved binary is stored in the dedicated versioned plan bucket (ADR-003 rev4), and the saved-plan record binds its exact bucket/key, VersionId, SHA-256, and size together with the exact pre-plan/post-plan state VersionId/hash/size. Plan and Apply are separate protected workflow dispatches/runs with the same immutable execution/change binding and independent append-only approval. Apply fetches only the recorded object version, verifies the plan and current state bindings, and never re-plans. Separate Plan and Apply roles preserve identity isolation. The controller does not delete the plan after use; current and noncurrent versions expire only through the plan-bucket lifecycle |
 | **Residual risk** | Low |
 | **Test** | Modified plan file → digest mismatch → apply ABORTED; Plan generated by Apply role → DENIED; Plan from different change_id → REJECTED |
 | **Owner** | Platform security |
@@ -686,7 +686,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | **Data** | Public S3 denied, cross-domain access denied, KMS deletion denied, PII sentinel tests (CURP/RFC/CLABE/NSS), multi-region key operations restricted | Per release | Yes |
 | **Network** | No VPC peering, no TGW, flow logs enabled, DNS firewall rules active, default execute-api disabled, VPC endpoints configured | Per deployment + quarterly | Yes |
 | **Supply chain** | Unsigned image rejected, digest mismatch rejected, critical CVE blocks, dependency lock verified, DSSE envelope validated, missing SBOM → promotion aborted, proxy-only egress | Per build | Yes |
-| **State** | Non-authorized access denied, versioning works, ownership CI passes, drift detection runs, plan-execution zone TTL, three-bucket separation | Per apply + scheduled | Yes |
+| **State** | Non-authorized access denied, versioning works, ownership CI passes, drift detection runs, exact plan/state object bindings hold, plan lifecycle expires versions, four-bucket separation | Per apply + scheduled | Yes |
 | **Operations** | Invalid request rejected, preflight blocks, offboarding denies, rollback succeeds, wave failure stops, reconciliation aligns TF+ECS | Per release | Yes |
 | **Prompt injection** | Known injection patterns, output schema validation, length limits, Bedrock guardrail triggers | Per release | Yes |
 | **Insider** | No single identity completes full cycle, audit log completeness, SourceIdentity non-repudiation | Quarterly | Semi |
@@ -741,7 +741,7 @@ Scanalyze processes regulated financial, personal and government documents conta
 | Architecture change | Full threat model review |
 | New customer tier | Review tier-specific controls (HA, DR, region) |
 | Migration execution | Review Domain 9 threats, verify all controls active |
-| **ADR-009 rev3** | Final reconciliation — all rev3 ADRs cross-referenced |
+| **ADR-009 rev4** | Four-bucket and separated saved-plan execution reconciliation |
 
 ---
 
@@ -781,9 +781,9 @@ Scanalyze processes regulated financial, personal and government documents conta
 #### Control: Saved Plan Substitution Prevention — maturity update for Domain 7 (State Management)
 
 - **Applies to**: Existing state management threats
-- **Added controls**: Plan binary stored with SHA-256 digest in plan-execution zone, Apply role verifies digest before `terraform apply <plan>`, plan-execution zone is ephemeral (24-72h TTL), Plan role write + Apply role read isolation, plan digest recorded in apply evidence
+- **Added controls**: Plan binary stored with SHA-256 digest in a dedicated versioned tf-plan execution zone, Apply role verifies the exact bucket/key, object version, digest and size plus the exact state binding before `terraform apply <plan>`, Plan and Apply use separate protected runs with independent append-only approval, current/noncurrent objects expire after one day through lifecycle only, Plan role write + Apply role exact-version read isolation, and raw plan JSON is deleted from 0600 private scratch
 - **control_status**: fixture_exists
-- **evidence_id**: policies/s3/evidence-bucket.json (plan-execution prefix isolation)
+- **evidence_id**: policies/s3/plan-bucket.json (plan-execution isolation); policies/s3/evidence-bucket.json (no raw-plan access)
 - **Test**: Modified plan binary → digest mismatch → apply rejected; Plan-execution zone expired → apply cannot proceed
 
 ### Inline Corrections Applied
@@ -802,17 +802,16 @@ Scanalyze processes regulated financial, personal and government documents conta
 
 - ADR-001: Tenancy Model (JWT verification, data plane isolation, lifecycle invariants)
 - ADR-002: Organization (SCPs, delegated security, OUs)
-- ADR-003 rev3: State Backend (three-bucket model, plan-execution zone, regional state keys, ownership manifest)
-- ADR-004 rev3: Cross-Account Identity (6 scoped roles, separated STS statements, SourceIdentity, transitive tags, AccountVendingProvider bootstrap)
+- ADR-003 rev4: State Backend (four-bucket model, dedicated plan-execution bucket, regional state keys, ownership manifest)
+- ADR-004 rev3: Cross-Account Identity (8 terminal roles, separated STS statements, SourceIdentity, transitive tags, AccountVendingProvider bootstrap)
 - ADR-005: Schemas (export allowlist, release attestation, sentinel tests, region capability matrix)
-- ADR-006 rev3: Modules & Contracts (fail-closed preconditions, content-addressed contracts, session policy per layer, 8-layer dependency graph)
+- ADR-006 rev4: Modules & Contracts (fail-closed preconditions, exact saved-plan/state bindings, content-addressed contracts, tag-scoped terminal identity policy, future session-policy narrowing, 13-stage/10-root dependency graph)
 - ADR-007 rev3: Supply Chain (full OCI artifact graph, AWS Signer + KMS DSSE signing, controlled proxy egress, release-based retention, pre-services policy gate)
 - ADR-008 rev3: Region/HA/DR (Lambda authorizer for multi-issuer, strong write fencing, outbox pattern, DDB consistency modes, regional state model, multi-region resource ownership)
 - ADR-010 rev3: Testing/Rollout/Migration (zero write loss, BatchWriteItem baseline + PutItem delta, wave-based rollout, ECS reconciliation, full async drain, Cognito lazy vs bulk)
-- ARCHITECTURE_OWNERSHIP_MATRIX rev2: Resource → layer → role → state → contract mapping
+- ARCHITECTURE_OWNERSHIP_MATRIX rev3: Resource → layer → role → state → contract mapping
 - OWASP Threat Modeling
 - AWS Well-Architected Security Pillar
 - AWS SaaS Lens: Tenant Isolation
 - STRIDE threat classification (Microsoft)
 - SLSA Supply Chain Security Framework
-

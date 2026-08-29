@@ -66,6 +66,9 @@ class TestGUG366OfflineExecutionPacket(unittest.TestCase):
             "status": "APPROVED",
             "ledger_version": 1,
             "plan_record_digest": "sha256:" + "3" * 64,
+            "plan_environment_anchor_digest": "sha256:" + "a" * 64,
+            "expected_approver_user_id": 9002,
+            "approval_authority_digest": "sha256:" + "9" * 64,
             "updated_at": "2026-08-12T00:00:00Z",
             "attempt_count": 0,
             "ledger_digest": "sha256:" + "7" * 64

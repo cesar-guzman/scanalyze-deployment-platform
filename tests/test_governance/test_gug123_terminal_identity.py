@@ -79,6 +79,7 @@ def _target(account_ready: dict | None = None) -> dict:
         },
         "state_binding": {
             "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
             "state_kms_key": (
                 f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/"
                 "11111111-2222-3333-4444-555555555555"
@@ -117,7 +118,7 @@ def _account_ready() -> dict:
         "account_id": ACCOUNT_ID,
         "region": REGION,
         "environment": ENVIRONMENT,
-        "baseline_version": "v2.0.0",
+        "baseline_version": "v2.1.0",
         "provisioned_at": "2026-07-14T20:00:00Z",
         "roles": {
             "plan": _role("Plan"),
@@ -131,6 +132,7 @@ def _account_ready() -> dict:
         },
         "state_infrastructure": {
             "state_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-state",
+            "plan_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-plan",
             "evidence_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-tf-evidence",
             "contracts_bucket": f"arn:aws:s3:::scanalyze-{ACCOUNT_ID}-contracts",
             "state_kms_key": f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/state-key",
@@ -144,6 +146,14 @@ def _account_ready() -> dict:
             "state_public_access_blocked": True,
             "state_object_lock_enabled": False,
             "native_lockfile_enabled": True,
+            "plan_versioning_enabled": True,
+            "plan_default_encryption": "aws:kms",
+            "plan_kms_key": (
+                f"arn:aws:kms:{REGION}:{ACCOUNT_ID}:key/evidence-key"
+            ),
+            "plan_bucket_key_enabled": True,
+            "plan_public_access_blocked": True,
+            "plan_lifecycle_days": 1,
         },
     }
     document["contract_digest"] = _digest(document)
@@ -155,7 +165,7 @@ def _terminal(role: str, operation: str, layers: list[str]) -> dict:
         "role_arn": _account_ready()["roles"][role]["arn"],
         "operation": operation,
         "allowed_layers": layers,
-        "max_session_duration_seconds": 900,
+        "max_session_duration_seconds": 3600,
         "required_session_tags": [
             "customer_id",
             "deployment_id",
@@ -201,6 +211,25 @@ def _identity() -> dict:
             "execution_mode": "live",
             "github_environment": GITHUB_ENVIRONMENT,
         },
+        "collector_authority": {
+            "authentication": "github_app_installation_token",
+            "installation_verification": "github_app_jwt",
+            "app_id": "7000007",
+            "app_slug": "scanalyze-environment-collector",
+            "installation_id": "3000003",
+            "installation_account_id": OWNER_ID,
+            "installation_account_login": OWNER,
+            "installation_target_type": "Organization",
+            "repository_selection": "selected",
+            "repository_ids": [REPOSITORY_ID],
+            "permissions": {
+                "actions": "read",
+                "environments": "read",
+                "metadata": "read",
+                "secrets": "read",
+                "variables": "read",
+            },
+        },
         "oidc": {
             "issuer": "https://token.actions.githubusercontent.com",
             "audience": "sts.amazonaws.com",
@@ -217,7 +246,7 @@ def _identity() -> dict:
                 f"arn:aws:iam::{SHARED_ACCOUNT_ID}:role/"
                 f"ScanalyzeOrchestrator-{DEPLOYMENT_ID}"
             ),
-            "max_session_duration_seconds": 900,
+            "max_session_duration_seconds": 3600,
             "required_role_tags": {
                 "service": "scanalyze-orchestrator",
                 "customer_id": CUSTOMER_ID,
@@ -239,7 +268,13 @@ def _identity() -> dict:
             "prevent_admin_bypass": True,
             "initiator_login": "release-initiator",
             "reserved_variables_absent_at_repository": True,
-            "reserved_variables_absent_at_organization": True,
+            "reserved_variables_absent_at_effective_organization": True,
+            "reserved_secrets_absent_at_repository": True,
+            "reserved_secrets_absent_at_effective_organization": True,
+            "repository_variables": {},
+            "effective_organization_variables": {},
+            "repository_secret_names": [],
+            "effective_organization_secret_names": [],
             "variables": {
                 "CUSTOMER_ID": CUSTOMER_ID,
                 "DEPLOYMENT_ID": DEPLOYMENT_ID,
@@ -250,8 +285,24 @@ def _identity() -> dict:
                     f"arn:aws:iam::{SHARED_ACCOUNT_ID}:role/"
                     f"ScanalyzeOrchestrator-{DEPLOYMENT_ID}"
                 ),
+                "ORCHESTRATOR_ROLE_ARN": (
+                    f"arn:aws:iam::{SHARED_ACCOUNT_ID}:role/"
+                    f"ScanalyzeOrchestrator-{DEPLOYMENT_ID}"
+                ),
+                "GENERIC_PLAN_ROLE_ARN": _account_ready()["roles"]["plan"]["arn"],
+                "GENERIC_APPLY_ROLE_ARN": _account_ready()["roles"]["apply"]["arn"],
+                "IDENTITY_PLAN_ROLE_ARN": _account_ready()["roles"]["identity_plan"]["arn"],
+                "IDENTITY_APPLY_ROLE_ARN": _account_ready()["roles"]["identity_apply"]["arn"],
+                "PLATFORM_AUTHORITY_ACCOUNT_ID": SHARED_ACCOUNT_ID,
+                "REPOSITORY_ID": REPOSITORY_ID,
+                "REPOSITORY_OWNER_ID": OWNER_ID,
+                "SECOND_P0_REVIEWER_ID": "9002",
+                "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": "7000007",
             },
-            "secret_names": [],
+            "secret_names": [
+                "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY",
+                "SCANALYZE_LIVE_INPUT_BUNDLE_B64",
+            ],
         },
         "terminal_roles": {
             "plan": _terminal("plan", "plan", GENERIC_TERRAFORM_LAYER_NAMES),
@@ -450,7 +501,7 @@ def test_cross_boundary_identity_is_denied(field: str, value: str) -> None:
         (("workflow", "github_environment"), "dev"),
         (("oidc", "use_default_subject"), True),
         (("oidc", "audience"), "https://github.com/synthetic-owner"),
-        (("oidc", "max_session_duration_seconds"), 3600),
+        (("oidc", "max_session_duration_seconds"), 900),
     ],
 )
 def test_wrong_repository_workflow_or_oidc_boundary_is_denied(
@@ -488,7 +539,19 @@ def test_subject_wildcard_or_claim_template_drift_is_denied() -> None:
         ("prevent_self_review", False),
         ("prevent_admin_bypass", False),
         ("reserved_variables_absent_at_repository", False),
-        ("reserved_variables_absent_at_organization", False),
+        ("reserved_variables_absent_at_effective_organization", False),
+        ("reserved_secrets_absent_at_repository", False),
+        ("reserved_secrets_absent_at_effective_organization", False),
+        ("repository_variables", {"AWS_ACCOUNT_ID": "collision"}),
+        ("effective_organization_variables", {"AWS_REGION": "collision"}),
+        (
+            "repository_secret_names",
+            ["SCANALYZE_LIVE_INPUT_BUNDLE_B64"],
+        ),
+        (
+            "effective_organization_secret_names",
+            ["SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY"],
+        ),
         ("secret_names", ["AWS_ACCESS_KEY_ID"]),
     ],
 )
@@ -612,7 +675,7 @@ def test_unanchored_platform_authority_or_role_tag_drift_is_denied() -> None:
         ("plan", "operation", "apply"),
         ("apply", "role_arn", "arn:aws:iam::999888777666:role/foreign"),
         ("promotion", "allowed_layers", ["network"]),
-        ("validation", "max_session_duration_seconds", 3600),
+        ("validation", "max_session_duration_seconds", 900),
         ("plan", "required_session_tags", ["deployment_id"]),
         ("apply", "source_identity_pattern", ".*"),
         ("identity_plan", "allowed_layers", ["services"]),
@@ -807,12 +870,15 @@ def test_dispatch_deployment_id_is_env_bound_and_shell_payload_is_inert(
         "EVENT_NAME": "workflow_dispatch",
         "EXECUTION_ID": "exec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         "GITHUB_ENVIRONMENT_INPUT": GITHUB_ENVIRONMENT,
+        "LIVE_INPUT_CLAIM_DIGEST": "sha256:" + ("c" * 64),
         "LIVE_OPERATION": "plan",
         "LOGICAL_ENVIRONMENT": "dev",
         "MAIN_SHA": "a" * 40,
         "PLAN_RECORD_DIGEST": "",
+        "REVIEWER_PACKET_DIGEST": "",
         "REF_NAME": "refs/heads/main",
         "REF_PROTECTED": "true",
+        "RUN_ATTEMPT": "1",
         "RUN_SHA": "a" * 40,
         "SENTINEL": str(sentinel),
         "TARGET_LAYER": "global",
@@ -883,20 +949,42 @@ def _copy_repository_controls(tmp_path: Path) -> Path:
         ),
         (
             ".github/workflows/_terraform-layer.yml",
-            'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          exit 1",
-            'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          exit 0",
+            "  live_saved_plan:\n"
+            "    name: Protected non-production saved-plan phase\n"
+            "    needs: mode_boundary\n",
+            "  live_saved_plan:\n"
+            "    name: Protected non-production saved-plan phase\n"
+            "    needs: []\n",
         ),
         (
             ".github/workflows/_terraform-layer.yml",
-            "name: ${{ inputs.github_environment }}",
-            "name: scanalyze-unscoped-dev",
+            "  live_saved_plan:\n"
+            "    name: Protected non-production saved-plan phase\n"
+            "    needs: mode_boundary\n"
+            "    if: ${{ inputs.allow_live && !inputs.dry_run }}\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    timeout-minutes: 45\n"
+            "    environment:\n"
+            "      name: ${{ inputs.github_environment }}",
+            "  live_saved_plan:\n"
+            "    name: Protected non-production saved-plan phase\n"
+            "    needs: mode_boundary\n"
+            "    if: ${{ inputs.allow_live && !inputs.dry_run }}\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    timeout-minutes: 45\n"
+            "    environment:\n"
+            "      name: scanalyze-unscoped-dev",
         ),
         (
             ".github/workflows/nonprod-release.yml",
             "on:\n  workflow_dispatch:",
             "on:\n  push:",
+        ),
+        (
+            ".github/workflows/nonprod-release.yml",
+            "          - none\n          - plan\n          - apply\n",
+            "          - none\n          - plan\n          - apply\n"
+            "          - recover-stale\n",
         ),
         (
             ".github/workflows/nonprod-release.yml",
@@ -928,7 +1016,7 @@ def test_repository_controls_reject_oidc_boundary_mutations(
     repository = _copy_repository_controls(tmp_path)
     path = repository / workflow_path
     workflow = path.read_text(encoding="utf-8")
-    assert workflow.count(old) == 1
+    assert workflow.count(old) >= 1
     path.write_text(workflow.replace(old, new, 1), encoding="utf-8")
 
     with pytest.raises(GitHubDeploymentIdentityError):
@@ -939,55 +1027,119 @@ def test_repository_controls_reject_oidc_boundary_mutations(
     ("old", "new"),
     [
         (
-            "        run: |\n"
-            "          set -euo pipefail\n"
-            "          # GUG-382 intentionally",
-            "        run: |\n"
-            "          set -euo pipefail\n"
-            "          exit 0\n"
-            "          # GUG-382 intentionally",
+            "actions/create-github-app-token@"
+            "bcd2ba49218906704ab6c1aa796996da409d3eb1",
+            "actions/create-github-app-token@v3",
         ),
         (
-            "      - name: Require a proven typed live-input materializer\n"
-            "        run: |",
-            "      - name: Require a proven typed live-input materializer\n"
-            "        if: ${{ always() }}\n"
-            "        run: |",
+            "          repositories: ${{ github.event.repository.name }}\n",
+            "          repositories: ${{ github.event.repository.name }}\n"
+            "          permission-actions: read\n",
         ),
         (
-            "      - name: Require a proven typed live-input materializer\n"
-            "        run: |",
-            "      - name: Require a proven typed live-input materializer\n"
-            "        continue-on-error: true\n"
-            "        run: |",
+            "      - name: Materialize and compare live inputs twice before OIDC\n"
+            "        id: rematerialize\n",
+            "      - name: Materialize and compare live inputs twice before OIDC\n"
+            "        id: rematerialize\n"
+            "        continue-on-error: true\n",
         ),
         (
-            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          exit 1\n\n"
-            "  live_saved_plan:",
-            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          exit 1\n"
-            "      - name: Bypass terminal denial\n"
-            "        run: exit 0\n\n"
-            "  live_saved_plan:",
+            "  live_saved_plan:\n",
+            "  live_input_gate:\n"
+            "    name: Redundant protected gate\n"
+            "    needs: mode_boundary\n"
+            "    runs-on: ubuntu-24.04\n"
+            "    environment:\n"
+            "      name: ${{ inputs.github_environment }}\n"
+            "    permissions:\n"
+            "      contents: read\n"
+            "      id-token: write\n"
+            "    steps:\n"
+            "      - uses: aws-actions/configure-aws-credentials@"
+            "e6de054238d6b7531b4efff3b6587d9aade6a06c\n"
+            "        with:\n"
+            "          aws-region: us-east-1\n"
+            "          role-to-assume: arn:aws:iam::000000000001:role/bypass\n\n"
+            "  live_saved_plan:\n",
         ),
         (
-            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          exit 1",
-            '          echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"\n'
-            "          true\n"
-            "          exit 1",
+            "          RECEIPT_DIGEST: ${{ steps.rematerialize.outputs.receipt_digest }}",
+            "          RECEIPT_DIGEST: ${{ needs.live_input_gate.outputs.receipt_digest }}",
+        ),
+        (
+            "            sealed_request_digest claim_digest "
+            "approval_authority_digest; do",
+            "            claim_digest approval_authority_digest; do",
+        ),
+        (
+            "      - name: Execute the exact protected saved-plan phase\n"
+            "        env:\n"
+            "          CHANGE_ID: ${{ inputs.change_id }}",
+            "      - name: Execute the exact protected saved-plan phase\n"
+            "        env:\n"
+            "          SCANALYZE_LIVE_INPUT_BUNDLE_B64: "
+            "${{ secrets.SCANALYZE_LIVE_INPUT_BUNDLE_B64 }}\n"
+            "          CHANGE_ID: ${{ inputs.change_id }}",
+        ),
+        (
+            "      - name: Materialize exact GitHub approval for apply\n"
+            "        if: ${{ inputs.live_operation == 'apply' }}\n"
+            "        env:\n"
+            "          EXPECTED_APPROVER_USER_ID: "
+            "${{ steps.rematerialize.outputs.expected_approver_user_id }}\n"
+            "          GITHUB_ENVIRONMENT_ANCHOR_DIGEST: "
+            "${{ steps.rematerialize.outputs.github_environment_anchor_digest }}\n"
+            "          APPROVAL_AUTHORITY_DIGEST: "
+            "${{ steps.rematerialize.outputs.approval_authority_digest }}\n"
+            "          GH_TOKEN: ${{ steps.github_app_token.outputs.token }}",
+            "      - name: Materialize exact GitHub approval for apply\n"
+            "        if: ${{ inputs.live_operation == 'apply' }}\n"
+            "        env:\n"
+            "          EXPECTED_APPROVER_USER_ID: "
+            "${{ steps.rematerialize.outputs.expected_approver_user_id }}\n"
+            "          GITHUB_ENVIRONMENT_ANCHOR_DIGEST: "
+            "${{ steps.rematerialize.outputs.github_environment_anchor_digest }}\n"
+            "          APPROVAL_AUTHORITY_DIGEST: "
+            "${{ steps.rematerialize.outputs.approval_authority_digest }}\n"
+            "          GH_TOKEN: ${{ github.token }}",
+        ),
+        (
+            "      - name: Execute the exact protected saved-plan phase\n"
+            "        env:\n"
+            "          CHANGE_ID: ${{ inputs.change_id }}",
+            "      - name: Execute the exact protected saved-plan phase\n"
+            "        env:\n"
+            "          GH_TOKEN: ${{ github.token }}\n"
+            "          CHANGE_ID: ${{ inputs.change_id }}",
+        ),
+        (
+            "      - name: Materialize exact GitHub approval for apply\n"
+            "        if: ${{ inputs.live_operation == 'apply' }}\n",
+            "      - name: Materialize exact GitHub approval for apply\n"
+            "        if: ${{ false }}\n",
+        ),
+        (
+            "            python scripts/deployment/nonprod-live-controller.py "
+            '"$LIVE_OPERATION"',
+            "            python scripts/deployment/scanalyze-deploy.sh "
+            '"$LIVE_OPERATION"',
         ),
     ],
     ids=[
-        "early-success",
-        "conditional-step",
+        "unpinned-app-token-action",
+        "partial-app-token-permission-input",
         "continue-on-error",
-        "second-step",
-        "extra-command",
+        "second-protected-oidc-job",
+        "stale-first-pass-receipt",
+        "unstable-sealed-request-not-compared",
+        "secret-reaches-controller",
+        "github-token-replaces-app-token-for-approval",
+        "github-token-reaches-controller",
+        "apply-approval-skipped",
+        "noncanonical-controller",
     ],
 )
-def test_repository_controls_reject_hard_gate_bypasses(
+def test_repository_controls_reject_materialization_gate_bypasses(
     tmp_path: Path, old: str, new: str
 ) -> None:
     repository = _copy_repository_controls(tmp_path)
@@ -995,6 +1147,33 @@ def test_repository_controls_reject_hard_gate_bypasses(
     workflow = path.read_text(encoding="utf-8")
     assert workflow.count(old) == 1
     path.write_text(workflow.replace(old, new, 1), encoding="utf-8")
+
+    with pytest.raises(GitHubDeploymentIdentityError):
+        validate_repository_controls(repository)
+
+
+def test_repository_controls_reject_apply_approval_after_oidc(tmp_path: Path) -> None:
+    repository = _copy_repository_controls(tmp_path)
+    path = repository / ".github/workflows/_terraform-layer.yml"
+    workflow = path.read_text(encoding="utf-8")
+    approval_start = workflow.index(
+        "      - name: Materialize exact GitHub approval for apply\n"
+    )
+    oidc_start = workflow.index(
+        "      - name: Acquire exact platform-authority OIDC session\n"
+    )
+    controller_start = workflow.index(
+        "      - name: Execute the exact protected saved-plan phase\n"
+    )
+    approval_block = workflow[approval_start:oidc_start]
+    oidc_block = workflow[oidc_start:controller_start]
+    reordered = (
+        workflow[:approval_start]
+        + oidc_block
+        + approval_block
+        + workflow[controller_start:]
+    )
+    path.write_text(reordered, encoding="utf-8")
 
     with pytest.raises(GitHubDeploymentIdentityError):
         validate_repository_controls(repository)

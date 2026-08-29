@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/nonprod-live-input-sealed-request.v1.schema.json",
+  "title": "Scanalyze private non-production live-input sealed request v1",
+  "description": "Private source snapshots transported through a protected channel and authorized only by an exact reviewed repository claim digest.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "authority_bindings",
+    "cost_model",
+    "release_bindings",
+    "sources",
+    "sealed_request_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "nonprod_live_input_sealed_request" },
+    "authority_bindings": {
+      "type": "object",
+      "required": [
+        "platform_authority_account_id",
+        "orchestrator_role_arn",
+        "expected_approver_user_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "platform_authority_account_id": { "$ref": "#/$defs/account_id" },
+        "orchestrator_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/ScanalyzeOrchestrator-dep_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "expected_approver_user_id": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "cost_model": {
+      "type": "object",
+      "required": [
+        "currency",
+        "modeled_cost_upper_bound_usd_micros",
+        "modeled_at",
+        "expires_at",
+        "cost_model_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "currency": { "const": "USD" },
+        "modeled_cost_upper_bound_usd_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "modeled_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "cost_model_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "release_bindings": {
+      "type": "object",
+      "required": [
+        "release_version",
+        "release_policy_digest",
+        "release_projection_digest",
+        "plan_policy_digest",
+        "github_deployment_identity_digest",
+        "environment_configuration_digest",
+        "platform_authority_digest",
+        "toolchain_digest",
+        "root_module_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "release_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "release_policy_digest": { "$ref": "#/$defs/digest" },
+        "release_projection_digest": { "$ref": "#/$defs/digest" },
+        "plan_policy_digest": { "$ref": "#/$defs/digest" },
+        "github_deployment_identity_digest": { "$ref": "#/$defs/digest" },
+        "environment_configuration_digest": { "$ref": "#/$defs/digest" },
+        "platform_authority_digest": { "$ref": "#/$defs/digest" },
+        "toolchain_digest": { "$ref": "#/$defs/digest" },
+        "root_module_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "required": [
+        "manifest",
+        "target_record",
+        "target_anchor",
+        "account_ready",
+        "execution_lock",
+        "contract_resolution",
+        "github_deployment_identity",
+        "github_environment_anchor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "manifest": { "type": "object", "minProperties": 1 },
+        "target_record": { "type": "object", "minProperties": 1 },
+        "target_anchor": { "type": "object", "minProperties": 1 },
+        "account_ready": { "type": "object", "minProperties": 1 },
+        "execution_lock": { "type": "object", "minProperties": 1 },
+        "contract_resolution": { "type": "object", "minProperties": 1 },
+        "github_deployment_identity": { "type": "object", "minProperties": 1 },
+        "github_environment_anchor": { "type": "object", "minProperties": 1 }
+      }
+    },
+    "sealed_request_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

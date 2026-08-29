@@ -11,11 +11,15 @@ from tooling.authorize_deployment_backend import AuthorizationError, canonical_d
 from tooling.nonprod_live_engine import (
     build_saved_plan_approval,
     build_saved_plan_record,
+    build_saved_plan_reviewer_packet,
+    derive_approval_authority_digest,
 )
+from tooling.nonprod_live_input_materializer import RUNTIME_ENVIRONMENT_FIELDS
 from tooling.nonprod_live_store import (
     AwsCliExecutionLedgerStore,
     AwsCliPlanStore,
     AwsCliTerminalSession,
+    TERMINAL_CHILD_ENVIRONMENT_NAMES,
 )
 
 
@@ -36,8 +40,39 @@ def _sha(character: str) -> str:
     return "sha256:" + character * 64
 
 
-def _bindings() -> dict:
+def _plan_summary() -> dict:
+    summary = {
+        "add_count": 0,
+        "change_count": 0,
+        "read_count": 0,
+        "no_op_count": 0,
+        "destroy_count": 0,
+        "replace_count": 0,
+        "output_create_count": 0,
+        "output_update_count": 0,
+        "output_delete_count": 0,
+        "output_no_op_count": 0,
+        "output_change_count": 0,
+        "output_actions": [],
+        "applyable": False,
+        "resource_change_count": 0,
+        "resource_actions": [],
+        "classification": "NO_CHANGE",
+    }
+    summary["summary_digest"] = canonical_digest(summary)
+    return summary
+
+
+def _cost_binding() -> dict:
     return {
+        "cost_model_digest": _sha("a"),
+        "maximum_cost_usd_micros": 10_000_000,
+        "modeled_cost_upper_bound_usd_micros": 5_000_000,
+    }
+
+
+def _bindings() -> dict:
+    bindings = {
         "customer_id": "cust_" + ("A" * 26),
         "deployment_id": DEPLOYMENT_ID,
         "account_id": ACCOUNT_ID,
@@ -54,6 +89,7 @@ def _bindings() -> dict:
         "github_environment": f"scanalyze-{DEPLOYMENT_ID}-dev",
         "github_deployment_identity_digest": _sha("e"),
         "environment_configuration_digest": _sha("f"),
+        "expected_approver_user_id": 50,
         "platform_authority_digest": _sha("1"),
         "registry_record_digest": _sha("2"),
         "account_ready_digest": _sha("3"),
@@ -63,23 +99,39 @@ def _bindings() -> dict:
         "toolchain_digest": _sha("7"),
         "root_module_digest": _sha("8"),
         "source_revision_digest": _sha("9"),
+        "state_status": "PRESENT",
         "state_lineage": "synthetic-lineage",
         "state_serial": 3,
     }
+    bindings["approval_authority_digest"] = derive_approval_authority_digest(
+        github_environment=bindings["github_environment"],
+        expected_approver_user_id=bindings["expected_approver_user_id"],
+        github_deployment_identity_digest=bindings[
+            "github_deployment_identity_digest"
+        ],
+        environment_configuration_digest=bindings[
+            "environment_configuration_digest"
+        ],
+    )
+    return bindings
 
 
 def _plan_record() -> dict:
     bindings = _bindings()
     return build_saved_plan_record(
         bindings=bindings,
+        plan_environment_anchor_digest=_sha("0"),
         plan_sha256=_sha("0"),
         plan_size_bytes=128,
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-plan",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/{bindings['change_id']}/"
             "network/plan.tfplan"
         ),
         object_version_id="synthetic-version",
+        state_readback={"status": "PRESENT", "lineage": "synthetic-lineage", "serial": 3, "object_version_id": "state-version-3", "sha256": _sha("6"), "size_bytes": 128},
+        plan_summary=_plan_summary(),
+        cost_binding=_cost_binding(),
         created_at=NOW,
         expires_at=NOW + timedelta(hours=1),
     )
@@ -97,12 +149,21 @@ def _approval_record() -> dict:
         ),
         workflow_sha="a" * 40,
         workflow_run_id=30,
+        workflow_run_attempt=1,
         github_environment=plan["github_environment"],
         environment_configuration_digest=plan["environment_configuration_digest"],
+        apply_environment_anchor_digest=_sha("9"),
         initiator_user_id=40,
+        expected_approver_user_id=50,
         approver_user_id=50,
-        approved_at=NOW + timedelta(minutes=2),
-        expires_at=NOW + timedelta(minutes=45),
+        reviewer_packet_digest=build_saved_plan_reviewer_packet(plan)[
+            "packet_digest"
+        ],
+        approval_evidence_digest=_sha("a"),
+        approval_window_started_at=NOW + timedelta(minutes=1),
+        approval_observed_at=NOW + timedelta(minutes=2),
+        freshness_basis="WORKFLOW_RUN_CREATED_AT_CONSERVATIVE_BOUND",
+        expires_at=NOW + timedelta(minutes=7),
     )
 
 
@@ -113,11 +174,16 @@ class FakeRunner:
         *,
         account_id: str = ACCOUNT_ID,
         read_document: dict | None = None,
+        lose_plan_put_after_commit: bool = False,
+        missing_control_record: bool = False,
     ) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.role = role
         self.account_id = account_id
         self.read_document = read_document
+        self.lose_plan_put_after_commit = lose_plan_put_after_commit
+        self.missing_control_record = missing_control_record
+        self.plan_head: dict | None = None
 
     def __call__(self, command: tuple[str, ...]) -> str:
         self.commands.append(tuple(command))
@@ -133,13 +199,32 @@ class FakeRunner:
                 }
             )
         if operation == ("put-object", "--region"):
+            body = Path(command[command.index("--body") + 1])
+            self.plan_head = {
+                "VersionId": "fixture-version",
+                "ContentLength": body.stat().st_size,
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": command[command.index("--ssekms-key-id") + 1],
+                "BucketKeyEnabled": True,
+                "ChecksumSHA256": command[command.index("--checksum-sha256") + 1],
+                "Metadata": json.loads(command[command.index("--metadata") + 1]),
+            }
+            if self.lose_plan_put_after_commit:
+                self.lose_plan_put_after_commit = False
+                raise AuthorizationError("simulated lost S3 put response")
             return json.dumps({"VersionId": "fixture-version"})
+        if operation == ("head-object", "--region"):
+            if self.plan_head is None:
+                raise AuthorizationError("saved plan is absent")
+            return json.dumps(self.plan_head)
         if operation == ("get-object", "--region"):
             if command[-3:-1] != ("--output", "json"):
                 raise AssertionError("get-object destination must be the final argument")
             Path(command[-1]).write_bytes(b"exact saved plan")
             return "{}"
         if operation == ("get-item", "--region"):
+            if self.missing_control_record:
+                return "{}"
             document = _ledger() if self.read_document is None else self.read_document
             return json.dumps({"Item": {"document": {"S": json.dumps(document)}}})
         if operation == ("assume-role", "--region"):
@@ -170,6 +255,9 @@ def _ledger() -> dict:
         "status": "PLANNED",
         "ledger_version": 1,
         "plan_record_digest": "sha256:" + ("a" * 64),
+        "plan_environment_anchor_digest": _sha("b"),
+        "expected_approver_user_id": 50,
+        "approval_authority_digest": _bindings()["approval_authority_digest"],
         "updated_at": "2026-07-15T18:00:00Z",
         "attempt_count": 0,
     }
@@ -217,6 +305,12 @@ def test_terminal_identity_is_exact_and_no_default_profile_is_injected() -> None
     assert "--profile" not in runner.commands[0]
 
 
+def test_terminal_child_preserves_every_action_time_runtime_binding() -> None:
+    assert set(RUNTIME_ENVIRONMENT_FIELDS.values()) <= set(
+        TERMINAL_CHILD_ENVIRONMENT_NAMES
+    )
+
+
 def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credentials() -> None:
     runner = FakeRunner(role=ORCHESTRATOR_ROLE, account_id=SHARED_ACCOUNT_ID)
     process = ProcessRecorder()
@@ -243,6 +337,8 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
         base_environment={
             "PATH": "/usr/bin:/bin",
             "GITHUB_ACTIONS": "true",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_WORKFLOW_SHA": "a" * 40,
             "AWS_PROFILE": "must-not-propagate",
             "AWS_WEB_IDENTITY_TOKEN_FILE": "/must/not/propagate",
             "AWS_ENDPOINT_URL_STS": "https://must-not-propagate.invalid",
@@ -256,7 +352,7 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
     assert assume[:3] == ("aws", "sts", "assume-role")
     assert assume[assume.index("--role-session-name") + 1] == EXECUTION_ID
     assert assume[assume.index("--source-identity") + 1] == EXECUTION_ID
-    assert assume[assume.index("--duration-seconds") + 1] == "900"
+    assert assume[assume.index("--duration-seconds") + 1] == "3600"
     for key, value in {
         "customer_id": customer_id,
         "deployment_id": DEPLOYMENT_ID,
@@ -273,6 +369,8 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
     assert process.environment["AWS_ACCESS_KEY_ID"] == "synthetic-access-key"
     assert process.environment["AWS_EC2_METADATA_DISABLED"] == "true"
     assert process.environment["GITHUB_ACTIONS"] == "true"
+    assert process.environment["GITHUB_RUN_ATTEMPT"] == "1"
+    assert process.environment["GITHUB_WORKFLOW_SHA"] == "a" * 40
     assert process.environment["PATH"] == "/usr/bin:/bin"
     assert "AWS_PROFILE" not in process.environment
     assert "AWS_WEB_IDENTITY_TOKEN_FILE" not in process.environment
@@ -317,7 +415,7 @@ def test_plan_write_is_create_only_versioned_and_kms_encrypted(tmp_path: Path) -
 
     result = store.put_plan_once(
         path=plan,
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-plan",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
         ),
@@ -333,6 +431,28 @@ def test_plan_write_is_create_only_versioned_and_kms_encrypted(tmp_path: Path) -
     assert command[command.index("--server-side-encryption") + 1] == "aws:kms"
     assert command[command.index("--if-none-match") + 1] == "*"
     assert "--checksum-algorithm" in command
+    assert "--checksum-sha256" in command
+    assert "--metadata" in command
+
+
+def test_plan_write_reconciles_commit_with_lost_response(tmp_path: Path) -> None:
+    plan = tmp_path / "plan.tfplan"
+    plan.write_bytes(b"exact saved plan")
+    runner = FakeRunner(lose_plan_put_after_commit=True)
+
+    result = _plan_store(runner).put_plan_once(
+        path=plan,
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-plan",
+        object_key=(
+            f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
+        ),
+        kms_key_arn=(
+            f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:key/fixture-evidence-key"
+        ),
+    )
+
+    assert result["object_version_id"] == "fixture-version"
+    assert [command[2] for command in runner.commands] == ["put-object", "head-object"]
 
 
 def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) -> None:
@@ -341,7 +461,7 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
     destination = tmp_path / "downloaded.tfplan"
 
     result = store.get_plan_version(
-        bucket=f"scanalyze-{ACCOUNT_ID}-tf-state",
+        bucket=f"scanalyze-{ACCOUNT_ID}-tf-plan",
         object_key=(
             f"plan-execution/{DEPLOYMENT_ID}/chg_{'A' * 26}/network/plan.tfplan"
         ),
@@ -355,6 +475,7 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
     assert command[command.index("--checksum-mode") + 1] == "ENABLED"
     assert command[-3:] == ("--output", "json", str(destination))
     assert destination.stat().st_mode & 0o777 == 0o600
+    original = destination.read_bytes()
     with pytest.raises(AuthorizationError, match="must not already exist"):
         store.get_plan_version(
             bucket=result["bucket"],
@@ -362,6 +483,7 @@ def test_plan_read_uses_exact_version_and_exclusive_destination(tmp_path: Path) 
             object_version_id=result["object_version_id"],
             destination=destination,
         )
+    assert destination.read_bytes() == original
 
 
 def test_plan_store_rejects_noncanonical_bucket_key_or_kms_before_aws(
@@ -375,14 +497,14 @@ def test_plan_store_rejects_noncanonical_bucket_key_or_kms_before_aws(
     canonical_kms = f"arn:aws:kms:us-east-1:{ACCOUNT_ID}:key/synthetic-state-key"
 
     for bucket, key, kms in (
-        (f"scanalyze-{ACCOUNT_ID}-tf-evidence", canonical_key, canonical_kms),
+        (f"scanalyze-{ACCOUNT_ID}-tf-state", canonical_key, canonical_kms),
         (
-            f"scanalyze-{ACCOUNT_ID}-tf-state",
+            f"scanalyze-{ACCOUNT_ID}-tf-plan",
             "plan-execution/foreign/plan.tfplan",
             canonical_kms,
         ),
         (
-            f"scanalyze-{ACCOUNT_ID}-tf-state",
+            f"scanalyze-{ACCOUNT_ID}-tf-plan",
             canonical_key,
             f"arn:aws:kms:us-west-2:{ACCOUNT_ID}:key/foreign",
         ),
@@ -499,6 +621,33 @@ def test_plan_control_record_is_create_only_and_read_consistently() -> None:
     assert "--profile" not in create + read
 
 
+def test_optional_health_and_reconciliation_reads_distinguish_absence() -> None:
+    runner = FakeRunner(
+        role=ORCHESTRATOR_ROLE,
+        missing_control_record=True,
+    )
+    store = _ledger_store(runner)
+
+    assert store.find_health_receipt(
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        layer="network",
+    ) is None
+    assert store.find_reconciliation_receipt(
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        layer="network",
+    ) is None
+    assert all("--consistent-read" in command for command in runner.commands)
+
+    with pytest.raises(AuthorizationError, match="missing"):
+        store.get_health_receipt(
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            layer="network",
+        )
+
+
 def test_approval_control_record_is_time_bound_and_create_only() -> None:
     approval = _approval_record()
     runner = FakeRunner(role=ORCHESTRATOR_ROLE, read_document=approval)
@@ -509,18 +658,59 @@ def test_approval_control_record_is_time_bound_and_create_only() -> None:
         deployment_id=DEPLOYMENT_ID,
         execution_id=EXECUTION_ID,
         layer="network",
+        approval_digest=approval["approval_digest"],
         now=NOW + timedelta(minutes=3),
     ) == approval
 
     item = json.loads(runner.commands[0][runner.commands[0].index("--item") + 1])
-    assert item["record_key"]["S"] == f"approval#{EXECUTION_ID}#network"
+    assert item["record_key"]["S"] == (
+        f"approval#{EXECUTION_ID}#network#{approval['approval_digest'][7:]}"
+    )
 
     with pytest.raises(AuthorizationError, match="currently valid"):
         _ledger_store(FakeRunner(read_document=approval)).get_approval_record(
             deployment_id=DEPLOYMENT_ID,
             execution_id=EXECUTION_ID,
             layer="network",
+            approval_digest=approval["approval_digest"],
             now=NOW + timedelta(minutes=46),
+        )
+
+
+def test_approval_control_records_are_append_only_and_digest_addressed() -> None:
+    first = _approval_record()
+    second = dict(first)
+    second["workflow_run_id"] += 1
+    second["approval_digest"] = canonical_digest(
+        {key: value for key, value in second.items() if key != "approval_digest"}
+    )
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, read_document=second)
+    store = _ledger_store(runner)
+
+    store.put_approval_record_once(first, now=NOW + timedelta(minutes=3))
+    store.put_approval_record_once(second, now=NOW + timedelta(minutes=3))
+    assert store.get_approval_record(
+        deployment_id=DEPLOYMENT_ID,
+        execution_id=EXECUTION_ID,
+        layer="network",
+        approval_digest=second["approval_digest"],
+        now=NOW + timedelta(minutes=3),
+    ) == second
+
+    first_item = json.loads(
+        runner.commands[0][runner.commands[0].index("--item") + 1]
+    )
+    second_item = json.loads(
+        runner.commands[1][runner.commands[1].index("--item") + 1]
+    )
+    assert first_item["record_key"] != second_item["record_key"]
+    with pytest.raises(AuthorizationError, match="digest is invalid"):
+        store.get_approval_record(
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            layer="network",
+            approval_digest="sha256:invalid",
+            now=NOW + timedelta(minutes=3),
         )
 
 
@@ -635,40 +825,74 @@ def test_exact_plan_kms_and_version_permissions_are_complete() -> None:
             item for item in reader["Statement"] if item["Sid"] == reader_sid
         )
 
-        assert _actions(writer, writer_sid) == {"s3:PutObject"}
+        assert _actions(writer, writer_sid) == {"s3:GetObject", "s3:PutObject"}
         assert _actions(reader, reader_sid) == {"s3:GetObjectVersion"}
         assert read_statement["Resource"] == write_statement["Resource"]
-        assert "-tf-state/plan-execution/" in write_statement["Resource"]
-        assert "-tf-evidence/plan-execution/" not in write_statement["Resource"]
+        assert "-tf-plan/plan-execution/" in write_statement["Resource"]
+        assert "-tf-state/plan-execution/" not in write_statement["Resource"]
 
-    assert {"kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
-        plan, "UsePlanBaselineKeys"
+    assert {"kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
+        plan, "EncryptExactSavedPlan"
     )
     assert {"kms:Decrypt"} <= _actions(apply, "UseApplyBaselineKeys")
-    assert {"kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
-        identity_plan, "UseStateKeyForIdentityPlan"
+    assert {"kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"} <= _actions(
+        identity_plan, "EncryptExactIdentitySavedPlan"
     )
     assert _actions(identity_apply, "ReadSavedPlanKey") == {"kms:Decrypt"}
 
     state_key_arn = (
         "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}"
     )
+    evidence_key_arn = (
+        "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}"
+    )
     for policy, sid in (
         (plan, "UsePlanBaselineKeys"),
-        (apply, "UseApplyBaselineKeys"),
         (identity_plan, "UseStateKeyForIdentityPlan"),
-        (identity_apply, "ReadSavedPlanKey"),
     ):
         statement = next(item for item in policy["Statement"] if item["Sid"] == sid)
         resources = statement["Resource"]
-        assert state_key_arn in (
-            {resources} if isinstance(resources, str) else set(resources)
+        resource_set = {resources} if isinstance(resources, str) else set(resources)
+        assert state_key_arn in resource_set
+        assert evidence_key_arn not in resource_set
+
+    apply_baseline_keys = next(
+        item for item in apply["Statement"] if item["Sid"] == "UseApplyBaselineKeys"
+    )
+    assert state_key_arn in set(apply_baseline_keys["Resource"])
+    assert evidence_key_arn not in set(apply_baseline_keys["Resource"])
+    apply_saved_plan_key = next(
+        item for item in apply["Statement"] if item["Sid"] == "ReadSavedPlanKey"
+    )
+    assert _actions(apply, "ReadSavedPlanKey") == {"kms:Decrypt"}
+    assert apply_saved_plan_key["Resource"] == evidence_key_arn
+
+    identity_apply_saved_plan_key = next(
+        item
+        for item in identity_apply["Statement"]
+        if item["Sid"] == "ReadSavedPlanKey"
+    )
+    assert identity_apply_saved_plan_key["Resource"] == evidence_key_arn
+
+    for policy, sid, operation in (
+        (plan, "EncryptExactSavedPlan", "plan"),
+        (identity_plan, "EncryptExactIdentitySavedPlan", "plan"),
+        (apply, "ReadSavedPlanKey", "apply"),
+        (identity_apply, "ReadSavedPlanKey", "apply"),
+    ):
+        statement = next(item for item in policy["Statement"] if item["Sid"] == sid)
+        context = statement["Condition"]["StringEquals"]
+        assert statement["Resource"] == evidence_key_arn
+        assert context["aws:PrincipalTag/operation"] == operation
+        assert context["kms:ViaService"] == "s3.${region}.${aws_url_suffix}"
+        assert context["kms:EncryptionContext:aws:s3:arn"] == (
+            "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
         )
 
     for policy in (plan, apply, identity_plan, identity_apply):
         serialized = json.dumps(policy, sort_keys=True)
-        assert "-tf-evidence/plan-execution/" not in serialized
-        assert "${evidence_kms_key_id}" not in serialized
+        assert "-tf-plan/plan-execution/" in serialized
+        assert "${evidence_kms_key_id}" in serialized
 
 
 def test_live_plan_store_has_no_delete_surface() -> None:

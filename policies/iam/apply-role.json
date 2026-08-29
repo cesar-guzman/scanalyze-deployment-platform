@@ -4,7 +4,7 @@
     {
       "Sid": "ListRegionalState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -46,7 +46,7 @@
     {
       "Sid": "ListGlobalState",
       "Effect": "Allow",
-      "Action": "s3:ListBucket",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
       "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
       "Condition": {
         "StringEquals": {
@@ -89,8 +89,22 @@
       "Sid": "ReadOwnSavedPlanVersion",
       "Effect": "Allow",
       "Action": "s3:GetObjectVersion",
-      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/plan-execution/${deployment_id}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "ReadSavedPlanKey",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalTag/operation": "apply",
+          "aws:PrincipalTag/layer": ["global", "network", "platform", "data-foundation", "cicd", "services", "edge-identity", "edge", "addons"],
+          "kms:ViaService": "s3.${region}.${aws_url_suffix}",
+          "kms:EncryptionContext:aws:s3:arn": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan"
+        }
+      }
     },
     {
       "Sid": "ReadContracts",
@@ -114,6 +128,13 @@
         "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/${deployment_id}/*",
         "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/*"
       ],
+      "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
+    },
+    {
+      "Sid": "WriteOwnContractParameters",
+      "Effect": "Allow",
+      "Action": ["ssm:AddTagsToResource", "ssm:ListTagsForResource", "ssm:PutParameter"],
+      "Resource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/contracts/${aws:PrincipalTag/layer}/*",
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "apply"}}
     },
     {

@@ -31,8 +31,9 @@ from tooling.nonprod_live_engine import (  # noqa: E402
     build_initial_ledger,
     build_reconciliation_receipt,
     build_saved_plan_approval,
-    build_saved_plan_record,
     prepare_ledger_transition,
+    prepare_pre_apply_reapproval,
+    recover_stale_applying,
     require_downstream_health,
     require_terminal_role_for_layer,
     validate_dry_run_boundary,
@@ -258,46 +259,10 @@ def _cmd_run_terminal_plan(args: argparse.Namespace) -> None:
 
 
 def _cmd_store_plan(args: argparse.Namespace) -> None:
-    bindings = load_json_strict(args.bindings)
-    created_at = _time(args.created_at, "created_at")
-    expires_at = _time(args.expires_at, "expires_at")
-    placeholder = build_saved_plan_record(
-        bindings=bindings,
-        plan_sha256="sha256:" + ("0" * 64),
-        plan_size_bytes=1,
-        bucket=args.bucket,
-        object_key=args.object_key,
-        object_version_id="pending-write",
-        created_at=created_at,
-        expires_at=expires_at,
+    del args
+    raise AuthorizationError(
+        "legacy store-plan is disabled; use the protected live controller"
     )
-    del placeholder
-
-    require_terminal_role_for_layer(
-        layer=bindings["layer"],
-        role=args.expected_role,
-        operation="plan",
-    )
-    store = _plan_store(args)
-    store.verify_terminal_identity(args.expected_role)
-    readback = store.put_plan_once(
-        path=args.plan,
-        bucket=args.bucket,
-        object_key=args.object_key,
-        kms_key_arn=args.kms_key_arn,
-    )
-    plan_record = build_saved_plan_record(
-        bindings=bindings,
-        plan_sha256=readback["sha256"],
-        plan_size_bytes=readback["size_bytes"],
-        bucket=readback["bucket"],
-        object_key=readback["object_key"],
-        object_version_id=readback["object_version_id"],
-        created_at=created_at,
-        expires_at=expires_at,
-    )
-    _write_json(args.plan_record_out, plan_record)
-    print("PASS: encrypted versioned plan stored by exact Plan terminal role")
 
 
 def _cmd_create_ledger(args: argparse.Namespace) -> None:
@@ -362,11 +327,24 @@ def _cmd_build_approval(args: argparse.Namespace) -> None:
         workflow_ref=args.workflow_ref,
         workflow_sha=args.workflow_sha,
         workflow_run_id=args.workflow_run_id,
+        workflow_run_attempt=args.workflow_run_attempt,
         github_environment=args.github_environment,
         environment_configuration_digest=args.environment_configuration_digest,
+        apply_environment_anchor_digest=args.apply_environment_anchor_digest,
         initiator_user_id=args.initiator_user_id,
+        expected_approver_user_id=args.expected_approver_user_id,
         approver_user_id=args.approver_user_id,
-        approved_at=_time(args.approved_at, "approved_at"),
+        reviewer_packet_digest=args.reviewer_packet_digest,
+        approval_evidence_digest=args.approval_evidence_digest,
+        approval_window_started_at=_time(
+            args.approval_window_started_at,
+            "approval_window_started_at",
+        ),
+        approval_observed_at=_time(
+            args.approval_observed_at,
+            "approval_observed_at",
+        ),
+        freshness_basis="WORKFLOW_RUN_CREATED_AT_CONSERVATIVE_BOUND",
         expires_at=_time(args.expires_at, "expires_at"),
     )
     _write_json(args.approval_out, approval)
@@ -399,6 +377,7 @@ def _cmd_get_approval(args: argparse.Namespace) -> None:
         deployment_id=args.deployment_id,
         execution_id=args.execution_id,
         layer=args.layer,
+        approval_digest=args.approval_digest,
         now=_time(args.now, "now"),
     )
     if approval["account_id"] != args.account_id:
@@ -465,6 +444,7 @@ def _cmd_transition(args: argparse.Namespace) -> None:
             deployment_id=args.deployment_id,
             execution_id=args.execution_id,
             layer=args.layer,
+            approval_digest=approval_record["approval_digest"],
             now=at,
         )
         if durable_approval != approval_record:
@@ -489,17 +469,28 @@ def _cmd_transition(args: argparse.Namespace) -> None:
         )
         if durable_reconciliation != reconciliation_receipt:
             raise AuthorizationError("durable reconciliation receipt mismatch")
-    proposed, _ = prepare_ledger_transition(
-        current=current,
-        next_status=args.next_status,
-        expected_version=args.expected_version,
-        expected_digest=args.expected_digest,
-        at=at,
-        outcome_code=args.outcome_code,
-        approval_record=approval_record,
-        health_receipt=health_receipt,
-        reconciliation_receipt=reconciliation_receipt,
-    )
+    if args.next_status == "APPROVED" and current.get("status") == "APPROVED":
+        if approval_record is None:
+            raise AuthorizationError("saved plan approval evidence is required")
+        proposed, _ = prepare_pre_apply_reapproval(
+            current=current,
+            approval_record=approval_record,
+            expected_version=args.expected_version,
+            expected_digest=args.expected_digest,
+            at=at,
+        )
+    else:
+        proposed, _ = prepare_ledger_transition(
+            current=current,
+            next_status=args.next_status,
+            expected_version=args.expected_version,
+            expected_digest=args.expected_digest,
+            at=at,
+            outcome_code=args.outcome_code,
+            approval_record=approval_record,
+            health_receipt=health_receipt,
+            reconciliation_receipt=reconciliation_receipt,
+        )
     store.replace_ledger(
         ledger=proposed,
         expected_deployment_id=args.deployment_id,
@@ -511,6 +502,54 @@ def _cmd_transition(args: argparse.Namespace) -> None:
     )
     _write_json(args.ledger_out, proposed)
     print("PASS: execution ledger compare-and-swap transition committed")
+
+
+def _cmd_recover_stale_applying(args: argparse.Namespace) -> None:
+    """CAS one expired APPLYING lease to UNCERTAIN without retrying Terraform."""
+    store = _ledger_store(args)
+    store.verify_orchestrator_identity(
+        args.orchestrator_role_arn,
+        deployment_id=args.deployment_id,
+    )
+    current = store.get_ledger(
+        deployment_id=args.deployment_id,
+        execution_id=args.execution_id,
+        layer=args.layer,
+    )
+    if (
+        current.get("account_id") != args.account_id
+        or current.get("change_id") != args.change_id
+    ):
+        raise AuthorizationError("stale APPLYING recovery binding mismatch")
+    store.verify_destination_separation(current["account_id"])
+    proposed, _ = recover_stale_applying(
+        current=current,
+        now=datetime.now(UTC).replace(microsecond=0),
+    )
+    replace_error: Exception | None = None
+    try:
+        store.replace_ledger(
+            ledger=proposed,
+            expected_deployment_id=args.deployment_id,
+            expected_execution_id=args.execution_id,
+            expected_layer=args.layer,
+            expected_version=current["ledger_version"],
+            expected_digest=current["ledger_digest"],
+            expected_status="APPLYING",
+        )
+    except Exception as exc:
+        replace_error = exc
+    durable = store.get_ledger(
+        deployment_id=args.deployment_id,
+        execution_id=args.execution_id,
+        layer=args.layer,
+    )
+    if durable != proposed:
+        raise AuthorizationError(
+            "stale APPLYING recovery could not be confirmed"
+        ) from replace_error
+    _write_json(args.ledger_out, durable)
+    print("PASS: stale APPLYING execution moved to UNCERTAIN without retry")
 
 
 def _cmd_health(args: argparse.Namespace) -> None:
@@ -756,11 +795,17 @@ def _parser() -> argparse.ArgumentParser:
     build_approval.add_argument("--workflow-ref", required=True)
     build_approval.add_argument("--workflow-sha", required=True)
     build_approval.add_argument("--workflow-run-id", type=int, required=True)
+    build_approval.add_argument("--workflow-run-attempt", type=int, required=True)
     build_approval.add_argument("--github-environment", required=True)
     build_approval.add_argument("--environment-configuration-digest", required=True)
+    build_approval.add_argument("--apply-environment-anchor-digest", required=True)
     build_approval.add_argument("--initiator-user-id", type=int, required=True)
+    build_approval.add_argument("--expected-approver-user-id", type=int, required=True)
     build_approval.add_argument("--approver-user-id", type=int, required=True)
-    build_approval.add_argument("--approved-at", required=True)
+    build_approval.add_argument("--reviewer-packet-digest", required=True)
+    build_approval.add_argument("--approval-evidence-digest", required=True)
+    build_approval.add_argument("--approval-window-started-at", required=True)
+    build_approval.add_argument("--approval-observed-at", required=True)
     build_approval.add_argument("--expires-at", required=True)
     build_approval.add_argument("--approval-out", type=Path, required=True)
     build_approval.set_defaults(handler=_cmd_build_approval)
@@ -773,6 +818,7 @@ def _parser() -> argparse.ArgumentParser:
 
     get_approval = commands.add_parser("get-approval")
     _common_control_read(get_approval)
+    get_approval.add_argument("--approval-digest", required=True)
     get_approval.add_argument("--now", required=True)
     get_approval.add_argument("--approval-out", type=Path, required=True)
     get_approval.set_defaults(handler=_cmd_get_approval)
@@ -811,6 +857,16 @@ def _parser() -> argparse.ArgumentParser:
     transition.add_argument("--reconciliation-receipt", type=Path)
     transition.add_argument("--ledger-out", type=Path, required=True)
     transition.set_defaults(handler=_cmd_transition)
+
+    recover_applying = commands.add_parser("recover-stale-applying")
+    _common_ledger(recover_applying)
+    recover_applying.add_argument("--deployment-id", required=True)
+    recover_applying.add_argument("--execution-id", required=True)
+    recover_applying.add_argument("--change-id", required=True)
+    recover_applying.add_argument("--account-id", required=True)
+    recover_applying.add_argument("--layer", required=True)
+    recover_applying.add_argument("--ledger-out", type=Path, required=True)
+    recover_applying.set_defaults(handler=_cmd_recover_stale_applying)
 
     health = commands.add_parser("build-health-receipt")
     health.add_argument("--plan-record", type=Path, required=True)

@@ -15,63 +15,12 @@
       }
     },
     {
-      "Sid": "AllowPlanWritePlanExecution",
-      "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Plan",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Plan"
-        ]
-      }
-    },
-    {
-      "Sid": "AllowApplyReadPlanExecution",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/plan-execution/${deployment_id}/*",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply",
-          "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Identity-Apply"
-        ]
-      }
-    },
-    {
-      "Sid": "AllowApplyWriteEvidence",
-      "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
-      "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
-      }
-    },
-    {
-      "Sid": "AllowApplyWriteRecovery",
-      "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*",
-      "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Apply"
-      }
-    },
-    {
       "Sid": "AllowDiagnosticReadEvidence",
       "Effect": "Allow",
       "Action": ["s3:GetObject"],
       "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/evidence/${deployment_id}/*",
       "Principal": {
         "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-Diagnostic"
-      }
-    },
-    {
-      "Sid": "AllowStateRecoveryReadWriteRecovery",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
-      "Resource": "arn:aws:s3:::scanalyze-${account_id}-tf-evidence/recovery/${deployment_id}/*",
-      "Principal": {
-        "AWS": "arn:aws:iam::${account_id}:role/ScanalyzeCustomer-StateRecovery"
       }
     }
   ]

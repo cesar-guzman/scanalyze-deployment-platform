@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/nonprod-live-github-approval-evidence.v1.schema.json",
+  "title": "Protected non-production GitHub Environment approval evidence v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "repository",
+    "repository_id",
+    "workflow_sha",
+    "workflow_run_id",
+    "workflow_run_attempt",
+    "workflow_run_created_at",
+    "workflow_event",
+    "github_environment",
+    "reviewer_packet_digest",
+    "apply_environment_anchor_digest",
+    "approval_authority_digest",
+    "initiator_user_id",
+    "expected_approver_user_id",
+    "approver_user_id",
+    "matching_review_count",
+    "review_set_digest",
+    "approval_observed_at",
+    "freshness_basis",
+    "expires_at",
+    "evidence_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "nonprod_live_github_approval_evidence" },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "repository_id": { "type": "integer", "minimum": 1 },
+    "workflow_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "workflow_run_id": { "type": "integer", "minimum": 1 },
+    "workflow_run_attempt": { "const": 1 },
+    "workflow_run_created_at": { "type": "string", "format": "date-time" },
+    "workflow_event": { "const": "workflow_dispatch" },
+    "github_environment": {
+      "type": "string",
+      "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-dev$"
+    },
+    "reviewer_packet_digest": { "$ref": "#/$defs/digest" },
+    "apply_environment_anchor_digest": { "$ref": "#/$defs/digest" },
+    "approval_authority_digest": { "$ref": "#/$defs/digest" },
+    "initiator_user_id": { "type": "integer", "minimum": 1 },
+    "expected_approver_user_id": { "type": "integer", "minimum": 1 },
+    "approver_user_id": { "type": "integer", "minimum": 1 },
+    "matching_review_count": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "review_set_digest": { "$ref": "#/$defs/digest" },
+    "approval_observed_at": { "type": "string", "format": "date-time" },
+    "freshness_basis": { "const": "WORKFLOW_RUN_CREATED_AT_CONSERVATIVE_BOUND" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "evidence_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

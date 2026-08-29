@@ -85,6 +85,14 @@ on:
         description: Exact saved-plan record digest; required only by apply
         required: false
         type: string
+      reviewer_packet_digest:
+        description: Exact reviewer-packet digest from the prior plan summary; required only by apply
+        required: false
+        type: string
+      live_input_claim_digest:
+        description: Exact tracked live-input claim digest; required only by live phases
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -128,11 +136,14 @@ jobs:
           EXECUTION_ID: ${{ inputs.execution_id }}
           GITHUB_ENVIRONMENT_INPUT: ${{ inputs.github_environment }}
           LIVE_OPERATION: ${{ inputs.live_operation }}
+          LIVE_INPUT_CLAIM_DIGEST: ${{ inputs.live_input_claim_digest }}
           LOGICAL_ENVIRONMENT: ${{ inputs.logical_environment }}
           MAIN_SHA: ${{ inputs.main_sha }}
           PLAN_RECORD_DIGEST: ${{ inputs.plan_record_digest }}
+          REVIEWER_PACKET_DIGEST: ${{ inputs.reviewer_packet_digest }}
           REF_NAME: ${{ github.ref }}
           REF_PROTECTED: ${{ github.ref_protected }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_SHA: ${{ github.sha }}
           TARGET_LAYER: ${{ inputs.target_layer }}
         run: |
@@ -146,7 +157,9 @@ jobs:
             exit 1
           fi
           if [[ "$DRY_RUN" == "true" ]]; then
-            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" ]]; then
+            if [[ "$LIVE_OPERATION" != "none" || -n "$PLAN_RECORD_DIGEST" || \
+                  -n "$REVIEWER_PACKET_DIGEST" || \
+                  -n "$LIVE_INPUT_CLAIM_DIGEST" ]]; then
               echo "::error::Dry-run cannot carry live saved-plan inputs"
               exit 1
             fi
@@ -159,8 +172,12 @@ jobs:
           fi
           case "$LIVE_OPERATION" in
             plan|apply) ;;
-            *) echo "::error::Live orchestration requires one plan or apply phase"; exit 1 ;;
+            *) echo "::error::Live orchestration requires plan or apply"; exit 1 ;;
           esac
+          if [[ ! "$LIVE_INPUT_CLAIM_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Live orchestration requires one exact tracked input claim digest"
+            exit 1
+          fi
           case "$TARGET_LAYER" in
             global|network|platform|data-foundation|cicd|identity-control-plane|services|edge-identity|edge|addons) ;;
             *) echo "::error::Live target layer is not authorized"; exit 1 ;;
@@ -171,6 +188,10 @@ jobs:
           fi
           if [[ ! "$MAIN_SHA" =~ ^[0-9a-f]{40}$ || "$RUN_SHA" != "$MAIN_SHA" ]]; then
             echo "::error::Live orchestration is not bound to the exact main SHA"
+            exit 1
+          fi
+          if [[ "$RUN_ATTEMPT" != "1" ]]; then
+            echo "::error::Live orchestration requires a fresh workflow run"
             exit 1
           fi
           if [[ ! "$EXECUTION_ID" =~ ^exec_[0-9A-HJKMNP-TV-Z]{26}$ ]] || \
@@ -191,8 +212,13 @@ jobs:
               echo "::error::Apply requires one exact saved-plan record digest"
               exit 1
             fi
-          elif [[ -n "$PLAN_RECORD_DIGEST" ]]; then
-            echo "::error::Plan cannot accept an existing saved-plan record digest"
+            if [[ ! "$REVIEWER_PACKET_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Apply requires the exact reviewer-packet digest from Plan"
+              exit 1
+            fi
+          elif [[ "$LIVE_OPERATION" == "plan" && \
+                  ( -n "$PLAN_RECORD_DIGEST" || -n "$REVIEWER_PACKET_DIGEST" ) ]]; then
+            echo "::error::Plan cannot accept existing saved-plan selectors"
             exit 1
           fi
 
@@ -333,6 +359,8 @@ jobs:
       execution_id: ${{ inputs.execution_id }}
       change_id: ${{ inputs.change_id }}
       plan_record_digest: ${{ inputs.plan_record_digest }}
+      reviewer_packet_digest: ${{ inputs.reviewer_packet_digest }}
+      live_input_claim_digest: ${{ inputs.live_input_claim_digest }}
 
   account-ready-gate:
     name: 01 / Account readiness gate

@@ -73,7 +73,7 @@ retrieved anchor and a newly acquired lock. Subsequent v2 updates treat
 
 `ACCOUNT_READY` v2 binds both customer and deployment plus account, region,
 environment, baseline version, eight role ARNs and their customer, deployment,
-account, region, and environment resource tags, the three buckets, the three
+account, region, and environment resource tags, the four buckets, the three
 KMS keys, and these exact state controls:
 
 - versioning enabled;
@@ -83,7 +83,7 @@ KMS keys, and these exact state controls:
 - S3-native lockfiles enabled.
 
 Missing, legacy, malformed, foreign, ambiguous, or conflicting baseline
-evidence is denied. Bucket outputs must match the three deterministic names
+evidence is denied. Bucket outputs must match the four deterministic names
 declared by the baseline template. That equality is an input invariant, not
 resource discovery or evidence of existence/ownership; only authenticated
 terminal readback can establish live provenance. No prefix, role, or KMS key is

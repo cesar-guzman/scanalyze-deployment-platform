@@ -1,11 +1,11 @@
 # ADR-003: Terraform State, Backend Strategy, Locking, Recovery, and Ownership
 
 > **Status**: `DRAFT rev4`
-> **Date**: 2026-06-23; GUG-379 amendment 2026-08-16
+> **Date**: 2026-06-23; GUG-379 amendment 2026-08-16; saved-plan storage amendment 2026-08-28
 > **Decision makers**: César Guzmán  
 > **Scope**: Scanalyze Dedicated Deployment Platform  
 > **Depends on**: ADR-001, ADR-002, ADR-004 rev3  
-> **Rev4 changes**: ACCOUNT_READY v2 is the only operational baseline contract; the account baseline owns eight terminal roles, three buckets and three KMS keys; S3 native lockfiles replace the legacy DynamoDB backend lock; repository-only materialization remains distinct from live readback
+> **Rev4 changes**: ACCOUNT_READY v2 is the only operational baseline contract; the account baseline owns eight terminal roles, four buckets and three KMS keys; S3 native lockfiles replace the legacy DynamoDB backend lock; raw saved plans use a dedicated one-day ephemeral bucket; repository-only materialization remains distinct from live readback
 
 ---
 
@@ -19,10 +19,10 @@ State files contain resource identifiers, some configuration values, and can con
 
 ## Decision
 
-### 1. Three Buckets and an Ephemeral Plan Zone per Customer Account
+### 1. Four Buckets per Customer Account
 
-Each customer account has **three S3 buckets** plus one ephemeral plan prefix,
-each with distinct security properties:
+Each customer account has **four S3 buckets**, each with distinct security
+properties:
 
 ```
 Customer Account (${CUSTOMER_ACCT})
@@ -37,40 +37,43 @@ Customer Account (${CUSTOMER_ACCT})
 │   │          StateRecovery (read+write on state keys only)
 │   └── Block Public Access: ALL enabled
 │
+├── S3: scanalyze-${CUSTOMER_ACCT}-tf-plan                 ← PLAN BUCKET
+│   ├── Purpose: One exact ephemeral saved-plan binary per approved change
+│   ├── KMS: evidence KMS key
+│   ├── Versioning: ENABLED
+│   ├── Object Lock: NONE
+│   ├── Lifecycle: current and noncurrent plan-execution objects expire after 1 day
+│   ├── Access: Plan (create-only write), Apply (read exact version)
+│   └── Block Public Access: ALL enabled
+│
 ├── S3: scanalyze-${CUSTOMER_ACCT}-tf-evidence             ← EVIDENCE BUCKET
 │   ├── Purpose: Sanitized audit trail (digests, summaries, approval records)
 │   ├── KMS: alias/scanalyze-tf-evidence-key
 │   ├── Versioning: ENABLED
 │   ├── Object Lock: COMPLIANCE
-│   │   ├── Default: 90 days (summaries), 365 days (apply logs)
+│   │   └── Default: 90 days for every object
 │   ├── Access: future isolated evidence publisher (write), Diagnostic (read),
 │   │          Validation (read); Plan/Apply never publish
 │   └── Block Public Access: ALL enabled
 │
-├── S3: scanalyze-${CUSTOMER_ACCT}-contracts               ← CONTRACTS BUCKET
+└── S3: scanalyze-${CUSTOMER_ACCT}-contracts               ← CONTRACTS BUCKET
 │   ├── Purpose: Content-addressed producer contracts and release bindings
 │   ├── KMS: dedicated contracts KMS key
 │   ├── Versioning: ENABLED
 │   ├── Access: producer writes; authorized consumers read exact digests
 │   └── Block Public Access: ALL enabled
-│
-└── Prefix in state bucket: plan-execution/                 ← PLAN EXECUTION ZONE
-    ├── Purpose: Ephemeral plan binaries and full plan JSON
-    ├── TTL: 24–72 hours (S3 lifecycle rule)
-    ├── Object Lock: NONE
-    ├── Access: Plan (write), Apply (read exact saved-plan version)
-    ├── Contains: plan binary, plan JSON, plan digest, state lineage/serial
-    └── Automatically deleted by lifecycle rule after TTL
 ```
 
 > [!IMPORTANT]
 > **Why these zones:**
-> - **State bucket**: No Object Lock because `.tflock` must be deletable. Contains live state and ephemeral plan-execution artifacts.
+> - **State bucket**: No Object Lock because `.tflock` must be deletable. Contains only state and native lockfiles.
+> - **Plan bucket**: No Object Lock. Contains only exact-version raw saved-plan binaries under a one-day fail-safe lifecycle.
 > - **Evidence bucket**: COMPLIANCE Object Lock for immutable audit. Contains ONLY sanitized summaries — never raw plans, state snapshots, or secrets.
 > - **Contracts bucket**: Stores only content-addressed contract envelopes and bindings; it is never inferred from a name or caller input.
-> - **Plan execution prefix**: Ephemeral within state bucket. Plans contain secrets in cleartext. Short TTL + auto-deletion ensures no long-lived sensitive copies.
+> Raw plan JSON is inspected only in a mode-`0600` runner scratch file and is
+> deleted immediately; it is never uploaded.
 
-The three deterministic bucket names are normative template invariants, not
+The four deterministic bucket names are normative template invariants, not
 discovery or proof of ownership. Operational coordinates come only from an
 exact, separately anchored ACCOUNT_READY v2 contract produced from baseline
 readback. A matching name alone never proves that a bucket exists or belongs to
@@ -79,7 +82,7 @@ the destination account.
 ### 1.1 GUG-379 account-baseline boundary
 
 `AccountVendingProvider` remains the sole baseline owner. The reviewed
-`bootstrap/cfn-tf-state-backend.yaml` candidate defines the three retained
+`bootstrap/cfn-tf-state-backend.yaml` candidate defines the four retained
 buckets and three retained KMS keys, then references the exact
 content-addressed `bootstrap/cfn-terminal-roles.yaml` child. That child
 materializes the eight terminal roles and quota-valid managed policies. The
@@ -164,111 +167,28 @@ State ownership uses **logical resource namespaces**, not resource-type prefixes
 
 ### 4. Ownership Manifest — Logical Namespaces
 
-```yaml
-# ownership.yaml
-version: "2"
-deployment_template: true
-account_baseline_owner: "AccountVendingProvider"
+`deployment/layers.yaml` is the canonical executable layer manifest. It defines
+13 ordered operational stages: one account-ready gate, ten Terraform roots,
+one artifact-publication stage, and one synthetic-validation stage. Only the
+ten Terraform roots own state keys:
 
-# Account baseline resources (NOT managed by deployment layers)
-account_baseline:
-  owner: "AccountVendingProvider"
-  state: "managed by account vending, NOT in deployment state"
-  owns:
-    - "ScanalyzeCustomer-Plan role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Apply role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Identity-Plan role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Identity-Apply role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Promotion role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Validation role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-Diagnostic role, trust policy, permissions boundary"
-    - "ScanalyzeCustomer-StateRecovery role, trust policy, permissions boundary"
-    - "State S3 bucket, evidence S3 bucket, contracts S3 bucket"
-    - "Infrastructure KMS keys (state, evidence, contracts)"
+| Terraform layer | State key | Contract produced |
+|---|---|---|
+| `global` | `{deployment_id}/global/terraform.tfstate` | `global/v1` |
+| `network` | `{deployment_id}/{region}/network/terraform.tfstate` | `network/v2` |
+| `platform` | `{deployment_id}/{region}/platform/terraform.tfstate` | `platform/v2` |
+| `data-foundation` | `{deployment_id}/{region}/data-foundation/terraform.tfstate` | `data-foundation/v2` |
+| `cicd` | `{deployment_id}/{region}/cicd/terraform.tfstate` | `cicd/v2` |
+| `identity-control-plane` | `{deployment_id}/{region}/identity-control-plane/terraform.tfstate` | `identity-control-plane/v1` |
+| `services` | `{deployment_id}/{region}/services/terraform.tfstate` | `services/v2` |
+| `edge-identity` | `{deployment_id}/{region}/edge-identity/terraform.tfstate` | `edge-identity/v2` |
+| `edge` | `{deployment_id}/edge/terraform.tfstate` | `edge/v2` |
+| `addons` | `{deployment_id}/{region}/addons/terraform.tfstate` | `addons/v2` |
 
-namespaces:
-  global:
-    root: roots/global
-    backend_key: "{deployment_id}/global/terraform.tfstate"
-    description: "ECS task execution role, ECS task roles, application IAM policies"
-    owns:
-      - "ECS task execution role and policy attachments"
-      - "ECS task roles (per-service)"
-      - "Application permissions boundaries"
-    note: "All eight terminal control-plane roles are NOT here. They belong to account baseline."
-
-  network:
-    root: roots/network
-    backend_key: "{deployment_id}/{region}/network/terraform.tfstate"
-    description: "VPC, subnets, NAT gateways, VPC endpoints, route tables"
-    owns:
-      - "VPC and all child networking resources"
-      - "VPC endpoints for AWS services"
-      - "Security groups for VPC endpoints"
-      - "VPC Flow Logs"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/network/v1"
-
-  platform:
-    root: roots/platform
-    backend_key: "{deployment_id}/{region}/platform/terraform.tfstate"
-    description: "ECS cluster, ALB, listener rules, security groups for compute"
-    owns:
-      - "ECS cluster"
-      - "Application Load Balancer and listeners"
-      - "Target groups"
-      - "Security groups for ALB and ECS tasks"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/platform/v1"
-
-  data-foundation:
-    root: roots/data-foundation
-    backend_key: "{deployment_id}/{region}/data-foundation/terraform.tfstate"
-    description: "DynamoDB tables, S3 document buckets, SQS queues, KMS app keys"
-    owns:
-      - "All DynamoDB tables (per processing domain)"
-      - "All S3 document/output buckets (per processing domain)"
-      - "All SQS queues and DLQs"
-      - "All application KMS keys (per processing domain)"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/data-foundation/v2"
-
-  services:
-    root: roots/services
-    backend_key: "{deployment_id}/{region}/services/terraform.tfstate"
-    description: "ECS services, task definitions, auto-scaling"
-    owns:
-      - "All ECS task definitions (Terraform sole owner — ADR-010)"
-      - "All ECS services"
-      - "Application auto-scaling targets and policies"
-      - "CloudWatch alarms for ECS services"
-      - "CloudWatch log groups for services"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/services/v1"
-
-  edge-identity:
-    root: roots/edge-identity
-    backend_key: "{deployment_id}/edge/terraform.tfstate"
-    description: "Cognito, API Gateway, CloudFront, WAF, ACM, Route53"
-    owns:
-      - "Cognito user pool, clients, domain"
-      - "API Gateway HTTP API, stages, routes, integrations, JWT authorizer"
-      - "CloudFront distribution, OAC, response headers policy"
-      - "WAF WebACL"
-      - "Route53 records"
-      - "ACM certificates"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/edge-identity/v1"
-    note: "Global/edge resources — not regional. Single state key without region prefix."
-
-  addons:
-    root: roots/addons
-    backend_key: "{deployment_id}/{region}/addons/terraform.tfstate"
-    description: "CloudWatch dashboards, composite alarms, optional enterprise features"
-    owns:
-      - "CloudWatch dashboards"
-      - "CloudWatch composite alarms"
-      - "Optional enterprise feature resources"
-    contract: "/scanalyze/deployments/{deployment_id}/contracts/addons/v1"
-```
-
-> [!IMPORTANT]
-> **Key change from rev2**: `global` layer no longer owns the 6 control-plane roles — those moved to the account baseline (ADR-004 rev3). `addons` has been split: auth/CDN/API resources → `edge-identity`, optional features → `addons`.
+The account baseline, not any deployment root, owns the four buckets, three KMS
+keys, and all eight terminal roles: Plan, Apply, Identity-Plan,
+Identity-Apply, Promotion, Validation, Diagnostic, and StateRecovery. The three
+non-state stages in `deployment/layers.yaml` must keep `state_key: null`.
 
 ### 5. State Key Naming Convention — Regional
 
@@ -281,26 +201,36 @@ Regional layers (one instance per deployment × region):
   {deployment_id}/{region}/network/terraform.tfstate
   {deployment_id}/{region}/platform/terraform.tfstate
   {deployment_id}/{region}/data-foundation/terraform.tfstate
+  {deployment_id}/{region}/cicd/terraform.tfstate
+  {deployment_id}/{region}/identity-control-plane/terraform.tfstate
   {deployment_id}/{region}/services/terraform.tfstate
+  {deployment_id}/{region}/edge-identity/terraform.tfstate
   {deployment_id}/{region}/addons/terraform.tfstate
 ```
 
 | Layer | Key pattern | Regional? |
 |---|---|---|
 | global | `{dep_id}/global/terraform.tfstate` | No |
-| edge-identity | `{dep_id}/edge/terraform.tfstate` | No (CloudFront/Route53 are global/edge) |
+| edge | `{dep_id}/edge/terraform.tfstate` | No |
 | network | `{dep_id}/{region}/network/terraform.tfstate` | Yes |
 | platform | `{dep_id}/{region}/platform/terraform.tfstate` | Yes |
 | data-foundation | `{dep_id}/{region}/data-foundation/terraform.tfstate` | Yes |
+| cicd | `{dep_id}/{region}/cicd/terraform.tfstate` | Yes |
+| identity-control-plane | `{dep_id}/{region}/identity-control-plane/terraform.tfstate` | Yes |
 | services | `{dep_id}/{region}/services/terraform.tfstate` | Yes |
+| edge-identity | `{dep_id}/{region}/edge-identity/terraform.tfstate` | Yes |
 | addons | `{dep_id}/{region}/addons/terraform.tfstate` | Yes |
 
 > [!NOTE]
 > SSM Parameter Store is regional. The same contract path can exist in different regions natively. The deployment record must register `{region}/{layer}` explicitly for each contract produced.
 
-### 6. Evidence Key Naming Convention
+### 6. Evidence Key Naming Convention (Reserved Publisher Contract)
 
-Evidence store contains **sanitized summaries only** — never raw plans, state files, or secrets.
+The evidence store is reserved for **sanitized summaries only** — never raw
+plans, state files, or secrets. The current Plan/Apply controller does not have
+evidence-bucket write authority and does not publish any of the following
+objects. These keys describe the future publisher contract, not live evidence
+that exists today:
 
 ```
 s3://scanalyze-${CUSTOMER_ACCT}-tf-evidence/{deployment_id}/{region}/{layer}/...
@@ -311,8 +241,8 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-evidence/{deployment_id}/{region}/{layer}/...
 | Plan summary (sanitized) | `{dep_id}/{region}/{layer}/plans/{change_id}-summary.json` | 90 days | **NO** — digest, resource counts, action list only |
 | Plan digest | `{dep_id}/{region}/{layer}/plans/{change_id}-digest.sha256` | 90 days | No |
 | Approval record | `{dep_id}/{region}/{layer}/plans/{change_id}-approval.json` | 90 days | No |
-| Apply execution log (sanitized) | `{dep_id}/{region}/{layer}/apply-logs/{change_id}.log` | 365 days | **NO** — sanitized, credential patterns redacted |
-| Apply metadata | `{dep_id}/{region}/{layer}/apply-logs/{change_id}-meta.json` | 365 days | No — state version IDs, release manifest digest, execution ID |
+| Apply execution log (sanitized) | `{dep_id}/{region}/{layer}/apply-logs/{change_id}.log` | 90-day bucket default unless a future publisher sets a separately reviewed retention | **NO** — sanitized, credential patterns redacted |
+| Apply metadata | `{dep_id}/{region}/{layer}/apply-logs/{change_id}-meta.json` | 90-day bucket default unless a future publisher sets a separately reviewed retention | No — state version IDs, release manifest digest, execution ID |
 | Drift detection report | `{dep_id}/{region}/{layer}/drift/{date}.json` | 90 days | No |
 
 > [!CAUTION]
@@ -322,22 +252,23 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-evidence/{deployment_id}/{region}/{layer}/...
 > - State file copies — contain resource configs
 > - Raw input variables — may contain sensitive values
 >
-> These are stored temporarily in the **plan-execution zone** (§1) with 24-72h auto-deletion.
+> Only the exact plan binary is uploaded to the dedicated **plan-execution
+> zone** (§1), whose current and noncurrent versions expire after one day. Raw
+> plan JSON exists only in private runner scratch and is deleted immediately.
 
 ### 7. Plan Execution Zone (Ephemeral)
 
-Plans contain sensitive data. They are stored briefly for the apply step and then auto-deleted.
+Plans contain sensitive data. The exact binary is stored briefly for the apply
+step. There is no immediate delete operation after apply, rejection, or expiry;
+the one-day lifecycle rule is the only implemented cleanup mechanism.
 
 ```
-s3://scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/{dep_id}/{change_id}/...
+s3://scanalyze-${CUSTOMER_ACCT}-tf-plan/plan-execution/{dep_id}/{change_id}/{layer}/plan.tfplan
 ```
 
 | Content | Key | TTL | Purpose |
 |---|---|---|---|
-| Plan binary | `plan-execution/{dep_id}/{change_id}/{layer}.tfplan` | 24–72h | Apply reads this to execute the saved plan |
-| Plan JSON | `plan-execution/{dep_id}/{change_id}/{layer}.plan.json` | 24–72h | Optional — only if policy evaluation requires full JSON |
-| Plan digest | `plan-execution/{dep_id}/{change_id}/{layer}.sha256` | 24–72h | Apply verifies digest before executing |
-| State lineage | `plan-execution/{dep_id}/{change_id}/{layer}-lineage.json` | 24–72h | Verify state hasn't changed between plan and apply |
+| Plan binary | `plan-execution/{dep_id}/{change_id}/{layer}/plan.tfplan` | 1 day | Apply reads the exact version bound by bucket, key, `VersionId`, SHA-256 and byte size in the durable control record |
 
 | Role | Permissions on plan-execution/ prefix |
 |---|---|
@@ -347,29 +278,28 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/{dep_id}/{change_id}/...
 | StateRecovery | No access |
 
 > [!NOTE]
-> S3 lifecycle expires objects under `plan-execution/` after 72 hours and
-> removes noncurrent versions under the declared retention rule. Apply cannot
-> overwrite or delete the reviewed plan; it reads the exact version bound to
-> the approval record.
+> S3 lifecycle expires current and noncurrent objects under `plan-execution/`
+> after one day. Apply cannot overwrite or delete the reviewed plan; it reads
+> the exact bucket/key/`VersionId` and verifies the bound hash and size. Raw
+> plan JSON is created only as a mode-`0600` scratch file for semantic
+> inspection and is deleted before the runner exits; it is never uploaded.
 
-### 8. Recovery Store (Restricted)
+### 8. Recovery Store (Reserved, Not Implemented)
 
-Pre-apply state snapshots for disaster recovery are stored in a separate restricted prefix within the state bucket.
+The current baseline does **not** create pre-apply state snapshots or expose a
+recovery-prefix writer. State recovery relies on the versioned state object and
+requires a separately reviewed break-glass procedure. The path below is
+reserved for a future design only; it is not an operational producer or an
+Apply permission.
 
 ```
 s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
 ```
 
-| Content | Key | Retention | Purpose |
-|---|---|---|---|
-| Pre-apply state snapshot | `recovery/{dep_id}/{change_id}/{layer}-pre.tfstate` | 30 days | Restore point if apply causes corruption |
-
-| Role | Permissions on recovery/ prefix |
-|---|---|
-| Apply | `s3:PutObject` (writes snapshot before each apply) |
-| StateRecovery | `s3:GetObject`, `s3:GetObjectVersion` (reads for restoration) |
-| Diagnostic | No access (contains sensitive state data) |
-| Plan | No access |
+No current role has an implemented `recovery/` producer or consumer path.
+Normal Apply and stale-Apply reentry must not write this prefix. A future
+snapshot design must add explicit IAM, retention, custody, authorization and
+readback controls in a separate reviewed change before this path can be used.
 
 ### 9. Bucket Policies
 
@@ -422,15 +352,6 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
       }
     },
     {
-      "Sid": "PlanRolePlanExecutionWrite",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Plan"
-      },
-      "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/${DEPLOYMENT_ID}/*"
-    },
-    {
       "Sid": "ApplyRoleStateReadWrite",
       "Effect": "Allow",
       "Principal": {
@@ -474,27 +395,6 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
       }
     },
     {
-      "Sid": "ApplyRolePlanExecutionRead",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Apply"
-      },
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/plan-execution/${DEPLOYMENT_ID}/*"
-    },
-    {
-      "Sid": "ApplyRoleRecoveryWrite",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Apply"
-      },
-      "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/${DEPLOYMENT_ID}/*"
-    },
-    {
       "Sid": "DiagnosticRoleStateReadOnly",
       "Effect": "Allow",
       "Principal": {
@@ -528,18 +428,6 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
         "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state",
         "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/${DEPLOYMENT_ID}/*/terraform.tfstate"
       ]
-    },
-    {
-      "Sid": "StateRecoveryRoleRecoveryRead",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-StateRecovery"
-      },
-      "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion"
-      ],
-      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/${DEPLOYMENT_ID}/*"
     },
     {
       "Sid": "DenyNonTLS",
@@ -590,23 +478,69 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
 > 2. **No `s3:CopyObject`** — not a valid IAM action. StateRecovery uses `GetObject`+`GetObjectVersion` (read) + `PutObject` (write).
 > 3. **Plan role cannot DeleteObject on state keys** — only on `.tflock`. This prevents accidental state deletion during plan.
 > 4. **No blanket DenyAllOthers** — replaced with targeted denies (non-TLS, unencrypted puts, wrong KMS key). This avoids blocking replication, AWS Backup, lifecycle rules, and security tooling.
-> 5. **Plan-execution and recovery prefixes** have separate permission grants.
+> 5. **The state policy contains no plan-bucket resource and no `recovery/`
+> writer.** Saved-plan access lives only in the separate plan-bucket policy;
+> the recovery prefix remains reserved and unimplemented.
 
-#### Evidence Bucket Policy
+#### Plan Bucket Policy
+
+The dedicated plan bucket has its own policy. Plan and Identity-Plan may create
+only the exact session-tagged key. Apply and Identity-Apply may read only the
+exact version of that key. Neither apply role receives put or delete authority.
+The canonical policy is `policies/s3/plan-bucket.json`; the baseline template
+also enforces TLS and the evidence KMS key on this bucket independently of the
+state policy.
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ApplyRoleWriteEvidence",
+      "Sid": "AllowPlanWriteExactExecution",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Apply"
+        "AWS": [
+          "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Plan",
+          "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Identity-Plan"
+        ]
       },
       "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-evidence/${DEPLOYMENT_ID}/*"
+      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-plan/plan-execution/${DEPLOYMENT_ID}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
+      "Condition": {
+        "StringEquals": {"aws:PrincipalTag/operation": "plan"}
+      }
     },
+    {
+      "Sid": "AllowApplyReadExactExecutionVersion",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Apply",
+          "arn:aws:iam::${CUSTOMER_ACCT}:role/ScanalyzeCustomer-Identity-Apply"
+        ]
+      },
+      "Action": "s3:GetObjectVersion",
+      "Resource": "arn:aws:s3:::scanalyze-${CUSTOMER_ACCT}-tf-plan/plan-execution/${DEPLOYMENT_ID}/${aws:PrincipalTag/change_id}/${aws:PrincipalTag/layer}/plan.tfplan",
+      "Condition": {
+        "StringEquals": {"aws:PrincipalTag/operation": "apply"}
+      }
+    }
+  ]
+}
+```
+
+#### Evidence Bucket Policy
+
+There is no current Plan/Apply evidence publisher. In particular, the evidence
+policy must not grant either apply role `s3:PutObject`. The executable baseline
+keeps the bucket immutable and encrypted, while the companion policy grants
+Diagnostic read-only access to sanitized evidence if a separately reviewed
+publisher creates it later.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
       "Sid": "DiagnosticRoleReadEvidence",
       "Effect": "Allow",
@@ -683,14 +617,16 @@ s3://scanalyze-${CUSTOMER_ACCT}-tf-state/recovery/{dep_id}/{change_id}/...
 
 ### 10. KMS Permissions per Role
 
-| Role | State KMS key | Evidence KMS key |
-|---|---|---|
-| **Plan** | `kms:Decrypt` (read state), `kms:Encrypt` + `kms:GenerateDataKey` (write plan-execution artifacts) | — |
-| **Apply** | `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` (read+write state, read-only plan-execution, write recovery) | `kms:Encrypt`, `kms:GenerateDataKey` (write evidence) |
-| **Promotion** | — | — |
-| **Validation** | — | `kms:Decrypt` (read evidence) |
-| **Diagnostic** | `kms:Decrypt` (read state) | `kms:Decrypt` (read evidence) |
-| **StateRecovery** | `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` (read+write state, read recovery) | — |
+| Role | State KMS key | Evidence KMS key | Contracts KMS key |
+|---|---|---|---|
+| **Plan** | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` for state reads and native lockfiles | `Decrypt`, `Encrypt`, `GenerateDataKey` only for the dedicated plan bucket | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` per the baseline fixture |
+| **Apply** | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` for state | `Decrypt` only for the exact saved-plan object; no evidence/recovery writer | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` per the baseline fixture |
+| **Identity-Plan** | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` for identity state and lockfiles | `Decrypt`, `Encrypt`, `GenerateDataKey` only for the identity saved plan | `Decrypt`, `DescribeKey` for required contracts |
+| **Identity-Apply** | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` for identity state | `Decrypt` only for the exact identity saved-plan version | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` for its contract |
+| **Promotion** | — | — | — |
+| **Validation** | — | `Decrypt`, `DescribeKey` for read-only evidence | `Decrypt`, `DescribeKey` for read-only contracts |
+| **Diagnostic** | `Decrypt`, `DescribeKey` | `Decrypt`, `DescribeKey` | `Decrypt`, `DescribeKey` |
+| **StateRecovery** | `Decrypt`, `DescribeKey`, `Encrypt`, `GenerateDataKey` on state only | — | — |
 
 > [!NOTE]
 > The S3 backend with a customer-managed KMS key requires `kms:Encrypt`, `kms:Decrypt`, and `kms:GenerateDataKey` for any write operation. Read-only access requires only `kms:Decrypt`.
@@ -717,7 +653,7 @@ terraform {
 }
 ```
 
-For non-regional layers (global, edge-identity), the key omits the region:
+For non-regional layers (`global`, `edge`), the key omits the region:
 ```hcl
     key = "${deployment_id}/${layer}/terraform.tfstate"
 ```
@@ -737,7 +673,10 @@ For non-regional layers (global, edge-identity), the key omits the region:
 
 ### 15. Drift Detection
 
-Scheduled `terraform plan -detailed-exitcode` (no apply). Results stored in evidence bucket. Unchanged from rev1.
+Scheduled `terraform plan -detailed-exitcode` remains a future read-only
+control. The current implementation has no evidence-bucket publisher, so any
+result remains private runner evidence until a separate sanitized publisher is
+reviewed and implemented.
 
 ### 16. CI Ownership Validation
 
@@ -758,9 +697,11 @@ CI checks on every PR:
 
 State files may contain sensitive attributes. Mitigations:
 - `sensitive = true` on Terraform outputs
-- No `terraform show` in CI/CD pipelines (use plan JSON only in plan-execution zone)
+- `terraform show -json` writes only to a mode-`0600` runner scratch file for
+  semantic inspection; that raw JSON is deleted and never uploaded
 - State never in build artifacts, logs, or evidence
-- Pre-apply snapshots in recovery prefix (restricted to StateRecovery role)
+- S3 version IDs and state lineage support a separately authorized recovery;
+  no automated pre-apply snapshot prefix is implemented
 - KMS encryption at rest with per-role key access
 - No `terraform state pull` in CI
 
@@ -770,7 +711,7 @@ State files may contain sensitive attributes. Mitigations:
 |---|---|---|
 | **State location** | Existing buckets (freeze, capture evidence) | New per-account buckets (account baseline) |
 | **Ownership** | Audit and document → ownership.yaml v1 | Ownership.yaml from day one |
-| **Recovery** | Capture version IDs, validate lineage | Recovery prefix + evidence from first apply |
+| **Recovery** | Capture version IDs, validate lineage | Version IDs and lineage; separate break-glass recovery, with no snapshot prefix implemented |
 | **Migration** | After ADRs accepted → controlled import with evidence | N/A (clean start) |
 
 ---
@@ -779,8 +720,9 @@ State files may contain sensitive attributes. Mitigations:
 
 ### Positive
 - State bucket can be locked/unlocked freely (no Object Lock interference)
-- Evidence bucket provides immutable, sanitized audit trail
-- Plan binaries (with secrets) are ephemeral — auto-deleted after 24–72h
+- Evidence bucket provides the retained destination for a future isolated,
+  sanitized publisher; the current Plan/Apply path does not publish to it
+- Plan binaries (with secrets) are ephemeral — current and noncurrent versions expire after one day
 - Logical namespaces are human-readable and resilient to resource type reuse
 - State restoration is a distinct operation from release rollback
 - Bucket policies reference correct principals (customer roles, not shared services)
@@ -791,9 +733,10 @@ State files may contain sensitive attributes. Mitigations:
 - Account baseline resources are explicitly excluded from workload state
 
 ### Negative
-- Three storage zones add operational complexity
+- Four buckets with distinct policies and lifecycles add operational complexity
 - Plan-execution TTL must be longer than the plan→apply window
-- Recovery prefix adds a third lifecycle rule to manage
+- Saved-plan cleanup is lifecycle-driven; there is no immediate-delete path
+- The recovery prefix is reserved but has no current producer, consumer, or lifecycle
 - Evidence sanitization requires discipline (pipeline must strip sensitive fields)
 
 ---
@@ -801,7 +744,7 @@ State files may contain sensitive attributes. Mitigations:
 ## References
 
 - ADR-001: Tenancy Model
-- ADR-004 rev3: Cross-Account Identity (6 scoped roles, account baseline ownership)
+- ADR-004 rev3: Cross-Account Identity (eight terminal roles, account baseline ownership)
 - ADR-006: Modules & Contracts (SSM-based, no `terraform_remote_state`)
 - ADR-009: Threat Model (T4.3 state credential access, T6.1–T6.4)
 - State Ownership Audit (brownfield)

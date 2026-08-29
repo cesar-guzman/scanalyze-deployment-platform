@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/saved-plan-reviewer-packet.v1.schema.json",
+  "title": "Scanalyze Saved-Plan Reviewer Packet v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "execution_id",
+    "change_id",
+    "layer",
+    "release_digest",
+    "source_revision_digest",
+    "plan_environment_anchor_digest",
+    "expected_approver_user_id",
+    "approval_authority_digest",
+    "plan_record_digest",
+    "plan_sha256",
+    "plan_size_bytes",
+    "plan_summary",
+    "cost_binding",
+    "state_status",
+    "state_binding_digest",
+    "created_at",
+    "expires_at",
+    "production_authorized",
+    "packet_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "saved_plan_reviewer_packet" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "account_id": { "$ref": "#/$defs/account_id" },
+    "region": { "$ref": "#/$defs/region" },
+    "environment": { "enum": ["sandbox", "dev", "staging"] },
+    "execution_id": { "type": "string", "pattern": "^exec_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "change_id": { "type": "string", "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "layer": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "release_digest": { "$ref": "#/$defs/digest" },
+    "source_revision_digest": { "$ref": "#/$defs/digest" },
+    "plan_environment_anchor_digest": { "$ref": "#/$defs/digest" },
+    "expected_approver_user_id": { "type": "integer", "minimum": 1 },
+    "approval_authority_digest": { "$ref": "#/$defs/digest" },
+    "plan_record_digest": { "$ref": "#/$defs/digest" },
+    "plan_sha256": { "$ref": "#/$defs/digest" },
+    "plan_size_bytes": { "type": "integer", "minimum": 1, "maximum": 1073741824 },
+    "plan_summary": { "$ref": "#/$defs/plan_summary" },
+    "cost_binding": { "$ref": "#/$defs/cost_binding" },
+    "state_status": { "enum": ["PRESENT", "ABSENT"] },
+    "state_binding_digest": { "$ref": "#/$defs/digest" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "production_authorized": { "const": false },
+    "packet_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "plan_summary": {
+      "type": "object",
+      "required": [
+        "add_count",
+        "change_count",
+        "read_count",
+        "no_op_count",
+        "destroy_count",
+        "replace_count",
+        "output_create_count",
+        "output_update_count",
+        "output_delete_count",
+        "output_no_op_count",
+        "output_change_count",
+        "output_actions",
+        "applyable",
+        "resource_change_count",
+        "resource_actions",
+        "classification",
+        "summary_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "add_count": { "$ref": "#/$defs/count" },
+        "change_count": { "$ref": "#/$defs/count" },
+        "read_count": { "$ref": "#/$defs/count" },
+        "no_op_count": { "$ref": "#/$defs/count" },
+        "destroy_count": { "const": 0 },
+        "replace_count": { "const": 0 },
+        "output_create_count": { "$ref": "#/$defs/count" },
+        "output_update_count": { "$ref": "#/$defs/count" },
+        "output_delete_count": { "$ref": "#/$defs/count" },
+        "output_no_op_count": { "$ref": "#/$defs/count" },
+        "output_change_count": { "$ref": "#/$defs/count" },
+        "output_actions": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": ["output_name", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "output_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "action": { "enum": ["create", "update", "delete"] }
+            }
+          }
+        },
+        "applyable": { "type": "boolean" },
+        "resource_change_count": { "$ref": "#/$defs/count" },
+        "resource_actions": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": ["resource_type", "resource_name", "action", "address_digest"],
+            "additionalProperties": false,
+            "properties": {
+              "resource_type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "resource_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+              "action": { "enum": ["create", "update", "read", "delete", "replace"] },
+              "address_digest": { "$ref": "#/$defs/digest" }
+            }
+          }
+        },
+        "classification": { "enum": ["NO_CHANGE", "CHANGE"] },
+        "summary_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "cost_binding": {
+      "type": "object",
+      "required": [
+        "cost_model_digest",
+        "maximum_cost_usd_micros",
+        "modeled_cost_upper_bound_usd_micros"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cost_model_digest": { "$ref": "#/$defs/digest" },
+        "maximum_cost_usd_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "modeled_cost_upper_bound_usd_micros": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        }
+      }
+    }
+  }
+}

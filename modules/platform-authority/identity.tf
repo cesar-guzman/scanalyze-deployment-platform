@@ -44,7 +44,7 @@ resource "aws_iam_role" "orchestrator" {
   description        = "Deployment-bound GitHub OIDC orchestrator for ${each.value.deployment_id}."
   assume_role_policy = local.github_trust_documents[each.key]
   # AWS IAM role configuration accepts a minimum ceiling of one hour. The
-  # OIDC caller contract must explicitly request the STS minimum of 900s.
+  # OIDC caller contract covers the bounded control-plane workflow window.
   max_session_duration = 3600
   permissions_boundary = aws_iam_policy.orchestrator_boundary.arn
 

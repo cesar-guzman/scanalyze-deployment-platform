@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build a validated layer-contract envelope from ``terraform output -json``.
+"""Build and optionally publish a validated immutable layer-contract envelope.
 
-"Publish" means writing a local, mode-0600 envelope in this dry-run PR.  No
-AWS write path is implemented; ``--live`` always stops before reading inputs or
-creating an output file.
+Dry-run behavior remains a local mode-0600 envelope.  Explicit live mode uses
+the catalog-owned content-addressed SSM path, create-only semantics, exact tags,
+and double readback through an injectable AWS CLI adapter.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import os
 import re
 import stat
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +21,18 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_SCHEMA_V1 = REPO_ROOT / "schemas" / "layer-contract.schema.json"
 DEFAULT_SCHEMA_V2 = REPO_ROOT / "schemas" / "layer-contract.v2.schema.json"
+DEFAULT_CATALOG = REPO_ROOT / "deployment" / "contract-catalog.v1.json"
+DEFAULT_CATALOG_SCHEMA = REPO_ROOT / "schemas" / "contract-catalog.v1.schema.json"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tooling.validate_digest import canonicalize, compute_digest  # noqa: E402
+from tooling.ssm_contract_live_io import (  # noqa: E402
+    LiveContractIoError,
+    SubprocessAwsCliRunner,
+    publish_immutable_ssm_contract,
+    verify_caller_identity,
+)
 
 
 class PublicationError(Exception):
@@ -35,6 +43,7 @@ RFC3339_PATTERN = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
 )
+MAX_LIVE_CLOCK_SKEW_SECONDS = 300
 
 
 def _validate_produced_at(value: str) -> None:
@@ -183,7 +192,7 @@ def _build_envelope(args: argparse.Namespace, outputs: dict[str, Any]) -> dict[s
     return envelope
 
 
-def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
+def _reserve_exclusive(path: Path) -> tuple[Path, int]:
     output_path = path.expanduser().resolve(strict=False)
     if _is_within(output_path, REPO_ROOT.resolve()):
         raise PublicationError("envelope output must be outside the repository")
@@ -192,29 +201,42 @@ def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
     if not output_path.parent.is_dir():
         raise PublicationError("envelope output directory does not exist")
 
-    descriptor: int | None = None
-    created = False
     try:
         descriptor = os.open(
             output_path,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL,
             0o600,
         )
-        created = True
+    except OSError as exc:
+        raise PublicationError("unable to create exclusive envelope output") from exc
+    return output_path, descriptor
+
+
+def _write_reserved(
+    output_path: Path,
+    descriptor: int,
+    document: dict[str, Any],
+) -> None:
+    open_descriptor: int | None = descriptor
+    try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            descriptor = None
+            open_descriptor = None
             json.dump(document, handle, sort_keys=True, indent=2, ensure_ascii=True)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR)
     except (OSError, TypeError, ValueError) as exc:
-        if created:
-            output_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
         raise PublicationError("unable to create exclusive envelope output") from exc
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
+        if open_descriptor is not None:
+            os.close(open_descriptor)
+
+
+def _write_exclusive(path: Path, document: dict[str, Any]) -> None:
+    output_path, descriptor = _reserve_exclusive(path)
+    _write_reserved(output_path, descriptor, document)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -228,6 +250,25 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--deployment-id", required=True)
     parser.add_argument("--account-id", required=True)
     parser.add_argument("--region", required=True)
+    parser.add_argument(
+        "--aws-region",
+        help="explicit AWS API region; required for live SSM I/O",
+    )
+    credentials = parser.add_mutually_exclusive_group()
+    credentials.add_argument(
+        "--aws-profile",
+        help="explicit named AWS profile for live I/O",
+    )
+    credentials.add_argument(
+        "--use-runtime-credentials",
+        action="store_true",
+        help="use an already established short-lived runtime credential chain",
+    )
+    parser.add_argument(
+        "--aws-cli",
+        default="aws",
+        help="AWS CLI executable (injectable for hermetic validation)",
+    )
     parser.add_argument("--scope", choices=("global", "regional"))
     parser.add_argument("--release-digest", required=True)
     parser.add_argument(
@@ -249,28 +290,59 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         help="explicit envelope schema; defaults to v2 with --customer-id, otherwise v1",
     )
+    parser.add_argument(
+        "--catalog",
+        type=Path,
+        default=DEFAULT_CATALOG,
+        help="canonical contract catalog",
+    )
+    parser.add_argument(
+        "--catalog-schema",
+        type=Path,
+        default=DEFAULT_CATALOG_SCHEMA,
+        help="canonical contract catalog schema",
+    )
     parser.add_argument("--out", type=Path, required=True)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="explicit dry-run (also the default)")
-    mode.add_argument("--live", action="store_true", help="future SSM publication mode")
+    mode.add_argument("--live", action="store_true", help="create the immutable SSM contract")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
+    reserved_output: Path | None = None
+    reserved_descriptor: int | None = None
 
     if args.live:
         if os.environ.get("SCANALYZE_ALLOW_LIVE") != "1":
             print("BLOCKED_LIVE: set SCANALYZE_ALLOW_LIVE=1 to acknowledge live mode", file=sys.stderr)
             return 2
-        print("BLOCKED_LIVE: AWS contract publication is not implemented in this PR", file=sys.stderr)
-        return 2
 
     try:
         _validate_produced_at(args.produced_at)
+        if args.live:
+            produced_at = datetime.fromisoformat(
+                args.produced_at.replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+            if abs(
+                (datetime.now(timezone.utc) - produced_at).total_seconds()
+            ) > MAX_LIVE_CLOCK_SKEW_SECONDS:
+                raise PublicationError(
+                    "produced_at is outside the live action-time window"
+                )
         schema_path = args.schema or (
             DEFAULT_SCHEMA_V2 if args.customer_id is not None else DEFAULT_SCHEMA_V1
         )
+        if args.live and (
+            args.customer_id is None
+            or schema_path.resolve() != DEFAULT_SCHEMA_V2.resolve()
+            or args.catalog.resolve() != DEFAULT_CATALOG.resolve()
+            or args.catalog_schema.resolve() != DEFAULT_CATALOG_SCHEMA.resolve()
+        ):
+            raise PublicationError(
+                "live publication requires canonical repository contracts"
+            )
         schema = _load_json(schema_path, "contract schema")
         if not isinstance(schema, dict):
             raise PublicationError("contract schema must be a JSON object")
@@ -286,16 +358,66 @@ def main(argv: list[str] | None = None) -> int:
 
         envelope = _build_envelope(args, outputs)
         _validate_schema(envelope, schema, "contract envelope")
-        _write_exclusive(args.out, envelope)
-    except PublicationError as exc:
+        if args.live:
+            if not args.aws_region:
+                raise PublicationError("--aws-region is required for live publication")
+            catalog = _load_json(args.catalog, "contract catalog")
+            catalog_schema = _load_json(args.catalog_schema, "contract catalog schema")
+            if not isinstance(catalog, dict) or not isinstance(catalog_schema, dict):
+                raise PublicationError("contract catalog must be a JSON object")
+            _validate_schema(catalog, catalog_schema, "contract catalog")
+            record = catalog.get("contracts", {}).get(contract_id)
+            declared_output_schema = (
+                record.get("output_schema") if isinstance(record, dict) else None
+            )
+            if (
+                not isinstance(declared_output_schema, str)
+                or (REPO_ROOT / declared_output_schema).resolve()
+                != _layer_output_schema_path(contract_id).resolve()
+            ):
+                raise PublicationError("catalog output schema binding is invalid")
+            reserved_output, reserved_descriptor = _reserve_exclusive(args.out)
+            runner = SubprocessAwsCliRunner(
+                executable=args.aws_cli,
+                profile=args.aws_profile,
+                use_runtime_credentials=args.use_runtime_credentials,
+            )
+            identity = verify_caller_identity(
+                runner,
+                expected_account_id=args.account_id,
+                region=args.aws_region,
+            )
+            publish_immutable_ssm_contract(
+                runner,
+                identity=identity,
+                catalog=catalog,
+                envelope=envelope,
+            )
+            if reserved_output is None or reserved_descriptor is None:
+                raise PublicationError("exclusive envelope output was not reserved")
+            descriptor = reserved_descriptor
+            reserved_descriptor = None
+            _write_reserved(reserved_output, descriptor, envelope)
+        else:
+            _write_exclusive(args.out, envelope)
+    except (PublicationError, LiveContractIoError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     except (OSError, TypeError, ValueError):
         print("FAIL: unable to build contract envelope safely", file=sys.stderr)
         return 1
+    finally:
+        if reserved_descriptor is not None:
+            os.close(reserved_descriptor)
+            if reserved_output is not None:
+                reserved_output.unlink(missing_ok=True)
 
-    print(f"DRY_RUN: validated contract envelope for {args.layer}")
-    print("AWS_WRITE=disabled")
+    if args.live:
+        print(f"PASS: published immutable contract for {args.layer}")
+        print("AWS_WRITE=ssm:PutParameter(create-only)")
+    else:
+        print(f"DRY_RUN: validated contract envelope for {args.layer}")
+        print("AWS_WRITE=disabled")
     return 0
 
 

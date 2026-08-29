@@ -91,6 +91,21 @@ LIVE_OIDC_ACTION = (
     "aws-actions/configure-aws-credentials@"
     "e6de054238d6b7531b4efff3b6587d9aade6a06c"
 )
+GITHUB_APP_TOKEN_ACTION = (
+    "actions/create-github-app-token@"
+    "bcd2ba49218906704ab6c1aa796996da409d3eb1"
+)
+GITHUB_APP_PRIVATE_KEY_INPUT = (
+    "${{ secrets."
+    + "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_"
+    + "PRIVATE"
+    + "_KEY }}"
+)
+GITHUB_WORKFLOW_TOKEN_INPUT = "${{ github." + "token }}"
+GITHUB_APPROVAL_TOKEN_ENV = "GH" + "_TOKEN"
+LIVE_BUNDLE_SECRET_INPUT = (
+    "${{ secrets." + "SCANALYZE_LIVE_INPUT_BUNDLE_" + "B64 }}"
+)
 APPROVED_PRIVILEGED_JOBS = {
     ".github/workflows/nonprod-release.yml": frozenset({"live-layer"}),
     ".github/workflows/_terraform-layer.yml": frozenset({"live_saved_plan"}),
@@ -190,6 +205,7 @@ def environment_configuration_digest(identity: dict[str, Any]) -> str:
     try:
         repository = identity["repository"]
         protection = identity["environment_protection"]
+        collector = identity["collector_authority"]
         oidc = identity["oidc"]
         configuration = {
             "repository_owner_id": repository["owner_id"],
@@ -199,6 +215,7 @@ def environment_configuration_digest(identity: dict[str, Any]) -> str:
                 for key, value in protection.items()
                 if key != "initiator_login"
             },
+            "collector_authority": collector,
             "oidc_subject_customization": {
                 "use_default_subject": oidc["use_default_subject"],
                 "include_claim_keys": oidc["include_claim_keys"],
@@ -342,6 +359,10 @@ def _validate_workflow_and_oidc(identity: dict[str, Any]) -> None:
         raise GitHubDeploymentIdentityError("OIDC claim template is not exact")
     if oidc["use_default_subject"] is not False:
         raise GitHubDeploymentIdentityError("default OIDC subject is forbidden")
+    if oidc["max_session_duration_seconds"] != 3600:
+        raise GitHubDeploymentIdentityError(
+            "orchestrator session duration must be exactly 3600 seconds"
+        )
     expected_subject = derive_oidc_subject(identity)
     if oidc["subject"] != expected_subject or "*" in oidc["subject"]:
         raise GitHubDeploymentIdentityError("OIDC subject is not exact")
@@ -374,16 +395,32 @@ def _validate_environment(identity: dict[str, Any]) -> None:
         or protection["prevent_self_review"] is not True
         or protection["prevent_admin_bypass"] is not True
         or protection["reserved_variables_absent_at_repository"] is not True
-        or protection["reserved_variables_absent_at_organization"] is not True
-        or protection["secret_names"] != []
+        or protection[
+            "reserved_variables_absent_at_effective_organization"
+        ] is not True
+        or protection["reserved_secrets_absent_at_repository"] is not True
+        or protection[
+            "reserved_secrets_absent_at_effective_organization"
+        ] is not True
+        or protection["secret_names"]
+        != [
+            "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY",
+            "SCANALYZE_LIVE_INPUT_BUNDLE_B64",
+        ]
     ):
         raise GitHubDeploymentIdentityError("environment protection is insufficient")
     reviewers = protection["required_reviewers"]
     initiator = protection["initiator_login"].casefold()
-    if not reviewers or any(
+    if len(reviewers) != 1 or any(
         reviewer["login"].casefold() == initiator for reviewer in reviewers
     ):
         raise GitHubDeploymentIdentityError("independent reviewer is required")
+    reviewer = reviewers[0]
+    if reviewer["type"] != "User":
+        raise GitHubDeploymentIdentityError("independent reviewer is required")
+    orchestrator_match = ROLE_ARN.fullmatch(identity["oidc"]["orchestrator_role_arn"])
+    if orchestrator_match is None:
+        raise GitHubDeploymentIdentityError("environment variable binding mismatch")
     expected_variables = {
         "CUSTOMER_ID": identity["customer_id"],
         "DEPLOYMENT_ID": identity["deployment_id"],
@@ -393,9 +430,88 @@ def _validate_environment(identity: dict[str, Any]) -> None:
         "OIDC_ORCHESTRATOR_ROLE_ARN": identity["oidc"][
             "orchestrator_role_arn"
         ],
+        "ORCHESTRATOR_ROLE_ARN": identity["oidc"]["orchestrator_role_arn"],
+        "GENERIC_PLAN_ROLE_ARN": identity["terminal_roles"]["plan"]["role_arn"],
+        "GENERIC_APPLY_ROLE_ARN": identity["terminal_roles"]["apply"]["role_arn"],
+        "IDENTITY_PLAN_ROLE_ARN": identity["terminal_roles"]["identity_plan"][
+            "role_arn"
+        ],
+        "IDENTITY_APPLY_ROLE_ARN": identity["terminal_roles"]["identity_apply"][
+            "role_arn"
+        ],
+        "PLATFORM_AUTHORITY_ACCOUNT_ID": orchestrator_match.group("account"),
+        "REPOSITORY_ID": identity["repository"]["repository_id"],
+        "REPOSITORY_OWNER_ID": identity["repository"]["owner_id"],
+        "SECOND_P0_REVIEWER_ID": reviewer["id"],
+        "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": identity["collector_authority"][
+            "app_id"
+        ],
     }
     if protection["variables"] != expected_variables:
         raise GitHubDeploymentIdentityError("environment variable binding mismatch")
+    variable_inventory_fields = (
+        "repository_variables",
+        "effective_organization_variables",
+    )
+    for field in variable_inventory_fields:
+        variables = protection[field]
+        names = list(variables)
+        if (
+            names != sorted(names)
+            or len({name.casefold() for name in names}) != len(names)
+            or not all(isinstance(value, str) for value in variables.values())
+        ):
+            raise GitHubDeploymentIdentityError(
+                "environment variable inventory is not canonical"
+            )
+    secret_inventory_fields = (
+        "repository_secret_names",
+        "effective_organization_secret_names",
+    )
+    for field in secret_inventory_fields:
+        names = protection[field]
+        if (
+            names != sorted(names)
+            or len({name.casefold() for name in names}) != len(names)
+        ):
+            raise GitHubDeploymentIdentityError(
+                "environment inventory is not canonical"
+            )
+    reserved_variables = {name.casefold() for name in expected_variables}
+    reserved_secrets = {
+        name.casefold() for name in protection["secret_names"]
+    }
+    if any(
+        reserved_variables.intersection(
+            name.casefold() for name in protection[field]
+        )
+        for field in variable_inventory_fields
+    ) or any(
+        reserved_secrets.intersection(
+            name.casefold() for name in protection[field]
+        )
+        for field in secret_inventory_fields
+    ):
+        raise GitHubDeploymentIdentityError("reserved configuration collision")
+    collector = identity["collector_authority"]
+    if (
+        collector["authentication"] != "github_app_installation_token"
+        or collector["installation_verification"] != "github_app_jwt"
+        or collector["installation_account_id"] != identity["repository"]["owner_id"]
+        or collector["installation_account_login"].casefold()
+        != identity["repository"]["owner"].casefold()
+        or collector["repository_selection"] != "selected"
+        or collector["repository_ids"] != [identity["repository"]["repository_id"]]
+        or collector["permissions"]
+        != {
+            "actions": "read",
+            "environments": "read",
+            "metadata": "read",
+            "secrets": "read",
+            "variables": "read",
+        }
+    ):
+        raise GitHubDeploymentIdentityError("collector authority is not exact")
 
 
 def _parse_timestamp(value: object) -> datetime:
@@ -468,8 +584,10 @@ def _validate_terminal_roles(
             raise GitHubDeploymentIdentityError("terminal role account mismatch")
         if role["operation"] != expected_operation:
             raise GitHubDeploymentIdentityError("terminal role operation mismatch")
-        if role["max_session_duration_seconds"] != 900:
-            raise GitHubDeploymentIdentityError("terminal session is too long")
+        if role["max_session_duration_seconds"] != 3600:
+            raise GitHubDeploymentIdentityError(
+                "terminal session duration must be exactly 3600 seconds"
+            )
         if frozenset(role["required_session_tags"]) != EXPECTED_SESSION_TAGS:
             raise GitHubDeploymentIdentityError("terminal session tags are incomplete")
         if role["source_identity_pattern"] != (
@@ -914,6 +1032,25 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
         raise GitHubDeploymentIdentityError(
             "live release must be restricted to workflow_dispatch"
         )
+    dispatch_inputs = _workflow_trigger(caller_workflow)["workflow_dispatch"].get(
+        "inputs"
+    )
+    live_operation_input = (
+        dispatch_inputs.get("live_operation")
+        if isinstance(dispatch_inputs, dict)
+        else None
+    )
+    if (
+        not isinstance(live_operation_input, dict)
+        or live_operation_input.get("required") is not True
+        or live_operation_input.get("default") != "none"
+        or live_operation_input.get("type") != "choice"
+        or live_operation_input.get("options") != ["none", "plan", "apply"]
+        or "recover-stale" in json.dumps(caller_workflow)
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live release operation selector is not exact"
+        )
     caller = caller_workflow["jobs"]["live-layer"]
     if (
         caller.get("permissions") != LIVE_JOB_PERMISSIONS
@@ -939,6 +1076,8 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
             "execution_id": "${{ inputs.execution_id }}",
             "change_id": "${{ inputs.change_id }}",
             "plan_record_digest": "${{ inputs.plan_record_digest }}",
+            "reviewer_packet_digest": "${{ inputs.reviewer_packet_digest }}",
+            "live_input_claim_digest": "${{ inputs.live_input_claim_digest }}",
         }
     ):
         raise GitHubDeploymentIdentityError("live reusable-workflow caller is not exact")
@@ -955,10 +1094,13 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
             "DRY_RUN": "${{ inputs.dry_run }}",
             "EVENT_NAME": "${{ github.event_name }}",
             "GITHUB_ENVIRONMENT_INPUT": "${{ inputs.github_environment }}",
+            "LIVE_INPUT_CLAIM_DIGEST": "${{ inputs.live_input_claim_digest }}",
+            "LIVE_OPERATION": "${{ inputs.live_operation }}",
             "LOGICAL_ENVIRONMENT": "${{ inputs.logical_environment }}",
             "MAIN_SHA": "${{ inputs.main_sha }}",
             "REF_NAME": "${{ github.ref }}",
             "REF_PROTECTED": "${{ github.ref_protected }}",
+            "RUN_ATTEMPT": "${{ github.run_attempt }}",
             "RUN_SHA": "${{ github.sha }}",
         }.items()
     ):
@@ -975,7 +1117,10 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
             '"$LOGICAL_ENVIRONMENT" != "dev"',
             '"$REF_NAME" != "refs/heads/main"',
             '"$REF_PROTECTED" != "true"',
+            '"$RUN_ATTEMPT" != "1"',
             '"$RUN_SHA" != "$MAIN_SHA"',
+            'plan|apply) ;;',
+            '! "$LIVE_INPUT_CLAIM_DIGEST" =~ ^sha256:[0-9a-f]{64}$',
             '! "$DEPLOYMENT_ID" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$',
             '"$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev"',
         ),
@@ -988,103 +1133,430 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
         raise GitHubDeploymentIdentityError(
             "live layer must be restricted to workflow_call"
         )
-    live_input_gate = reusable_workflow["jobs"].get("live_input_gate")
-    if not isinstance(live_input_gate, dict):
+    reusable_jobs = reusable_workflow.get("jobs")
+    if not isinstance(reusable_jobs, dict):
+        raise GitHubDeploymentIdentityError("live layer jobs are invalid")
+    if set(reusable_jobs) != {
+        "mode_boundary",
+        "offline_validation",
+        "live_saved_plan",
+    }:
         raise GitHubDeploymentIdentityError(
-            "live input materializer gate is not unprivileged"
+            "a second protected or privileged live path is forbidden"
         )
-    if (
-        set(live_input_gate)
+    reusable = reusable_jobs.get("live_saved_plan")
+    if not isinstance(reusable, dict) or (
+        set(reusable)
         != {
             "name",
             "needs",
             "if",
             "runs-on",
             "timeout-minutes",
+            "environment",
             "permissions",
+            "env",
             "steps",
         }
-        or live_input_gate.get("name") != "Require proven typed live inputs"
-        or live_input_gate.get("needs") != "mode_boundary"
-        or live_input_gate.get("if")
-        != "${{ inputs.allow_live && !inputs.dry_run }}"
-        or live_input_gate.get("runs-on") != "ubuntu-24.04"
-        or live_input_gate.get("timeout-minutes") != 5
-        or live_input_gate.get("permissions") != {}
-    ):
-        raise GitHubDeploymentIdentityError(
-            "live input materializer gate is not unprivileged"
-        )
-    materializer_steps = live_input_gate.get("steps")
-    if not isinstance(materializer_steps, list) or len(materializer_steps) != 1:
-        raise GitHubDeploymentIdentityError(
-            "live input materializer gate is not a terminal denial"
-        )
-    materializer = materializer_steps[0]
-    if (
-        not isinstance(materializer, dict)
-        or set(materializer) != {"name", "run"}
-        or materializer.get("name")
-        != "Require a proven typed live-input materializer"
-    ):
-        raise GitHubDeploymentIdentityError(
-            "live input materializer gate is not a terminal denial"
-        )
-    materializer_script = materializer.get("run")
-    executable_lines = (
-        [
-            line.strip()
-            for line in materializer_script.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        if isinstance(materializer_script, str)
-        else []
-    )
-    if executable_lines != [
-        "set -euo pipefail",
-        'echo "::error::LIVE_INPUT_MATERIALIZATION_NOT_PROVEN"',
-        "exit 1",
-    ]:
-        raise GitHubDeploymentIdentityError(
-            "live input materializer gate is not a terminal denial"
-        )
-    reusable = reusable_workflow["jobs"]["live_saved_plan"]
-    if (
-        reusable.get("permissions") != LIVE_JOB_PERMISSIONS
-        or reusable.get("needs") != ["mode_boundary", "live_input_gate"]
+        or reusable.get("name")
+        != "Protected non-production saved-plan phase"
+        or reusable.get("needs") != "mode_boundary"
         or reusable.get("if") != "${{ inputs.allow_live && !inputs.dry_run }}"
+        or reusable.get("runs-on") != "ubuntu-24.04"
+        or reusable.get("timeout-minutes") != 45
         or reusable.get("environment")
         != {"name": "${{ inputs.github_environment }}"}
+        or reusable.get("permissions") != LIVE_JOB_PERMISSIONS
     ):
-        raise GitHubDeploymentIdentityError("live saved-plan job boundary is not exact")
-    steps = reusable.get("steps", [])
+        raise GitHubDeploymentIdentityError(
+            "live saved-plan job boundary is not exact"
+        )
+    live_job_env = reusable.get("env")
+    if not isinstance(live_job_env, dict) or (
+        live_job_env.get("SCANALYZE_ROLE_DURATION_SECONDS") != "3600"
+        or live_job_env.get("SCANALYZE_OIDC_AUDIENCE") != "sts.amazonaws.com"
+        or live_job_env.get("SCANALYZE_ALLOW_LIVE") != "true"
+        or live_job_env.get("SCANALYZE_DRY_RUN") != "false"
+    ):
+        raise GitHubDeploymentIdentityError("live job environment is not exact")
+
+    steps = reusable.get("steps")
+    expected_step_names = [
+        "Validate protected Environment bindings before OIDC",
+        "Check out exact source",
+        "Set up Python",
+        "Install pre-OIDC evidence dependencies",
+        "Create scoped GitHub App inventory token",
+        "Materialize and compare live inputs twice before OIDC",
+        "Materialize exact GitHub approval for apply",
+        "Validate exact GitHub approval for apply",
+        "Revoke GitHub App evidence token before OIDC",
+        "Set up Terraform after pre-OIDC evidence gates",
+        "Install live-engine dependencies after pre-OIDC evidence gates",
+        "Acquire exact platform-authority OIDC session",
+        "Execute the exact protected saved-plan phase",
+        "Publish sanitized saved-plan reviewer packet",
+        "Remove private live inputs",
+    ]
+    if not isinstance(steps, list) or [
+        step.get("name") if isinstance(step, dict) else None for step in steps
+    ] != expected_step_names:
+        raise GitHubDeploymentIdentityError("live saved-plan steps are incomplete")
     for step in steps:
-        if not isinstance(step, dict):
-            raise GitHubDeploymentIdentityError("repository workflow job is invalid")
+        if not isinstance(step, dict) or step.get("continue-on-error") is not None:
+            raise GitHubDeploymentIdentityError("live workflow step is invalid")
         action = step.get("uses")
         if (
             isinstance(action, str)
             and not action.startswith("./")
             and not FULL_LENGTH_ACTION_REF.fullmatch(action)
         ):
-            raise GitHubDeploymentIdentityError("live workflow action is not SHA-pinned")
+            raise GitHubDeploymentIdentityError(
+                "live workflow action is not SHA-pinned"
+            )
+
+    preflight = _named_step(
+        reusable, "Validate protected Environment bindings before OIDC"
+    )
+    if preflight.get("env", {}).get(
+        "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID"
+    ) != "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}":
+        raise GitHubDeploymentIdentityError("live App identity is not protected")
+    _require_shell_markers(
+        preflight,
+        (
+            "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID",
+            '! "$GITHUB_ENVIRONMENT_COLLECTOR_APP_ID" =~ ^[1-9][0-9]*$',
+            '"$REPOSITORY_ID" != "${GITHUB_REPOSITORY_ID}"',
+            '"$REPOSITORY_OWNER_ID" != "${GITHUB_REPOSITORY_OWNER_ID}"',
+        ),
+    )
+    evidence_install = _named_step(
+        reusable, "Install pre-OIDC evidence dependencies"
+    )
+    _require_shell_markers(
+        evidence_install,
+        ("cryptography==48.0.1", "jsonschema==4.26.0", "pyyaml==6.0.2"),
+    )
+    github_app_token = _named_step(
+        reusable, "Create scoped GitHub App inventory token"
+    )
+    github_app_inputs = github_app_token.get("with")
+    if (
+        set(github_app_token) != {"name", "id", "uses", "with"}
+        or github_app_token.get("id") != "github_app_token"
+        or github_app_token.get("uses") != GITHUB_APP_TOKEN_ACTION
+        or not isinstance(github_app_inputs, dict)
+        or any(key.startswith("permission-") for key in github_app_inputs)
+        or github_app_inputs
+        != {
+            "app-id": "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}",
+            "private-key": GITHUB_APP_PRIVATE_KEY_INPUT,
+            "owner": "${{ github.repository_owner }}",
+            "repositories": "${{ github.event.repository.name }}",
+            "skip-token-revoke": True,
+        }
+    ):
+        raise GitHubDeploymentIdentityError(
+            "GitHub App inventory token step is not exact"
+        )
+
+    rematerializer = _named_step(
+        reusable, "Materialize and compare live inputs twice before OIDC"
+    )
+    if (
+        set(rematerializer) != {"name", "id", "env", "run"}
+        or rematerializer.get("id") != "rematerialize"
+        or rematerializer.get("env")
+        != {
+            "DEPLOYMENT_ID": "${{ inputs.deployment_id }}",
+            "EXPECTED_APPLY_ROLE_ARN": "${{ vars.GENERIC_APPLY_ROLE_ARN }}",
+            "EXPECTED_DESTINATION_ACCOUNT_ID": "${{ vars.AWS_ACCOUNT_ID }}",
+            "EXPECTED_IDENTITY_APPLY_ROLE_ARN": (
+                "${{ vars.IDENTITY_APPLY_ROLE_ARN }}"
+            ),
+            "EXPECTED_IDENTITY_PLAN_ROLE_ARN": (
+                "${{ vars.IDENTITY_PLAN_ROLE_ARN }}"
+            ),
+            "EXPECTED_ORCHESTRATOR_ROLE_ARN": (
+                "${{ vars.ORCHESTRATOR_ROLE_ARN }}"
+            ),
+            "EXPECTED_PLAN_ROLE_ARN": "${{ vars.GENERIC_PLAN_ROLE_ARN }}",
+            "EXPECTED_PLATFORM_AUTHORITY_ACCOUNT_ID": (
+                "${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}"
+            ),
+            "EXPECTED_RELEASE_DIGEST": "${{ inputs.release_digest }}",
+            "EXPECTED_REPOSITORY_ID": "${{ vars.REPOSITORY_ID }}",
+            "EXPECTED_REPOSITORY_OWNER_ID": (
+                "${{ vars.REPOSITORY_OWNER_ID }}"
+            ),
+            "EXPECTED_REGION": "${{ inputs.aws_region }}",
+            "EXPECTED_APPROVER_USER_ID": (
+                "${{ vars.SECOND_P0_REVIEWER_ID }}"
+            ),
+            "GITHUB_APP_TOKEN": "${{ steps.github_app_token.outputs.token }}",
+            "LIVE_INPUT_CLAIM_DIGEST": (
+                "${{ inputs.live_input_claim_digest }}"
+            ),
+            "LIVE_OPERATION": "${{ inputs.live_operation }}",
+            "REQUEST_PATH": "${{ inputs.request_path }}",
+            "SCANALYZE_GITHUB_APP_ID": (
+                "${{ vars.GITHUB_ENVIRONMENT_COLLECTOR_APP_ID }}"
+            ),
+            "SCANALYZE_GITHUB_APP_INSTALLATION_ID": (
+                "${{ steps.github_app_token.outputs.installation-id }}"
+            ),
+            "SCANALYZE_GITHUB_APP_PRIVATE_KEY": (
+                GITHUB_APP_PRIVATE_KEY_INPUT
+            ),
+            "SCANALYZE_GITHUB_APP_SLUG": (
+                "${{ steps.github_app_token.outputs.app-slug }}"
+            ),
+            "SCANALYZE_LIVE_INPUT_BUNDLE_B64": (
+                "${{ secrets.SCANALYZE_LIVE_INPUT_BUNDLE_B64 }}"
+            ),
+            "TARGET_LAYER": "${{ inputs.layer }}",
+        }
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live input double materializer is not exact"
+        )
+    _require_shell_markers(
+        rematerializer,
+        (
+            'first_root="$RUNNER_TEMP/scanalyze-live-inputs-first"',
+            'private_root="$RUNNER_TEMP/scanalyze-live-inputs"',
+            'for root in "$first_root" "$private_root"; do',
+            'install -d -m 0700 "$root"',
+            'test -s "$first_root/sealed-request.json"',
+            'test -s "$private_root/sealed-request.json"',
+            "unset SCANALYZE_LIVE_INPUT_BUNDLE_B64",
+            "--token-env-name GITHUB_APP_TOKEN",
+            'materialize_pass "$first_root"',
+            'materialize_pass "$private_root"',
+            "SCANALYZE_GITHUB_APP_PRIVATE_KEY",
+            "unset \\",
+            'first_receipt="$first_root/materialized/receipt.json"',
+            'final_receipt="$private_root/materialized/receipt.json"',
+            "sealed_request_digest claim_digest approval_authority_digest; do",
+            '"$first_value" != "$final_value"',
+            '!= "$LIVE_INPUT_CLAIM_DIGEST"',
+            "receipt_digest=%s",
+            "expected_approver_user_id=%s",
+            "github_environment_anchor_digest=%s",
+            "approval_authority_digest=%s",
+            'rm -rf -- "$first_root"',
+        ),
+    )
+    rematerialize_script = rematerializer.get("run")
+    if (
+        not isinstance(rematerialize_script, str)
+        or rematerialize_script.count(
+            "nonprod-live-input-materializer.py stage"
+        )
+        != 2
+        or rematerialize_script.count('materialize_pass "$') != 2
+        or "GITHUB_TOKEN" in rematerialize_script
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live inputs are not independently materialized twice"
+        )
+
+    approval_condition = "${{ inputs.live_operation == 'apply' }}"
+    approval_materialize = _named_step(
+        reusable, "Materialize exact GitHub approval for apply"
+    )
+    approval_validate = _named_step(
+        reusable, "Validate exact GitHub approval for apply"
+    )
+    approval_materialize_env = {
+        "EXPECTED_APPROVER_USER_ID": (
+            "${{ steps.rematerialize.outputs.expected_approver_user_id }}"
+        ),
+        "GITHUB_ENVIRONMENT_ANCHOR_DIGEST": (
+            "${{ steps.rematerialize.outputs."
+            "github_environment_anchor_digest }}"
+        ),
+        "APPROVAL_AUTHORITY_DIGEST": (
+            "${{ steps.rematerialize.outputs.approval_authority_digest }}"
+        ),
+        GITHUB_APPROVAL_TOKEN_ENV: (
+            "${{ steps.github_app_token.outputs." + "token }}"
+        ),
+        "GITHUB_ENVIRONMENT_INPUT": "${{ inputs.github_environment }}",
+        "REVIEWER_PACKET_DIGEST": "${{ inputs.reviewer_packet_digest }}",
+        "WORKFLOW_SHA": "${{ inputs.main_sha }}",
+    }
+    approval_validate_env = dict(approval_materialize_env)
+    approval_validate_env.pop(GITHUB_APPROVAL_TOKEN_ENV)
+    if (
+        approval_materialize.get("if") != approval_condition
+        or approval_validate.get("if") != approval_condition
+        or approval_materialize.get("env") != approval_materialize_env
+        or approval_validate.get("env") != approval_validate_env
+    ):
+        raise GitHubDeploymentIdentityError(
+            "apply approval materialization is not exact"
+        )
+    approval_markers = (
+        "scripts/deployment/nonprod-live-approval.py",
+        '--private-root "$RUNNER_TEMP/scanalyze-live-inputs"',
+        '--repository "$GITHUB_REPOSITORY"',
+        '--repository-id "$GITHUB_REPOSITORY_ID"',
+        '--workflow-sha "$WORKFLOW_SHA"',
+        '--run-id "$GITHUB_RUN_ID"',
+        '--run-attempt "$GITHUB_RUN_ATTEMPT"',
+        '--environment "$GITHUB_ENVIRONMENT_INPUT"',
+        '--reviewer-packet-digest "$REVIEWER_PACKET_DIGEST"',
+        '--apply-environment-anchor-digest "$GITHUB_ENVIRONMENT_ANCHOR_DIGEST"',
+        '--approval-authority-digest "$APPROVAL_AUTHORITY_DIGEST"',
+        '--initiator-user-id "$GITHUB_ACTOR_ID"',
+        '--expected-approver-user-id "$EXPECTED_APPROVER_USER_ID"',
+    )
+    _require_shell_markers(
+        approval_materialize,
+        (*approval_markers, "materialize", "unset " + GITHUB_APPROVAL_TOKEN_ENV),
+    )
+    _require_shell_markers(
+        approval_validate, (*approval_markers, "validate")
+    )
+
+    token_revoker = _named_step(
+        reusable, "Revoke GitHub App evidence token before OIDC"
+    )
+    if token_revoker.get("if") != "${{ always() }}" or token_revoker.get(
+        "env"
+    ) != {
+        GITHUB_APPROVAL_TOKEN_ENV: (
+            "${{ steps.github_app_token.outputs." + "token }}"
+        )
+    }:
+        raise GitHubDeploymentIdentityError(
+            "GitHub App evidence token revocation is not exact"
+        )
+    _require_shell_markers(
+        token_revoker,
+        (
+            'token = os.environ.pop("GH_TOKEN", "")',
+            '"DELETE"',
+            '"/installation/token"',
+            '"X-GitHub-Api-Version": "2026-03-10"',
+            "response.status != 204",
+            "unset " + GITHUB_APPROVAL_TOKEN_ENV,
+        ),
+    )
+
+    terraform_setup = _named_step(
+        reusable, "Set up Terraform after pre-OIDC evidence gates"
+    )
+    terraform_inputs = terraform_setup.get("with")
+    if not isinstance(terraform_inputs, dict):
+        raise GitHubDeploymentIdentityError("Terraform setup inputs are invalid")
+    if set(terraform_inputs) != {"terraform_version", "terraform_wrapper"}:
+        raise GitHubDeploymentIdentityError("Terraform setup inputs are incomplete")
+    if terraform_inputs["terraform_wrapper"] is not False:
+        raise GitHubDeploymentIdentityError("Terraform wrapper must remain disabled")
+    if terraform_inputs["terraform_version"] != "1." + "14.6":
+        raise GitHubDeploymentIdentityError("Terraform version is not exact")
+    live_dependencies = _named_step(
+        reusable, "Install live-engine dependencies after pre-OIDC evidence gates"
+    )
+    _require_shell_markers(
+        live_dependencies, ("python -m pip " + "install '.[test]'",)
+    )
     configure_indexes = [
         index
         for index, step in enumerate(steps)
-        if isinstance(step, dict) and step.get("uses") == LIVE_OIDC_ACTION
+        if step.get("uses") == LIVE_OIDC_ACTION
     ]
-    preflight_indexes = [
-        index
-        for index, step in enumerate(steps)
-        if isinstance(step, dict)
-        and step.get("name") == "Validate protected Environment bindings before OIDC"
-    ]
-    if (
-        len(configure_indexes) != 1
-        or len(preflight_indexes) != 1
-        or preflight_indexes[0] >= configure_indexes[0]
+    if configure_indexes != [11]:
+        raise GitHubDeploymentIdentityError(
+            "live OIDC preflight ordering is invalid"
+        )
+    controller = _named_step(
+        reusable, "Execute the exact protected saved-plan phase"
+    )
+    denied_controller_inputs = {
+        GITHUB_APPROVAL_TOKEN_ENV,
+        "GITHUB_APP_" + "TOKEN",
+        "SCANALYZE_GITHUB_APP_PRIVATE_KEY",
+        "SCANALYZE_LIVE_INPUT_BUNDLE_" + "B64",
+    }
+    if denied_controller_inputs.intersection(controller.get("env", {})):
+        raise GitHubDeploymentIdentityError(
+            "live controller received transport credentials"
+        )
+    if controller.get("env", {}).get("RECEIPT_DIGEST") != (
+        "${{ steps.rematerialize.outputs.receipt_digest }}"
     ):
-        raise GitHubDeploymentIdentityError("live OIDC preflight ordering is invalid")
+        raise GitHubDeploymentIdentityError(
+            "live controller did not receive the second action-time receipt"
+        )
+    controller_script = controller.get("run")
+    if not isinstance(controller_script, str) or "${{" in controller_script:
+        raise GitHubDeploymentIdentityError(
+            "live controller inputs bypass the environment"
+        )
+    _require_shell_markers(
+        controller,
+        (
+            'python scripts/deployment/nonprod-live-controller.py "$LIVE_OPERATION"',
+            '--private-root "$private_root"',
+            '--claim-digest "$LIVE_INPUT_CLAIM_DIGEST"',
+            '--receipt-digest "$RECEIPT_DIGEST"',
+            '--deployment-id "$DEPLOYMENT_ID"',
+            '--execution-id "$EXECUTION_ID"',
+            '--change-id "$CHANGE_ID"',
+            '--layer "$TARGET_LAYER"',
+            '--main-sha "$MAIN_SHA"',
+            '--region "$AWS_REGION"',
+            '--expected-approver-user-id "$EXPECTED_APPROVER_USER_ID"',
+        ),
+    )
+    cleanup = _named_step(reusable, "Remove private live inputs")
+    if cleanup.get("if") != "${{ always() }}" or cleanup.get("env") != {
+        "FIRST_PRIVATE_ROOT": (
+            "${{ runner.temp }}/scanalyze-live-inputs-first"
+        ),
+        "PRIVATE_ROOT": "${{ runner.temp }}/scanalyze-live-inputs",
+    }:
+        raise GitHubDeploymentIdentityError(
+            "private live-input cleanup is not exact"
+        )
+    _require_shell_markers(
+        cleanup,
+        (
+            '"$FIRST_PRIVATE_ROOT" != "$RUNNER_TEMP/scanalyze-live-inputs-first"',
+            '"$PRIVATE_ROOT" != "$RUNNER_TEMP/scanalyze-live-inputs"',
+            'rm -rf -- "$FIRST_PRIVATE_ROOT" "$PRIVATE_ROOT"',
+        ),
+    )
+    serialized_steps = json.dumps(steps, sort_keys=True)
+    app_token_output = (
+        "${{ steps.github_app_token.outputs." + "token }}"
+    )
+    if (
+        serialized_steps.count(LIVE_BUNDLE_SECRET_INPUT) != 1
+        or serialized_steps.count(GITHUB_APP_PRIVATE_KEY_INPUT) != 2
+        or serialized_steps.count(GITHUB_WORKFLOW_TOKEN_INPUT) != 0
+        or serialized_steps.count(app_token_output) != 3
+    ):
+        raise GitHubDeploymentIdentityError(
+            "live transport credential surface is not exact"
+        )
+    app_token_consumers = [
+        step
+        for step in steps
+        if app_token_output in json.dumps(step, sort_keys=True)
+    ]
+    if app_token_consumers != [
+        rematerializer,
+        approval_materialize,
+        token_revoker,
+    ]:
+        raise GitHubDeploymentIdentityError(
+            "GitHub App token escaped the inventory, approval, and revocation gates"
+        )
 
     mode_gate = _named_step(
         reusable_workflow["jobs"]["mode_boundary"],
@@ -1102,6 +1574,7 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
             "MAIN_SHA": "${{ inputs.main_sha }}",
             "REF_NAME": "${{ github.ref }}",
             "REF_PROTECTED": "${{ github.ref_protected }}",
+            "RUN_ATTEMPT": "${{ github.run_attempt }}",
             "RUN_SHA": "${{ github.sha }}",
         }.items()
     ):
@@ -1113,22 +1586,29 @@ def _validate_live_oidc_jobs(repo_root: Path) -> dict[str, list[str]]:
             '"$LOGICAL_ENVIRONMENT" != "dev"',
             '"$REF_NAME" != "refs/heads/main"',
             '"$REF_PROTECTED" != "true"',
+            '"$RUN_ATTEMPT" != "1"',
             '"$RUN_SHA" != "$MAIN_SHA"',
+            'plan|apply) ;;',
             '"$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev"',
         ),
     )
+    if "recover-stale" in json.dumps(reusable_workflow):
+        raise GitHubDeploymentIdentityError(
+            "stale recovery must not bypass the sole protected live job"
+        )
     configure = steps[configure_indexes[0]]
     if configure.get("with") != {
         "audience": "sts.amazonaws.com",
         "aws-region": "${{ inputs.aws_region }}",
         "allowed-account-ids": "${{ vars.PLATFORM_AUTHORITY_ACCOUNT_ID }}",
         "mask-aws-account-id": True,
-        "role-duration-seconds": 900,
+        "role-duration-seconds": 3600,
         "role-session-name": "scanalyze-${{ github.run_id }}-${{ github.run_attempt }}",
         "role-to-assume": "${{ vars.ORCHESTRATOR_ROLE_ARN }}",
         "unset-current-credentials": True,
     }:
         raise GitHubDeploymentIdentityError("live OIDC configuration is not exact")
+
     return observed
 
 

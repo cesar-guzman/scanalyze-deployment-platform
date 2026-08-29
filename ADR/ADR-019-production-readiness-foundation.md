@@ -11,11 +11,13 @@
 
 ## Context
 
-The repository has an implemented and locally validated dry-run orchestration
-graph, accepted monorepo and GitHub governance decisions, and substantial draft
-design work for state, identity, contracts, supply chain, recovery, and DR. It
-does not have a live Terraform execution engine, complete terminal IAM roles,
-live SSM contracts, an approved remote backend, or production evidence.
+The repository has an implemented and locally validated dry-run graph plus a
+repository candidate for one protected DEV saved-plan path: sealed private
+materialization, exact Plan/Apply bindings, terminal IAM boundaries, live SSM
+contract I/O adapters, and a remote-backend contract. No connected run,
+deployment evidence, or production evidence has been produced. The real
+post-apply health, contract-publication, and reconciliation adapters are not
+wired into the protected workflow, so the candidate remains fail-closed.
 
 Phase 0 must make the implementation boundary unambiguous without upgrading
 local or documentary evidence into AWS evidence. It must also reconcile several
@@ -77,9 +79,12 @@ unproven binding stops before OIDC or any mutation is requested.
 
 ### 3. Current architecture and target architecture remain distinct
 
-Current executable state is limited to repository validation, CI validation,
-and dry-run orchestration. The current GitHub Terraform workflow rejects live
-execution. No document in Phase 0 enables AWS access.
+Current executable repository state includes dry-run orchestration and exactly
+one protected live job, `live_saved_plan`, for separately dispatched DEV Plan
+or Apply phases. It is the only job with a deployment Environment and
+`id-token: write`; every other Terraform route remains non-OIDC. This is a
+repository candidate only: no connected DEV execution or production
+authorization is implied.
 
 The target live path is:
 
@@ -114,9 +119,12 @@ stage graph.
 - **Diagnostic** and **StateRecovery** are incident identities, never alternate
   deployment identities.
 
-Approving an earlier job does not delegate authority to a later job. Each
-privileged job targets and revalidates the same protected deployment
-Environment before requesting its own short-lived authority.
+Plan and Apply are separate workflow dispatches/runs, not two steps whose
+authority can flow through one run. Each enters the same deployment-scoped
+Environment through the sole `live_saved_plan` job, revalidates the immutable
+execution binding, and requests its own short-lived terminal authority. Apply
+also requires an independent, append-only approval bound to the exact saved
+plan and reviewer packet.
 
 ### 5. Exact saved-plan policy
 
@@ -130,16 +138,24 @@ The plan is invalid after any relevant state, contract, release, identity,
 policy, approval, or expiry change. Apply must not re-plan. A mismatch produces
 a new plan and a new approval; it is never waived in place.
 
-Ephemeral saved plans and plan JSON belong in the encrypted,
-access-controlled `plan-execution/` prefix of the evidence store, with short
-retention and no default Object Lock. Durable evidence is a separate immutable
-prefix and stores only sanitized metadata and digests. Saved plans do not belong
-in the state bucket, GitHub artifacts, Git, Linear, or NotebookLM.
+The saved-plan binary belongs in the encrypted, versioned `plan-execution/`
+prefix of the dedicated tf-plan bucket. Its record binds exact bucket, key,
+VersionId, SHA-256, and size plus the exact state bucket/key and
+VersionId/hash/size observed before and after Plan. Raw plan JSON exists only in
+mode-0600 private scratch for bounded semantic inspection and is deleted after
+the sanitized action manifest is derived. The binary is never deleted by the
+controller; current and noncurrent versions expire only through the one-day
+bucket lifecycle. Durable evidence remains a separate immutable store for
+sanitized records only. Saved plans do not belong in the state or evidence
+buckets, GitHub artifacts, Git, Linear, or NotebookLM.
 
-This placement refines conflicting text in ADR-003. No live data migration is
-required because the live saved-plan path is not implemented. Phase 4 must make
-the policy, bucket configuration, lifecycle, and permissions consistent before
-Phase 7 may create a live plan.
+This placement refines conflicting text in ADR-003 and adopts its four-bucket
+rev4 inventory: state, tf-plan, evidence, and contracts. The repository now
+contains a protected saved-plan materializer/controller path, but no connected
+live plan or data migration has been proven. The core post-apply state machine
+is implemented, but its real health, contract-publication, and reconciliation
+workflow adapters remain unwired. Connected DEV and production therefore remain
+NO-GO.
 
 ### 6. Build once and promote; production never rebuilds
 

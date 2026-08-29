@@ -19,6 +19,7 @@ from tooling.nonprod_live_engine import (
     PLAN_BINDING_FIELDS,
     TERRAFORM_LAYERS,
     authorize_saved_plan_apply,
+    derive_approval_authority_digest,
     prepare_ledger_transition,
     require_terminal_role_for_layer,
 )
@@ -51,6 +52,7 @@ CONTEXT_BODY_FIELDS = (
     "repository_owner_id",
     "repository_id",
     "workflow_run_id",
+    "workflow_run_attempt",
     "initiator_user_id",
     "customer_id",
     "deployment_id",
@@ -66,6 +68,9 @@ CONTEXT_BODY_FIELDS = (
     "source_revision_digest",
     "github_deployment_identity_digest",
     "environment_configuration_digest",
+    "github_environment_anchor_digest",
+    "expected_approver_user_id",
+    "approval_authority_digest",
     "platform_authority_digest",
     "registry_record_digest",
     "account_ready_digest",
@@ -73,7 +78,8 @@ CONTEXT_BODY_FIELDS = (
     "plan_role_arn",
     "apply_role_arn",
     "oidc_audience",
-    "session_duration_seconds",
+    "control_plane_session_duration_seconds",
+    "terminal_session_duration_seconds",
 )
 CONTEXT_FIELDS = frozenset(
     (
@@ -168,9 +174,13 @@ def _validate_context_body(context: Mapping[str, Any]) -> None:
         "repository_owner_id",
         "repository_id",
         "workflow_run_id",
+        "workflow_run_attempt",
         "initiator_user_id",
+        "expected_approver_user_id",
     ):
         _require_positive_integer(context.get(field), field)
+    if context.get("workflow_run_attempt") != 1:
+        raise AuthorizationError("live orchestration requires workflow run attempt 1")
 
     identifiers = {
         "customer_id": CUSTOMER_ID,
@@ -215,11 +225,24 @@ def _validate_context_body(context: Mapping[str, Any]) -> None:
         "source_revision_digest",
         "github_deployment_identity_digest",
         "environment_configuration_digest",
+        "github_environment_anchor_digest",
+        "approval_authority_digest",
         "platform_authority_digest",
         "registry_record_digest",
         "account_ready_digest",
     ):
         _require_digest(context.get(field), field)
+    if context.get("approval_authority_digest") != derive_approval_authority_digest(
+        github_environment=context["github_environment"],
+        expected_approver_user_id=context["expected_approver_user_id"],
+        github_deployment_identity_digest=context[
+            "github_deployment_identity_digest"
+        ],
+        environment_configuration_digest=context[
+            "environment_configuration_digest"
+        ],
+    ):
+        raise AuthorizationError("approval authority is not sealed to the reviewer")
     if context.get("source_revision_digest") != derive_source_revision_digest(
         workflow_sha
     ):
@@ -241,8 +264,14 @@ def _validate_context_body(context: Mapping[str, Any]) -> None:
         raise AuthorizationError("Apply terminal role binding is invalid")
     if context.get("oidc_audience") != "sts.amazonaws.com":
         raise AuthorizationError("OIDC audience is invalid")
-    if context.get("session_duration_seconds") != 900:
-        raise AuthorizationError("live role session duration must be exactly 900 seconds")
+    if context.get("control_plane_session_duration_seconds") != 3600:
+        raise AuthorizationError(
+            "control-plane session duration must be exactly 3600 seconds"
+        )
+    if context.get("terminal_session_duration_seconds") != 3600:
+        raise AuthorizationError(
+            "terminal session duration must be exactly 3600 seconds"
+        )
 
 
 def _validate_live_context(context: Mapping[str, Any]) -> None:
@@ -273,6 +302,7 @@ def build_live_context(
     repository_owner_id: int,
     repository_id: int,
     workflow_run_id: int,
+    workflow_run_attempt: int,
     initiator_user_id: int,
     customer_id: str,
     deployment_id: str,
@@ -288,6 +318,9 @@ def build_live_context(
     source_revision_digest: str,
     github_deployment_identity_digest: str,
     environment_configuration_digest: str,
+    github_environment_anchor_digest: str,
+    expected_approver_user_id: int,
+    approval_authority_digest: str,
     platform_authority_digest: str,
     registry_record_digest: str,
     account_ready_digest: str,
@@ -295,7 +328,8 @@ def build_live_context(
     plan_role_arn: str,
     apply_role_arn: str,
     oidc_audience: str,
-    session_duration_seconds: int,
+    control_plane_session_duration_seconds: int,
+    terminal_session_duration_seconds: int,
 ) -> dict[str, Any]:
     """Authorize one exact, protected, deployment-bound live ``dev`` context."""
     context: dict[str, Any] = {
@@ -333,6 +367,8 @@ def _validate_expected_bindings(
         "environment_configuration_digest": context[
             "environment_configuration_digest"
         ],
+        "expected_approver_user_id": context["expected_approver_user_id"],
+        "approval_authority_digest": context["approval_authority_digest"],
         "platform_authority_digest": context["platform_authority_digest"],
         "registry_record_digest": context["registry_record_digest"],
         "account_ready_digest": context["account_ready_digest"],
@@ -349,15 +385,28 @@ def _validate_expected_bindings(
         release_version
     ):
         raise AuthorizationError("saved-plan release version is invalid")
+    state_status = expected_bindings.get("state_status")
     state_lineage = expected_bindings.get("state_lineage")
-    if (
-        not isinstance(state_lineage, str)
-        or not re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$", state_lineage)
-    ):
-        raise AuthorizationError("saved-plan state lineage is invalid")
     state_serial = expected_bindings.get("state_serial")
-    if isinstance(state_serial, bool) or not isinstance(state_serial, int) or state_serial < 0:
-        raise AuthorizationError("saved-plan state serial is invalid")
+    if state_status == "PRESENT":
+        if (
+            not isinstance(state_lineage, str)
+            or not re.fullmatch(
+                r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$", state_lineage
+            )
+        ):
+            raise AuthorizationError("saved-plan present state lineage is invalid")
+        if (
+            isinstance(state_serial, bool)
+            or not isinstance(state_serial, int)
+            or state_serial < 0
+        ):
+            raise AuthorizationError("saved-plan present state serial is invalid")
+    elif state_status == "ABSENT":
+        if state_lineage is not None or state_serial is not None:
+            raise AuthorizationError("saved-plan absent state binding is invalid")
+    else:
+        raise AuthorizationError("saved-plan state status is invalid")
 
 
 def _absolute_path(value: object, label: str, *, directory: bool = False) -> str:
@@ -453,6 +502,7 @@ def build_plan_intent(
         "allowed": True,
         "code": "EXACT_SAVED_PLAN_REQUIRED",
         "context_digest": context["context_digest"],
+        "workflow_run_attempt": context["workflow_run_attempt"],
         "binding_digest": canonical_digest(dict(expected_bindings)),
         "expected_terminal_role_arn": expected_role,
         "expected_source_sha": context["workflow_sha"],
@@ -580,11 +630,17 @@ def _validate_approval_run_binding(
         "workflow_ref": context["workflow_ref"],
         "workflow_sha": context["workflow_sha"],
         "workflow_run_id": context["workflow_run_id"],
+        "workflow_run_attempt": context["workflow_run_attempt"],
         "github_environment": context["github_environment"],
         "environment_configuration_digest": context[
             "environment_configuration_digest"
         ],
         "initiator_user_id": context["initiator_user_id"],
+        "expected_approver_user_id": context["expected_approver_user_id"],
+        "apply_environment_anchor_digest": context[
+            "github_environment_anchor_digest"
+        ],
+        "approval_authority_digest": context["approval_authority_digest"],
     }
     if any(approval_record.get(field) != value for field, value in expected.items()):
         raise AuthorizationError("saved-plan approval is not bound to the current run")
@@ -647,6 +703,7 @@ def build_apply_intent(
         "code": "EXACT_SAVED_PLAN_APPLY_AUTHORIZED",
         "authorized_at": _timestamp(now),
         "context_digest": context["context_digest"],
+        "workflow_run_attempt": context["workflow_run_attempt"],
         "plan_record_digest": plan_record["record_digest"],
         "approval_digest": approval_record["approval_digest"],
         "approved_ledger_digest": ledger["ledger_digest"],
@@ -704,6 +761,7 @@ def validate_apply_intent(
         or intent.get("allowed") is not True
         or intent.get("code") != "EXACT_SAVED_PLAN_APPLY_AUTHORIZED"
         or intent.get("context_digest") != context["context_digest"]
+        or intent.get("workflow_run_attempt") != context["workflow_run_attempt"]
         or intent.get("plan_record_digest") != plan_record.get("record_digest")
         or intent.get("approval_digest") != approval_record.get("approval_digest")
         or intent.get("approved_ledger_digest") != approved_ledger.get("ledger_digest")

@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Scanalyze content-addressed terminal-role companion for the ACCOUNT_READY v2 destination
   baseline.
 Metadata:
-  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:d8bf3b47f85522031fd4409dd602e5d98e8d25026e6f5f40737a24b4a88b9a55',
+  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:79634f20c3dafcdd861d853f7f193e28ad3a1016af13886b3d5eb957907c022c',
     Ownership: external-account-baseline}
 Parameters:
   CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
@@ -12,6 +12,7 @@ Parameters:
     Type: String
     AllowedValues: [sandbox, dev, staging, production]
   StateBucketArn: {Type: String, AllowedPattern: '^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9.-]+-tf-state$'}
+  PlanBucketArn: {Type: String, AllowedPattern: '^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9.-]+-tf-plan$'}
   EvidenceBucketArn: {Type: String, AllowedPattern: '^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9.-]+-tf-evidence$'}
   ContractsBucketArn: {Type: String, AllowedPattern: '^arn:aws(?:-[a-z]+)*:s3:::[a-z0-9.-]+-contracts$'}
   StateKmsKeyArn: {Type: String, AllowedPattern: '^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:[0-9]{12}:key/.+$'}
@@ -32,7 +33,7 @@ Resources:
         Statement:
         - Sid: ListRegionalState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals:
@@ -62,7 +63,7 @@ Resources:
                 addons]
         - Sid: ListGlobalState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals:
@@ -88,8 +89,8 @@ Resources:
               aws:PrincipalTag/layer: [global, edge]
         - Sid: WriteOwnSavedPlan
           Effect: Allow
-          Action: s3:PutObject
-          Resource: !Sub '${StateBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan'
+          Action: ['s3:GetObject', 's3:PutObject']
+          Resource: !Sub '${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': plan}
         - Sid: ReadContracts
@@ -131,6 +132,17 @@ Resources:
           Resource: [!Sub '${StateKmsKeyArn}', !Sub '${ContractsKmsKeyArn}']
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': plan}
+        - Sid: EncryptExactSavedPlan
+          Effect: Allow
+          Action: ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey']
+          Resource: !Sub '${EvidenceKmsKeyArn}'
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer: [global, network, platform, data-foundation, cicd, services, edge-identity,
+                edge, addons]
+              kms:ViaService: !Sub 's3.${AWS::Region}.${AWS::URLSuffix}'
+              kms:EncryptionContext:aws:s3:arn: !Sub '${PlanBucketArn}'
         - {Sid: DenyTerminalRoleChaining, Effect: Deny, Action: 'sts:AssumeRole', Resource: '*'}
   IdentityPlanPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -141,7 +153,7 @@ Resources:
         Statement:
         - Sid: ListIdentityState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': plan, 'aws:PrincipalTag/layer': identity-control-plane}
@@ -158,17 +170,27 @@ Resources:
           Resource: !Sub '${StateBucketArn}/${DeploymentId}/${AWS::Region}/identity-control-plane/terraform.tfstate.tflock'
         - Sid: WriteIdentityPlanExecutionZone
           Effect: Allow
-          Action: ['s3:PutObject']
-          Resource: !Sub '${StateBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan'
+          Action: ['s3:GetObject', 's3:PutObject']
+          Resource: !Sub '${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': plan, 'aws:PrincipalTag/layer': identity-control-plane}
         - Sid: UseStateKeyForIdentityPlan
           Effect: Allow
           Action: ['kms:Decrypt', 'kms:DescribeKey', 'kms:Encrypt', 'kms:GenerateDataKey']
-          Resource: !Sub '${StateKmsKeyArn}'
+          Resource: [!Sub '${StateKmsKeyArn}']
+        - Sid: EncryptExactIdentitySavedPlan
+          Effect: Allow
+          Action: ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey']
+          Resource: !Sub '${EvidenceKmsKeyArn}'
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer: identity-control-plane
+              kms:ViaService: !Sub 's3.${AWS::Region}.${AWS::URLSuffix}'
+              kms:EncryptionContext:aws:s3:arn: !Sub '${PlanBucketArn}'
         - Sid: ReadIdentityContractsAndArtifacts
           Effect: Allow
-          Action: ['s3:GetObject', 'ssm:GetParameter', 'ssm:GetParameters']
+          Action: ['s3:GetObject', 'ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath']
           Resource: [!Sub '${ContractsBucketArn}/${DeploymentId}/identity-control-plane/*', !Sub 'arn:${AWS::Partition}:s3:::scanalyze-shared-releases/*',
             !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/*']
         - Sid: ReadDeploymentIdentityResources
@@ -407,7 +429,7 @@ Resources:
         Statement:
         - Sid: ListRegionalState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals:
@@ -437,7 +459,7 @@ Resources:
                 addons]
         - Sid: ListGlobalState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals:
@@ -464,9 +486,26 @@ Resources:
         - Sid: ReadOwnSavedPlanVersion
           Effect: Allow
           Action: s3:GetObjectVersion
-          Resource: !Sub '${StateBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan'
+          Resource: !Sub '${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': apply}
+        - Sid: WriteOwnContractParameters
+          Effect: Allow
+          Action: ['ssm:AddTagsToResource', 'ssm:ListTagsForResource', 'ssm:PutParameter']
+          Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/${!aws:PrincipalTag/layer}/*'
+          Condition:
+            StringEquals: {'aws:PrincipalTag/operation': apply}
+        - Sid: ReadSavedPlanKey
+          Effect: Allow
+          Action: kms:Decrypt
+          Resource: !Sub '${EvidenceKmsKeyArn}'
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: [global, network, platform, data-foundation, cicd, services, edge-identity,
+                edge, addons]
+              kms:ViaService: !Sub 's3.${AWS::Region}.${AWS::URLSuffix}'
+              kms:EncryptionContext:aws:s3:arn: !Sub '${PlanBucketArn}'
         - Sid: ReadContracts
           Effect: Allow
           Action: ['s3:GetObject', 's3:GetObjectVersion']
@@ -733,7 +772,7 @@ Resources:
         Statement:
         - Sid: ListIdentityState
           Effect: Allow
-          Action: s3:ListBucket
+          Action: ['s3:ListBucket', 's3:ListBucketVersions']
           Resource: !Sub '${StateBucketArn}'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': identity-control-plane}
@@ -751,7 +790,7 @@ Resources:
         - Sid: ReadIdentityPlanExecutionZone
           Effect: Allow
           Action: ['s3:GetObjectVersion']
-          Resource: !Sub '${StateBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan'
+          Resource: !Sub '${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/identity-control-plane/plan.tfplan'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': identity-control-plane}
         - Sid: ReadApprovedArtifacts
@@ -760,7 +799,7 @@ Resources:
           Resource: !Sub 'arn:${AWS::Partition}:s3:::scanalyze-shared-releases/*'
         - Sid: PublishIdentityContract
           Effect: Allow
-          Action: ['s3:GetObject', 's3:PutObject', 'ssm:GetParameter', 'ssm:GetParameters', 'ssm:PutParameter']
+          Action: ['s3:GetObject', 's3:PutObject', 'ssm:AddTagsToResource', 'ssm:GetParameter', 'ssm:GetParameters', 'ssm:ListTagsForResource', 'ssm:PutParameter']
           Resource: [!Sub '${ContractsBucketArn}/${DeploymentId}/identity-control-plane/*', !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/identity-control-plane/*']
         - Sid: ReadPreprovisionedIdentityRuntimeRoles
           Effect: Allow
@@ -801,6 +840,16 @@ Resources:
           Effect: Allow
           Action: ['kms:Decrypt', 'kms:DescribeKey', 'kms:Encrypt', 'kms:GenerateDataKey']
           Resource: [!Sub '${StateKmsKeyArn}', !Sub '${ContractsKmsKeyArn}']
+        - Sid: ReadSavedPlanKey
+          Effect: Allow
+          Action: kms:Decrypt
+          Resource: !Sub '${EvidenceKmsKeyArn}'
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: identity-control-plane
+              kms:ViaService: !Sub 's3.${AWS::Region}.${AWS::URLSuffix}'
+              kms:EncryptionContext:aws:s3:arn: !Sub '${PlanBucketArn}'
   IdentityApplyResourcesPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -808,10 +857,6 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: ReadSavedPlanKey
-          Effect: Allow
-          Action: kms:Decrypt
-          Resource: !Sub '${StateKmsKeyArn}'
         - Sid: ManageIdentityFunctions
           Effect: Allow
           Action: ['lambda:CreateAlias', 'lambda:CreateFunction', 'lambda:GetAlias',
@@ -912,7 +957,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: AllowReviewedTerminalActions
+        - Sid: AllowActions
           Effect: Allow
           Action: ['acm:AddTagsToCertificate', 'acm:DescribeCertificate', 'acm:ListTagsForCertificate',
             'acm:RequestCertificate', 'apigateway:DELETE', 'apigateway:GET', 'apigateway:PATCH', 'apigateway:POST',
@@ -944,20 +989,20 @@ Resources:
             'elasticloadbalancing:ModifyListener', 'elasticloadbalancing:ModifyLoadBalancerAttributes',
             'elasticloadbalancing:ModifyTargetGroup', 'elasticloadbalancing:ModifyTargetGroupAttributes',
             'iam:Get*', 'iam:List*', 'kms:CreateAlias', 'kms:CreateGrant', 'kms:Decrypt',
-            'kms:Describe*', 'kms:DescribeKey', 'kms:EnableKeyRotation', 'kms:Encrypt', 'kms:GenerateDataKey',
+            'kms:Describe*', 'kms:EnableKeyRotation', 'kms:Encrypt', 'kms:GenerateDataKey',
             'kms:GetKeyPolicy', 'kms:GetKeyRotationStatus', 'kms:List*', 'kms:TagResource',
             'kms:UpdateAlias', 'logs:CreateLogGroup', 'logs:Describe*', 'logs:ListTagsForResource', 'logs:PutRetentionPolicy',
             'logs:TagResource', 'route53:ChangeResourceRecordSets', 'route53:Get*', 'route53:List*', 's3:CreateBucket',
             's3:DeleteObject', 's3:GetBucket*', 's3:GetObject', 's3:GetObjectVersion', 's3:ListAllMyBuckets',
-            's3:ListBucket', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging',
+            's3:ListBucket', 's3:ListBucketVersions', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging',
             's3:PutBucketVersioning', 's3:PutEncryptionConfiguration', 's3:PutObject', 'sns:CreateTopic',
             'sns:GetTopicAttributes', 'sns:ListTagsForResource', 'sns:SetTopicAttributes', 'sns:TagResource',
             'sqs:CreateQueue', 'sqs:GetQueue*', 'sqs:ListQueueTags', 'sqs:ListQueues', 'sqs:SetQueueAttributes',
             'sqs:TagQueue', 'sqs:UntagQueue', 'ssm:AddTagsToResource', 'ssm:GetParameter', 'ssm:GetParameters',
-            'ssm:GetParametersByPath', 'ssm:PutParameter', 'sts:GetCallerIdentity', 'wafv2:CreateWebACL',
+            'ssm:GetParametersByPath', 'ssm:ListTagsForResource', 'ssm:PutParameter', 'sts:GetCallerIdentity', 'wafv2:CreateWebACL',
             'wafv2:Get*', 'wafv2:List*', 'wafv2:TagResource', 'wafv2:UpdateWebACL']
           Resource: '*'
-        - Sid: AllowOnlyPreprovisionedPassRoleTargets
+        - Sid: AllowPassRole
           Effect: Allow
           Action: iam:PassRole
           Resource: [!Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-codebuild-role',
@@ -965,10 +1010,13 @@ Resources:
             !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-ecs-task-execution']
         - Sid: DenyBaselineBucketMutation
           Effect: Deny
-          Action: ['s3:DeleteBucketPolicy', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketObjectLockConfiguration',
-            's3:PutBucketPolicy', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging', 's3:PutBucketVersioning',
-            's3:PutEncryptionConfiguration']
-          Resource: [!Sub '${StateBucketArn}', !Sub '${EvidenceBucketArn}', !Sub '${ContractsBucketArn}']
+          Action: ['s3:DeleteBucket*', 's3:PutBucket*', 's3:PutEncryptionConfiguration']
+          Resource: [!Sub '${StateBucketArn}', !Sub '${PlanBucketArn}', !Sub '${EvidenceBucketArn}',
+            !Sub '${ContractsBucketArn}']
+        - Sid: DenyPlanObjectMutation
+          Effect: Deny
+          Action: ['s3:DeleteObject*', 's3:GetObject', 's3:PutObject*']
+          Resource: !Sub '${PlanBucketArn}/*'
         - Sid: DenyBaselineKeyMutation
           Effect: Deny
           Action: ['kms:CreateGrant', 'kms:DisableKey', 'kms:DisableKeyRotation', 'kms:PutKeyPolicy',
@@ -1004,9 +1052,10 @@ Resources:
             'lambda:UpdateFunctionCode', 'lambda:UpdateFunctionConfiguration', 'logs:AssociateKmsKey',
             'logs:CreateLogGroup', 'logs:DescribeLogGroups', 'logs:ListTagsForResource', 'logs:PutMetricFilter',
             'logs:PutRetentionPolicy', 'logs:TagResource', 'logs:UntagResource', 's3:DeleteObject', 's3:GetObject',
-            's3:GetObjectVersion', 's3:ListBucket', 's3:PutObject', 'sqs:GetQueueAttributes',
+            's3:GetObjectVersion', 's3:ListBucket', 's3:ListBucketVersions', 's3:PutObject', 'sqs:GetQueueAttributes',
             'sqs:GetQueueUrl', 'sqs:ListQueueTags', 'sqs:TagQueue', 'sqs:UntagQueue',
-            'ssm:GetParameter', 'ssm:GetParameters', 'ssm:PutParameter', 'sts:GetCallerIdentity']
+            'ssm:AddTagsToResource', 'ssm:GetParameter', 'ssm:GetParameters', 'ssm:ListTagsForResource',
+            'ssm:PutParameter', 'sts:GetCallerIdentity']
           Resource: '*'
         - Sid: BoundaryPassPreTokenRoleToFunction
           Effect: Allow
@@ -1024,10 +1073,13 @@ Resources:
             ArnLike: {'iam:AssociatedResourceArn': !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${DeploymentId}-identity-control-processor'}
         - Sid: DenyBaselineBucketMutation
           Effect: Deny
-          Action: ['s3:DeleteBucketPolicy', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketObjectLockConfiguration',
-            's3:PutBucketPolicy', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging', 's3:PutBucketVersioning',
-            's3:PutEncryptionConfiguration']
-          Resource: [!Sub '${StateBucketArn}', !Sub '${EvidenceBucketArn}', !Sub '${ContractsBucketArn}']
+          Action: ['s3:DeleteBucket*', 's3:PutBucket*', 's3:PutEncryptionConfiguration']
+          Resource: [!Sub '${StateBucketArn}', !Sub '${PlanBucketArn}', !Sub '${EvidenceBucketArn}',
+            !Sub '${ContractsBucketArn}']
+        - Sid: DenyPlanObjectMutation
+          Effect: Deny
+          Action: ['s3:DeleteObject*', 's3:GetObject', 's3:PutObject*']
+          Resource: !Sub '${PlanBucketArn}/*'
         - Sid: DenyBaselineKeyMutation
           Effect: Deny
           Action: ['kms:CreateGrant', 'kms:DisableKey', 'kms:DisableKeyRotation', 'kms:PutKeyPolicy',

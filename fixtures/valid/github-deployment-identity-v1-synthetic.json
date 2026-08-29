@@ -1,6 +1,25 @@
 {
   "account_id": "123456789012",
-  "contract_digest": "sha256:e85d51dd768a8e46513b18256565dd44c8813e18bb54a3e354f4c8575b2397ed",
+  "collector_authority": {
+    "app_id": "7000007",
+    "app_slug": "scanalyze-environment-collector",
+    "authentication": "github_app_installation_token",
+    "installation_verification": "github_app_jwt",
+    "installation_account_id": "1000001",
+    "installation_account_login": "synthetic-owner",
+    "installation_id": "3000003",
+    "installation_target_type": "Organization",
+    "permissions": {
+      "actions": "read",
+      "environments": "read",
+      "metadata": "read",
+      "secrets": "read",
+      "variables": "read"
+    },
+    "repository_ids": ["2000002"],
+    "repository_selection": "selected"
+  },
+  "contract_digest": "sha256:0344e7d7c1e18b7bedd252dea7e2f0460de0f12faaac95b9b546ca492680db93",
   "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "diagnostic_access": {
@@ -28,16 +47,35 @@
         "type": "User"
       }
     ],
-    "reserved_variables_absent_at_organization": true,
+    "reserved_variables_absent_at_effective_organization": true,
     "reserved_variables_absent_at_repository": true,
-    "secret_names": [],
+    "reserved_secrets_absent_at_effective_organization": true,
+    "reserved_secrets_absent_at_repository": true,
+    "effective_organization_secret_names": [],
+    "effective_organization_variables": {},
+    "repository_secret_names": [],
+    "repository_variables": {},
+    "secret_names": [
+      "SCANALYZE_GITHUB_ENVIRONMENT_COLLECTOR_PRIVATE_KEY",
+      "SCANALYZE_LIVE_INPUT_BUNDLE_B64"
+    ],
     "variables": {
       "AWS_ACCOUNT_ID": "123456789012",
       "AWS_REGION": "us-east-1",
       "CUSTOMER_ID": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "DEPLOYMENT_ID": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "LOGICAL_ENVIRONMENT": "dev",
-      "OIDC_ORCHESTRATOR_ROLE_ARN": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      "OIDC_ORCHESTRATOR_ROLE_ARN": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ORCHESTRATOR_ROLE_ARN": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "GENERIC_PLAN_ROLE_ARN": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Plan",
+      "GENERIC_APPLY_ROLE_ARN": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Apply",
+      "GITHUB_ENVIRONMENT_COLLECTOR_APP_ID": "7000007",
+      "IDENTITY_PLAN_ROLE_ARN": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Identity-Plan",
+      "IDENTITY_APPLY_ROLE_ARN": "arn:aws:iam::123456789012:role/ScanalyzeCustomer-Identity-Apply",
+      "PLATFORM_AUTHORITY_ACCOUNT_ID": "210987654321",
+      "REPOSITORY_ID": "2000002",
+      "REPOSITORY_OWNER_ID": "1000001",
+      "SECOND_P0_REVIEWER_ID": "9002"
     }
   },
   "oidc": {
@@ -50,7 +88,7 @@
       "event_name"
     ],
     "issuer": "https://token.actions.githubusercontent.com",
-    "max_session_duration_seconds": 900,
+    "max_session_duration_seconds": 3600,
     "orchestrator_role_arn": "arn:aws:iam::210987654321:role/ScanalyzeOrchestrator-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "required_role_tags": {
       "account_id": "123456789012",
@@ -96,7 +134,7 @@
         "edge",
         "addons"
       ],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "apply",
       "required_resource_tags": {
         "account_id": "123456789012",
@@ -120,7 +158,7 @@
     },
     "identity_apply": {
       "allowed_layers": ["identity-control-plane"],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "apply",
       "required_resource_tags": {
         "account_id": "123456789012",
@@ -144,7 +182,7 @@
     },
     "identity_plan": {
       "allowed_layers": ["identity-control-plane"],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "plan",
       "required_resource_tags": {
         "account_id": "123456789012",
@@ -178,7 +216,7 @@
         "edge",
         "addons"
       ],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "plan",
       "required_resource_tags": {
         "account_id": "123456789012",
@@ -202,7 +240,7 @@
     },
     "promotion": {
       "allowed_layers": ["artifact-publication"],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "promote",
       "required_resource_tags": {
         "account_id": "123456789012",
@@ -226,7 +264,7 @@
     },
     "validation": {
       "allowed_layers": ["artifact-publication", "synthetic-validation"],
-      "max_session_duration_seconds": 900,
+      "max_session_duration_seconds": 3600,
       "operation": "validate",
       "required_resource_tags": {
         "account_id": "123456789012",
