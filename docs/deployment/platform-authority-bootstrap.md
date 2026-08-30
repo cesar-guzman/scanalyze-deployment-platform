@@ -252,7 +252,7 @@ Each new client supplies an independently approved record containing:
 | destination account and region | verified STS and account-vending evidence |
 | environment | `sandbox`, `dev`, or `staging` for GUG-125 |
 | repository owner/repository numeric IDs | fresh GitHub API evidence; enforced as immutable OIDC trust claims |
-| GitHub OIDC subject | exact protected Environment subject, legacy or immutable-ID format, never a wildcard |
+| GitHub OIDC subject | exact customized immutable-ID subject derived from fresh GitHub evidence; bound to the deployment Environment, `nonprod-release.yml` on protected `main`, and `workflow_dispatch`; never legacy or wildcard |
 | release bucket | globally unique authority-owned name |
 | backend binding | independently bootstrapped authority state bucket/key/KMS |
 
@@ -299,9 +299,9 @@ authority.
 8. Configure one protected GitHub Environment per deployment with independent
    review, the exact OIDC subject recorded in the authority contract, immutable
    `repository_owner_id` and `repository_id` trust conditions, and an explicit
-   900-second role-duration request. Existing legacy-format subjects and newer
-   immutable-ID subjects are both accepted only when their separately verified
-   numeric claims match. IAM role configuration has a
+   3,600-second role-duration request. Only the customized immutable-ID subject
+   derived from the reviewed GitHub Environment evidence is accepted; legacy
+   subjects are rejected. IAM role configuration has a
    one-hour minimum ceiling; relying on its default would issue a one-hour
    session and is not the accepted GUG-123 contract.
 9. Exercise GUG-125 sequentially: deployment A plan/apply/health, idempotent

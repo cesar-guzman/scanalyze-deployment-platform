@@ -67,9 +67,9 @@ remain in the destination accounts.
 | Threat | Factory control | Failure behavior |
 |---|---|---|
 | Authority is a customer destination | Root and module require authority account to differ from every destination | Plan denied |
-| One role controls multiple deployments | One exact role per deployment with immutable ownership tags; caller contract requests 15 minutes under the AWS one-hour role ceiling | Binding mismatch denied |
-| Wildcard GitHub trust | Exact `StringEquals` audience and Environment subject; wildcard input invalid | Configuration denied |
-| Repository namespace is renamed, transferred, or recycled | Exact `repository_owner_id` and `repository_id` claims are required in addition to `sub` and `aud`; legacy and immutable subject formats remain exact | STS trust evaluation denies the token |
+| One role controls multiple deployments | One exact role per deployment with immutable ownership tags; caller contract requests exactly 3,600 seconds under the AWS one-hour role ceiling | Binding mismatch denied |
+| Wildcard or legacy GitHub trust | Exact `StringEquals` audience and customized immutable-ID subject bound to the deployment Environment, protected `main`, reviewed workflow, and `workflow_dispatch`; wildcard and legacy inputs are invalid | Configuration denied |
+| Repository namespace is renamed, transferred, or recycled | Exact `repository_owner_id` and `repository_id` claims are required in both the customized `sub` and independent token claims, in addition to `aud` | STS trust evaluation denies the token |
 | Cross-tenant registry/ledger access | DynamoDB leading key equals the role's `deployment_id` | IAM denial |
 | Control-data loss | KMS encryption, PITR, deletion protection, S3 versioning, no force destroy | Routine deletion denied |
 | Release bucket silently shared or unreadable under SSE-KMS | Bucket name and exact authority KMS key ARN are reviewed root outputs substituted into the runtime policy | Missing or malformed binding denied |

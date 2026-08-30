@@ -11,7 +11,9 @@ Those resources remain in each customer destination account and are produced by
 the account-vending and deployment DAG contracts.
 
 Every role is bound to one exact `customer_id`, `deployment_id`, destination
-account, region, non-production environment, and GitHub environment subject.
+account, region, non-production environment, and customized GitHub OIDC subject
+with immutable repository IDs, the reviewed workflow on protected `main`, and
+the `workflow_dispatch` event.
 The authority account must differ from every destination account.
 
 The module assumes that a human bootstrap boundary and remote backend already
