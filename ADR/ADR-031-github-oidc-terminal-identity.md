@@ -222,17 +222,24 @@ NO-GO. Repository validation rejects any second Environment/OIDC path rather
 than treating a dry-run, validation, recovery, or evidence-writing route as an
 alternate live entrypoint.
 
-The controller implements APPLIED/RECONCILED_APPLIED re-entry and read-only
-UNCERTAIN reconciliation, but the real post-apply health probe, exact SSM
-contract publisher, and reconciliation probe are not wired into this protected
-workflow. The public Apply entry therefore stops before constructing
-destination dependencies, assuming the destination role, or consuming the
-saved-plan attempt. The hermetic controller core retains fail-closed
-`APPLIED`/`UNCERTAIN` handling for independently wired adapters and historical
-durable records, but the protected workflow cannot newly create those states
-until complete post-apply closure is available. There is no workflow
-recovery/evidence-writer job, and the controller never deletes a consumed saved
-plan; lifecycle is the only plan cleanup authority.
+The public DEV Apply entry is wired to the complete post-apply closure. Health
+and `UNCERTAIN` reconciliation use a fresh Plan terminal session, bracket
+`terraform-layer.sh observe` with two exact state reads, and run the speculative
+plan with `-lock=false` and `-detailed-exitcode`. Health requires structural
+`NO_CHANGE` and only the minimum sanitized checks `input_contracts`,
+`terraform_convergence`, and `producer_contract_schema`; sensitive Terraform
+outputs are discarded. These checks do not represent generic ECS, ALB, API, or
+application runtime health.
+
+After the durable health receipt, a fresh Apply terminal session publishes the
+catalog-owned canonical layer contract to content-addressed SSM with create-only
+semantics and exact double parameter/tag readback. `UNCERTAIN` never retries
+apply or publishes. Its `contract_verified` result is prospective canonical
+schema validation only; a later `RECONCILED_APPLIED` reentry runs health and
+publication normally. There is no workflow recovery/evidence-writer job, and
+the controller never deletes a consumed saved plan; lifecycle is the only plan
+cleanup authority. No connected DEV execution has proved this repository
+wiring.
 
 ## Consequences
 
@@ -267,14 +274,16 @@ default subjects, or broad role trust.
 
 - **Implemented:** candidate schemas, validator, exact trust/policy fixtures,
   protected `live_saved_plan` job, separate Plan/Apply dispatch contract,
-  sealed materializer/controller, live SSM contract I/O primitives, synthetic
-  tests, Make gate, ADR, runbook, threat delta, and sanitized source. The
-  fixture-to-CloudFormation union is an offline structural guarantee only.
+  sealed materializer/controller, Plan-role post-apply observation,
+  Apply-role canonical SSM publication and exact readback, live SSM contract
+  I/O primitives, synthetic tests, Make gate, ADR, runbook, threat delta, and
+  sanitized source. The fixture-to-CloudFormation union is an offline
+  structural guarantee only.
 - **Locally validated:** only named offline commands for the candidate tree.
 - **CI validated:** pending the exact PR commit.
 - **Live validated:** no.
-- **Blocked:** real post-apply workflow adapters, a connected protected DEV run,
-  per-execution release-digest session-policy reduction, independent
+- **Blocked:** a connected protected DEV run, per-execution release-digest
+  session-policy reduction, independent
   StateRecovery approval issuance and trust activation, reviewed PR/main
   verification, authorized GitHub configuration, IAM Access Analyzer/live STS
   denial evidence, GUG-124 and GUG-117, plus the remaining connected GUG-125

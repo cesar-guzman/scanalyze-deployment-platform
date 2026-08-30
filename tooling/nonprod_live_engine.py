@@ -1562,8 +1562,11 @@ def build_reconciliation_receipt(
 
     A successful reconciliation is intentionally narrow: the state lineage is
     unchanged, its serial advanced, a fresh speculative plan is no-change, and
-    the exact producer contract is readable and verified. Every other result
-    requires a new reviewed forward-recovery plan.
+    the prospective producer contract validates exactly against the canonical
+    catalog and output schema. Reconciliation never publishes or reads a
+    producer contract that can only be created after APPLIED is proven; a
+    subsequent health reentry performs that create-only publication and exact
+    readback. Every other result requires a new reviewed forward-recovery plan.
     """
     _validate_schema(plan_record, "saved-plan.v1.schema.json", "saved plan")
     _verify_digest(plan_record, "record_digest", "saved plan")

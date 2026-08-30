@@ -33,26 +33,30 @@ The pure policy core is `tooling/nonprod_live_engine.py`. Destination plan
 storage and shared-services ledger storage are deliberately split in
 `tooling/nonprod_live_store.py`. `scripts/deployment/nonprod-live-engine.py`
 exposes the guarded policy and storage boundary; its legacy
-`run-terminal-apply` command is explicitly disabled before private-input or AWS
-access while post-apply closure is unwired. `tooling/nonprod_live_orchestrator.py`
-builds immutable plan/apply intents bound to one exact main SHA and protected
-workflow run. `scripts/deployment/terraform-saved-plan.sh` is the only
-allowlisted plan/apply program and remains inaccessible from a local operator
-session. `tooling/nonprod_live_input_materializer.py` and
+`run-terminal-apply` command remains unavailable because the protected
+controller is the sole public DEV execution path.
+`tooling/nonprod_live_orchestrator.py` builds immutable plan/apply intents bound
+to one exact main SHA and protected workflow run.
+`scripts/deployment/terraform-saved-plan.sh` is the only allowlisted saved-plan
+apply program and remains inaccessible from a local operator session.
+`tooling/nonprod_live_input_materializer.py` and
 `scripts/deployment/nonprod-live-input-materializer.py` validate the sealed
 private inputs before OIDC. `scripts/deployment/nonprod-live-controller.py`
-connects only a successful materialization receipt to one protected phase. The
-controller core can durably record `PLANNED`, consume one apply attempt, resume
-from `APPLIED` without repeating approval/fetch/apply, and finalize only after
-state bracketing, a structural `NO_CHANGE` plan, verified input contracts,
-non-sensitive outputs, exact contract publication/readback and a durable health
-receipt. `UNCERTAIN` permits only the corresponding read-only reconciliation
-core. The real protected-workflow adapters for those post-apply callbacks are
-not yet connected, so the public Apply CLI returns non-success before it
-constructs destination dependencies, assumes a destination role, or consumes
-the saved-plan attempt. The core still treats historical or independently wired
-`APPLIED` and `UNCERTAIN` records as fail-closed rather than claiming connected
-DEV.
+connects only a successful materialization receipt to one protected phase. Its
+public `apply` command is wired for DEV to the real terminal adapters: exact
+saved-plan apply under Apply authority; post-apply health or reconciliation
+observation under fresh Plan authority; and canonical immutable contract
+publication under fresh Apply authority. The controller can durably record
+`PLANNED`, consume one apply attempt, resume from `APPLIED` without repeating
+approval/fetch/apply, and finalize only after state bracketing, a structural
+`NO_CHANGE` plan, verified input contracts, explicitly non-sensitive outputs,
+exact contract publication/readback and a durable health receipt. `UNCERTAIN`
+permits only read-only reconciliation and never apply or publication. This
+wiring is repository evidence only; no connected DEV execution is claimed.
+The public Apply CLI returns a successful exit code only for `HEALTHY`;
+`APPLIED`, `UNCERTAIN`, `RECONCILIATION_REQUIRED`, and `RECONCILED_APPLIED`
+remain non-success results for that workflow invocation and cannot make the
+protected job green.
 
 In this document, shared-services is not a generic corporate account. It is the
 dedicated or formally designated Scanalyze platform-authority account. It owns
@@ -76,7 +80,7 @@ remote backend or IAM Identity Center assignment; those are one-time human
 bootstrap prerequisites documented in
 `docs/deployment/platform-authority-bootstrap.md`.
 
-## Target authority flow after activation
+## Implemented authority flow
 
 ```text
 registry + ACCOUNT_READY + contracts + release + state
@@ -99,21 +103,36 @@ registry + ACCOUNT_READY + contracts + release + state
                          v
           terraform apply saved binary once
                          |
-          state/contract/health readback
+                         v
+              Plan terminal role
+                         |
+       double state read + read-only observe
+                         |
+                         v
+              Apply terminal role
+                         |
+       create-only SSM contract + readback
                          |
                          v
               HEALTHY or stop
 ```
 
-The final state/contract/health protocol in this target flow is implemented and
-hermetically tested in the controller/engine core. It requires two identical
-state observations including VersionId/hash/size, a structural speculative
-plan result of `NO_CHANGE`, verified input contracts, explicitly non-sensitive
-mode-0600 outputs, a create-only health receipt, and exact publication/readback
-evidence before the `HEALTHY` CAS. The protected workflow does not yet provide
-the real read-only verification and publication adapters. Its public Apply
-entry is therefore disabled before destination access, so repository
-implementation is not connected execution evidence.
+The final state/contract/health protocol is implemented and hermetically tested.
+Health and reconciliation use a fresh Plan terminal session, bracket the
+observation with two exact state reads including VersionId/hash/size, and run
+`terraform-layer.sh observe`, whose speculative plan uses `-lock=false` and
+`-detailed-exitcode`. Health requires `NO_CHANGE` plus the minimum sanitized
+checks `input_contracts`, `terraform_convergence`, and
+`producer_contract_schema`. Sensitive Terraform outputs are discarded before
+the controller can project or publish them. These checks prove Terraform
+convergence and producer-contract validity; they are not generic ECS, ALB, API,
+or application runtime-health probes.
+
+After the create-only health receipt is stored, a fresh Apply terminal session
+builds the catalog-owned canonical layer-contract envelope, publishes it to its
+content-addressed SSM path without overwrite, and performs exact double
+parameter/tag readback before the `HEALTHY` CAS. Repository implementation is
+not connected execution evidence.
 
 The Plan role cannot write the shared ledger. The shared orchestrator cannot
 write destination infrastructure or the saved plan. Apply cannot generate or
@@ -236,9 +255,11 @@ The workflow shape enforces these boundaries:
     second approval, fetch or apply, and can advance only after matching health,
     no-change, contract-publication and readback evidence. `UNCERTAIN` can only
     become `RECONCILED_APPLIED` or `RECONCILIATION_REQUIRED` through read-only
-    evidence and can never publish or retry apply. The protected workflow
-    adapter remains unwired, so the next DAG layer remains blocked until a real
-    connected run reaches matching `HEALTHY` evidence.
+    Plan-role evidence and can never publish or retry apply. Its
+    `contract_verified` decision is prospective canonical-envelope validation,
+    not publication. A later reentry from `RECONCILED_APPLIED` performs the
+    complete health and Apply-role publication path before a next DAG layer can
+    rely on matching `HEALTHY` evidence.
 
 The typed selectors derive only
 `deployment/live-input-claims/<deployment_id>/<layer>/<operation>.json`. Its
@@ -462,8 +483,6 @@ AWS.
 The configured and independently reviewed protected Environment transport,
 exact separate platform-authority account/backend/orchestrator, destination
 baseline and terminal roles, non-overlapping DEV network, protected
-Environment, independent reviewer, real protected-workflow adapters for the
-implemented post-apply health/no-change/reconciliation core, and connected
-plan/apply/health/rollback evidence
-remain **NOT_PROVEN** until observed. GUG-127 and GUG-128 remain independent
-gates. Production is **NO-GO**.
+Environment, independent reviewer, and connected plan/apply/health/rollback
+evidence remain **NOT_PROVEN** until observed. GUG-127 and GUG-128 remain
+independent gates. Staging is **NO-GO**. Production is **NO-GO**.

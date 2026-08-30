@@ -448,6 +448,8 @@ nonprod-live-engine-check:
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_orchestrator.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_controller.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_cli.py \
+		$(TESTS_DIR)/test_deployment/test_live_contract_envelope.py \
+		$(TESTS_DIR)/test_deployment/test_terraform_layer_observe.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_github_approval.py \
 		$(TESTS_DIR)/test_deployment/test_nonprod_live_input_materializer.py \
 		$(TESTS_DIR)/test_deployment/test_protected_live_path_docs.py \
@@ -462,6 +464,7 @@ nonprod-live-engine-check:
 		scripts/deployment/nonprod-live-input-materializer.py \
 		$(TOOLING_DIR)/nonprod_live_controller.py \
 		$(TOOLING_DIR)/nonprod_live_engine.py \
+		$(TOOLING_DIR)/live_contract_envelope.py \
 		$(TOOLING_DIR)/nonprod_live_github_approval.py \
 		$(TOOLING_DIR)/nonprod_live_input_materializer.py \
 		$(TOOLING_DIR)/nonprod_live_store.py \
