@@ -2193,7 +2193,6 @@ def _network_contract_outputs() -> dict[str, Any]:
 def _terraform_output_descriptors() -> dict[str, Any]:
     return {
         "contract_payload": {
-            "sensitive": False,
             "type": ["object", {}],
             "value": {
                 "layer": "network",
@@ -2282,6 +2281,75 @@ class _InlineObservationTerminal:
             process_runner=self._process_runner,
             plan_show_runner=self._show_runner,
         )
+
+
+def test_exact_state_normalizes_omitted_sensitivity_to_false(
+    tmp_path: Path,
+) -> None:
+    package = _package_with_backend(tmp_path)
+    terminal = _InlineObservationTerminal(package)
+    descriptors = _terraform_output_descriptors()
+    terminal.state_payload = json.dumps(
+        {
+            "lineage": "synthetic-lineage-0001",
+            "serial": 8,
+            "outputs": descriptors,
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+    scratch_path = package.controller_root / ".omitted-sensitivity-state.json"
+
+    state, outputs = read_exact_state_with_outputs(
+        backend_binding=package.backend_binding,
+        account_id=DESTINATION_ACCOUNT,
+        region="us-east-1",
+        scratch_path=scratch_path,
+        runner=terminal._command_runner,
+    )
+
+    assert state["status"] == "PRESENT"
+    assert outputs == {
+        "contract_payload": {
+            "sensitive": False,
+            "value": descriptors["contract_payload"]["value"],
+        }
+    }
+    assert "never-persist" not in json.dumps(outputs)
+    assert not scratch_path.exists()
+
+
+@pytest.mark.parametrize("invalid_sensitivity", [None, 0, "false"])
+def test_exact_state_rejects_present_non_boolean_sensitivity(
+    tmp_path: Path,
+    invalid_sensitivity: Any,
+) -> None:
+    package = _package_with_backend(tmp_path)
+    terminal = _InlineObservationTerminal(package)
+    descriptors = _terraform_output_descriptors()
+    descriptors["contract_payload"]["sensitive"] = invalid_sensitivity
+    terminal.state_payload = json.dumps(
+        {
+            "lineage": "synthetic-lineage-0001",
+            "serial": 8,
+            "outputs": descriptors,
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+    scratch_path = package.controller_root / ".invalid-sensitivity-state.json"
+
+    with pytest.raises(
+        AuthorizationError,
+        match="Terraform state output metadata is invalid",
+    ):
+        read_exact_state_with_outputs(
+            backend_binding=package.backend_binding,
+            account_id=DESTINATION_ACCOUNT,
+            region="us-east-1",
+            scratch_path=scratch_path,
+            runner=terminal._command_runner,
+        )
+
+    assert not scratch_path.exists()
 
 
 def test_real_health_probe_uses_plan_role_and_never_persists_sensitive_outputs(
@@ -2453,7 +2521,7 @@ def test_real_contract_publisher_is_create_only_with_exact_double_readback(
     observation = _post_apply_observation()
     observation["outputs"] = {
         name: {
-            "sensitive": descriptor["sensitive"],
+            "sensitive": descriptor.get("sensitive", False),
             "value": descriptor["value"],
         }
         for name, descriptor in _terraform_output_descriptors().items()

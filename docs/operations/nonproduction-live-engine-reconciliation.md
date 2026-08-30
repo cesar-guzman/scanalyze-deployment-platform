@@ -153,8 +153,10 @@ advance only after a fresh Plan terminal session brackets
 `terraform-layer.sh observe` with two identical exact-state reads. The observe
 plan uses `-lock=false` and `-detailed-exitcode`; health requires structural
 `NO_CHANGE` plus `input_contracts`, `terraform_convergence`, and
-`producer_contract_schema`. Sensitive Terraform outputs are discarded. These
-are convergence and producer-contract checks, not generic ECS, ALB, API, or
+`producer_contract_schema`. Raw Terraform state may omit `sensitive` for a
+non-sensitive output; the controller normalizes only that omission to `false`,
+discards explicit `true`, and rejects any present non-boolean value. These are
+convergence and producer-contract checks, not generic ECS, ALB, API, or
 application runtime-health probes.
 
 After the create-only health receipt is durable, a fresh Apply terminal session

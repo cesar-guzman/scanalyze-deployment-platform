@@ -907,15 +907,20 @@ def _read_exact_state(
             if not isinstance(raw_outputs, Mapping) or len(raw_outputs) > 128:
                 raise AuthorizationError("Terraform state outputs are invalid")
             for name, descriptor_value in raw_outputs.items():
+                sensitivity = (
+                    descriptor_value.get("sensitive", False)
+                    if isinstance(descriptor_value, Mapping)
+                    else None
+                )
                 if (
                     not isinstance(name, str)
                     or not re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$", name)
                     or not isinstance(descriptor_value, Mapping)
                     or "value" not in descriptor_value
-                    or not isinstance(descriptor_value.get("sensitive"), bool)
+                    or not isinstance(sensitivity, bool)
                 ):
                     raise AuthorizationError("Terraform state output metadata is invalid")
-                if descriptor_value["sensitive"]:
+                if sensitivity:
                     continue
                 outputs[name] = {
                     "sensitive": False,
