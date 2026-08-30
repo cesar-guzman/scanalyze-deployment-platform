@@ -1,0 +1,20 @@
+{
+  "claim_condition": "attribute_not_exists(repair_id)",
+  "effects_attempted": 0,
+  "effects_completed": 0,
+  "intent_digest": "sha256:829de292dc2508f4f238863b4666797527174639de37dc0cec7530fef3dd198a",
+  "ledger_digest": "sha256:60d3fd4a206367f4df56db6f8793451a28d5e294b464b61e9ad0b68eb8cae907",
+  "mutation_retry_attempted": false,
+  "planned_at": "2026-08-30T01:01:00Z",
+  "planned_state_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "production_authorized": false,
+  "provider_immutable": true,
+  "record_type": "scanalyze.platform_authority.plan_permission_repair_ledger.v1",
+  "repair_id": "gug376-plan-permission-repair-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "retry_permitted": false,
+  "schema_version": 1,
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "stage": "PLAN_STATE_VERIFIED",
+  "state_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "status": "PLAN_VERIFIED"
+}

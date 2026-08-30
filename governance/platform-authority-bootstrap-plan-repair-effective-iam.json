@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "control_id": "scanalyze.platform_authority.bootstrap_plan_repair_effective_iam.v1",
+  "authority_roles": [
+    {
+      "logical_resource_id": "PlanExecutionRole",
+      "account_id": "042360977644",
+      "role_name": "ScanalyzeBootstrapPlanRepairPlan",
+      "path": "/",
+      "arn": "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairPlan",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
+      "inline_policy_name": "Gug376ReadOnlyPlanAndLedgerCreation",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:bdfe16b3f70da0fd8ace75c352143ec9ad89b0f60586170bc0bb9093e0fa4ea4",
+        "CUSTOMER_MANAGED_KEY": "sha256:bdfe16b3f70da0fd8ace75c352143ec9ad89b0f60586170bc0bb9093e0fa4ea4"
+      }
+    },
+    {
+      "logical_resource_id": "RepairExecutionRole",
+      "account_id": "042360977644",
+      "role_name": "ScanalyzeBootstrapPlanRepairExecution",
+      "path": "/",
+      "arn": "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairExecution",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
+      "inline_policy_name": "Gug376OneShotPlanPolicyRepair",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:6961c18f6d7d66a1ccfa5a2a553e62beaf0aef240f4ee6eaf56810e4d5300c9d",
+        "CUSTOMER_MANAGED_KEY": "sha256:6961c18f6d7d66a1ccfa5a2a553e62beaf0aef240f4ee6eaf56810e4d5300c9d"
+      }
+    },
+    {
+      "logical_resource_id": "ReconcileExecutionRole",
+      "account_id": "042360977644",
+      "role_name": "ScanalyzeBootstrapPlanRepairReconcile",
+      "path": "/",
+      "arn": "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairReconcile",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
+      "inline_policy_name": "Gug376ReadOnlyPlanPolicyReconciliation",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:de6d47210f3d16b9e2920e1d019b8433c1ab115cbe6be861f164d2fb1333581d",
+        "CUSTOMER_MANAGED_KEY": "sha256:de6d47210f3d16b9e2920e1d019b8433c1ab115cbe6be861f164d2fb1333581d"
+      }
+    },
+    {
+      "logical_resource_id": "InvocationAuthorityInspectorRole",
+      "account_id": "042360977644",
+      "role_name": "ScanalyzeBootstrapPlanRepairInspector",
+      "path": "/scanalyze/platform-authority/",
+      "arn": "arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:4f785c6502527f6f344d22cd7b4921030bd7077bc00d2dcbc8b62e10b90b4c51",
+      "inline_policy_name": "Gug376ReadOnlyInvocationAuthorityInventory",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:c21f4de257b7846f15e6b1efcafd8810dfe2131799097195fd9bb9a6079fc9ab",
+        "CUSTOMER_MANAGED_KEY": "sha256:c21f4de257b7846f15e6b1efcafd8810dfe2131799097195fd9bb9a6079fc9ab"
+      }
+    }
+  ],
+  "management_roles": [
+    {
+      "logical_resource_id": "MutationServiceRole",
+      "account_id": "839393571433",
+      "role_name": "ScanalyzeBootstrapPlanRepairMutation",
+      "path": "/scanalyze/platform-authority/",
+      "arn": "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairMutation",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:80798d2b6fb4de33323c1ab1043f0338031dd2c425879ab05b428792bd791424",
+      "inline_policy_name": "Gug376ExactPlanPolicyRepairMutations",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:c092d688946bfd580b0dba4f08b912fb3f213075218cb8f2d36eecab58ef834e",
+        "CUSTOMER_MANAGED_KEY": "sha256:4b3334f12d7a5e39e59b7fe2dec8465c5dd8a36fac3adab2442e4e5fb360f8fe"
+      }
+    },
+    {
+      "logical_resource_id": "ReadbackServiceRole",
+      "account_id": "839393571433",
+      "role_name": "ScanalyzeBootstrapPlanRepairReadback",
+      "path": "/scanalyze/platform-authority/",
+      "arn": "arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback",
+      "max_session_duration": 3600,
+      "trust_policy_digest": "sha256:1020c3730b5f0305056c62bd2bd0bc2262cfc24974b93defed5a623416b07902",
+      "inline_policy_name": "Gug376ExactPlanPolicyRepairReadback",
+      "normalized_inline_policy_digests": {
+        "AWS_OWNED_KMS_KEY": "sha256:15f5f0343ab1992a0e4aea65dfea08974f841d12f4fad2cdee42a39567ad5a2e",
+        "CUSTOMER_MANAGED_KEY": "sha256:4e71f3706d74a1998681caaadc1702704aa20d70d46a1e020950406380302eae"
+      }
+    }
+  ]
+}

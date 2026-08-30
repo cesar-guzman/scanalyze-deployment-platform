@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check staging-certification-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check staging-certification-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-plan-repair-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -37,6 +37,7 @@ help:
 	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392/GUG-393 dual-domain provider, discovery, and materializer contracts offline"
 	@echo "  make platform-authority-gug395-preplan-seed-check Validate the GUG-395 pre-plan seed and downstream materializer contracts offline"
 	@echo "  make platform-authority-gug395-preplan-collision-check Validate the GUG-395/GUG-376 attested collision-probe contract offline"
+	@echo "  make platform-authority-bootstrap-plan-repair-check Validate the source-closed GUG-376 two-effect repair runtime offline"
 	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-395 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
@@ -700,8 +701,43 @@ platform-authority-gug395-preplan-collision-check:
 	@$(GUG390_HERMETIC_ENV) $(PYTHON) $(TOOLING_DIR)/validate_schema.py --schemas-dir $(SCHEMAS_DIR) --fixtures-dir $(FIXTURES_DIR) --filter platform-authority-gug395-preplan-collision-probe-receipt
 	@echo "GUG-395/GUG-376 collision status: REPOSITORY_PATH_READY_FOR_CONNECTED_READ_ONLY_PROBE / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0 / PRODUCTION_NO_GO"
 
+# ── GUG-376 Bootstrap Plan Permission Repair PEP (offline tests) ──
+platform-authority-bootstrap-plan-repair-check:
+	@echo "=== GUG-376 Bootstrap Plan Permission Repair PEP Check (AWS-free) ==="
+	@env -u PYTHONPATH -u PYTHONHOME PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_aws.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_aws_adversarial.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_iam_effective_authority.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_schemas.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_infrastructure.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_package.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_signed_artifact.py
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -m py_compile \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_aws.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_iam_effective_authority.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_package.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_signed_artifact.py \
+		scripts/deployment/platform-authority-plan-permission-repair.py \
+		scripts/deployment/platform-authority-plan-permission-repair-package.py \
+		scripts/deployment/platform-authority-plan-permission-repair-signed-artifact.py
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-package.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-signed-artifact.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) $(TOOLING_DIR)/validate_schema.py \
+		--schemas-dir $(SCHEMAS_DIR) \
+		--fixtures-dir $(FIXTURES_DIR) \
+		--filter platform-authority-plan-permission-repair
+	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
+	@echo "GUG-376 Plan repair status: EXECUTABLE_SOURCE_CLOSED_PACKAGE_READY_FOR_REVIEW / SIGNED_ARTIFACT_NOT_BUILT / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0 / NOT_DEPLOYED / PRODUCTION_NO_GO"
+
 # ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-395, offline) ──
-platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check
+platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-plan-repair-check
 	@echo "=== GUG-206/GUG-208/GUG-209/GUG-211/GUG-214/GUG-215/GUG-216/GUG-217/GUG-218/GUG-219/GUG-220/GUG-221/GUG-274/GUG-357/GUG-363/GUG-365/GUG-376/GUG-390/GUG-392/GUG-393/GUG-395 Platform-Authority Bootstrap Check ==="
 	@$(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug206_platform_authority_bootstrap.py \
@@ -1201,6 +1237,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-053-gug365-upstream-prerequisites-materialization.md \
 			ADR/ADR-055-gug395-preplan-seed-and-downstream-materialization.md \
 			ADR/ADR-056-gug395-dual-domain-preplan-collision-probe.md \
+			ADR/ADR-057-bootstrap-plan-permission-repair-pep.md \
 			docs/deployment/ssm-contracts.md \
 			docs/deployment/platform-authority-retirement-entrypoint-service-role.md \
 			docs/operations/platform-authority-retirement-entrypoint-service-role.md \
@@ -1220,6 +1257,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/deployment/platform-authority-lambda-invocation-materialization.md \
 			docs/deployment/platform-authority-lambda-audit-permission-set.md \
 			docs/deployment/platform-authority-lambda-audit-provisioning-repair.md \
+			docs/deployment/platform-authority-bootstrap-plan-permission-repair.md \
 			docs/deployment/platform-authority-identity-enhanced-session.md \
 			docs/deployment/supply-chain.md \
 			docs/deployment/gitops-orchestrator.md \
@@ -1238,6 +1276,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/operations/platform-authority-lambda-invocation-materialization.md \
 			docs/operations/platform-authority-lambda-audit-permission-set.md \
 			docs/operations/platform-authority-lambda-audit-provisioning-repair.md \
+			docs/operations/platform-authority-bootstrap-plan-permission-repair.md \
 			docs/operations/platform-authority-gug357-identity-center-audit-permission-set.md \
 			docs/operations/platform-authority-retained-change-set-retirement.md \
 			docs/operations/platform-authority-retirement-entrypoint-materialization.md \

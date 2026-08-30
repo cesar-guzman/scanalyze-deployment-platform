@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.example/schemas/platform-authority-plan-permission-repair-package-manifest.v1.schema.json",
+  "title": "GUG-376 deterministic Plan permission repair Lambda package manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type",
+    "schema_version",
+    "work_package",
+    "source_commit",
+    "source_bundle_digest",
+    "source_bundle_digest_profile",
+    "archive_name",
+    "archive_format",
+    "archive_sha256",
+    "lambda_code_sha256",
+    "archive_size_bytes",
+    "handlers",
+    "function_runtime",
+    "function_architecture",
+    "runtime_dependencies",
+    "entries",
+    "production_status"
+  ],
+  "properties": {
+    "artifact_type": {
+      "const": "scanalyze.platform_authority.plan_permission_repair_package.v1"
+    },
+    "schema_version": { "const": 1 },
+    "work_package": { "const": "GUG-376" },
+    "source_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_bundle_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_bundle_digest_profile": {
+      "const": "CANONICAL_SOURCE_ENTRY_SET_V1_EXCLUDES_RUNTIME_LOCK"
+    },
+    "archive_name": {
+      "const": "scanalyze-gug376-plan-permission-repair.zip"
+    },
+    "archive_format": { "const": "ZIP_STORED_FIXED_METADATA" },
+    "archive_sha256": { "$ref": "#/$defs/hex_digest" },
+    "lambda_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "archive_size_bytes": { "type": "integer", "minimum": 1 },
+    "handlers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "repair", "reconcile"],
+      "properties": {
+        "plan": {
+          "const": "tooling.platform_authority_plan_permission_repair_aws.plan_handler"
+        },
+        "repair": {
+          "const": "tooling.platform_authority_plan_permission_repair_aws.repair_handler"
+        },
+        "reconcile": {
+          "const": "tooling.platform_authority_plan_permission_repair_aws.reconcile_handler"
+        }
+      }
+    },
+    "function_runtime": { "const": "python3.12" },
+    "function_architecture": { "const": "x86_64" },
+    "runtime_dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aws_sdk",
+        "runtime_lock_path",
+        "expected_boto3_version",
+        "expected_botocore_version"
+      ],
+      "properties": {
+        "aws_sdk": {
+          "const": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD"
+        },
+        "runtime_lock_path": {
+          "const": "gug376_plan_permission_repair_runtime_lock.json"
+        },
+        "expected_boto3_version": { "$ref": "#/$defs/sdk_version" },
+        "expected_botocore_version": { "$ref": "#/$defs/sdk_version" }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": {
+            "enum": [
+              "governance/platform-authority-bootstrap-plan-repair-effective-iam.json",
+              "gug376_plan_permission_repair_runtime_lock.json",
+              "policies/iam/platform-authority-bootstrap-plan-repair-invoker-role.json",
+              "policies/iam/platform-authority-bootstrap-plan-role.json",
+              "tooling/__init__.py",
+              "tooling/platform_authority_bootstrap.py",
+              "tooling/platform_authority_lambda_audit_repair_invocation_authority.py",
+              "tooling/platform_authority_lambda_invocation_authority.py",
+              "tooling/platform_authority_plan_permission_repair.py",
+              "tooling/platform_authority_plan_permission_repair_aws.py",
+              "tooling/platform_authority_plan_permission_repair_iam_effective_authority.py"
+            ]
+          },
+          "sha256": { "$ref": "#/$defs/hex_digest" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "governance/platform-authority-bootstrap-plan-repair-effective-iam.json"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "gug376_plan_permission_repair_runtime_lock.json"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "policies/iam/platform-authority-bootstrap-plan-repair-invoker-role.json"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "policies/iam/platform-authority-bootstrap-plan-role.json"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": { "path": { "const": "tooling/__init__.py" } },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": { "const": "tooling/platform_authority_bootstrap.py" }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "tooling/platform_authority_lambda_audit_repair_invocation_authority.py"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "tooling/platform_authority_lambda_invocation_authority.py"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "tooling/platform_authority_plan_permission_repair.py"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "tooling/platform_authority_plan_permission_repair_aws.py"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "properties": {
+              "path": {
+                "const": "tooling/platform_authority_plan_permission_repair_iam_effective_authority.py"
+              }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "production_status": { "const": "NO-GO" }
+  },
+  "$defs": {
+    "hex_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sdk_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    }
+  }
+}
