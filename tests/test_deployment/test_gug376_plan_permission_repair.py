@@ -60,7 +60,7 @@ def _binding_record() -> dict[str, Any]:
         ),
         "repair_invoker_permission_set_arn": (
             "arn:aws:sso:::permissionSet/ssoins-0123456789ABCDEF/"
-            "ps-FEDCBA9876543210"
+            "ps-fedcba9876543210"
         ),
         "permission_set_description": (
             "Synthetic reviewed bootstrap Plan permission set"

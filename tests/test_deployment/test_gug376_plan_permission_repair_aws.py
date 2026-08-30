@@ -38,7 +38,7 @@ def _binding() -> RepairBinding:
             ),
             "repair_invoker_permission_set_arn": (
                 "arn:aws:sso:::permissionSet/ssoins-0123456789ABCDEF/"
-                "ps-FEDCBA9876543210"
+                "ps-fedcba9876543210"
             ),
             "permission_set_description": "Synthetic reviewed Plan policy",
             "permission_set_tags": {

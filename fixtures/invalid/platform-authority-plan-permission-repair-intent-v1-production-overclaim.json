@@ -17,7 +17,7 @@
   "permission_set_tags": {"managed_by": "cloudformation"},
   "session_duration": "PT1H",
   "relay_state": null,
-  "repair_invoker_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-0123456789ABCDEF/ps-FEDCBA9876543210",
+  "repair_invoker_permission_set_arn": "arn:aws:sso:::permissionSet/ssoins-0123456789ABCDEF/ps-fedcba9876543210",
   "principal_id": "01234567-89ab-cdef-0123-456789abcdef",
   "assignment_digest": "sha256:fa27054e19123a4a5c795e3460ef312c34139280f8cdaa1ce198a529543df454",
   "provisioned_accounts_digest": "sha256:aeda79f2b9120c789f4676176e49ef2d2da1908a69aa22dd4f5e1366e15b4388",
@@ -46,5 +46,5 @@
   "retry_permitted": false,
   "direct_human_sso_mutation_authorized": false,
   "production_authorized": true,
-  "intent_digest": "sha256:cbf283dd63b4a9d318d0d4179d55efc51dfc8bdf88a855cb304303316db6fe13"
+  "intent_digest": "sha256:9ab68f1bf11de3dc6ec0d04ceb116df6800e988578d6427226557bc2e24960b9"
 }

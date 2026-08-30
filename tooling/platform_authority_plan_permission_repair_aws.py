@@ -1484,7 +1484,7 @@ class BotoSessionFactory:
         services: Sequence[str],
     ) -> tuple[dict[str, Any], str, Mapping[str, Any]]:
         credentials, expected_arn = self._assume(role_arn, repair_id, purpose)
-        kwargs = {
+        session_parameters = {
             "aws_access_key_id": credentials["AccessKeyId"],
             "aws_secret_access_key": credentials["SecretAccessKey"],
             "aws_session_token": credentials["SessionToken"],
@@ -1495,7 +1495,7 @@ class BotoSessionFactory:
                     service,
                     region_name=REGION,
                     config=self.client_config,
-                    **kwargs,
+                    **session_parameters,
                 ),
                 self._remaining_time_ms,
             )
@@ -1506,7 +1506,7 @@ class BotoSessionFactory:
                 "sts",
                 region_name=REGION,
                 config=self.client_config,
-                **kwargs,
+                **session_parameters,
             ),
             self._remaining_time_ms,
         )
@@ -1520,12 +1520,12 @@ class BotoSessionFactory:
                 "ASSUME_ROLE_IDENTITY_MISMATCH",
                 "assumed session caller identity differs",
             )
-        return clients, expected_arn, credentials
+        return clients, expected_arn, session_parameters
 
     def inspector_adapter(
         self, *, repair_id: str, clock: Callable[[], datetime]
     ) -> tuple[AwsReadOnlyInventoryAdapter, str]:
-        clients, session_arn, credentials = self.assumed_clients(
+        clients, session_arn, session_parameters = self.assumed_clients(
             role_arn=INSPECTOR_ROLE_ARN,
             repair_id=repair_id,
             purpose="authority",
@@ -1539,9 +1539,7 @@ class BotoSessionFactory:
                     service,
                     region_name=region,
                     config=self.client_config,
-                    aws_access_key_id=credentials["AccessKeyId"],
-                    aws_secret_access_key=credentials["SecretAccessKey"],
-                    aws_session_token=credentials["SessionToken"],
+                    **session_parameters,
                 ),
                 self._remaining_time_ms,
             )
