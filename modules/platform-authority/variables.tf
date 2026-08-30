@@ -80,12 +80,19 @@ variable "deployments" {
       try(tonumber(deployment.destination_account_id) > 0, false) &&
       can(regex("^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]+$", deployment.region)) &&
       contains(["sandbox", "dev", "staging"], deployment.environment) &&
-      can(regex("^repo:[A-Za-z0-9_.-]+(?:@[0-9]+)?/[A-Za-z0-9_.-]+(?:@[0-9]+)?:environment:[A-Za-z0-9_.-]+$", deployment.github_oidc_subject)) &&
+      can(regex(
+        "^repository_owner_id:[1-9][0-9]*:repository_id:[1-9][0-9]*:environment:scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(?:sandbox|dev|staging):workflow_ref:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[.]github/workflows/nonprod-release[.]yml@refs/heads/main:event_name:workflow_dispatch$",
+        deployment.github_oidc_subject,
+      )) &&
+      startswith(
+        deployment.github_oidc_subject,
+        "repository_owner_id:${deployment.repository_owner_id}:repository_id:${deployment.repository_id}:environment:scanalyze-${deployment.deployment_id}-${deployment.environment}:",
+      ) &&
       !strcontains(deployment.github_oidc_subject, "*") &&
       deployment.repository_owner_id > 0 &&
       deployment.repository_id > 0
     ])
-    error_message = "every deployment must have canonical ownership, a non-production destination, and one exact GitHub environment subject."
+    error_message = "every deployment must have canonical ownership, a non-production destination, and one exact customized GitHub OIDC subject for the protected main workflow."
   }
 }
 

@@ -38,7 +38,7 @@ variables {
       destination_account_id = "111222333444"
       region                 = "us-east-1"
       environment            = "staging"
-      github_oidc_subject    = "repo:synthetic@101/scanalyze@201:environment:client-a-staging"
+      github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
       repository_owner_id    = 101
       repository_id          = 201
     }
@@ -48,7 +48,7 @@ variables {
       destination_account_id = "555666777888"
       region                 = "us-east-1"
       environment            = "sandbox"
-      github_oidc_subject    = "repo:synthetic/scanalyze:environment:client-b-sandbox"
+      github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01BX5ZZKBKACTAV9WEVGEMMVRZ-sandbox:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
       repository_owner_id    = 101
       repository_id          = 201
     }
@@ -73,7 +73,7 @@ run "creates_two_isolated_customer_orchestrators" {
       role.tags["customer_id"] == var.deployments[deployment_id].customer_id &&
       role.tags["account_id"] == var.deployments[deployment_id].destination_account_id
     ])
-    error_message = "each orchestrator must retain exact immutable ownership and a short session"
+    error_message = "each orchestrator must retain exact immutable ownership and a 3,600-second session ceiling"
   }
 
   assert {
@@ -81,7 +81,7 @@ run "creates_two_isolated_customer_orchestrators" {
       for binding in values(output.contract_payload.orchestrator_roles) :
       binding.requested_session_duration_seconds == 3600
     ])
-    error_message = "the OIDC caller contract must request the 15-minute STS minimum"
+    error_message = "the OIDC caller contract must request the exact one-hour orchestrator session"
   }
 
   assert {
@@ -124,7 +124,7 @@ run "rejects_authority_account_as_customer_destination" {
         destination_account_id = "999888777666"
         region                 = "us-east-1"
         environment            = "staging"
-        github_oidc_subject    = "repo:synthetic/scanalyze:environment:client-a-staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
         repository_owner_id    = 101
         repository_id          = 201
       }
@@ -145,7 +145,7 @@ run "rejects_map_key_and_deployment_confusion" {
         destination_account_id = "111222333444"
         region                 = "us-east-1"
         environment            = "staging"
-        github_oidc_subject    = "repo:synthetic/scanalyze:environment:client-a-staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01BX5ZZKBKACTAV9WEVGEMMVRZ-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
         repository_owner_id    = 101
         repository_id          = 201
       }
@@ -166,7 +166,7 @@ run "rejects_wildcard_github_subject" {
         destination_account_id = "111222333444"
         region                 = "us-east-1"
         environment            = "staging"
-        github_oidc_subject    = "repo:synthetic/scanalyze:environment:*"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-*:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
         repository_owner_id    = 101
         repository_id          = 201
       }
@@ -187,7 +187,154 @@ run "rejects_production_environment" {
         destination_account_id = "111222333444"
         region                 = "us-east-1"
         environment            = "production"
-        github_oidc_subject    = "repo:synthetic/scanalyze:environment:client-a-production"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-production:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_legacy_github_subject" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repo:synthetic/scanalyze:environment:client-a-staging"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_with_mismatched_immutable_ids" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:999:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_outside_protected_main" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/feature:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_with_mismatched_repository_id" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:999:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_with_mismatched_deployment_environment" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-dev:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_for_unreviewed_workflow" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/unreviewed.yml@refs/heads/main:event_name:workflow_dispatch"
+        repository_owner_id    = 101
+        repository_id          = 201
+      }
+    }
+  }
+
+  expect_failures = [var.deployments]
+}
+
+run "rejects_custom_subject_for_non_dispatch_event" {
+  command = plan
+
+  variables {
+    deployments = {
+      dep_01ARZ3NDEKTSV4RRFFQ69G5FAV = {
+        customer_id            = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        deployment_id          = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        destination_account_id = "111222333444"
+        region                 = "us-east-1"
+        environment            = "staging"
+        github_oidc_subject    = "repository_owner_id:101:repository_id:201:environment:scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging:workflow_ref:synthetic/scanalyze/.github/workflows/nonprod-release.yml@refs/heads/main:event_name:push"
         repository_owner_id    = 101
         repository_id          = 201
       }

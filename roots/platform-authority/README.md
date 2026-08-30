@@ -14,8 +14,9 @@ root and it cannot use a customer destination account.
 
 GitHub OIDC assumes one exact `ScanalyzeOrchestrator-<deployment_id>` role after
 bootstrap. Every role is bound to a single customer, deployment, destination
-account, region, environment, repository, and GitHub environment subject.
-Static credentials and wildcard subjects are forbidden.
+account, region, environment, repository, and customized GitHub OIDC subject
+for the reviewed workflow on protected `main`. Static credentials, legacy
+subjects, wildcard subjects, and non-`workflow_dispatch` events are forbidden.
 
 The root is a declaration only until a distinct authority account, profile,
 backend binding, reviewed plan, and explicit non-production authorization exist.

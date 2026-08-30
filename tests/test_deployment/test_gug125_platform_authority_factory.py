@@ -87,7 +87,16 @@ def test_oidc_trust_and_orchestrator_roles_are_exact_and_short_lived() -> None:
     assert "deployment.github_oidc_subject" in trust
     assert "deployment.repository_owner_id" in trust
     assert "deployment.repository_id" in trust
-    assert "(?:@[0-9]+)?" in _read(MODULE / "variables.tf")
+    variables = _read(MODULE / "variables.tf")
+    assert "repository_owner_id:" in variables
+    assert "repository_id:" in variables
+    assert "workflow_ref:" in variables
+    assert "@refs/heads/main:event_name:workflow_dispatch" in variables
+    assert "deployment.repository_owner_id" in variables
+    assert "deployment.repository_id" in variables
+    assert "deployment.deployment_id" in variables
+    assert "deployment.environment" in variables
+    assert 'regex("^repo:' not in variables
     assert "StringLike" not in trust
     assert "max_session_duration = 3600" in identity
     assert "requested_session_duration_seconds = 3600" in _read(MODULE / "locals.tf")
