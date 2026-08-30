@@ -44,7 +44,8 @@ def _sha(character: str) -> str:
     return "sha256:" + (character * 64)
 
 
-def _context_arguments() -> dict:
+def _context_arguments(environment: str = "dev") -> dict:
+    github_environment = f"scanalyze-{DEPLOYMENT_ID}-{environment}"
     arguments = {
         "event_name": "workflow_dispatch",
         "git_ref": "refs/heads/main",
@@ -63,8 +64,8 @@ def _context_arguments() -> dict:
         "destination_account_id": DESTINATION_ACCOUNT,
         "platform_authority_account_id": AUTHORITY_ACCOUNT,
         "region": REGION,
-        "environment": "dev",
-        "github_environment": GITHUB_ENVIRONMENT,
+        "environment": environment,
+        "github_environment": github_environment,
         "layer": "network",
         "release_digest": _sha("a"),
         "source_revision_digest": derive_source_revision_digest(WORKFLOW_SHA),
@@ -90,7 +91,7 @@ def _context_arguments() -> dict:
         "terminal_session_duration_seconds": 3600,
     }
     arguments["approval_authority_digest"] = derive_approval_authority_digest(
-        github_environment=GITHUB_ENVIRONMENT,
+        github_environment=github_environment,
         expected_approver_user_id=55,
         github_deployment_identity_digest=arguments[
             "github_deployment_identity_digest"
@@ -102,18 +103,18 @@ def _context_arguments() -> dict:
     return arguments
 
 
-def _context() -> dict:
-    return build_live_context(**_context_arguments())
+def _context(environment: str = "dev") -> dict:
+    return build_live_context(**_context_arguments(environment))
 
 
-def _bindings() -> dict:
-    context = _context()
+def _bindings(environment: str = "dev") -> dict:
+    context = _context(environment)
     return {
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
         "account_id": DESTINATION_ACCOUNT,
         "region": REGION,
-        "environment": "dev",
+        "environment": environment,
         "execution_id": EXECUTION_ID,
         "change_id": CHANGE_ID,
         "layer": "network",
@@ -122,7 +123,7 @@ def _bindings() -> dict:
         "release_policy_digest": _sha("6"),
         "release_projection_digest": _sha("7"),
         "plan_policy_digest": _sha("8"),
-        "github_environment": GITHUB_ENVIRONMENT,
+        "github_environment": context["github_environment"],
         "github_deployment_identity_digest": context[
             "github_deployment_identity_digest"
         ],
@@ -318,11 +319,17 @@ def _apply_intent() -> dict:
     )
 
 
-def test_exact_dev_context_is_digest_bound_to_main_and_authority() -> None:
-    context = _context()
+@pytest.mark.parametrize("environment", ["dev", "staging"])
+def test_exact_live_context_is_digest_bound_to_main_and_authority(
+    environment: str,
+) -> None:
+    context = _context(environment)
 
     assert context["authorized"] is True
-    assert context["environment"] == "dev"
+    assert context["environment"] == environment
+    assert context["github_environment"] == (
+        f"scanalyze-{DEPLOYMENT_ID}-{environment}"
+    )
     assert context["workflow_sha"] == context["main_sha"]
     assert context["workflow_run_attempt"] == 1
     assert context["platform_authority_account_id"] != context[
@@ -336,7 +343,7 @@ def test_exact_dev_context_is_digest_bound_to_main_and_authority() -> None:
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("environment", "staging", "dev"),
+        ("environment", "production", "dev or staging"),
         ("git_ref", "refs/heads/feature", "main"),
         ("main_sha", "5" * 40, "SHA"),
         ("workflow_run_attempt", 2, "run attempt 1"),
@@ -366,6 +373,14 @@ def test_live_context_fails_closed_on_authority_drift(
         build_live_context(**arguments)
 
 
+def test_staging_context_rejects_a_dev_environment_boundary() -> None:
+    arguments = _context_arguments("staging")
+    arguments["github_environment"] = GITHUB_ENVIRONMENT
+
+    with pytest.raises(AuthorizationError, match="Environment"):
+        build_live_context(**arguments)
+
+
 def test_identity_layer_requires_identity_terminal_roles() -> None:
     arguments = _context_arguments()
     arguments["layer"] = "identity-control-plane"
@@ -384,10 +399,13 @@ def test_identity_layer_requires_identity_terminal_roles() -> None:
     assert build_live_context(**arguments)["layer"] == "identity-control-plane"
 
 
-def test_plan_intent_uses_complete_fixed_wrapper_command() -> None:
+@pytest.mark.parametrize("environment", ["dev", "staging"])
+def test_plan_intent_uses_complete_fixed_wrapper_command(
+    environment: str,
+) -> None:
     intent = build_plan_intent(
-        context=_context(),
-        expected_bindings=_bindings(),
+        context=_context(environment),
+        expected_bindings=_bindings(environment),
         plan_inputs=_plan_inputs(),
     )
 
@@ -407,6 +425,7 @@ def test_plan_intent_uses_complete_fixed_wrapper_command() -> None:
         "--expected-source-sha",
     ):
         assert option in argv
+    assert argv[argv.index("--environment") + 1] == environment
     assert intent["expected_plan_path"] == "/runner/private/plan/network.tfplan"
     assert intent["workflow_run_attempt"] == 1
     assert intent["storage_mode"] == "CREATE_ONLY_KMS_VERSIONED"

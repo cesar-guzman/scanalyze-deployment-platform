@@ -53,6 +53,7 @@ CUSTOMER_ID = re.compile(r"^cust_[0-9A-HJKMNP-TV-Z]{26}$")
 EXECUTION_ID = re.compile(r"^exec_[0-9A-HJKMNP-TV-Z]{26}$")
 CHANGE_ID = re.compile(r"^chg_[0-9A-HJKMNP-TV-Z]{26}$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
+LIVE_NONPRODUCTION_ENVIRONMENTS = frozenset({"dev", "staging"})
 CONTROL_RECORD_TYPES = frozenset({"plan", "approval", "health", "reconciliation"})
 TERMINAL_CHILD_ENVIRONMENT_NAMES = frozenset(
     {
@@ -503,7 +504,7 @@ class AwsCliTerminalSession:
             or not DEPLOYMENT_ID.fullmatch(deployment_id)
             or not EXECUTION_ID.fullmatch(execution_id)
             or not CHANGE_ID.fullmatch(change_id)
-            or environment != "dev"
+            or environment not in LIVE_NONPRODUCTION_ENVIRONMENTS
         ):
             raise AuthorizationError("terminal session binding is invalid")
         if not command:

@@ -1,4 +1,4 @@
-"""Materialize one sanitized GitHub Environment approval for live DEV apply.
+"""Materialize one sanitized GitHub Environment approval for live non-production apply.
 
 The GitHub token is transport authority only for two read-only requests: exact
 workflow-run metadata and Environment review history. Raw API responses,
@@ -34,7 +34,7 @@ REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 COMMIT_SHA = re.compile(r"^[a-f0-9]{40}$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 GITHUB_ENVIRONMENT = re.compile(
-    r"^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-dev$"
+    r"^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(?:dev|staging)$"
 )
 MAX_RESPONSE_BYTES = 262_144
 EVIDENCE_LIFETIME = timedelta(minutes=5)

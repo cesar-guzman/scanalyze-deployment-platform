@@ -1,4 +1,4 @@
-"""Connected controller for one protected DEV saved-plan phase.
+"""Connected controller for one protected non-production saved-plan phase.
 
 This module composes the already-separated Plan, Apply, and shared-services
 orchestrator authorities.  It never accepts caller-selected operational paths,
@@ -63,6 +63,7 @@ from tooling.nonprod_live_orchestrator import (
     build_apply_intent,
     build_plan_intent,
     classify_apply_observation,
+    require_live_nonproduction_environment,
     validate_apply_intent,
     validate_plan_intent,
 )
@@ -451,6 +452,10 @@ def load_live_input_package(
     manifest = _private_json(materialized / "manifest.json")
     receipt = _private_json(materialized / "receipt.json")
 
+    environment = require_live_nonproduction_environment(
+        context.get("environment")
+    )
+
     expected_plan, expected_apply = _expected_input_maps(private_root)
     if plan_inputs != expected_plan or apply_inputs != expected_apply:
         raise AuthorizationError("materialized operational path map is not canonical")
@@ -495,7 +500,7 @@ def load_live_input_package(
         "workflow_sha": main_sha,
         "main_sha": main_sha,
         "region": region,
-        "environment": "dev",
+        "environment": environment,
     }
     if any(context.get(field) != value for field, value in expected_context.items()):
         raise AuthorizationError("live controller context selector mismatch")
@@ -505,7 +510,7 @@ def load_live_input_package(
         "change_id": change_id,
         "layer": layer,
         "region": region,
-        "environment": "dev",
+        "environment": environment,
         "source_revision_digest": context.get("source_revision_digest"),
     }
     if any(bindings.get(field) != value for field, value in expected_bindings.items()):
@@ -537,6 +542,7 @@ def load_live_input_package(
     if (
         claim.get("execution_id") != execution_id
         or claim.get("change_id") != change_id
+        or claim.get("environment") != environment
         or claim.get("region") != region
         or claim.get("release_digest") != bindings.get("release_digest")
         or receipt.get("maximum_cost_usd_micros")
@@ -1089,7 +1095,7 @@ def _terminal_kwargs(package: LiveInputPackage, operation: str, command: Sequenc
         "deployment_id": context["deployment_id"],
         "execution_id": context["execution_id"],
         "change_id": context["change_id"],
-        "environment": "dev",
+        "environment": context["environment"],
         "operation": operation,
         "layer": context["layer"],
         "command": tuple(command),
@@ -2675,7 +2681,7 @@ def _post_apply_observe_command(
         "--region",
         str(context["region"]),
         "--environment",
-        "dev",
+        str(context["environment"]),
         "--release-version",
         str(plan_record["release_version"]),
         "--release-digest",

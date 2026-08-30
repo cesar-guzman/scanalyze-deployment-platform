@@ -564,7 +564,7 @@ def test_saved_plan_runner_revalidates_freshness_after_init_before_apply() -> No
         ("pull_request", "refs/heads/main", "true", "dev"),
         ("workflow_dispatch", "refs/heads/feature", "true", "dev"),
         ("workflow_dispatch", "refs/heads/main", "false", "dev"),
-        ("workflow_dispatch", "refs/heads/main", "true", "staging"),
+        ("workflow_dispatch", "refs/heads/main", "true", "sandbox"),
         ("workflow_dispatch", "refs/heads/main", "true", "production"),
     ],
 )
@@ -631,6 +631,74 @@ def test_saved_plan_apply_rejects_noncanonical_ci_context_before_aws_access(
     )
 
     assert result.returncode == 2
+    assert not aws_marker.exists()
+
+
+@pytest.mark.parametrize("logical_environment", ["dev", "staging"])
+def test_saved_plan_boundary_accepts_exact_live_nonproduction_environment(
+    tmp_path: Path,
+    logical_environment: str,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    aws_marker = tmp_path / "aws-called"
+    _write_executable(
+        fake_bin / "aws",
+        f"""
+        #!/usr/bin/env bash
+        touch {shlex.quote(str(aws_marker))}
+        exit 99
+        """,
+    )
+    repository = "synthetic-owner/synthetic-repository"
+    main_sha = "a" * 40
+    deployment_id = "dep_" + ("A" * 26)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_REF_PROTECTED": "true",
+            "GITHUB_SHA": main_sha,
+            "GITHUB_REPOSITORY": repository,
+            "GITHUB_REPOSITORY_ID": "22",
+            "GITHUB_REPOSITORY_OWNER_ID": "11",
+            "GITHUB_WORKFLOW_REF": (
+                f"{repository}/.github/workflows/nonprod-release.yml@refs/heads/main"
+            ),
+            "SCANALYZE_ALLOW_LIVE": "true",
+            "SCANALYZE_DRY_RUN": "false",
+            "SCANALYZE_DEPLOYMENT_ID": deployment_id,
+            "SCANALYZE_EXPECTED_MAIN_SHA": main_sha,
+            "SCANALYZE_EXPECTED_REPOSITORY_ID": "22",
+            "SCANALYZE_EXPECTED_REPOSITORY_OWNER_ID": "11",
+            "SCANALYZE_GITHUB_ENVIRONMENT": (
+                f"scanalyze-{deployment_id}-{logical_environment}"
+            ),
+            "SCANALYZE_LOGICAL_ENVIRONMENT": logical_environment,
+            "SCANALYZE_OIDC_AUDIENCE": "sts.amazonaws.com",
+            "SCANALYZE_ROLE_DURATION_SECONDS": "3600",
+        }
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "scripts/deployment/terraform-saved-plan.sh"),
+            "apply",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--layer is required" in result.stderr
+    assert "restricted to dev or staging" not in result.stderr
     assert not aws_marker.exists()
 
 

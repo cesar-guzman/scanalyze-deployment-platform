@@ -33,16 +33,18 @@ not infer ACCOUNT_READY from an empty account.
 ## Protected dispatch and private-input custody
 
 The live path is available only through `nonprod-release.yml` on the protected
-`main` ref. It is restricted to `logical_environment=dev`; staging and
-production are rejected before credentials. A local invocation of Terraform,
-`nonprod-live-controller.py`, or the saved-plan shell runner is unsupported and
-cannot be used as deployment evidence.
+`main` ref. It is restricted to an exact `logical_environment=dev` or
+`logical_environment=staging` binding; production is rejected before
+credentials. A local invocation of Terraform, `nonprod-live-controller.py`, or
+the saved-plan shell runner is unsupported and cannot be used as deployment
+evidence.
 
 Before a plan or apply dispatch, record the current authorization tuple:
 
 - exact reviewed `main` SHA and Git-safe request path;
-- deployment, DEV destination account, separate platform-authority account,
-  Region, protected Environment and target layer;
+- deployment, selected non-production logical environment and destination
+  account, separate platform-authority account, Region, matching protected
+  Environment and target layer;
 - release, execution, change and private-claim digests;
 - `plan` or `apply`, with exact plan-record and reviewer-packet digests for
   apply only;
@@ -167,7 +169,7 @@ must never publish or retry apply. In that state `contract_verified` means that
 the prospective canonical contract validates against its schema; it is not a
 publication claim. Reentry after `RECONCILED_APPLIED` performs health and
 publication normally. The public Apply path is wired in the repository, but no
-connected DEV execution has yet proved it.
+connected protected non-production execution has yet proved it.
 
 The protected job treats the controller exit code as a terminal gate. Only a
 durably read-back `HEALTHY` result exits successfully. `APPLIED`, `UNCERTAIN`,
@@ -206,19 +208,20 @@ model or lowering its bound between plan and apply; they do not certify the
 estimator's accuracy. Stop if the release requires authoritative plan-derived
 pricing and that estimator is not bound to the exact saved-plan digest.
 
-One dispatch is bounded to one DEV deployment, account, Region, layer,
-operation, execution/change tuple, release and protected Environment. The live
-job is capped at 45 minutes, the control-plane OIDC session at 3,600 seconds and
-the destination terminal session at one hour. Concurrency does not cancel an
-in-flight run, and apply has one attempt. The structural plan classifier denies
-destroy, replacement, malformed, or unknown actions before publication and
-rejects more than 256 non-no-op resource actions or 128 non-no-op output
-actions. A plan containing a resource outside that tuple, an unreviewed IAM
-change, another layer, staging or production is an automatic stop.
+One dispatch is bounded to one exact `dev` or `staging` deployment, account,
+Region, layer, operation, execution/change tuple, release and protected
+Environment. The live job is capped at 45 minutes, the control-plane OIDC
+session at 3,600 seconds and the destination terminal session at one hour.
+Concurrency does not cancel an in-flight run, and apply has one attempt. The
+structural plan classifier denies destroy, replacement, malformed, or unknown
+actions before publication and rejects more than 256 non-no-op resource actions
+or 128 non-no-op output actions. A plan containing a resource outside that
+tuple, an unreviewed IAM change, another layer, another logical environment or
+production is an automatic stop.
 
 ## Connected sequential execution (not yet executed)
 
-The protected DEV path now implements the post-apply state, no-change,
+The protected non-production path now implements the post-apply state, no-change,
 producer-contract publication, and durable-receipt adapters, but this is not an
 executable claim that its connected prerequisites are configured or approved.
 Execute one destination at a time only after exact-main review/CI and every

@@ -34,7 +34,7 @@ storage and shared-services ledger storage are deliberately split in
 `tooling/nonprod_live_store.py`. `scripts/deployment/nonprod-live-engine.py`
 exposes the guarded policy and storage boundary; its legacy
 `run-terminal-apply` command remains unavailable because the protected
-controller is the sole public DEV execution path.
+controller is the sole public protected non-production execution path.
 `tooling/nonprod_live_orchestrator.py` builds immutable plan/apply intents bound
 to one exact main SHA and protected workflow run.
 `scripts/deployment/terraform-saved-plan.sh` is the only allowlisted saved-plan
@@ -43,7 +43,7 @@ apply program and remains inaccessible from a local operator session.
 `scripts/deployment/nonprod-live-input-materializer.py` validate the sealed
 private inputs before OIDC. `scripts/deployment/nonprod-live-controller.py`
 connects only a successful materialization receipt to one protected phase. Its
-public `apply` command is wired for DEV to the real terminal adapters: exact
+public `apply` command is wired for DEV or staging to the real terminal adapters: exact
 saved-plan apply under Apply authority; post-apply health or reconciliation
 observation under fresh Plan authority; and canonical immutable contract
 publication under fresh Apply authority. The controller can durably record
@@ -52,7 +52,8 @@ approval/fetch/apply, and finalize only after state bracketing, a structural
 `NO_CHANGE` plan, verified input contracts, explicitly non-sensitive outputs,
 exact contract publication/readback and a durable health receipt. `UNCERTAIN`
 permits only read-only reconciliation and never apply or publication. This
-wiring is repository evidence only; no connected DEV execution is claimed.
+wiring is repository evidence only; no connected protected non-production
+execution is claimed.
 The public Apply CLI returns a successful exit code only for `HEALTHY`;
 `APPLIED`, `UNCERTAIN`, `RECONCILIATION_REQUIRED`, and `RECONCILED_APPLIED`
 remain non-success results for that workflow invocation and cannot make the
@@ -213,8 +214,8 @@ responses or credentials to GitHub artifacts, logs, Linear, NotebookLM or a PR.
 
 The workflow shape enforces these boundaries:
 
-1. one manual `dev` dispatch selects exactly one `plan` or `apply` phase and an
-   exact protected-main SHA; no recovery operation is exposed;
+1. one manual `dev` or `staging` dispatch selects exactly one `plan` or `apply`
+   phase and an exact protected-main SHA; no recovery operation is exposed;
 2. only `live-layer` in `nonprod-release.yml` and the single
    Environment-protected `live_saved_plan` job in the reusable workflow may
    request `id-token: write`; the reusable job contains the pinned AWS
@@ -343,15 +344,17 @@ an orphaned approval record grants no authority by itself.
 
 Until the exact Environment secret and every decoded sealed source are present,
 the workflow fails closed before OIDC. Configuring them still does not itself
-prove a connected DEV execution; only the resulting protected runtime evidence
-does.
+prove a connected protected non-production execution; only the resulting
+runtime evidence does.
 
 ### Exact protected dispatch shape
 
-The following are execution templates, not standing authorization. Run either
-only after an owner authorizes the exact DEV account, Region, deployment,
-layer, main SHA, release, claim digest, cost ceiling, change window and
-rollback owner. The protected Environment must independently approve the job.
+The following are execution templates, not standing authorization. Select one
+exact `logical_environment` (`dev` or `staging`) and reuse it unchanged in the
+Plan and Apply dispatches. Run either only after an owner authorizes that exact
+non-production environment, account, Region, deployment, layer, main SHA,
+release, claim digest, cost ceiling, change window and rollback owner. The
+matching protected Environment must independently approve the job.
 
 Plan uses a new execution/change tuple and cannot carry a saved-plan digest:
 
@@ -359,8 +362,8 @@ Plan uses a new execution/change tuple and cannot carry a saved-plan digest:
 gh workflow run nonprod-release.yml --ref main \
   -f request_path=<tracked-git-safe-request> \
   -f deployment_id=<dep_ULID> \
-  -f logical_environment=dev \
-  -f github_environment=scanalyze-<dep_ULID>-dev \
+  -f logical_environment=<dev-or-staging> \
+  -f github_environment=scanalyze-<dep_ULID>-<same-logical-environment> \
   -f aws_region=<authorized-region> \
   -f release_digest=sha256:<release-digest> \
   -f dry_run=false -f allow_live=true -f live_operation=plan \
@@ -379,8 +382,8 @@ plan, and names the immutable plan record:
 gh workflow run nonprod-release.yml --ref main \
   -f request_path=<tracked-git-safe-request> \
   -f deployment_id=<dep_ULID> \
-  -f logical_environment=dev \
-  -f github_environment=scanalyze-<dep_ULID>-dev \
+  -f logical_environment=<same-dev-or-staging> \
+  -f github_environment=scanalyze-<dep_ULID>-<same-logical-environment> \
   -f aws_region=<authorized-region> \
   -f release_digest=sha256:<release-digest> \
   -f dry_run=false -f allow_live=true -f live_operation=apply \
@@ -392,9 +395,10 @@ gh workflow run nonprod-release.yml --ref main \
   -f live_input_claim_digest=sha256:<approved-apply-claim-digest>
 ```
 
-Never alter these templates to select `staging` or `production`, bypass the
-Environment, supply a local path, retry an uncertain apply, re-plan during
-apply, or use a different digest under the same change.
+Never alter these templates to select `production`, mix `dev` and `staging`
+within one Plan/Apply tuple, bypass the Environment, supply a local path, retry
+an uncertain apply, re-plan during apply, or use a different digest under the
+same change.
 
 ### Expired `APPLYING` recovery
 
@@ -406,9 +410,10 @@ redispatch apply, or reintroduce an alternate privileged path.
 
 ## Cost and blast-radius controls
 
-Every authorization and materialized context binds one DEV destination account,
-one separate platform-authority account, one Region, one deployment, one layer,
-one operation, one release and one time window. The reviewed claim's integer
+Every authorization and materialized context binds one exact `dev` or `staging`
+destination account, one separate platform-authority account, one Region, one
+deployment, one layer, one operation, one release and one time window. The
+reviewed claim's integer
 `maximum_cost_usd_micros` is limited to 0 through 100,000,000. The sealed
 request's independently digested USD `cost_model` carries the integer modeled
 upper bound, `modeled_at` and `expires_at`, with a maximum 24-hour window.
@@ -436,9 +441,10 @@ plan/apply terminal roles; human diagnostic and state-recovery sessions remain
 independently controlled and capped at 900 seconds.
 
 The maximum immediate mutation radius of one authorized apply is the resources
-in the exact reviewed saved plan for that single layer and deployment. It does
-not include another layer, account, Region, deployment, staging or production.
-Any plan that cannot prove that bound is denied rather than partially applied.
+in the exact reviewed saved plan for that single layer, deployment and logical
+environment. It does not include another layer, account, Region, deployment,
+logical environment or production. Any plan that cannot prove that bound is
+denied rather than partially applied.
 
 ## Evidence handling
 
@@ -482,7 +488,7 @@ AWS.
 
 The configured and independently reviewed protected Environment transport,
 exact separate platform-authority account/backend/orchestrator, destination
-baseline and terminal roles, non-overlapping DEV network, protected
+baseline and terminal roles, non-overlapping DEV and staging networks, protected
 Environment, independent reviewer, and connected plan/apply/health/rollback
 evidence remain **NOT_PROVEN** until observed. GUG-127 and GUG-128 remain
 independent gates. Staging is **NO-GO**. Production is **NO-GO**.

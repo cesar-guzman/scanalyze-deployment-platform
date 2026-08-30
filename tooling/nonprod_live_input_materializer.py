@@ -1,4 +1,4 @@
-"""Fail-closed materialization of repository-attested live ``dev`` inputs.
+"""Fail-closed materialization of repository-attested live non-production inputs.
 
 The materializer treats the protected Environment secret as untrusted transport.
 Authority comes from one reviewed claim at a canonical repository path.  The
@@ -73,6 +73,7 @@ MAX_ENCODED_REQUEST_BYTES = 48_000
 SEALED_REQUEST_ENV = "SCANALYZE_LIVE_INPUT_BUNDLE_B64"
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 DEPLOYMENT_ID = re.compile(r"^dep_[0-9A-HJKMNP-TV-Z]{26}$")
+LIVE_NONPRODUCTION_ENVIRONMENTS = frozenset({"dev", "staging"})
 
 SOURCE_FILENAMES = {
     "manifest": "manifest.json",
@@ -516,7 +517,7 @@ def _validate_deployment_request(
     )
     if (
         request.get("deployment_id") != claim.get("deployment_id")
-        or request.get("environment") != "dev"
+        or request.get("environment") != claim.get("environment")
         or request.get("release_digest") != claim.get("release_digest")
         or request.get("non_sensitive_selectors", {}).get("region")
         != claim.get("region")
@@ -556,11 +557,13 @@ def validate_claim(
     _verify_digest(claim, "claim_digest", "CLAIM_DIGEST_MISMATCH")
     if not DIGEST.fullmatch(claim_digest) or claim.get("claim_digest") != claim_digest:
         _fail("CLAIM_DIGEST_MISMATCH")
+    environment = claim.get("environment")
+    if environment not in LIVE_NONPRODUCTION_ENVIRONMENTS:
+        _fail("CLAIM_SELECTOR_MISMATCH")
     expected = {
         "deployment_id": deployment_id,
         "layer": layer,
         "operation": operation,
-        "environment": "dev",
     }
     if any(claim.get(field) != value for field, value in expected.items()):
         _fail("CLAIM_SELECTOR_MISMATCH")
@@ -806,13 +809,16 @@ def _validate_github_approval_authority(
         reviewer_id = int(reviewer["id"])
         if reviewer_id < 1 or reviewer_id == runtime["initiator_user_id"]:
             _fail("GITHUB_ENVIRONMENT_REVIEWER_NOT_INDEPENDENT")
-        github_environment = f"scanalyze-{claim['deployment_id']}-dev"
+        environment = claim["environment"]
+        if environment not in LIVE_NONPRODUCTION_ENVIRONMENTS:
+            _fail("GITHUB_DEPLOYMENT_IDENTITY_BINDING_MISMATCH")
+        github_environment = f"scanalyze-{claim['deployment_id']}-{environment}"
         identity_expected = {
             "customer_id": manifest["customer_id"],
             "deployment_id": claim["deployment_id"],
             "account_id": target["account_id"],
             "region": claim["region"],
-            "environment": "dev",
+            "environment": environment,
         }
         if any(identity.get(key) != value for key, value in identity_expected.items()):
             _fail("GITHUB_DEPLOYMENT_IDENTITY_BINDING_MISMATCH")
@@ -846,7 +852,7 @@ def _validate_github_approval_authority(
             "DEPLOYMENT_ID": claim["deployment_id"],
             "AWS_ACCOUNT_ID": target["account_id"],
             "AWS_REGION": claim["region"],
-            "LOGICAL_ENVIRONMENT": "dev",
+            "LOGICAL_ENVIRONMENT": environment,
             "OIDC_ORCHESTRATOR_ROLE_ARN": authority["orchestrator_role_arn"],
             "ORCHESTRATOR_ROLE_ARN": authority["orchestrator_role_arn"],
             "GENERIC_PLAN_ROLE_ARN": _select_role(account_ready, "global", "plan"),
@@ -1155,8 +1161,10 @@ def _build_context(
                 "platform_authority_account_id"
             ],
             region=claim["region"],
-            environment="dev",
-            github_environment=f"scanalyze-{claim['deployment_id']}-dev",
+            environment=claim["environment"],
+            github_environment=(
+                f"scanalyze-{claim['deployment_id']}-{claim['environment']}"
+            ),
             layer=claim["layer"],
             release_digest=claim["release_digest"],
             source_revision_digest=derive_source_revision_digest(
@@ -1208,7 +1216,7 @@ def _build_bindings(
         "deployment_id": claim["deployment_id"],
         "account_id": target["account_id"],
         "region": claim["region"],
-        "environment": "dev",
+        "environment": claim["environment"],
         "execution_id": claim["execution_id"],
         "change_id": claim["change_id"],
         "layer": claim["layer"],

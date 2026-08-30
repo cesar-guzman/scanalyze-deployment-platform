@@ -1,4 +1,4 @@
-"""Documentation contracts for the protected DEV live-path repair."""
+"""Documentation contracts for the protected non-production live path."""
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def test_live_path_docs_bind_the_exact_private_interface() -> None:
         "nonprod-live-input-materializer.py",
         "nonprod-live-controller.py",
         "`run-terminal-apply` command remains unavailable",
-        "public `apply` command is wired for DEV",
+        "public `apply` command is wired for DEV or staging",
         "nonprod-live-approval.py",
         "nonprod-live-github-approval-evidence.v1.schema.json",
         "deployment/live-input-claims/<deployment_id>/<layer>/<operation>.json",
@@ -60,7 +60,7 @@ def test_live_path_docs_preserve_cost_blast_radius_and_recovery_boundaries() -> 
 
     for required in (
         "Cost and blast-radius controls",
-        "one DEV",
+        "one exact `dev` or `staging`",
         "maximum_cost_usd_micros",
         "cost_model_digest",
         "3,600-second platform-authority control-plane OIDC session",
@@ -98,7 +98,7 @@ def test_live_path_docs_do_not_collapse_repository_dev_staging_and_production() 
     assert "This wiring is repository evidence only" in deployment
     assert "returns a successful exit code only for `HEALTHY`" in deployment
     assert "The public Apply path is wired in the repository" in operations
-    assert "no connected DEV execution has yet proved it" in operations
+    assert "no connected protected non-production execution has yet proved it" in operations
     assert "`UNCERTAIN` permits only read-only reconciliation" in _normalized(ADR)
 
     assert "Nothing in this runbook authorizes that pilot" in operations

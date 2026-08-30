@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/staging-certification.v1.schema.json",
+  "title": "Scanalyze GUG-127 Staging Certification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "gate_id",
+    "certification_id",
+    "source_revision",
+    "release_digest",
+    "last_known_good_release_digest",
+    "phase_8_evidence_digest",
+    "observed_at",
+    "expires_at",
+    "evidence_index",
+    "evidence_index_signature",
+    "trust_policy_digest",
+    "operations",
+    "independent_review",
+    "decision",
+    "certification_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "scanalyze.staging_certification.v1"
+    },
+    "gate_id": { "const": "GUG-127" },
+    "certification_id": {
+      "type": "string",
+      "pattern": "^stgcert_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "release_digest": { "$ref": "#/$defs/digest" },
+    "last_known_good_release_digest": { "$ref": "#/$defs/digest" },
+    "phase_8_evidence_digest": { "$ref": "#/$defs/digest" },
+    "observed_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "evidence_index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "entries", "index_digest"],
+      "properties": {
+        "schema_version": { "const": "1" },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/environment_evidence" }
+        },
+        "index_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidence_index_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_id",
+        "issuer",
+        "identity",
+        "algorithm",
+        "value"
+      ],
+      "properties": {
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:/@+-]{1,256}$"
+        },
+        "issuer": { "type": "string", "format": "uri" },
+        "identity": { "type": "string", "format": "uri" },
+        "algorithm": { "const": "ECDSA_SHA_256" },
+        "value": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        }
+      }
+    },
+    "trust_policy_digest": { "$ref": "#/$defs/digest" },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "no_open_critical",
+        "no_open_high",
+        "two_environment_isolation",
+        "positive_tests_passed",
+        "negative_tests_passed",
+        "rollback_measured",
+        "restore_measured",
+        "on_call_confirmed",
+        "change_window_confirmed",
+        "alerts_confirmed",
+        "backups_confirmed",
+        "last_known_good_confirmed",
+        "residual_risk_digest",
+        "on_call_digest",
+        "change_window_digest",
+        "alerts_digest",
+        "backups_digest"
+      ],
+      "properties": {
+        "no_open_critical": { "const": true },
+        "no_open_high": { "const": true },
+        "two_environment_isolation": { "const": true },
+        "positive_tests_passed": { "const": true },
+        "negative_tests_passed": { "const": true },
+        "rollback_measured": { "const": true },
+        "restore_measured": { "const": true },
+        "on_call_confirmed": { "const": true },
+        "change_window_confirmed": { "const": true },
+        "alerts_confirmed": { "const": true },
+        "backups_confirmed": { "const": true },
+        "last_known_good_confirmed": { "const": true },
+        "residual_risk_digest": { "$ref": "#/$defs/digest" },
+        "on_call_digest": { "$ref": "#/$defs/digest" },
+        "change_window_digest": { "$ref": "#/$defs/digest" },
+        "alerts_digest": { "$ref": "#/$defs/digest" },
+        "backups_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "independent_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initiator_user_id",
+        "reviewer_user_id",
+        "human_identity_attested",
+        "mfa_attested",
+        "independence_attested",
+        "least_privilege_attested",
+        "reviewed_at",
+        "approval_expires_at",
+        "approval_evidence_digest",
+        "approval_authority_digest",
+        "environment_anchor_digest",
+        "reviewed_body_digest",
+        "approval_binding_digest",
+        "approval_signature"
+      ],
+      "properties": {
+        "initiator_user_id": { "type": "integer", "minimum": 1 },
+        "reviewer_user_id": { "type": "integer", "minimum": 1 },
+        "human_identity_attested": { "const": true },
+        "mfa_attested": { "const": true },
+        "independence_attested": { "const": true },
+        "least_privilege_attested": { "const": true },
+        "reviewed_at": { "$ref": "#/$defs/timestamp" },
+        "approval_expires_at": { "$ref": "#/$defs/timestamp" },
+        "approval_evidence_digest": { "$ref": "#/$defs/digest" },
+        "approval_authority_digest": { "$ref": "#/$defs/digest" },
+        "environment_anchor_digest": { "$ref": "#/$defs/digest" },
+        "reviewed_body_digest": { "$ref": "#/$defs/digest" },
+        "approval_binding_digest": { "$ref": "#/$defs/digest" },
+        "approval_signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "key_id",
+            "issuer",
+            "identity",
+            "algorithm",
+            "value"
+          ],
+          "properties": {
+            "key_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:/@+-]{1,256}$"
+            },
+            "issuer": { "type": "string", "format": "uri" },
+            "identity": { "type": "string", "format": "uri" },
+            "algorithm": { "const": "ECDSA_SHA_256" },
+            "value": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+            }
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "staging_certified",
+        "gug128_entry_evidence_ready",
+        "gug128_manual_go_required",
+        "production_pilot_authorized",
+        "production_authorized"
+      ],
+      "properties": {
+        "status": { "const": "STAGING_CERTIFIED" },
+        "staging_certified": { "const": true },
+        "gug128_entry_evidence_ready": { "const": true },
+        "gug128_manual_go_required": { "const": true },
+        "production_pilot_authorized": { "const": false },
+        "production_authorized": { "const": false }
+      }
+    },
+    "certification_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "logical_environment",
+        "deployment_binding_digest",
+        "region",
+        "release_digest",
+        "workflow_run_digest",
+        "saved_plan_digest",
+        "apply_receipt_digest",
+        "health_receipt_digest",
+        "no_change_receipt_digest",
+        "positive_test_report_digest",
+        "negative_test_report_digest",
+        "rollback_measurement_digest",
+        "restore_measurement_digest",
+        "game_day_record_digest",
+        "isolated",
+        "rerun_unchanged",
+        "positive_tests_passed",
+        "negative_tests_passed",
+        "rollback_measured",
+        "restore_measured",
+        "observed_at"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^evi_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "logical_environment": { "enum": ["dev", "staging"] },
+        "deployment_binding_digest": { "$ref": "#/$defs/digest" },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$"
+        },
+        "release_digest": { "$ref": "#/$defs/digest" },
+        "workflow_run_digest": { "$ref": "#/$defs/digest" },
+        "saved_plan_digest": { "$ref": "#/$defs/digest" },
+        "apply_receipt_digest": { "$ref": "#/$defs/digest" },
+        "health_receipt_digest": { "$ref": "#/$defs/digest" },
+        "no_change_receipt_digest": { "$ref": "#/$defs/digest" },
+        "positive_test_report_digest": { "$ref": "#/$defs/digest" },
+        "negative_test_report_digest": { "$ref": "#/$defs/digest" },
+        "rollback_measurement_digest": { "$ref": "#/$defs/digest" },
+        "restore_measurement_digest": { "$ref": "#/$defs/digest" },
+        "game_day_record_digest": { "$ref": "#/$defs/digest" },
+        "isolated": { "const": true },
+        "rerun_unchanged": { "const": true },
+        "positive_tests_passed": { "const": true },
+        "negative_tests_passed": { "const": true },
+        "rollback_measured": { "const": true },
+        "restore_measured": { "const": true },
+        "observed_at": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  }
+}

@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                 clock=_utc_now,
             )
             print(
-                "PASS: exact protected DEV plan stored; "
+                "PASS: exact protected non-production plan stored; "
                 f"plan_record_digest={result['plan_record_digest']}"
             )
             return 0
@@ -136,11 +136,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         if result.get("status") != "HEALTHY":
             print(
-                "FAIL: protected DEV apply controller did not reach HEALTHY",
+                "FAIL: protected non-production apply controller did not reach HEALTHY",
                 file=sys.stderr,
             )
             return 1
-        print("PASS: protected DEV apply controller status=HEALTHY")
+        print("PASS: protected non-production apply controller status=HEALTHY")
         return 0
     except AuthorizationError as exc:
         print(f"FAIL: protected live phase stopped: {exc}", file=sys.stderr)

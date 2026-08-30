@@ -18,19 +18,30 @@ from tooling.nonprod_live_github_approval import (
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 REPOSITORY = "cesar-guzman/scanalyze-deployment-platform"
 ENVIRONMENT = "scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-dev"
+STAGING_ENVIRONMENT = "scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-staging"
+PRODUCTION_ENVIRONMENT = "scanalyze-dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-production"
 WORKFLOW_SHA = "4" * 40
 REVIEWER_PACKET_DIGEST = "sha256:" + ("5" * 64)
 ENVIRONMENT_ANCHOR_DIGEST = "sha256:" + ("6" * 64)
 APPROVAL_AUTHORITY_DIGEST = "sha256:" + ("7" * 64)
 
 
-def _reviews(*, approver: int = 2002, state: str = "approved") -> list[dict]:
+def _reviews(
+    *,
+    approver: int = 2002,
+    state: str = "approved",
+    environment: str = ENVIRONMENT,
+) -> list[dict]:
     return [
         {
             "state": state,
             "comment": "not persisted",
             "environments": [
-                {"id": 88, "name": ENVIRONMENT, "url": "https://example.invalid/private"}
+                {
+                    "id": 88,
+                    "name": environment,
+                    "url": "https://example.invalid/private",
+                }
             ],
             "user": {"id": approver, "login": "not-persisted"},
         }
@@ -74,8 +85,12 @@ def _evidence(**overrides: object) -> dict:
     return build_approval_evidence(**values)
 
 
-def test_builds_sanitized_independent_exact_approval() -> None:
-    evidence = _evidence()
+@pytest.mark.parametrize("environment", [ENVIRONMENT, STAGING_ENVIRONMENT])
+def test_builds_sanitized_independent_exact_approval(environment: str) -> None:
+    evidence = _evidence(
+        github_environment=environment,
+        reviews=_reviews(environment=environment),
+    )
 
     assert evidence["approver_user_id"] == 2002
     assert evidence["expected_approver_user_id"] == 2002
@@ -87,6 +102,14 @@ def test_builds_sanitized_independent_exact_approval() -> None:
     serialized = json.dumps(evidence)
     assert "not-persisted" not in serialized
     assert "example.invalid" not in serialized
+
+
+def test_rejects_production_environment_before_approval_projection() -> None:
+    with pytest.raises(GitHubApprovalError, match="APPROVAL_SELECTOR_INVALID"):
+        _evidence(
+            github_environment=PRODUCTION_ENVIRONMENT,
+            reviews=_reviews(environment=PRODUCTION_ENVIRONMENT),
+        )
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/staging-certification-trust-anchor.v1.schema.json",
+  "title": "Scanalyze GUG-127 Staging Certification Trust Anchor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "gate_id",
+    "configuration_status",
+    "trust_epoch",
+    "trust_policy_digest",
+    "valid_from",
+    "valid_until"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "scanalyze.staging_certification_trust_anchor.v1"
+    },
+    "gate_id": { "const": "GUG-127" },
+    "configuration_status": {
+      "enum": ["NOT_CONFIGURED", "CONFIGURED"]
+    },
+    "trust_epoch": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 1 }
+      ]
+    },
+    "trust_policy_digest": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/digest" }
+      ]
+    },
+    "valid_from": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/timestamp" }
+      ]
+    },
+    "valid_until": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/timestamp" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "configuration_status": { "const": "NOT_CONFIGURED" }
+        }
+      },
+      "then": {
+        "properties": {
+          "trust_epoch": { "type": "null" },
+          "trust_policy_digest": { "type": "null" },
+          "valid_from": { "type": "null" },
+          "valid_until": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "trust_epoch": { "type": "integer", "minimum": 1 },
+          "trust_policy_digest": { "$ref": "#/$defs/digest" },
+          "valid_from": { "$ref": "#/$defs/timestamp" },
+          "valid_until": { "$ref": "#/$defs/timestamp" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

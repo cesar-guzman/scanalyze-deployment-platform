@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "record_type": "scanalyze.staging_certification_trust_anchor.v1",
+  "gate_id": "GUG-127",
+  "configuration_status": "NOT_CONFIGURED",
+  "trust_epoch": null,
+  "trust_policy_digest": null,
+  "valid_from": null,
+  "valid_until": null
+}
