@@ -35,8 +35,10 @@ require_live_ci_boundary() {
     || die "Saved-plan execution requires the protected main branch"
   [[ "${GITHUB_REF_PROTECTED:-}" == "true" ]] \
     || die "Saved-plan execution requires a protected ref"
-  [[ "${SCANALYZE_LOGICAL_ENVIRONMENT:-}" == "dev" ]] \
-    || die "Saved-plan execution is restricted to dev"
+  case "${SCANALYZE_LOGICAL_ENVIRONMENT:-}" in
+    dev|staging) ;;
+    *) die "Saved-plan execution is restricted to dev or staging" ;;
+  esac
   [[ "${SCANALYZE_ALLOW_LIVE:-}" == "true" ]] \
     || die "Live execution was not enabled"
   [[ "${SCANALYZE_DRY_RUN:-}" == "false" ]] \
@@ -60,7 +62,7 @@ require_live_ci_boundary() {
   [[ "${SCANALYZE_DEPLOYMENT_ID:-}" =~ ^dep_[0-9A-HJKMNP-TV-Z]{26}$ ]] \
     || die "The deployment binding is invalid"
   [[ "${SCANALYZE_GITHUB_ENVIRONMENT:-}" == \
-    "scanalyze-${SCANALYZE_DEPLOYMENT_ID}-dev" ]] \
+    "scanalyze-${SCANALYZE_DEPLOYMENT_ID}-${SCANALYZE_LOGICAL_ENVIRONMENT}" ]] \
     || die "The protected Environment binding is not canonical"
   [[ "${SCANALYZE_OIDC_AUDIENCE:-}" == "sts.amazonaws.com" ]] \
     || die "The OIDC audience is not authorized"
@@ -264,7 +266,10 @@ if [[ "$ACTION" == "plan" ]]; then
   [[ -n "$ACCOUNT_READY_CONTRACT" ]] || die "--account-ready is required"
   [[ "$DEPLOYMENT_ID" == "${SCANALYZE_DEPLOYMENT_ID}" ]] \
     || die "The command deployment does not match the protected binding"
-  [[ "$ENVIRONMENT" == "dev" ]] || die "Only dev is supported"
+  case "$ENVIRONMENT" in
+    dev|staging) ;;
+    *) die "Only dev or staging is supported" ;;
+  esac
 
   PLAN_PARENT="$(dirname -- "$PLAN_PATH")"
   [[ -d "$PLAN_PARENT" ]] || die "The saved-plan directory does not exist"

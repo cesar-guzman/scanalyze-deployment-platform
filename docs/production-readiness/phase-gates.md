@@ -250,6 +250,15 @@ gates, and their transitive auth/economic blockers.
 **Automatic NO-GO:** any certification failure, stale evidence, unresolved
 Critical/High risk, or absence of the independent reviewer.
 
+The repository contract for this gate is documented in
+`docs/deployment/gug127-staging-certification.md`; its execution and stop
+conditions are in `docs/operations/gug127-staging-certification.md`. A valid
+certificate is cryptographically bound to exactly one `dev` and one `staging`
+evidence entry and always records `production_authorized=false`. The repository
+trust anchor is currently `NOT_CONFIGURED`; therefore Phase 9 and every
+downstream production phase remain an explicit `NO-GO` until that anchor and
+the connected two-environment evidence are independently reviewed.
+
 ### Phase 10 — GUG-128: Production Pilot
 
 **Entry criteria:** GUG-127 and GUG-119 complete; all prior gates have reviewed

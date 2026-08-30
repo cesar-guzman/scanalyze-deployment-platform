@@ -1,4 +1,4 @@
-.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
+.PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check staging-certification-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
@@ -29,6 +29,7 @@ help:
 	@echo "  make security-check       Scan for unallowlisted PII, secrets, state, and plans"
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
+	@echo "  make staging-certification-check Validate signed GUG-127 evidence offline"
 	@echo "  make platform-authority-upstream-prerequisites-check Validate the GUG-376 upstream prerequisite contracts offline"
 	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
 	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
@@ -484,6 +485,19 @@ nonprod-live-engine-check:
 		-u AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE \
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "Live engine status: REPOSITORY_CANDIDATE / CONNECTED_DEV_NOT_PROVEN / PRODUCTION_NO_GO"
+
+# ── Staging Certification Check (GUG-127, offline) ───────────────────
+staging-certification-check:
+	@echo "=== GUG-127 Staging Certification Check ==="
+	@$(PYTHON) -c "import cryptography, jsonschema" 2>/dev/null || \
+		{ echo "BLOCKED_TOOLING: cryptography and jsonschema are required."; exit 1; }
+	@$(PYTHON) -m pytest \
+		$(TESTS_DIR)/test_deployment/test_staging_certification.py \
+		-v --tb=short
+	@$(PYTHON) -m py_compile \
+		scripts/deployment/staging-certification.py \
+		$(TOOLING_DIR)/staging_certification.py
+	@echo "Staging certification check complete; production remains NO-GO."
 
 # ── GUG-365 Upstream Prerequisite Check (GUG-376, offline) ───────────
 platform-authority-upstream-prerequisites-check:
@@ -1296,13 +1310,14 @@ release-dry-run: repro-check
 	@echo "Not ready for: live deployment, production"
 
 # Non-production readiness check
-nonprod-readiness-check: release-dry-run nonprod-live-engine-check
+nonprod-readiness-check: release-dry-run nonprod-live-engine-check staging-certification-check
 	@echo "=== Non-Production Readiness Check ==="
 	@echo "repro-check:        PASSED"
 	@echo "manifest-validation: PASSED"
 	@echo "release-dry-run:    PASSED"
 	@echo "gitops-orchestrator: LOCALLY_VALIDATED_DRY_RUN_ONLY"
 	@echo "exact-plan-engine:  LOCALLY_VALIDATED_OFFLINE_ONLY"
+	@echo "staging-certifier:  LOCALLY_VALIDATED_OFFLINE_ONLY"
 	@echo "live-validation:    LIVE_NOT_PROVEN (pre-OIDC materializer gate remains closed)"
 	@echo "production-ready:   NO-GO (requires live validation)"
 	@echo ""

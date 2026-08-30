@@ -56,7 +56,7 @@ def _sha(character: str) -> str:
     return "sha256:" + (character * 64)
 
 
-def _roles() -> dict:
+def _roles(environment: str = "dev") -> dict:
     names = {
         "plan": "ScanalyzeCustomer-Plan",
         "apply": "ScanalyzeCustomer-Apply",
@@ -74,23 +74,23 @@ def _roles() -> dict:
             "deployment_id_tag": DEPLOYMENT_ID,
             "account_id_tag": DESTINATION_ACCOUNT_ID,
             "region_tag": REGION,
-            "environment_tag": "dev",
+            "environment_tag": environment,
         }
         for key, name in names.items()
     }
 
 
-def _account_ready() -> dict:
+def _account_ready(environment: str = "dev") -> dict:
     document = {
         "schema_version": "2",
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
         "account_id": DESTINATION_ACCOUNT_ID,
         "region": REGION,
-        "environment": "dev",
+        "environment": environment,
         "baseline_version": "v2.1.0",
         "provisioned_at": "2026-08-28T19:30:00Z",
-        "roles": _roles(),
+        "roles": _roles(environment),
         "state_infrastructure": {
             "state_bucket": (
                 f"arn:aws:s3:::scanalyze-{DESTINATION_ACCOUNT_ID}-tf-state"
@@ -139,8 +139,8 @@ def _account_ready() -> dict:
     return document
 
 
-def _sources() -> dict:
-    account_ready = _account_ready()
+def _sources(environment: str = "dev") -> dict:
+    account_ready = _account_ready(environment)
     target = {
         "schema_version": "2",
         "record_type": "deployment_target",
@@ -148,7 +148,7 @@ def _sources() -> dict:
         "deployment_id": DEPLOYMENT_ID,
         "account_id": DESTINATION_ACCOUNT_ID,
         "region": REGION,
-        "environment": "dev",
+        "environment": environment,
         "runtime_origin": {
             "schema_version": "1",
             "domain_name": "app.synthetic.invalid",
@@ -170,11 +170,11 @@ def _sources() -> dict:
         "schema_version": "2",
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
-        "environment": "dev",
+        "environment": environment,
         "aws_account_id": DESTINATION_ACCOUNT_ID,
         "aws_region": REGION,
         "github": {
-            "environment": f"scanalyze-{DEPLOYMENT_ID}-dev",
+            "environment": f"scanalyze-{DEPLOYMENT_ID}-{environment}",
             "oidc_role_arn": (
                 f"arn:aws:iam::{AUTHORITY_ACCOUNT_ID}:role/"
                 f"ScanalyzeOrchestrator-{DEPLOYMENT_ID}"
@@ -233,7 +233,7 @@ def _sources() -> dict:
     }
 
 
-def _github_identity(sources: dict) -> dict:
+def _github_identity(sources: dict, environment: str = "dev") -> dict:
     identity = json.loads(
         (REPO_ROOT / "fixtures/valid/github-deployment-identity-v1-synthetic.json")
         .read_text(encoding="utf-8")
@@ -243,7 +243,7 @@ def _github_identity(sources: dict) -> dict:
         deployment_id=DEPLOYMENT_ID,
         account_id=DESTINATION_ACCOUNT_ID,
         region=REGION,
-        environment="dev",
+        environment=environment,
     )
     identity["repository"] = {
         "owner": "cesar-guzman",
@@ -259,7 +259,7 @@ def _github_identity(sources: dict) -> dict:
         installation_target_type="Organization",
         repository_ids=["22"],
     )
-    github_environment = f"scanalyze-{DEPLOYMENT_ID}-dev"
+    github_environment = f"scanalyze-{DEPLOYMENT_ID}-{environment}"
     identity["workflow"] = {
         "path": ".github/workflows/nonprod-release.yml",
         "ref": "refs/heads/main",
@@ -283,7 +283,7 @@ def _github_identity(sources: dict) -> dict:
             "deployment_id": DEPLOYMENT_ID,
             "account_id": DESTINATION_ACCOUNT_ID,
             "region": REGION,
-            "environment": "dev",
+            "environment": environment,
         },
     )
     protection = identity["environment_protection"]
@@ -298,13 +298,13 @@ def _github_identity(sources: dict) -> dict:
             "DEPLOYMENT_ID": DEPLOYMENT_ID,
             "AWS_ACCOUNT_ID": DESTINATION_ACCOUNT_ID,
             "AWS_REGION": REGION,
-            "LOGICAL_ENVIRONMENT": "dev",
+            "LOGICAL_ENVIRONMENT": environment,
             "OIDC_ORCHESTRATOR_ROLE_ARN": orchestrator,
             "ORCHESTRATOR_ROLE_ARN": orchestrator,
-            "GENERIC_PLAN_ROLE_ARN": _roles()["plan"]["arn"],
-            "GENERIC_APPLY_ROLE_ARN": _roles()["apply"]["arn"],
-            "IDENTITY_PLAN_ROLE_ARN": _roles()["identity_plan"]["arn"],
-            "IDENTITY_APPLY_ROLE_ARN": _roles()["identity_apply"]["arn"],
+            "GENERIC_PLAN_ROLE_ARN": _roles(environment)["plan"]["arn"],
+            "GENERIC_APPLY_ROLE_ARN": _roles(environment)["apply"]["arn"],
+            "IDENTITY_PLAN_ROLE_ARN": _roles(environment)["identity_plan"]["arn"],
+            "IDENTITY_APPLY_ROLE_ARN": _roles(environment)["identity_apply"]["arn"],
             "PLATFORM_AUTHORITY_ACCOUNT_ID": AUTHORITY_ACCOUNT_ID,
             "REPOSITORY_ID": "22",
             "REPOSITORY_OWNER_ID": "11",
@@ -321,13 +321,13 @@ def _github_identity(sources: dict) -> dict:
         "deployment_id": DEPLOYMENT_ID,
         "account_id": DESTINATION_ACCOUNT_ID,
         "region": REGION,
-        "environment": "dev",
+        "environment": environment,
     }
     for name, role in identity["terminal_roles"].items():
-        role["role_arn"] = _roles()[name]["arn"]
+        role["role_arn"] = _roles(environment)[name]["arn"]
         role["required_resource_tags"] = resource_tags
     for key in ("diagnostic_access", "state_recovery_access"):
-        identity[key]["role_arn"] = _roles()[
+        identity[key]["role_arn"] = _roles(environment)[
             "diagnostic" if key == "diagnostic_access" else "state_recovery"
         ]["arn"]
         identity[key]["principal"] = (
@@ -340,14 +340,14 @@ def _github_identity(sources: dict) -> dict:
     return identity
 
 
-def _github_environment_anchor(identity: dict) -> dict:
+def _github_environment_anchor(identity: dict, environment: str = "dev") -> dict:
     anchor = {
         "schema_version": "1",
         "record_type": "github_environment_anchor",
         "source": "github-api",
         "repository_owner_id": "11",
         "repository_id": "22",
-        "environment_name": f"scanalyze-{DEPLOYMENT_ID}-dev",
+        "environment_name": f"scanalyze-{DEPLOYMENT_ID}-{environment}",
         "configuration_digest": environment_configuration_digest(identity),
         "captured_at": "2026-08-28T20:00:00Z",
         "expires_at": "2026-08-28T20:10:00Z",
@@ -356,7 +356,7 @@ def _github_environment_anchor(identity: dict) -> dict:
     return anchor
 
 
-def _sealed_request() -> dict:
+def _sealed_request(environment: str = "dev") -> dict:
     cost_model = {
         "currency": "USD",
         "modeled_cost_upper_bound_usd_micros": 5_000_000,
@@ -364,10 +364,12 @@ def _sealed_request() -> dict:
         "expires_at": "2026-08-28T21:00:00Z",
     }
     cost_model["cost_model_digest"] = canonical_digest(cost_model)
-    sources = _sources()
-    identity = _github_identity(sources)
+    sources = _sources(environment)
+    identity = _github_identity(sources, environment)
     sources["github_deployment_identity"] = identity
-    sources["github_environment_anchor"] = _github_environment_anchor(identity)
+    sources["github_environment_anchor"] = _github_environment_anchor(
+        identity, environment
+    )
     document = {
         "schema_version": "1",
         "record_type": "nonprod_live_input_sealed_request",
@@ -420,11 +422,11 @@ def _refresh_github_authority_evidence(sealed: dict) -> None:
     sealed["sealed_request_digest"] = stable_sealed_request_digest(sealed)
 
 
-def _deployment_request() -> dict:
+def _deployment_request(environment: str = "dev") -> dict:
     return {
         "schema_version": "1",
         "deployment_id": DEPLOYMENT_ID,
-        "environment": "dev",
+        "environment": environment,
         "release_digest": _sha("b"),
         "requested_by": "github:synthetic-author",
         "requested_at": "2026-08-28T19:00:00Z",
@@ -440,15 +442,19 @@ def _deployment_request() -> dict:
     }
 
 
-def _claim(operation: str = "plan", sealed_request: dict | None = None) -> dict:
-    request = _deployment_request()
-    sealed = sealed_request or _sealed_request()
+def _claim(
+    operation: str = "plan",
+    sealed_request: dict | None = None,
+    environment: str = "dev",
+) -> dict:
+    request = _deployment_request(environment)
+    sealed = sealed_request or _sealed_request(environment)
     document = {
         "schema_version": "1",
         "record_type": "nonprod_live_input_claim",
         "repository": REPOSITORY,
         "deployment_id": DEPLOYMENT_ID,
-        "environment": "dev",
+        "environment": environment,
         "region": REGION,
         "layer": "global",
         "operation": operation,
@@ -491,9 +497,10 @@ def _materialize(
     claim: dict | None = None,
     sealed_request: dict | None = None,
     operation: str = "plan",
+    environment: str = "dev",
 ):
-    sealed = sealed_request or _sealed_request()
-    selected_claim = claim or _claim(operation, sealed)
+    sealed = sealed_request or _sealed_request(environment)
+    selected_claim = claim or _claim(operation, sealed, environment)
     return materialize_live_inputs(
         claim=selected_claim,
         sealed_request=sealed,
@@ -545,6 +552,45 @@ def test_plan_materialization_is_deterministic_across_private_roots(
     assert str(tmp_path) not in json.dumps(first.receipt)
     assert DESTINATION_ACCOUNT_ID not in json.dumps(first.receipt)
     assert "arn:aws" not in json.dumps(first.receipt)
+
+
+def test_staging_materialization_binds_exact_nonproduction_environment(
+    tmp_path: Path,
+) -> None:
+    result = _materialize(tmp_path, environment="staging")
+
+    context = result.documents["context.json"]
+    bindings = result.documents["bindings.json"]
+    identity = result.source_documents["github_deployment_identity"]
+    account_ready = result.source_documents["account_ready"]
+    expected_environment = f"scanalyze-{DEPLOYMENT_ID}-staging"
+    assert context["environment"] == "staging"
+    assert context["github_environment"] == expected_environment
+    assert bindings["environment"] == "staging"
+    assert bindings["github_environment"] == expected_environment
+    assert identity["environment"] == "staging"
+    assert identity["environment_protection"]["name"] == expected_environment
+    assert identity["environment_protection"]["variables"][
+        "LOGICAL_ENVIRONMENT"
+    ] == "staging"
+    assert account_ready["environment"] == "staging"
+    assert all(
+        role["environment_tag"] == "staging"
+        for role in account_ready["roles"].values()
+    )
+
+
+def test_production_claim_is_rejected_before_materialization(tmp_path: Path) -> None:
+    sealed = _sealed_request("production")
+    claim = _claim(sealed_request=sealed, environment="production")
+
+    with pytest.raises(LiveInputMaterializationError, match="CLAIM_INVALID"):
+        _materialize(
+            tmp_path,
+            claim=claim,
+            sealed_request=sealed,
+            environment="production",
+        )
 
 
 def test_runtime_sha_is_bound_after_the_sealed_claim_without_self_reference(
@@ -1188,6 +1234,15 @@ def test_claim_and_sealed_request_schemas_are_closed() -> None:
     jsonschema.Draft202012Validator.check_schema(claim_schema)
     jsonschema.Draft202012Validator.check_schema(sealed_schema)
     jsonschema.Draft202012Validator(claim_schema).validate(_claim())
+    jsonschema.Draft202012Validator(claim_schema).validate(
+        _claim(environment="staging")
+    )
+    production_errors = list(
+        jsonschema.Draft202012Validator(claim_schema).iter_errors(
+            _claim(environment="production")
+        )
+    )
+    assert production_errors
     jsonschema.Draft202012Validator(sealed_schema).validate(_sealed_request())
 
     claim = _claim()

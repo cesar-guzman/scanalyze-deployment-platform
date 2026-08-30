@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/staging-certification-trust-policy.v1.schema.json",
+  "title": "Scanalyze GUG-127 Staging Certification Trust Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "gate_id",
+    "trust_epoch",
+    "valid_from",
+    "valid_until",
+    "allowed_signers",
+    "allowed_approval_signers",
+    "policy_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": {
+      "const": "scanalyze.staging_certification_trust_policy.v1"
+    },
+    "gate_id": { "const": "GUG-127" },
+    "trust_epoch": { "type": "integer", "minimum": 1 },
+    "valid_from": { "$ref": "#/$defs/timestamp" },
+    "valid_until": { "$ref": "#/$defs/timestamp" },
+    "allowed_signers": { "$ref": "#/$defs/signer_set" },
+    "allowed_approval_signers": { "$ref": "#/$defs/signer_set" },
+    "policy_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signer_set": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/signer" }
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_id",
+        "issuer",
+        "identity",
+        "algorithm",
+        "public_key_jwk"
+      ],
+      "properties": {
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:/@+-]{1,256}$"
+        },
+        "issuer": { "type": "string", "format": "uri" },
+        "identity": { "type": "string", "format": "uri" },
+        "algorithm": { "const": "ECDSA_SHA_256" },
+        "public_key_jwk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kty", "crv", "x", "y"],
+          "properties": {
+            "kty": { "const": "EC" },
+            "crv": { "const": "P-256" },
+            "x": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+            "y": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
+          }
+        }
+      }
+    }
+  }
+}

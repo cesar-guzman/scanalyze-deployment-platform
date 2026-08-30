@@ -33,7 +33,7 @@ on:
         default: true
         type: boolean
       allow_live:
-        description: Permit the protected dev live path
+        description: Permit the protected dev or staging live path
         required: false
         default: false
         type: boolean
@@ -156,8 +156,9 @@ jobs:
             exit 0
           fi
 
-          if [[ "$LOGICAL_ENVIRONMENT" != "dev" ]]; then
-            echo "::error::Live orchestration is restricted to dev"
+          if [[ "$LOGICAL_ENVIRONMENT" != "dev" && \
+                "$LOGICAL_ENVIRONMENT" != "staging" ]]; then
+            echo "::error::Live orchestration is restricted to dev or staging"
             exit 1
           fi
           case "$TARGET_LAYER" in
@@ -189,7 +190,10 @@ jobs:
             echo "::error::Live execution identifiers are invalid"
             exit 1
           fi
-          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" ]]; then
+          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" && \
+                "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-staging" ]] || \
+             [[ "$GITHUB_ENVIRONMENT_INPUT" != \
+                "scanalyze-${DEPLOYMENT_ID}-${LOGICAL_ENVIRONMENT}" ]]; then
             echo "::error::The deployment-scoped GitHub Environment is not canonical"
             exit 1
           fi
@@ -853,7 +857,8 @@ jobs:
             (.plan_record_digest | test("^sha256:[0-9a-f]{64}$"))
           ' "$packet" >/dev/null
           {
-            echo "## Protected DEV saved-plan reviewer packet"
+            printf '## Protected %s saved-plan reviewer packet\n' \
+              "$SCANALYZE_LOGICAL_ENVIRONMENT"
             jq -r '
               [
                 "- Reviewer packet digest: \(.packet_digest)",

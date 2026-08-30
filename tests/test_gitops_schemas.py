@@ -27,6 +27,13 @@ SCHEMA_EXAMPLES = {
     "release-manifest.schema.json": "release-manifest.synthetic.json",
 }
 
+DIRECT_SCHEMA_NAMES = (
+    *SCHEMA_EXAMPLES,
+    "staging-certification.v1.schema.json",
+    "staging-certification-trust-policy.v1.schema.json",
+    "staging-certification-trust-anchor.v1.schema.json",
+)
+
 EXPECTED_LAYER_ORDER = [
     "account-ready-gate",
     "global",
@@ -81,7 +88,7 @@ def _workflow_trigger(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True, {}))
 
 
-@pytest.mark.parametrize("schema_name", SCHEMA_EXAMPLES)
+@pytest.mark.parametrize("schema_name", DIRECT_SCHEMA_NAMES)
 def test_schema_is_valid_draft_2020_12(schema_name: str) -> None:
     Draft202012Validator.check_schema(_load_json(SCHEMA_DIR / schema_name))
 
@@ -328,6 +335,9 @@ def test_nonprod_workflow_separates_logical_and_github_environments() -> None:
         "required": True,
         "type": "environment",
     }
+    assert dispatch_inputs["allow_live"]["description"] == (
+        "Enable one protected dev or staging saved-plan phase"
+    )
 
     jobs = workflow["jobs"]
     protected_jobs = {
@@ -494,6 +504,15 @@ def test_protected_environment_gate_accepts_exact_bindings() -> None:
     assert result.stdout == ""
 
 
+def test_protected_environment_gate_accepts_exact_staging_bindings() -> None:
+    result = _run_environment_gate(
+        ENVIRONMENT_LOGICAL_ENVIRONMENT="staging",
+        DISPATCH_LOGICAL_ENVIRONMENT="staging",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -541,6 +560,12 @@ def test_reusable_layer_uses_logical_nonprod_environment_only() -> None:
     )
     assert "sandbox|dev|staging" in validation_step["run"]
     assert "sandbox|dev|staging|production" not in validation_step["run"]
+    assert '"$LOGICAL_ENVIRONMENT" != "dev"' in validation_step["run"]
+    assert '"$LOGICAL_ENVIRONMENT" != "staging"' in validation_step["run"]
+    assert (
+        '"scanalyze-${DEPLOYMENT_ID}-${LOGICAL_ENVIRONMENT}"'
+        in validation_step["run"]
+    )
 
 
 def test_oidc_is_allowlisted_to_the_canonical_live_jobs() -> None:
@@ -742,6 +767,11 @@ def test_live_claim_digest_is_exact_and_never_a_caller_path() -> None:
         )
         assert "^sha256:[0-9a-f]{64}$" in gate["run"]
         assert '"$LOGICAL_ENVIRONMENT" != "dev"' in gate["run"]
+        assert '"$LOGICAL_ENVIRONMENT" != "staging"' in gate["run"]
+        assert (
+            '"scanalyze-${DEPLOYMENT_ID}-${LOGICAL_ENVIRONMENT}"'
+            in gate["run"]
+        )
         assert gate["env"]["RUN_ATTEMPT"] == "${{ github.run_attempt }}"
         assert '"$RUN_ATTEMPT" != "1"' in gate["run"]
         assert "sandbox|dev|staging|production" not in gate["run"]
@@ -789,7 +819,86 @@ def _run_dispatch_mode_gate(**overrides: str) -> subprocess.CompletedProcess[str
     )
 
 
-def test_live_dispatch_requires_claim_and_still_rejects_production() -> None:
+def _run_reusable_mode_gate(**overrides: str) -> subprocess.CompletedProcess[str]:
+    workflow = _load_workflow(LAYER_WORKFLOW_PATH)
+    step = next(
+        item
+        for item in workflow["jobs"]["mode_boundary"]["steps"]
+        if item.get("name") == "Reject unauthorized modes before credentials"
+    )
+    deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    env = os.environ.copy()
+    env.update(
+        {
+            "ALLOW_LIVE": "true",
+            "AWS_REGION_INPUT": "us-east-1",
+            "CHANGE_ID": "chg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "DEPLOYMENT_ID": deployment_id,
+            "DRY_RUN": "false",
+            "EVENT_NAME": "workflow_dispatch",
+            "EXECUTION_ID": "exec_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "GITHUB_ENVIRONMENT_INPUT": f"scanalyze-{deployment_id}-dev",
+            "HEAD_REPOSITORY_ID": "2000002",
+            "LIVE_INPUT_CLAIM_DIGEST": "sha256:" + ("c" * 64),
+            "LIVE_OPERATION": "plan",
+            "LOGICAL_ENVIRONMENT": "dev",
+            "MAIN_SHA": "a" * 40,
+            "PLAN_RECORD_DIGEST": "",
+            "RELEASE_DIGEST": "sha256:" + ("d" * 64),
+            "REVIEWER_PACKET_DIGEST": "",
+            "REF_NAME": "refs/heads/main",
+            "REF_PROTECTED": "true",
+            "RUN_ATTEMPT": "1",
+            "RUN_SHA": "a" * 40,
+            "TARGET_LAYER": "network",
+        }
+    )
+    env.update(overrides)
+    return subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "gate_runner",
+    [_run_dispatch_mode_gate, _run_reusable_mode_gate],
+    ids=["dispatch", "reusable"],
+)
+def test_live_mode_gates_accept_dev_and_staging_but_reject_production(
+    gate_runner,
+) -> None:
+    deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+    dev = gate_runner()
+    assert dev.returncode == 0, dev.stdout + dev.stderr
+
+    staging = gate_runner(
+        LOGICAL_ENVIRONMENT="staging",
+        GITHUB_ENVIRONMENT_INPUT=f"scanalyze-{deployment_id}-staging",
+    )
+    assert staging.returncode == 0, staging.stdout + staging.stderr
+
+    wrong_environment = gate_runner(
+        LOGICAL_ENVIRONMENT="staging",
+        GITHUB_ENVIRONMENT_INPUT=f"scanalyze-{deployment_id}-dev",
+    )
+    assert wrong_environment.returncode != 0
+    assert "Environment" in wrong_environment.stdout
+
+    production = gate_runner(
+        LOGICAL_ENVIRONMENT="production",
+        GITHUB_ENVIRONMENT_INPUT=f"scanalyze-{deployment_id}-production",
+    )
+    assert production.returncode != 0
+    assert "restricted to dev or staging" in production.stdout
+
+
+def test_live_dispatch_requires_claim_and_rejects_removed_operations() -> None:
     valid = _run_dispatch_mode_gate()
     assert valid.returncode == 0, valid.stdout + valid.stderr
 
@@ -800,13 +909,6 @@ def test_live_dispatch_requires_claim_and_still_rejects_production() -> None:
     rerun = _run_dispatch_mode_gate(RUN_ATTEMPT="2")
     assert rerun.returncode != 0
     assert "fresh workflow run" in rerun.stdout
-
-    production = _run_dispatch_mode_gate(
-        LOGICAL_ENVIRONMENT="production",
-        GITHUB_ENVIRONMENT_INPUT="scanalyze-production",
-    )
-    assert production.returncode != 0
-    assert "restricted to dev" in production.stdout
 
     removed_recovery = _run_dispatch_mode_gate(LIVE_OPERATION="recover-stale")
     assert removed_recovery.returncode != 0

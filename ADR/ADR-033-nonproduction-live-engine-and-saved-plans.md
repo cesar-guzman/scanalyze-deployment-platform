@@ -1,12 +1,12 @@
 # ADR-033: Non-Production Live Engine and Exact Saved Plans
 
-- **Status:** Proposed; protected DEV path implemented in repository, connected live not proven
-- **Date:** 2026-07-15; GUG-382 amendment 2026-08-21; live-path amendment 2026-08-28; post-apply adapter amendment 2026-08-29
-- **Work package:** GUG-125, amended by GUG-382
+- **Status:** Proposed; protected DEV/staging path implemented in repository, connected live not proven
+- **Date:** 2026-07-15; GUG-382 amendment 2026-08-21; live-path amendment 2026-08-28; post-apply adapter and GUG-127 staging amendments 2026-08-29
+- **Work package:** GUG-125, amended by GUG-382 and GUG-127
 - **GUG-382 baseline:** `2b5f2038d0b7b190e50233713aa4923fb3e95371`
 - **Program / phase gate:** GUG-115 / GUG-117
 - **Upstream:** GUG-121, GUG-122, GUG-123, GUG-124
-- **AWS live validation:** **NOT_PROVEN**; GUG-382 executed no AWS action
+- **AWS live validation:** **NOT_PROVEN**; GUG-382 and GUG-127 executed no AWS action
 - **Production:** **NO-GO**
 
 ## Context
@@ -258,8 +258,8 @@ immutable saved-plan record. A later, separately approved `apply` dispatch must
 use its own reviewed operation-specific `apply.json` claim and name that exact
 record digest. It shares the deployment, execution, change, layer, main SHA,
 Region and release tuple with the plan; it cannot plan again or substitute
-another tuple. The workflow remains restricted to `dev`. `staging` and
-`production` are rejected before credentials.
+another tuple. The workflow remains restricted to the exact selected `dev` or
+`staging` environment. `production` is rejected before credentials.
 
 The controller/engine core introduced by this amendment can resume an
 `APPLIED` or `RECONCILED_APPLIED` observation without repeating approval,
@@ -267,10 +267,11 @@ fetch, or apply. It advances to `HEALTHY` only after exact state bracketing, a
 structural `NO_CHANGE` plan, verified input contracts, non-sensitive outputs, a
 durable health receipt, and exact contract publication/readback. `UNCERTAIN`
 permits only read-only reconciliation and never apply or publication. The
-public protected DEV Apply CLI is wired to real Plan-role observation and
-Apply-role canonical SSM publication adapters. These paths are hermetically
-tested, but they have not been executed against a connected DEV destination;
-repository wiring alone is not `CONNECTED_DEV_APPLY_PROVEN`.
+public protected non-production Apply CLI is wired to real Plan-role
+observation and Apply-role canonical SSM publication adapters. These paths are
+hermetically tested, but they have not been executed against a connected DEV or
+staging destination; repository wiring alone proves neither connected Apply
+nor staging certification.
 
 An orphaned `APPLYING` record is never an apply retry. This workflow exposes no
 recovery operation and no alternate Environment/OIDC job; the record remains
@@ -332,8 +333,8 @@ Terraform request field authoritative.
   artifacts.
 - No automatic state repair, force-unlock, replacement, destroy, migration, or
   production target is accepted.
-- Live selection is restricted to `dev`; staging and production are explicitly
-  denied before any credential step.
+- Live selection is restricted to an exact `dev` or `staging` binding;
+  production is explicitly denied before any credential step.
 
 ## Alternatives rejected
 

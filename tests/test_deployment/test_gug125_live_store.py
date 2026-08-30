@@ -311,7 +311,10 @@ def test_terminal_child_preserves_every_action_time_runtime_binding() -> None:
     )
 
 
-def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credentials() -> None:
+@pytest.mark.parametrize("environment", ["dev", "staging"])
+def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credentials(
+    environment: str,
+) -> None:
     runner = FakeRunner(role=ORCHESTRATOR_ROLE, account_id=SHARED_ACCOUNT_ID)
     process = ProcessRecorder()
     session = AwsCliTerminalSession(
@@ -330,7 +333,7 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
         deployment_id=DEPLOYMENT_ID,
         execution_id=EXECUTION_ID,
         change_id=change_id,
-        environment="dev",
+        environment=environment,
         operation="plan",
         layer="network",
         command=("/repository/terraform-saved-plan.sh", "plan"),
@@ -357,7 +360,7 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
         "customer_id": customer_id,
         "deployment_id": DEPLOYMENT_ID,
         "account_id": ACCOUNT_ID,
-        "environment": "dev",
+        "environment": environment,
         "operation": "plan",
         "layer": "network",
         "change_id": change_id,
@@ -377,6 +380,34 @@ def test_terminal_session_uses_exact_tags_source_identity_and_ephemeral_credenti
     assert "AWS_ENDPOINT_URL_STS" not in process.environment
     assert "BASH_ENV" not in process.environment
     assert "PYTHONPATH" not in process.environment
+
+
+def test_terminal_session_rejects_production_before_aws_or_process() -> None:
+    runner = FakeRunner(role=ORCHESTRATOR_ROLE, account_id=SHARED_ACCOUNT_ID)
+    process = ProcessRecorder()
+    session = AwsCliTerminalSession(
+        region="us-east-1",
+        account_id=ACCOUNT_ID,
+        runner=runner,
+        process_runner=process,
+    )
+
+    with pytest.raises(AuthorizationError, match="terminal session binding"):
+        session.run_terminal_phase(
+            orchestrator_role_arn=TERMINAL_ORCHESTRATOR_ROLE_ARN,
+            role_arn=f"arn:aws:iam::{ACCOUNT_ID}:role/ScanalyzeCustomer-Plan",
+            customer_id="cust_" + ("A" * 26),
+            deployment_id=DEPLOYMENT_ID,
+            execution_id=EXECUTION_ID,
+            change_id="chg_" + ("A" * 26),
+            environment="production",
+            operation="plan",
+            layer="network",
+            command=("/repository/terraform-saved-plan.sh", "plan"),
+            base_environment={},
+        )
+    assert runner.commands == []
+    assert process.command is None
 
 
 def test_terminal_session_rejects_wrong_role_before_aws_or_process() -> None:

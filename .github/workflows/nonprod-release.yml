@@ -40,7 +40,7 @@ on:
         default: true
         type: boolean
       allow_live:
-        description: Enable one protected dev saved-plan phase
+        description: Enable one protected dev or staging saved-plan phase
         required: true
         default: false
         type: boolean
@@ -166,8 +166,9 @@ jobs:
             exit 0
           fi
 
-          if [[ "$LOGICAL_ENVIRONMENT" != "dev" ]]; then
-            echo "::error::Live orchestration is restricted to dev"
+          if [[ "$LOGICAL_ENVIRONMENT" != "dev" && \
+                "$LOGICAL_ENVIRONMENT" != "staging" ]]; then
+            echo "::error::Live orchestration is restricted to dev or staging"
             exit 1
           fi
           case "$LIVE_OPERATION" in
@@ -203,7 +204,10 @@ jobs:
             echo "::error::Live deployment identifier is invalid"
             exit 1
           fi
-          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" ]]; then
+          if [[ "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-dev" && \
+                "$GITHUB_ENVIRONMENT_INPUT" != "scanalyze-${DEPLOYMENT_ID}-staging" ]] || \
+             [[ "$GITHUB_ENVIRONMENT_INPUT" != \
+                "scanalyze-${DEPLOYMENT_ID}-${LOGICAL_ENVIRONMENT}" ]]; then
             echo "::error::Protected Environment name is not canonical"
             exit 1
           fi
@@ -336,7 +340,7 @@ jobs:
           echo "GO: execution mode is explicit and fail-closed"
 
   live-layer:
-    name: Protected dev / ${{ inputs.live_operation }} / ${{ inputs.target_layer }}
+    name: Protected ${{ inputs.logical_environment }} / ${{ inputs.live_operation }} / ${{ inputs.target_layer }}
     needs: go-no-go
     if: ${{ inputs.allow_live && !inputs.dry_run }}
     permissions:

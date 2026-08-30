@@ -43,7 +43,7 @@
     "workflow_event": { "const": "workflow_dispatch" },
     "github_environment": {
       "type": "string",
-      "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-dev$"
+      "pattern": "^scanalyze-dep_[0-9A-HJKMNP-TV-Z]{26}-(?:dev|staging)$"
     },
     "reviewer_packet_digest": { "$ref": "#/$defs/digest" },
     "apply_environment_anchor_digest": { "$ref": "#/$defs/digest" },

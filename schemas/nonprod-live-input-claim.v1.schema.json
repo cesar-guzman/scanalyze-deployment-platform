@@ -33,7 +33,7 @@
       "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
     },
     "deployment_id": { "$ref": "#/$defs/deployment_id" },
-    "environment": { "const": "dev" },
+    "environment": { "enum": ["dev", "staging"] },
     "region": { "$ref": "#/$defs/region" },
     "layer": {
       "enum": [

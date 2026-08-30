@@ -130,10 +130,13 @@ def _plan_show_document(*actions: tuple[str, ...]) -> dict[str, Any]:
     return document
 
 
-def _context(*, workflow_run_id: int = 33) -> dict[str, Any]:
+def _context(
+    *, workflow_run_id: int = 33, environment: str = "dev"
+) -> dict[str, Any]:
     github_deployment_identity_digest = _sha("9")
     environment_configuration_digest = _sha("5")
     github_environment_anchor_digest = _sha("3")
+    github_environment = f"scanalyze-{DEPLOYMENT_ID}-{environment}"
     return build_live_context(
         event_name="workflow_dispatch",
         git_ref="refs/heads/main",
@@ -152,8 +155,8 @@ def _context(*, workflow_run_id: int = 33) -> dict[str, Any]:
         destination_account_id=DESTINATION_ACCOUNT,
         platform_authority_account_id=AUTHORITY_ACCOUNT,
         region="us-east-1",
-        environment="dev",
-        github_environment=GITHUB_ENVIRONMENT,
+        environment=environment,
+        github_environment=github_environment,
         layer="network",
         release_digest=_sha("a"),
         source_revision_digest=derive_source_revision_digest(WORKFLOW_SHA),
@@ -162,7 +165,7 @@ def _context(*, workflow_run_id: int = 33) -> dict[str, Any]:
         github_environment_anchor_digest=github_environment_anchor_digest,
         expected_approver_user_id=55,
         approval_authority_digest=derive_approval_authority_digest(
-            github_environment=GITHUB_ENVIRONMENT,
+            github_environment=github_environment,
             expected_approver_user_id=55,
             github_deployment_identity_digest=github_deployment_identity_digest,
             environment_configuration_digest=environment_configuration_digest,
@@ -182,14 +185,14 @@ def _context(*, workflow_run_id: int = 33) -> dict[str, Any]:
     )
 
 
-def _bindings() -> dict[str, Any]:
-    context = _context()
+def _bindings(environment: str = "dev") -> dict[str, Any]:
+    context = _context(environment=environment)
     return {
         "customer_id": CUSTOMER_ID,
         "deployment_id": DEPLOYMENT_ID,
         "account_id": DESTINATION_ACCOUNT,
         "region": "us-east-1",
-        "environment": "dev",
+        "environment": environment,
         "execution_id": EXECUTION_ID,
         "change_id": CHANGE_ID,
         "layer": "network",
@@ -198,7 +201,7 @@ def _bindings() -> dict[str, Any]:
         "release_policy_digest": _sha("6"),
         "release_projection_digest": _sha("7"),
         "plan_policy_digest": _sha("8"),
-        "github_environment": GITHUB_ENVIRONMENT,
+        "github_environment": context["github_environment"],
         "github_deployment_identity_digest": context[
             "github_deployment_identity_digest"
         ],
@@ -222,8 +225,8 @@ def _bindings() -> dict[str, Any]:
     }
 
 
-def _materialized_bindings() -> dict[str, Any]:
-    bindings = _bindings()
+def _materialized_bindings(environment: str = "dev") -> dict[str, Any]:
+    bindings = _bindings(environment)
     for field in ("state_status", "state_lineage", "state_serial"):
         bindings.pop(field)
     return bindings
@@ -296,6 +299,7 @@ def _package(
     operation: str,
     *,
     workflow_run_id: int = 33,
+    environment: str = "dev",
 ) -> LiveInputPackage:
     root = _private_root(tmp_path)
     plan, apply = _input_maps(root)
@@ -318,8 +322,11 @@ def _package(
         private_root=root,
         operation=operation,
         claim={"claim_digest": _sha("a"), "expires_at": "2026-08-28T19:00:00Z"},
-        context=_context(workflow_run_id=workflow_run_id),
-        bindings=_materialized_bindings(),
+        context=_context(
+            workflow_run_id=workflow_run_id,
+            environment=environment,
+        ),
+        bindings=_materialized_bindings(environment),
         backend_binding={},
         plan_inputs=plan,
         apply_inputs=apply,
@@ -328,11 +335,13 @@ def _package(
     )
 
 
-def _plan_record(*, plan_bytes: bytes = b"exact-plan") -> dict[str, Any]:
+def _plan_record(
+    *, plan_bytes: bytes = b"exact-plan", environment: str = "dev"
+) -> dict[str, Any]:
     digest = "sha256:" + hashlib.sha256(plan_bytes).hexdigest()
     return build_saved_plan_record(
-        bindings=_bindings(),
-        plan_environment_anchor_digest=_context()[
+        bindings=_bindings(environment),
+        plan_environment_anchor_digest=_context(environment=environment)[
             "github_environment_anchor_digest"
         ],
         plan_sha256=digest,
@@ -506,13 +515,16 @@ class FakePlanTerminal:
     def __init__(self, package: LiveInputPackage) -> None:
         self.package = package
         self.calls: list[str] = []
+        self.environments: list[str] = []
 
     def run_terminal_phase(self, **kwargs: Any) -> None:
         command = list(kwargs["command"])
         assert "_terminal-plan" in command
         self.calls.append("plan")
+        self.environments.append(kwargs["environment"])
         write_private_json_once(
-            self.package.controller_root / "plan-record.json", _plan_record()
+            self.package.controller_root / "plan-record.json",
+            _plan_record(environment=str(self.package.context["environment"])),
         )
 
 
@@ -528,9 +540,11 @@ class FakeApplyTerminal:
         self.fail_apply = fail_apply
         self.fail_fetch = fail_fetch
         self.calls: list[str] = []
+        self.environments: list[str] = []
 
     def run_terminal_phase(self, **kwargs: Any) -> None:
         command = list(kwargs["command"])
+        self.environments.append(kwargs["environment"])
         if "_terminal-fetch" in command:
             self.calls.append("fetch")
             if self.fail_fetch:
@@ -569,14 +583,16 @@ class FakeApplyTerminal:
 
 def _approval(package: LiveInputPackage) -> None:
     workflow_run_id = package.context["workflow_run_id"]
+    github_environment = str(package.context["github_environment"])
+    plan = _plan_record(environment=str(package.context["environment"]))
     evidence = build_approval_evidence(
         repository="owner/repository",
         repository_id=22,
         workflow_sha=WORKFLOW_SHA,
         workflow_run_id=workflow_run_id,
         workflow_run_attempt=1,
-        github_environment=GITHUB_ENVIRONMENT,
-        reviewer_packet_digest=_reviewer_packet_digest(),
+        github_environment=github_environment,
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
         apply_environment_anchor_digest=package.context[
             "github_environment_anchor_digest"
         ],
@@ -597,7 +613,7 @@ def _approval(package: LiveInputPackage) -> None:
         reviews=[
             {
                 "state": "approved",
-                "environments": [{"id": 77, "name": GITHUB_ENVIRONMENT}],
+                "environments": [{"id": 77, "name": github_environment}],
                 "user": {"id": 55},
             }
         ],
@@ -731,6 +747,56 @@ def test_plan_controller_composes_terminal_then_create_only_readbacks(tmp_path: 
     ]
     assert result["status"] == "PLANNED"
     assert result["production_authorized"] is False
+
+
+def test_staging_plan_controller_preserves_the_exact_environment(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path, "plan", environment="staging")
+    terminal = FakePlanTerminal(package)
+    store = FakeLedgerStore()
+
+    result = run_plan_controller(
+        package,
+        receipt_digest=_sha("b"),
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW,
+    )
+
+    assert terminal.environments == ["staging"]
+    assert store.plan_record is not None
+    assert store.plan_record["environment"] == "staging"
+    assert result["status"] == "PLANNED"
+    assert result["production_authorized"] is False
+
+
+def test_staging_apply_rejects_a_dev_saved_plan_before_terminal_execution(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path, "apply", environment="staging")
+    dev_plan = _plan_record(environment="dev")
+    store = FakeLedgerStore(dev_plan)
+    terminal = FakeApplyTerminal(package)
+
+    with pytest.raises(
+        AuthorizationError,
+        match="durable saved plan differs from materialized bindings",
+    ):
+        run_apply_controller(
+            package,
+            receipt_digest=_sha("b"),
+            plan_record_digest=dev_plan["record_digest"],
+            reviewer_packet_digest=_reviewer_packet_digest(dev_plan),
+            expected_approver_user_id=55,
+            terminal_session=terminal,
+            ledger_store=store,
+            now=NOW + timedelta(minutes=10),
+        )
+
+    assert terminal.calls == []
+    assert terminal.environments == []
+    assert store.approvals == {}
 
 
 def test_plan_controller_records_the_post_terminal_observation_time(
@@ -1204,6 +1270,56 @@ def test_apply_closes_to_healthy_only_after_exact_contract_readback(
     }
 
 
+def test_staging_apply_health_and_publication_preserve_exact_environment(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path, "apply", environment="staging")
+    plan = _plan_record(environment="staging")
+    _approval(package)
+    store = FakeLedgerStore(plan)
+    terminal = FakeApplyTerminal(package)
+    events: list[str] = []
+
+    def health(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["package"].context["environment"] == "staging"
+        assert kwargs["plan_record"]["environment"] == "staging"
+        assert kwargs["ledger"]["environment"] == "staging"
+        events.append("health")
+        return _post_apply_observation()
+
+    def publish(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["package"].context["environment"] == "staging"
+        assert kwargs["plan_record"]["environment"] == "staging"
+        assert kwargs["ledger"]["environment"] == "staging"
+        assert kwargs["health_receipt"]["environment"] == "staging"
+        events.append("publish")
+        return _exact_publisher(**kwargs)
+
+    result = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=10),
+        health_probe=health,
+        contract_publisher=publish,
+    )
+
+    assert result["status"] == "HEALTHY"
+    assert result["production_authorized"] is False
+    assert terminal.calls == ["fetch", "apply"]
+    assert terminal.environments == ["staging", "staging"]
+    assert events == ["health", "publish"]
+    assert store.health_receipt is not None
+    assert store.health_receipt["environment"] == "staging"
+    assert store.ledger is not None
+    assert store.ledger["environment"] == "staging"
+    assert store.ledger["status"] == "HEALTHY"
+
+
 @pytest.mark.parametrize("status", ["APPLIED", "RECONCILED_APPLIED"])
 def test_applied_reentry_never_reapproves_fetches_or_applies(
     tmp_path: Path,
@@ -1501,6 +1617,90 @@ def test_uncertain_reconciliation_is_read_only_and_requires_separate_health_run(
     assert terminal.calls == []
     assert "put-approval" not in store.calls
     assert "replace-APPLYING" not in store.calls
+
+
+def test_staging_uncertain_apply_reconciles_then_health_checks_and_publishes(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path, "apply", environment="staging")
+    plan = _plan_record(environment="staging")
+    _approval(package)
+    store = FakeLedgerStore(plan)
+    terminal = FakeApplyTerminal(package, fail_apply=True)
+    events: list[str] = []
+
+    with pytest.raises(AuthorizationError, match="uncertain"):
+        run_apply_controller(
+            package,
+            receipt_digest=_sha("b"),
+            plan_record_digest=plan["record_digest"],
+            reviewer_packet_digest=_reviewer_packet_digest(plan),
+            expected_approver_user_id=55,
+            terminal_session=terminal,
+            ledger_store=store,
+            now=NOW + timedelta(minutes=10),
+        )
+
+    def reconcile(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["package"].context["environment"] == "staging"
+        assert kwargs["plan_record"]["environment"] == "staging"
+        assert kwargs["ledger"]["environment"] == "staging"
+        events.append("reconcile")
+        return _reconciliation_observation()
+
+    reconciled = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=11),
+        reconciliation_probe=reconcile,
+    )
+
+    def health(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["package"].context["environment"] == "staging"
+        assert kwargs["plan_record"]["environment"] == "staging"
+        assert kwargs["ledger"]["environment"] == "staging"
+        events.append("health")
+        return _post_apply_observation()
+
+    def publish(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["package"].context["environment"] == "staging"
+        assert kwargs["plan_record"]["environment"] == "staging"
+        assert kwargs["ledger"]["environment"] == "staging"
+        assert kwargs["health_receipt"]["environment"] == "staging"
+        events.append("publish")
+        return _exact_publisher(**kwargs)
+
+    healthy = run_apply_controller(
+        package,
+        receipt_digest=_sha("b"),
+        plan_record_digest=plan["record_digest"],
+        reviewer_packet_digest=_reviewer_packet_digest(plan),
+        expected_approver_user_id=55,
+        terminal_session=terminal,
+        ledger_store=store,
+        now=NOW + timedelta(minutes=12),
+        health_probe=health,
+        contract_publisher=publish,
+    )
+
+    assert reconciled["status"] == "RECONCILED_APPLIED"
+    assert healthy["status"] == "HEALTHY"
+    assert healthy["production_authorized"] is False
+    assert terminal.calls == ["fetch", "apply"]
+    assert terminal.environments == ["staging", "staging"]
+    assert events == ["reconcile", "health", "publish"]
+    assert store.reconciliation_receipt is not None
+    assert store.reconciliation_receipt["environment"] == "staging"
+    assert store.health_receipt is not None
+    assert store.health_receipt["environment"] == "staging"
+    assert store.ledger is not None
+    assert store.ledger["environment"] == "staging"
+    assert store.ledger["status"] == "HEALTHY"
 
 
 def test_reconciliation_receipt_and_cas_lost_responses_are_reconciled(

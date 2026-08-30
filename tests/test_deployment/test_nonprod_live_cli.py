@@ -47,6 +47,31 @@ def _arguments(command: str, *extra: str) -> list[str]:
     ]
 
 
+def test_public_plan_reports_a_generic_nonproduction_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli = _load_cli()
+    package = object()
+    monkeypatch.setattr(cli, "load_live_input_package", lambda **_kwargs: package)
+    monkeypatch.setattr(
+        cli,
+        "real_dependencies",
+        lambda *_args, **_kwargs: (object(), object(), object(), object(), object()),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_plan_controller",
+        lambda *_args, **_kwargs: {"plan_record_digest": "sha256:" + "d" * 64},
+    )
+
+    assert cli.main(_arguments("plan")) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "protected non-production plan stored" in captured.out
+    assert "DEV" not in captured.out
+
+
 def test_public_apply_wires_every_real_post_apply_adapter(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -95,7 +120,9 @@ def test_public_apply_wires_every_real_post_apply_adapter(
     assert kwargs["plan_record_digest"] == "sha256:" + "d" * 64
     assert kwargs["reviewer_packet_digest"] == "sha256:" + "e" * 64
     assert kwargs["expected_approver_user_id"] == 55
-    assert "status=HEALTHY" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "protected non-production apply controller status=HEALTHY" in output
+    assert "DEV" not in output
 
 
 @pytest.mark.parametrize(
@@ -142,7 +169,7 @@ def test_public_apply_fails_until_health_is_terminal(
     assert captured.out == ""
     assert (
         captured.err
-        == "FAIL: protected DEV apply controller did not reach HEALTHY\n"
+        == "FAIL: protected non-production apply controller did not reach HEALTHY\n"
     )
 
 

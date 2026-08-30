@@ -1,4 +1,4 @@
-"""Pure protected orchestration decisions for one live ``dev`` saved plan.
+"""Pure protected orchestration decisions for one live non-production plan.
 
 This module deliberately performs no filesystem, subprocess, network, GitHub,
 Terraform, or AWS I/O.  It turns independently retrieved records into exact
@@ -42,6 +42,7 @@ DOMAIN_NAME = re.compile(
     r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
 )
 RELEASE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+LIVE_NONPRODUCTION_ENVIRONMENTS = frozenset({"dev", "staging"})
 
 CONTEXT_BODY_FIELDS = (
     "event_name",
@@ -138,6 +139,16 @@ def _require_positive_integer(value: object, label: str) -> None:
         raise AuthorizationError(f"{label} is invalid")
 
 
+def require_live_nonproduction_environment(value: object) -> str:
+    """Return an exact live non-production environment or fail closed."""
+    if (
+        not isinstance(value, str)
+        or value not in LIVE_NONPRODUCTION_ENVIRONMENTS
+    ):
+        raise AuthorizationError("live orchestration is limited to dev or staging")
+    return value
+
+
 def _terminal_role_arn(account_id: str, layer: str, operation: str) -> str:
     role_suffix = "Plan" if operation == "plan" else "Apply"
     role_name = (
@@ -210,9 +221,10 @@ def _validate_context_body(context: Mapping[str, Any]) -> None:
     region = context.get("region")
     if not isinstance(region, str) or not REGION.fullmatch(region):
         raise AuthorizationError("live orchestration region is invalid")
-    if context.get("environment") != "dev":
-        raise AuthorizationError("live orchestration is limited to dev")
-    expected_environment = f"scanalyze-{context['deployment_id']}-dev"
+    environment = require_live_nonproduction_environment(
+        context.get("environment")
+    )
+    expected_environment = f"scanalyze-{context['deployment_id']}-{environment}"
     if context.get("github_environment") != expected_environment:
         raise AuthorizationError("GitHub Environment is not deployment-bound")
 
@@ -331,7 +343,7 @@ def build_live_context(
     control_plane_session_duration_seconds: int,
     terminal_session_duration_seconds: int,
 ) -> dict[str, Any]:
-    """Authorize one exact, protected, deployment-bound live ``dev`` context."""
+    """Authorize one exact, protected, deployment-bound live context."""
     context: dict[str, Any] = {
         "schema_version": "1",
         "record_type": "nonprod_live_context",
@@ -355,7 +367,7 @@ def _validate_expected_bindings(
         "deployment_id": context["deployment_id"],
         "account_id": context["destination_account_id"],
         "region": context["region"],
-        "environment": "dev",
+        "environment": context["environment"],
         "execution_id": context["execution_id"],
         "change_id": context["change_id"],
         "layer": context["layer"],
@@ -466,7 +478,7 @@ def build_plan_intent(
         "--region",
         context["region"],
         "--environment",
-        "dev",
+        context["environment"],
         "--expected-role-arn",
         expected_role,
         "--expected-source-sha",
