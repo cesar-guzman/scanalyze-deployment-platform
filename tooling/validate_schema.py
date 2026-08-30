@@ -178,6 +178,15 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-lambda-audit-repair-broker-intent": "platform-authority-lambda-audit-repair-broker-intent.v{version}.schema.json",
         "platform-authority-lambda-audit-repair-broker-ledger": "platform-authority-lambda-audit-repair-broker-ledger.v{version}.schema.json",
         "platform-authority-lambda-audit-repair-broker-receipt": "platform-authority-lambda-audit-repair-broker-receipt.v{version}.schema.json",
+        "platform-authority-plan-permission-repair-intent": (
+            "platform-authority-plan-permission-repair-intent.v{version}.schema.json"
+        ),
+        "platform-authority-plan-permission-repair-ledger": (
+            "platform-authority-plan-permission-repair-ledger.v{version}.schema.json"
+        ),
+        "platform-authority-plan-permission-repair-receipt": (
+            "platform-authority-plan-permission-repair-receipt.v{version}.schema.json"
+        ),
         "platform-authority-lambda-audit-repair-delegation-parameters": "platform-authority-lambda-audit-repair-delegation-parameters.v{version}.schema.json",
         "platform-authority-lambda-audit-repair-delegation-change-set-receipt": "platform-authority-lambda-audit-repair-delegation-change-set-receipt.v{version}.schema.json",
         "platform-authority-lambda-audit-repair-delegation-execution-receipt": "platform-authority-lambda-audit-repair-delegation-execution-receipt.v{version}.schema.json",
@@ -3748,6 +3757,38 @@ def _validate_gug392_live_record(instance: dict, *, handoff: bool) -> list[str]:
     return []
 
 
+def _validate_plan_permission_repair_contract(
+    instance: dict, *, schema_name: str
+) -> list[str]:
+    """Apply canonical seals and the two-effect GUG-376 progress lattice."""
+
+    try:
+        from tooling.platform_authority_plan_permission_repair import (
+            PlanPermissionRepairError,
+            validate_private_intent,
+            validate_private_ledger,
+            validate_public_receipt,
+        )
+    except ImportError as exc:
+        return [f"GUG-376 Plan repair validator unavailable: {exc}"]
+    validator = {
+        "platform-authority-plan-permission-repair-intent.v1.schema.json": (
+            validate_private_intent
+        ),
+        "platform-authority-plan-permission-repair-ledger.v1.schema.json": (
+            validate_private_ledger
+        ),
+        "platform-authority-plan-permission-repair-receipt.v1.schema.json": (
+            validate_public_receipt
+        ),
+    }[schema_name]
+    try:
+        validator(instance)
+    except PlanPermissionRepairError as exc:
+        return [f"GUG-376 Plan repair contract invalid: {exc.code}"]
+    return []
+
+
 def validate_semantics(
     instance: dict,
     schema_path: Path,
@@ -4181,6 +4222,17 @@ def validate_semantics(
 
     if schema_name == "platform-authority-lambda-audit-repair-broker-receipt.v1.schema.json":
         errors.extend(_validate_gug221_broker_receipt(instance))
+
+    if schema_name in {
+        "platform-authority-plan-permission-repair-intent.v1.schema.json",
+        "platform-authority-plan-permission-repair-ledger.v1.schema.json",
+        "platform-authority-plan-permission-repair-receipt.v1.schema.json",
+    }:
+        errors.extend(
+            _validate_plan_permission_repair_contract(
+                instance, schema_name=schema_name
+            )
+        )
 
     if schema_name == "platform-authority-lambda-audit-repair-signed-artifact.v1.schema.json":
         try:

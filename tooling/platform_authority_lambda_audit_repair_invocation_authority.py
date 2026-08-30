@@ -91,6 +91,12 @@ class RepairInvocationAuthorityBinding:
     collector_principal_digest: str
     saml_provider_arn: str
     partition: str = "aws"
+    plan_function_name: str = PLAN_FUNCTION_NAME
+    repair_function_name: str = REPAIR_FUNCTION_NAME
+    reconcile_function_name: str = RECONCILE_FUNCTION_NAME
+    invoker_role_name_prefix: str = (
+        "AWSReservedSSO_ScanalyzeLambdaAuditRepair_"
+    )
 
     def __post_init__(self) -> None:
         if ACCOUNT_ID.fullmatch(self.authority_account_id) is None:
@@ -99,6 +105,24 @@ class RepairInvocationAuthorityBinding:
             raise AuthorityInventoryError("TARGET_REGION_INVALID")
         if self.partition not in {"aws", "aws-us-gov", "aws-cn"}:
             raise AuthorityInventoryError("AWS_PARTITION_INVALID")
+        function_names = (
+            self.plan_function_name,
+            self.repair_function_name,
+            self.reconcile_function_name,
+        )
+        if (
+            len(set(function_names)) != 3
+            or any(
+                re.fullmatch(r"[A-Za-z0-9-_]{1,64}", value) is None
+                for value in function_names
+            )
+        ):
+            raise AuthorityInventoryError("TARGET_FUNCTION_NAME_INVALID")
+        if re.fullmatch(
+            r"AWSReservedSSO_[A-Za-z0-9+=,.@_-]{1,47}_",
+            self.invoker_role_name_prefix,
+        ) is None:
+            raise AuthorityInventoryError("INVOKER_ROLE_PREFIX_INVALID")
         for value in (self.invoker_policy_digest, self.collector_principal_digest):
             if DIGEST.fullmatch(value) is None:
                 raise AuthorityInventoryError("AUTHORITY_DIGEST_INVALID")
@@ -111,7 +135,7 @@ class RepairInvocationAuthorityBinding:
             raise AuthorityInventoryError("INVOKER_ROLE_ARN_INVALID")
         role_path = self.invoker_role_arn.removeprefix(role_prefix)
         role_name = role_path.rsplit("/", 1)[-1]
-        if _SSO_ROLE_NAME.fullmatch(role_name) is None:
+        if not self.matches_invoker_role_name(role_name):
             raise AuthorityInventoryError("INVOKER_ROLE_ARN_INVALID")
         path_prefix = role_path[: -len(role_name)]
         if path_prefix not in {"", f"{self.region}/"}:
@@ -129,7 +153,7 @@ class RepairInvocationAuthorityBinding:
         return TargetBinding(
             authority_account_id=self.authority_account_id,
             region=self.region,
-            function_name=PLAN_FUNCTION_NAME,
+            function_name=self.plan_function_name,
             partition=self.partition,
         )
 
@@ -138,7 +162,7 @@ class RepairInvocationAuthorityBinding:
         return TargetBinding(
             authority_account_id=self.authority_account_id,
             region=self.region,
-            function_name=REPAIR_FUNCTION_NAME,
+            function_name=self.repair_function_name,
             partition=self.partition,
         )
 
@@ -147,7 +171,7 @@ class RepairInvocationAuthorityBinding:
         return TargetBinding(
             authority_account_id=self.authority_account_id,
             region=self.region,
-            function_name=RECONCILE_FUNCTION_NAME,
+            function_name=self.reconcile_function_name,
             partition=self.partition,
         )
 
@@ -160,6 +184,27 @@ class RepairInvocationAuthorityBinding:
                 f"{self.reconcile_binding.function_arn}:reconcile-v1",
             }
         )
+
+    def matches_invoker_role_name(self, role_name: str) -> bool:
+        """Return whether one generated SSO role matches this topology."""
+
+        return re.fullmatch(
+            re.escape(self.invoker_role_name_prefix) + r"[0-9a-fA-F]{16}",
+            role_name,
+        ) is not None
+
+    def expected_aliases_for(self, function_name: str) -> frozenset[str]:
+        aliases = {
+            self.plan_function_name: frozenset({"plan-v1"}),
+            self.repair_function_name: frozenset({"repair-v1"}),
+            self.reconcile_function_name: frozenset({"reconcile-v1"}),
+        }
+        try:
+            return aliases[function_name]
+        except KeyError as exc:
+            raise AuthorityInventoryError(
+                "TARGET_FUNCTION_NAME_INVALID"
+            ) from exc
 
     @property
     def binding_digest(self) -> str:
@@ -465,7 +510,7 @@ def _validate_snapshot(
         raise AuthorityInventoryError("FUNCTION_INVENTORY_DUPLICATE")
 
     aliases = lambda_inventory["aliases"]
-    expected_aliases = EXPECTED_ALIASES[target.function_name]
+    expected_aliases = binding.expected_aliases_for(target.function_name)
     observed_aliases: set[str] = set()
     for alias in aliases:
         if not isinstance(alias, Mapping):
@@ -549,7 +594,7 @@ def _validate_invoker_role(
         if not arn.startswith(expected_prefix):
             continue
         role_name = arn.rsplit("/", 1)[-1]
-        if _SSO_ROLE_NAME.fullmatch(role_name):
+        if binding.matches_invoker_role_name(role_name):
             matching_roles.append(role)
     if (
         len(matching_roles) != 1

@@ -1,0 +1,1392 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Scanalyze GUG-376 authority-account PEP for one exact bootstrap Plan
+  inline-policy repair. Provides separate private Plan, repair and reconcile
+  functions, immutable aliases and a retained one-shot CAS ledger. Repository
+  implementation does not authorize deployment or production.
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    Default: '042360977644'
+    AllowedValues: ['042360977644']
+  ManagementAccountId:
+    Type: String
+    Default: '839393571433'
+    AllowedValues: ['839393571433']
+  SourceCommit:
+    Type: String
+    MaxLength: 40
+    AllowedPattern: '^[a-f0-9]{40}$'
+  SourceBundleDigest:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  RepairId:
+    Type: String
+    MaxLength: 94
+    AllowedPattern: '^gug376-plan-permission-repair-[a-f0-9]{64}$'
+  PrincipalId:
+    Type: String
+    NoEcho: true
+    MaxLength: 47
+    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+  IdentityStoreId:
+    Type: String
+    MaxLength: 64
+    AllowedPattern: '^d-[a-z0-9]{10,}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    MaxLength: 46
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  PlanPermissionSetArn:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
+  ExpectedPermissionSetDescription:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 700
+    AllowedPattern: '^[ -~]{1,700}$'
+  RepairInvokerPermissionSetArn:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
+  CurrentPolicyDigest:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  DesiredPolicyDigest:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+  ExpectedPlanPermissionSetTagsJson:
+    Type: String
+    NoEcho: true
+    MinLength: 2
+    MaxLength: 1024
+    AllowedPattern: '^[ -~]{2,1024}$'
+  BootstrapChangeSetName:
+    Type: String
+    MaxLength: 53
+    AllowedPattern: '^scanalyze-platform-authority-bootstrap-[0-9]{14}$'
+  RepairNotBefore:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  RepairNotAfter:
+    Type: String
+    MaxLength: 20
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  PlanSamlProviderArn:
+    Type: String
+    MaxLength: 168
+    AllowedPattern: '^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$'
+  IdentityCenterKmsMode:
+    Type: String
+    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY]
+  IdentityCenterKmsKeyArn:
+    Type: String
+    Default: ''
+    MaxLength: 75
+    AllowedPattern: '^$|^arn:aws[a-z-]*:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+  ExpectedBoto3Version:
+    Type: String
+    MaxLength: 32
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  ExpectedBotocoreVersion:
+    Type: String
+    MaxLength: 32
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+  ArtifactBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  ArtifactKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
+  ArtifactVersion:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 1024
+  ArtifactCodeSha256:
+    Type: String
+    MaxLength: 44
+    AllowedPattern: '^[A-Za-z0-9+/]{43}=$'
+  SigningProfileVersionArn:
+    Type: String
+    MaxLength: 131
+    AllowedPattern: '^arn:aws[a-z-]*:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$'
+  ImmutableConfigurationDigest:
+    Type: String
+    MaxLength: 71
+    AllowedPattern: '^sha256:[a-f0-9]{64}$'
+
+Rules:
+  AccountAndRegionMustMatch:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '042360977644']
+        AssertDescription: PEP may exist only in authority account 042360977644.
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: PEP may exist only in us-east-1.
+  PolicyDigestsMustRepresentARepair:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CurrentPolicyDigest, !Ref DesiredPolicyDigest]]
+        AssertDescription: Current and desired policies must have distinct reviewed digests.
+  AwsOwnedKmsMustNotCarryKeyArn:
+    RuleCondition: !Equals [!Ref IdentityCenterKmsMode, AWS_OWNED_KMS_KEY]
+    Assertions:
+      - Assert: !Equals [!Ref IdentityCenterKmsKeyArn, '']
+        AssertDescription: AWS-owned Identity Center encryption must not carry a CMK ARN.
+  CustomerManagedKmsRequiresExactKeyArn:
+    RuleCondition: !Equals [!Ref IdentityCenterKmsMode, CUSTOMER_MANAGED_KEY]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref IdentityCenterKmsKeyArn, '']]
+        AssertDescription: Customer-managed Identity Center encryption requires one exact CMK ARN.
+
+Resources:
+  RepairLedgerKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: GUG-376 retained bootstrap Plan policy repair ledger key
+      Enabled: true
+      EnableKeyRotation: true
+      RotationPeriodInDays: 365
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DelegateAdministrationToExactAuthorityAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: PermitDynamoDbCryptographicUseOnlyFromAuthorityAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action:
+              - kms:Decrypt
+              - kms:DescribeKey
+              - kms:Encrypt
+              - kms:GenerateDataKey*
+              - kms:ReEncrypt*
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AuthorityAccountId
+                kms:ViaService: dynamodb.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:dynamodb:tableName: scanalyze-platform-authority-plan-policy-repair-ledger
+                kms:EncryptionContext:aws:dynamodb:subscriberId: !Ref AuthorityAccountId
+          - Sid: PermitDynamoDbGrantOnlyForAwsResource
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: kms:CreateGrant
+            Resource: '*'
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: 'true'
+              StringEquals:
+                kms:CallerAccount: !Ref AuthorityAccountId
+                kms:ViaService: dynamodb.us-east-1.amazonaws.com
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairLedgerKeyAlias:
+    Type: AWS::KMS::Alias
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AliasName: alias/scanalyze/platform-authority/gug376-plan-policy-repair-ledger
+      TargetKeyId: !Ref RepairLedgerKey
+
+  RepairLedger:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: scanalyze-platform-authority-plan-policy-repair-ledger
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: repair_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: repair_id
+          KeyType: HASH
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt RepairLedgerKey.Arn
+      TableClass: STANDARD
+      ResourcePolicy:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyPlanCreationOutsidePlanExecution
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt PlanExecutionRole.Arn
+            - Sid: DenyPlanConsumptionOutsideRepairExecution
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn: !GetAtt RepairExecutionRole.Arn
+            - Sid: DenyEveryUnsupportedLedgerMutation
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:BatchWriteItem
+                - dynamodb:DeleteItem
+                - dynamodb:PartiQLDelete
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+                - dynamodb:TransactWriteItems
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: data_class, Value: control-metadata}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-plan
+      RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-repair
+      RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ReconcileLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-reconcile
+      RetentionInDays: 365
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeBootstrapPlanRepairPlan
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug376ReadOnlyPlanAndLedgerCreation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedPlanLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-plan:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              - Sid: CreateExactPlannedLedgerItem
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [!Ref RepairId]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactReadbackServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: DiscoverExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeBootstrapPlanRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairReconcile
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactPlanFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+              - Sid: DenyEveryProtectedEffect
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
+                  - identitystore:*
+                  - iam:Add*
+                  - iam:Attach*
+                  - iam:Create*
+                  - iam:Delete*
+                  - iam:Detach*
+                  - iam:PassRole
+                  - iam:Put*
+                  - iam:Remove*
+                  - iam:Set*
+                  - iam:Tag*
+                  - iam:Untag*
+                  - iam:Update*
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:UpdateFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionUrlConfig
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+              - Sid: DenyUnexpectedRoleAssumption
+                Effect: Deny
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeBootstrapPlanRepairExecution
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug376OneShotPlanPolicyRepair
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedRepairLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-repair:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              - Sid: ConsumeExactPlannedLedgerItem
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [!Ref RepairId]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactMutationServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairMutation
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: DiscoverExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeBootstrapPlanRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairReconcile
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactRepairFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+              - Sid: DenyDirectIdentityCenterAndUnsupportedWrites
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:PutItem
+                  - dynamodb:TransactWriteItems
+                  - identitystore:*
+                  - iam:Add*
+                  - iam:Attach*
+                  - iam:Create*
+                  - iam:Delete*
+                  - iam:Detach*
+                  - iam:PassRole
+                  - iam:Put*
+                  - iam:Remove*
+                  - iam:Set*
+                  - iam:Tag*
+                  - iam:Untag*
+                  - iam:Update*
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:UpdateFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionUrlConfig
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+              - Sid: DenyUnexpectedRoleAssumption
+                Effect: Deny
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairMutation
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ReconcileExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeBootstrapPlanRepairReconcile
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaServiceOnly
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: Gug376ReadOnlyPlanPolicyReconciliation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteSanitizedReconcileLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: ReadExactRepairLedgerControls
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:GetResourcePolicy
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              - Sid: ReadExactRepairLedgerItem
+                Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [!Ref RepairId]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: AssumeExactReadbackServiceRole
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+              - Sid: AssumeExactInvocationAuthorityInspector
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: DiscoverExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action: iam:ListRoles
+                Resource: '*'
+              - Sid: ReadExactLocalIdentityCenterRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_*
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeBootstrapPlanRepair_*
+              - Sid: ReadExactLocalPepExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeBootstrapPlanRepairReconcile
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+              - Sid: ReadExactPepRuntimeConfiguration
+                Effect: Allow
+                Action:
+                  - lambda:GetAlias
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:ListAliases
+                  - lambda:ListVersionsByFunction
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: ReadExactCodeSigningConfiguration
+                Effect: Allow
+                Action: lambda:GetCodeSigningConfig
+                Resource: !Ref RepairCodeSigningConfig
+              - Sid: ProveNoLambdaResourcePolicyOrFunctionUrl
+                Effect: Allow
+                Action:
+                  - lambda:GetFunctionUrlConfig
+                  - lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: InventoryLambdaFunctionsAndEventSources
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: DescribeExactLedgerKey
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                Resource: !GetAtt RepairLedgerKey.Arn
+              - Sid: ReadExactLedgerKeyAliasInventory
+                Effect: Allow
+                Action: kms:ListAliases
+                Resource: '*'
+              - Sid: DenyRoleUseOutsideExactReconcileFunction
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  ArnNotEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+              - Sid: DenyEveryProtectedEffect
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:PutItem
+                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
+                  - identitystore:*
+                  - iam:Add*
+                  - iam:Attach*
+                  - iam:Create*
+                  - iam:Delete*
+                  - iam:Detach*
+                  - iam:PassRole
+                  - iam:Put*
+                  - iam:Remove*
+                  - iam:Set*
+                  - iam:Tag*
+                  - iam:Untag*
+                  - iam:Update*
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:InvokeAsync
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:UpdateFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionUrlConfig
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+              - Sid: DenyUnexpectedRoleAssumption
+                Effect: Deny
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  InvocationAuthorityInspectorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeBootstrapPlanRepairInspector
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AssumeOnlyFromExactPepRoles
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: !Ref AuthorityAccountId
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !GetAtt PlanExecutionRole.Arn
+                  - !GetAtt RepairExecutionRole.Arn
+                  - !GetAtt ReconcileExecutionRole.Arn
+      Policies:
+        - PolicyName: Gug376ReadOnlyInvocationAuthorityInventory
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadCallerIdentity
+                Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: '*'
+              - Sid: DenyRoleChaining
+                Effect: Deny
+                Action: sts:AssumeRole
+                Resource: '*'
+              - Sid: DenyUnreviewedActions
+                Effect: Deny
+                NotAction:
+                  - ec2:DescribeRegions
+                  - iam:GetAccountAuthorizationDetails
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - lambda:GetPolicy
+                  - lambda:ListAliases
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctions
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                  - sts:GetCallerIdentity
+                Resource: '*'
+              - Sid: DiscoverEnabledRegions
+                Effect: Allow
+                Action: ec2:DescribeRegions
+                Resource: '*'
+              - Sid: ReadCompleteIamAuthorizationGraph
+                Effect: Allow
+                Action:
+                  - iam:GetAccountAuthorizationDetails
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                Resource: '*'
+              - Sid: ListAccountLambdaSurface
+                Effect: Allow
+                Action:
+                  - lambda:ListAliases
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:*:${AuthorityAccountId}:function:*
+              - Sid: DiscoverCompleteLambdaSurface
+                Effect: Allow
+                Action:
+                  - lambda:ListEventSourceMappings
+                  - lambda:ListFunctions
+                Resource: '*'
+              - Sid: ReadExactPlanRepairLambdaPolicies
+                Effect: Allow
+                Action: lambda:GetPolicy
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: DenyGetPolicyOutsideExactPlanRepairFunctions
+                Effect: Deny
+                Action: lambda:GetPolicy
+                NotResource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-plan-policy-reconcile:*
+              - Sid: DenyFunctionReadsOutsideAuthorityAccount
+                Effect: Deny
+                Action:
+                  - lambda:ListAliases
+                  - lambda:ListFunctionEventInvokeConfigs
+                  - lambda:ListFunctionUrlConfigs
+                  - lambda:ListVersionsByFunction
+                NotResource: !Sub arn:${AWS::Partition}:lambda:*:${AuthorityAccountId}:function:*
+              - Sid: DenyLambdaInvocationAndMutation
+                Effect: Deny
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateAlias
+                  - lambda:CreateEventSourceMapping
+                  - lambda:CreateFunction
+                  - lambda:CreateFunctionUrlConfig
+                  - lambda:DeleteAlias
+                  - lambda:DeleteEventSourceMapping
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:DeleteFunctionUrlConfig
+                  - lambda:Invoke*
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateEventSourceMapping
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:UpdateFunctionEventInvokeConfig
+                  - lambda:UpdateFunctionUrlConfig
+                Resource: '*'
+              - Sid: DenyIamMutation
+                Effect: Deny
+                Action:
+                  - iam:Add*
+                  - iam:Attach*
+                  - iam:Create*
+                  - iam:Delete*
+                  - iam:Detach*
+                  - iam:PassRole
+                  - iam:Put*
+                  - iam:Remove*
+                  - iam:Set*
+                  - iam:Tag*
+                  - iam:Untag*
+                  - iam:Update*
+                Resource: '*'
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairCodeSigningConfig:
+    Type: AWS::Lambda::CodeSigningConfig
+    Properties:
+      Description: GUG-376 enforce-only reviewed plan policy repair signer
+      AllowedPublishers:
+        SigningProfileVersionArns:
+          - !Ref SigningProfileVersionArn
+      CodeSigningPolicies:
+        UntrustedArtifactOnDeployment: Enforce
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [RepairLedger, PlanLogGroup]
+    Properties:
+      FunctionName: scanalyze-platform-authority-plan-policy-plan
+      Description: GUG-376 read-only plan proof and create-only ledger gate
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_aws.plan_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt PlanExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+        S3ObjectVersion: !Ref ArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          SOURCE_BUNDLE_DIGEST: !Ref SourceBundleDigest
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          PLAN_PERMISSION_SET_ARN: !Ref PlanPermissionSetArn
+          EXPECTED_PERMISSION_SET_DESCRIPTION: !Ref ExpectedPermissionSetDescription
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          CURRENT_POLICY_DIGEST: !Ref CurrentPolicyDigest
+          DESIRED_POLICY_DIGEST: !Ref DesiredPolicyDigest
+          EXPECTED_PLAN_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPlanPermissionSetTagsJson
+          BOOTSTRAP_CHANGE_SET_NAME: !Ref BootstrapChangeSetName
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref ArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          PLAN_SAML_PROVIDER_ARN: !Ref PlanSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+          IMMU_CONFIG_DIGEST: !Ref ImmutableConfigurationDigest
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  PlanRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref PlanFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  PlanFunctionVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: PlanRuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref PlanFunction
+      CodeSha256: !Ref ArtifactCodeSha256
+      Description: !Sub 'GUG-376 plan version ${ImmutableConfigurationDigest}'
+
+  PlanAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref PlanFunction
+      FunctionVersion: !GetAtt PlanFunctionVersion.Version
+      Name: plan-v1
+
+  PlanEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: PlanAlias
+    Properties:
+      FunctionName: !Ref PlanFunction
+      Qualifier: plan-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  RepairFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [RepairLedger, RepairLogGroup]
+    Properties:
+      FunctionName: scanalyze-platform-authority-plan-policy-repair
+      Description: GUG-376 exact one-shot bootstrap Plan inline-policy repair PEP
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_aws.repair_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 600
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt RepairExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+        S3ObjectVersion: !Ref ArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          SOURCE_BUNDLE_DIGEST: !Ref SourceBundleDigest
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          PLAN_PERMISSION_SET_ARN: !Ref PlanPermissionSetArn
+          EXPECTED_PERMISSION_SET_DESCRIPTION: !Ref ExpectedPermissionSetDescription
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          CURRENT_POLICY_DIGEST: !Ref CurrentPolicyDigest
+          DESIRED_POLICY_DIGEST: !Ref DesiredPolicyDigest
+          EXPECTED_PLAN_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPlanPermissionSetTagsJson
+          BOOTSTRAP_CHANGE_SET_NAME: !Ref BootstrapChangeSetName
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref ArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          PLAN_SAML_PROVIDER_ARN: !Ref PlanSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+          IMMU_CONFIG_DIGEST: !Ref ImmutableConfigurationDigest
+          PLAN_FUNCTION_VERSION: !GetAtt PlanFunctionVersion.Version
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  RepairRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref RepairFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  RepairFunctionVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: RepairRuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref RepairFunction
+      CodeSha256: !Ref ArtifactCodeSha256
+      Description: !Sub 'GUG-376 repair version ${ImmutableConfigurationDigest}'
+
+  RepairAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref RepairFunction
+      FunctionVersion: !GetAtt RepairFunctionVersion.Version
+      Name: repair-v1
+
+  RepairEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: RepairAlias
+    Properties:
+      FunctionName: !Ref RepairFunction
+      Qualifier: repair-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  ReconcileFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: [RepairLedger, ReconcileLogGroup]
+    Properties:
+      FunctionName: scanalyze-platform-authority-plan-policy-reconcile
+      Description: GUG-376 read-only bootstrap Plan policy reconciliation PEP
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_aws.reconcile_handler
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt ReconcileExecutionRole.Arn
+      CodeSigningConfigArn: !Ref RepairCodeSigningConfig
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+        S3ObjectVersion: !Ref ArtifactVersion
+      Environment:
+        Variables:
+          SOURCE_COMMIT: !Ref SourceCommit
+          SOURCE_BUNDLE_DIGEST: !Ref SourceBundleDigest
+          REPAIR_ID: !Ref RepairId
+          PRINCIPAL_ID: !Ref PrincipalId
+          IDENTITY_STORE_ID: !Ref IdentityStoreId
+          IDENTITY_CENTER_INSTANCE_ARN: !Ref IdentityCenterInstanceArn
+          PLAN_PERMISSION_SET_ARN: !Ref PlanPermissionSetArn
+          EXPECTED_PERMISSION_SET_DESCRIPTION: !Ref ExpectedPermissionSetDescription
+          REPAIR_INVOKER_PERMISSION_SET_ARN: !Ref RepairInvokerPermissionSetArn
+          CURRENT_POLICY_DIGEST: !Ref CurrentPolicyDigest
+          DESIRED_POLICY_DIGEST: !Ref DesiredPolicyDigest
+          EXPECTED_PLAN_PERMISSION_SET_TAGS_JSON: !Ref ExpectedPlanPermissionSetTagsJson
+          BOOTSTRAP_CHANGE_SET_NAME: !Ref BootstrapChangeSetName
+          REPAIR_LEDGER_TABLE_NAME: !Ref RepairLedger
+          REPAIR_LEDGER_KMS_KEY_ARN: !GetAtt RepairLedgerKey.Arn
+          EXPECTED_ARTIFACT_CODE_SHA256: !Ref ArtifactCodeSha256
+          EXPECTED_CODE_SIGNING_CONFIG_ARN: !Ref RepairCodeSigningConfig
+          EXPECTED_SIGNING_PROFILE_VERSION_ARN: !Ref SigningProfileVersionArn
+          REPAIR_NOT_BEFORE: !Ref RepairNotBefore
+          REPAIR_NOT_AFTER: !Ref RepairNotAfter
+          PLAN_SAML_PROVIDER_ARN: !Ref PlanSamlProviderArn
+          IDENTITY_CENTER_KMS_MODE: !Ref IdentityCenterKmsMode
+          IDENTITY_CENTER_KMS_KEY_ARN: !Ref IdentityCenterKmsKeyArn
+          EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
+          EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion
+          IMMU_CONFIG_DIGEST: !Ref ImmutableConfigurationDigest
+          PLAN_FUNCTION_VERSION: !GetAtt PlanFunctionVersion.Version
+          REPAIR_FUNCTION_VERSION: !GetAtt RepairFunctionVersion.Version
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+
+  ReconcileRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  ReconcileFunctionVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: ReconcileRuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      CodeSha256: !Ref ArtifactCodeSha256
+      Description: !Sub 'GUG-376 reconcile version ${ImmutableConfigurationDigest}'
+
+  ReconcileAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      FunctionVersion: !GetAtt ReconcileFunctionVersion.Version
+      Name: reconcile-v1
+
+  ReconcileEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ReconcileAlias
+    Properties:
+      FunctionName: !Ref ReconcileFunction
+      Qualifier: reconcile-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+Outputs:
+  RepairLedgerName:
+    Value: !Ref RepairLedger
+  RepairLedgerKeyArn:
+    Value: !GetAtt RepairLedgerKey.Arn
+  PlanFunctionAliasArn:
+    Value: !Ref PlanAlias
+  RepairFunctionAliasArn:
+    Value: !Ref RepairAlias
+  ReconcileFunctionAliasArn:
+    Value: !Ref ReconcileAlias
+  PlanExecutionRoleArn:
+    Value: !GetAtt PlanExecutionRole.Arn
+  RepairExecutionRoleArn:
+    Value: !GetAtt RepairExecutionRole.Arn
+  ReconcileExecutionRoleArn:
+    Value: !GetAtt ReconcileExecutionRole.Arn
+  InvocationAuthorityInspectorRoleArn:
+    Value: !GetAtt InvocationAuthorityInspectorRole.Arn
+  ProductionAuthorized:
+    Value: 'false'

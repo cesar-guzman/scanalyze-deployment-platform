@@ -94,6 +94,16 @@ evidence.
   GUG-221 two-stack bootstrap boundary, provider-read-only Plan preflight plus
   create-only durable gate, no-retry repair, read-only reconciliation,
   containment and report-only handoff procedure.
+- `platform-authority-bootstrap-plan-permission-repair.md`: GUG-376 dedicated
+  two-effect PEP for the exact normal Plan-policy predecessor, invoke-only
+  human boundary, source-rendered target policy, durable CAS and uncertainty
+  reconciliation without granting direct Identity Center mutation authority;
+  executable AWS provider/ledger adapters are shipped only inside the
+  deterministic, source-closed package and remain undeployed pending signed
+  artifact and protected Change Set review.
+- `../operations/platform-authority-bootstrap-plan-permission-repair.md`:
+  reviewed bootstrap-route selection, dual-account Change Set/readback,
+  one-shot repair, functional GUG-214 proof, revocation and recovery runbook.
 - `../operations/github-oidc-terminal-identity-rollout.md`: staged OIDC trust,
   Environment rollout, negative proof, evidence, and rollback procedure.
 - `identity-contract.md`: v1/v2 identity semantics and M2M fail-closed rules.

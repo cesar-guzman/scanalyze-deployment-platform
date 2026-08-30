@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-plan-permission-repair-intent.v1.schema.json",
+  "title": "Platform Authority Plan Permission Repair Intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "repair_id", "source_commit",
+    "source_bundle_digest", "authority_account_id", "management_account_id",
+    "region", "instance_arn", "identity_store_id", "permission_set_arn",
+    "permission_set_name", "permission_set_description", "permission_set_tags",
+    "session_duration", "relay_state", "repair_invoker_permission_set_arn",
+    "principal_id", "assignment_digest", "provisioned_accounts_digest",
+    "role_arn", "role_name", "saml_provider_arn", "identity_center_kms_mode",
+    "identity_center_kms_key_arn",
+    "invocation_authority_graph_digest", "change_set_name",
+    "change_set_name_digest", "policy_template_digest",
+    "predecessor_policy_digest", "target_policy_digest", "policy_delta_digest",
+    "ledger_table_name", "ledger_kms_key_arn", "expected_artifact_code_sha256",
+    "expected_code_signing_config_arn", "expected_signing_profile_version_arn",
+    "function_versions", "function_qualifiers", "expected_boto3_version",
+    "expected_botocore_version", "not_before", "not_after",
+    "authorized_mutations", "retry_permitted",
+    "direct_human_sso_mutation_authorized", "production_authorized",
+    "intent_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_type": { "const": "scanalyze.platform_authority.plan_permission_repair_intent.v1" },
+    "repair_id": { "type": "string", "pattern": "^gug376-plan-permission-repair-[0-9a-f]{64}$" },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "source_bundle_digest": { "$ref": "#/$defs/digest" },
+    "authority_account_id": { "const": "042360977644" },
+    "management_account_id": { "const": "839393571433" },
+    "region": { "const": "us-east-1" },
+    "instance_arn": { "type": "string", "pattern": "^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$" },
+    "identity_store_id": { "type": "string", "pattern": "^d-[0-9a-z]{10,}$" },
+    "permission_set_arn": { "$ref": "#/$defs/permission_set_arn" },
+    "permission_set_name": { "const": "ScanalyzeAuthorityBootstrapPlan" },
+    "permission_set_description": { "type": "string", "minLength": 1, "maxLength": 700 },
+    "permission_set_tags": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_.:/=+@-]{1,128}$" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "session_duration": { "const": "PT1H" },
+    "relay_state": { "type": "null" },
+    "repair_invoker_permission_set_arn": { "$ref": "#/$defs/permission_set_arn" },
+    "principal_id": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+    },
+    "assignment_digest": { "$ref": "#/$defs/digest" },
+    "provisioned_accounts_digest": { "$ref": "#/$defs/digest" },
+    "role_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam::042360977644:role/aws-reserved/sso\\.amazonaws\\.com/AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_[0-9A-Fa-f]{16}$"
+    },
+    "role_name": { "type": "string", "pattern": "^AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_[0-9A-Fa-f]{16}$" },
+    "saml_provider_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$"
+    },
+    "identity_center_kms_mode": {
+      "enum": ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"]
+    },
+    "identity_center_kms_key_arn": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^arn:aws:kms:us-east-1:839393571433:key/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+        }
+      ]
+    },
+    "invocation_authority_graph_digest": { "$ref": "#/$defs/digest" },
+    "change_set_name": { "type": "string", "pattern": "^[a-zA-Z][-a-zA-Z0-9]{0,127}$" },
+    "change_set_name_digest": { "$ref": "#/$defs/digest" },
+    "policy_template_digest": { "$ref": "#/$defs/digest" },
+    "predecessor_policy_digest": { "$ref": "#/$defs/digest" },
+    "target_policy_digest": { "$ref": "#/$defs/digest" },
+    "policy_delta_digest": { "$ref": "#/$defs/digest" },
+    "ledger_table_name": { "const": "scanalyze-platform-authority-plan-policy-repair-ledger" },
+    "ledger_kms_key_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:kms:us-east-1:042360977644:key/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+    },
+    "expected_artifact_code_sha256": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
+    "expected_code_signing_config_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[a-z0-9]{17}$"
+    },
+    "expected_signing_profile_version_arn": {
+      "type": "string",
+      "pattern": "^arn:aws[a-z-]*:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$"
+    },
+    "function_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "repair", "reconcile"],
+      "properties": {
+        "plan": { "$ref": "#/$defs/function_version" },
+        "repair": { "$ref": "#/$defs/function_version" },
+        "reconcile": { "$ref": "#/$defs/function_version" }
+      }
+    },
+    "function_qualifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "repair", "reconcile"],
+      "properties": {
+        "plan": { "const": "plan-v1" },
+        "repair": { "const": "repair-v1" },
+        "reconcile": { "const": "reconcile-v1" }
+      }
+    },
+    "expected_boto3_version": { "$ref": "#/$defs/sdk_version" },
+    "expected_botocore_version": { "$ref": "#/$defs/sdk_version" },
+    "not_before": { "$ref": "#/$defs/timestamp" },
+    "not_after": { "$ref": "#/$defs/timestamp" },
+    "authorized_mutations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "sso:PutInlinePolicyToPermissionSet" },
+        { "const": "sso:ProvisionPermissionSet" }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "retry_permitted": { "const": false },
+    "direct_human_sso_mutation_authorized": { "const": false },
+    "production_authorized": { "const": false },
+    "intent_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "identity_center_kms_mode": { "const": "AWS_OWNED_KMS_KEY" } },
+        "required": ["identity_center_kms_mode"]
+      },
+      "then": { "properties": { "identity_center_kms_key_arn": { "type": "null" } } },
+      "else": { "properties": { "identity_center_kms_key_arn": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "permission_set_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$"
+    },
+    "function_version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "sdk_version": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$" },
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" }
+  }
+}
