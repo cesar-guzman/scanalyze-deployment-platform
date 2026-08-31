@@ -12,6 +12,7 @@ from tooling.platform_authority_plan_permission_repair import (
     RepairBinding,
     build_plan_ledger,
     build_private_intent,
+    build_reconcile_attestation,
     immutable_configuration_digest_from_environment,
     transition_ledger,
 )
@@ -291,6 +292,114 @@ def test_dynamo_cas_conditions_bind_every_expected_ledger_field() -> None:
     condition = client.kwargs["ConditionExpression"]
     assert set(expected) <= set(names.values())
     assert condition.count(" = ") == len(expected)
+
+
+def _terminal_ledger(intent: Mapping[str, Any]) -> dict[str, Any]:
+    state_digest = "sha256:" + "e" * 64
+    ledger = build_plan_ledger(
+        intent, state_digest=state_digest, planned_at=NOW
+    )
+    for expected, new, stage, attempted, completed, claimed in (
+        (
+            "PLAN_VERIFIED",
+            "CLAIMED",
+            "BEFORE_FIRST_EFFECT",
+            0,
+            0,
+            NOW,
+        ),
+        (
+            "CLAIMED",
+            "ATTEMPTING_1",
+            "BEFORE_PUT_INLINE_POLICY",
+            0,
+            0,
+            None,
+        ),
+        (
+            "ATTEMPTING_1",
+            "COMPLETED_1",
+            "AFTER_PUT_INLINE_POLICY",
+            1,
+            1,
+            None,
+        ),
+        (
+            "COMPLETED_1",
+            "ATTEMPTING_2",
+            "BEFORE_PROVISION_PERMISSION_SET",
+            1,
+            1,
+            None,
+        ),
+        (
+            "ATTEMPTING_2",
+            "COMPLETED_2",
+            "AFTER_PROVISION_PERMISSION_SET",
+            2,
+            2,
+            None,
+        ),
+        (
+            "COMPLETED_2",
+            "REPAIR_VERIFIED",
+            "FINAL_READBACK_VERIFIED",
+            2,
+            2,
+            None,
+        ),
+    ):
+        ledger = transition_ledger(
+            ledger,
+            expected_status=expected,
+            new_status=new,
+            stage=stage,
+            effects_attempted=attempted,
+            effects_completed=completed,
+            state_digest=state_digest,
+            updated_at=NOW,
+            claimed_at=claimed,
+        )
+    return ledger
+
+
+def test_dynamo_reconcile_attestation_is_conditional_and_strongly_read() -> None:
+    intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
+    ledger = _terminal_ledger(intent)
+    attestation = build_reconcile_attestation(
+        intent,
+        ledger,
+        observed_state_digest=str(ledger["state_digest"]),
+        reconciled_at=NOW,
+    )
+
+    class Client:
+        put_kwargs: dict[str, Any] | None = None
+        get_kwargs: dict[str, Any] | None = None
+
+        def put_item(self, **kwargs: Any) -> Mapping[str, Any]:
+            self.put_kwargs = kwargs
+            return {}
+
+        def get_item(self, **kwargs: Any) -> Mapping[str, Any]:
+            self.get_kwargs = kwargs
+            return {"Item": runtime.DynamoLedger._encode(attestation)}
+
+    client = Client()
+    adapter = runtime.DynamoLedger(client, "exact-ledger")
+    adapter.put_reconcile_attestation(attestation)
+    observed = adapter.read_reconcile_attestation(str(intent["repair_id"]))
+
+    assert observed == attestation
+    assert client.put_kwargs is not None
+    assert client.put_kwargs["ConditionExpression"] == (
+        "attribute_not_exists(repair_id)"
+    )
+    assert client.get_kwargs is not None
+    assert client.get_kwargs["ConsistentRead"] is True
+    assert client.get_kwargs["Key"]["repair_id"]["S"] == (
+        str(intent["repair_id"]) + "#reconcile-v1"
+    )
 
 
 def test_handler_rebinds_runtime_factory_after_test_isolation(

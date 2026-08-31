@@ -53,11 +53,13 @@ from tooling.platform_authority_plan_permission_repair import (
     canonical_json,
     install_runtime_factory,
     parse_timestamp,
+    reconcile_attestation_id,
     render_target_policy,
     validate_immutable_configuration_digest,
     validate_lambda_environment_budget,
     validate_private_intent,
     validate_private_ledger,
+    validate_reconcile_attestation,
 )
 from tooling.platform_authority_plan_permission_repair_iam_effective_authority import (
     AwsPlanRepairIamEffectiveAuthorityVerifier,
@@ -84,6 +86,7 @@ INVOKER_PERMISSION_SET_DESCRIPTION = (
     "GUG-376 invoke-only bootstrap Plan policy repair PEP"
 )
 INVOKER_PERMISSION_SET_TAGS = {
+    "component": "plan-repair-delegation",
     "environment": "non-production",
     "managed_by": "cloudformation",
     "production": "false",
@@ -1295,6 +1298,27 @@ class DynamoLedger:
                 "durable Plan write outcome is ambiguous"
             ) from None
 
+    def put_reconcile_attestation(
+        self, attestation: Mapping[str, Any]
+    ) -> None:
+        validate_reconcile_attestation(attestation)
+        try:
+            self._client.put_item(
+                TableName=self._table_name,
+                Item=self._encode(attestation),
+                ConditionExpression="attribute_not_exists(repair_id)",
+                ReturnConsumedCapacity="NONE",
+            )
+        except Exception as exc:
+            if _provider_code(exc) == "ConditionalCheckFailedException":
+                raise PlanPermissionRepairError(
+                    "REPLAY_BLOCKED",
+                    "reconcile attestation is already present",
+                ) from None
+            raise ProviderResponseAmbiguous(
+                "durable reconcile attestation outcome is ambiguous"
+            ) from None
+
     def read(self, repair_id: str) -> Mapping[str, Any] | None:
         try:
             response = _checked_page(
@@ -1322,6 +1346,15 @@ class DynamoLedger:
                 "LEDGER_MALFORMED", "durable ledger item is malformed"
             )
         return self._decode(item)  # type: ignore[arg-type]
+
+    def read_reconcile_attestation(
+        self, repair_id: str
+    ) -> Mapping[str, Any] | None:
+        observed = self.read(reconcile_attestation_id(repair_id))
+        if observed is None:
+            return None
+        validate_reconcile_attestation(observed)
+        return observed
 
     def compare_and_swap(
         self,
@@ -1918,23 +1951,103 @@ def _json_object(value: Any, code: str) -> dict[str, Any]:
     raise PlanPermissionRepairError(code, "provider policy is malformed")
 
 
-def _expected_ledger_resource_policy(table_arn: str) -> dict[str, Any]:
+def _expected_ledger_resource_policy(
+    table_arn: str, repair_id: str
+) -> dict[str, Any]:
     return {
         "Version": "2012-10-17",
         "Statement": [
             {
-                "Sid": "DenyPlanCreationOutsidePlanExecution",
+                "Sid": "DenyItemCreationOutsideExactWriters",
                 "Effect": "Deny",
                 "Principal": {"AWS": "*"},
                 "Action": "dynamodb:PutItem",
                 "Resource": table_arn,
                 "Condition": {
                     "ArnNotEquals": {
+                        "aws:PrincipalArn": [
+                            (
+                                "arn:aws:iam::042360977644:role/"
+                                "ScanalyzeBootstrapPlanRepairPlan"
+                            ),
+                            (
+                                "arn:aws:iam::042360977644:role/"
+                                "ScanalyzeBootstrapPlanRepairReconcile"
+                            ),
+                        ]
+                    }
+                },
+            },
+            {
+                "Sid": "DenyPlanWritesOutsideBaseKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:PutItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
                         "aws:PrincipalArn": (
                             "arn:aws:iam::042360977644:role/"
                             "ScanalyzeBootstrapPlanRepairPlan"
                         )
-                    }
+                    },
+                    "ForAllValues:StringNotEquals": {
+                        "dynamodb:LeadingKeys": [repair_id]
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "false"},
+                },
+            },
+            {
+                "Sid": "DenyPlanWritesWithoutBaseKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:PutItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
+                        "aws:PrincipalArn": (
+                            "arn:aws:iam::042360977644:role/"
+                            "ScanalyzeBootstrapPlanRepairPlan"
+                        )
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "true"},
+                },
+            },
+            {
+                "Sid": "DenyReconcileWritesOutsideAttestationKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:PutItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
+                        "aws:PrincipalArn": (
+                            "arn:aws:iam::042360977644:role/"
+                            "ScanalyzeBootstrapPlanRepairReconcile"
+                        )
+                    },
+                    "ForAllValues:StringNotEquals": {
+                        "dynamodb:LeadingKeys": [
+                            repair_id + "#reconcile-v1"
+                        ]
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "false"},
+                },
+            },
+            {
+                "Sid": "DenyReconcileWritesWithoutAttestationKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:PutItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
+                        "aws:PrincipalArn": (
+                            "arn:aws:iam::042360977644:role/"
+                            "ScanalyzeBootstrapPlanRepairReconcile"
+                        )
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "true"},
                 },
             },
             {
@@ -1953,6 +2066,41 @@ def _expected_ledger_resource_policy(table_arn: str) -> dict[str, Any]:
                 },
             },
             {
+                "Sid": "DenyRepairWritesOutsideBaseKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:UpdateItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
+                        "aws:PrincipalArn": (
+                            "arn:aws:iam::042360977644:role/"
+                            "ScanalyzeBootstrapPlanRepairExecution"
+                        )
+                    },
+                    "ForAllValues:StringNotEquals": {
+                        "dynamodb:LeadingKeys": [repair_id]
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "false"},
+                },
+            },
+            {
+                "Sid": "DenyRepairWritesWithoutBaseKey",
+                "Effect": "Deny",
+                "Principal": {"AWS": "*"},
+                "Action": "dynamodb:UpdateItem",
+                "Resource": table_arn,
+                "Condition": {
+                    "ArnEquals": {
+                        "aws:PrincipalArn": (
+                            "arn:aws:iam::042360977644:role/"
+                            "ScanalyzeBootstrapPlanRepairExecution"
+                        )
+                    },
+                    "Null": {"dynamodb:LeadingKeys": "true"},
+                },
+            },
+            {
                 "Sid": "DenyEveryUnsupportedLedgerMutation",
                 "Effect": "Deny",
                 "Principal": {"AWS": "*"},
@@ -1962,7 +2110,6 @@ def _expected_ledger_resource_policy(table_arn: str) -> dict[str, Any]:
                     "dynamodb:PartiQLDelete",
                     "dynamodb:PartiQLInsert",
                     "dynamodb:PartiQLUpdate",
-                    "dynamodb:TransactWriteItems",
                 ],
                 "Resource": table_arn,
             },
@@ -2035,8 +2182,17 @@ def _expected_ledger_key_policy(key_arn: str) -> dict[str, Any]:
 
 
 def _verify_ledger_control_plane(
-    *, dynamodb: Any, kms: Any, table_name: str, key_arn: str
+    *,
+    dynamodb: Any,
+    kms: Any,
+    table_name: str,
+    key_arn: str,
+    repair_id: str,
 ) -> None:
+    if not isinstance(repair_id, str) or not repair_id:
+        raise PlanPermissionRepairError(
+            "LEDGER_POLICY_MISMATCH", "repair identifier is malformed"
+        )
     table_arn = (
         f"arn:aws:dynamodb:{REGION}:{AUTHORITY_ACCOUNT_ID}:table/{table_name}"
     )
@@ -2124,7 +2280,7 @@ def _verify_ledger_control_plane(
     )
     if _json_object(
         resource_policy_response.get("Policy"), "LEDGER_POLICY_MISMATCH"
-    ) != _expected_ledger_resource_policy(table_arn):
+    ) != _expected_ledger_resource_policy(table_arn, repair_id):
         raise PlanPermissionRepairError(
             "LEDGER_POLICY_MISMATCH", "ledger resource policy differs"
         )
@@ -2571,6 +2727,7 @@ def build_runtime(
         kms=factory.local("kms"),
         table_name=str(seed["ledger_table_name"]),
         key_arn=str(seed["ledger_kms_key_arn"]),
+        repair_id=str(seed["repair_id"]),
     )
     role_arn = MUTATION_ROLE_ARN if mode == "repair" else READBACK_ROLE_ARN
     management, _, _ = factory.assumed_clients(

@@ -86,7 +86,7 @@ _ROLE_IDENTITIES = (
         AUTHORITY_ACCOUNT_ID,
         "ScanalyzeBootstrapPlanRepairReconcile",
         "/",
-        "Gug376ReadOnlyPlanPolicyReconciliation",
+        "Gug376ReconcileAndAttest",
     ),
     (
         "InvocationAuthorityInspectorRole",

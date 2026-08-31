@@ -26,11 +26,9 @@ Parameters:
     AllowedPattern: '^arn:aws[a-z-]*:identitystore::839393571433:identitystore/d-[a-z0-9]{10,}$'
   RepairPrincipalId:
     Type: String
-    NoEcho: true
     AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
   RepairPrincipalUserArn:
     Type: String
-    NoEcho: true
     AllowedPattern: '^arn:aws:identitystore:::user/(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
   RepairInvokerAssignmentEnabled:
     Type: String
@@ -445,7 +443,6 @@ Resources:
               - dynamodb:PartiQLInsert
               - dynamodb:PartiQLUpdate
               - dynamodb:PutItem
-              - dynamodb:TransactWriteItems
               - dynamodb:UpdateItem
               - lambda:AddPermission
               - lambda:CreateEventSourceMapping
@@ -468,6 +465,7 @@ Resources:
         - {Key: service, Value: scanalyze-platform-authority}
         - {Key: source_commit, Value: !Ref SourceCommit}
         - {Key: work_package, Value: GUG-376}
+        - {Key: component, Value: plan-repair-delegation}
         - {Key: environment, Value: non-production}
         - {Key: production, Value: 'false'}
 

@@ -37,7 +37,7 @@ help:
 	@echo "  make platform-authority-gug392-live-provider-check Validate the GUG-392/GUG-393 dual-domain provider, discovery, and materializer contracts offline"
 	@echo "  make platform-authority-gug395-preplan-seed-check Validate the GUG-395 pre-plan seed and downstream materializer contracts offline"
 	@echo "  make platform-authority-gug395-preplan-collision-check Validate the GUG-395/GUG-376 attested collision-probe contract offline"
-	@echo "  make platform-authority-bootstrap-plan-repair-check Validate the source-closed GUG-376 two-effect repair runtime offline"
+	@echo "  make platform-authority-bootstrap-plan-repair-check Validate the source-closed GUG-376 repair runtime and temporary Change Set route offline"
 	@echo "  make platform-authority-bootstrap-check Validate GUG-206..GUG-395 platform-authority controls offline"
 	@echo "  GUG-215 binding CLI: python3 scripts/deployment/platform-authority-single-operator-retirement-exception.py broker-version-binding --input PRIVATE_0600_JSON"
 	@echo "  GUG-215 package: python3 scripts/deployment/platform-authority-change-set-retirement-package.py --help"
@@ -706,6 +706,9 @@ platform-authority-bootstrap-plan-repair-check:
 	@echo "=== GUG-376 Bootstrap Plan Permission Repair PEP Check (AWS-free) ==="
 	@env -u PYTHONPATH -u PYTHONHOME PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_artifact_bridge_recovery_iam.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_artifact_cleanup_retire_cli.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_artifact_foundation_bootstrap.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_aws.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_aws_adversarial.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_cli.py \
@@ -713,28 +716,129 @@ platform-authority-bootstrap-plan-repair-check:
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_schemas.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_infrastructure.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_package.py \
-		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_signed_artifact.py
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_signed_artifact.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_broker_config.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_broker_seed.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_broker_signed_artifact.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_deployment_recovery.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_deployment_route.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_plan_seed_snapshot.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_route_broker.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_template_readback.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_route_broker_transport.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_temporary_change_set_route.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -m py_compile \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_artifact_bootstrap.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_artifact_bootstrap_aws.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_aws.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_iam_effective_authority.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_package.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_signed_artifact.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_broker_config.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_broker_seed.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_broker_signed_artifact.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_deployment_recovery.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_deployment_route.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_deployment_route_aws.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_plan_seed_snapshot.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_route_broker.py \
+		$(TOOLING_DIR)/platform_authority_plan_permission_repair_template_readback.py \
 		scripts/deployment/platform-authority-plan-permission-repair.py \
+		scripts/deployment/platform-authority-plan-permission-repair-artifact-bootstrap.py \
 		scripts/deployment/platform-authority-plan-permission-repair-package.py \
-		scripts/deployment/platform-authority-plan-permission-repair-signed-artifact.py
+		scripts/deployment/platform-authority-plan-permission-repair-signed-artifact.py \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-seed.py \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-signed-artifact.py \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-recovery.py \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
+		scripts/deployment/platform-authority-plan-permission-repair-plan-seed-snapshot.py \
+		scripts/deployment/platform-authority-plan-permission-repair-template-readback.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-plan-permission-repair.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-artifact-bootstrap.py --help >/dev/null
+	@for action in \
+		attest-change-set authorize-change-set authorize-mutation \
+		attest-cleanup-retire authorize-cleanup-retire \
+		dispatch-access-update dispatch-bridge-pin dispatch-change-set \
+		dispatch-cleanup-retire \
+		execute-access-update execute-bridge-pin execute-change-set \
+		execute-cleanup-retire \
+		materialize-access-update materialize-bridge-pin materialize-intent \
+		materialize-cleanup-retire \
+		materialize-object-intent materialize-publish-binding \
+		materialize-route-release materialize-signing-intent publish-object \
+		readback-access-update readback-cleanup-retire readback-foundation readback-object \
+		readback-signing-job readback-stack recover-access-update \
+		recover-access-update-execution recover-bridge-pin \
+		recover-bridge-pin-execution recover-change-set \
+		recover-change-set-execution recover-cleanup-retire \
+		recover-cleanup-retire-execution recover-object \
+		recover-signing-job start-signing-job; do \
+		env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+			scripts/deployment/platform-authority-plan-permission-repair-artifact-bootstrap.py \
+			--private-root /nonexistent --source-root /nonexistent "$$action" --help >/dev/null || exit 1; \
+	done
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-plan-permission-repair-package.py --help >/dev/null
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-plan-permission-repair-signed-artifact.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-seed.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-seed.py build-package --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-seed.py materialize-template --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-broker-signed-artifact.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-recovery.py --help >/dev/null
+	@for action in \
+		authorize-reentry materialize-reentry \
+		authorize-reentry-execution materialize-reentry-execution \
+		authorize-cleanup materialize-cleanup attest-cleanup \
+		attest-failed-create attest-preexecute-failure \
+		attest-protection-rollback attest-reentry create-reentry \
+		delete-failed-stack execute-reentry; do \
+		env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+			scripts/deployment/platform-authority-plan-permission-repair-deployment-recovery.py \
+			"$$action" --help >/dev/null || exit 1; \
+	done
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py materialize-seeds --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py materialize-broker-config --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py validate-intent --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py authorize-creation --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py authorize-execution --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py materialize-execution-intent --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py --help >/dev/null
+	@for action in \
+		create-change-set recover-create-change-set attest-change-set \
+		execute-change-set recover-execute-change-set terminal-readback; do \
+		env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+			scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
+			"$$action" --help >/dev/null || exit 1; \
+	done
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-plan-seed-snapshot.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I \
+		scripts/deployment/platform-authority-plan-permission-repair-template-readback.py --help >/dev/null
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) $(TOOLING_DIR)/validate_schema.py \
 		--schemas-dir $(SCHEMAS_DIR) \
 		--fixtures-dir $(FIXTURES_DIR) \
 		--filter platform-authority-plan-permission-repair
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
-	@echo "GUG-376 Plan repair status: EXECUTABLE_SOURCE_CLOSED_PACKAGE_READY_FOR_REVIEW / SIGNED_ARTIFACT_NOT_BUILT / LIVE_RUN_NOT_EXECUTED / AWS_CALLS=0 / AWS_MUTATIONS=0 / NOT_DEPLOYED / PRODUCTION_NO_GO"
+	@echo "GUG-376 Plan repair status: EXECUTABLE_SOURCE_CLOSED_PACKAGE_AND_TEMPORARY_ROUTE_READY_FOR_REVIEW / SIGNED_ARTIFACT_NOT_BUILT / READ_ONLY_INVENTORY_AWS_CALLS=9 / CHECK_AWS_CALLS=0 / AWS_MUTATIONS=0 / LIVE_RUN_NOT_EXECUTED / NOT_DEPLOYED / PRODUCTION_NO_GO"
 
 # ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-395, offline) ──
 platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-plan-repair-check
@@ -1238,6 +1342,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			ADR/ADR-055-gug395-preplan-seed-and-downstream-materialization.md \
 			ADR/ADR-056-gug395-dual-domain-preplan-collision-probe.md \
 			ADR/ADR-057-bootstrap-plan-permission-repair-pep.md \
+			ADR/ADR-058-gug376-temporary-changeset-route.md \
 			docs/deployment/ssm-contracts.md \
 			docs/deployment/platform-authority-retirement-entrypoint-service-role.md \
 			docs/operations/platform-authority-retirement-entrypoint-service-role.md \

@@ -314,6 +314,12 @@ def _parse_time(value: object, label: str) -> datetime:
 class AwsCli:
     """Small AWS CLI adapter with sanitized failures."""
 
+    CONNECT_TIMEOUT_SECONDS = 5
+    READ_TIMEOUT_SECONDS = 30
+    SUBPROCESS_TIMEOUT_SECONDS = 45
+    WAITER_READ_TIMEOUT_SECONDS = 900
+    WAITER_SUBPROCESS_TIMEOUT_SECONDS = 930
+
     def __init__(self, *, region: str) -> None:
         self.region = region
         try:
@@ -332,6 +338,10 @@ class AwsCli:
             "--output",
             "json",
             "--no-cli-pager",
+            "--cli-connect-timeout",
+            str(self.CONNECT_TIMEOUT_SECONDS),
+            "--cli-read-timeout",
+            str(self.READ_TIMEOUT_SECONDS),
         ]
 
     def _environment(self) -> dict[str, str]:
@@ -339,18 +349,23 @@ class AwsCli:
         environment["PATH"] = os.pathsep.join(
             sorted({"/usr/bin", "/bin", str(self.executable.parent)})
         )
+        environment["AWS_RETRY_MODE"] = "standard"
         environment["AWS_MAX_ATTEMPTS"] = "1"
         environment["AWS_IGNORE_CONFIGURED_ENDPOINT_URLS"] = "true"
         return environment
 
     def run(self, *parts: str) -> dict[str, Any]:
-        completed = subprocess.run(
-            self._command(*parts),
-            check=False,
-            capture_output=True,
-            text=True,
-            env=self._environment(),
-        )
+        try:
+            completed = subprocess.run(
+                self._command(*parts),
+                check=False,
+                capture_output=True,
+                text=True,
+                env=self._environment(),
+                timeout=self.SUBPROCESS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AwsCliError("AWS operation timed out") from exc
         if completed.returncode != 0:
             operation = " ".join(parts[:2])
             raise AwsCliError(f"AWS operation failed: {operation}")
@@ -365,13 +380,17 @@ class AwsCli:
         return value
 
     def run_allow_missing(self, *parts: str, missing_markers: Sequence[str]) -> dict[str, Any] | None:
-        completed = subprocess.run(
-            self._command(*parts),
-            check=False,
-            capture_output=True,
-            text=True,
-            env=self._environment(),
-        )
+        try:
+            completed = subprocess.run(
+                self._command(*parts),
+                check=False,
+                capture_output=True,
+                text=True,
+                env=self._environment(),
+                timeout=self.SUBPROCESS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AwsCliError("AWS operation timed out") from exc
         if completed.returncode != 0:
             if any(marker in completed.stderr for marker in missing_markers):
                 return None
@@ -386,19 +405,27 @@ class AwsCli:
         return value
 
     def wait(self, *parts: str) -> None:
-        completed = subprocess.run(
-            [
-                str(self.executable),
-                *parts,
-                "--region",
-                self.region,
-                "--no-cli-pager",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=self._environment(),
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    str(self.executable),
+                    *parts,
+                    "--region",
+                    self.region,
+                    "--no-cli-pager",
+                    "--cli-connect-timeout",
+                    str(self.CONNECT_TIMEOUT_SECONDS),
+                    "--cli-read-timeout",
+                    str(self.WAITER_READ_TIMEOUT_SECONDS),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=self._environment(),
+                timeout=self.WAITER_SUBPROCESS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AwsCliError("AWS waiter timed out") from exc
         if completed.returncode != 0:
             operation = " ".join(parts[:3])
             raise AwsCliError(f"AWS waiter failed: {operation}")

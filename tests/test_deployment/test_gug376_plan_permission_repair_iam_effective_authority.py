@@ -185,6 +185,7 @@ def _project(
                 "AuthorityAccountId": AUTHORITY_ACCOUNT_ID,
                 "ManagementAccountId": MANAGEMENT_ACCOUNT_ID,
                 "AWS::AccountId": account_id,
+                "RepairId": bindings.repair_id,
             }.items():
                 rendered = rendered.replace("${" + name + "}", replacement)
             assert "${" not in rendered

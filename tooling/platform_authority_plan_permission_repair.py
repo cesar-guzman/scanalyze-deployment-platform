@@ -61,6 +61,11 @@ LEDGER_RECORD_TYPE = (
 RECEIPT_RECORD_TYPE = (
     "scanalyze.platform_authority.plan_permission_repair_receipt.v1"
 )
+RECONCILE_ATTESTATION_RECORD_TYPE = (
+    "scanalyze.platform_authority."
+    "plan_permission_repair_reconcile_attestation.v1"
+)
+RECONCILE_ATTESTATION_SUFFIX = "#reconcile-v1"
 AUTHORIZED_MUTATIONS = (
     "sso:PutInlinePolicyToPermissionSet",
     "sso:ProvisionPermissionSet",
@@ -152,6 +157,27 @@ PRIVATE_LEDGER_ACTIVE_FIELDS = PRIVATE_LEDGER_PLAN_FIELDS | {
     "claimed_at",
     "updated_at",
 }
+PRIVATE_RECONCILE_ATTESTATION_FIELDS = frozenset(
+    {
+        "schema_version",
+        "record_type",
+        "repair_id",
+        "base_repair_id",
+        "source_commit",
+        "intent_digest",
+        "repair_ledger_digest",
+        "observed_state_digest",
+        "invocation_authority_graph_digest",
+        "function_version",
+        "function_qualifier",
+        "status",
+        "reconciled_at",
+        "claim_condition",
+        "retry_permitted",
+        "production_authorized",
+        "attestation_digest",
+    }
+)
 PUBLIC_RECEIPT_FIELDS = frozenset(
     {
         "schema_version",
@@ -1757,6 +1783,188 @@ def validate_private_ledger(ledger: Mapping[str, Any]) -> None:
         )
 
 
+def reconcile_attestation_id(base_repair_id: str) -> str:
+    """Return the single durable key reserved for final reconciliation."""
+
+    if _REPAIR_ID.fullmatch(base_repair_id) is None:
+        raise PlanPermissionRepairError(
+            "INVALID_REPAIR_ID", "base repair ID is malformed"
+        )
+    return base_repair_id + RECONCILE_ATTESTATION_SUFFIX
+
+
+def build_reconcile_attestation(
+    intent: Mapping[str, Any],
+    ledger: Mapping[str, Any],
+    *,
+    observed_state_digest: str,
+    reconciled_at: datetime,
+) -> dict[str, Any]:
+    """Seal the immutable proof required by the route closeout gate."""
+
+    validate_private_intent(intent)
+    validate_private_ledger(ledger)
+    state_digest = _require_digest(
+        observed_state_digest, "observed_state_digest"
+    )
+    if (
+        not _ledger_can_authorize_reconcile_attestation(ledger)
+        or ledger.get("repair_id") != intent.get("repair_id")
+        or ledger.get("intent_digest") != intent.get("intent_digest")
+        or ledger.get("source_commit") != intent.get("source_commit")
+    ):
+        raise PlanPermissionRepairError(
+            "RECONCILE_ATTESTATION_BINDING_MISMATCH",
+            "repair ledger cannot authorize a reconcile attestation",
+        )
+    attestation = {
+        "schema_version": 1,
+        "record_type": RECONCILE_ATTESTATION_RECORD_TYPE,
+        "repair_id": reconcile_attestation_id(str(intent["repair_id"])),
+        "base_repair_id": intent["repair_id"],
+        "source_commit": intent["source_commit"],
+        "intent_digest": intent["intent_digest"],
+        "repair_ledger_digest": ledger["ledger_digest"],
+        "observed_state_digest": state_digest,
+        "invocation_authority_graph_digest": (
+            intent["invocation_authority_graph_digest"]
+        ),
+        "function_version": intent["function_versions"]["reconcile"],
+        "function_qualifier": FUNCTION_QUALIFIERS["reconcile"],
+        "status": "RECONCILE_VERIFIED",
+        "reconciled_at": _timestamp(reconciled_at),
+        "claim_condition": "attribute_not_exists(repair_id)",
+        "retry_permitted": False,
+        "production_authorized": False,
+    }
+    sealed = _seal(attestation, "attestation_digest")
+    validate_reconcile_attestation(sealed, intent=intent, ledger=ledger)
+    return sealed
+
+
+def _ledger_can_authorize_reconcile_attestation(
+    ledger: Mapping[str, Any],
+) -> bool:
+    if (
+        ledger.get("status") == "REPAIR_VERIFIED"
+        and ledger.get("stage") == "FINAL_READBACK_VERIFIED"
+        and ledger.get("effects_attempted") == 2
+        and ledger.get("effects_completed") == 2
+    ):
+        return True
+    return (
+        ledger.get("status") == "UNCERTAIN_RECONCILE_ONLY"
+        and ledger.get("stage")
+        in {
+            "UNCERTAIN_PROVISION_PERMISSION_SET",
+            "UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT",
+            "UNCERTAIN_FINAL_READBACK",
+        }
+        and ledger.get("effects_attempted") == 2
+        and ledger.get("effects_completed") in {1, 2}
+    )
+
+
+def validate_reconcile_attestation(
+    attestation: Mapping[str, Any],
+    *,
+    intent: Mapping[str, Any] | None = None,
+    ledger: Mapping[str, Any] | None = None,
+) -> None:
+    """Validate the closed durable reconciliation proof contract."""
+
+    if not isinstance(attestation, Mapping) or set(attestation) != (
+        PRIVATE_RECONCILE_ATTESTATION_FIELDS
+    ):
+        raise PlanPermissionRepairError(
+            "RECONCILE_ATTESTATION_FIELDS_INVALID",
+            "reconcile attestation fields are not the exact closed contract",
+        )
+    if (
+        type(attestation.get("schema_version")) is not int
+        or attestation.get("schema_version") != 1
+        or attestation.get("record_type")
+        != RECONCILE_ATTESTATION_RECORD_TYPE
+    ):
+        raise PlanPermissionRepairError(
+            "RECONCILE_ATTESTATION_TYPE_MISMATCH",
+            "reconcile attestation type is unsupported",
+        )
+    _validate_seal(attestation, "attestation_digest")
+    base_repair_id = str(attestation.get("base_repair_id", ""))
+    if (
+        _REPAIR_ID.fullmatch(base_repair_id) is None
+        or attestation.get("repair_id")
+        != reconcile_attestation_id(base_repair_id)
+        or _COMMIT.fullmatch(str(attestation.get("source_commit", "")))
+        is None
+    ):
+        raise PlanPermissionRepairError(
+            "RECONCILE_ATTESTATION_BINDING_MISMATCH",
+            "reconcile attestation coordinates are malformed",
+        )
+    for field in (
+        "intent_digest",
+        "repair_ledger_digest",
+        "observed_state_digest",
+        "invocation_authority_graph_digest",
+    ):
+        _require_digest(attestation.get(field), field)
+    if (
+        not isinstance(attestation.get("function_version"), str)
+        or _FUNCTION_VERSION.fullmatch(
+            str(attestation.get("function_version"))
+        )
+        is None
+        or attestation.get("function_qualifier")
+        != FUNCTION_QUALIFIERS["reconcile"]
+        or attestation.get("status") != "RECONCILE_VERIFIED"
+        or attestation.get("claim_condition")
+        != "attribute_not_exists(repair_id)"
+        or attestation.get("retry_permitted") is not False
+        or attestation.get("production_authorized") is not False
+    ):
+        raise PlanPermissionRepairError(
+            "RECONCILE_ATTESTATION_OVERCLAIM",
+            "reconcile attestation safety boundary differs",
+        )
+    parse_timestamp(attestation.get("reconciled_at"), "reconciled_at")
+    if intent is not None:
+        validate_private_intent(intent)
+        if (
+            base_repair_id != intent.get("repair_id")
+            or attestation.get("source_commit")
+            != intent.get("source_commit")
+            or attestation.get("intent_digest")
+            != intent.get("intent_digest")
+            or attestation.get("invocation_authority_graph_digest")
+            != intent.get("invocation_authority_graph_digest")
+            or attestation.get("function_version")
+            != intent["function_versions"]["reconcile"]
+        ):
+            raise PlanPermissionRepairError(
+                "RECONCILE_ATTESTATION_BINDING_MISMATCH",
+                "reconcile attestation differs from immutable intent",
+            )
+    if ledger is not None:
+        validate_private_ledger(ledger)
+        if (
+            not _ledger_can_authorize_reconcile_attestation(ledger)
+            or ledger.get("repair_id") != base_repair_id
+            or attestation.get("repair_ledger_digest")
+            != ledger.get("ledger_digest")
+            or (
+                ledger.get("status") == "REPAIR_VERIFIED"
+                and attestation.get("observed_state_digest")
+                != ledger.get("state_digest")
+            )
+        ):
+            raise PlanPermissionRepairError(
+                "RECONCILE_ATTESTATION_BINDING_MISMATCH",
+                "reconcile attestation differs from repair ledger",
+            )
+
+
 def _build_receipt(
     *,
     intent: Mapping[str, Any],
@@ -2006,6 +2214,14 @@ class LedgerPort(Protocol):
         expected_ledger: Mapping[str, Any],
         replacement: Mapping[str, Any],
     ) -> None: ...
+
+    def put_reconcile_attestation(
+        self, attestation: Mapping[str, Any]
+    ) -> None: ...
+
+    def read_reconcile_attestation(
+        self, repair_id: str
+    ) -> Mapping[str, Any] | None: ...
 
 
 class PlanPermissionRepair:
@@ -2415,6 +2631,50 @@ class PlanPermissionRepair:
             }
         )
         if final_exact and final_capable:
+            observed_attestation = self._ledger.read_reconcile_attestation(
+                str(self._intent["repair_id"])
+            )
+            if observed_attestation is None:
+                attestation = build_reconcile_attestation(
+                    self._intent,
+                    ledger,
+                    observed_state_digest=snapshot.digest(),
+                    reconciled_at=self._now(),
+                )
+                try:
+                    self._ledger.put_reconcile_attestation(attestation)
+                except Exception:
+                    observed_attestation = self._ledger.read_reconcile_attestation(
+                        str(self._intent["repair_id"])
+                    )
+                    if observed_attestation != attestation:
+                        raise PlanPermissionRepairError(
+                            "RECONCILE_ATTESTATION_UNPROVEN",
+                            "durable reconciliation write was not proven",
+                        ) from None
+                observed_attestation = self._ledger.read_reconcile_attestation(
+                    str(self._intent["repair_id"])
+                )
+                if observed_attestation != attestation:
+                    raise PlanPermissionRepairError(
+                        "RECONCILE_ATTESTATION_UNPROVEN",
+                        "durable reconciliation readback differs",
+                    )
+            if not isinstance(observed_attestation, Mapping):
+                raise PlanPermissionRepairError(
+                    "RECONCILE_ATTESTATION_UNPROVEN",
+                    "durable reconciliation readback is absent",
+                )
+            validate_reconcile_attestation(
+                dict(observed_attestation),
+                intent=self._intent,
+                ledger=ledger,
+            )
+            if observed_attestation.get("observed_state_digest") != snapshot.digest():
+                raise PlanPermissionRepairError(
+                    "RECONCILE_ATTESTATION_UNPROVEN",
+                    "durable reconciliation readback differs from live exact state",
+                )
             return self._receipt(
                 mode="reconcile",
                 status="RECONCILE_VERIFIED",
@@ -2711,10 +2971,14 @@ __all__: Sequence[str] = (
     "PlanPermissionRepairError",
     "PlanPermissionSnapshot",
     "ProviderResponseAmbiguous",
+    "PRIVATE_RECONCILE_ATTESTATION_FIELDS",
+    "RECONCILE_ATTESTATION_RECORD_TYPE",
+    "RECONCILE_ATTESTATION_SUFFIX",
     "RepairBinding",
     "RoleSnapshot",
     "build_plan_ledger",
     "build_private_intent",
+    "build_reconcile_attestation",
     "configured_lambda_environment",
     "immutable_configuration_digest_from_environment",
     "immutable_configuration_digest_from_intent",
@@ -2725,6 +2989,7 @@ __all__: Sequence[str] = (
     "lambda_environment_size_bytes",
     "plan_handler",
     "policy_delta_digest",
+    "reconcile_attestation_id",
     "reconcile_handler",
     "render_predecessor_policy",
     "render_target_policy",
@@ -2736,6 +3001,7 @@ __all__: Sequence[str] = (
     "validate_lambda_environment_budget",
     "validate_private_intent",
     "validate_private_ledger",
+    "validate_reconcile_attestation",
     "validate_public_receipt",
     "validate_runtime_environment",
     "validate_snapshot",

@@ -1,0 +1,1488 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Privately materialized parameterless GUG-376 route broker.
+
+Rules:
+  ExactAuthorityAccountAndRegion:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '042360977644']
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+
+Resources:
+  BrokerLedgerKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      Description: GUG-376 route broker CAS ledger
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DelegateOnlyToExactAuthorityAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::042360977644:root
+            Action: kms:*
+            Resource: '*'
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  BrokerLedgerKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/scanalyze/platform-authority/gug376-route-broker-ledger
+      TargetKeyId: !Ref BrokerLedgerKey
+
+  BrokerLedger:
+    Type: AWS::DynamoDB::Table
+    DependsOn:
+      - CreatorRole
+      - ExecutorRole
+      - CreateDispatchRecoveryRole
+      - ExecuteDispatchRecoveryRole
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      TableName: scanalyze-platform-authority-gug376-route-broker-ledger
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ledger_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ledger_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 35
+      DeletionProtectionEnabled: @@BROKER_LEDGER_PROTECTION_BOOLEAN@@
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+        KMSMasterKeyId: !GetAtt BrokerLedgerKey.Arn
+      ResourcePolicy:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyMutationsOutsideExactBrokerWriters
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              Condition:
+                ArnNotEquals:
+                  aws:PrincipalArn:
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerExecutor
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteCreateDispatchRecovery
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteExecuteDispatchRecovery
+            - Sid: DenyUnsupportedBrokerLedgerMutationApis
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:BatchWriteItem
+                - dynamodb:DeleteItem
+                - dynamodb:PartiQLDelete
+                - dynamodb:PartiQLInsert
+                - dynamodb:PartiQLUpdate
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+            - Sid: DenyExactBrokerWritersOutsideLedgerKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn:
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerExecutor
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteCreateDispatchRecovery
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteExecuteDispatchRecovery
+                ForAllValues:StringNotEquals:
+                  dynamodb:LeadingKeys: [gug376-route-broker]
+                'Null':
+                  dynamodb:LeadingKeys: 'false'
+            - Sid: DenyExactBrokerWritersWithoutLedgerKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn:
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteBrokerExecutor
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteCreateDispatchRecovery
+                    - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeGug376RouteExecuteDispatchRecovery
+                'Null':
+                  dynamodb:LeadingKeys: 'true'
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  CreatorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug376-route-creator
+      RetentionInDays: 30
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  ExecutorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug376-route-executor
+      RetentionInDays: 30
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  CreateDispatchRecoveryLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug376-route-create-dispatch-recovery
+      RetentionInDays: 30
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  ExecuteDispatchRecoveryLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      LogGroupName: /aws/lambda/scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
+      RetentionInDays: 30
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  CreatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteBrokerCreator
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ExactBrokerCreation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyOutsideRegion
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: DenyBeforeRouteWindow
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateLessThan:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+              - Sid: DenyWritesAfterRoute
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:TagResource
+                  - dynamodb:PutItem
+                Resource: '*'
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_AFTER@@'
+              - Sid: DenyAfterRecovery
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: WriteExactCreatorLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator:*
+              - Sid: WriteXrayTelemetry
+                Effect: Allow
+                Action:
+                  - xray:PutTelemetryRecords
+                  - xray:PutTraceSegments
+                Resource: '*'
+              - Sid: ReadCloseoutEvidence
+                Effect: Allow
+                Action:
+                  - cloudtrail:LookupEvents
+                  - s3:GetAccountPublicAccessBlock
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: ReadExactPepStack
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListChangeSets
+                  - cloudformation:ListStackResources
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: ReadExactPlanStackForCloseout
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListChangeSets
+                  - cloudformation:ListStackResources
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-state-backend/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: CreateExactPepInitialChangeSet
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: gug376-plan-repair-pep-create, cloudformation:TemplateUrl: '@@PEP_TEMPLATE_URL@@'}, DateGreaterThanEquals: {aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'}, DateLessThan: {aws:CurrentTime: '@@ROUTE_NOT_AFTER@@'}}
+              - Sid: CreateExactPepProtectionChangeSet
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: gug376-plan-repair-pep-protection-enable, cloudformation:TemplateUrl: '@@PEP_PROTECTION_TEMPLATE_URL@@'}, DateGreaterThanEquals: {aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'}, DateLessThan: {aws:CurrentTime: '@@ROUTE_NOT_AFTER@@'}}
+              - Sid: TagExactPepChangeSetOnCreate
+                Effect: Allow
+                Action: cloudformation:TagResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-create/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-protection-enable/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:CreateAction: [CreateChangeSet, ExecuteChangeSet], aws:RequestTag/managed_by: cloudformation, aws:RequestTag/service: scanalyze-platform-authority, aws:RequestTag/work_package: GUG-376}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package]}, DateGreaterThanEquals: {aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'}, DateLessThan: {aws:CurrentTime: '@@ROUTE_NOT_AFTER@@'}}
+              - Sid: ReadExactPepInitialTemplate
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub arn:${AWS::Partition}:s3:::@@PEP_TEMPLATE_BUCKET@@/@@PEP_TEMPLATE_KEY@@
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    s3:VersionId: '@@PEP_TEMPLATE_VERSION@@'
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: DecryptExactPepInitialTemplateKeyThroughS3
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: '@@ARTIFACT_KMS_KEY_ARN@@'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                    kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::@@PEP_TEMPLATE_BUCKET@@
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: ReadExactPepProtectionTemplate
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub arn:${AWS::Partition}:s3:::@@PEP_PROTECTION_TEMPLATE_BUCKET@@/@@PEP_PROTECTION_TEMPLATE_KEY@@
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    s3:VersionId: '@@PEP_PROTECTION_TEMPLATE_VERSION@@'
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: DecryptExactPepProtectionTemplateKeyThroughS3
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: '@@ARTIFACT_KMS_KEY_ARN@@'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                    kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::@@PEP_PROTECTION_TEMPLATE_BUCKET@@
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: AssumeExactManagementCreator
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: ReadAndCasBrokerLedger
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [gug376-route-broker]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: ReadBrokerLedgerControlPlane
+                Effect: Allow
+                Action: dynamodb:DescribeTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              - Sid: ReadExactRepairTerminalRecordsForCloseout
+                Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - '@@REPAIR_ID@@'
+                      - '@@REPAIR_ID@@#reconcile-v1'
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: DenyExecutionAndDirectProviders
+                Effect: Deny
+                Action:
+                  - cloudformation:ExecuteChangeSet
+                  - iam:*
+                  - identitystore:*
+                  - lambda:*
+                  - sso:*
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+              - Sid: DenyDirectKmsProviders
+                Effect: Deny
+                Action: kms:*
+                Resource: '*'
+                Condition:
+                  ForAllValues:StringNotEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+                      - s3.amazonaws.com
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  ExecutorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteBrokerExecutor
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ExactBrokerExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DRegion
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: DBefore
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateLessThan:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+              - Sid: DenyAfterRecovery
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: L
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor:*
+              - Sid: X
+                Effect: Allow
+                Action:
+                  - xray:PutTelemetryRecords
+                  - xray:PutTraceSegments
+                Resource: '*'
+              - Sid: C
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: ReadPep
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListChangeSets
+                  - cloudformation:ListStackResources
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: ExecutePep
+                Effect: Allow
+                Action: cloudformation:ExecuteChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                  StringLike:
+                    cloudformation:ChangeSetName:
+                      - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-create/*
+                      - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-protection-enable/*
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+                  DateLessThan:
+                    aws:CurrentTime: '@@ROUTE_NOT_AFTER@@'
+              - Sid: AssumeManagementExecutor
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerExecutor
+              - Sid: ReadAndCasBrokerLedger
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [gug376-route-broker]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: ReadBrokerLedgerControlPlane
+                Effect: Allow
+                Action: dynamodb:DescribeTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              - Sid: PepRolesViaCfn
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListRoleTags
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairReconcile
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairInspector
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: PPR
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairPlan
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairExecution
+                  - !Sub arn:${AWS::Partition}:iam::042360977644:role/ScanalyzeBootstrapPlanRepairReconcile
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    iam:PassedToService: lambda.amazonaws.com
+              - Sid: MPL
+                Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DeleteResourcePolicy
+                  - dynamodb:DeleteTable
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:PutItem
+                  - dynamodb:PutResourcePolicy
+                  - dynamodb:TagResource
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:UpdateTable
+                  - dynamodb:UpdateTimeToLive
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: ReadProtectedPepLedgerControlPlane
+                Effect: Allow
+                Action: dynamodb:DescribeTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: MPK
+                Effect: Allow
+                Action:
+                  - kms:CreateAlias
+                  - kms:CreateGrant
+                  - kms:DescribeKey
+                  - kms:DisableKeyRotation
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListGrants
+                  - kms:ListResourceTags
+                  - kms:DeleteAlias
+                  - kms:PutKeyPolicy
+                  - kms:RetireGrant
+                  - kms:RevokeGrant
+                  - kms:ScheduleKeyDeletion
+                  - kms:TagResource
+                  - kms:UntagResource
+                  - kms:UpdateAlias
+                  - kms:UpdateKeyDescription
+                Resource:
+                  - !Sub arn:${AWS::Partition}:kms:us-east-1:042360977644:key/*
+                  - !Sub arn:${AWS::Partition}:kms:us-east-1:042360977644:alias/scanalyze/platform-authority/gug376-plan-policy-repair-ledger
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: MPG
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-plan-policy-reconcile:*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: ManagePepLambda
+                Effect: Allow
+                Action:
+                  - lambda:CreateAlias
+                  - lambda:CreateFunction
+                  - lambda:DeleteAlias
+                  - lambda:DeleteCodeSigningConfig
+                  - lambda:DeleteFunction
+                  - lambda:DeleteFunctionCodeSigningConfig
+                  - lambda:DeleteFunctionConcurrency
+                  - lambda:DeleteFunctionEventInvokeConfig
+                  - lambda:GetAlias
+                  - lambda:GetCodeSigningConfig
+                  - lambda:GetFunction
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetFunctionEventInvokeConfig
+                  - lambda:GetRuntimeManagementConfig
+                  - lambda:ListAliases
+                  - lambda:ListTags
+                  - lambda:ListVersionsByFunction
+                  - lambda:PublishVersion
+                  - lambda:PutFunctionCodeSigningConfig
+                  - lambda:PutFunctionConcurrency
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:PutRuntimeManagementConfig
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateAlias
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-plan
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-plan:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-repair
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-repair:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-reconcile
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-plan-policy-reconcile:*
+                  - !Sub arn:${AWS::Partition}:lambda:us-east-1:042360977644:code-signing-config:*
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: PepGlobalsViaCfn
+                Effect: Allow
+                Action:
+                  - kms:CreateKey
+                  - kms:ListAliases
+                  - lambda:CreateCodeSigningConfig
+                  - logs:DescribeLogGroups
+                Resource: '*'
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: ReadPepArtifact
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub arn:${AWS::Partition}:s3:::@@PEP_ARTIFACT_BUCKET@@/@@PEP_ARTIFACT_KEY@@
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    s3:VersionId: '@@PEP_ARTIFACT_VERSION@@'
+              - Sid: DecryptExactPepArtifactKeyThroughS3
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: '@@ARTIFACT_KMS_KEY_ARN@@'
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                    kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::@@PEP_ARTIFACT_BUCKET@@
+              - Sid: DenyDirectProviders
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - iam:*
+                  - lambda:*
+                  - logs:*
+                  - s3:*
+                Resource: '*'
+                Condition:
+                  ForAllValues:StringNotEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: DenyDirectKmsProviders
+                Effect: Deny
+                Action: kms:*
+                Resource: '*'
+                Condition:
+                  ForAllValues:StringNotEquals:
+                    aws:CalledVia:
+                      - cloudformation.amazonaws.com
+                      - s3.amazonaws.com
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  CreateDispatchRecoveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteCreateDispatchRecovery
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ExactCreateDispatchRecoveryReadback
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyWrongRegion
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: DenyBeforeRoute
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateLessThan:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+              - Sid: DenyAfterRecovery
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: WriteExactRecoveryLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-create-dispatch-recovery:*
+              - Sid: WriteXrayTelemetry
+                Effect: Allow
+                Action:
+                  - xray:PutTelemetryRecords
+                  - xray:PutTraceSegments
+                Resource: '*'
+              - Sid: ReadAndCasExactBrokerLedger
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [gug376-route-broker]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: ReadExactBrokerLedgerControlPlane
+                Effect: Allow
+                Action: dynamodb:DescribeTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              - Sid: ReadExactAuthorityPepDispatch
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-create/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-protection-enable/*
+              - Sid: ReadExactDispatchAudit
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: AssumeExactManagementRecovery
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerRecovery
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: component, Value: gug376-route-broker}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+        - {Key: source_commit, Value: '@@SOURCE_COMMIT@@'}
+
+  ExecuteDispatchRecoveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteExecuteDispatchRecovery
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ExactExecuteDispatchRecoveryReadback
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyWrongRegion
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  StringNotEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: DenyBeforeRoute
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateLessThan:
+                    aws:CurrentTime: '@@ROUTE_NOT_BEFORE@@'
+              - Sid: DenyAfterRecovery
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition:
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: '@@RECOVERY_NOT_AFTER@@'
+              - Sid: WriteExactRecoveryLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:*
+              - Sid: WriteXrayTelemetry
+                Effect: Allow
+                Action:
+                  - xray:PutTelemetryRecords
+                  - xray:PutTraceSegments
+                Resource: '*'
+              - Sid: ReadAndCasExactBrokerLedger
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys: [gug376-route-broker]
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: ReadExactBrokerLedgerControlPlane
+                Effect: Allow
+                Action: dynamodb:DescribeTable
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-gug376-route-broker-ledger
+              - Sid: ReadExactAuthorityPepDispatch
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-bootstrap-plan-repair-pep/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-create/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:042360977644:changeSet/gug376-plan-repair-pep-protection-enable/*
+              - Sid: ReadExactDispatchAudit
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: AssumeExactManagementRecovery
+                Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                  - sts:SetSourceIdentity
+                Resource: !Sub arn:${AWS::Partition}:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerRecovery
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: component, Value: gug376-route-broker}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+        - {Key: source_commit, Value: '@@SOURCE_COMMIT@@'}
+
+  BrokerCodeSigningConfig:
+    Type: AWS::Lambda::CodeSigningConfig
+    Properties:
+      Description: GUG-376 route broker signed code only
+      AllowedPublishers:
+        SigningProfileVersionArns:
+          - '@@BROKER_SIGNING_PROFILE_VERSION_ARN@@'
+      CodeSigningPolicies:
+        UntrustedArtifactOnDeployment: Enforce
+
+  CreatorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: CreatorLogGroup
+    Properties:
+      FunctionName: scanalyze-platform-authority-gug376-route-creator
+      Architectures: [x86_64]
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_route_broker.creator_handler
+      Role: !GetAtt CreatorRole.Arn
+      CodeSigningConfigArn: !Ref BrokerCodeSigningConfig
+      Timeout: 900
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: '@@BROKER_CODE_BUCKET@@'
+        S3Key: '@@BROKER_CODE_KEY@@'
+        S3ObjectVersion: '@@BROKER_CODE_VERSION@@'
+      Environment:
+        Variables:
+          LEDGER_TABLE_NAME: scanalyze-platform-authority-gug376-route-broker-ledger
+          BROKER_LEDGER_KEY_ARN: !GetAtt BrokerLedgerKey.Arn
+          BROKER_CONFIG_JSON: @@BROKER_CONFIG_JSON_YAML@@
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  ExecutorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ExecutorLogGroup
+    Properties:
+      FunctionName: scanalyze-platform-authority-gug376-route-executor
+      Architectures: [x86_64]
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_route_broker.executor_handler
+      Role: !GetAtt ExecutorRole.Arn
+      CodeSigningConfigArn: !Ref BrokerCodeSigningConfig
+      Timeout: 900
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: '@@BROKER_CODE_BUCKET@@'
+        S3Key: '@@BROKER_CODE_KEY@@'
+        S3ObjectVersion: '@@BROKER_CODE_VERSION@@'
+      Environment:
+        Variables:
+          LEDGER_TABLE_NAME: scanalyze-platform-authority-gug376-route-broker-ledger
+          BROKER_LEDGER_KEY_ARN: !GetAtt BrokerLedgerKey.Arn
+          BROKER_CONFIG_JSON: @@BROKER_CONFIG_JSON_YAML@@
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: managed_by
+          Value: cloudformation
+        - Key: service
+          Value: scanalyze-platform-authority
+        - Key: work_package
+          Value: GUG-376
+        - Key: component
+          Value: gug376-route-broker
+        - Key: environment
+          Value: non-production
+        - Key: production
+          Value: 'false'
+        - Key: source_commit
+          Value: '@@SOURCE_COMMIT@@'
+
+  CreateDispatchRecoveryFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: CreateDispatchRecoveryLogGroup
+    Properties:
+      FunctionName: scanalyze-platform-authority-gug376-route-create-dispatch-recovery
+      Architectures: [x86_64]
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_route_broker.create_dispatch_recovery_handler
+      Role: !GetAtt CreateDispatchRecoveryRole.Arn
+      CodeSigningConfigArn: !Ref BrokerCodeSigningConfig
+      Timeout: 900
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: '@@BROKER_CODE_BUCKET@@'
+        S3Key: '@@BROKER_CODE_KEY@@'
+        S3ObjectVersion: '@@BROKER_CODE_VERSION@@'
+      Environment:
+        Variables:
+          LEDGER_TABLE_NAME: scanalyze-platform-authority-gug376-route-broker-ledger
+          BROKER_LEDGER_KEY_ARN: !GetAtt BrokerLedgerKey.Arn
+          BROKER_CONFIG_JSON: @@BROKER_CONFIG_JSON_YAML@@
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: component, Value: gug376-route-broker}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+        - {Key: source_commit, Value: '@@SOURCE_COMMIT@@'}
+
+  ExecuteDispatchRecoveryFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ExecuteDispatchRecoveryLogGroup
+    Properties:
+      FunctionName: scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
+      Architectures: [x86_64]
+      Runtime: python3.12
+      Handler: tooling.platform_authority_plan_permission_repair_route_broker.execute_dispatch_recovery_handler
+      Role: !GetAtt ExecuteDispatchRecoveryRole.Arn
+      CodeSigningConfigArn: !Ref BrokerCodeSigningConfig
+      Timeout: 900
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: '@@BROKER_CODE_BUCKET@@'
+        S3Key: '@@BROKER_CODE_KEY@@'
+        S3ObjectVersion: '@@BROKER_CODE_VERSION@@'
+      Environment:
+        Variables:
+          LEDGER_TABLE_NAME: scanalyze-platform-authority-gug376-route-broker-ledger
+          BROKER_LEDGER_KEY_ARN: !GetAtt BrokerLedgerKey.Arn
+          BROKER_CONFIG_JSON: @@BROKER_CONFIG_JSON_YAML@@
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: component, Value: gug376-route-broker}
+        - {Key: environment, Value: non-production}
+        - {Key: production, Value: 'false'}
+        - {Key: source_commit, Value: '@@SOURCE_COMMIT@@'}
+
+  CreatorRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  ExecutorRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  CreateDispatchRecoveryRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref CreateDispatchRecoveryFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  ExecuteDispatchRecoveryRuntimeManagementConfig:
+    Type: AWS::Lambda::RuntimeManagementConfig
+    Properties:
+      FunctionName: !Ref ExecuteDispatchRecoveryFunction
+      UpdateRuntimeOn: FunctionUpdate
+
+  CreatorVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: CreatorRuntimeManagementConfig
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      CodeSha256: '@@BROKER_CODE_SHA256@@'
+      Description: GUG-376 creator @@SOURCE_COMMIT@@ @@BROKER_CONFIG_DIGEST@@
+
+  ExecutorVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: ExecutorRuntimeManagementConfig
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      CodeSha256: '@@BROKER_CODE_SHA256@@'
+      Description: GUG-376 executor @@SOURCE_COMMIT@@ @@BROKER_CONFIG_DIGEST@@
+
+  CreateDispatchRecoveryVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: CreateDispatchRecoveryRuntimeManagementConfig
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      FunctionName: !Ref CreateDispatchRecoveryFunction
+      CodeSha256: '@@BROKER_CODE_SHA256@@'
+      Description: GUG-376 create dispatch recovery @@SOURCE_COMMIT@@ @@BROKER_CONFIG_DIGEST@@
+
+  ExecuteDispatchRecoveryVersion:
+    Type: AWS::Lambda::Version
+    DependsOn: ExecuteDispatchRecoveryRuntimeManagementConfig
+    DeletionPolicy: @@BROKER_DELETION_POLICY@@
+    UpdateReplacePolicy: @@BROKER_UPDATE_REPLACE_POLICY@@
+    Properties:
+      FunctionName: !Ref ExecuteDispatchRecoveryFunction
+      CodeSha256: '@@BROKER_CODE_SHA256@@'
+      Description: GUG-376 execute dispatch recovery @@SOURCE_COMMIT@@ @@BROKER_CONFIG_DIGEST@@
+
+  CreatorSeedRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: seed-revoke-create-v1
+  CreatorDelegationCreateAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: delegation-create-v1
+  CreatorPepCreateAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: pep-create-v1
+  CreatorPepProtectionAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: pep-protection-create-v1
+  CreatorCloseoutGateAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: closeout-gate-v1
+  CreatorDelegationRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: delegation-revoke-create-v1
+  CreatorRouteRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      FunctionVersion: !GetAtt CreatorVersion.Version
+      Name: route-revoke-create-v1
+
+  CreateDispatchRecoveryAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref CreateDispatchRecoveryFunction
+      FunctionVersion: !GetAtt CreateDispatchRecoveryVersion.Version
+      Name: recover-v1
+
+  ExecutorSeedRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: seed-revoke-execute-v1
+  ExecutorDelegationCreateAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: delegation-execute-v1
+  ExecutorPepCreateAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: pep-execute-v1
+  ExecutorPepProtectionAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: pep-protection-execute-v1
+  ExecutorDelegationRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: delegation-revoke-execute-v1
+  ExecutorRouteRevokeAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      FunctionVersion: !GetAtt ExecutorVersion.Version
+      Name: route-revoke-execute-v1
+
+  ExecuteDispatchRecoveryAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ExecuteDispatchRecoveryFunction
+      FunctionVersion: !GetAtt ExecuteDispatchRecoveryVersion.Version
+      Name: recover-v1
+
+  CreatorSeedRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorSeedRevokeAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: seed-revoke-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorDelegationCreateAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorDelegationCreateAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: delegation-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorPepCreateAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorPepCreateAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: pep-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorPepProtectionAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorPepProtectionAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: pep-protection-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorCloseoutGateAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorCloseoutGateAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: closeout-gate-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorDelegationRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorDelegationRevokeAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: delegation-revoke-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  CreatorRouteRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreatorRouteRevokeAlias
+    Properties:
+      FunctionName: !Ref CreatorFunction
+      Qualifier: route-revoke-create-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  CreateDispatchRecoveryAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: CreateDispatchRecoveryAlias
+    Properties:
+      FunctionName: !Ref CreateDispatchRecoveryFunction
+      Qualifier: recover-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  ExecutorSeedRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorSeedRevokeAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: seed-revoke-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  ExecutorDelegationCreateAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorDelegationCreateAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: delegation-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  ExecutorPepCreateAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorPepCreateAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: pep-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  ExecutorPepProtectionAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorPepProtectionAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: pep-protection-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  ExecutorDelegationRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorDelegationRevokeAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: delegation-revoke-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+  ExecutorRouteRevokeAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecutorRouteRevokeAlias
+    Properties:
+      FunctionName: !Ref ExecutorFunction
+      Qualifier: route-revoke-execute-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+  ExecuteDispatchRecoveryAsyncPolicy:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: ExecuteDispatchRecoveryAlias
+    Properties:
+      FunctionName: !Ref ExecuteDispatchRecoveryFunction
+      Qualifier: recover-v1
+      MaximumEventAgeInSeconds: 60
+      MaximumRetryAttempts: 0
+
+Outputs:
+  BrokerLedgerName:
+    Value: !Ref BrokerLedger
+  CreatorFunctionArn:
+    Value: !GetAtt CreatorFunction.Arn
+  ExecutorFunctionArn:
+    Value: !GetAtt ExecutorFunction.Arn
+  CreateDispatchRecoveryAliasArn:
+    Value: !Ref CreateDispatchRecoveryAlias
+  ExecuteDispatchRecoveryAliasArn:
+    Value: !Ref ExecuteDispatchRecoveryAlias
+  ManagementCreatorRoleArn:
+    Value: arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+  ManagementExecutorRoleArn:
+    Value: arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerExecutor
+  ManagementRecoveryRoleArn:
+    Value: arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerRecovery
+  ParametersAccepted:
+    Value: 'false'
+  BrokerLedgerDeletionProtectionMode:
+    Value: '@@BROKER_LEDGER_PROTECTION_TEXT@@'
+  ProductionAuthorized:
+    Value: 'false'

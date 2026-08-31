@@ -1,0 +1,883 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  ManagementAccountId: {Type: String, Default: '839393571433', AllowedValues: ['839393571433']}
+  AuthorityAccountId: {Type: String, Default: '042360977644', AllowedValues: ['042360977644']}
+  SourceCommit:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{40}$'
+  IdentityCenterInstanceArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  BootstrapPrincipalId:
+    Type: String
+    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+  SeedAssignmentsEnabled: {Type: String, AllowedValues: ['false', 'true']}
+  BrokerInvokerAssignmentEnabled: {Type: String, AllowedValues: ['false', 'true']}
+  RouteNotBefore:
+    Type: String
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  RouteNotAfter:
+    Type: String
+    AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+  RecoveryNotAfter: {Type: String, AllowedPattern: '^20[0-9]{2}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'}
+  ArtifactKmsKeyArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:kms:us-east-1:042360977644:key/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  RouteTemplateBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  RouteTemplateKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/templates/[a-f0-9]{40}/cfn-platform-authority-gug376-temporary-change-set-route\.yaml$'
+  RouteTemplateVersion: {Type: String, MinLength: 1, MaxLength: 1024}
+  RouteTemplateUrl: {Type: String, MinLength: 1, MaxLength: 5120, AllowedPattern: '^https://[^ ]+[?]versionId=[^ ]+$'}
+  DelegationTemplateBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  DelegationTemplateKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/templates/[a-f0-9]{40}/cfn-platform-authority-bootstrap-plan-repair-delegation\.yaml$'
+  DelegationTemplateVersion: {Type: String, MinLength: 1, MaxLength: 1024}
+  DelegationTemplateUrl: {Type: String, MinLength: 1, MaxLength: 5120, AllowedPattern: '^https://[^ ]+[?]versionId=[^ ]+$'}
+  BrokerSeedTemplateBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  BrokerSeedTemplateKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/private/[a-f0-9]{40}/cfn-platform-authority-gug376-route-broker\.yaml$'
+  BrokerSeedTemplateVersion: {Type: String, MinLength: 1, MaxLength: 1024}
+  BrokerSeedTemplateUrl: {Type: String, MinLength: 1, MaxLength: 5120, AllowedPattern: '^https://[^ ]+[?]versionId=[^ ]+$'}
+  BrokerProtectionTemplateBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  BrokerProtectionTemplateKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/private/[a-f0-9]{40}/cfn-platform-authority-gug376-route-broker-protection\.yaml$'
+  BrokerProtectionTemplateVersion: {Type: String, MinLength: 1, MaxLength: 1024}
+  BrokerProtectionTemplateUrl: {Type: String, MinLength: 1, MaxLength: 5120, AllowedPattern: '^https://[^ ]+[?]versionId=[^ ]+$'}
+  BrokerCodeBucket:
+    Type: String
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  BrokerCodeKey:
+    Type: String
+    AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/broker/signed/[a-f0-9]{40}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
+  BrokerCodeVersion: {Type: String, MinLength: 1, MaxLength: 1024}
+  BrokerSigningProfileVersionArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-z-]*:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}$'
+
+Rules:
+  AccountAndRegionMustMatch:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '839393571433']
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+
+Conditions:
+  CreateSeedAssignments: !Equals [!Ref SeedAssignmentsEnabled, 'true']
+  CreateBrokerInvokerAssignment: !Equals [!Ref BrokerInvokerAssignmentEnabled, 'true']
+
+Resources:
+  ManagementBrokerCreatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteBrokerCreator
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'}, Action: [sts:AssumeRole, sts:SetSourceIdentity], Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator'}, StringEquals: {sts:SourceIdentity: !Sub 'gug376-creator-${SourceCommit}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}}
+      Policies:
+        - PolicyName: ExactChangeSetCreation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadCreateEvents
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: '*'
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ReadExactManagementStacks
+                Effect: Allow
+                Action: [cloudformation:DescribeChangeSet, cloudformation:DescribeStackEvents, cloudformation:DescribeStacks, cloudformation:GetTemplate, cloudformation:ListChangeSets, cloudformation:ListStackResources]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ReadExactIdentityCenterTerminalState
+                Effect: Allow
+                Action: [sso:DescribeAccountAssignmentCreationStatus, sso:DescribeAccountAssignmentDeletionStatus, sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:GetPermissionsBoundaryForPermissionSet, sso:ListAccountAssignments, sso:ListAccountAssignmentsForPrincipal, sso:ListAccountsForProvisionedPermissionSet, sso:ListCustomerManagedPolicyReferencesInPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource]
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub arn:${AWS::Partition}:sso:::account/${ManagementAccountId}
+                  - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: CreateExactRouteUpdateChangeSets
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: [gug376-temporary-route-seed-revoke, gug376-temporary-route-invoker-revoke], cloudformation:TemplateUrl: !Ref RouteTemplateUrl}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+              - Sid: CreateExactDelegationChangeSets
+                Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: [gug376-plan-repair-delegation-create, gug376-plan-repair-delegation-revoke], cloudformation:TemplateUrl: !Ref DelegationTemplateUrl}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+              - Sid: TagM
+                Effect: Allow
+                Action: cloudformation:TagResource
+                Resource: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-temporary-route-seed-revoke/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-temporary-route-invoker-revoke/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-create/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-revoke/*']
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:CreateAction: [CreateChangeSet, ExecuteChangeSet], aws:RequestTag/managed_by: cloudformation, aws:RequestTag/service: scanalyze-platform-authority, aws:RequestTag/work_package: GUG-376}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package]}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ReadExactRouteTemplate
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub arn:${AWS::Partition}:s3:::${RouteTemplateBucket}/${RouteTemplateKey}
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    s3:VersionId: !Ref RouteTemplateVersion
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref RouteNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref RecoveryNotAfter
+              - Sid: ReadExactDelegationTemplate
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub arn:${AWS::Partition}:s3:::${DelegationTemplateBucket}/${DelegationTemplateKey}
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    s3:VersionId: !Ref DelegationTemplateVersion
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref RouteNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref RecoveryNotAfter
+              - Sid: DecryptExactArtifactBucketKeyThroughS3
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Ref ArtifactKmsKeyArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                    kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${RouteTemplateBucket}
+                  DateGreaterThanEquals:
+                    aws:CurrentTime: !Ref RouteNotBefore
+                  DateLessThan:
+                    aws:CurrentTime: !Ref RecoveryNotAfter
+              - Sid: D1
+                Effect: Deny
+                Action:
+                  - cloudformation:ExecuteChangeSet
+                  - iam:*
+                  - identitystore:*
+                  - lambda:*
+                  - sts:AssumeRole
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-temporary-route}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
+  ManagementBrokerExecutorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376RouteBrokerExecutor
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'}, Action: [sts:AssumeRole, sts:SetSourceIdentity], Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor'}, StringEquals: {sts:SourceIdentity: !Sub 'gug376-executor-${SourceCommit}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}}
+      Policies:
+        - PolicyName: ExactChangeSetExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadExecutionEvents
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: '*'
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ReadExactManagementChangeSets
+                Effect: Allow
+                Action: [cloudformation:DescribeChangeSet, cloudformation:DescribeStackEvents, cloudformation:DescribeStacks, cloudformation:GetTemplate, cloudformation:ListChangeSets, cloudformation:ListStackResources]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ReadExactIdentityCenterTerminalState
+                Effect: Allow
+                Action: [sso:DescribeAccountAssignmentCreationStatus, sso:DescribeAccountAssignmentDeletionStatus, sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:GetPermissionsBoundaryForPermissionSet, sso:ListAccountAssignments, sso:ListAccountAssignmentsForPrincipal, sso:ListAccountsForProvisionedPermissionSet, sso:ListCustomerManagedPolicyReferencesInPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource]
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub arn:${AWS::Partition}:sso:::account/${ManagementAccountId}
+                  - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ExecuteExactRouteUpdates
+                Effect: Allow
+                Action: cloudformation:ExecuteChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-temporary-route-seed-revoke/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-temporary-route-invoker-revoke/*']}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+              - Sid: ExecuteDelegation
+                Effect: Allow
+                Action: cloudformation:ExecuteChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-create/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-revoke/*']}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+              - Sid: ManageExactDelegationRolesThroughCloudFormation
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListRoleTags
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairMutation
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+                Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: ManageDelegationPermissionSetThroughCloudFormation
+                Effect: Allow
+                Action:
+                  - sso:CreateAccountAssignment
+                  - sso:CreatePermissionSet
+                  - sso:DeleteAccountAssignment
+                  - sso:DeletePermissionSet
+                  - sso:DescribeAccountAssignmentCreationStatus
+                  - sso:DescribeAccountAssignmentDeletionStatus
+                  - sso:DescribePermissionSet
+                  - sso:DescribePermissionSetProvisioningStatus
+                  - sso:GetInlinePolicyForPermissionSet
+                  - sso:ListAccountAssignments
+                  - sso:ListAccountAssignmentsForPrincipal
+                  - sso:ListManagedPoliciesInPermissionSet
+                  - sso:ListTagsForResource
+                  - sso:ProvisionPermissionSet
+                  - sso:PutInlinePolicyToPermissionSet
+                  - sso:TagResource
+                  - sso:UntagResource
+                  - sso:UpdatePermissionSet
+                Resource:
+                  - !Ref IdentityCenterInstanceArn
+                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
+                Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+              - Sid: DenyDirectProviderAndCreation
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - iam:*
+                  - identitystore:*
+                  - sso:CreateAccountAssignment
+                  - sso:CreatePermissionSet
+                  - sso:DeleteAccountAssignment
+                  - sso:DeletePermissionSet
+                  - sso:ProvisionPermissionSet
+                  - sso:PutInlinePolicyToPermissionSet
+                  - sso:TagResource
+                  - sso:UntagResource
+                  - sso:UpdatePermissionSet
+                Resource: '*'
+                Condition:
+                  ForAllValues:StringNotEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+              - Sid: D2
+                Effect: Deny
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:PassRole
+                  - iam:PutUserPolicy
+                  - lambda:*
+                  - sts:AssumeRole
+                  - sts:AssumeRoleWithSAML
+                  - sts:AssumeRoleWithWebIdentity
+                Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-temporary-route}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
+  BrokerSeedCreatorPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      Name: ScanalyzeGug376BrokerSeedCreator
+      SessionDuration: PT1H
+      InlinePolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadSeedCreationEvent
+            Effect: Allow
+            Action: cloudtrail:LookupEvents
+            Resource: '*'
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerStack
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeChangeSet
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStacks
+              - cloudformation:GetTemplate
+              - cloudformation:ListChangeSets
+              - cloudformation:ListStackResources
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: CreateExactParameterlessBrokerChangeSet
+            Effect: Allow
+            Action: cloudformation:CreateChangeSet
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: [gug376-route-broker-create, gug376-route-broker-create-recovery-1], cloudformation:TemplateUrl: !Ref BrokerSeedTemplateUrl}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+          - Sid: CreateExactParameterlessBrokerProtectionChangeSet
+            Effect: Allow
+            Action: cloudformation:CreateChangeSet
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: [gug376-route-broker-protection-enable, gug376-route-broker-protection-enable-recovery-1], cloudformation:TemplateUrl: !Ref BrokerProtectionTemplateUrl}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+          - Sid: TagB
+            Effect: Allow
+            Action: cloudformation:TagResource
+            Resource: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-create/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-create-recovery-1/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-protection-enable/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-protection-enable-recovery-1/*']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:CreateAction: [CreateChangeSet, ExecuteChangeSet], aws:RequestTag/managed_by: cloudformation, aws:RequestTag/service: scanalyze-platform-authority, aws:RequestTag/work_package: GUG-376}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package]}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactParameterlessBrokerTemplate
+            Effect: Allow
+            Action: s3:GetObjectVersion
+            Resource: !Sub arn:${AWS::Partition}:s3:::${BrokerSeedTemplateBucket}/${BrokerSeedTemplateKey}
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                s3:VersionId: !Ref BrokerSeedTemplateVersion
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: ReadExactParameterlessBrokerProtectionTemplate
+            Effect: Allow
+            Action: s3:GetObjectVersion
+            Resource: !Sub arn:${AWS::Partition}:s3:::${BrokerProtectionTemplateBucket}/${BrokerProtectionTemplateKey}
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                s3:VersionId: !Ref BrokerProtectionTemplateVersion
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: DecryptExactBrokerTemplateKeyThroughS3
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Ref ArtifactKmsKeyArn
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                kms:ViaService: s3.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${BrokerSeedTemplateBucket}
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: DecryptExactBrokerProtectionTemplateKeyThroughS3
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Ref ArtifactKmsKeyArn
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                kms:ViaService: s3.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${BrokerProtectionTemplateBucket}
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: D3
+            Effect: Deny
+            Action:
+              - cloudformation:ExecuteChangeSet
+              - iam:*
+              - identitystore:*
+              - lambda:*
+              - sso:*
+              - sts:AssumeRole
+              - sts:AssumeRoleWithSAML
+              - sts:AssumeRoleWithWebIdentity
+            Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-temporary-route}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
+  BrokerSeedExecutorPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      Name: ScanalyzeGug376BrokerSeedExec
+      SessionDuration: PT1H
+      InlinePolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadSeedExecutionEvent
+            Effect: Allow
+            Action: cloudtrail:LookupEvents
+            Resource: '*'
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerChangeSet
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeChangeSet
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStacks
+              - cloudformation:GetTemplate
+              - cloudformation:ListChangeSets
+              - cloudformation:ListStackResources
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerRolesDirect
+            Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListAttachedRolePolicies
+              - iam:ListRolePolicies
+              - iam:ListRoleTags
+            Resource:
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerFunctionsDirect
+            Effect: Allow
+            Action:
+              - lambda:GetAlias
+              - lambda:GetFunction
+              - lambda:GetFunctionCodeSigningConfig
+              - lambda:GetFunctionConcurrency
+              - lambda:GetFunctionEventInvokeConfig
+              - lambda:GetFunctionUrlConfig
+              - lambda:GetPolicy
+              - lambda:GetRuntimeManagementConfig
+              - lambda:ListAliases
+              - lambda:ListEventSourceMappings
+              - lambda:ListFunctionUrlConfigs
+              - lambda:ListProvisionedConcurrencyConfigs
+              - lambda:ListTags
+              - lambda:ListVersionsByFunction
+            Resource:
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator:*
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor:*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerCodeSigningConfigDirect
+            Effect: Allow
+            Action: lambda:GetCodeSigningConfig
+            Resource: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerLedgerDirect
+            Effect: Allow
+            Action:
+              - dynamodb:DescribeContinuousBackups
+              - dynamodb:DescribeTable
+              - dynamodb:DescribeTimeToLive
+              - dynamodb:GetResourcePolicy
+              - dynamodb:ListTagsOfResource
+            Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug376-route-broker-ledger
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerKmsKeyDirect
+            Effect: Allow
+            Action:
+              - kms:DescribeKey
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListResourceTags
+            Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerKmsGrantsDirect
+            Effect: Allow
+            Action: kms:ListGrants
+            Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+              ForAnyValue:StringEquals:
+                kms:ResourceAliases: alias/scanalyze/platform-authority/gug376-route-broker-ledger
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: ListBrokerKmsAliasDirect
+            Effect: Allow
+            Action: kms:ListAliases
+            Resource: '*'
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerLogGroupsDirect
+            Effect: Allow
+            Action: logs:DescribeLogGroups
+            Resource: '*'
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerLogTagsDirect
+            Effect: Allow
+            Action:
+              - logs:DescribeSubscriptionFilters
+              - logs:ListTagsForResource
+            Resource:
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator:*
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor:*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerLogResourcePoliciesDirect
+            Effect: Allow
+            Action: logs:DescribeResourcePolicies
+            Resource: '*'
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ExecuteExactBrokerChangeSet
+            Effect: Allow
+            Action: cloudformation:ExecuteChangeSet
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-create/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-create-recovery-1/*']}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+          - Sid: ExecuteExactBrokerProtectionChangeSet
+            Effect: Allow
+            Action: cloudformation:ExecuteChangeSet
+            Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-protection-enable/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-route-broker-protection-enable-recovery-1/*']}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}}
+          - Sid: ManageExactBrokerRolesThroughCloudFormation
+            Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:DeleteRolePolicy
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListRoleTags
+              - iam:PutRolePolicy
+              - iam:TagRole
+              - iam:UntagRole
+              - iam:UpdateAssumeRolePolicy
+              - iam:UpdateRole
+              - iam:UpdateRoleDescription
+            Resource:
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: PassOnlyExactBrokerRolesThroughCloudFormation
+            Effect: Allow
+            Action: iam:PassRole
+            Resource:
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
+              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                iam:PassedToService: lambda.amazonaws.com
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: ManageExactBrokerFunctionsThroughCloudFormation
+            Effect: Allow
+            Action:
+              - lambda:CreateAlias
+              - lambda:CreateFunction
+              - lambda:DeleteAlias
+              - lambda:DeleteCodeSigningConfig
+              - lambda:DeleteFunction
+              - lambda:DeleteFunctionCodeSigningConfig
+              - lambda:DeleteFunctionConcurrency
+              - lambda:DeleteFunctionEventInvokeConfig
+              - lambda:GetAlias
+              - lambda:GetCodeSigningConfig
+              - lambda:GetFunction
+              - lambda:GetFunctionConcurrency
+              - lambda:GetFunctionEventInvokeConfig
+              - lambda:GetFunctionCodeSigningConfig
+              - lambda:GetRuntimeManagementConfig
+              - lambda:ListAliases
+              - lambda:ListTags
+              - lambda:ListVersionsByFunction
+              - lambda:PublishVersion
+              - lambda:PutFunctionCodeSigningConfig
+              - lambda:PutFunctionConcurrency
+              - lambda:PutFunctionEventInvokeConfig
+              - lambda:PutRuntimeManagementConfig
+              - lambda:TagResource
+              - lambda:UntagResource
+              - lambda:UpdateAlias
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:UpdateFunctionEventInvokeConfig
+            Resource:
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator:*
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor:*
+              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: CreateBrokerCodeSigningConfigThroughCloudFormation
+            Effect: Allow
+            Action: lambda:CreateCodeSigningConfig
+            Resource: '*'
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadExactBrokerSigningProfileThroughCloudFormation
+            Effect: Allow
+            Action: signer:GetSigningProfile
+            Resource: !Join
+              - '/'
+              - - !Select [0, !Split ['/', !Ref BrokerSigningProfileVersionArn]]
+                - !Select [1, !Split ['/', !Ref BrokerSigningProfileVersionArn]]
+                - !Select [2, !Split ['/', !Ref BrokerSigningProfileVersionArn]]
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                signer:ProfileVersion: !Select [3, !Split ['/', !Ref BrokerSigningProfileVersionArn]]
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: ManageExactBrokerLogsThroughCloudFormation
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:ListTagsForResource
+              - logs:PutRetentionPolicy
+              - logs:TagResource
+              - logs:UntagResource
+            Resource:
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator:*
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor
+              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor:*
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ReadBrokerLogGroupsThroughCloudFormation
+            Effect: Allow
+            Action: logs:DescribeLogGroups
+            Resource: '*'
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ManageExactBrokerLedgerThroughCloudFormation
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DescribeContinuousBackups
+              - dynamodb:DescribeTable
+              - dynamodb:DescribeTimeToLive
+              - dynamodb:DeleteResourcePolicy
+              - dynamodb:DeleteTable
+              - dynamodb:GetResourcePolicy
+              - dynamodb:ListTagsOfResource
+              - dynamodb:PutResourcePolicy
+              - dynamodb:TagResource
+              - dynamodb:UpdateContinuousBackups
+              - dynamodb:UpdateTable
+            Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug376-route-broker-ledger
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: CreateBrokerLedgerKeyThroughCloudFormation
+            Effect: Allow
+            Action:
+              - kms:CreateKey
+              - kms:ListAliases
+            Resource: '*'
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: ManageBrokerLedgerKeyThroughCloudFormation
+            Effect: Allow
+            Action:
+              - kms:CreateAlias
+              - kms:CreateGrant
+              - kms:DeleteAlias
+              - kms:DescribeKey
+              - kms:EnableKeyRotation
+              - kms:GetKeyPolicy
+              - kms:GetKeyRotationStatus
+              - kms:ListGrants
+              - kms:ListResourceTags
+              - kms:PutKeyPolicy
+              - kms:RetireGrant
+              - kms:RevokeGrant
+              - kms:ScheduleKeyDeletion
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:UpdateAlias
+              - kms:UpdateKeyDescription
+            Resource:
+              - !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
+              - !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:alias/scanalyze/platform-authority/gug376-route-broker-ledger
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: ReadExactBrokerCodeThroughCloudFormation
+            Effect: Allow
+            Action: s3:GetObjectVersion
+            Resource: !Sub arn:${AWS::Partition}:s3:::${BrokerCodeBucket}/${BrokerCodeKey}
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                s3:VersionId: !Ref BrokerCodeVersion
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: DecryptExactBrokerCodeKeyThroughS3
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Ref ArtifactKmsKeyArn
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: us-east-1
+                kms:ViaService: s3.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${BrokerCodeBucket}
+              DateGreaterThanEquals:
+                aws:CurrentTime: !Ref RouteNotBefore
+              DateLessThan:
+                aws:CurrentTime: !Ref RecoveryNotAfter
+          - Sid: DenySeedCreationAndDirectProviderAccess
+            Effect: Deny
+            Action: [cloudformation:CreateChangeSet, cloudformation:DeleteChangeSet, dynamodb:BatchWriteItem, dynamodb:CreateTable, dynamodb:Delete*, dynamodb:PutItem, dynamodb:PutResourcePolicy, dynamodb:TagResource, dynamodb:UntagResource, dynamodb:Update*, iam:AttachRolePolicy, iam:CreatePolicy, iam:CreateRole, iam:Delete*, iam:DetachRolePolicy, iam:PassRole, iam:PutRolePolicy, iam:TagRole, iam:UntagRole, iam:Update*, kms:Create*, kms:Disable*, kms:Enable*, kms:Put*, kms:Revoke*, kms:ScheduleKeyDeletion, kms:TagResource, kms:UntagResource, kms:Update*, lambda:AddPermission, lambda:Create*, lambda:Delete*, lambda:PublishVersion, lambda:Put*, lambda:RemovePermission, lambda:TagResource, lambda:UntagResource, lambda:Update*, logs:Create*, logs:Delete*, logs:Put*, logs:TagResource, logs:UntagResource, s3:Delete*, s3:Put*, signer:AddProfilePermission, signer:CancelSigningProfile, signer:PutSigningProfile, signer:RemoveProfilePermission, signer:RevokeSignature, signer:RevokeSigningProfile, signer:StartSigningJob, signer:TagResource, signer:UntagResource]
+            Resource: '*'
+            Condition:
+              ForAllValues:StringNotEquals:
+                aws:CalledVia: cloudformation.amazonaws.com
+          - Sid: D4
+            Effect: Deny
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:DeleteStack
+              - cloudformation:UpdateStack
+              - identitystore:*
+              - lambda:InvokeAsync
+              - lambda:InvokeFunction
+              - lambda:InvokeFunctionUrl
+              - sso:*
+              - sts:AssumeRole
+              - sts:AssumeRoleWithSAML
+              - sts:AssumeRoleWithWebIdentity
+            Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-temporary-route}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
+  BrokerInvokerPermissionSet:
+    Type: AWS::SSO::PermissionSet
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      Name: ScanalyzeGug376BrokerInvoker
+      SessionDuration: PT1H
+      InlinePolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: InvokeOnlyExactBrokerAliases
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Split
+              - ','
+              - !Sub
+                - '${Creator}:seed-revoke-create-v1,${Creator}:delegation-create-v1,${Creator}:pep-create-v1,${Creator}:pep-protection-create-v1,${Creator}:closeout-gate-v1,${Creator}:delegation-revoke-create-v1,${Creator}:route-revoke-create-v1,${Executor}:seed-revoke-execute-v1,${Executor}:delegation-execute-v1,${Executor}:pep-execute-v1,${Executor}:pep-protection-execute-v1,${Executor}:delegation-revoke-execute-v1,${Executor}:route-revoke-execute-v1'
+                - Creator: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
+                  Executor: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
+            Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: DenyOtherLambdaResources
+            Effect: Deny
+            Action: lambda:InvokeFunction
+            NotResource: !Split
+              - ','
+              - !Sub
+                - '${Creator}:seed-revoke-create-v1,${Creator}:delegation-create-v1,${Creator}:pep-create-v1,${Creator}:pep-protection-create-v1,${Creator}:closeout-gate-v1,${Creator}:delegation-revoke-create-v1,${Creator}:route-revoke-create-v1,${Executor}:seed-revoke-execute-v1,${Executor}:delegation-execute-v1,${Executor}:pep-execute-v1,${Executor}:pep-protection-execute-v1,${Executor}:delegation-revoke-execute-v1,${Executor}:route-revoke-execute-v1'
+                - Creator: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
+                  Executor: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
+          - Sid: DenyAsyncUrlsAndLambdaMutation
+            Effect: Deny
+            Action:
+              - lambda:AddPermission
+              - lambda:CreateEventSourceMapping
+              - lambda:CreateFunctionUrlConfig
+              - lambda:DeleteFunctionUrlConfig
+              - lambda:InvokeAsync
+              - lambda:InvokeFunctionUrl
+              - lambda:PutFunctionEventInvokeConfig
+              - lambda:UpdateEventSourceMapping
+              - lambda:UpdateFunctionEventInvokeConfig
+              - lambda:UpdateFunctionUrlConfig
+            Resource: '*'
+          - Sid: D5
+            Effect: Deny
+            Action:
+              - cloudformation:*
+              - dynamodb:*
+              - iam:*
+              - identitystore:*
+              - kms:*
+              - logs:*
+              - s3:*
+              - sso:*
+              - sts:AssumeRole
+              - sts:AssumeRoleWithSAML
+              - sts:AssumeRoleWithWebIdentity
+            Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-temporary-route}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
+  BrokerSeedCreatorAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateSeedAssignments
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      PermissionSetArn: !GetAtt BrokerSeedCreatorPermissionSet.PermissionSetArn
+      PrincipalId: !Ref BootstrapPrincipalId
+      PrincipalType: USER
+      TargetId: !Ref AuthorityAccountId
+      TargetType: AWS_ACCOUNT
+
+  BrokerSeedExecutorAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateSeedAssignments
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      PermissionSetArn: !GetAtt BrokerSeedExecutorPermissionSet.PermissionSetArn
+      PrincipalId: !Ref BootstrapPrincipalId
+      PrincipalType: USER
+      TargetId: !Ref AuthorityAccountId
+      TargetType: AWS_ACCOUNT
+
+  BrokerInvokerAssignment:
+    Type: AWS::SSO::Assignment
+    Condition: CreateBrokerInvokerAssignment
+    Properties:
+      InstanceArn: !Ref IdentityCenterInstanceArn
+      PermissionSetArn: !GetAtt BrokerInvokerPermissionSet.PermissionSetArn
+      PrincipalId: !Ref BootstrapPrincipalId
+      PrincipalType: USER
+      TargetId: !Ref AuthorityAccountId
+      TargetType: AWS_ACCOUNT
+
+Outputs:
+  ManagementBrokerCreatorRoleArn: {Value: !GetAtt ManagementBrokerCreatorRole.Arn}
+  ManagementBrokerExecutorRoleArn: {Value: !GetAtt ManagementBrokerExecutorRole.Arn}
+  BrokerSeedCreatorPermissionSetArn: {Value: !GetAtt BrokerSeedCreatorPermissionSet.PermissionSetArn}
+  BrokerSeedExecutorPermissionSetArn: {Value: !GetAtt BrokerSeedExecutorPermissionSet.PermissionSetArn}
+  BrokerInvokerPermissionSetArn: {Value: !GetAtt BrokerInvokerPermissionSet.PermissionSetArn}
+  SeedAssignmentMode: {Value: !Ref SeedAssignmentsEnabled}
+  BrokerInvokerAssignmentMode: {Value: !Ref BrokerInvokerAssignmentEnabled}
+  CleanupOrder: {Value: SEED_FALSE_KEEP_INVOKER_THEN_CLOSEOUT_FALSE_FALSE}
+  BrokerStackName: {Value: scanalyze-platform-authority-gug376-route-broker}
+  ProductionAuthorized: {Value: 'false'}

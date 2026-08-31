@@ -19,6 +19,7 @@ from tooling.platform_authority_plan_permission_repair import (
     PRIVATE_INTENT_FIELDS,
     PRIVATE_LEDGER_ACTIVE_FIELDS,
     PRIVATE_LEDGER_PLAN_FIELDS,
+    PRIVATE_RECONCILE_ATTESTATION_FIELDS,
     PUBLIC_RECEIPT_FIELDS,
     PlanPermissionRepair,
     PlanPermissionRepairError,
@@ -28,6 +29,7 @@ from tooling.platform_authority_plan_permission_repair import (
     RoleSnapshot,
     build_plan_ledger,
     build_private_intent,
+    build_reconcile_attestation,
     digest_value,
     install_runtime_factory,
     parse_timestamp,
@@ -37,6 +39,7 @@ from tooling.platform_authority_plan_permission_repair import (
     transition_ledger,
     validate_private_intent,
     validate_private_ledger,
+    validate_reconcile_attestation,
     validate_public_receipt,
     validate_snapshot,
     validate_versioned_lambda_contract,
@@ -178,6 +181,7 @@ def _snapshot(
 class MemoryLedger:
     def __init__(self, timeline: list[str]) -> None:
         self.item: dict[str, Any] | None = None
+        self.attestation: dict[str, Any] | None = None
         self.timeline = timeline
 
     def put_if_absent(self, ledger: Mapping[str, Any]) -> None:
@@ -209,6 +213,24 @@ class MemoryLedger:
         self.item = deepcopy(dict(replacement))
         self.timeline.append("ledger:" + str(replacement["status"]))
 
+    def put_reconcile_attestation(
+        self, attestation: Mapping[str, Any]
+    ) -> None:
+        if self.attestation is not None:
+            raise RuntimeError("conditional attestation write failed")
+        self.attestation = deepcopy(dict(attestation))
+        self.timeline.append("ledger:RECONCILE_ATTESTED")
+
+    def read_reconcile_attestation(
+        self, repair_id: str
+    ) -> Mapping[str, Any] | None:
+        if (
+            self.attestation is None
+            or self.attestation["base_repair_id"] != repair_id
+        ):
+            return None
+        return deepcopy(self.attestation)
+
 
 class FailUncertainSealLedger(MemoryLedger):
     def compare_and_swap(
@@ -227,6 +249,22 @@ class FailUncertainSealLedger(MemoryLedger):
             expected_ledger=expected_ledger,
             replacement=replacement,
         )
+
+
+class AmbiguousAttestationLedger(MemoryLedger):
+    def put_reconcile_attestation(
+        self, attestation: Mapping[str, Any]
+    ) -> None:
+        super().put_reconcile_attestation(attestation)
+        raise RuntimeError("synthetic ambiguous attestation response")
+
+
+class MissingAttestationLedger(MemoryLedger):
+    def put_reconcile_attestation(
+        self, attestation: Mapping[str, Any]
+    ) -> None:
+        del attestation
+        raise RuntimeError("synthetic absent attestation response")
 
 
 class MemoryProvider:
@@ -399,10 +437,182 @@ def test_complete_two_effect_state_machine_is_at_most_once(
     )
     assert ledger.item is not None
     assert set(ledger.item) == PRIVATE_LEDGER_ACTIVE_FIELDS
+    assert ledger.attestation is not None
+    assert set(ledger.attestation) == PRIVATE_RECONCILE_ATTESTATION_FIELDS
+    assert ledger.attestation["repair_ledger_digest"] == (
+        ledger.item["ledger_digest"]
+    )
+    assert timeline.index("ledger:REPAIR_VERIFIED") < timeline.index(
+        "ledger:RECONCILE_ATTESTED"
+    )
     validate_private_ledger(ledger.item)
+    validate_reconcile_attestation(
+        ledger.attestation, intent=intent, ledger=ledger.item
+    )
     validate_public_receipt(plan_receipt)
     validate_public_receipt(repair_receipt)
     validate_public_receipt(reconcile_receipt)
+
+
+def test_reconcile_attestation_response_loss_is_read_only_idempotent(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    provider = MemoryProvider(intent, timeline)
+    ledger = MemoryLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    first = runtime.reconcile()
+    second = runtime.reconcile()
+
+    assert second == first
+    assert timeline.count("ledger:RECONCILE_ATTESTED") == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "effects_completed"),
+    [
+        ("UNCERTAIN_PROVISION_PERMISSION_SET", 1),
+        ("UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT", 2),
+        ("UNCERTAIN_FINAL_READBACK", 2),
+    ],
+)
+def test_reconcile_final_exact_uncertainty_always_writes_and_reads_attestation(
+    intent: dict[str, Any],
+    stage: str,
+    effects_completed: int,
+) -> None:
+    timeline: list[str] = []
+    provider = MemoryProvider(intent, timeline)
+    ledger = MemoryLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    assert ledger.item is not None
+    uncertain = dict(ledger.item)
+    uncertain.update(
+        {
+            "status": "UNCERTAIN_RECONCILE_ONLY",
+            "stage": stage,
+            "effects_attempted": 2,
+            "effects_completed": effects_completed,
+        }
+    )
+    uncertain = _reseal(uncertain, "ledger_digest")
+    validate_private_ledger(uncertain)
+    ledger.item = uncertain
+
+    first = runtime.reconcile()
+    second = runtime.reconcile()
+    assert first["status"] == "RECONCILE_VERIFIED"
+    assert second == first
+    assert ledger.attestation is not None
+    assert ledger.attestation["repair_ledger_digest"] == uncertain["ledger_digest"]
+    assert timeline.count("ledger:RECONCILE_ATTESTED") == 1
+    validate_reconcile_attestation(
+        ledger.attestation,
+        intent=intent,
+        ledger=uncertain,
+    )
+
+
+def test_reconcile_attestation_accepts_only_exact_ambiguous_readback(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    ledger = AmbiguousAttestationLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=MemoryProvider(intent, timeline),
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+
+    assert runtime.reconcile()["status"] == "RECONCILE_VERIFIED"
+    assert ledger.attestation is not None
+
+
+def test_reconcile_attestation_fails_when_write_cannot_be_proven(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    ledger = MissingAttestationLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=MemoryProvider(intent, timeline),
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+
+    with pytest.raises(PlanPermissionRepairError) as unproven:
+        runtime.reconcile()
+
+    assert unproven.value.code == "RECONCILE_ATTESTATION_UNPROVEN"
+
+
+def test_reconcile_attestation_rejects_nonterminal_or_tampered_evidence(
+    intent: dict[str, Any],
+) -> None:
+    plan = build_plan_ledger(
+        intent,
+        state_digest="sha256:" + "e" * 64,
+        planned_at=NOW,
+    )
+    with pytest.raises(PlanPermissionRepairError) as nonterminal:
+        build_reconcile_attestation(
+            intent,
+            plan,
+            observed_state_digest=str(plan["state_digest"]),
+            reconciled_at=NOW,
+        )
+    assert nonterminal.value.code == (
+        "RECONCILE_ATTESTATION_BINDING_MISMATCH"
+    )
+
+    timeline: list[str] = []
+    ledger = MemoryLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=MemoryProvider(intent, timeline),
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    runtime.reconcile()
+    assert ledger.attestation is not None
+    tampered = deepcopy(ledger.attestation)
+    tampered["observed_state_digest"] = "sha256:" + "f" * 64
+    tampered = _reseal(tampered, "attestation_digest")
+    with pytest.raises(PlanPermissionRepairError) as mismatch:
+        validate_reconcile_attestation(
+            tampered,
+            intent=intent,
+            ledger=ledger.item,
+        )
+    assert mismatch.value.code == (
+        "RECONCILE_ATTESTATION_BINDING_MISMATCH"
+    )
 
 
 def test_ambiguous_first_effect_is_terminal_and_never_retried(
