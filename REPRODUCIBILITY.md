@@ -119,6 +119,10 @@ release dry-run targets in GitHub's fresh checkout workspace:
 Feature branches are validated by their pull-request run, so they do not also
 create a duplicate push run. The workflow pins Python 3.11.14 and Terraform
 1.14.6 to the same versions declared by the repository toolchain files. The
+workflow invokes `make release-dry-run` once: that target depends on
+`repro-check`, which in turn depends on `bootstrap-local`. Calling only the
+top-level target preserves the complete fail-closed validation chain without
+repeating the full Python suite inside the 30-minute job budget. The
 manual `verify-clean-clone.sh` wrapper remains the evidence that an exact commit
 can be fetched from a named remote; the workflow does not invoke that wrapper.
 
