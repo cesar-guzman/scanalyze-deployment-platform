@@ -2790,7 +2790,7 @@ def test_sso_role_suffix_accepts_uppercase_hex(
     assert expected_account == account
     assert pattern.fullmatch(
         f"arn:aws:sts::{account}:assumed-role/"
-        f"AWSReservedSSO_{role}_ABCDEF0123456789/cesar"
+        f"AWSReservedSSO_{role}_0123456789ABCDEF/cesar"
     )
 
 

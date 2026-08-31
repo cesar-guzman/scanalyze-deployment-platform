@@ -1119,7 +1119,7 @@ def test_exact_names_and_closed_config_contract() -> None:
         {
             "normal_plan_generated_role_name": (
                 "AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_"
-                "FEDCBA9876543210"
+                "0123456789FEDCBA"
             )
         },
         {
@@ -2172,7 +2172,7 @@ def test_closeout_rechecks_normal_plan_freshness_immediately_before_cas() -> Non
         },
         {
             "caller_arn": NORMAL_PLAN_CALLER.replace(
-                "0123456789ABCDEF", "FEDCBA9876543210"
+                "0123456789ABCDEF", "0123456789FEDCBA"
             )
         },
         {"caller_arn": NORMAL_PLAN_CALLER + "/nested"},
@@ -4118,7 +4118,7 @@ def test_aws_execute_recovery_rejects_noncausal_or_drifted_evidence_before_cas(
             _mutate_recovery_event(
                 event,
                 lambda value: value["requestParameters"].update(
-                    {"clientRequestToken": "gug376-foreign-token-000000000000000000"}
+                    {"clientRequestToken": "gug376-foreign-token-noncausal"}
                 ),
             )
         ]

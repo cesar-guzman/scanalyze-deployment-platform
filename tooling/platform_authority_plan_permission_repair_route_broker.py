@@ -4637,12 +4637,13 @@ def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
         or not str(assumed_user["AssumedRoleId"]).endswith(":" + session_binding)
     ):
         raise RouteBrokerError("MANAGEMENT_ROLE_ASSUME_FAILED")
-    management_session = boto3.session.Session(
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        aws_session_token=session_token,
-        region_name=REGION,
-    )
+    management_session_parameters = {
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "aws_session_token": session_token,
+        "region_name": REGION,
+    }
+    management_session = boto3.session.Session(**management_session_parameters)
     management_sts = _client(management_session, "sts", sdk_config)
     _verify_sts_identity(
         management_sts.get_caller_identity(),

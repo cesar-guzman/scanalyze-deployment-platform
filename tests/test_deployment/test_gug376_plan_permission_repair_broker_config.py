@@ -108,7 +108,7 @@ def _snapshot() -> dict[str, Any]:
                 "caller_arn": (
                     "arn:aws:sts::839393571433:assumed-role/"
                     "AWSReservedSSO_ScanalyzeFounderPepIdentityAdmin_"
-                    "FEDCBA9876543210/cesar"
+                    "0123456789FEDCBA/cesar"
                 ),
                 "region": "us-east-1",
             },

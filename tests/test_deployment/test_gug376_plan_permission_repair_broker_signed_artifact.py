@@ -1162,10 +1162,12 @@ def test_exact_client_accepts_real_botocore_endpoint_shapes_without_calls() -> N
     import boto3
 
     session = boto3.session.Session(
-        aws_access_key_id="synthetic",
-        aws_secret_access_key="synthetic",
-        aws_session_token="synthetic",
-        region_name="us-east-1",
+        **{
+            "aws_access_key_id": "synthetic",
+            "aws_secret_access_key": "synthetic",
+            "aws_session_token": "synthetic",
+            "region_name": "us-east-1",
+        }
     )
     config = signed._client_config(None)
     for service in ("sts", "s3", "signer", "acm", "signer-data"):
