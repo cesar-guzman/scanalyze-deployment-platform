@@ -1,6 +1,6 @@
 # ADR-058: Attested GUG-376 bootstrap route broker
 
-- **Status:** Proposed repository implementation; live seed not executed
+- **Status:** Proposed repository implementation; connected run not executed
 - **Date:** 2026-08-30
 - **Implementation issue:** GUG-376
 - **AWS live validation:** Bounded read-only inventory only; route not executed
@@ -35,6 +35,59 @@ is still insufficient: either session could submit a different parameter set
 to the same reviewed template.
 
 ## Decision
+
+### Collision admission closes the pre-effect window
+
+The source-closed broker now materializes the complete 73-target catalog from
+the sealed source commit, source tree, bootstrap intent, accounts, Region,
+route window and exact artifact coordinates. Seventy targets are introduced by
+the route and three are collision-only dependencies. Every expansive operation
+uses its canonical present/owned-target matrix; reducing and readback-only
+operations never initiate a new collision scan.
+
+Immediately before an expansive provider effect, the runtime opens ten fresh
+read-only sessions across the authority and management domains. Local atomic
+bootstrap CLIs construct them directly from exactly two sealed read-only SSO
+sources because the broker reader roles do not exist yet. Deployed broker
+effects use ten globally unique 900-second AssumeRole sessions. The inventory
+stage uses only closed inventory actions; candidate-detail policies are then
+derived from sealed discovery evidence and, in broker mode, passed as the exact
+STS inline `Policy`. Every client open and API call revalidates the fixed
+Region, endpoint, time window and network budget. Identity Center
+permission-set inventory is restricted to the exact instance, and AWS-owned
+KMS mode is represented explicitly without inventing a customer key ARN.
+
+The initial GUG-395 `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` bundle is
+preserved as immutable source, target and read-only-identity lineage; it is not
+reused as current absence proof after resources exist. Each effect receives a
+new empty admission root, an exact action authorization lasting at most fifteen
+minutes, and a fresh complete 73-target live scan. Only the operation-specific
+stable mixture of `PRESENT_OWNED` and `ABSENT` produces a one-shot effect
+grant. The grant binds the exact operation, authorization digest/window,
+effect request, source, immutable GUG-395/GUG-393 lineage and admission
+manifest. It is written into the durable `*_ATTEMPTING` claim, then consumed
+and revalidated immediately before the effect. The same admission digest is
+preserved in the dispatched receipt and terminal readback. Missing, stale,
+partial, colliding, uncertain or lineage-changed evidence fails closed before
+the new effect. Dispatch recovery remains readback plus ledger CAS and cannot
+repeat `CreateChangeSet` or `ExecuteChangeSet`.
+
+This is repository evidence, not a released live creation route. The broker
+package has not been signed or staged from a merged commit, the reader roles
+have not been materialized, and no connected collision admission or mutation
+has been executed.
+
+`CreateChangeSet` is not that admission: for a new stack it does not claim the
+physical KMS, Signer, Lambda, IAM or Identity Center names. Generic negative
+`HeadBucket` results also remain inadmissible collision evidence. The artifact
+bucket is a narrower case: it is created with CloudFormation
+`BucketNamespace: account-regional`, its exact name carries the authority
+account and Region suffix, and IAM denies any CreateBucket request outside that
+namespace. AWS documents that only that account can ever create a bucket in
+its account-regional namespace. A completely paginated owner-account
+`ListBuckets` query bound to the exact Region and prefix can therefore prove
+absence for this name without making a global `HeadBucket` inference. See
+[Namespaces for general purpose buckets](https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html).
 
 ### 0. Close the artifact trust root before opening the normal route
 
@@ -496,7 +549,8 @@ ARTIFACT_FOUNDATION=REPOSITORY_IMPLEMENTATION
 ARTIFACT_BOOTSTRAP_BRIDGE=NOT_EXECUTED
 FOUNDATION_PUBLISH_BINDING=NOT_MATERIALIZED
 BOOTSTRAP_ROUTE_RELEASE=NOT_MATERIALIZED
-TEMPORARY_ROUTE=REPOSITORY_IMPLEMENTATION
+TEMPORARY_ROUTE=REPOSITORY_IMPLEMENTATION_READY_FOR_REVIEW
+COLLISION_ADMISSION=SOURCE_CLOSED_IMPLEMENTATION_NOT_LIVE_VALIDATED
 ADMINISTRATOR_SEED=NOT_EXECUTED
 BROKER=NOT_DEPLOYED
 TARGET_CHANGE_SETS=NOT_EXECUTED

@@ -14,14 +14,26 @@ The Signer inventory call was denied, so absence of a signing profile is not
 claimed. Production remains **NO-GO**.
 
 The reviewed AWS wrapper now binds the concrete zero-retry Identity Center,
-effective-IAM and durable-ledger adapters in a deterministic source-closed
-package. The repair materializer remains intentionally non-executable. The
-separate connected artifact-bootstrap and route-provider CLIs expose only
-closed AWS operations with action-time authorization and zero SDK retries. Do
-not stage or deploy any stack from a working tree: package only the exact
-merged commit, recompute its source attestation before every connected action,
-authenticate its required review/checks, sign the immutable S3 source version
-and use the read-back CloudFormation tuple.
+effective-IAM, durable-ledger and route-collision adapters in a deterministic
+source-closed package. The repair materializer remains intentionally
+non-executable. Before every expansive effect, the runtime opens ten fresh
+read-only sessions across the authority and management domains: direct from
+two sealed read-only SSO sources for local bootstrap CLIs, or ten unique
+900-second reader-role sessions inside the deployed broker. It completes the
+exact inventory and candidate-detail snapshots and accepts only the canonical
+operation-specific `PRESENT_OWNED`/`ABSENT` state. The one-shot admission grant
+is persisted in the durable attempt claim and revalidated immediately before
+the effect. Missing, stale, partial, colliding, uncertain or lineage-changed
+evidence stops the new effect.
+
+Read-only attestation, causal recovery and exact bounded post-revoke cleanup
+remain available. Broker dispatch-recovery handlers complete an already-
+dispatched call through readback and ledger CAS without replaying
+`CreateChangeSet` or `ExecuteChangeSet`; reducing operations do not start a new
+collision scan. Do not stage or deploy any stack from a working tree: package
+only the exact merged commit, recompute its source attestation before every
+connected action, authenticate its required review/checks, sign the immutable
+S3 source version and use the read-back CloudFormation tuple.
 
 ## Non-negotiable stops
 
@@ -53,6 +65,20 @@ Stop with `HUMAN_DECISION_REQUIRED` if any of the following is true:
 
 Never repair with `AWSAdministratorAccess`, a console edit, an `aws sso-admin`
 command, the normal Plan role or the GUG-221 collector PEP.
+
+The commands below are the reviewed future sequence. They must not be used to
+infer that a live route exists: repository tests do not prove signed-package
+readback, live reader-role parity, connected collision evidence or deployment.
+The route-specific admission now binds the exact source, source tree and
+bootstrap intent to fresh, complete collision/ownership evidence for every
+retained name and binds its digest into every expansive claim and receipt.
+CloudFormation `CreateChangeSet` is not a physical-name reservation, and
+generic negative S3 responses are not absence evidence. For the artifact bucket
+only, use the template-enforced account-regional namespace and a completely
+paginated owner-account `ListBuckets` query bound to the exact Region and
+prefix. AWS reserves that namespace to the account identified in the bucket
+suffix; do not substitute `HeadBucket`. See
+[Namespaces for general purpose buckets](https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html).
 
 ## Phase 0 — Repository gate
 
@@ -221,7 +247,10 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-artifact-bo
   --bundle-name "$BUNDLE_NAME" \
   --output-name "$OUTPUT_NAME" \
   --profile 839393571433_AWSAdministratorAccess \
-  --claim-root "$PRIVATE_CLAIM_ROOT"
+  --claim-root "$PRIVATE_CLAIM_ROOT" \
+  --collision-admission-root "$EFFECT_COLLISION_ADMISSION_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
 ```
 
 The bundle supplies the exact private values; do not copy them into this
@@ -237,6 +266,26 @@ authorization records are distinct, expire within fifteen minutes and bind
 respectively to `<operation>:dispatch` and `<operation>:execute`; their presence
 in a bundle is not standing authorization. The exact authorization text is
 `AUTHORIZE GUG-376 <operation>:<dispatch-or-execute> <SOURCE_COMMIT>`.
+
+Every expansive connected artifact effect must also consume one atomic
+four-root collision context materialized after its exact authorization. The
+context's effect root is `$PRIVATE_ARTIFACT_ROOT`; the immutable GUG-395 and
+GUG-393 roots are the same lineage used by the route, while the admission root
+is new and empty for that one effect. Bind `approval_reference_digest`,
+`authorized_at` and `expires_at` to the exact authorization record, and bind
+`approved_operation` to one of `bridge-create:dispatch`,
+`bridge-create:execute`, `foundation-create:dispatch`,
+`foundation-create:execute`, `bridge-pin:dispatch`, `bridge-pin:execute`,
+`publish-object`, `start-signing-job`,
+`foundation-access-update:dispatch` or
+`foundation-access-update:execute`. The connected CLI repeats the current
+73-target read-only scan before the provider effect. A generic trace digest or
+the initial GUG-395 absence result is not action authorization.
+
+The reducing `bridge-revoke` and `bridge-cleanup-retire` paths, every
+attestation/readback and every ambiguity-recovery action reject all three
+collision-root flags. They validate their original write-once causal records
+and cannot create or expand resources.
 
 The artifact bridge and foundation expose their non-secret causal parameters
 for exact provider readback: bootstrap principal ID, Signer profile version,
@@ -380,7 +429,7 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-plan-seed-s
   --private-root "$PRIVATE_ROUTE_ROOT" \
   --output-name "$PLAN_SEED_SNAPSHOT_NAME" \
   --authority-profile 042360977644_AWSReadOnlyAccess \
-  --management-profile 839393571433_ScanalyzeFounderPepIdentityAdmin \
+  --management-profile 839393571433_ReadOnlyAccess \
   --region us-east-1
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py \
@@ -403,8 +452,12 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-broker-seed
 The snapshot command is the mandatory connected producer for the broker
 configuration. Run it after the exact bootstrap Change Set has produced the
 Plan permission set and generated IAM role, but before
-`materialize-broker-config`. It uses the authority and management profiles only
-for read calls, writes no AWS state, and stores the private result with
+`materialize-broker-config`. It accepts only the direct SSO profiles
+`042360977644_AWSReadOnlyAccess` and `839393571433_ReadOnlyAccess`; both must
+resolve to `AWSReadOnlyAccess` in their named accounts and `us-east-1` and must
+be distinct. Default, ambient, chained, administrator, bootstrap, seed, deploy
+and destroy profiles fail closed before STS. The command uses both profiles
+only for read calls, writes no AWS state, and stores the private result with
 write-once owner-only custody. Pass that exact receipt separately through
 `--plan-snapshot-name`; the sealed `$BROKER_CONFIG_INPUT_NAME` draft must omit
 `plan_snapshot`. The CLI rejects an embedded second authority, joins the exact
@@ -493,6 +546,31 @@ coordinates or bounded timestamps/flags. None is `NoEcho`; masked parameter
 readback is invalid, and every `DescribeChangeSet`/`DescribeStacks` value must
 equal the sealed request before execution.
 
+### Create and consume a fresh atomic collision context for each effect
+
+The mutating local route commands accept no collision digest. They reconstruct
+one atomic admission from four distinct, absolute, non-symlink, owner-only
+mode-`0700` roots: the reusable initial `$GUG395_PRIVATE_ROOT` lineage, the
+matching reusable `$GUG393_PRIVATE_ROOT` materialization, the
+`$PRIVATE_ROUTE_ROOT` effect custody and one new empty collision-admission root
+for the exact effect. Never place a root under Git, a worktree, a synced/File
+Provider path or another root, and never reuse an admission root.
+
+Run the complete GUG-395 seed, materialization, connected read-only probe and
+receipt validation sequence once, before the foundation resources exist.
+Preserve the exact `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` bundle as
+immutable lineage; do not rerun it after creating resources. Each protected
+effect instead performs its own fresh, bounded 73-target live read-only scan.
+That current scan must match the operation-specific `PRESENT_OWNED`/`ABSENT`
+matrix. A collision, uncertain read, source or lineage change, stale action
+authorization, or existing admission output fails closed before mutation.
+
+Create the exact action authorization first. Read
+`$BOOTSTRAP_INTENT_DIGEST` from the exact
+`artifact_bootstrap_intent.intent_digest` in the private
+`$ROUTE_SEED_INPUT_NAME`, and read the digest and window from that same private
+authorization record. Materialize and reopen the context offline:
+
 ```bash
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py \
   authorize-creation \
@@ -504,6 +582,58 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --ttl-seconds "$AUTHORIZATION_TTL_SECONDS" \
   --output-name "$CREATION_AUTHORIZATION_NAME"
 
+test -d "$PRIVATE_ROUTE_ROOT"
+test -d "$GUG393_PRIVATE_ROOT"
+test -d "$GUG395_PRIVATE_ROOT"
+test -d "$CREATE_COLLISION_ADMISSION_ROOT"
+test "$(stat -f '%Lp' "$PRIVATE_ROUTE_ROOT")" = 700
+test "$(stat -f '%Lp' "$GUG393_PRIVATE_ROOT")" = 700
+test "$(stat -f '%Lp' "$GUG395_PRIVATE_ROOT")" = 700
+test "$(stat -f '%Lp' "$CREATE_COLLISION_ADMISSION_ROOT")" = 700
+test "$(find "$CREATE_COLLISION_ADMISSION_ROOT" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 0
+
+CREATE_APPROVAL_DIGEST="$(jq -er '.authorization_digest' \
+  "$PRIVATE_ROUTE_ROOT/$CREATION_AUTHORIZATION_NAME")"
+CREATE_AUTHORIZED_AT="$(jq -er '.authorized_at' \
+  "$PRIVATE_ROUTE_ROOT/$CREATION_AUTHORIZATION_NAME")"
+CREATE_EXPIRES_AT="$(jq -er '.expires_at' \
+  "$PRIVATE_ROUTE_ROOT/$CREATION_AUTHORIZATION_NAME")"
+
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+  python3 scripts/deployment/platform-authority-gug376-collision-admission.py \
+  materialize-context \
+  --admission-private-root "$CREATE_COLLISION_ADMISSION_ROOT" \
+  --effect-private-root "$PRIVATE_ROUTE_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT" \
+  --bootstrap-intent-digest "$BOOTSTRAP_INTENT_DIGEST" \
+  --approval-reference-digest "$CREATE_APPROVAL_DIGEST" \
+  --approved-operation "$SEED_TARGET:create-change-set" \
+  --authorized-at "$CREATE_AUTHORIZED_AT" \
+  --expires-at "$CREATE_EXPIRES_AT"
+
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+  python3 scripts/deployment/platform-authority-gug376-collision-admission.py \
+  validate-context \
+  --admission-private-root "$CREATE_COLLISION_ADMISSION_ROOT" \
+  --effect-private-root "$PRIVATE_ROUTE_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
+```
+
+Repeat the context sequence with a new empty
+`$EXECUTE_COLLISION_ADMISSION_ROOT`, the execution authorization digest/window
+and `$SEED_TARGET:execute-change-set` immediately before the execute command.
+Run each protected effect before its exact action authorization closes;
+neither materialization nor validation extends it. The
+local boundary is `LOCAL_DIRECT_SSO`: exactly two sealed read-only SSO sources
+construct ten fresh SDK sessions without assuming the not-yet-deployed reader
+roles. Broker Lambda effects use `POST_READER_RUNTIME` and ten 900-second
+reader-role sessions only after the route exists. Both paths enforce the same
+pre-call budget reservations, bounded pages/bytes/cost, complete transcript
+seal and immediate one-shot grant revalidation without expanding trust.
+
+```bash
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
   create-change-set \
   --profile "$SEED_CREATOR_PROFILE" \
@@ -512,7 +642,11 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --private-root "$PRIVATE_ROUTE_ROOT" \
   --receipt-name "$CREATE_DISPATCH_NAME" \
   --intent-name "$ROUTE_SEED_INTENT_NAME" \
-  --authorization-name "$CREATION_AUTHORIZATION_NAME"
+  --input-name "$ROUTE_SEED_INPUT_NAME" \
+  --authorization-name "$CREATION_AUTHORIZATION_NAME" \
+  --collision-admission-root "$CREATE_COLLISION_ADMISSION_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
   attest-change-set \
@@ -544,6 +678,26 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --authorization-name "$EXECUTION_AUTHORIZATION_NAME" \
   --output-name "$EXECUTION_INTENT_NAME"
 
+EXECUTE_APPROVAL_DIGEST="$(jq -er '.authorization_digest' \
+  "$PRIVATE_ROUTE_ROOT/$EXECUTION_AUTHORIZATION_NAME")"
+EXECUTE_AUTHORIZED_AT="$(jq -er '.authorized_at' \
+  "$PRIVATE_ROUTE_ROOT/$EXECUTION_AUTHORIZATION_NAME")"
+EXECUTE_EXPIRES_AT="$(jq -er '.expires_at' \
+  "$PRIVATE_ROUTE_ROOT/$EXECUTION_AUTHORIZATION_NAME")"
+
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
+  python3 scripts/deployment/platform-authority-gug376-collision-admission.py \
+  materialize-context \
+  --admission-private-root "$EXECUTE_COLLISION_ADMISSION_ROOT" \
+  --effect-private-root "$PRIVATE_ROUTE_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT" \
+  --bootstrap-intent-digest "$BOOTSTRAP_INTENT_DIGEST" \
+  --approval-reference-digest "$EXECUTE_APPROVAL_DIGEST" \
+  --approved-operation "$SEED_TARGET:execute-change-set" \
+  --authorized-at "$EXECUTE_AUTHORIZED_AT" \
+  --expires-at "$EXECUTE_EXPIRES_AT"
+
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
   execute-change-set \
   --profile "$SEED_EXECUTOR_PROFILE" \
@@ -552,7 +706,13 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --private-root "$PRIVATE_ROUTE_ROOT" \
   --receipt-name "$EXECUTION_RECEIPT_NAME" \
   --execution-intent-name "$EXECUTION_INTENT_NAME" \
-  --intent-name "$ROUTE_SEED_INTENT_NAME"
+  --intent-name "$ROUTE_SEED_INTENT_NAME" \
+  --input-name "$ROUTE_SEED_INPUT_NAME" \
+  --create-attestation-name "$CREATE_ATTESTATION_NAME" \
+  --authorization-name "$EXECUTION_AUTHORIZATION_NAME" \
+  --collision-admission-root "$EXECUTE_COLLISION_ADMISSION_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
   terminal-readback \
@@ -678,7 +838,10 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --profile "$SEED_CREATOR_PROFILE" \
   --reentry-intent-name "$REENTRY_INTENT_NAME" \
   --failure-attestation-name "$PREEXECUTE_FAILURE_ATTESTATION_NAME" \
-  --reentry-authorization-name "$REENTRY_CREATION_AUTHORIZATION_NAME"
+  --reentry-authorization-name "$REENTRY_CREATION_AUTHORIZATION_NAME" \
+  --collision-admission-root "$REENTRY_CREATE_COLLISION_ADMISSION_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-recovery.py \
   attest-reentry \
@@ -740,8 +903,21 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --reentry-intent-name "$REENTRY_INTENT_NAME" \
   --reentry-attestation-name "$REENTRY_ATTESTATION_NAME" \
   --reentry-dispatch-name "$REENTRY_DISPATCH_NAME" \
-  --execution-authorization-name "$REENTRY_EXECUTION_AUTHORIZATION_NAME"
+  --execution-authorization-name "$REENTRY_EXECUTION_AUTHORIZATION_NAME" \
+  --collision-admission-root "$REENTRY_EXECUTE_COLLISION_ADMISSION_ROOT" \
+  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
+  --gug395-private-root "$GUG395_PRIVATE_ROOT"
 ```
+
+Immediately before `create-reentry` and `execute-reentry`, materialize a new
+four-root context from the corresponding re-entry authorization. Bind the
+create operation to `<target>-reentry-<basis>:create-change-set` and the
+execute operation to `<target>-reentry-<basis>:execute-change-set`, where the
+validated recovery basis is exactly `preexecute`, `cleanup`, or the reviewed
+broker-protection rollback lane. The product CLI derives this selector from
+the sealed recovery records and rejects a supplied context that differs.
+Failed-stack cleanup is reducing, accepts none of the collision-root flags and
+cannot be converted into re-entry authority.
 
 `$REENTRY_DISPATCH_NAME` is mandatory causal evidence; the attestation alone
 is insufficient. Before the executor makes its first STS call, it reopens the
@@ -993,7 +1169,7 @@ treat an existing SSO session as extending either horizon.
 
 ### Invoke the qualified aliases with private, fail-closed custody
 
-After broker terminal readback, log in to the two direct invoke-only profiles.
+After broker terminal readback, log in to the three direct invoke-only profiles.
 The account number and permission-set names below come from the exact route and
 PEP templates; neither profile is a default or an administrator profile.
 
@@ -1003,9 +1179,15 @@ umask 077
 test "$(stat -f '%Lp' "$PRIVATE_ROUTE_ROOT")" = 700
 
 BROKER_PROFILE=042360977644_ScanalyzeGug376BrokerInvoker
+BROKER_RECOVERY_PROFILE=042360977644_ScanalyzeGug376BrokerSeedCleanup
 REPAIR_PROFILE=042360977644_ScanalyzeBootstrapPlanRepair
 CREATOR_FUNCTION=scanalyze-platform-authority-gug376-route-creator
 EXECUTOR_FUNCTION=scanalyze-platform-authority-gug376-route-executor
+CREATE_RECOVERY_FUNCTION=scanalyze-platform-authority-gug376-route-create-dispatch-recovery
+EXECUTE_RECOVERY_FUNCTION=scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
+RECOVERY_ALIAS=recover-v1
+CREATE_RECOVERY_RECEIPT_ALIAS=create-dispatch-recovery-v1
+EXECUTE_RECOVERY_RECEIPT_ALIAS=execute-dispatch-recovery-v1
 
 aws sso login --profile "$BROKER_PROFILE"
 BROKER_IDENTITY_FILE="$(mktemp "$PRIVATE_ROUTE_ROOT/broker-identity.XXXXXX")"
@@ -1017,6 +1199,17 @@ AWS_RETRY_MODE=standard AWS_MAX_ATTEMPTS=1 aws sts get-caller-identity \
 jq -e '.Account == "042360977644" and
   (.Arn | test("^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_ScanalyzeGug376BrokerInvoker_[0-9A-Fa-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"))' \
   "$BROKER_IDENTITY_FILE" >/dev/null
+
+aws sso login --profile "$BROKER_RECOVERY_PROFILE"
+BROKER_RECOVERY_IDENTITY_FILE="$(mktemp "$PRIVATE_ROUTE_ROOT/broker-recovery-identity.XXXXXX")"
+chmod 600 "$BROKER_RECOVERY_IDENTITY_FILE"
+AWS_RETRY_MODE=standard AWS_MAX_ATTEMPTS=1 aws sts get-caller-identity \
+  --profile "$BROKER_RECOVERY_PROFILE" --region us-east-1 --no-cli-pager \
+  --cli-connect-timeout 5 --cli-read-timeout 30 --output json \
+  >"$BROKER_RECOVERY_IDENTITY_FILE"
+jq -e '.Account == "042360977644" and
+  (.Arn | test("^arn:aws:sts::042360977644:assumed-role/AWSReservedSSO_ScanalyzeGug376BrokerSeedCleanup_[0-9A-Fa-f]{16}/[A-Za-z0-9+=,.@_-]{1,64}$"))' \
+  "$BROKER_RECOVERY_IDENTITY_FILE" >/dev/null
 
 BROKER_COMPLETION_MAX_ATTEMPTS=90
 BROKER_COMPLETION_BACKOFF_SECONDS=20
@@ -1059,14 +1252,15 @@ invoke_broker_once() {
 }
 
 complete_broker_bounded() {
-  function_name="$1" alias_name="$2" dispatched_state="$3" expected_state="$4"
-  deadline_mode="$5"
+  recovery_function_name="$1" recovery_qualifier="$2" expected_receipt_alias="$3"
+  dispatched_alias_name="$4" dispatched_state="$5" expected_state="$6"
+  deadline_mode="$7"
   case "$deadline_mode" in
     route) absolute_deadline_epoch="$BROKER_ROUTE_DEADLINE_EPOCH" ;;
     recovery) absolute_deadline_epoch="$BROKER_RECOVERY_DEADLINE_EPOCH" ;;
     *) return 1 ;;
   esac
-  jq -e --arg alias "$alias_name" --arg state "$dispatched_state" '
+  jq -e --arg alias "$dispatched_alias_name" --arg state "$dispatched_state" '
     .alias == $alias and .state == $state and .aws_mutations == 1 and
     .retry_permitted == false
   ' "$LAST_BROKER_PAYLOAD_FILE" >/dev/null
@@ -1076,18 +1270,18 @@ complete_broker_bounded() {
     now_epoch="$(date -u +%s)"
     test "$now_epoch" -lt "$((absolute_deadline_epoch - 60))"
     test "$now_epoch" -lt "$local_deadline_epoch"
-    payload_file="$(mktemp "$PRIVATE_ROUTE_ROOT/${alias_name}.completion.payload.XXXXXX")"
-    metadata_file="$(mktemp "$PRIVATE_ROUTE_ROOT/${alias_name}.completion.metadata.XXXXXX")"
+    payload_file="$(mktemp "$PRIVATE_ROUTE_ROOT/${dispatched_alias_name}.completion.payload.XXXXXX")"
+    metadata_file="$(mktemp "$PRIVATE_ROUTE_ROOT/${dispatched_alias_name}.completion.metadata.XXXXXX")"
     chmod 600 "$payload_file" "$metadata_file"
     AWS_RETRY_MODE=standard AWS_MAX_ATTEMPTS=1 aws lambda invoke \
-      --function-name "$function_name" --qualifier "$alias_name" \
+      --function-name "$recovery_function_name" --qualifier "$recovery_qualifier" \
       --payload '{}' --cli-binary-format raw-in-base64-out \
-      --profile "$BROKER_PROFILE" --region us-east-1 \
+      --profile "$BROKER_RECOVERY_PROFILE" --region us-east-1 \
       --no-cli-pager --cli-connect-timeout 5 --cli-read-timeout 900 \
       "$payload_file" >"$metadata_file"
     if jq -e '.StatusCode == 200 and (has("FunctionError") | not) and
       (.ExecutedVersion | type == "string")' "$metadata_file" >/dev/null; then
-      jq -e --arg alias "$alias_name" --arg state "$expected_state" '
+      jq -e --arg alias "$expected_receipt_alias" --arg state "$expected_state" '
         .alias == $alias and .state == $state and .aws_mutations == 0 and
         .retry_permitted == false and .production_authorized == false and
         .production_status == "NO-GO"
@@ -1108,17 +1302,17 @@ complete_broker_bounded() {
 }
 
 invoke_broker_once "$CREATOR_FUNCTION" seed-revoke-create-v1 SEED_REVOKE_CREATE_DISPATCHED
-complete_broker_bounded "$CREATOR_FUNCTION" seed-revoke-create-v1 SEED_REVOKE_CREATE_DISPATCHED SEED_REVOKE_CREATED route
+complete_broker_bounded "$CREATE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$CREATE_RECOVERY_RECEIPT_ALIAS" seed-revoke-create-v1 SEED_REVOKE_CREATE_DISPATCHED SEED_REVOKE_CREATED route
 invoke_broker_once "$EXECUTOR_FUNCTION" seed-revoke-execute-v1 SEED_REVOKE_EXECUTE_DISPATCHED
-complete_broker_bounded "$EXECUTOR_FUNCTION" seed-revoke-execute-v1 SEED_REVOKE_EXECUTE_DISPATCHED SEED_REVOKED route
+complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" seed-revoke-execute-v1 SEED_REVOKE_EXECUTE_DISPATCHED SEED_REVOKED route
 invoke_broker_once "$CREATOR_FUNCTION" delegation-create-v1 DELEGATION_CREATE_DISPATCHED
-complete_broker_bounded "$CREATOR_FUNCTION" delegation-create-v1 DELEGATION_CREATE_DISPATCHED DELEGATION_CREATED route
+complete_broker_bounded "$CREATE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$CREATE_RECOVERY_RECEIPT_ALIAS" delegation-create-v1 DELEGATION_CREATE_DISPATCHED DELEGATION_CREATED route
 invoke_broker_once "$EXECUTOR_FUNCTION" delegation-execute-v1 DELEGATION_EXECUTE_DISPATCHED
-complete_broker_bounded "$EXECUTOR_FUNCTION" delegation-execute-v1 DELEGATION_EXECUTE_DISPATCHED DELEGATION_TERMINAL route
+complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" delegation-execute-v1 DELEGATION_EXECUTE_DISPATCHED DELEGATION_TERMINAL route
 invoke_broker_once "$CREATOR_FUNCTION" pep-create-v1 PEP_CREATE_DISPATCHED
-complete_broker_bounded "$CREATOR_FUNCTION" pep-create-v1 PEP_CREATE_DISPATCHED PEP_CREATED route
+complete_broker_bounded "$CREATE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$CREATE_RECOVERY_RECEIPT_ALIAS" pep-create-v1 PEP_CREATE_DISPATCHED PEP_CREATED route
 invoke_broker_once "$EXECUTOR_FUNCTION" pep-execute-v1 PEP_EXECUTE_DISPATCHED
-complete_broker_bounded "$EXECUTOR_FUNCTION" pep-execute-v1 PEP_EXECUTE_DISPATCHED PEP_TERMINAL route
+complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" pep-execute-v1 PEP_EXECUTE_DISPATCHED PEP_TERMINAL route
 
 # The exact local SSO profile must already be configured outside the repo.
 # It can resolve credentials only after delegation terminal readback proves
@@ -1138,8 +1332,13 @@ jq -e '.Account == "042360977644" and
 `invoke_broker_once` invokes each mutating alias exactly once and requires its
 private `*_DISPATCHED` receipt with `aws_mutations=1`.
 `complete_broker_bounded` revalidates that receipt before every completion
-sequence. Because the ledger is already dispatched, those invocations can run
-only provider/CloudTrail readback and the single control-ledger completion CAS;
+sequence, then uses only the retained
+`042360977644_ScanalyzeGug376BrokerSeedCleanup` profile to invoke the dedicated
+recovery function through `recover-v1`. The handler binds the durable attempt
+claim to the original dispatched operation; its receipt alias is
+`create-dispatch-recovery-v1` or `execute-dispatch-recovery-v1`. Because the
+ledger is already dispatched, those invocations can run only
+provider/CloudTrail readback and the single control-ledger completion CAS;
 they cannot call the provider effect again and return `aws_mutations=0`.
 The helper polls only the distinct Lambda `RouteBrokerReadOnlyPending` type and
 exact sanitized prefix. All completions except final
@@ -1299,13 +1498,13 @@ jq -e --arg digest "$NORMAL_PLAN_CALLER_ARN_DIGEST" '
   (.receipt_digest | test("^sha256:[0-9a-f]{64}$"))
 ' "$LAST_BROKER_PAYLOAD_FILE" >/dev/null
 invoke_broker_once "$CREATOR_FUNCTION" delegation-revoke-create-v1 DELEGATION_REVOKE_CREATE_DISPATCHED
-complete_broker_bounded "$CREATOR_FUNCTION" delegation-revoke-create-v1 DELEGATION_REVOKE_CREATE_DISPATCHED DELEGATION_REVOKE_CREATED route
+complete_broker_bounded "$CREATE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$CREATE_RECOVERY_RECEIPT_ALIAS" delegation-revoke-create-v1 DELEGATION_REVOKE_CREATE_DISPATCHED DELEGATION_REVOKE_CREATED route
 invoke_broker_once "$EXECUTOR_FUNCTION" delegation-revoke-execute-v1 DELEGATION_REVOKE_EXECUTE_DISPATCHED
-complete_broker_bounded "$EXECUTOR_FUNCTION" delegation-revoke-execute-v1 DELEGATION_REVOKE_EXECUTE_DISPATCHED DELEGATION_REVOKED route
+complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" delegation-revoke-execute-v1 DELEGATION_REVOKE_EXECUTE_DISPATCHED DELEGATION_REVOKED route
 invoke_broker_once "$CREATOR_FUNCTION" route-revoke-create-v1 ROUTE_REVOKE_CREATE_DISPATCHED
-complete_broker_bounded "$CREATOR_FUNCTION" route-revoke-create-v1 ROUTE_REVOKE_CREATE_DISPATCHED ROUTE_REVOKE_CREATED route
+complete_broker_bounded "$CREATE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$CREATE_RECOVERY_RECEIPT_ALIAS" route-revoke-create-v1 ROUTE_REVOKE_CREATE_DISPATCHED ROUTE_REVOKE_CREATED route
 invoke_broker_once "$EXECUTOR_FUNCTION" route-revoke-execute-v1 ROUTE_REVOKE_EXECUTE_DISPATCHED
-complete_broker_bounded "$EXECUTOR_FUNCTION" route-revoke-execute-v1 ROUTE_REVOKE_EXECUTE_DISPATCHED ROUTE_REVOKED recovery
+complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" "$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" route-revoke-execute-v1 ROUTE_REVOKE_EXECUTE_DISPATCHED ROUTE_REVOKED recovery
 ```
 
 The normal Plan identity gate derives the exact generated role name and IAM ARN

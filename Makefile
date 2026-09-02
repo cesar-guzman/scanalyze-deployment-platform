@@ -726,7 +726,8 @@ platform-authority-bootstrap-plan-repair-check:
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_route_broker.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair_template_readback.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_route_broker_transport.py \
-		$(TESTS_DIR)/test_deployment/test_gug376_temporary_change_set_route.py
+		$(TESTS_DIR)/test_deployment/test_gug376_temporary_change_set_route.py \
+		$(TESTS_DIR)/test_deployment/test_gug376_collision_*.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -m py_compile \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_artifact_bootstrap.py \
@@ -744,6 +745,8 @@ platform-authority-bootstrap-plan-repair-check:
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_plan_seed_snapshot.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_route_broker.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_template_readback.py \
+		$(TOOLING_DIR)/platform_authority_gug376_collision_*.py \
+		scripts/deployment/platform-authority-gug376-collision-admission.py \
 		scripts/deployment/platform-authority-plan-permission-repair.py \
 		scripts/deployment/platform-authority-plan-permission-repair-artifact-bootstrap.py \
 		scripts/deployment/platform-authority-plan-permission-repair-package.py \
@@ -757,6 +760,12 @@ platform-authority-bootstrap-plan-repair-check:
 		scripts/deployment/platform-authority-plan-permission-repair-template-readback.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-plan-permission-repair.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug376-collision-admission.py --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug376-collision-admission.py materialize-context --help >/dev/null
+	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
+		scripts/deployment/platform-authority-gug376-collision-admission.py validate-context --help >/dev/null
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -I -S \
 		scripts/deployment/platform-authority-plan-permission-repair-artifact-bootstrap.py --help >/dev/null
 	@for action in \
@@ -838,7 +847,7 @@ platform-authority-bootstrap-plan-repair-check:
 		--fixtures-dir $(FIXTURES_DIR) \
 		--filter platform-authority-plan-permission-repair
 	@$(PYTHON) $(TOOLING_DIR)/validate_policy.py --policies-dir $(POLICIES_DIR)/iam
-	@echo "GUG-376 Plan repair status: EXECUTABLE_SOURCE_CLOSED_PACKAGE_AND_TEMPORARY_ROUTE_READY_FOR_REVIEW / SIGNED_ARTIFACT_NOT_BUILT / READ_ONLY_INVENTORY_AWS_CALLS=9 / CHECK_AWS_CALLS=0 / AWS_MUTATIONS=0 / LIVE_RUN_NOT_EXECUTED / NOT_DEPLOYED / PRODUCTION_NO_GO"
+	@echo "GUG-376 Plan repair status: SOURCE_CLOSED_COLLISION_ADMISSION_IMPLEMENTED_READY_FOR_REVIEW / CONNECTED_COLLISION_RUN_NOT_EXECUTED / POST_REVOKE_CLEANUP_AND_READ_ONLY_RECOVERY_RETAINED / SIGNED_ARTIFACT_NOT_BUILT / PRIOR_READ_ONLY_INVENTORY_AWS_CALLS=9 / CHECK_AWS_CALLS=0 / AWS_MUTATIONS=0 / LIVE_RUN_NOT_EXECUTED / NOT_DEPLOYED / PRODUCTION_NO_GO"
 
 # ── Dedicated Platform-Authority Bootstrap Check (GUG-206..GUG-395, offline) ──
 platform-authority-bootstrap-check: platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-plan-repair-check

@@ -79,6 +79,13 @@ def _sub(value: Any) -> str:
     return result[0] if isinstance(result, list) else result
 
 
+def _split_sub(value: Any) -> list[str]:
+    assert isinstance(value, Mapping) and set(value) == {"Fn::Split"}
+    delimiter, source = value["Fn::Split"]
+    assert delimiter == ","
+    return _sub(source).split(delimiter)
+
+
 def _present_resources(*, artifact: bool, cleanup: bool) -> set[str]:
     template = _load()
     enabled = {
@@ -237,6 +244,7 @@ def test_recovery_role_has_exact_cross_account_trust_and_is_read_only() -> None:
         "sts:GetCallerIdentity",
         "cloudtrail:LookupEvents",
         "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
         "cloudformation:DescribeStacks",
         "cloudformation:GetTemplate",
         "cloudformation:ListStackResources",
@@ -483,3 +491,40 @@ def test_broker_cleanup_covers_exact_survivors_and_no_global_provider_delete() -
             action.startswith(("dynamodb:Delete", "iam:Delete", "kms:Delete", "kms:Schedule", "lambda:Delete", "logs:Delete"))
             for action in _actions(statement)
         ), sid
+
+
+def test_broker_cleanup_invokes_only_exact_read_only_recovery_aliases() -> None:
+    statements = _statements(_load()["Resources"]["BrokerSeedCleanupPermissionSet"])
+    expected = {
+        "arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:"
+        "scanalyze-platform-authority-gug376-route-create-dispatch-recovery:recover-v1",
+        "arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:"
+        "scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:recover-v1",
+    }
+    allow = statements["InvokeOnlyExactRecoveryAliases"]
+    assert allow["Effect"] == "Allow"
+    assert _actions(allow) == {"lambda:InvokeFunction"}
+    assert set(_split_sub(allow["Resource"])) == expected
+    assert allow["Condition"] == {
+        "StringEquals": {"aws:RequestedRegion": "us-east-1"},
+        "DateGreaterThanEquals": {
+            "aws:CurrentTime": {"Ref": "AccessNotBefore"}
+        },
+        "DateLessThan": {"aws:CurrentTime": {"Ref": "CleanupNotAfter"}},
+    }
+    deny = statements["DenyOtherLambdaInvocations"]
+    assert deny["Effect"] == "Deny"
+    assert _actions(deny) == {"lambda:InvokeFunction"}
+    assert set(_split_sub(deny["NotResource"])) == expected
+    assert all(value.endswith(":recover-v1") for value in expected)
+    assert all("*" not in value for value in expected)
+    assert all(
+        ":route-creator:" not in value and ":route-executor:" not in value
+        for value in expected
+    )
+    assert {
+        sid
+        for sid, statement in statements.items()
+        if statement["Effect"] == "Allow"
+        and "lambda:InvokeFunction" in _actions(statement)
+    } == {"InvokeOnlyExactRecoveryAliases"}

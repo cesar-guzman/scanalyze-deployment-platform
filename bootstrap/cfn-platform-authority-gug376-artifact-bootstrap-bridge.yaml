@@ -1,81 +1,31 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >-
-  GUG-376 temporary, single-principal artifact-foundation bootstrap bridge.
-  This stack creates no authority-account resource directly and must be
-  updated with AssignmentEnabled=false before the normal route is opened.
-
 Parameters:
-  ManagementAccountId:
-    Type: String
-    Default: '839393571433'
-    AllowedValues: ['839393571433']
-  AuthorityAccountId:
-    Type: String
-    Default: '042360977644'
-    AllowedValues: ['042360977644']
-  SourceCommit:
-    Type: String
-    AllowedPattern: '^[a-f0-9]{40}$'
-  IdentityCenterInstanceArn:
-    Type: String
-    AllowedPattern: '^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
-  BootstrapPrincipalId:
-    Type: String
-    AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
-  AssignmentEnabled:
-    Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-  CleanupAssignmentsEnabled:
-    Type: String
-    Default: 'true'
-    Description: Independent retirement switch for failed-seed cleanup identities
-    AllowedValues: ['true', 'false']
-  AccessNotBefore:
-    Type: String
-    AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
-  AccessNotAfter:
-    Type: String
-    AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
-  RecoveryNotAfter:
-    Type: String
-    Description: Exact read-only causal-recovery horizon, 24 hours after AccessNotAfter
-    AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
-  CleanupNotAfter:
-    Type: String
-    Description: Exact bridge recovery and cleanup horizon, 24 hours after RecoveryNotAfter
-    AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
-  ArtifactBucketName:
-    Type: String
-    AllowedPattern: '^scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'
-  ArtifactKmsAlias:
-    Type: String
-    AllowedPattern: '^alias/scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'
-  SigningProfileName:
-    Type: String
-    AllowedPattern: '^ScanalyzeGug376ArtifactSigner_[a-f0-9]{12}$'
-  SigningProfileVersion:
-    Type: String
-    Default: NOT_CONFIGURED
-    AllowedPattern: '^(?:NOT_CONFIGURED|[A-Za-z0-9]{10})$'
-
+  ManagementAccountId: {Type: String,Default: '839393571433',AllowedValues: ['839393571433']}
+  AuthorityAccountId: {Type: String,Default: '042360977644',AllowedValues: ['042360977644']}
+  SourceCommit: {Type: String,AllowedPattern: '^[a-f0-9]{40}$'}
+  IdentityCenterInstanceArn: {Type: String,AllowedPattern: '^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$'}
+  BootstrapPrincipalId: {Type: String,AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'}
+  AssignmentEnabled: {Type: String,Default: 'true',AllowedValues: ['true','false']}
+  CleanupAssignmentsEnabled: {Type: String,Default: 'true',Description: Independent retirement switch for failed-seed cleanup identities,AllowedValues: ['true','false']}
+  AccessNotBefore: {Type: String,AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'}
+  AccessNotAfter: {Type: String,AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'}
+  RecoveryNotAfter: {Type: String,AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'}
+  CleanupNotAfter: {Type: String,AllowedPattern: '^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'}
+  ArtifactBucketName: {Type: String,AllowedPattern: '^scanalyze-g376-art-[a-f0-9]{12}-042360977644-us-east-1-an$'}
+  ArtifactKmsAlias: {Type: String,AllowedPattern: '^alias/scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'}
+  SigningProfileName: {Type: String,AllowedPattern: '^ScanalyzeGug376ArtifactSigner_[a-f0-9]{12}$'}
+  SigningProfileVersion: {Type: String,Default: NOT_CONFIGURED,AllowedPattern: '^(?:NOT_CONFIGURED|[A-Za-z0-9]{10})$'}
 Conditions:
-  CreateAssignment: !Equals [!Ref AssignmentEnabled, 'true']
-  CreateCleanupAssignments: !Equals [!Ref CleanupAssignmentsEnabled, 'true']
-
+  CreateAssignment: !Equals [!Ref AssignmentEnabled,'true']
+  CreateCleanupAssignments: !Equals [!Ref CleanupAssignmentsEnabled,'true']
 Resources:
   ArtifactBootstrapPermissionSet:
     Type: AWS::SSO::PermissionSet
     Properties:
       InstanceArn: !Ref IdentityCenterInstanceArn
       Name: ScanalyzeGug376ArtifactBootstrap
-      Description: GUG-376 temporary artifact-foundation bootstrap; no production authority
       SessionDuration: PT1H
-      Tags:
-        - {Key: managed_by, Value: cloudformation}
-        - {Key: service, Value: scanalyze-platform-authority}
-        - {Key: work_package, Value: GUG-376}
-        - {Key: source_commit, Value: !Ref SourceCommit}
+      Tags: [{Key: managed_by,Value: cloudformation},{Key: service,Value: scanalyze-platform-authority},{Key: work_package,Value: GUG-376},{Key: source_commit,Value: !Ref SourceCommit}]
       InlinePolicy:
         Version: '2012-10-17'
         Statement:
@@ -87,164 +37,160 @@ Resources:
             Effect: Allow
             Action: cloudtrail:LookupEvents
             Resource: '*'
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactFoundationStack
             Effect: Allow
-            Action: [cloudformation:DescribeChangeSet, cloudformation:DescribeStackEvents, cloudformation:DescribeStacks, cloudformation:GetTemplate, cloudformation:ListChangeSets, cloudformation:ListStackResources]
+            Action: [cloudformation:DescribeChangeSet,cloudformation:DescribeStackEvents,cloudformation:DescribeStacks,cloudformation:GetTemplate,cloudformation:ListChangeSets,cloudformation:ListStackResources]
             Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: CreateOnlyNamedFoundationChangeSets
             Effect: Allow
             Action: cloudformation:CreateChangeSet
             Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:ChangeSetName: [gug376-artifact-foundation-create, gug376-artifact-foundation-access-update]}, 'Null': {cloudformation:RoleArn: 'true', cloudformation:TemplateUrl: 'true'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,cloudformation:ChangeSetName: [gug376-artifact-foundation-create,gug376-artifact-foundation-access-update]},'Null': {cloudformation:RoleArn: 'true',cloudformation:TemplateUrl: 'true'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: TagOnlyNamedFoundationChangeSetsOnCreate
             Effect: Allow
             Action: cloudformation:TagResource
-            Resource:
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, cloudformation:CreateAction: [CreateChangeSet, ExecuteChangeSet], aws:RequestTag/managed_by: cloudformation, aws:RequestTag/service: scanalyze-platform-authority, aws:RequestTag/work_package: GUG-376}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package]}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Resource: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*',!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*',!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,cloudformation:CreateAction: [CreateChangeSet,ExecuteChangeSet],aws:RequestTag/managed_by: cloudformation,aws:RequestTag/service: scanalyze-platform-authority,aws:RequestTag/work_package: GUG-376},ForAllValues:StringEquals: {aws:TagKeys: [managed_by,service,work_package]},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: ExecuteOnlyNamedFoundationChangeSets
             Effect: Allow
             Action: cloudformation:ExecuteChangeSet
-            Resource:
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*
-              - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*', !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*']}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Resource: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-artifact-foundation/*',!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*',!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},StringLike: {cloudformation:ChangeSetName: [!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-create/*',!Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:changeSet/gug376-artifact-foundation-access-update/*']},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: CreateExactTaggedKmsFoundationThroughCloudFormation
             Effect: Allow
             Action: kms:CreateKey
             Resource: '*'
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:RequestTag/work_package: GUG-376, aws:RequestTag/source_commit: !Ref SourceCommit}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package, source_commit]}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:RequestTag/work_package: GUG-376,aws:RequestTag/source_commit: !Ref SourceCommit},ForAllValues:StringEquals: {aws:TagKeys: [managed_by,service,work_package,source_commit]},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ManageOnlyTaggedKmsFoundationThroughCloudFormation
             Effect: Allow
-            Action: [kms:DescribeKey, kms:EnableKeyRotation, kms:GetKeyPolicy, kms:GetKeyRotationStatus, kms:ListResourceTags, kms:PutKeyPolicy, kms:ScheduleKeyDeletion, kms:TagResource]
+            Action: [kms:DescribeKey,kms:EnableKeyRotation,kms:GetKeyPolicy,kms:GetKeyRotationStatus,kms:ListResourceTags,kms:PutKeyPolicy,kms:ScheduleKeyDeletion,kms:TagResource]
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:ResourceTag/work_package: GUG-376, aws:ResourceTag/source_commit: !Ref SourceCommit}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:ResourceTag/work_package: GUG-376,aws:ResourceTag/source_commit: !Ref SourceCommit},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: CreateOnlyExactKmsAliasThroughCloudFormation
             Effect: Allow
-            Action: [kms:CreateAlias, kms:ListAliases]
+            Action: [kms:CreateAlias,kms:ListAliases]
             Resource: '*'
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: DeleteOnlyExactKmsAliasThroughCloudFormation
             Effect: Allow
             Action: kms:DeleteAlias
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:${ArtifactKmsAlias}
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactKmsFoundationDirect
             Effect: Allow
-            Action: [kms:DescribeKey, kms:GetKeyPolicy, kms:GetKeyRotationStatus, kms:ListResourceTags]
+            Action: [kms:DescribeKey,kms:GetKeyPolicy,kms:GetKeyRotationStatus,kms:ListResourceTags]
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, aws:ResourceTag/work_package: GUG-376, aws:ResourceTag/source_commit: !Ref SourceCommit}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,aws:ResourceTag/work_package: GUG-376,aws:ResourceTag/source_commit: !Ref SourceCommit},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ListOnlyKmsAliasesDirectForExactReadback
             Effect: Allow
             Action: kms:ListAliases
             Resource: '*'
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: CreateOnlyExactAccountRegionalArtifactBucketThroughCloudFormation
+            Effect: Allow
+            Action: s3:CreateBucket
+            Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,s3:x-amz-bucket-namespace: account-regional},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ManageExactArtifactBucketThroughCloudFormation
             Effect: Allow
-            Action: [s3:CreateBucket, s3:DeleteBucket, s3:DeleteBucketPolicy, s3:GetBucketLocation, s3:GetEncryptionConfiguration, s3:GetBucketOwnershipControls, s3:GetBucketPolicy, s3:GetBucketPolicyStatus, s3:GetBucketTagging, s3:GetBucketVersioning, s3:GetBucketPublicAccessBlock, s3:ListBucket, s3:PutEncryptionConfiguration, s3:PutBucketOwnershipControls, s3:PutBucketPolicy, s3:PutBucketPublicAccessBlock, s3:PutBucketTagging, s3:PutBucketVersioning]
-            Resource:
-              - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
-              - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}/*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Action: [s3:DeleteBucket,s3:DeleteBucketPolicy,s3:GetBucketLocation,s3:GetEncryptionConfiguration,s3:GetBucketOwnershipControls,s3:GetBucketPolicy,s3:GetBucketPolicyStatus,s3:GetBucketTagging,s3:GetBucketVersioning,s3:GetBucketPublicAccessBlock,s3:ListBucket,s3:PutEncryptionConfiguration,s3:PutBucketOwnershipControls,s3:PutBucketPolicy,s3:PutBucketPublicAccessBlock,s3:PutBucketTagging,s3:PutBucketVersioning]
+            Resource: [!Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}',!Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}/*']
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+          - Sid: DenyNonAccountRegionalArtifactBucketCreation
+            Effect: Deny
+            Action: s3:CreateBucket
+            Resource: '*'
+            Condition: {StringNotEquals: {s3:x-amz-bucket-namespace: account-regional}}
           - Sid: CreateExactTaggedSigningFoundationThroughCloudFormation
             Effect: Allow
-            Action: [signer:GetSigningProfile, signer:ListTagsForResource, signer:CancelSigningProfile, signer:TagResource]
-            Resource:
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}/*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Action: [signer:GetSigningProfile,signer:ListTagsForResource,signer:CancelSigningProfile,signer:TagResource]
+            Resource: [!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}',!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}/*']
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactSigningProfileDirect
             Effect: Allow
-            Action: [signer:GetSigningProfile, signer:ListTagsForResource]
-            Resource:
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Action: [signer:GetSigningProfile,signer:ListTagsForResource]
+            Resource: [!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}',!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}/*']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: CreateOnlyExactTaggedSigningProfileThroughCloudFormation
             Effect: Allow
             Action: signer:PutSigningProfile
             Resource: '*'
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:RequestTag/managed_by: cloudformation, aws:RequestTag/service: scanalyze-platform-authority, aws:RequestTag/work_package: GUG-376, aws:RequestTag/source_commit: !Ref SourceCommit}, ForAllValues:StringEquals: {aws:TagKeys: [managed_by, service, work_package, source_commit]}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:RequestTag/managed_by: cloudformation,aws:RequestTag/service: scanalyze-platform-authority,aws:RequestTag/work_package: GUG-376,aws:RequestTag/source_commit: !Ref SourceCommit},ForAllValues:StringEquals: {aws:TagKeys: [managed_by,service,work_package,source_commit]},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: CreateTaggedCodeSigningConfigThroughCloudFormation
             Effect: Allow
             Action: lambda:CreateCodeSigningConfig
             Resource: '*'
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:RequestTag/work_package: GUG-376, aws:RequestTag/source_commit: !Ref SourceCommit}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:RequestTag/work_package: GUG-376,aws:RequestTag/source_commit: !Ref SourceCommit},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadTaggedCodeSigningConfigThroughCloudFormation
             Effect: Allow
-            Action: [lambda:GetCodeSigningConfig, lambda:ListTags, lambda:TagResource]
+            Action: [lambda:GetCodeSigningConfig,lambda:ListTags,lambda:TagResource]
             Resource: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: DeleteTaggedCodeSigningConfigThroughCloudFormation
             Effect: Allow
             Action: lambda:DeleteCodeSigningConfig
             Resource: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:ResourceTag/work_package: GUG-376, aws:ResourceTag/source_commit: !Ref SourceCommit}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:ResourceTag/work_package: GUG-376,aws:ResourceTag/source_commit: !Ref SourceCommit},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyTaggedCodeSigningConfigDirect
             Effect: Allow
-            Action: [lambda:GetCodeSigningConfig, lambda:ListTags]
+            Action: [lambda:GetCodeSigningConfig,lambda:ListTags]
             Resource: !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: PublishOnlyExactGug376Objects
             Effect: Allow
-            Action: [s3:PutObject, s3:PutObjectTagging]
+            Action: [s3:PutObject,s3:PutObjectTagging]
             Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}/scanalyze/platform-authority/gug-376/plan-policy-repair/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: ReadOnlyExactGug376Objects
             Effect: Allow
-            Action: [s3:GetObject, s3:GetObjectAttributes, s3:GetObjectTagging, s3:GetObjectVersion, s3:GetObjectVersionAttributes, s3:GetObjectVersionTagging]
+            Action: [s3:GetObject,s3:GetObjectAttributes,s3:GetObjectTagging,s3:GetObjectVersion,s3:GetObjectVersionAttributes,s3:GetObjectVersionTagging]
             Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}/scanalyze/platform-authority/gug-376/plan-policy-repair/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactArtifactBucketVersions
             Effect: Allow
             Action: [s3:ListBucketVersions]
             Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, StringLike: {s3:prefix: 'scanalyze/platform-authority/gug-376/plan-policy-repair/*'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},StringLike: {s3:prefix: 'scanalyze/platform-authority/gug-376/plan-policy-repair/*'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactArtifactBucketConfigurationDirect
             Effect: Allow
-            Action: [s3:GetBucketLocation, s3:GetEncryptionConfiguration, s3:GetBucketOwnershipControls, s3:GetBucketPolicy, s3:GetBucketPolicyStatus, s3:GetBucketTagging, s3:GetBucketVersioning, s3:GetBucketPublicAccessBlock]
+            Action: [s3:GetBucketLocation,s3:GetEncryptionConfiguration,s3:GetBucketOwnershipControls,s3:GetBucketPolicy,s3:GetBucketPolicyStatus,s3:GetBucketTagging,s3:GetBucketVersioning,s3:GetBucketPublicAccessBlock]
             Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: EncryptOnlyWithArtifactKeyThroughExactS3
             Effect: Allow
             Action: kms:GenerateDataKey
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, kms:ViaService: s3.us-east-1.amazonaws.com}, ForAnyValue:StringLike: {kms:ResourceAliases: !Ref ArtifactKmsAlias}, StringLike: {kms:EncryptionContext:aws:s3:arn: !Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,kms:ViaService: s3.us-east-1.amazonaws.com},ForAnyValue:StringLike: {kms:ResourceAliases: !Ref ArtifactKmsAlias},StringLike: {kms:EncryptionContext:aws:s3:arn: !Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: ReadOnlyWithArtifactKeyThroughExactS3
             Effect: Allow
-            Action: [kms:Decrypt, kms:DescribeKey]
+            Action: [kms:Decrypt,kms:DescribeKey]
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, kms:ViaService: s3.us-east-1.amazonaws.com}, ForAnyValue:StringLike: {kms:ResourceAliases: !Ref ArtifactKmsAlias}, StringLike: {kms:EncryptionContext:aws:s3:arn: !Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,kms:ViaService: s3.us-east-1.amazonaws.com},ForAnyValue:StringLike: {kms:ResourceAliases: !Ref ArtifactKmsAlias},StringLike: {kms:EncryptionContext:aws:s3:arn: !Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucketName}'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: StartOnlyPinnedSigningProfileVersion
             Effect: Allow
             Action: signer:StartSigningJob
             Resource: !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1, signer:ProfileVersion: !Ref SigningProfileVersion}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1,signer:ProfileVersion: !Ref SigningProfileVersion},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: ReadOnlyExactSigningJobs
             Effect: Allow
             Action: signer:DescribeSigningJob
             Resource: !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-jobs/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyExactSignerRevocationEvidence
             Effect: Allow
             Action: signer:GetRevocationStatus
-            Resource:
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}
-              - !Sub arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-jobs/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Resource: [!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-profiles/${SigningProfileName}',!Sub 'arn:${AWS::Partition}:signer:us-east-1:${AuthorityAccountId}:/signing-jobs/*']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: ReadOnlyAuthoritySignerCertificates
             Effect: Allow
             Action: acm:GetCertificate
             Resource: !Sub arn:${AWS::Partition}:acm:us-east-1:${AuthorityAccountId}:certificate/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
           - Sid: DenyEveryUnreviewedAction
             Effect: Deny
-            NotAction: [acm:GetCertificate, cloudformation:CreateChangeSet, cloudformation:DescribeChangeSet, cloudformation:DescribeStackEvents, cloudformation:DescribeStacks, cloudformation:ExecuteChangeSet, cloudformation:GetTemplate, cloudformation:ListChangeSets, cloudformation:ListStackResources, cloudformation:TagResource, cloudtrail:LookupEvents, kms:CreateAlias, kms:CreateKey, kms:Decrypt, kms:DeleteAlias, kms:DescribeKey, kms:EnableKeyRotation, kms:GenerateDataKey, kms:GetKeyPolicy, kms:GetKeyRotationStatus, kms:ListAliases, kms:ListResourceTags, kms:PutKeyPolicy, kms:ScheduleKeyDeletion, kms:TagResource, lambda:CreateCodeSigningConfig, lambda:DeleteCodeSigningConfig, lambda:GetCodeSigningConfig, lambda:ListTags, lambda:TagResource, s3:CreateBucket, s3:DeleteBucket, s3:DeleteBucketPolicy, s3:GetBucketLocation, s3:GetEncryptionConfiguration, s3:GetBucketOwnershipControls, s3:GetBucketPolicy, s3:GetBucketPolicyStatus, s3:GetBucketTagging, s3:GetBucketVersioning, s3:GetObject, s3:GetObjectAttributes, s3:GetObjectTagging, s3:GetObjectVersion, s3:GetObjectVersionAttributes, s3:GetObjectVersionTagging, s3:GetBucketPublicAccessBlock, s3:ListBucket, s3:ListBucketVersions, s3:PutEncryptionConfiguration, s3:PutBucketOwnershipControls, s3:PutBucketPolicy, s3:PutBucketPublicAccessBlock, s3:PutBucketTagging, s3:PutBucketVersioning, s3:PutObject, s3:PutObjectTagging, signer:DescribeSigningJob, signer:CancelSigningProfile, signer:GetRevocationStatus, signer:GetSigningProfile, signer:ListTagsForResource, signer:PutSigningProfile, signer:StartSigningJob, signer:TagResource, sts:GetCallerIdentity]
+            NotAction: [acm:GetCertificate,cloudformation:CreateChangeSet,cloudformation:DescribeChangeSet,cloudformation:DescribeStackEvents,cloudformation:DescribeStacks,cloudformation:ExecuteChangeSet,cloudformation:GetTemplate,cloudformation:ListChangeSets,cloudformation:ListStackResources,cloudformation:TagResource,cloudtrail:LookupEvents,kms:CreateAlias,kms:CreateKey,kms:Decrypt,kms:DeleteAlias,kms:DescribeKey,kms:EnableKeyRotation,kms:GenerateDataKey,kms:GetKeyPolicy,kms:GetKeyRotationStatus,kms:ListAliases,kms:ListResourceTags,kms:PutKeyPolicy,kms:ScheduleKeyDeletion,kms:TagResource,lambda:CreateCodeSigningConfig,lambda:DeleteCodeSigningConfig,lambda:GetCodeSigningConfig,lambda:ListTags,lambda:TagResource,s3:CreateBucket,s3:DeleteBucket,s3:DeleteBucketPolicy,s3:GetBucketLocation,s3:GetEncryptionConfiguration,s3:GetBucketOwnershipControls,s3:GetBucketPolicy,s3:GetBucketPolicyStatus,s3:GetBucketTagging,s3:GetBucketVersioning,s3:GetObject,s3:GetObjectAttributes,s3:GetObjectTagging,s3:GetObjectVersion,s3:GetObjectVersionAttributes,s3:GetObjectVersionTagging,s3:GetBucketPublicAccessBlock,s3:ListBucket,s3:ListBucketVersions,s3:PutEncryptionConfiguration,s3:PutBucketOwnershipControls,s3:PutBucketPolicy,s3:PutBucketPublicAccessBlock,s3:PutBucketTagging,s3:PutBucketVersioning,s3:PutObject,s3:PutObjectTagging,signer:DescribeSigningJob,signer:CancelSigningProfile,signer:GetRevocationStatus,signer:GetSigningProfile,signer:ListTagsForResource,signer:PutSigningProfile,signer:StartSigningJob,signer:TagResource,sts:GetCallerIdentity]
             Resource: '*'
           - Sid: DenyOutsideHomeRegion
             Effect: Deny
@@ -253,7 +199,7 @@ Resources:
             Condition: {StringNotEquals: {aws:RequestedRegion: us-east-1}}
           - Sid: DenyDirectFoundationProviderMutations
             Effect: Deny
-            Action: [kms:CreateAlias, kms:CreateKey, kms:DeleteAlias, kms:EnableKeyRotation, kms:PutKeyPolicy, kms:ScheduleKeyDeletion, kms:TagResource, lambda:CreateCodeSigningConfig, lambda:DeleteCodeSigningConfig, lambda:TagResource, s3:CreateBucket, s3:DeleteBucket, s3:DeleteBucketPolicy, s3:PutEncryptionConfiguration, s3:PutBucketOwnershipControls, s3:PutBucketPolicy, s3:PutBucketPublicAccessBlock, s3:PutBucketTagging, s3:PutBucketVersioning, signer:CancelSigningProfile, signer:PutSigningProfile, signer:TagResource]
+            Action: [kms:CreateAlias,kms:CreateKey,kms:DeleteAlias,kms:EnableKeyRotation,kms:PutKeyPolicy,kms:ScheduleKeyDeletion,kms:TagResource,lambda:CreateCodeSigningConfig,lambda:DeleteCodeSigningConfig,lambda:TagResource,s3:CreateBucket,s3:DeleteBucket,s3:DeleteBucketPolicy,s3:PutEncryptionConfiguration,s3:PutBucketOwnershipControls,s3:PutBucketPolicy,s3:PutBucketPublicAccessBlock,s3:PutBucketTagging,s3:PutBucketVersioning,signer:CancelSigningProfile,signer:PutSigningProfile,signer:TagResource]
             Resource: '*'
             Condition: {ForAllValues:StringNotEquals: {aws:CalledVia: cloudformation.amazonaws.com}}
           - Sid: DenyBeforeAbsoluteStart
@@ -263,7 +209,7 @@ Resources:
             Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}
           - Sid: DenyMutationsAtAbsoluteExpiry
             Effect: Deny
-            Action: [cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet, cloudformation:TagResource, kms:GenerateDataKey, s3:PutObject, s3:PutObjectTagging, signer:StartSigningJob]
+            Action: [cloudformation:CreateChangeSet,cloudformation:ExecuteChangeSet,cloudformation:TagResource,kms:GenerateDataKey,s3:PutObject,s3:PutObjectTagging,signer:StartSigningJob]
             Resource: '*'
             Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotAfter}}
           - Sid: DenyAllAtRecoveryExpiry
@@ -279,51 +225,51 @@ Resources:
       InstanceArn: !Ref IdentityCenterInstanceArn
       Name: ScanalyzeGug376RouteSeedCleanup
       SessionDuration: PT1H
-      Tags: [{Key: managed_by, Value: cloudformation}, {Key: work_package, Value: GUG-376}, {Key: source_commit, Value: !Ref SourceCommit}]
+      Tags: [{Key: managed_by,Value: cloudformation},{Key: work_package,Value: GUG-376},{Key: source_commit,Value: !Ref SourceCommit}]
       InlinePolicy:
         Version: '2012-10-17'
         Statement:
-          - {Sid: ConfirmOnlyCurrentCaller, Effect: Allow, Action: 'sts:GetCallerIdentity', Resource: '*'}
-          - {Sid: DeleteAudit, Effect: Allow, Action: 'cloudtrail:LookupEvents', Resource: '*', Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
-          - {Sid: RouteStackRead, Effect: Allow, Action: 'cloudformation:DescribeStacks', Resource: !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*', Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
-          - {Sid: RouteStackDelete, Effect: Allow, Action: 'cloudformation:DeleteStack', Resource: !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*', Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, 'Null': {cloudformation:RoleArn: 'true'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: ConfirmOnlyCurrentCaller,Effect: Allow,Action: 'sts:GetCallerIdentity',Resource: '*'}
+          - {Sid: DeleteAudit,Effect: Allow,Action: 'cloudtrail:LookupEvents',Resource: '*',Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: RouteStackRead,Effect: Allow,Action: 'cloudformation:DescribeStacks',Resource: !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*',Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: RouteStackDelete,Effect: Allow,Action: 'cloudformation:DeleteStack',Resource: !Sub 'arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*',Condition: {StringEquals: {aws:RequestedRegion: us-east-1},'Null': {cloudformation:RoleArn: 'true'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
           - Sid: RouteRoleRead
             Effect: Allow
             Action: iam:GetRole
             Resource:
               - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
               - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerExecutor
-            Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: RouteSsoRead
             Effect: Allow
-            Action: [sso:DescribePermissionSet, sso:ListPermissionSets]
+            Action: [sso:DescribePermissionSet,sso:ListPermissionSets]
             Resource:
               - !Ref IdentityCenterInstanceArn
               - !Sub
                 - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/ps-*
-                - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+                - InstanceId: !Select [1,!Split ['/',!Ref IdentityCenterInstanceArn]]
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: RouteRoleDeleteCfn
             Effect: Allow
-            Action: [iam:DeleteRole, iam:DeleteRolePolicy, iam:DetachRolePolicy, iam:GetRole, iam:GetRolePolicy, iam:ListAttachedRolePolicies, iam:ListRolePolicies, iam:ListRoleTags, iam:UntagRole]
+            Action: [iam:DeleteRole,iam:DeleteRolePolicy,iam:DetachRolePolicy,iam:GetRole,iam:GetRolePolicy,iam:ListAttachedRolePolicies,iam:ListRolePolicies,iam:ListRoleTags,iam:UntagRole]
             Resource:
               - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
               - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerExecutor
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: RouteSsoDeleteCfn
             Effect: Allow
-            Action: [sso:DeleteAccountAssignment, sso:DeleteInlinePolicyFromPermissionSet, sso:DeletePermissionSet, sso:DescribeAccountAssignmentDeletionStatus, sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:ListAccountAssignments, sso:ListAccountsForProvisionedPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource, sso:ProvisionPermissionSet]
+            Action: [sso:DeleteAccountAssignment,sso:DeleteInlinePolicyFromPermissionSet,sso:DeletePermissionSet,sso:DescribeAccountAssignmentDeletionStatus,sso:DescribePermissionSet,sso:DescribePermissionSetProvisioningStatus,sso:GetInlinePolicyForPermissionSet,sso:ListAccountAssignments,sso:ListAccountsForProvisionedPermissionSet,sso:ListManagedPoliciesInPermissionSet,sso:ListPermissionSetProvisioningStatus,sso:ListTagsForResource,sso:ProvisionPermissionSet]
             Resource:
               - !Ref IdentityCenterInstanceArn
               - !Sub
                 - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/ps-*
-                - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
+                - InstanceId: !Select [1,!Split ['/',!Ref IdentityCenterInstanceArn]]
               - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
-          - {Sid: DenyDirectDeletes, Effect: Deny, Action: [iam:DeleteRole, iam:DeleteRolePolicy, iam:DetachRolePolicy, iam:UntagRole, sso:DeleteAccountAssignment, sso:DeleteInlinePolicyFromPermissionSet, sso:DeletePermissionSet, sso:ProvisionPermissionSet], Resource: '*', Condition: {ForAllValues:StringNotEquals: {aws:CalledVia: cloudformation.amazonaws.com}}}
-          - {Sid: DenyCreateExecute, Effect: Deny, Action: [cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet], Resource: '*'}
-          - {Sid: DenyBeforeAbsoluteStart, Effect: Deny, Action: '*', Resource: '*', Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
-          - {Sid: DenyAllAtCleanupExpiry, Effect: Deny, Action: '*', Resource: '*', Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+          - {Sid: DenyDirectDeletes,Effect: Deny,Action: [iam:DeleteRole,iam:DeleteRolePolicy,iam:DetachRolePolicy,iam:UntagRole,sso:DeleteAccountAssignment,sso:DeleteInlinePolicyFromPermissionSet,sso:DeletePermissionSet,sso:ProvisionPermissionSet],Resource: '*',Condition: {ForAllValues:StringNotEquals: {aws:CalledVia: cloudformation.amazonaws.com}}}
+          - {Sid: DenyCreateExecute,Effect: Deny,Action: [cloudformation:CreateChangeSet,cloudformation:ExecuteChangeSet],Resource: '*'}
+          - {Sid: DenyBeforeAbsoluteStart,Effect: Deny,Action: '*',Resource: '*',Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
+          - {Sid: DenyAllAtCleanupExpiry,Effect: Deny,Action: '*',Resource: '*',Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
 
   BrokerSeedCleanupPermissionSet:
     Type: AWS::SSO::PermissionSet
@@ -332,101 +278,82 @@ Resources:
       InstanceArn: !Ref IdentityCenterInstanceArn
       Name: ScanalyzeGug376BrokerSeedCleanup
       SessionDuration: PT1H
-      Tags: [{Key: managed_by, Value: cloudformation}, {Key: work_package, Value: GUG-376}, {Key: source_commit, Value: !Ref SourceCommit}]
+      Tags: [{Key: managed_by,Value: cloudformation},{Key: work_package,Value: GUG-376},{Key: source_commit,Value: !Ref SourceCommit}]
       InlinePolicy:
         Version: '2012-10-17'
         Statement:
-          - {Sid: ConfirmOnlyCurrentCaller, Effect: Allow, Action: 'sts:GetCallerIdentity', Resource: '*'}
+          - {Sid: ConfirmOnlyCurrentCaller,Effect: Allow,Action: 'sts:GetCallerIdentity',Resource: '*'}
           - Sid: DeleteAudit
             Effect: Allow
             Action: cloudtrail:LookupEvents
             Resource: '*'
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerStackRead
             Effect: Allow
             Action: cloudformation:DescribeStacks
             Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerStackDelete
             Effect: Allow
             Action: cloudformation:DeleteStack
             Resource: !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${AuthorityAccountId}:stack/scanalyze-platform-authority-gug376-route-broker/*
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, 'Null': {cloudformation:RoleArn: 'true'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},'Null': {cloudformation:RoleArn: 'true'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerResourceRead
             Effect: Allow
-            Action: [dynamodb:DescribeTable, iam:GetRole, kms:DescribeKey, lambda:GetCodeSigningConfig, lambda:GetFunction]
-            Resource:
-              - !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug376-route-broker-ledger
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery
-              - !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
-            Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
-          - {Sid: BrokerLogRead, Effect: Allow, Action: 'logs:DescribeLogGroups', Resource: '*', Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+            Action: [dynamodb:DescribeTable,iam:GetRole,kms:DescribeKey,lambda:GetCodeSigningConfig,lambda:GetFunction]
+            Resource: [!Sub 'arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug376-route-broker-ledger',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery',!Sub 'arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+          - Sid: InvokeOnlyExactRecoveryAliases
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Split [',',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery:recover-v1,arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:recover-v1']
+            Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+          - Sid: DenyOtherLambdaInvocations
+            Effect: Deny
+            Action: lambda:InvokeFunction
+            NotResource: !Split [',',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery:recover-v1,arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:recover-v1']
+          - {Sid: BrokerLogRead,Effect: Allow,Action: 'logs:DescribeLogGroups',Resource: '*',Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
           - Sid: BrokerLedgerDeleteCfn
             Effect: Allow
-            Action: [dynamodb:DeleteResourcePolicy, dynamodb:DeleteTable, dynamodb:DescribeContinuousBackups, dynamodb:DescribeTable, dynamodb:DescribeTimeToLive, dynamodb:GetResourcePolicy, dynamodb:ListTagsOfResource]
+            Action: [dynamodb:DeleteResourcePolicy,dynamodb:DeleteTable,dynamodb:DescribeContinuousBackups,dynamodb:DescribeTable,dynamodb:DescribeTimeToLive,dynamodb:GetResourcePolicy,dynamodb:ListTagsOfResource]
             Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-gug376-route-broker-ledger
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerKeyDeleteCfn
             Effect: Allow
-            Action: [kms:DescribeKey, kms:GetKeyPolicy, kms:GetKeyRotationStatus, kms:ListResourceTags, kms:ScheduleKeyDeletion]
+            Action: [kms:DescribeKey,kms:GetKeyPolicy,kms:GetKeyRotationStatus,kms:ListResourceTags,kms:ScheduleKeyDeletion]
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:key/*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1, aws:ResourceTag/work_package: GUG-376, aws:ResourceTag/source_commit: !Ref SourceCommit}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1,aws:ResourceTag/work_package: GUG-376,aws:ResourceTag/source_commit: !Ref SourceCommit},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerAliasDeleteCfn
             Effect: Allow
-            Action: [kms:DeleteAlias, kms:DescribeKey]
+            Action: [kms:DeleteAlias,kms:DescribeKey]
             Resource: !Sub arn:${AWS::Partition}:kms:us-east-1:${AuthorityAccountId}:alias/scanalyze/platform-authority/gug376-route-broker-ledger
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
-          - {Sid: BrokerAliasListCfn, Effect: Allow, Action: 'kms:ListAliases', Resource: '*', Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+          - {Sid: BrokerAliasListCfn,Effect: Allow,Action: 'kms:ListAliases',Resource: '*',Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
           - Sid: BrokerLogDeleteCfn
             Effect: Allow
-            Action: [logs:DeleteLogGroup, logs:ListTagsForResource]
-            Resource:
-              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator
-              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor
-              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-create-dispatch-recovery
-              - !Sub arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
-          - {Sid: BrokerLogListCfn, Effect: Allow, Action: 'logs:DescribeLogGroups', Resource: '*', Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+            Action: [logs:DeleteLogGroup,logs:ListTagsForResource]
+            Resource: [!Sub 'arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-creator',!Sub 'arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-executor',!Sub 'arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-create-dispatch-recovery',!Sub 'arn:${AWS::Partition}:logs:us-east-1:${AuthorityAccountId}:log-group:/aws/lambda/scanalyze-platform-authority-gug376-route-execute-dispatch-recovery']
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+          - {Sid: BrokerLogListCfn,Effect: Allow,Action: 'logs:DescribeLogGroups',Resource: '*',Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
           - Sid: BrokerRoleDeleteCfn
             Effect: Allow
-            Action: [iam:DeleteRole, iam:DeleteRolePolicy, iam:DetachRolePolicy, iam:GetRole, iam:GetRolePolicy, iam:ListAttachedRolePolicies, iam:ListRolePolicies, iam:ListRoleTags, iam:UntagRole]
-            Resource:
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery
-              - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Action: [iam:DeleteRole,iam:DeleteRolePolicy,iam:DetachRolePolicy,iam:GetRole,iam:GetRolePolicy,iam:ListAttachedRolePolicies,iam:ListRolePolicies,iam:ListRoleTags,iam:UntagRole]
+            Resource: [!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery',!Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery']
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: BrokerLambdaDeleteCfn
             Effect: Allow
-            Action: [lambda:DeleteAlias, lambda:DeleteCodeSigningConfig, lambda:DeleteFunction, lambda:DeleteFunctionEventInvokeConfig, lambda:DeleteRuntimeManagementConfig, lambda:GetAlias, lambda:GetCodeSigningConfig, lambda:GetFunction, lambda:GetFunctionEventInvokeConfig, lambda:GetRuntimeManagementConfig, lambda:ListAliases, lambda:ListTags, lambda:ListVersionsByFunction]
-            Resource:
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator:*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor:*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery:*
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery
-              - !Sub arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:*
-            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+            Action: [lambda:DeleteAlias,lambda:DeleteCodeSigningConfig,lambda:DeleteFunction,lambda:DeleteFunctionEventInvokeConfig,lambda:DeleteRuntimeManagementConfig,lambda:GetAlias,lambda:GetCodeSigningConfig,lambda:GetFunction,lambda:GetFunctionEventInvokeConfig,lambda:GetRuntimeManagementConfig,lambda:ListAliases,lambda:ListTags,lambda:ListVersionsByFunction]
+            Resource: [!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:code-signing-config:*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-creator:*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-executor:*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-create-dispatch-recovery:*',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery',!Sub 'arn:${AWS::Partition}:lambda:us-east-1:${AuthorityAccountId}:function:scanalyze-platform-authority-gug376-route-execute-dispatch-recovery:*']
+            Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com},StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
           - Sid: DenyDirectDeletes
             Effect: Deny
-            Action: [dynamodb:DeleteResourcePolicy, dynamodb:DeleteTable, iam:DeleteRole, iam:DeleteRolePolicy, iam:DetachRolePolicy, iam:UntagRole, kms:DeleteAlias, kms:ScheduleKeyDeletion, lambda:DeleteAlias, lambda:DeleteCodeSigningConfig, lambda:DeleteFunction, lambda:DeleteFunctionEventInvokeConfig, lambda:DeleteRuntimeManagementConfig, logs:DeleteLogGroup]
+            Action: [dynamodb:DeleteResourcePolicy,dynamodb:DeleteTable,iam:DeleteRole,iam:DeleteRolePolicy,iam:DetachRolePolicy,iam:UntagRole,kms:DeleteAlias,kms:ScheduleKeyDeletion,lambda:DeleteAlias,lambda:DeleteCodeSigningConfig,lambda:DeleteFunction,lambda:DeleteFunctionEventInvokeConfig,lambda:DeleteRuntimeManagementConfig,logs:DeleteLogGroup]
             Resource: '*'
             Condition: {ForAllValues:StringNotEquals: {aws:CalledVia: cloudformation.amazonaws.com}}
-          - {Sid: DenyCreateExecute, Effect: Deny, Action: [cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet], Resource: '*'}
-          - {Sid: DenyAllKmsCancellation, Effect: Deny, Action: 'kms:CancelKeyDeletion', Resource: '*'}
-          - {Sid: DenyBeforeAbsoluteStart, Effect: Deny, Action: '*', Resource: '*', Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
-          - {Sid: DenyAllAtCleanupExpiry, Effect: Deny, Action: '*', Resource: '*', Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: DenyCreateExecute,Effect: Deny,Action: [cloudformation:CreateChangeSet,cloudformation:ExecuteChangeSet],Resource: '*'}
+          - {Sid: DenyAllKmsCancellation,Effect: Deny,Action: 'kms:CancelKeyDeletion',Resource: '*'}
+          - {Sid: DenyBeforeAbsoluteStart,Effect: Deny,Action: '*',Resource: '*',Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
+          - {Sid: DenyAllAtCleanupExpiry,Effect: Deny,Action: '*',Resource: '*',Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
 
   ManagementRecoveryRole:
     Type: AWS::IAM::Role
@@ -438,18 +365,18 @@ Resources:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - {Sid: TrustOnlyCreateDispatchRecovery, Effect: Allow, Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'}, Action: [sts:AssumeRole, sts:SetSourceIdentity], Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery'}, StringEquals: {sts:SourceIdentity: !Sub 'gug376-create-recovery-${SourceCommit}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
-          - {Sid: TrustOnlyExecuteDispatchRecovery, Effect: Allow, Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'}, Action: [sts:AssumeRole, sts:SetSourceIdentity], Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery'}, StringEquals: {sts:SourceIdentity: !Sub 'gug376-execute-recovery-${SourceCommit}'}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: TrustOnlyCreateDispatchRecovery,Effect: Allow,Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'},Action: [sts:AssumeRole,sts:SetSourceIdentity],Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteCreateDispatchRecovery'},StringEquals: {sts:SourceIdentity: !Sub 'gug376-create-recovery-${SourceCommit}'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+          - {Sid: TrustOnlyExecuteDispatchRecovery,Effect: Allow,Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:root'},Action: [sts:AssumeRole,sts:SetSourceIdentity],Condition: {ArnEquals: {aws:PrincipalArn: !Sub 'arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteExecuteDispatchRecovery'},StringEquals: {sts:SourceIdentity: !Sub 'gug376-execute-recovery-${SourceCommit}'},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
       Policies:
         - PolicyName: ExactRouteBrokerCausalRecoveryReadback
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - {Sid: ConfirmOnlyCurrentCaller, Effect: Allow, Action: 'sts:GetCallerIdentity', Resource: '*'}
-              - {Sid: ReadOnlyExactDispatchAudit, Effect: Allow, Action: 'cloudtrail:LookupEvents', Resource: '*', Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+              - {Sid: ConfirmOnlyCurrentCaller,Effect: Allow,Action: 'sts:GetCallerIdentity',Resource: '*'}
+              - {Sid: ReadOnlyExactDispatchAudit,Effect: Allow,Action: 'cloudtrail:LookupEvents',Resource: '*',Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}}
               - Sid: ReadOnlyExactManagementStacks
                 Effect: Allow
-                Action: [cloudformation:DescribeChangeSet, cloudformation:DescribeStacks, cloudformation:GetTemplate, cloudformation:ListStackResources]
+                Action: [cloudformation:DescribeChangeSet,cloudformation:DescribeStackEvents,cloudformation:DescribeStacks,cloudformation:GetTemplate,cloudformation:ListStackResources]
                 Resource:
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
@@ -459,69 +386,51 @@ Resources:
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-temporary-route-invoker-revoke/*
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-create/*
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:changeSet/gug376-plan-repair-delegation-revoke/*
-                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
               - Sid: ReadOnlyExactIdentityCenterState
                 Effect: Allow
-                Action: [sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:GetPermissionsBoundaryForPermissionSet, sso:ListAccountAssignments, sso:ListAccountsForProvisionedPermissionSet, sso:ListCustomerManagedPolicyReferencesInPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource]
+                Action: [sso:DescribePermissionSet,sso:DescribePermissionSetProvisioningStatus,sso:GetInlinePolicyForPermissionSet,sso:GetPermissionsBoundaryForPermissionSet,sso:ListAccountAssignments,sso:ListAccountsForProvisionedPermissionSet,sso:ListCustomerManagedPolicyReferencesInPermissionSet,sso:ListManagedPoliciesInPermissionSet,sso:ListPermissionSetProvisioningStatus,sso:ListTagsForResource]
                 Resource:
                   - !Ref IdentityCenterInstanceArn
                   - !Sub
                     - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/ps-*
-                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
+                    - InstanceId: !Select [1,!Split ['/',!Ref IdentityCenterInstanceArn]]
                   - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
-                Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore}, DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
+                Condition: {StringEquals: {aws:RequestedRegion: us-east-1},DateGreaterThanEquals: {aws:CurrentTime: !Ref AccessNotBefore},DateLessThan: {aws:CurrentTime: !Ref CleanupNotAfter}}
               - Sid: DenyEveryRecoveryMutation
                 Effect: Deny
-                Action: [cloudformation:CreateChangeSet, cloudformation:DeleteStack, cloudformation:ExecuteChangeSet, dynamodb:DeleteResourcePolicy, dynamodb:DeleteTable, dynamodb:UpdateTable, iam:DeleteRole, iam:DeleteRolePolicy, iam:DetachRolePolicy, kms:CancelKeyDeletion, kms:DeleteAlias, kms:ScheduleKeyDeletion, lambda:DeleteAlias, lambda:DeleteCodeSigningConfig, lambda:DeleteFunction, lambda:DeleteFunctionEventInvokeConfig, lambda:DeleteRuntimeManagementConfig, logs:DeleteLogGroup, sso:DeleteAccountAssignment, sso:DeleteInlinePolicyFromPermissionSet, sso:DeletePermissionSet, sso:ProvisionPermissionSet]
+                Action: [cloudformation:CreateChangeSet,cloudformation:DeleteStack,cloudformation:ExecuteChangeSet,dynamodb:DeleteResourcePolicy,dynamodb:DeleteTable,dynamodb:UpdateTable,iam:DeleteRole,iam:DeleteRolePolicy,iam:DetachRolePolicy,kms:CancelKeyDeletion,kms:DeleteAlias,kms:ScheduleKeyDeletion,lambda:DeleteAlias,lambda:DeleteCodeSigningConfig,lambda:DeleteFunction,lambda:DeleteFunctionEventInvokeConfig,lambda:DeleteRuntimeManagementConfig,logs:DeleteLogGroup,sso:DeleteAccountAssignment,sso:DeleteInlinePolicyFromPermissionSet,sso:DeletePermissionSet,sso:ProvisionPermissionSet]
                 Resource: '*'
-              - {Sid: DenyOutsideHomeRegion, Effect: Deny, NotAction: 'sts:GetCallerIdentity', Resource: '*', Condition: {StringNotEquals: {aws:RequestedRegion: us-east-1}}}
-              - {Sid: DenyBeforeAbsoluteStart, Effect: Deny, Action: '*', Resource: '*', Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
-              - {Sid: DenyAllAtCleanupExpiry, Effect: Deny, Action: '*', Resource: '*', Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
-      Tags: [{Key: managed_by, Value: cloudformation}, {Key: work_package, Value: GUG-376}, {Key: source_commit, Value: !Ref SourceCommit}]
+              - {Sid: DenyOutsideHomeRegion,Effect: Deny,NotAction: 'sts:GetCallerIdentity',Resource: '*',Condition: {StringNotEquals: {aws:RequestedRegion: us-east-1}}}
+              - {Sid: DenyBeforeAbsoluteStart,Effect: Deny,Action: '*',Resource: '*',Condition: {DateLessThan: {aws:CurrentTime: !Ref AccessNotBefore}}}
+              - {Sid: DenyAllAtCleanupExpiry,Effect: Deny,Action: '*',Resource: '*',Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref CleanupNotAfter}}}
+      Tags: [{Key: managed_by,Value: cloudformation},{Key: work_package,Value: GUG-376},{Key: source_commit,Value: !Ref SourceCommit}]
 
   RouteSeedCleanupAssignment:
     Type: AWS::SSO::Assignment
     Condition: CreateCleanupAssignments
-    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn, PermissionSetArn: !GetAtt RouteSeedCleanupPermissionSet.PermissionSetArn, PrincipalId: !Ref BootstrapPrincipalId, PrincipalType: USER, TargetId: !Ref ManagementAccountId, TargetType: AWS_ACCOUNT}
+    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn,PermissionSetArn: !GetAtt RouteSeedCleanupPermissionSet.PermissionSetArn,PrincipalId: !Ref BootstrapPrincipalId,PrincipalType: USER,TargetId: !Ref ManagementAccountId,TargetType: AWS_ACCOUNT}
 
   BrokerSeedCleanupAssignment:
     Type: AWS::SSO::Assignment
     Condition: CreateCleanupAssignments
-    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn, PermissionSetArn: !GetAtt BrokerSeedCleanupPermissionSet.PermissionSetArn, PrincipalId: !Ref BootstrapPrincipalId, PrincipalType: USER, TargetId: !Ref AuthorityAccountId, TargetType: AWS_ACCOUNT}
+    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn,PermissionSetArn: !GetAtt BrokerSeedCleanupPermissionSet.PermissionSetArn,PrincipalId: !Ref BootstrapPrincipalId,PrincipalType: USER,TargetId: !Ref AuthorityAccountId,TargetType: AWS_ACCOUNT}
 
   ArtifactBootstrapAssignment:
     Type: AWS::SSO::Assignment
     Condition: CreateAssignment
-    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn, PermissionSetArn: !GetAtt ArtifactBootstrapPermissionSet.PermissionSetArn, PrincipalId: !Ref BootstrapPrincipalId, PrincipalType: USER, TargetId: !Ref AuthorityAccountId, TargetType: AWS_ACCOUNT}
+    Properties: {InstanceArn: !Ref IdentityCenterInstanceArn,PermissionSetArn: !GetAtt ArtifactBootstrapPermissionSet.PermissionSetArn,PrincipalId: !Ref BootstrapPrincipalId,PrincipalType: USER,TargetId: !Ref AuthorityAccountId,TargetType: AWS_ACCOUNT}
 
 Outputs:
-  ArtifactBootstrapPermissionSetArn:
-    Value: !GetAtt ArtifactBootstrapPermissionSet.PermissionSetArn
-  AssignmentMode:
-    Value: !Ref AssignmentEnabled
-  CleanupAssignmentMode:
-    Value: !Ref CleanupAssignmentsEnabled
-  CleanupNotAfter:
-    Value: !Ref CleanupNotAfter
-  ManagementRecoveryRoleArn:
-    Condition: CreateCleanupAssignments
-    Value: !GetAtt ManagementRecoveryRole.Arn
-  ManagementRecoveryRoleName:
-    Condition: CreateCleanupAssignments
-    Value: !Ref ManagementRecoveryRole
-  RouteSeedCleanupPermissionSetArn:
-    Condition: CreateCleanupAssignments
-    Value: !GetAtt RouteSeedCleanupPermissionSet.PermissionSetArn
-  BrokerSeedCleanupPermissionSetArn:
-    Condition: CreateCleanupAssignments
-    Value: !GetAtt BrokerSeedCleanupPermissionSet.PermissionSetArn
-  RouteSeedCleanupProfileName:
-    Condition: CreateCleanupAssignments
-    Value: !Sub ${ManagementAccountId}_ScanalyzeGug376RouteSeedCleanup
-  BrokerSeedCleanupProfileName:
-    Condition: CreateCleanupAssignments
-    Value: !Sub ${AuthorityAccountId}_ScanalyzeGug376BrokerSeedCleanup
-  AuthorityProfileName:
-    Value: !Sub ${AuthorityAccountId}_ScanalyzeGug376ArtifactBootstrap
-  ProductionAuthorized:
-    Value: 'false'
+  ArtifactBootstrapPermissionSetArn: {Value: !GetAtt ArtifactBootstrapPermissionSet.PermissionSetArn}
+  AssignmentMode: {Value: !Ref AssignmentEnabled}
+  CleanupAssignmentMode: {Value: !Ref CleanupAssignmentsEnabled}
+  CleanupNotAfter: {Value: !Ref CleanupNotAfter}
+  ManagementRecoveryRoleArn: {Condition: CreateCleanupAssignments,Value: !GetAtt ManagementRecoveryRole.Arn}
+  ManagementRecoveryRoleName: {Condition: CreateCleanupAssignments,Value: !Ref ManagementRecoveryRole}
+  RouteSeedCleanupPermissionSetArn: {Condition: CreateCleanupAssignments,Value: !GetAtt RouteSeedCleanupPermissionSet.PermissionSetArn}
+  BrokerSeedCleanupPermissionSetArn: {Condition: CreateCleanupAssignments,Value: !GetAtt BrokerSeedCleanupPermissionSet.PermissionSetArn}
+  RouteSeedCleanupProfileName: {Condition: CreateCleanupAssignments,Value: !Sub '${ManagementAccountId}_ScanalyzeGug376RouteSeedCleanup'}
+  BrokerSeedCleanupProfileName: {Condition: CreateCleanupAssignments,Value: !Sub '${AuthorityAccountId}_ScanalyzeGug376BrokerSeedCleanup'}
+  AuthorityProfileName: {Value: !Sub '${AuthorityAccountId}_ScanalyzeGug376ArtifactBootstrap'}
+  ProductionAuthorized: {Value: 'false'}

@@ -60,7 +60,7 @@ def test_client_rejects_every_endpoint_drift(endpoint: str) -> None:
 def test_client_rejects_unknown_service_before_session_use() -> None:
     session = _Session("https://example.invalid")
     with pytest.raises(broker.RouteBrokerError) as caught:
-        broker._client(session, "iam", "sealed-config")
+        broker._client(session, "ec2", "sealed-config")
     assert caught.value.code == "AWS_CLIENT_SERVICE_INVALID"
     assert session.service_seen is None
 

@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import types
 from typing import Any, Mapping
 
 import pytest
@@ -79,6 +80,24 @@ def _load_cli_module() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class _ContractHarnessProvider(aws.ConnectedArtifactBootstrapProvider):
+    """Exercise mutation contracts with a deterministic admitted binding."""
+
+    def _assert_collision_admission(
+        self,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+    ) -> dict[str, str]:
+        return {
+            "operation": operation,
+            "effect_request_digest": pure.digest_value(effect_request),
+            "bootstrap_intent_digest": bootstrap_intent_digest,
+            "admission_digest": "sha256:" + "9" * 64,
+        }
 
 
 def _seal(value: dict[str, Any], field: str) -> dict[str, Any]:
@@ -431,6 +450,110 @@ def test_artifact_templates_expose_non_secret_causal_parameters_for_exact_readba
         assert "NoEcho" not in foundation_parameters[parameter]
 
 
+def test_account_regional_artifact_bucket_name_and_template_contract_are_exact() -> None:
+    expected_name = "scanalyze-g376-art-aaaaaaaaaaaa-042360977644-us-east-1-an"
+    assert pure.ARTIFACT_BUCKET_NAMESPACE == "account-regional"
+    assert pure.deterministic_names(COMMIT)["artifact_bucket"] == expected_name
+
+    expected_pattern = (
+        "^scanalyze-g376-art-[a-f0-9]{12}-042360977644-us-east-1-an$"
+    )
+    bridge = _load(BRIDGE)
+    foundation = _load(FOUNDATION)
+    assert bridge["Parameters"]["ArtifactBucketName"]["AllowedPattern"] == (
+        expected_pattern
+    )
+    assert foundation["Parameters"]["ArtifactBucketName"]["AllowedPattern"] == (
+        expected_pattern
+    )
+    bucket = foundation["Resources"]["ArtifactBucket"]["Properties"]
+    assert bucket["BucketName"] == {"Ref": "ArtifactBucketName"}
+    assert bucket["BucketNamespace"] == pure.ARTIFACT_BUCKET_NAMESPACE
+
+
+def test_account_regional_bucket_creation_is_cfn_name_time_and_namespace_bounded() -> None:
+    statements = {
+        item["Sid"]: item
+        for item in _load(BRIDGE)["Resources"]["ArtifactBootstrapPermissionSet"][
+            "Properties"
+        ]["InlinePolicy"]["Statement"]
+    }
+    create = statements[
+        "CreateOnlyExactAccountRegionalArtifactBucketThroughCloudFormation"
+    ]
+    assert create == {
+        "Sid": "CreateOnlyExactAccountRegionalArtifactBucketThroughCloudFormation",
+        "Effect": "Allow",
+        "Action": "s3:CreateBucket",
+        "Resource": {
+            "Fn::Sub": "arn:${AWS::Partition}:s3:::${ArtifactBucketName}"
+        },
+        "Condition": {
+            "ForAnyValue:StringEquals": {
+                "aws:CalledVia": "cloudformation.amazonaws.com"
+            },
+            "StringEquals": {
+                "aws:RequestedRegion": pure.REGION,
+                "s3:x-amz-bucket-namespace": pure.ARTIFACT_BUCKET_NAMESPACE,
+            },
+            "DateGreaterThanEquals": {
+                "aws:CurrentTime": {"Ref": "AccessNotBefore"}
+            },
+            "DateLessThan": {
+                "aws:CurrentTime": {"Ref": "RecoveryNotAfter"}
+            },
+        },
+    }
+    assert statements["DenyNonAccountRegionalArtifactBucketCreation"] == {
+        "Sid": "DenyNonAccountRegionalArtifactBucketCreation",
+        "Effect": "Deny",
+        "Action": "s3:CreateBucket",
+        "Resource": "*",
+        "Condition": {
+            "StringNotEquals": {
+                "s3:x-amz-bucket-namespace": pure.ARTIFACT_BUCKET_NAMESPACE
+            }
+        },
+    }
+    assert "s3:CreateBucket" not in statements[
+        "ManageExactArtifactBucketThroughCloudFormation"
+    ]["Action"]
+
+
+@pytest.mark.parametrize("template", ["foundation", "bridge"])
+def test_intent_rejects_account_regional_bucket_contract_drift(template: str) -> None:
+    bridge = BRIDGE.read_bytes()
+    foundation = FOUNDATION.read_bytes()
+    if template == "foundation":
+        foundation = foundation.replace(
+            b"BucketNamespace: account-regional",
+            b"BucketNamespace: global",
+        )
+    else:
+        bridge = bridge.replace(
+            b"s3:x-amz-bucket-namespace: account-regional",
+            b"s3:x-amz-bucket-namespace: global",
+            1,
+        )
+    with pytest.raises(pure.ArtifactBootstrapError) as raised:
+        pure.materialize_bootstrap_intent(
+            _input(), bridge_template=bridge, foundation_template=foundation
+        )
+    assert raised.value.code == "ACCOUNT_REGIONAL_BUCKET_CONTRACT_INVALID"
+
+
+def test_intent_rejects_account_regional_bucket_name_drift() -> None:
+    intent = _intent()
+    intent["names"]["artifact_bucket"] = "scanalyze-g376-art-wrong"
+    intent = _seal(
+        {key: value for key, value in intent.items() if key != "intent_digest"},
+        "intent_digest",
+    )
+    with pytest.raises(pure.ArtifactBootstrapError) as raised:
+        pure.validate_bootstrap_intent(intent)
+    assert raised.value.code == "INTENT_NAME_BINDING_INVALID"
+
+
 def test_bridge_policy_is_time_region_action_and_resource_bounded() -> None:
     template = _load(BRIDGE)
     policy = template["Resources"]["ArtifactBootstrapPermissionSet"]["Properties"][
@@ -644,6 +767,7 @@ def test_bridge_policy_is_time_region_action_and_resource_bounded() -> None:
         "ManageOnlyTaggedKmsFoundationThroughCloudFormation",
         "CreateOnlyExactKmsAliasThroughCloudFormation",
         "DeleteOnlyExactKmsAliasThroughCloudFormation",
+        "CreateOnlyExactAccountRegionalArtifactBucketThroughCloudFormation",
         "ManageExactArtifactBucketThroughCloudFormation",
         "CreateExactTaggedSigningFoundationThroughCloudFormation",
         "CreateOnlyExactTaggedSigningProfileThroughCloudFormation",
@@ -683,6 +807,7 @@ def test_foundation_provider_completion_and_cleanup_are_cfn_only_until_recovery(
         "ManageOnlyTaggedKmsFoundationThroughCloudFormation",
         "CreateOnlyExactKmsAliasThroughCloudFormation",
         "DeleteOnlyExactKmsAliasThroughCloudFormation",
+        "CreateOnlyExactAccountRegionalArtifactBucketThroughCloudFormation",
         "ManageExactArtifactBucketThroughCloudFormation",
         "CreateExactTaggedSigningFoundationThroughCloudFormation",
         "CreateOnlyExactTaggedSigningProfileThroughCloudFormation",
@@ -885,6 +1010,28 @@ def test_offline_intent_uses_template_body_and_causal_order() -> None:
         {"ParameterKey": "DelegationTemplateVersion", "ParameterValue": "NOT_CONFIGURED"},
     ]
     assert intent["requests"]["bridge-revoke"]["ChangeSetType"] == "UPDATE"
+    assert intent["requests"]["bridge-create"]["Capabilities"] == [
+        "CAPABILITY_NAMED_IAM"
+    ]
+    assert intent["requests"]["bridge-revoke"]["Capabilities"] == [
+        "CAPABILITY_NAMED_IAM"
+    ]
+    assert intent["requests"]["foundation-create"]["Capabilities"] == []
+
+
+def test_bridge_intent_rejects_missing_named_iam_acknowledgement() -> None:
+    intent = _intent()
+    intent["requests"]["bridge-create"]["Capabilities"] = []
+    intent["request_digests"]["bridge-create"] = pure.digest_value(
+        intent["requests"]["bridge-create"]
+    )
+    intent = _seal(
+        {key: value for key, value in intent.items() if key != "intent_digest"},
+        "intent_digest",
+    )
+    with pytest.raises(pure.ArtifactBootstrapError) as raised:
+        pure.validate_bootstrap_intent(intent)
+    assert raised.value.code == "INTENT_REQUEST_RECONSTRUCTION_MISMATCH"
 
 
 def test_create_requests_fail_delete_without_disable_rollback() -> None:
@@ -991,7 +1138,7 @@ def test_runtime_reserves_completion_horizon_but_keeps_recovery_open(
 ) -> None:
     intent = _intent()
     cutoff = datetime(2026, 8, 30, 12, 30, tzinfo=timezone.utc)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(object(), object()),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -1002,6 +1149,152 @@ def test_runtime_reserves_completion_horizon_but_keeps_recovery_open(
         provider._require_window(intent, read_only=False)
     assert raised.value.code == "WRITE_WINDOW_CLOSED"
     assert provider._require_window(intent, read_only=True) == cutoff
+
+
+@pytest.mark.parametrize(
+    ("method", "kwargs"),
+    [
+        (
+            "dispatch_change_set_once",
+            {"operation": "bridge-create", "authorization": {}},
+        ),
+        (
+            "execute_change_set_once",
+            {
+                "operation": "bridge-create",
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+        (
+            "dispatch_bridge_pin_once",
+            {"foundation_readback": {}, "bridge_pin": {}, "authorization": {}},
+        ),
+        (
+            "execute_bridge_pin_once",
+            {
+                "foundation_readback": {},
+                "bridge_pin": {},
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+        (
+            "dispatch_foundation_access_update_once",
+            {
+                "foundation_readback": {},
+                "access_update": {},
+                "route_template_receipt": {},
+                "delegation_template_receipt": {},
+                "authorization": {},
+            },
+        ),
+        (
+            "execute_foundation_access_update_once",
+            {
+                "foundation_readback": {},
+                "access_update": {},
+                "route_template_receipt": {},
+                "delegation_template_receipt": {},
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+        (
+            "publish_object_once",
+            {
+                "foundation_readback": {},
+                "object_intent": {},
+                "body": b"",
+                "authorization": {},
+            },
+        ),
+        (
+            "start_signing_job_once",
+            {
+                "foundation_readback": {},
+                "bridge_pin": {},
+                "bridge_pin_readback": {},
+                "unsigned_receipt": {},
+                "signing_intent": {},
+                "authorization": {},
+            },
+        ),
+    ],
+)
+def test_product_provider_defers_collision_admission_until_after_validation(
+    tmp_path: Path, method: str, kwargs: dict[str, Any]
+) -> None:
+    authority_methods = {
+        "dispatch_foundation_access_update_once",
+        "execute_foundation_access_update_once",
+        "publish_object_once",
+        "start_signing_job_once",
+    }
+    provider = aws.ConnectedArtifactBootstrapProvider(
+        clients=aws.Clients(
+            object(),
+            object(),
+            s3=object() if method == "publish_object_once" else None,
+            signer=object() if method == "start_signing_job_once" else None,
+        ),
+        claims=_claim_store(tmp_path),
+        profile=(
+            pure.AUTHORITY_PROFILE
+            if method in authority_methods
+            else pure.MANAGEMENT_PROFILE
+        ),
+        clock=lambda: NOW,
+        source_attestor=lambda **_kwargs: pytest.fail("source must not be read"),
+        collision_admission_loader=lambda **_kwargs: pytest.fail(
+            "admission must be loaded only after validated preflights"
+        ),
+    )
+    with pytest.raises(pure.ArtifactBootstrapError) as raised:
+        getattr(provider, method)(
+            bootstrap_intent={}, source_root=ROOT, **kwargs
+        )
+    assert raised.value.code == "INTENT_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("method", "extra"),
+    [
+        (
+            "dispatch_change_set_once",
+            {"authorization": {}},
+        ),
+        (
+            "execute_change_set_once",
+            {
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+    ],
+)
+def test_product_provider_opens_only_exact_bridge_revoke_before_validation(
+    tmp_path: Path, method: str, extra: Mapping[str, Any]
+) -> None:
+    provider = aws.ConnectedArtifactBootstrapProvider(
+        clients=aws.Clients(object(), object()),
+        claims=_claim_store(tmp_path),
+        profile=pure.MANAGEMENT_PROFILE,
+        clock=lambda: NOW,
+        source_attestor=lambda **_kwargs: pytest.fail("source must not be read"),
+    )
+    with pytest.raises(pure.ArtifactBootstrapError) as opened:
+        getattr(provider, method)(
+            bootstrap_intent={},
+            source_root=ROOT,
+            operation="bridge-revoke",
+            **dict(extra),
+        )
+    assert opened.value.code == "INTENT_INVALID"
 
 
 @pytest.mark.parametrize(
@@ -1374,7 +1667,7 @@ def test_every_connected_write_closes_exactly_at_access_not_after_before_sts(
         source_events.append("source")
         return _reviewed_sources()
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(aws_events),
             CloudFormationUnused(),
@@ -1547,7 +1840,7 @@ def test_every_connected_read_and_recovery_closes_at_recovery_not_after_before_s
         source_events.append("source")
         return _reviewed_sources()
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(aws_events),
             CloudFormationUnused(),
@@ -1651,6 +1944,17 @@ def _fresh_mutation_auth(
     )
 
 
+def _admission_binding(
+    operation: str, effect_request: Mapping[str, Any]
+) -> dict[str, str]:
+    return {
+        "operation": operation,
+        "effect_request_digest": pure.digest_value(effect_request),
+        "bootstrap_intent_digest": _intent()["intent_digest"],
+        "admission_digest": "sha256:" + "9" * 64,
+    }
+
+
 def _execution_dispatch(
     *,
     operation: str,
@@ -1675,6 +1979,7 @@ def _execution_dispatch(
         "bridge-revoke": pure.REVOKE_CHANGE_SET_NAME,
         "bridge-pin": "gug376-artifact-bootstrap-bridge-pin",
         "foundation-access-update": "gug376-artifact-foundation-access-update",
+        "bridge-cleanup-retire": pure.CLEANUP_RETIRE_CHANGE_SET_NAME,
     }[operation]
     return _seal(
         {
@@ -1685,6 +1990,16 @@ def _execution_dispatch(
             "intent_digest": intent_digest,
             "request_digest": request_digest,
             "authorization_digest": authorization_digest,
+            "collision_admission": (
+                None
+                if operation in {"bridge-revoke", "bridge-cleanup-retire"}
+                else {
+                    "operation": f"{operation}:dispatch",
+                    "effect_request_digest": request_digest,
+                    "bootstrap_intent_digest": _intent()["intent_digest"],
+                    "admission_digest": "sha256:" + "9" * 64,
+                }
+            ),
             "verifier": {
                 "account_id": account,
                 "caller_arn": caller,
@@ -2203,7 +2518,7 @@ def test_attestor_accepts_exact_bridge_revoke_modify_and_remove(
             resource_type="AWS::SSO::Assignment",
         ),
     ]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(),
             AttestCloudFormation(
@@ -2261,7 +2576,7 @@ def test_attestor_accepts_exact_parameter_reference_sets_for_access_update(
             ),
         ),
     ]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts([]),
             AttestCloudFormation(
@@ -2322,7 +2637,7 @@ def test_attestor_rejects_masked_duplicate_or_wrong_bridge_parameters(
     else:
         matching["ParameterValue"] = observed_value
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(),
             AttestCloudFormation(
@@ -2391,7 +2706,7 @@ def test_attestor_rejects_masked_duplicate_or_wrong_access_update_parameters(
     else:
         matching["ParameterValue"] = observed_value
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts([]),
             AttestCloudFormation(
@@ -2459,7 +2774,7 @@ def test_access_readback_rejects_masked_duplicate_or_wrong_stack_parameters(
     else:
         matching["ParameterValue"] = observed_value
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             sts=Sts([]),
             cloudformation=AccessReadbackCloudFormation(
@@ -2530,7 +2845,7 @@ def test_attestor_rejects_access_update_semantic_drift(
             replacement="True" if drift == "replacement" else "False",
         ),
     ]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts([]),
             AttestCloudFormation(
@@ -2576,7 +2891,7 @@ def test_attestor_accepts_bounded_dynamic_direct_modification(
             direct=True,
         )
     ]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(),
             AttestCloudFormation(
@@ -2693,6 +3008,9 @@ def _prime_execution_evidence(
         authorization_digest=dispatch_authorization["authorization_digest"],
         authorization_record=dispatch_authorization,
         request_token=request["ClientToken"],
+        collision_admission=_admission_binding(
+            f"{operation}:dispatch", request
+        ),
     )
     changes = _expected_execution_changes(operation)
     attestation = _execution_attestation(
@@ -2765,7 +3083,7 @@ def _prepared_execute_case(tmp_path: Path, mode: str) -> dict[str, Any]:
         request_digest=request_digest,
         request=request,
     )
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(sts, cloudformation, cloudtrail=cloudtrail),
         claims=store,
         profile=profile,
@@ -2897,6 +3215,9 @@ def test_execute_recovery_rejects_attestation_after_original_execute_claim(
             attestation=case["attestation"],
         ),
         preflight_calls=5,
+        collision_admission=_admission_binding(
+            f"{case['operation']}:execute", execute_request
+        ),
     )
     recovery_name = {
         "generic": "recover_change_set_execution",
@@ -3028,7 +3349,7 @@ def test_dispatch_revalidates_authorization_at_claim_time_before_create(
             "source_root": ROOT,
             "authorization": authorization,
         }
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(sts, cloudformation),
         claims=store,
         profile=profile,
@@ -3071,7 +3392,7 @@ def test_publish_revalidates_authorization_at_claim_time_before_put(
     events: list[str] = []
     intent = _object_intent("template.yaml")
     s3 = S3Put(events, intent)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=s3),
         claims=_claim_store(tmp_path),
         profile=pure.AUTHORITY_PROFILE,
@@ -3102,7 +3423,7 @@ def test_signing_revalidates_authorization_at_claim_time_before_start(
     events: list[str] = []
     unsigned, intent = _signing_intent()
     signer = NoStartSigner(intent=intent)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(events), CloudFormationUnused(), signer=signer
         ),
@@ -3279,7 +3600,7 @@ def test_execute_requires_original_dispatch_claim_before_sts_or_mutation(
             sts_calls.append("sts")
             raise AssertionError("STS must not be called without the claim")
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             NoCallSts(),
             case["cloudformation"],
@@ -3420,6 +3741,9 @@ def test_recovery_requires_causal_claim_and_execute_effect_is_replay_stable(
         authorization_digest=first_dispatch_auth["authorization_digest"],
         authorization_record=first_dispatch_auth,
         request_token=request["ClientToken"],
+        collision_admission=_admission_binding(
+            "bridge-create:dispatch", request
+        ),
     )
     cloudformation = RecoverCloudFormation(
         request=request,
@@ -3431,7 +3755,7 @@ def test_recovery_requires_causal_claim_and_execute_effect_is_replay_stable(
         stack_id=stack_id,
         change_set_id=change_set_id,
     )
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), cloudformation, cloudtrail=cloudtrail),
         claims=store,
         profile=pure.MANAGEMENT_PROFILE,
@@ -3521,7 +3845,7 @@ def test_recovery_requires_causal_claim_and_execute_effect_is_replay_stable(
 
 def test_recovery_rejects_without_original_causal_claim(tmp_path: Path) -> None:
     intent = _intent()
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), CloudFormationUnused()),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -3567,7 +3891,7 @@ def test_execute_change_set_claim_is_stable_across_fresh_authorization(
         expires_at=NOW + timedelta(minutes=5),
     )
     assert first["authorization_digest"] != second["authorization_digest"]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(), cloudformation, cloudtrail=cloudtrail
         ),
@@ -3668,7 +3992,7 @@ def test_resealed_cfn_evidence_cannot_cross_write_or_recovery_boundary_before_st
                 "ResponseMetadata": {"RequestId": REQUEST_ID},
             }
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(RecordingManagementSts(), ExecuteCloudFormation()),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -3716,7 +4040,7 @@ def test_bridge_pin_execute_claim_is_stable_across_fresh_authorization(
         "bridge-pin:execute", pin["intent_digest"], seconds_before=60
     )
     assert first["authorization_digest"] != second["authorization_digest"]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(), cloudformation, cloudtrail=cloudtrail
         ),
@@ -3774,7 +4098,7 @@ def test_access_update_execute_claim_is_stable_across_fresh_authorization(
         seconds_before=60,
     )
     assert first["authorization_digest"] != second["authorization_digest"]
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts([]), cloudformation, cloudtrail=cloudtrail
         ),
@@ -3822,7 +4146,7 @@ def test_execute_recovery_uses_original_claim_after_window_and_never_reexecutes(
         account = pure.MANAGEMENT_ACCOUNT_ID
         caller = MGMT_CALLER
     cloudtrail = ExecuteRecoveryCloudTrail(account=account, caller=caller)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(sts, cloudformation, cloudtrail=cloudtrail),
         claims=store,
         profile=profile,
@@ -4006,7 +4330,7 @@ def test_execute_recovery_requires_original_execution_claim_before_sts(
         request_digest=intent["request_digests"][operation],
         dispatch=dispatch,
     )
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), CloudFormationUnused(), cloudtrail=object()),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -4028,7 +4352,7 @@ def test_connected_publish_is_sts_first_one_attempt_and_claimed(tmp_path: Path) 
     events: list[str] = []
     intent = _object_intent("template.yaml")
     s3 = S3Put(events, intent)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=s3),
         claims=_claim_store(tmp_path),
         profile=pure.AUTHORITY_PROFILE,
@@ -4067,10 +4391,135 @@ def test_connected_publish_is_sts_first_one_attempt_and_claimed(tmp_path: Path) 
     assert s3.calls == 1
 
 
+def test_publish_consumes_exact_admission_after_preflight_immediately_before_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    loader_calls: list[dict[str, Any]] = []
+    assertion_calls: list[dict[str, Any]] = []
+    intent = _object_intent("template.yaml")
+    base_claims = _claim_store(tmp_path)
+    capability = object()
+
+    class RecordingClaims:
+        def reserve(self, **kwargs: Any) -> Path:
+            events.append("claim")
+            return base_claims.reserve(**kwargs)
+
+        def read_exact(self, **kwargs: Any) -> dict[str, Any]:
+            return base_claims.read_exact(**kwargs)
+
+    def loader(**kwargs: Any) -> object:
+        events.append("admission-load")
+        loader_calls.append(kwargs)
+        return capability
+
+    def assert_active(value: object, **kwargs: Any) -> str:
+        events.append("admission-assert")
+        assert value is capability
+        assertion_calls.append(kwargs)
+        return "sha256:" + "8" * 64
+
+    monkeypatch.setattr(aws, "assert_route_collision_admission_active", assert_active)
+    provider = aws.ConnectedArtifactBootstrapProvider(
+        clients=aws.Clients(
+            Sts(events), CloudFormationUnused(), s3=S3Put(events, intent)
+        ),
+        claims=RecordingClaims(),  # type: ignore[arg-type]
+        profile=pure.AUTHORITY_PROFILE,
+        clock=lambda: NOW,
+        source_attestor=lambda **_kwargs: _reviewed_sources(),
+        collision_admission_loader=loader,  # type: ignore[arg-type]
+    )
+    receipt = provider.publish_object_once(
+        bootstrap_intent=_intent(),
+        source_root=ROOT,
+        foundation_readback=_foundation_readback(),
+        object_intent=intent,
+        body=b"template",
+        authorization=_mutation_auth("publish-object", intent["intent_digest"]),
+    )
+
+    expected = {
+        "operation": "publish-object",
+        "effect_request_digest": intent["request_digest"],
+        "bootstrap_intent_digest": _intent()["intent_digest"],
+        "now": NOW,
+    }
+    assert loader_calls == [expected]
+    assert assertion_calls == [expected]
+    assert events == [
+        "sts",
+        "list",
+        "admission-load",
+        "admission-assert",
+        "claim",
+        "put",
+    ]
+    binding = {
+        key: value for key, value in expected.items() if key != "now"
+    }
+    binding["admission_digest"] = "sha256:" + "8" * 64
+    assert receipt["collision_admission"] == binding
+    claim = base_claims.read_exact(
+        operation="publish-object", digest=intent["effect_digest"]
+    )
+    assert claim["collision_admission"] == binding
+
+
+@pytest.mark.parametrize(
+    ("mode", "code"),
+    [
+        ("missing", "COLLISION_ADMISSION_REQUIRED"),
+        ("rejected", "ROUTE_COLLISION_ADMISSION_NOT_ACTIVE"),
+    ],
+)
+def test_publish_admission_failure_blocks_claim_and_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    code: str,
+) -> None:
+    events: list[str] = []
+    intent = _object_intent("template.yaml")
+    s3 = S3Put(events, intent)
+    loader = None
+    if mode == "rejected":
+        loader = lambda **_kwargs: object()
+
+        def reject(*_args: Any, **_kwargs: Any) -> str:
+            raise aws.RouteCollisionAdmissionError(code)
+
+        monkeypatch.setattr(aws, "assert_route_collision_admission_active", reject)
+    provider = aws.ConnectedArtifactBootstrapProvider(
+        clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=s3),
+        claims=_claim_store(tmp_path),
+        profile=pure.AUTHORITY_PROFILE,
+        clock=lambda: NOW,
+        source_attestor=lambda **_kwargs: _reviewed_sources(),
+        collision_admission_loader=loader,  # type: ignore[arg-type]
+    )
+    with pytest.raises(aws.ConnectedArtifactBootstrapError) as raised:
+        provider.publish_object_once(
+            bootstrap_intent=_intent(),
+            source_root=ROOT,
+            foundation_readback=_foundation_readback(),
+            object_intent=intent,
+            body=b"template",
+            authorization=_mutation_auth(
+                "publish-object", intent["intent_digest"]
+            ),
+        )
+    assert raised.value.code == code
+    assert events == ["sts", "list"]
+    assert s3.calls == 0
+    assert not list(tmp_path.glob("*.claim.json"))
+
+
 def test_connected_publish_rejects_body_before_any_aws_call(tmp_path: Path) -> None:
     events: list[str] = []
     intent = _object_intent("template.yaml")
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=S3Put(events, intent)),
         claims=_claim_store(tmp_path),
         profile=pure.AUTHORITY_PROFILE,
@@ -4230,6 +4679,7 @@ def _reserve_object_claim(
         preflight_calls=1,
         mutation_nonce=intent["mutation_nonce"],
         causal_claim_digest=intent["causal_claim_digest"],
+        collision_admission=_admission_binding("publish-object", intent["request"]),
     )
 
 
@@ -4241,7 +4691,7 @@ def test_object_recovery_is_causal_deterministic_and_never_puts(
     _reserve_object_claim(store, intent)
     s3 = S3ObjectRecovery(intent=intent)
     events: list[str] = []
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=s3),
         claims=store,
         profile=pure.AUTHORITY_PROFILE,
@@ -4282,7 +4732,7 @@ def test_object_recovery_rejects_ambiguity_and_readback_drift(
     store = _claim_store(tmp_path)
     _reserve_object_claim(store, intent)
     s3 = S3ObjectRecovery(intent=intent, drift=drift)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts([]), CloudFormationUnused(), s3=s3),
         claims=store,
         profile=pure.AUTHORITY_PROFILE,
@@ -4319,6 +4769,12 @@ def test_object_readback_rejects_noncanonical_dispatch_before_sts(
         "mutation_nonce": intent["mutation_nonce"],
         "causal_claim_digest": intent["causal_claim_digest"],
         "authorization_digest": "sha256:" + "a" * 64,
+        "collision_admission": {
+            "operation": "publish-object",
+            "effect_request_digest": intent["request_digest"],
+            "bootstrap_intent_digest": _intent()["intent_digest"],
+            "admission_digest": "sha256:" + "9" * 64,
+        },
         "preflight_absence_digest": "sha256:" + "b" * 64,
         "preflight_calls": 1,
         "verifier": {
@@ -4360,7 +4816,7 @@ def test_object_readback_rejects_noncanonical_dispatch_before_sts(
             dispatch["object_intent_digest"] = "sha256:" + "f" * 64
             dispatch.pop("receipt_digest")
             dispatch["receipt_digest"] = pure.digest_value(dispatch)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(Sts(events), CloudFormationUnused(), s3=object()),
         claims=_claim_store(tmp_path),
         profile=pure.AUTHORITY_PROFILE,
@@ -4393,6 +4849,12 @@ def test_signing_readback_rejects_noncanonical_dispatch_before_sts(
         "bootstrap_intent_digest": _intent()["intent_digest"],
         "signing_intent_digest": intent["intent_digest"],
         "authorization_digest": "sha256:" + "a" * 64,
+        "collision_admission": {
+            "operation": "start-signing-job",
+            "effect_request_digest": intent["request_digest"],
+            "bootstrap_intent_digest": _intent()["intent_digest"],
+            "admission_digest": "sha256:" + "9" * 64,
+        },
         "verifier": {
             "account_id": pure.AUTHORITY_ACCOUNT_ID,
             "caller_arn": AUTH_CALLER,
@@ -4426,7 +4888,7 @@ def test_signing_readback_rejects_noncanonical_dispatch_before_sts(
             dispatch["signing_intent_digest"] = "sha256:" + "f" * 64
             dispatch.pop("receipt_digest")
             dispatch["receipt_digest"] = pure.digest_value(dispatch)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(events), CloudFormationUnused(), s3=object(), signer=object()
         ),
@@ -4627,6 +5089,9 @@ def _reserve_signing_claim(
         authorization_digest=authorization["authorization_digest"],
         authorization_record=authorization,
         request_token=intent["request"]["clientRequestToken"],
+        collision_admission=_admission_binding(
+            "start-signing-job", intent["request"]
+        ),
     )
 
 
@@ -4640,7 +5105,7 @@ def test_signing_recovery_is_claimed_deterministic_and_revalidates_profile(
     cloudtrail = SigningRecoveryCloudTrail(intent=intent, job_id=job_id)
     signer = SigningRecoverySigner(intent=intent, job_id=job_id)
     s3 = SigningRecoveryS3(signer=signer)
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts([]),
             CloudFormationUnused(),
@@ -4691,7 +5156,7 @@ def test_signing_recovery_rejects_missing_cause_ambiguity_and_profile_drift(
         intent=intent, job_id=job_id, revoked=drift == "revoked"
     )
     events: list[str] = []
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(events),
             CloudFormationUnused(),
@@ -4775,7 +5240,7 @@ class MgmtSts:
 
 
 def test_stack_readback_rejects_one_extra_resource(tmp_path: Path) -> None:
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), CloudFormationResources(extra=True)),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -4871,6 +5336,95 @@ def test_cleanup_retire_validator_reconstructs_request_and_rejects_rolearn() -> 
     assert raised.value.code == "CLEANUP_RETIRE_REQUEST_RECONSTRUCTION_MISMATCH"
 
 
+@pytest.mark.parametrize(
+    ("forbidden_action", "replacement", "expected_code"),
+    [
+        ("Add", None, "CHANGE_SET_SEMANTIC_DRIFT"),
+        ("Modify", "False", "CHANGE_SET_SEMANTIC_DRIFT"),
+        ("Remove", "True", "CHANGE_SET_REPLACEMENT_FORBIDDEN"),
+    ],
+)
+def test_cleanup_attestation_rejects_add_modify_or_replacement_and_never_reenables(
+    tmp_path: Path,
+    forbidden_action: str,
+    replacement: str | None,
+    expected_code: str,
+) -> None:
+    retire = _expired_cleanup_retire()
+    boundary = datetime.fromisoformat(
+        retire["cleanup_not_after"][:-1] + "+00:00"
+    )
+    parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in retire["request"]["Parameters"]
+    }
+    assert parameters["AssignmentEnabled"] == "false"
+    assert parameters["CleanupAssignmentsEnabled"] == "false"
+
+    dispatch = _execution_dispatch(
+        operation="bridge-cleanup-retire",
+        intent_digest=retire["intent_digest"],
+        request_digest=retire["request_digest"],
+        dispatched_at=boundary.isoformat().replace("+00:00", "Z"),
+    )
+    changes = [
+        _remove_change(
+            logical=logical,
+            resource_type=resource_type,
+        )
+        for logical, resource_type in (
+            ("BrokerSeedCleanupAssignment", "AWS::SSO::Assignment"),
+            ("BrokerSeedCleanupPermissionSet", "AWS::SSO::PermissionSet"),
+            ("ManagementRecoveryRole", "AWS::IAM::Role"),
+            ("RouteSeedCleanupAssignment", "AWS::SSO::Assignment"),
+            ("RouteSeedCleanupPermissionSet", "AWS::SSO::PermissionSet"),
+        )
+    ]
+    forged = changes[0]["ResourceChange"]
+    forged["Action"] = forbidden_action
+    if forbidden_action == "Modify":
+        forged["Scope"] = ["Properties"]
+        forged["Details"] = [
+            {
+                "ChangeSource": "ParameterReference",
+                "Evaluation": "Static",
+                "CausingEntity": "CleanupAssignmentsEnabled",
+                "Target": {
+                    "Attribute": "Properties",
+                    "Name": "PrincipalId",
+                    "RequiresRecreation": "Never",
+                },
+            }
+        ]
+    if replacement is not None:
+        forged["Replacement"] = replacement
+
+    provider = _ContractHarnessProvider(
+        clients=aws.Clients(
+            MgmtSts(),
+            AttestCloudFormation(
+                request=retire["request"],
+                dispatch=dispatch,
+                changes=changes,
+            ),
+        ),
+        claims=_claim_store(tmp_path),
+        profile=pure.MANAGEMENT_PROFILE,
+        clock=lambda: boundary,
+        source_attestor=lambda **_kwargs: _reviewed_sources(),
+    )
+    with pytest.raises(aws.ConnectedArtifactBootstrapError) as raised:
+        provider.attest_change_set(
+            bootstrap_intent=_intent(),
+            operation="bridge-cleanup-retire",
+            dispatch_receipt=dispatch,
+            source_root=ROOT,
+            cleanup_retire=retire,
+            bridge_revoke_readback=_bridge_revoke_readback(),
+        )
+    assert raised.value.code == expected_code
+
+
 def test_cleanup_retire_authorization_is_exact_and_boundary_closed() -> None:
     retire = _expired_cleanup_retire()
     boundary = datetime.fromisoformat(
@@ -4935,7 +5489,7 @@ def test_cleanup_success_jit_revalidation_allows_only_freshness_fields(
         )
         for target in ("route", "broker", "broker-protection")
     }
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), CloudFormationUnused()),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -5013,7 +5567,7 @@ def test_expired_cleanup_dispatch_is_one_shot_without_success_profiles(
         expires_at=boundary + timedelta(minutes=10),
     )
     cloudformation = CleanupRetireCloudFormation()
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(MgmtSts(), cloudformation),
         claims=_claim_store(tmp_path),
         profile=pure.MANAGEMENT_PROFILE,
@@ -5213,7 +5767,7 @@ def test_cleanup_retire_readback_proves_exact_absence_before_acceptance(
     boundary = datetime.fromisoformat(
         retire["cleanup_not_after"][:-1] + "+00:00"
     )
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             MgmtSts(),
             RetiredBridgeCloudFormation(
@@ -5436,7 +5990,7 @@ def test_every_object_and_signing_action_rechecks_exact_clean_source_before_sts(
             f"CLEAN_EXACT_MAIN_REQUIRED:{source_drift}"
         )
 
-    provider = aws.ConnectedArtifactBootstrapProvider(
+    provider = _ContractHarnessProvider(
         clients=aws.Clients(
             Sts(events),
             CloudFormationUnused(),
@@ -5550,6 +6104,278 @@ def test_cli_help_is_sdk_independent_and_exposes_the_closed_action_set() -> None
     assert set(action.choices) == expected
 
 
+@pytest.mark.parametrize(
+    "action",
+    [
+        "dispatch-bridge-pin",
+        "execute-bridge-pin",
+        "dispatch-access-update",
+        "execute-access-update",
+        "publish-object",
+        "start-signing-job",
+    ],
+)
+def test_cli_requires_admission_digest_in_every_expansive_bundle(
+    action: str,
+    tmp_path: Path,
+) -> None:
+    cli = _load_cli_module()
+    assert cli._MUTATING_CONNECTED_ACTIONS == {
+        "dispatch-change-set",
+        "execute-change-set",
+        "dispatch-bridge-pin",
+        "execute-bridge-pin",
+        "dispatch-access-update",
+        "execute-access-update",
+        "publish-object",
+        "start-signing-job",
+    }
+    with pytest.raises(cli.CliError) as raised:
+        cli._connected(
+            action,
+            {},
+            source_root=ROOT,
+            private_root=tmp_path,
+            profile=pure.MANAGEMENT_PROFILE,
+            claim_root=tmp_path / "missing-claim-root",
+        )
+    assert str(raised.value) == "BUNDLE_FIELDS_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("action", "extra"),
+    [
+        ("dispatch-change-set", {"authorization": {}}),
+        (
+            "execute-change-set",
+            {
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+    ],
+)
+def test_cli_generic_change_set_surface_opens_only_exact_bridge_revoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    extra: Mapping[str, Any],
+) -> None:
+    cli = _load_cli_module()
+    with pytest.raises(cli.CliError) as blocked:
+        cli._connected(
+            action,
+            {
+                "bootstrap_intent": {},
+                "operation": "bridge-create",
+                **dict(extra),
+            },
+            source_root=ROOT,
+            private_root=tmp_path,
+            profile=pure.MANAGEMENT_PROFILE,
+            claim_root=tmp_path,
+        )
+    assert str(blocked.value) == "COLLISION_ADMISSION_REQUIRED"
+
+    calls: list[tuple[str, Mapping[str, Any]]] = []
+
+    class Session:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    class Config:
+        pass
+
+    class Claims:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class Provider:
+        def __init__(self, **kwargs: Any) -> None:
+            assert "collision_admission_loader" not in kwargs
+
+        def dispatch_change_set_once(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append(("dispatch", kwargs))
+            return {"status": "dispatched"}
+
+        def execute_change_set_once(self, **kwargs: Any) -> dict[str, Any]:
+            calls.append(("execute", kwargs))
+            return {"status": "executed"}
+
+    boto3 = types.ModuleType("boto3")
+    boto3.Session = Session  # type: ignore[attr-defined]
+    botocore = types.ModuleType("botocore")
+    botocore.__path__ = []  # type: ignore[attr-defined]
+    botocore_config = types.ModuleType("botocore.config")
+    botocore_config.Config = Config  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "boto3", boto3)
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.config", botocore_config)
+    monkeypatch.setattr(
+        cli,
+        "_aws_module",
+        lambda: types.SimpleNamespace(
+            clients_from_session=lambda *_args, **_kwargs: object(),
+            sdk_client_config=lambda value: value,
+            OExclClaimStore=Claims,
+            ConnectedArtifactBootstrapProvider=Provider,
+        ),
+    )
+
+    result = cli._connected(
+        action,
+        {
+            "bootstrap_intent": {},
+            "operation": "bridge-revoke",
+            **dict(extra),
+        },
+        source_root=ROOT,
+        private_root=tmp_path,
+        profile=pure.MANAGEMENT_PROFILE,
+        claim_root=tmp_path,
+    )
+    assert result["status"] in {"dispatched", "executed"}
+    assert calls == [
+        (
+            "dispatch" if action == "dispatch-change-set" else "execute",
+            {
+                "bootstrap_intent": {},
+                "operation": "bridge-revoke",
+                **dict(extra),
+                "source_root": ROOT,
+            },
+        )
+    ]
+
+
+def test_cli_wires_private_admission_loader_only_for_expansive_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cli = _load_cli_module()
+    calls: list[dict[str, Any]] = []
+    method_calls: list[dict[str, Any]] = []
+    capability = object()
+
+    class Session:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    class Config:
+        pass
+
+    class Claims:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class Provider:
+        def __init__(self, **kwargs: Any) -> None:
+            self.loader = kwargs["collision_admission_loader"]
+
+        def dispatch_bridge_pin_once(self, **kwargs: Any) -> dict[str, Any]:
+            method_calls.append(kwargs)
+            loaded = self.loader(
+                operation="bridge-pin:dispatch",
+                effect_request_digest="sha256:" + "6" * 64,
+                bootstrap_intent_digest="sha256:" + "5" * 64,
+                now=NOW,
+            )
+            assert loaded is capability
+            return {"status": "dispatched"}
+
+    def atomic_loader(**_kwargs: Any) -> object:
+        return capability
+
+    def build_atomic_loader(**kwargs: Any) -> object:
+        calls.append(kwargs)
+        return atomic_loader
+
+    boto3 = types.ModuleType("boto3")
+    boto3.Session = Session  # type: ignore[attr-defined]
+    botocore = types.ModuleType("botocore")
+    botocore.__path__ = []  # type: ignore[attr-defined]
+    botocore_config = types.ModuleType("botocore.config")
+    botocore_config.Config = Config  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "boto3", boto3)
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.config", botocore_config)
+    monkeypatch.setattr(
+        cli,
+        "_collision_atomic_context_module",
+        lambda: types.SimpleNamespace(
+            build_atomic_loader_from_private_context=build_atomic_loader
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_aws_module",
+        lambda: types.SimpleNamespace(
+            clients_from_session=lambda *_args, **_kwargs: object(),
+            sdk_client_config=lambda value: value,
+            OExclClaimStore=Claims,
+            ConnectedArtifactBootstrapProvider=Provider,
+        ),
+    )
+    authorization = {
+        "authorization_digest": "sha256:" + "1" * 64,
+        "authorized_at": "2026-08-31T12:00:00Z",
+        "expires_at": "2026-08-31T12:10:00Z",
+    }
+    bootstrap_intent = {"source_commit": "a" * 40}
+    bundle = {
+        "bootstrap_intent": bootstrap_intent,
+        "foundation_readback": {},
+        "bridge_pin": {},
+        "authorization": authorization,
+    }
+    admission_root = tmp_path / "admission"
+    gug393_root = tmp_path / "gug393"
+    gug395_root = tmp_path / "gug395"
+    result = cli._connected(
+        "dispatch-bridge-pin",
+        bundle,
+        source_root=ROOT,
+        private_root=tmp_path,
+        profile=pure.MANAGEMENT_PROFILE,
+        claim_root=tmp_path,
+        collision_admission_root=admission_root,
+        gug393_private_root=gug393_root,
+        gug395_private_root=gug395_root,
+    )
+    assert result == {"status": "dispatched"}
+    assert method_calls == [
+        {
+            "bootstrap_intent": bootstrap_intent,
+            "foundation_readback": {},
+            "bridge_pin": {},
+            "authorization": authorization,
+            "source_root": ROOT,
+        }
+    ]
+    assert calls == [
+        {
+            "admission_private_root": admission_root,
+            "effect_private_root": tmp_path,
+            "gug393_private_root": gug393_root,
+            "gug395_private_root": gug395_root,
+            "expected_approval_reference_digest": authorization[
+                "authorization_digest"
+            ],
+            "expected_authorized_at": authorization["authorized_at"],
+            "expected_expires_at": authorization["expires_at"],
+            "expected_operation": "bridge-pin:dispatch",
+            "expected_source_commit_sha": bootstrap_intent["source_commit"],
+            "environment": cli.os.environ,
+        }
+    ]
+
+
 def test_cli_uses_only_public_pure_contract_exports() -> None:
     tree = ast.parse(CLI.read_text(encoding="utf-8"))
     contract_attributes = {
@@ -5562,7 +6388,7 @@ def test_cli_uses_only_public_pure_contract_exports() -> None:
     assert contract_attributes <= set(pure.__all__)
 
 
-def test_cli_reserves_output_before_connected_action_and_finishes_same_inode(
+def test_cli_reserves_output_before_allowed_connected_action_and_finishes_same_inode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -5602,7 +6428,7 @@ def test_cli_reserves_output_before_connected_action_and_finishes_same_inode(
             str(private),
             "--source-root",
             str(ROOT),
-            "dispatch-change-set",
+            "dispatch-cleanup-retire",
             "--bundle-name",
             bundle_name,
             "--output-name",
@@ -5626,7 +6452,7 @@ def test_cli_reserves_output_before_connected_action_and_finishes_same_inode(
             str(private),
             "--source-root",
             str(ROOT),
-            "dispatch-change-set",
+            "dispatch-cleanup-retire",
             "--bundle-name",
             bundle_name,
             "--output-name",

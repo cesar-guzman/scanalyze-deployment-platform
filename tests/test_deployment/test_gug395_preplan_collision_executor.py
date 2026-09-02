@@ -435,7 +435,7 @@ def test_source_failure_during_execution_claim_is_durable_zero_call_blocked(
 @pytest.mark.parametrize(
     ("collision", "expected"),
     [
-        (False, contract.COLLISION_BLOCKED),
+        (False, contract.ABSENT_READY),
         (True, contract.COLLISION_BLOCKED),
     ],
 )

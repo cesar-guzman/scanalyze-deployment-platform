@@ -94,12 +94,15 @@ def _package_manifests() -> tuple[dict[str, object], dict[str, object]]:
 
 def _owner_values() -> dict[str, str]:
     return {
-        "artifact_bucket_name": "scanalyze-gug395-example",
-        "authority_account_id": "123456789012",
+        "artifact_bucket_name": (
+            "scanalyze-g376-art-111111111111-"
+            "042360977644-us-east-1-an"
+        ),
+        "authority_account_id": "042360977644",
         "kms_alias_name": "alias/scanalyze-gug395",
-        "kms_admin_principal_arn": "arn:aws:iam::123456789012:root",
+        "kms_admin_principal_arn": "arn:aws:iam::042360977644:root",
         "artifact_bucket_policy_principal_arn": (
-            "arn:aws:iam::123456789012:root"
+            "arn:aws:iam::042360977644:root"
         ),
         "identity_center_application_name": "ScanalyzeAuthorityRetirement",
         "identity_center_redirect_uri": "http://127.0.0.1:18443/callback",
@@ -112,7 +115,7 @@ def _owner_values() -> dict[str, str]:
         "identity_store_user_id": (
             "0123456789-12345678-1234-1234-1234-1234567890ab"
         ),
-        "authority_target_id": "123456789012",
+        "authority_target_id": "042360977644",
         "classifier_permission_set_name": "ScanalyzeAuthorityRetireClass",
         "approver_permission_set_name": "ScanalyzeAuthorityRetireApprove",
         "signing_profile_name": "scanalyze_gug395",
@@ -297,6 +300,32 @@ def test_seed_rejects_names_outside_downstream_domains(
     decision["value"] = value
     _reseal(owner, "owner_input_digest")
     with pytest.raises(subject.PreplanSeedError, match="DECISION_NAME_INVALID"):
+        _build_seed(owner)
+
+
+@pytest.mark.parametrize(
+    "bucket_name",
+    [
+        "scanalyze-g376-art-111111111111-042360977644-us-east-1",
+        "scanalyze-g376-art-11111111111g-042360977644-us-east-1-an",
+        "scanalyze-g376-art-111111111111-123456789012-us-east-1-an",
+        "scanalyze-g376-art-111111111111-042360977644-us-west-2-an",
+        "scanalyze-gug395-example",
+    ],
+)
+def test_seed_requires_the_exact_account_regional_bucket_name_pattern(
+    bucket_name: str,
+) -> None:
+    owner = _owner_input()
+    decision = next(
+        item
+        for item in owner["decisions"]
+        if item["key"] == "artifact_bucket_name"
+    )
+    decision["value"] = bucket_name
+    _reseal(owner, "owner_input_digest")
+
+    with pytest.raises(subject.PreplanSeedError, match="DECISION_BUCKET_INVALID"):
         _build_seed(owner)
 
 
@@ -677,7 +706,7 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
         for item in seed["decisions"]
     }
     kms_arn = (
-        "arn:aws:kms:us-east-1:123456789012:key/"
+        "arn:aws:kms:us-east-1:042360977644:key/"
         "12345678-1234-1234-1234-1234567890ab"
     )
     verification_digest = subject.canonical_digest("terminal-verifier-a")
@@ -876,7 +905,7 @@ def test_public_seed_receipt_is_digest_only_and_self_sealed() -> None:
     )
     rendered = subject.canonical_json(receipt)
     assert "arn:aws:" not in rendered
-    assert "123456789012" not in rendered
+    assert "042360977644" not in rendered
     assert "/Users/" not in rendered
     assert receipt["verified_source_capability_present"] is True
     assert receipt["live_execution_ready"] is False

@@ -31,6 +31,10 @@ class FakeGit:
         assert commit == SOURCE_COMMIT
         return (REPO_ROOT / path).read_bytes()
 
+    def tree_at(self, commit: str) -> str:
+        assert commit == SOURCE_COMMIT
+        return "b" * 40
+
 
 def _seal(value: Mapping[str, Any], field: str) -> dict[str, Any]:
     result = deepcopy(dict(value))
@@ -103,11 +107,11 @@ def _snapshot() -> dict[str, Any]:
                 "region": "us-east-1",
             },
             "identity_center_verifier": {
-                "profile": "839393571433_ScanalyzeFounderPepIdentityAdmin",
+                "profile": "839393571433_ReadOnlyAccess",
                 "account_id": "839393571433",
                 "caller_arn": (
                     "arn:aws:sts::839393571433:assumed-role/"
-                    "AWSReservedSSO_ScanalyzeFounderPepIdentityAdmin_"
+                    "AWSReservedSSO_AWSReadOnlyAccess_"
                     "0123456789FEDCBA/cesar"
                 ),
                 "region": "us-east-1",
@@ -180,6 +184,26 @@ def test_binds_independent_snapshot_to_sealed_private_draft() -> None:
     assert result["bootstrap_change_set_name"] == CHANGE_SET_NAME
     assert result["input_digest"] == subject.route.digest_value(
         {key: item for key, item in result.items() if key != "input_digest"}
+    )
+
+
+def test_reader_role_source_contract_digests_match_committed_templates() -> None:
+    management = subject._reader_role_source_digests(  # noqa: SLF001
+        (REPO_ROOT / subject.route.ROUTE_TEMPLATE_PATH).read_bytes(),
+        logical_id="ManagementCollisionReaderRole",
+    )
+    authority = subject._reader_role_source_digests(  # noqa: SLF001
+        (REPO_ROOT / subject.seed.SOURCE_TEMPLATE_PATH).read_bytes(),
+        logical_id="AuthorityCollisionReaderRole",
+    )
+
+    assert management == (
+        broker.MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST,
+        broker.MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST,
+    )
+    assert authority == (
+        broker.AUTHORITY_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST,
+        broker.AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST,
     )
 
 
@@ -276,9 +300,10 @@ def test_materializes_exact_runtime_config_with_update_previous_values(
     config = result["broker_config"]
     validated = broker.BrokerConfig.from_mapping(config)
     envelope = broker.encode_runtime_config(config)
-    assert len(broker.canonical_json(envelope).encode("utf-8")) <= (
-        seed.MAX_BROKER_CONFIG_BYTES
-    )
+    # Keep explicit headroom inside the Lambda 4,096-byte aggregate
+    # environment quota; the seed parser's 3,800-byte hard ceiling is only a
+    # final fail-closed bound.
+    assert len(broker.canonical_json(envelope).encode("utf-8")) <= 3_500
     assert validated.source_commit == SOURCE_COMMIT
     assert config["recovery_not_after"] == "2026-08-31T21:00:00Z"
     assert validated.recovery_not_after == datetime(

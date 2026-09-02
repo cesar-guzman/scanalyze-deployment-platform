@@ -24,6 +24,18 @@ from urllib.parse import urlsplit
 import yaml
 
 from tooling import platform_authority_plan_permission_repair_artifact_bootstrap as contract
+from tooling.platform_authority_gug376_collision_admission import (
+    RouteCollisionAdmissionCapability,
+    RouteCollisionAdmissionEffectGrant,
+    RouteCollisionAdmissionError,
+    assert_route_collision_admission_active,
+    consume_route_collision_admission,
+    revalidate_route_collision_admission_effect_grant,
+)
+from tooling.platform_authority_gug376_collision_atomic_admission import (
+    is_atomic_route_collision_admission_loader,
+    invoke_route_collision_admission_loader,
+)
 
 
 DISPATCH_RECEIPT_TYPE = (
@@ -73,6 +85,9 @@ _EXPECTED_SSO_PROFILES = {
         "ScanalyzeGug376ArtifactBootstrap",
     ),
 }
+_REDUCING_CHANGE_SET_OPERATIONS = frozenset(
+    {"bridge-revoke", "bridge-cleanup-retire"}
+)
 _PROFILE_CONFIGURATION_KEYS = frozenset(
     {
         "cli_pager",
@@ -114,6 +129,14 @@ _AMBIENT_AWS_FORBIDDEN = frozenset(
     }
 )
 
+CollisionAdmissionLoader = Callable[..., RouteCollisionAdmissionCapability]
+_COLLISION_ADMISSION_FIELDS = {
+    "operation",
+    "effect_request_digest",
+    "bootstrap_intent_digest",
+    "admission_digest",
+}
+
 
 class ConnectedArtifactBootstrapError(RuntimeError):
     """Stable provider error; uncertain means a mutation may have landed."""
@@ -126,6 +149,36 @@ class ConnectedArtifactBootstrapError(RuntimeError):
 
 def _fail(code: str, *, uncertain: bool = False) -> None:
     raise ConnectedArtifactBootstrapError(code, uncertain=uncertain)
+
+
+def _validate_collision_admission_binding(
+    value: object,
+    *,
+    operation: str,
+    effect_request: Mapping[str, Any],
+    bootstrap_intent_digest: str,
+) -> dict[str, str]:
+    """Validate the durable, exact binding of one consumed admission."""
+
+    effect_request_digest = contract.digest_value(effect_request)
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != _COLLISION_ADMISSION_FIELDS
+        or value.get("operation") != operation
+        or value.get("effect_request_digest") != effect_request_digest
+        or value.get("bootstrap_intent_digest") != bootstrap_intent_digest
+        or re.fullmatch(
+            r"sha256:[a-f0-9]{64}", str(value.get("admission_digest", ""))
+        )
+        is None
+    ):
+        _fail("COLLISION_ADMISSION_BINDING_INVALID")
+    return {
+        "operation": operation,
+        "effect_request_digest": effect_request_digest,
+        "bootstrap_intent_digest": bootstrap_intent_digest,
+        "admission_digest": str(value["admission_digest"]),
+    }
 
 
 def _exact_parameter_values(raw: Any, *, code: str) -> dict[str, str]:
@@ -683,6 +736,7 @@ class OExclClaimStore:
         preflight_calls: int | None = None,
         mutation_nonce: str | None = None,
         causal_claim_digest: str | None = None,
+        collision_admission: Mapping[str, str] | None = None,
     ) -> Path:
         if (
             re.fullmatch(r"[a-z0-9-]{3,80}", operation) is None
@@ -746,6 +800,21 @@ class OExclClaimStore:
                 )
                 is None
             )
+            or (
+                collision_admission is not None
+                and (
+                    not isinstance(collision_admission, Mapping)
+                    or set(collision_admission) != _COLLISION_ADMISSION_FIELDS
+                    or not isinstance(collision_admission.get("operation"), str)
+                    or not collision_admission["operation"]
+                    or any(
+                        re.fullmatch(r"sha256:[a-f0-9]{64}", str(value))
+                        is None
+                        for key, value in collision_admission.items()
+                        if key != "operation"
+                    )
+                )
+            )
         ):
             _fail("CLAIM_INPUT_INVALID")
         self._assert_root_unchanged()
@@ -784,6 +853,11 @@ class OExclClaimStore:
             "preflight_calls": preflight_calls,
             "mutation_nonce": mutation_nonce,
             "causal_claim_digest": causal_claim_digest,
+            "collision_admission": (
+                json.loads(contract.canonical_json(dict(collision_admission)))
+                if collision_admission is not None
+                else None
+            ),
             "retry_permitted": False,
             "production_authorized": False,
         }
@@ -871,6 +945,7 @@ class OExclClaimStore:
             "preflight_calls",
             "mutation_nonce",
             "causal_claim_digest",
+            "collision_admission",
             "retry_permitted",
             "production_authorized",
             "claim_digest",
@@ -901,6 +976,24 @@ class OExclClaimStore:
                     != record.get("authorization_digest")
                 )
             )
+            or (
+                record.get("collision_admission") is not None
+                and (
+                    not isinstance(record.get("collision_admission"), Mapping)
+                    or set(record["collision_admission"])
+                    != _COLLISION_ADMISSION_FIELDS
+                    or not isinstance(
+                        record["collision_admission"].get("operation"), str
+                    )
+                    or not record["collision_admission"]["operation"]
+                    or any(
+                        re.fullmatch(r"sha256:[a-f0-9]{64}", str(value))
+                        is None
+                        for key, value in record["collision_admission"].items()
+                        if key != "operation"
+                    )
+                )
+            )
             or record.get("retry_permitted") is not False
             or record.get("production_authorized") is not False
             or contract.digest_value(
@@ -923,6 +1016,7 @@ class ConnectedArtifactBootstrapProvider:
         clock: Callable[[], datetime],
         source_attestor: Callable[..., Mapping[str, Any]] = attest_clean_reviewed_sources,
         cleanup_success_revalidator: Callable[..., Mapping[str, Any]] | None = None,
+        collision_admission_loader: CollisionAdmissionLoader | None = None,
     ) -> None:
         if profile not in {contract.MANAGEMENT_PROFILE, contract.AUTHORITY_PROFILE}:
             _fail("PROFILE_INVALID")
@@ -932,6 +1026,175 @@ class ConnectedArtifactBootstrapProvider:
         self._clock = clock
         self._source_attestor = source_attestor
         self._cleanup_success_revalidator = cleanup_success_revalidator
+        self._collision_admission_loader = collision_admission_loader
+
+    def _assert_collision_admission(
+        self,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+    ) -> (
+        dict[str, str]
+        | tuple[
+            dict[str, str],
+            RouteCollisionAdmissionEffectGrant,
+            datetime,
+        ]
+    ):
+        """Load and consume one exact admission immediately before its claim."""
+
+        loader = self._collision_admission_loader
+        if loader is None:
+            _fail("COLLISION_ADMISSION_REQUIRED")
+        effect_request_digest = contract.digest_value(effect_request)
+        before_scan = self._clock()
+        try:
+            capability = invoke_route_collision_admission_loader(
+                loader,
+                operation=operation,
+                effect_request=effect_request,
+                effect_request_digest=effect_request_digest,
+                bootstrap_intent_digest=bootstrap_intent_digest,
+                now=before_scan,
+            )
+            if is_atomic_route_collision_admission_loader(loader):
+                admitted_at = self._clock()
+                grant = consume_route_collision_admission(
+                    capability,
+                    operation=operation,
+                    effect_request_digest=effect_request_digest,
+                    bootstrap_intent_digest=bootstrap_intent_digest,
+                    now=admitted_at,
+                )
+                admission_digest = grant.admission_digest
+            else:
+                admission_digest = assert_route_collision_admission_active(
+                    capability,
+                    operation=operation,
+                    effect_request_digest=effect_request_digest,
+                    bootstrap_intent_digest=bootstrap_intent_digest,
+                    now=before_scan,
+                )
+        except RouteCollisionAdmissionError as exc:
+            raise ConnectedArtifactBootstrapError(exc.code) from exc
+        binding = {
+            "operation": operation,
+            "effect_request_digest": effect_request_digest,
+            "bootstrap_intent_digest": bootstrap_intent_digest,
+            "admission_digest": admission_digest,
+        }
+        checked = _validate_collision_admission_binding(
+            binding,
+            operation=operation,
+            effect_request=effect_request,
+            bootstrap_intent_digest=bootstrap_intent_digest,
+        )
+        if is_atomic_route_collision_admission_loader(loader):
+            return checked, grant, admitted_at
+        return checked
+
+    @staticmethod
+    def _collision_admission_result(
+        value: object,
+        *,
+        fallback_time: datetime,
+    ) -> tuple[
+        dict[str, str],
+        RouteCollisionAdmissionEffectGrant | None,
+        datetime,
+    ]:
+        if isinstance(value, tuple) and len(value) == 3:
+            binding, grant, admitted_at = value
+            if (
+                not isinstance(binding, dict)
+                or type(grant) is not RouteCollisionAdmissionEffectGrant
+                or not isinstance(admitted_at, datetime)
+            ):
+                _fail("COLLISION_ADMISSION_BINDING_INVALID")
+            return binding, grant, admitted_at
+        if not isinstance(value, dict):
+            _fail("COLLISION_ADMISSION_BINDING_INVALID")
+        # Test-only contract harnesses may override the protected hook.  The
+        # product CLI always installs the exact opaque atomic loader.
+        return value, None, fallback_time
+
+    @staticmethod
+    def _require_collision_admission_active(
+        grant: RouteCollisionAdmissionEffectGrant | None,
+        *,
+        expected_admission_digest: str,
+        now: datetime,
+    ) -> None:
+        if grant is None:
+            return
+        try:
+            observed = revalidate_route_collision_admission_effect_grant(
+                grant,
+                now=now,
+            )
+        except RouteCollisionAdmissionError as exc:
+            raise ConnectedArtifactBootstrapError(exc.code) from exc
+        if observed != expected_admission_digest:
+            _fail("COLLISION_ADMISSION_BINDING_INVALID")
+
+    def _admit_mutation(
+        self,
+        *,
+        bootstrap: Mapping[str, Any],
+        authorization: Mapping[str, Any],
+        operation: str,
+        target_digest: str,
+        effect_request: Mapping[str, Any],
+        fallback_time: datetime,
+    ) -> tuple[
+        dict[str, str],
+        RouteCollisionAdmissionEffectGrant | None,
+        datetime,
+    ]:
+        admitted = self._assert_collision_admission(
+            operation=operation,
+            effect_request=effect_request,
+            bootstrap_intent_digest=str(bootstrap["intent_digest"]),
+        )
+        binding, grant, admitted_at = self._collision_admission_result(
+            admitted,
+            fallback_time=fallback_time,
+        )
+        self._require_window(bootstrap, read_only=False)
+        contract.validate_mutation_authorization(
+            authorization,
+            bootstrap_intent=bootstrap,
+            operation=operation,
+            target_digest=target_digest,
+            now=admitted_at,
+        )
+        return binding, grant, admitted_at
+
+    def _revalidate_admitted_mutation(
+        self,
+        *,
+        bootstrap: Mapping[str, Any],
+        authorization: Mapping[str, Any],
+        operation: str,
+        target_digest: str,
+        binding: Mapping[str, str],
+        grant: RouteCollisionAdmissionEffectGrant | None,
+    ) -> datetime:
+        effect_at = self._require_window(bootstrap, read_only=False)
+        contract.validate_mutation_authorization(
+            authorization,
+            bootstrap_intent=bootstrap,
+            operation=operation,
+            target_digest=target_digest,
+            now=effect_at,
+        )
+        self._require_collision_admission_active(
+            grant,
+            expected_admission_digest=binding["admission_digest"],
+            now=effect_at,
+        )
+        return effect_at
 
     def _revalidate_cleanup_success(
         self,
@@ -1189,6 +1452,7 @@ class ConnectedArtifactBootstrapProvider:
             "intent_digest",
             "request_digest",
             "authorization_digest",
+            "collision_admission",
             "verifier",
             "stack_id",
             "change_set_id",
@@ -1221,6 +1485,13 @@ class ConnectedArtifactBootstrapProvider:
         change_set_name = (
             request.get("ChangeSetName") if isinstance(request, Mapping) else None
         )
+        collision_admission = (
+            receipt.get("collision_admission")
+            if isinstance(receipt, Mapping)
+            else None
+        )
+        expected_admission_operation = f"{operation}:dispatch"
+        expected_effect_request_digest = contract.digest_value(request)
         stack_pattern = re.compile(
             rf"^arn:aws:cloudformation:{re.escape(contract.REGION)}:"
             rf"{expected_account}:stack/{re.escape(str(stack_name))}/"
@@ -1245,6 +1516,28 @@ class ConnectedArtifactBootstrapProvider:
                 str(receipt.get("authorization_digest", "")),
             )
             is None
+            or (
+                operation in _REDUCING_CHANGE_SET_OPERATIONS
+                and collision_admission is not None
+            )
+            or (
+                operation not in _REDUCING_CHANGE_SET_OPERATIONS
+                and (
+                    not isinstance(collision_admission, Mapping)
+                    or set(collision_admission) != _COLLISION_ADMISSION_FIELDS
+                    or collision_admission.get("operation")
+                    != expected_admission_operation
+                    or collision_admission.get("effect_request_digest")
+                    != expected_effect_request_digest
+                    or collision_admission.get("bootstrap_intent_digest")
+                    != bootstrap["intent_digest"]
+                    or re.fullmatch(
+                        r"sha256:[a-f0-9]{64}",
+                        str(collision_admission.get("admission_digest", "")),
+                    )
+                    is None
+                )
+            )
             or not isinstance(verifier, Mapping)
             or set(verifier) != {"account_id", "caller_arn", "profile", "region"}
             or verifier.get("account_id") != expected_account
@@ -1331,6 +1624,8 @@ class ConnectedArtifactBootstrapProvider:
             or claim.get("request_token") != request.get("ClientToken")
             or claim.get("authorization_digest")
             != dispatch["authorization_digest"]
+            or claim.get("collision_admission")
+            != dispatch["collision_admission"]
             or claim.get("caller_arn") != verifier["caller_arn"]
             or claim.get("preflight_digest") is not None
             or claim.get("preflight_calls") is not None
@@ -1388,6 +1683,7 @@ class ConnectedArtifactBootstrapProvider:
             "mutation_nonce",
             "causal_claim_digest",
             "authorization_digest",
+            "collision_admission",
             "preflight_absence_digest",
             "preflight_calls",
             "verifier",
@@ -1416,6 +1712,11 @@ class ConnectedArtifactBootstrapProvider:
             if isinstance(receipt, Mapping)
             else None
         )
+        collision_admission = (
+            receipt.get("collision_admission")
+            if isinstance(receipt, Mapping)
+            else None
+        )
         if (
             not isinstance(receipt, Mapping)
             or set(receipt) != required
@@ -1428,6 +1729,18 @@ class ConnectedArtifactBootstrapProvider:
             or receipt.get("mutation_nonce") != intent["mutation_nonce"]
             or receipt.get("causal_claim_digest")
             != intent["causal_claim_digest"]
+            or not isinstance(collision_admission, Mapping)
+            or set(collision_admission) != _COLLISION_ADMISSION_FIELDS
+            or collision_admission.get("operation") != "publish-object"
+            or collision_admission.get("effect_request_digest")
+            != contract.digest_value(intent["request"])
+            or collision_admission.get("bootstrap_intent_digest")
+            != bootstrap["intent_digest"]
+            or re.fullmatch(
+                r"sha256:[a-f0-9]{64}",
+                str(collision_admission.get("admission_digest", "")),
+            )
+            is None
             or re.fullmatch(
                 r"sha256:[a-f0-9]{64}",
                 str(receipt.get("authorization_digest", "")),
@@ -1510,6 +1823,7 @@ class ConnectedArtifactBootstrapProvider:
             "bootstrap_intent_digest",
             "signing_intent_digest",
             "authorization_digest",
+            "collision_admission",
             "verifier",
             "job_id",
             "job_arn",
@@ -1524,6 +1838,11 @@ class ConnectedArtifactBootstrapProvider:
         }
         verifier = receipt.get("verifier") if isinstance(receipt, Mapping) else None
         job_id = receipt.get("job_id") if isinstance(receipt, Mapping) else None
+        collision_admission = (
+            receipt.get("collision_admission")
+            if isinstance(receipt, Mapping)
+            else None
+        )
         if (
             not isinstance(receipt, Mapping)
             or set(receipt) != required
@@ -1532,6 +1851,18 @@ class ConnectedArtifactBootstrapProvider:
             or receipt.get("source_commit") != bootstrap["source_commit"]
             or receipt.get("bootstrap_intent_digest") != bootstrap["intent_digest"]
             or receipt.get("signing_intent_digest") != intent["intent_digest"]
+            or not isinstance(collision_admission, Mapping)
+            or set(collision_admission) != _COLLISION_ADMISSION_FIELDS
+            or collision_admission.get("operation") != "start-signing-job"
+            or collision_admission.get("effect_request_digest")
+            != contract.digest_value(intent["request"])
+            or collision_admission.get("bootstrap_intent_digest")
+            != bootstrap["intent_digest"]
+            or re.fullmatch(
+                r"sha256:[a-f0-9]{64}",
+                str(collision_admission.get("admission_digest", "")),
+            )
+            is None
             or re.fullmatch(
                 r"sha256:[a-f0-9]{64}",
                 str(receipt.get("authorization_digest", "")),
@@ -2003,6 +2334,17 @@ class ConnectedArtifactBootstrapProvider:
             "ClientRequestToken": "gug376-" + execution_digest[7:55],
         }
         claim = execution_claim
+        if operation in _REDUCING_CHANGE_SET_OPERATIONS:
+            if claim.get("collision_admission") is not None:
+                _fail("EXECUTION_CAUSAL_CLAIM_MISMATCH")
+            collision_admission = None
+        else:
+            collision_admission = _validate_collision_admission_binding(
+                claim.get("collision_admission"),
+                operation=f"{operation}:execute",
+                effect_request=execute_request,
+                bootstrap_intent_digest=bootstrap["intent_digest"],
+            )
         self._validate_attestation_chronology(
             attestation,
             not_before=dispatch["dispatched_at"],
@@ -2056,6 +2398,7 @@ class ConnectedArtifactBootstrapProvider:
             "dispatch_receipt_digest": dispatch["receipt_digest"],
             "change_set_attestation_digest": attestation["attestation_digest"],
             "authorization_digest": claim["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, claim["caller_arn"]),
             "request_id": event["request_id"],
             "dispatched_at": claim["claimed_at"],
@@ -2083,6 +2426,17 @@ class ConnectedArtifactBootstrapProvider:
             operation=f"{operation}-dispatch",
             digest=request_digest,
         )
+        if operation in _REDUCING_CHANGE_SET_OPERATIONS:
+            if claim.get("collision_admission") is not None:
+                _fail("CAUSAL_CLAIM_MISMATCH")
+            collision_admission = None
+        else:
+            collision_admission = _validate_collision_admission_binding(
+                claim.get("collision_admission"),
+                operation=f"{operation}:dispatch",
+                effect_request=request,
+                bootstrap_intent_digest=bootstrap["intent_digest"],
+            )
         if (
             claim.get("request_digest") != request_digest
             or claim.get("request_token") != request.get("ClientToken")
@@ -2133,6 +2487,7 @@ class ConnectedArtifactBootstrapProvider:
             "intent_digest": intent_digest,
             "request_digest": request_digest,
             "authorization_digest": claim["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, claim["caller_arn"]),
             "stack_id": event["stack_id"],
             "change_set_id": event["change_set_id"],
@@ -2985,7 +3340,37 @@ class ConnectedArtifactBootstrapProvider:
                 operation=f"{operation}:dispatch",
                 now=claim_current,
             )
-        claimed_at = _stamp(claim_current)
+        if operation in _REDUCING_CHANGE_SET_OPERATIONS:
+            collision_admission = None
+            admission_grant = None
+            admitted_at = claim_current
+        else:
+            admitted = self._assert_collision_admission(
+                operation=f"{operation}:dispatch",
+                effect_request=request,
+                bootstrap_intent_digest=intent["intent_digest"],
+            )
+            collision_admission, admission_grant, admitted_at = (
+                self._collision_admission_result(
+                    admitted,
+                    fallback_time=claim_current,
+                )
+            )
+        if retire is not None:
+            contract.validate_bridge_cleanup_retire_authorization(
+                authorization,
+                cleanup_retire=retire,
+                operation="dispatch",
+                now=admitted_at,
+            )
+        else:
+            contract.validate_authorization(
+                authorization,
+                intent=intent,
+                operation=f"{operation}:dispatch",
+                now=admitted_at,
+            )
+        claimed_at = _stamp(admitted_at)
         self._claims.reserve(
             operation=f"{operation}-dispatch",
             digest=request_digest,
@@ -2995,7 +3380,35 @@ class ConnectedArtifactBootstrapProvider:
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=request["ClientToken"],
+            collision_admission=collision_admission,
         )
+        effect_current = (
+            self._require_cleanup_retire_clock(retire, admission=True)
+            if retire is not None
+            else self._require_window(intent, read_only=False)
+        )
+        if retire is not None:
+            contract.validate_bridge_cleanup_retire_authorization(
+                authorization,
+                cleanup_retire=retire,
+                operation="dispatch",
+                now=effect_current,
+            )
+        else:
+            contract.validate_authorization(
+                authorization,
+                intent=intent,
+                operation=f"{operation}:dispatch",
+                now=effect_current,
+            )
+        if collision_admission is not None:
+            self._require_collision_admission_active(
+                admission_grant,
+                expected_admission_digest=collision_admission[
+                    "admission_digest"
+                ],
+                now=effect_current,
+            )
         response = _call(
             self._clients.cloudformation.create_change_set,
             mutation=True,
@@ -3024,6 +3437,7 @@ class ConnectedArtifactBootstrapProvider:
             "intent_digest": intent_digest,
             "request_digest": request_digest,
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "stack_id": stack_id,
             "change_set_id": change_set_id,
@@ -3290,7 +3704,6 @@ class ConnectedArtifactBootstrapProvider:
                 operation=f"{operation}:execute",
                 now=claim_current,
             )
-        dispatched_at = _stamp(claim_current)
         execution_digest = self._execution_effect_digest(
             operation=operation,
             intent_digest=intent_digest,
@@ -3302,20 +3715,84 @@ class ConnectedArtifactBootstrapProvider:
             "StackName": dispatch["stack_id"],
             "ClientRequestToken": "gug376-" + execution_digest[7:55],
         }
+        execute_request_digest = contract.digest_value(execute_request)
+        execution_preflight_digest = self._execution_preflight_digest(
+            dispatch=dispatch, attestation=attestation
+        )
+        execution_preflight_calls = (
+            causal_calls + live_attestation["aws_calls"] + 1
+        )
+        if operation in _REDUCING_CHANGE_SET_OPERATIONS:
+            collision_admission = None
+            admission_grant = None
+            admitted_at = claim_current
+        else:
+            admitted = self._assert_collision_admission(
+                operation=f"{operation}:execute",
+                effect_request=execute_request,
+                bootstrap_intent_digest=intent["intent_digest"],
+            )
+            collision_admission, admission_grant, admitted_at = (
+                self._collision_admission_result(
+                    admitted,
+                    fallback_time=claim_current,
+                )
+            )
+        if retire is not None:
+            contract.validate_bridge_cleanup_retire_authorization(
+                authorization,
+                cleanup_retire=retire,
+                operation="execute",
+                now=admitted_at,
+            )
+        else:
+            contract.validate_authorization(
+                authorization,
+                intent=intent,
+                operation=f"{operation}:execute",
+                now=admitted_at,
+            )
+        dispatched_at = _stamp(admitted_at)
         self._claims.reserve(
             operation=f"{operation}-execute",
             digest=execution_digest,
             claimed_at=dispatched_at,
             caller_arn=caller,
-            request_digest=contract.digest_value(execute_request),
+            request_digest=execute_request_digest,
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=execute_request["ClientRequestToken"],
-            preflight_digest=self._execution_preflight_digest(
-                dispatch=dispatch, attestation=attestation
-            ),
-            preflight_calls=causal_calls + live_attestation["aws_calls"] + 1,
+            preflight_digest=execution_preflight_digest,
+            preflight_calls=execution_preflight_calls,
+            collision_admission=collision_admission,
         )
+        effect_current = (
+            self._require_cleanup_retire_clock(retire, admission=True)
+            if retire is not None
+            else self._require_window(intent, read_only=False)
+        )
+        if retire is not None:
+            contract.validate_bridge_cleanup_retire_authorization(
+                authorization,
+                cleanup_retire=retire,
+                operation="execute",
+                now=effect_current,
+            )
+        else:
+            contract.validate_authorization(
+                authorization,
+                intent=intent,
+                operation=f"{operation}:execute",
+                now=effect_current,
+            )
+        if collision_admission is not None:
+            self._require_collision_admission_active(
+                admission_grant,
+                expected_admission_digest=collision_admission[
+                    "admission_digest"
+                ],
+                now=effect_current,
+            )
         response = _call(
             self._clients.cloudformation.execute_change_set,
             mutation=True,
@@ -3331,6 +3808,7 @@ class ConnectedArtifactBootstrapProvider:
             "dispatch_receipt_digest": dispatch["receipt_digest"],
             "change_set_attestation_digest": attestation["attestation_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "request_id": _response_id(response, "EXECUTE_CHANGE_SET_RESPONSE_INVALID"),
             "dispatched_at": dispatched_at,
@@ -3521,7 +3999,17 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=pin["intent_digest"],
             now=claim_current,
         )
-        claimed_at = _stamp(claim_current)
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+            operation="bridge-pin:dispatch",
+                target_digest=pin["intent_digest"],
+            effect_request=pin["request"],
+                fallback_time=claim_current,
+            )
+        )
+        claimed_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="bridge-pin-dispatch",
             digest=pin["request_digest"],
@@ -3531,6 +4019,15 @@ class ConnectedArtifactBootstrapProvider:
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=pin["request"]["ClientToken"],
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="bridge-pin:dispatch",
+            target_digest=pin["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.cloudformation.create_change_set,
@@ -3556,6 +4053,7 @@ class ConnectedArtifactBootstrapProvider:
             "intent_digest": pin["intent_digest"],
             "request_digest": pin["request_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "stack_id": stack_id,
             "change_set_id": change_set_id,
@@ -3665,25 +4163,49 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=pin["intent_digest"],
             now=claim_current,
         )
-        dispatched_at = _stamp(claim_current)
         execute_request = {
             "ChangeSetName": dispatch["change_set_id"],
             "StackName": dispatch["stack_id"],
             "ClientRequestToken": "gug376-" + execution_digest[7:55],
         }
+        execute_request_digest = contract.digest_value(execute_request)
+        execution_preflight_digest = self._execution_preflight_digest(
+            dispatch=dispatch, attestation=attestation
+        )
+        execution_preflight_calls = (
+            causal_calls + live_attestation["aws_calls"] + 1
+        )
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+                operation="bridge-pin:execute",
+                target_digest=pin["intent_digest"],
+                effect_request=execute_request,
+                fallback_time=claim_current,
+            )
+        )
+        dispatched_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="bridge-pin-execute",
             digest=execution_digest,
             claimed_at=dispatched_at,
             caller_arn=caller,
-            request_digest=contract.digest_value(execute_request),
+            request_digest=execute_request_digest,
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=execute_request["ClientRequestToken"],
-            preflight_digest=self._execution_preflight_digest(
-                dispatch=dispatch, attestation=attestation
-            ),
-            preflight_calls=causal_calls + live_attestation["aws_calls"] + 1,
+            preflight_digest=execution_preflight_digest,
+            preflight_calls=execution_preflight_calls,
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="bridge-pin:execute",
+            target_digest=pin["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.cloudformation.execute_change_set,
@@ -3700,6 +4222,7 @@ class ConnectedArtifactBootstrapProvider:
             "dispatch_receipt_digest": dispatch["receipt_digest"],
             "change_set_attestation_digest": attestation["attestation_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "request_id": _response_id(response, "BRIDGE_PIN_EXECUTE_RESPONSE_INVALID"),
             "dispatched_at": dispatched_at,
@@ -3882,7 +4405,17 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=update["intent_digest"],
             now=claim_current,
         )
-        claimed_at = _stamp(claim_current)
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+                operation="foundation-access-update:dispatch",
+                target_digest=update["intent_digest"],
+                effect_request=update["request"],
+                fallback_time=claim_current,
+            )
+        )
+        claimed_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="foundation-access-update-dispatch",
             digest=update["request_digest"],
@@ -3892,6 +4425,15 @@ class ConnectedArtifactBootstrapProvider:
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=update["request"]["ClientToken"],
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="foundation-access-update:dispatch",
+            target_digest=update["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.cloudformation.create_change_set,
@@ -3917,6 +4459,7 @@ class ConnectedArtifactBootstrapProvider:
             "intent_digest": update["intent_digest"],
             "request_digest": update["request_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "stack_id": stack_id,
             "change_set_id": change_set_id,
@@ -4037,25 +4580,49 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=update["intent_digest"],
             now=claim_current,
         )
-        dispatched_at = _stamp(claim_current)
         execute_request = {
             "ChangeSetName": dispatch["change_set_id"],
             "StackName": dispatch["stack_id"],
             "ClientRequestToken": "gug376-" + execution_digest[7:55],
         }
+        execute_request_digest = contract.digest_value(execute_request)
+        execution_preflight_digest = self._execution_preflight_digest(
+            dispatch=dispatch, attestation=attestation
+        )
+        execution_preflight_calls = (
+            causal_calls + live_attestation["aws_calls"] + 1
+        )
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+                operation="foundation-access-update:execute",
+                target_digest=update["intent_digest"],
+                effect_request=execute_request,
+                fallback_time=claim_current,
+            )
+        )
+        dispatched_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="foundation-access-update-execute",
             digest=execution_digest,
             claimed_at=dispatched_at,
             caller_arn=caller,
-            request_digest=contract.digest_value(execute_request),
+            request_digest=execute_request_digest,
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=execute_request["ClientRequestToken"],
-            preflight_digest=self._execution_preflight_digest(
-                dispatch=dispatch, attestation=attestation
-            ),
-            preflight_calls=causal_calls + live_attestation["aws_calls"] + 1,
+            preflight_digest=execution_preflight_digest,
+            preflight_calls=execution_preflight_calls,
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="foundation-access-update:execute",
+            target_digest=update["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.cloudformation.execute_change_set,
@@ -4072,6 +4639,7 @@ class ConnectedArtifactBootstrapProvider:
             "dispatch_receipt_digest": dispatch["receipt_digest"],
             "change_set_attestation_digest": attestation["attestation_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "request_id": _response_id(
                 response, "FOUNDATION_ACCESS_UPDATE_EXECUTE_RESPONSE_INVALID"
@@ -5787,7 +6355,17 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=intent["intent_digest"],
             now=claim_current,
         )
-        claimed_at = _stamp(claim_current)
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+                operation="publish-object",
+                target_digest=intent["intent_digest"],
+                effect_request=intent["request"],
+                fallback_time=claim_current,
+            )
+        )
+        claimed_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="publish-object",
             digest=intent["effect_digest"],
@@ -5800,6 +6378,15 @@ class ConnectedArtifactBootstrapProvider:
             preflight_calls=absence["pages"],
             mutation_nonce=intent["mutation_nonce"],
             causal_claim_digest=intent["causal_claim_digest"],
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="publish-object",
+            target_digest=intent["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.s3.put_object,
@@ -5829,6 +6416,7 @@ class ConnectedArtifactBootstrapProvider:
             "mutation_nonce": intent["mutation_nonce"],
             "causal_claim_digest": intent["causal_claim_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "preflight_absence_digest": absence["evidence_digest"],
             "preflight_calls": absence["pages"],
             "verifier": self._verifier(account, caller),
@@ -5877,6 +6465,12 @@ class ConnectedArtifactBootstrapProvider:
         claim = self._claims.read_exact(
             operation="publish-object", digest=intent["effect_digest"]
         )
+        collision_admission = _validate_collision_admission_binding(
+            claim.get("collision_admission"),
+            operation="publish-object",
+            effect_request=intent["request"],
+            bootstrap_intent_digest=bootstrap["intent_digest"],
+        )
         if (
             claim.get("request_digest") != intent["request_digest"]
             or claim.get("authorization_digest")
@@ -5889,6 +6483,7 @@ class ConnectedArtifactBootstrapProvider:
             or claim.get("mutation_nonce") != intent["mutation_nonce"]
             or claim.get("causal_claim_digest")
             != intent["causal_claim_digest"]
+            or collision_admission != dispatch["collision_admission"]
         ):
             _fail("OBJECT_DISPATCH_CLAIM_MISMATCH")
         self._validate_original_claim_authorization(
@@ -6053,6 +6648,12 @@ class ConnectedArtifactBootstrapProvider:
             operation="publish-object",
             digest=intent["effect_digest"],
         )
+        collision_admission = _validate_collision_admission_binding(
+            claim.get("collision_admission"),
+            operation="publish-object",
+            effect_request=intent["request"],
+            bootstrap_intent_digest=bootstrap["intent_digest"],
+        )
         if (
             claim.get("request_digest") != intent["request_digest"]
             or claim.get("mutation_nonce") != intent["mutation_nonce"]
@@ -6129,6 +6730,7 @@ class ConnectedArtifactBootstrapProvider:
             "mutation_nonce": intent["mutation_nonce"],
             "causal_claim_digest": intent["causal_claim_digest"],
             "authorization_digest": claim["authorization_digest"],
+            "collision_admission": collision_admission,
             "preflight_absence_digest": claim["preflight_digest"],
             "preflight_calls": claim["preflight_calls"],
             "verifier": self._verifier(account, claim["caller_arn"]),
@@ -6218,7 +6820,17 @@ class ConnectedArtifactBootstrapProvider:
             target_digest=intent["intent_digest"],
             now=claim_current,
         )
-        claimed_at = _stamp(claim_current)
+        collision_admission, admission_grant, admitted_at = (
+            self._admit_mutation(
+                bootstrap=bootstrap,
+                authorization=authorization,
+                operation="start-signing-job",
+                target_digest=intent["intent_digest"],
+                effect_request=intent["request"],
+                fallback_time=claim_current,
+            )
+        )
+        claimed_at = _stamp(admitted_at)
         self._claims.reserve(
             operation="start-signing-job",
             digest=intent["intent_digest"],
@@ -6228,6 +6840,15 @@ class ConnectedArtifactBootstrapProvider:
             authorization_digest=authorization["authorization_digest"],
             authorization_record=authorization,
             request_token=intent["request"]["clientRequestToken"],
+            collision_admission=collision_admission,
+        )
+        self._revalidate_admitted_mutation(
+            bootstrap=bootstrap,
+            authorization=authorization,
+            operation="start-signing-job",
+            target_digest=intent["intent_digest"],
+            binding=collision_admission,
+            grant=admission_grant,
         )
         response = _call(
             self._clients.signer.start_signing_job,
@@ -6245,6 +6866,7 @@ class ConnectedArtifactBootstrapProvider:
             "bootstrap_intent_digest": bootstrap["intent_digest"],
             "signing_intent_digest": intent["intent_digest"],
             "authorization_digest": authorization["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, caller),
             "job_id": job_id,
             "job_arn": f"arn:aws:signer:us-east-1:{account}:/signing-jobs/{job_id}",
@@ -6298,6 +6920,12 @@ class ConnectedArtifactBootstrapProvider:
         claim = self._claims.read_exact(
             operation="start-signing-job", digest=intent["intent_digest"]
         )
+        collision_admission = _validate_collision_admission_binding(
+            claim.get("collision_admission"),
+            operation="start-signing-job",
+            effect_request=intent["request"],
+            bootstrap_intent_digest=bootstrap["intent_digest"],
+        )
         if (
             claim.get("request_digest") != intent["request_digest"]
             or claim.get("authorization_digest")
@@ -6306,6 +6934,7 @@ class ConnectedArtifactBootstrapProvider:
             != dispatch["verifier"]["caller_arn"]
             or claim.get("request_token")
             != intent["request"]["clientRequestToken"]
+            or collision_admission != dispatch["collision_admission"]
         ):
             _fail("SIGNING_DISPATCH_CLAIM_MISMATCH")
         self._validate_original_claim_authorization(
@@ -6521,6 +7150,12 @@ class ConnectedArtifactBootstrapProvider:
             operation="start-signing-job",
             digest=intent["intent_digest"],
         )
+        collision_admission = _validate_collision_admission_binding(
+            claim.get("collision_admission"),
+            operation="start-signing-job",
+            effect_request=intent["request"],
+            bootstrap_intent_digest=bootstrap["intent_digest"],
+        )
         if (
             claim.get("request_digest") != intent["request_digest"]
             or claim.get("request_token")
@@ -6649,6 +7284,7 @@ class ConnectedArtifactBootstrapProvider:
             "bootstrap_intent_digest": bootstrap["intent_digest"],
             "signing_intent_digest": intent["intent_digest"],
             "authorization_digest": claim["authorization_digest"],
+            "collision_admission": collision_admission,
             "verifier": self._verifier(account, claim["caller_arn"]),
             "job_id": job_id,
             "job_arn": f"arn:aws:signer:us-east-1:{account}:/signing-jobs/{job_id}",

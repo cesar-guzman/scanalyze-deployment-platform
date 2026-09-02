@@ -4,9 +4,11 @@ import copy
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import types
 from typing import Any, Mapping
 
 import pytest
@@ -28,6 +30,100 @@ REQUEST_UUID = "33333333-3333-4333-8333-333333333333"
 RECOVERY_REQUEST_UUID = "77777777-7777-4777-8777-777777777777"
 EVENT_UUID = "44444444-4444-4444-8444-444444444444"
 TEST_TEMPLATE_BODY = "AWSTemplateFormatVersion: '2010-09-09'\nResources: {}\n"
+ADMISSION_DIGEST = "sha256:" + "9" * 64
+
+
+def _collision_binding(
+    *, operation: str, request: Mapping[str, Any], bootstrap_digest: str
+) -> dict[str, str]:
+    return {
+        "operation": operation,
+        "effect_request_digest": route.digest_value(request),
+        "bootstrap_intent_digest": bootstrap_digest,
+        "admission_digest": ADMISSION_DIGEST,
+    }
+
+
+def _reentry_execution_collision_binding(
+    execution: Mapping[str, Any],
+    *,
+    operation: str | None = None,
+) -> dict[str, str]:
+    if operation is None:
+        operation = recovery._reentry_collision_operation(
+            target=str(execution["target"]),
+            failure_record_type=str(execution["failure_record_type"]),
+            effect="execute",
+        )
+    return _collision_binding(
+        operation=operation,
+        request=execution["execute_request"],
+        bootstrap_digest=str(execution["parent_intent_digest"]),
+    )
+
+
+def _primary_execution_collision_binding(
+    *, target: str, request: Mapping[str, Any]
+) -> dict[str, str]:
+    return {
+        "collision_admission_digest": ADMISSION_DIGEST,
+        "collision_operation": (
+            "route:execute-change-set"
+            if target == "route"
+            else (
+                "broker:execute-change-set"
+                if target == "broker"
+                else "broker-protection:execute-change-set"
+            )
+        ),
+        "collision_effect_request_digest": route.digest_value(request),
+        "bootstrap_intent_digest": "sha256:" + "8" * 64,
+    }
+
+
+class _ContractHarnessRecoveryProvider(
+    recovery.ConnectedDeploymentRecoveryProvider
+):
+    """Exercise recovery contracts without private admission artifacts."""
+
+    def _load_collision_admission(
+        self,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> object:
+        del operation, effect_request, bootstrap_intent_digest
+        return _admission_capability(now)
+
+    def _assert_collision_admission(
+        self,
+        capability: object,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> tuple[
+        dict[str, str], recovery.RouteCollisionAdmissionEffectGrant
+    ]:
+        del capability
+        return (
+            _collision_binding(
+                operation=operation,
+                request=effect_request,
+                bootstrap_digest=bootstrap_intent_digest,
+            ),
+            recovery.RouteCollisionAdmissionEffectGrant(
+                admission_digest=ADMISSION_DIGEST,
+                effect_private_root_digest="sha256:" + "9" * 64,
+                atomic_context_digest="sha256:" + "a" * 64,
+                not_before=now,
+                expires_at=now + timedelta(seconds=10),
+                sealed_at=now,
+            ),
+        )
 
 
 def _request(
@@ -187,6 +283,18 @@ def _ts(value: datetime) -> str:
     )
 
 
+def _admission_capability(
+    now: datetime, *, ttl_seconds: int = 10
+) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        _receipt={
+            "not_before": _ts(now),
+            "expires_at": _ts(now + timedelta(seconds=ttl_seconds)),
+            "sealed_at": _ts(now),
+        }
+    )
+
+
 class Identity:
     def __init__(self, account: str, role: str, timeline: list[str]) -> None:
         self.account = account
@@ -264,6 +372,20 @@ def _dispatch(
         authorized_at=_ts(authorized_at),
         expires_at=_ts(authorized_at + timedelta(minutes=10)),
     )
+    collision_binding = {
+        "collision_admission_digest": ADMISSION_DIGEST,
+        "collision_operation": (
+            "route:create-change-set"
+            if target == "route"
+            else (
+                "broker:create-change-set"
+                if target == "broker"
+                else "broker-protection:create-change-set"
+            )
+        ),
+        "collision_effect_request_digest": spec["create_request_digest"],
+        "bootstrap_intent_digest": "sha256:" + "8" * 64,
+    }
     value = {
         "schema_version": 1,
         "record_type": connected.DISPATCH_RECORD_TYPE,
@@ -274,6 +396,7 @@ def _dispatch(
         "create_request_digest": spec["create_request_digest"],
         "creation_authorization": authorization,
         "creation_authorization_digest": authorization["authorization_digest"],
+        **collision_binding,
         "stack_arn": (
             f"arn:aws:cloudformation:us-east-1:{spec['account_id']}:stack/"
             f"{spec['stack_name']}/{STACK_UUID}"
@@ -345,6 +468,133 @@ def _clients(
     }
 
 
+@pytest.mark.parametrize(
+    ("method", "kwargs"),
+    [
+        (
+            "create_reentry_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": {},
+                "git": object(),
+                "failure_attestation": {},
+                "authorization": {},
+                "reentry_intent": {},
+            },
+        ),
+        (
+            "execute_reentry_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": {},
+                "git": object(),
+                "failure_attestation": {},
+                "reentry_creation_authorization": {},
+                "reentry_intent": {},
+                "reentry_dispatch": {},
+                "reentry_attestation": {},
+                "execution_authorization": {},
+                "execution_intent": {},
+            },
+        ),
+    ],
+)
+def test_product_recovery_provider_defers_admission_until_after_validation(
+    method: str, kwargs: dict[str, Any]
+) -> None:
+    timeline: list[str] = []
+    provider = recovery.ConnectedDeploymentRecoveryProvider(
+        clients=_clients(sts=object(), cfn=object(), trail=object()),
+        claims=Claims(timeline),
+        clock=lambda: datetime(2026, 8, 30, 12, tzinfo=timezone.utc),
+        collision_admission_loader=lambda **_kwargs: pytest.fail(
+            "admission loaded before validated preflights"
+        ),
+    )
+    with pytest.raises(recovery.DeploymentRecoveryError) as raised:
+        getattr(provider, method)(**kwargs)
+    assert not raised.value.code.startswith("COLLISION_ADMISSION")
+    assert timeline == []
+
+
+@pytest.mark.parametrize(
+    ("target", "failure_record_type", "effect", "operation"),
+    [
+        (
+            "route",
+            recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
+            "create",
+            "route-reentry-preexecute:create-change-set",
+        ),
+        (
+            "route",
+            recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
+            "execute",
+            "route-reentry-preexecute:execute-change-set",
+        ),
+        (
+            "route",
+            recovery.CLEANUP_TERMINAL_RECORD_TYPE,
+            "create",
+            "route-reentry-cleanup:create-change-set",
+        ),
+        (
+            "route",
+            recovery.CLEANUP_TERMINAL_RECORD_TYPE,
+            "execute",
+            "route-reentry-cleanup:execute-change-set",
+        ),
+        (
+            "broker",
+            recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
+            "create",
+            "broker-reentry-preexecute:create-change-set",
+        ),
+        (
+            "broker",
+            recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
+            "execute",
+            "broker-reentry-preexecute:execute-change-set",
+        ),
+        (
+            "broker",
+            recovery.CLEANUP_TERMINAL_RECORD_TYPE,
+            "create",
+            "broker-reentry-cleanup:create-change-set",
+        ),
+        (
+            "broker",
+            recovery.CLEANUP_TERMINAL_RECORD_TYPE,
+            "execute",
+            "broker-reentry-cleanup:execute-change-set",
+        ),
+        (
+            route.BROKER_PROTECTION_TARGET,
+            recovery.PROTECTION_ROLLBACK_RECORD_TYPE,
+            "create",
+            "broker-protection-reentry-rollback:create-change-set",
+        ),
+        (
+            route.BROKER_PROTECTION_TARGET,
+            recovery.PROTECTION_ROLLBACK_RECORD_TYPE,
+            "execute",
+            "broker-protection-reentry-rollback:execute-change-set",
+        ),
+    ],
+)
+def test_reentry_collision_operation_matrix_is_non_interchangeable(
+    target: str,
+    failure_record_type: str,
+    effect: str,
+    operation: str,
+) -> None:
+    assert recovery._reentry_collision_operation(
+        target=target,
+        failure_record_type=failure_record_type,
+        effect=effect,
+    ) == operation
+
+
 def _caller(account: str, role_name: str) -> str:
     return (
         f"arn:aws:sts::{account}:assumed-role/"
@@ -375,6 +625,15 @@ def _seed_primary_claim(
         "creation_authorization_digest": dispatch[
             "creation_authorization_digest"
         ],
+        **{
+            field: dispatch[field]
+            for field in (
+                "collision_admission_digest",
+                "collision_operation",
+                "collision_effect_request_digest",
+                "bootstrap_intent_digest",
+            )
+        },
         "client_token": spec["create_request"]["ClientToken"],
         "stack_name": spec["stack_name"],
         "change_set_name": spec["change_set_name"],
@@ -507,7 +766,7 @@ def _preexecute_failure(
         event_id=EVENT_UUID,
         when=now,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 intent["targets"][target]["account_id"], role, timeline
@@ -582,7 +841,7 @@ def test_preexecute_failure_rejects_resource_survivor(
         event_id=EVENT_UUID,
         when=now,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(route.MANAGEMENT_ACCOUNT_ID, role_name, timeline),
             cfn=cfn,
@@ -825,6 +1084,15 @@ def _reentry_dispatch_and_attestation(
         f"{recovery.REENTRY_CHANGE_SET_NAMES[target]}/"
         f"{change_uuid}"
     )
+    collision_admission = _collision_binding(
+        operation=recovery._reentry_collision_operation(
+            target=target,
+            failure_record_type=recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
+            effect="create",
+        ),
+        request=reentry_intent["create_request"],
+        bootstrap_digest=seed["intent_digest"],
+    )
     dispatch = route.seal(
         {
             "schema_version": 1,
@@ -838,6 +1106,7 @@ def _reentry_dispatch_and_attestation(
             "create_request_digest": reentry_intent[
                 "create_request_digest"
             ],
+            "collision_admission": collision_admission,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "create_request_id": request_uuid,
@@ -886,6 +1155,7 @@ def _reentry_dispatch_and_attestation(
             "create_request_digest": reentry_intent[
                 "create_request_digest"
             ],
+            "collision_admission": collision_admission,
             "dispatch_digest": dispatch["dispatch_digest"],
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
@@ -935,6 +1205,7 @@ def _seed_reentry_create_journal(
             "reentry_intent_digest"
         ],
         "request_digest": reentry_intent["create_request_digest"],
+        "collision_admission": dispatch["collision_admission"],
         "client_token": reentry_intent["create_request"]["ClientToken"],
         "stack_name": reentry_intent["create_request"]["StackName"],
         "change_set_name": reentry_intent["create_request"][
@@ -1075,8 +1346,339 @@ def _reentry_execution_chain(
     )
 
 
+class _ClockChangingClaims(Claims):
+    def __init__(
+        self, timeline: list[str], *, after_claim: Any | None = None
+    ) -> None:
+        super().__init__(timeline)
+        self._after_claim = after_claim
+
+    def claim(self, key: str, record: Mapping[str, Any]) -> None:
+        super().claim(key, record)
+        if self._after_claim is not None:
+            self._after_claim()
+
+
+def _connected_reentry_effect_case(
+    *,
+    seed: Mapping[str, Any],
+    now: datetime,
+    effect: str,
+    claims: Claims,
+) -> tuple[str, dict[str, Any], Any, Mapping[str, Any]]:
+    if effect == "create":
+        intent, failure, authorization = _reentry_intent(seed, now)
+        event = _seed_primary_failure_journal(
+            claims, seed=seed, failure=failure, now=now
+        )
+        cfn = ReentryCreateCloudFormation(
+            intent["create_request"],
+            route.MANAGEMENT_ACCOUNT_ID,
+            seed=seed,
+            failure=failure,
+        )
+        return (
+            "create_reentry_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": seed,
+                "git": object(),
+                "failure_attestation": failure,
+                "authorization": authorization,
+                "reentry_intent": intent,
+            },
+            cfn,
+            event,
+        )
+    if effect == "execute":
+        (
+            reentry,
+            failure,
+            creation_authorization,
+            dispatch,
+            attestation,
+            execution_authorization,
+            execution,
+        ) = _reentry_execution_chain(seed, now)
+        _seed_reentry_create_journal(
+            claims,
+            seed=seed,
+            reentry_intent=reentry,
+            dispatch=dispatch,
+        )
+        cfn = AuthoritativeReentryCloudFormation(
+            seed=seed,
+            reentry_intent=reentry,
+            live_dispatch=dispatch,
+        )
+        event = _create_event(
+            request=reentry["create_request"],
+            account=route.MANAGEMENT_ACCOUNT_ID,
+            role_name="AWSAdministratorAccess",
+            stack_arn=dispatch["stack_arn"],
+            change_set_arn=dispatch["change_set_arn"],
+            request_id=dispatch["create_request_id"],
+            event_id=EVENT_UUID,
+            when=now,
+        )
+        return (
+            "execute_reentry_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": seed,
+                "git": object(),
+                "failure_attestation": failure,
+                "reentry_creation_authorization": creation_authorization,
+                "reentry_intent": reentry,
+                "reentry_dispatch": dispatch,
+                "reentry_attestation": attestation,
+                "execution_authorization": execution_authorization,
+                "execution_intent": execution,
+            },
+            cfn,
+            event,
+        )
+    raise AssertionError(f"unexpected effect: {effect}")
+
+
+def _provider_mutation_count(cfn: Any, effect: str) -> int:
+    return cfn.calls if effect == "create" else cfn.execute_calls
+
+
+def _consume_fake_admission(
+    capability: object, *, now: datetime, **_kwargs: Any
+) -> recovery.RouteCollisionAdmissionEffectGrant:
+    receipt = capability._receipt  # type: ignore[attr-defined]
+    not_before = datetime.fromisoformat(
+        receipt["not_before"].replace("Z", "+00:00")
+    )
+    expires_at = datetime.fromisoformat(
+        receipt["expires_at"].replace("Z", "+00:00")
+    )
+    sealed_at = datetime.fromisoformat(
+        receipt["sealed_at"].replace("Z", "+00:00")
+    )
+    if not (
+        not_before <= now < expires_at
+        and sealed_at
+        <= now
+        <= sealed_at + timedelta(seconds=10)
+    ):
+        raise recovery.RouteCollisionAdmissionError(
+            "ROUTE_COLLISION_ADMISSION_NOT_ACTIVE"
+        )
+    return recovery.RouteCollisionAdmissionEffectGrant(
+        admission_digest=ADMISSION_DIGEST,
+        effect_private_root_digest="sha256:" + "9" * 64,
+        atomic_context_digest="sha256:" + "a" * 64,
+        not_before=not_before,
+        expires_at=expires_at,
+        sealed_at=sealed_at,
+    )
+
+
+@pytest.mark.parametrize("effect", ["create", "execute"])
+def test_reentry_loader_expiry_blocks_provider_mutation(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
+    effect: str,
+) -> None:
+    _source, seed, now = case
+    timeline: list[str] = []
+    current = [now]
+    claims = Claims(timeline)
+    method, kwargs, cfn, event = _connected_reentry_effect_case(
+        seed=seed, now=now, effect=effect, claims=claims
+    )
+    timeline.clear()
+    capability = _admission_capability(now, ttl_seconds=1)
+
+    def load_admission(**_kwargs: Any) -> object:
+        timeline.append("admission")
+        current[0] = now + timedelta(seconds=2)
+        return capability
+
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
+    provider = recovery.ConnectedDeploymentRecoveryProvider(
+        clients=_clients(
+            sts=Identity(
+                route.MANAGEMENT_ACCOUNT_ID,
+                "AWSAdministratorAccess",
+                timeline,
+            ),
+            cfn=cfn,
+            trail=Trail(event),
+        ),
+        claims=claims,
+        clock=lambda: current[0],
+        collision_admission_loader=load_admission,
+    )
+    with pytest.raises(
+        recovery.DeploymentRecoveryError,
+        match="ROUTE_COLLISION_ADMISSION_NOT_ACTIVE",
+    ):
+        getattr(provider, method)(**kwargs)
+    assert "claim" not in timeline
+    assert _provider_mutation_count(cfn, effect) == 0
+
+
+@pytest.mark.parametrize("effect", ["create", "execute"])
+def test_reentry_claim_store_expiry_blocks_provider_mutation(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
+    effect: str,
+) -> None:
+    _source, seed, now = case
+    timeline: list[str] = []
+    current = [now]
+    claims = _ClockChangingClaims(timeline)
+    method, kwargs, cfn, event = _connected_reentry_effect_case(
+        seed=seed, now=now, effect=effect, claims=claims
+    )
+    claims._after_claim = lambda: current.__setitem__(
+        0, now + timedelta(seconds=2)
+    )
+    timeline.clear()
+    capability = _admission_capability(now, ttl_seconds=1)
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
+    provider = recovery.ConnectedDeploymentRecoveryProvider(
+        clients=_clients(
+            sts=Identity(
+                route.MANAGEMENT_ACCOUNT_ID,
+                "AWSAdministratorAccess",
+                timeline,
+            ),
+            cfn=cfn,
+            trail=Trail(event),
+        ),
+        claims=claims,
+        clock=lambda: current[0],
+        collision_admission_loader=lambda **_kwargs: capability,
+    )
+    with pytest.raises(
+        recovery.DeploymentRecoveryError,
+        match="ROUTE_COLLISION_ADMISSION_NOT_ACTIVE",
+    ):
+        getattr(provider, method)(**kwargs)
+    assert "claim" in timeline
+    assert _provider_mutation_count(cfn, effect) == 0
+
+
+@pytest.mark.parametrize("effect", ["create", "execute"])
+@pytest.mark.parametrize("checkpoint", ["loader", "claim"])
+def test_reentry_clock_regression_blocks_provider_mutation(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
+    effect: str,
+    checkpoint: str,
+) -> None:
+    _source, seed, now = case
+    timeline: list[str] = []
+    current = [now]
+    claims = _ClockChangingClaims(timeline)
+    method, kwargs, cfn, event = _connected_reentry_effect_case(
+        seed=seed, now=now, effect=effect, claims=claims
+    )
+    if checkpoint == "claim":
+        claims._after_claim = lambda: current.__setitem__(
+            0, now - timedelta(seconds=1)
+        )
+    timeline.clear()
+    capability = _admission_capability(now)
+
+    def load_admission(**_kwargs: Any) -> object:
+        if checkpoint == "loader":
+            current[0] = now - timedelta(seconds=1)
+        return capability
+
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
+    provider = recovery.ConnectedDeploymentRecoveryProvider(
+        clients=_clients(
+            sts=Identity(
+                route.MANAGEMENT_ACCOUNT_ID,
+                "AWSAdministratorAccess",
+                timeline,
+            ),
+            cfn=cfn,
+            trail=Trail(event),
+        ),
+        claims=claims,
+        clock=lambda: current[0],
+        collision_admission_loader=load_admission,
+    )
+    with pytest.raises(recovery.DeploymentRecoveryError, match="CLOCK_REGRESSED"):
+        getattr(provider, method)(**kwargs)
+    assert ("claim" in timeline) is (checkpoint == "claim")
+    assert _provider_mutation_count(cfn, effect) == 0
+
+
+@pytest.mark.parametrize("effect", ["create", "execute"])
+def test_reentry_success_uses_fresh_coherent_claim_and_effect_timestamps(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
+    effect: str,
+) -> None:
+    _source, seed, now = case
+    timeline: list[str] = []
+    current = [now]
+    claims = _ClockChangingClaims(timeline)
+    method, kwargs, cfn, event = _connected_reentry_effect_case(
+        seed=seed, now=now, effect=effect, claims=claims
+    )
+    claims._after_claim = lambda: current.__setitem__(
+        0, now + timedelta(seconds=2)
+    )
+    timeline.clear()
+    capability = _admission_capability(now)
+
+    def load_admission(**_kwargs: Any) -> object:
+        current[0] = now + timedelta(seconds=1)
+        return capability
+
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
+    provider = recovery.ConnectedDeploymentRecoveryProvider(
+        clients=_clients(
+            sts=Identity(
+                route.MANAGEMENT_ACCOUNT_ID,
+                "AWSAdministratorAccess",
+                timeline,
+            ),
+            cfn=cfn,
+            trail=Trail(event),
+        ),
+        claims=claims,
+        clock=lambda: current[0],
+        collision_admission_loader=load_admission,
+    )
+    receipt = getattr(provider, method)(**kwargs)
+    claim = claims.records[
+        f"reentry-{effect}:route:{seed['intent_digest']}"
+    ]
+    assert claim["claimed_at"] == _ts(now + timedelta(seconds=1))
+    assert receipt["dispatched_at"] == _ts(now + timedelta(seconds=2))
+    assert claim["claimed_at"] < receipt["dispatched_at"]
+    assert _provider_mutation_count(cfn, effect) == 1
+
+
 def test_connected_reentry_claims_before_single_mutation_and_rejects_replay(
-    case: tuple[dict[str, Any], dict[str, Any], datetime]
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _source, seed, now = case
     intent, failure, authorization = _reentry_intent(seed, now)
@@ -1092,6 +1694,19 @@ def test_connected_reentry_claims_before_single_mutation_and_rejects_replay(
         seed=seed,
         failure=failure,
     )
+    capability = _admission_capability(now)
+    admission_calls: list[dict[str, Any]] = []
+
+    def load_admission(**kwargs: Any) -> object:
+        timeline.append("admission")
+        admission_calls.append(kwargs)
+        return capability
+
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
     provider = recovery.ConnectedDeploymentRecoveryProvider(
         clients=_clients(
             sts=Identity(
@@ -1104,6 +1719,7 @@ def test_connected_reentry_claims_before_single_mutation_and_rejects_replay(
         ),
         claims=claims,
         clock=lambda: current[0],
+        collision_admission_loader=load_admission,
     )
     receipt = provider.create_reentry_change_set(
         seed_input={},
@@ -1119,9 +1735,21 @@ def test_connected_reentry_claims_before_single_mutation_and_rejects_replay(
         "read-claim",
         "read-result",
         "sts",
+        "admission",
         "claim",
         "complete",
     ]
+    assert admission_calls == [
+        {
+            "operation": "route-reentry-preexecute:create-change-set",
+            "effect_request_digest": intent["create_request_digest"],
+            "bootstrap_intent_digest": seed["intent_digest"],
+            "now": now,
+        }
+    ]
+    assert receipt["collision_admission"] == claims.records[
+        f"reentry-create:route:{seed['intent_digest']}"
+    ]["collision_admission"]
     assert cfn.calls == 1
     claim_key = f"reentry-create:route:{seed['intent_digest']}"
     changed_claim = copy.deepcopy(claims.records[claim_key])
@@ -1130,7 +1758,10 @@ def test_connected_reentry_claims_before_single_mutation_and_rejects_replay(
         recovery.DeploymentRecoveryError, match="REENTRY_CLAIM_INVALID"
     ):
         recovery._validate_reentry_create_claim(
-            changed_claim, intent=intent, dispatch=receipt
+            changed_claim,
+            intent=intent,
+            dispatch=receipt,
+            failure_record_type=recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
         )
     second_failure = copy.deepcopy(failure)
     second_failure["attested_at"] = _ts(now + timedelta(seconds=1))
@@ -1194,7 +1825,7 @@ def test_connected_reentry_rejects_resealed_failure_not_matching_journal_before_
         seed=seed,
         failure=forged,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1273,7 +1904,7 @@ def test_connected_reentry_rejects_cloudtrail_role_laundered_by_local_journal(
         seed=seed,
         failure=forged,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1320,7 +1951,7 @@ def test_connected_reentry_rejects_resealed_foreign_template_url_before_aws(
     cfn = ReentryCreateCloudFormation(
         intent["create_request"], route.MANAGEMENT_ACCOUNT_ID
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1382,7 +2013,7 @@ def test_connected_reentry_create_resamples_expiry_before_effect(
     samples = iter(
         (now, now, now + timedelta(seconds=30), now + timedelta(seconds=60))
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1426,7 +2057,7 @@ def test_recovery_mutation_requires_seed_input_binding_before_aws(
     cfn = ReentryCreateCloudFormation(
         intent["create_request"], route.MANAGEMENT_ACCOUNT_ID
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1581,6 +2212,7 @@ def test_connected_reentry_execution_rejects_unattested_arn_before_aws(
             "record_type": recovery.REENTRY_EXECUTION_INTENT_RECORD_TYPE,
             "source_commit": forged["source_commit"],
             "target": forged["target"],
+            "failure_record_type": forged["failure_record_type"],
             "stack_arn": forged["execute_request"]["StackName"],
             "change_set_arn": forged_change_set_arn,
             "attempt": 1,
@@ -1595,7 +2227,7 @@ def test_connected_reentry_execution_rejects_unattested_arn_before_aws(
     forged.pop("execution_intent_digest")
     forged = route.seal(forged, "execution_intent_digest")
     timeline: list[str] = []
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1692,7 +2324,7 @@ def test_reentry_execution_rejects_minimal_forged_attestation_before_aws(
         )
 
     timeline: list[str] = []
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1725,7 +2357,8 @@ def test_reentry_execution_rejects_minimal_forged_attestation_before_aws(
 
 
 def test_connected_reentry_execution_allows_only_one_mutation_per_seed_lane(
-    case: tuple[dict[str, Any], dict[str, Any], datetime]
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _source, seed, now = case
     reentry, failure, creation_authorization = _reentry_intent(seed, now)
@@ -1779,6 +2412,19 @@ def test_connected_reentry_execution_allows_only_one_mutation_per_seed_lane(
         event_id=EVENT_UUID,
         when=now,
     )
+    capability = _admission_capability(now)
+    admission_calls: list[dict[str, Any]] = []
+
+    def load_admission(**kwargs: Any) -> object:
+        timeline.append("admission")
+        admission_calls.append(kwargs)
+        return capability
+
+    monkeypatch.setattr(
+        recovery,
+        "consume_route_collision_admission",
+        _consume_fake_admission,
+    )
     provider = recovery.ConnectedDeploymentRecoveryProvider(
         clients=_clients(
             sts=Identity(
@@ -1791,8 +2437,9 @@ def test_connected_reentry_execution_allows_only_one_mutation_per_seed_lane(
         ),
         claims=claims,
         clock=lambda: current[0],
+        collision_admission_loader=load_admission,
     )
-    provider.execute_reentry_change_set(
+    receipt = provider.execute_reentry_change_set(
         seed_input={},
         seed_intent=seed,
         git=object(),
@@ -1805,6 +2452,19 @@ def test_connected_reentry_execution_allows_only_one_mutation_per_seed_lane(
         execution_intent=execution,
     )
     assert cfn.execute_calls == 1
+    assert admission_calls == [
+        {
+            "operation": "route-reentry-preexecute:execute-change-set",
+            "effect_request_digest": execution["execute_request_digest"],
+            "bootstrap_intent_digest": seed["intent_digest"],
+            "now": now,
+        }
+    ]
+    execute_key = f"reentry-execute:route:{seed['intent_digest']}"
+    assert receipt["collision_admission"] == claims.records[execute_key][
+        "collision_admission"
+    ]
+    assert timeline.index("admission") < timeline.index("claim")
 
     second_execution_authorization = (
         recovery.materialize_reentry_execution_authorization(
@@ -1858,11 +2518,13 @@ def test_connected_reentry_execution_allows_only_one_mutation_per_seed_lane(
         "read-result",
         "read-claim",
         "sts",
+        "admission",
         "claim",
         "complete",
         "read-result",
         "read-claim",
         "sts",
+        "admission",
         "claim",
     ]
 
@@ -1911,7 +2573,7 @@ def test_connected_reentry_execution_binds_durable_create_result_before_aws(
     claims.results[
         f"reentry-create:route:{seed['intent_digest']}"
     ] = persisted_dispatch
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1979,7 +2641,7 @@ def test_connected_reentry_execution_rejects_live_alternate_same_name_uuid(
         reentry_intent=reentry,
         live_dispatch=live_dispatch,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2035,7 +2697,7 @@ def test_connected_reentry_execution_expired_locally_never_calls_sts(
         reentry_intent=reentry,
         dispatch=dispatch,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2106,7 +2768,7 @@ def test_connected_reentry_execution_resamples_expiry_before_effect(
     samples = iter(
         (now, now, now + timedelta(seconds=30), now + timedelta(seconds=60))
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2192,6 +2854,7 @@ def test_reentry_execution_claim_rejects_binding_overclaims(
         "record_type": recovery.REENTRY_EXECUTION_INTENT_RECORD_TYPE,
         "target": "route",
         "parent_intent_digest": "sha256:" + "0" * 64,
+        "failure_record_type": recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
         "execute_operation_digest": "sha256:" + "1" * 64,
         "execution_intent_digest": "sha256:" + "2" * 64,
         "execute_request_digest": "sha256:" + "3" * 64,
@@ -2201,7 +2864,12 @@ def test_reentry_execution_claim_rejects_binding_overclaims(
             "ClientRequestToken": token,
         },
     }
-    receipt = {"stack_arn": stack_arn, "change_set_arn": change_set_arn}
+    collision_admission = _reentry_execution_collision_binding(execution)
+    receipt = {
+        "stack_arn": stack_arn,
+        "change_set_arn": change_set_arn,
+        "collision_admission": collision_admission,
+    }
     claim = {
         "schema_version": 1,
         "record_type": recovery.CLAIM_RECORD_TYPE,
@@ -2210,6 +2878,7 @@ def test_reentry_execution_claim_rejects_binding_overclaims(
         "attempt": 1,
         "execution_intent_digest": execution["execution_intent_digest"],
         "request_digest": execution["execute_request_digest"],
+        "collision_admission": collision_admission,
         "client_request_token": token,
         "stack_arn": stack_arn,
         "change_set_arn": change_set_arn,
@@ -2227,6 +2896,56 @@ def test_reentry_execution_claim_rejects_binding_overclaims(
     ):
         recovery._execution_claim(
             claims, execution=execution, receipt=receipt
+        )
+
+
+def test_reentry_execution_receipt_rejects_failure_class_substitution(
+    case: tuple[dict[str, Any], dict[str, Any], datetime]
+) -> None:
+    _source, seed, now = case
+    (
+        _reentry,
+        _failure,
+        _creation_authorization,
+        dispatch,
+        _attestation,
+        _execution_authorization,
+        execution,
+    ) = _reentry_execution_chain(seed, now)
+    forged_binding = _reentry_execution_collision_binding(
+        execution,
+        operation="route-reentry-cleanup:execute-change-set",
+    )
+    receipt = route.seal(
+        {
+            "schema_version": 1,
+            "record_type": recovery.REENTRY_EXECUTION_RECEIPT_RECORD_TYPE,
+            "source_commit": seed["source_commit"],
+            "target": "route",
+            "account_id": route.MANAGEMENT_ACCOUNT_ID,
+            "execution_intent_digest": execution[
+                "execution_intent_digest"
+            ],
+            "collision_admission": forged_binding,
+            "stack_arn": dispatch["stack_arn"],
+            "change_set_arn": dispatch["change_set_arn"],
+            "execute_request_id": RECOVERY_REQUEST_UUID,
+            "dispatched_at": _ts(now),
+            "attempt": 1,
+            "aws_mutations": 1,
+            "retry_permitted": False,
+            "production_authorized": False,
+            "production_status": route.PRODUCTION_STATUS,
+        },
+        "receipt_digest",
+    )
+
+    with pytest.raises(
+        recovery.DeploymentRecoveryError,
+        match="COLLISION_ADMISSION_BINDING_INVALID",
+    ):
+        recovery._validate_reentry_execution_receipt(
+            receipt, execution=execution
         )
 
 
@@ -2260,6 +2979,7 @@ def test_public_reentry_execute_event_digest_validates_receipt_claim_and_event(
         reentry_attestation=attestation,
         authorization=authorization,
     )
+    collision_admission = _reentry_execution_collision_binding(execution)
     receipt = route.seal(
         {
             "schema_version": 1,
@@ -2268,6 +2988,7 @@ def test_public_reentry_execute_event_digest_validates_receipt_claim_and_event(
             "target": "route",
             "account_id": route.MANAGEMENT_ACCOUNT_ID,
             "execution_intent_digest": execution["execution_intent_digest"],
+            "collision_admission": collision_admission,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "execute_request_id": RECOVERY_REQUEST_UUID,
@@ -2289,6 +3010,7 @@ def test_public_reentry_execute_event_digest_validates_receipt_claim_and_event(
         "attempt": 1,
         "execution_intent_digest": execution["execution_intent_digest"],
         "request_digest": execution["execute_request_digest"],
+        "collision_admission": collision_admission,
         "client_request_token": execution["execute_request"][
             "ClientRequestToken"
         ],
@@ -2402,6 +3124,10 @@ def test_broker_protection_rollback_binds_execution_and_live_inert_table(
         "validate_execution_intent",
         lambda value: json.loads(route.canonical_json(value)),
     )
+    collision_binding = _primary_execution_collision_binding(
+        target=route.BROKER_PROTECTION_TARGET,
+        request=request,
+    )
     receipt = route.seal(
         {
             "schema_version": 1,
@@ -2410,6 +3136,7 @@ def test_broker_protection_rollback_binds_execution_and_live_inert_table(
             "target": route.BROKER_PROTECTION_TARGET,
             "account_id": route.AUTHORITY_ACCOUNT_ID,
             "execution_intent_digest": execution["execution_intent_digest"],
+            **collision_binding,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "execute_request_id": RECOVERY_REQUEST_UUID,
@@ -2431,6 +3158,7 @@ def test_broker_protection_rollback_binds_execution_and_live_inert_table(
         "target": route.BROKER_PROTECTION_TARGET,
         "execution_intent_digest": execution["execution_intent_digest"],
         "request_digest": execution["execute_request_digest"],
+        **collision_binding,
         "client_request_token": request["ClientRequestToken"],
         "stack_arn": stack_arn,
         "change_set_arn": change_set_arn,
@@ -2526,7 +3254,7 @@ def test_broker_protection_rollback_binds_execution_and_live_inert_table(
                 }
             }
 
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -2615,6 +3343,10 @@ def test_failure_attestors_reject_execution_from_foreign_seed_before_aws(
         "validate_execution_intent",
         lambda value: json.loads(route.canonical_json(value)),
     )
+    collision_binding = _primary_execution_collision_binding(
+        target=target,
+        request=request,
+    )
     receipt = route.seal(
         {
             "schema_version": 1,
@@ -2625,6 +3357,7 @@ def test_failure_attestors_reject_execution_from_foreign_seed_before_aws(
             "execution_intent_digest": execution[
                 "execution_intent_digest"
             ],
+            **collision_binding,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "execute_request_id": REQUEST_UUID,
@@ -2645,7 +3378,7 @@ def test_failure_attestors_reject_execution_from_foreign_seed_before_aws(
     seed_b.pop("intent_digest")
     seed_b = route.seal(seed_b, "intent_digest")
     timeline: list[str] = []
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(account, "AWSAdministratorAccess", timeline),
             cfn=EmptyService(),
@@ -2721,6 +3454,7 @@ def _failed_stack_attestation(
             "target": target,
             "intent_digest": intent["intent_digest"],
             "execution_intent_digest": "sha256:" + "1" * 64,
+            "reentry_source_failure_record_type": None,
             "execution_receipt_digest": "sha256:" + "2" * 64,
             "execution_claim_digest": "sha256:" + "3" * 64,
             "execute_cloudtrail_event_digest": "sha256:" + "4" * 64,
@@ -2779,19 +3513,23 @@ def _seed_failed_execution_journal(
         "changeSetName": failed["change_set_arn"],
         "clientRequestToken": client_token,
     }
+    exact_execute_request = {
+        "StackName": failed["stack_arn"],
+        "ChangeSetName": failed["change_set_arn"],
+        "ClientRequestToken": client_token,
+    }
+    collision_binding = _primary_execution_collision_binding(
+        target=target,
+        request=exact_execute_request,
+    )
     claim = {
         "schema_version": 1,
         "record_type": connected.CLAIM_RECORD_TYPE,
         "operation": "ExecuteChangeSet",
         "target": target,
         "execution_intent_digest": failed["execution_intent_digest"],
-        "request_digest": route.digest_value(
-            {
-                "StackName": failed["stack_arn"],
-                "ChangeSetName": failed["change_set_arn"],
-                "ClientRequestToken": client_token,
-            }
-        ),
+        "request_digest": route.digest_value(exact_execute_request),
+        **collision_binding,
         "client_request_token": client_token,
         "stack_arn": failed["stack_arn"],
         "change_set_arn": failed["change_set_arn"],
@@ -2810,6 +3548,7 @@ def _seed_failed_execution_journal(
             "target": target,
             "account_id": account,
             "execution_intent_digest": failed["execution_intent_digest"],
+            **collision_binding,
             "stack_arn": failed["stack_arn"],
             "change_set_arn": failed["change_set_arn"],
             "execute_request_id": failed["execute_request_id"],
@@ -3162,6 +3901,9 @@ def test_cleanup_claims_before_exact_delete_and_rejects_replay(
         ),
         claims=claims,
         clock=lambda: current[0],
+        collision_admission_loader=lambda **_kwargs: pytest.fail(
+            "reducing cleanup must not load collision admission"
+        ),
     )
     receipt = provider.delete_failed_stack(
         seed_input={},
@@ -3260,12 +4002,20 @@ def test_reentry_cleanup_uses_distinct_lane_after_primary_cleanup(
     )
     failed["execute_request_id"] = RECOVERY_REQUEST_UUID
     failed["execution_intent_digest"] = "sha256:" + "7" * 64
+    failed["reentry_source_failure_record_type"] = (
+        recovery.PREEXECUTE_FAILURE_RECORD_TYPE
+    )
     client_token = "gug376-" + "d" * 48
     execute_request = {
         "StackName": failed["stack_arn"],
         "ChangeSetName": failed["change_set_arn"],
         "ClientRequestToken": client_token,
     }
+    collision_admission = _collision_binding(
+        operation="route-reentry-preexecute:execute-change-set",
+        request=execute_request,
+        bootstrap_digest=seed["intent_digest"],
+    )
     execution_key = f"reentry-execute:route:{seed['intent_digest']}"
     execution_claim = {
         "schema_version": 1,
@@ -3277,6 +4027,7 @@ def test_reentry_cleanup_uses_distinct_lane_after_primary_cleanup(
             "execution_intent_digest"
         ],
         "request_digest": route.digest_value(execute_request),
+        "collision_admission": collision_admission,
         "client_request_token": client_token,
         "stack_arn": failed["stack_arn"],
         "change_set_arn": failed["change_set_arn"],
@@ -3297,6 +4048,7 @@ def test_reentry_cleanup_uses_distinct_lane_after_primary_cleanup(
             "execution_intent_digest": failed[
                 "execution_intent_digest"
             ],
+            "collision_admission": collision_admission,
             "stack_arn": failed["stack_arn"],
             "change_set_arn": failed["change_set_arn"],
             "execute_request_id": failed["execute_request_id"],
@@ -3427,7 +4179,7 @@ def test_reentry_cleanup_uses_distinct_lane_after_primary_cleanup(
         },
     }
     cfn = DeleteReentryCloudFormation()
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3478,7 +4230,7 @@ def test_cleanup_revalidates_execute_event_before_stack_or_delete(
         event["eventID"] = "55555555-5555-4555-8555-555555555555"
     trail = NoEventsTrail() if event_mode == "absent" else Trail(event)
     cfn = CleanupPredeleteCloudFormation(failed)
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3527,7 +4279,7 @@ def test_cleanup_rejects_changed_failed_stack_before_delete(
         ),
         resources=resources,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3565,7 +4317,7 @@ def test_cleanup_expired_locally_never_calls_sts(
     timeline, claims, failed, authorization, intent = _cleanup_chain(
         seed, now, authorization_ttl_seconds=60
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3604,7 +4356,7 @@ def test_cleanup_resamples_expiry_immediately_before_delete(
     samples = iter(
         (now, now, now + timedelta(seconds=30), now + timedelta(seconds=60))
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3664,7 +4416,7 @@ def test_cleanup_rejects_resealed_foreign_horizon_before_aws(
     forged.pop("cleanup_intent_digest")
     forged = route.seal(forged, "cleanup_intent_digest")
     timeline: list[str] = []
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3714,7 +4466,24 @@ def test_reentry_execution_cli_requires_causal_dispatch_argument(
     assert "--reentry-dispatch-name" in result.stdout
 
 
-def test_connected_cli_rejects_forged_seed_before_provider_creation(
+@pytest.mark.parametrize("command", ("create-reentry", "execute-reentry"))
+def test_reentry_mutation_cli_requires_atomic_private_roots(
+    command: str,
+) -> None:
+    result = subprocess.run(
+        [sys.executable, str(RECOVERY_CLI), command, "--help"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--collision-admission-root" in result.stdout
+    assert "--gug393-private-root" in result.stdout
+    assert "--collision-admission-digest" not in result.stdout
+
+
+def test_connected_cli_validates_seed_before_provider_or_admission(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -3771,8 +4540,9 @@ def test_connected_cli_rejects_forged_seed_before_provider_creation(
         _root_fd: int,
         *,
         profile: str,
+        **kwargs: Any,
     ) -> Any:
-        provider_calls.append(profile)
+        provider_calls.append(f"{profile}:{sorted(kwargs)}")
         raise AssertionError("provider created before seed validation")
 
     monkeypatch.setattr(
@@ -3804,7 +4574,13 @@ def test_connected_cli_rejects_forged_seed_before_provider_creation(
             "failure.json",
             "--reentry-authorization-name",
             "reentry-authorization.json",
-        ]
+            "--collision-admission-root",
+            str(tmp_path / "admission"),
+                "--gug393-private-root",
+                str(tmp_path / "gug393"),
+                "--gug395-private-root",
+                str(tmp_path / "gug395"),
+            ]
     )
     emitted = json.loads(capsys.readouterr().out)
     assert result == 2
@@ -3814,6 +4590,118 @@ def test_connected_cli_rejects_forged_seed_before_provider_creation(
     ]
     assert provider_calls == []
     assert not (tmp_path / "output.json").exists()
+
+
+def test_recovery_cli_provider_builds_atomic_private_context_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "gug376_recovery_cli_loader_test",
+        RECOVERY_CLI,
+    )
+    assert spec is not None and spec.loader is not None
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    tmp_path.chmod(0o700)
+    calls: list[dict[str, Any]] = []
+    capability = object()
+
+    class Session:
+        def __init__(self, *, profile_name: str, region_name: str) -> None:
+            assert profile_name == "839393571433_AWSAdministratorAccess"
+            assert region_name == route.REGION
+
+    class Config:
+        pass
+
+    class Claims:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class Provider:
+        def __init__(self, **kwargs: Any) -> None:
+            self.loader = kwargs["collision_admission_loader"]
+
+    def atomic_loader(**kwargs: Any) -> object:
+        calls.append(kwargs)
+        return capability
+
+    boto3 = types.ModuleType("boto3")
+    boto3.Session = Session  # type: ignore[attr-defined]
+    botocore = types.ModuleType("botocore")
+    botocore.__path__ = []  # type: ignore[attr-defined]
+    botocore_config = types.ModuleType("botocore.config")
+    botocore_config.Config = Config  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "boto3", boto3)
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.config", botocore_config)
+    monkeypatch.setattr(cli.connected, "OExclClaimStore", Claims)
+    monkeypatch.setattr(
+        cli.recovery, "clients_from_session", lambda *_args, **_kwargs: object()
+    )
+    monkeypatch.setattr(
+        cli.recovery, "ConnectedDeploymentRecoveryProvider", Provider
+    )
+    admission_root = tmp_path / "admission"
+    gug393_root = tmp_path / "gug393"
+    gug395_root = tmp_path / "gug395"
+    context_binding = {
+        "expected_approval_reference_digest": "sha256:" + "1" * 64,
+        "expected_authorized_at": "2026-08-31T12:00:00Z",
+        "expected_expires_at": "2026-08-31T12:10:00Z",
+        "expected_operation": "route-reentry-preexecute:create-change-set",
+        "expected_source_commit_sha": "a" * 40,
+    }
+    monkeypatch.setattr(
+        cli.collision_context,
+        "build_atomic_loader_from_private_context",
+        lambda **kwargs: (
+            atomic_loader
+            if kwargs
+            == {
+                "admission_private_root": admission_root,
+                "effect_private_root": tmp_path,
+                "gug393_private_root": gug393_root,
+                "gug395_private_root": gug395_root,
+                **context_binding,
+                "environment": os.environ,
+            }
+            else pytest.fail("unexpected atomic loader roots")
+        ),
+    )
+    root_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        provider, claims = cli._provider(
+            tmp_path,
+            root_fd,
+            profile="839393571433_AWSAdministratorAccess",
+            collision_admission_root=admission_root,
+            gug393_private_root=gug393_root,
+            gug395_private_root=gug395_root,
+            collision_context_binding=context_binding,
+        )
+    finally:
+        os.close(root_fd)
+    loaded = provider.loader(
+        operation="route-reentry-preexecute:create-change-set",
+        effect_request_digest="sha256:" + "7" * 64,
+        bootstrap_intent_digest="sha256:" + "8" * 64,
+        now=datetime(2026, 8, 31, 12, tzinfo=timezone.utc),
+    )
+    claims.close()
+    assert loaded is capability
+    assert calls == [
+        {
+            "operation": "route-reentry-preexecute:create-change-set",
+            "effect_request_digest": "sha256:" + "7" * 64,
+            "bootstrap_intent_digest": "sha256:" + "8" * 64,
+            "now": datetime(2026, 8, 31, 12, tzinfo=timezone.utc),
+        }
+    ]
 
 
 def test_cleanup_identities_are_preexisting_bridge_owned_and_outside_targets() -> None:
@@ -3946,7 +4834,7 @@ def test_fixed_resource_absence_accepts_exact_not_found_and_rejects_access_denie
     )
     timeline: list[str] = []
     iam = AbsentIAM()
-    accepted = recovery.ConnectedDeploymentRecoveryProvider(
+    accepted = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3968,7 +4856,7 @@ def test_fixed_resource_absence_accepts_exact_not_found_and_rejects_access_denie
     assert {request["RoleName"] for request in iam.requests} == set(
         recovery.ROUTE_FIXED_IAM_ROLE_NAMES
     )
-    denied = recovery.ConnectedDeploymentRecoveryProvider(
+    denied = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -4008,7 +4896,7 @@ def test_broker_absence_covers_recovery_functions_roles_and_logs(
         authorization=authorization,
     )
     resources = AbsentBrokerResources()
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -4068,7 +4956,7 @@ def test_broker_cleanup_accepts_only_exact_disabled_pending_deletion_key(
         authorization=authorization,
     )
     resources = PendingDeletionBrokerResources(now=now)
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -4103,7 +4991,7 @@ def test_broker_cleanup_accepts_only_exact_disabled_pending_deletion_key(
     ]
 
     active = PendingDeletionBrokerResources(now=now, enabled=True)
-    blocked = recovery.ConnectedDeploymentRecoveryProvider(
+    blocked = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -4361,7 +5249,7 @@ def _cleanup_terminal_reentry_chain(
         "responseElements": None,
     }
     cfn = TerminalReentryCloudFormation()
-    attestor = recovery.ConnectedDeploymentRecoveryProvider(
+    attestor = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -4415,7 +5303,7 @@ def test_cleanup_terminal_live_proof_allows_only_one_reentry_and_rejects_reseal(
     )
     cfn.expected_create_request = intent["create_request"]
     timeline.clear()
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -4480,7 +5368,7 @@ def test_cleanup_terminal_live_proof_allows_only_one_reentry_and_rejects_reseal(
     )
     forged_cfn.expected_create_request = forged_intent["create_request"]
     forged_timeline.clear()
-    forged_provider = recovery.ConnectedDeploymentRecoveryProvider(
+    forged_provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -4523,7 +5411,7 @@ def test_cleanup_attestation_rejects_invalid_dispatch_before_sts(
     changed.pop("dispatch_digest")
     changed = route.seal(changed, "dispatch_digest")
     timeline.clear()
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -4683,7 +5571,7 @@ def test_cleanup_terminal_cannot_drop_broker_resources_before_reentry_sts(
         failure_attestation=forged_terminal,
         authorization=authorization,
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -4856,6 +5744,10 @@ def _protection_rollback_reentry_chain(
     caller = _caller(
         route.AUTHORITY_ACCOUNT_ID, "ScanalyzeGug376BrokerSeedExec"
     )
+    collision_binding = _primary_execution_collision_binding(
+        target=route.BROKER_PROTECTION_TARGET,
+        request=execute_request,
+    )
     claim = {
         "schema_version": 1,
         "record_type": connected.CLAIM_RECORD_TYPE,
@@ -4863,6 +5755,7 @@ def _protection_rollback_reentry_chain(
         "target": route.BROKER_PROTECTION_TARGET,
         "execution_intent_digest": execution_intent_digest,
         "request_digest": route.digest_value(execute_request),
+        **collision_binding,
         "client_request_token": execute_request["ClientRequestToken"],
         "stack_arn": stack_arn,
         "change_set_arn": change_set_arn,
@@ -4879,6 +5772,7 @@ def _protection_rollback_reentry_chain(
             "target": route.BROKER_PROTECTION_TARGET,
             "account_id": route.AUTHORITY_ACCOUNT_ID,
             "execution_intent_digest": execution_intent_digest,
+            **collision_binding,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "execute_request_id": RECOVERY_REQUEST_UUID,
@@ -5019,7 +5913,7 @@ def test_protection_rollback_live_proof_allows_only_one_reentry_and_blocks_drift
         stack_arn=failure["stack_arn"],
         expected_create_request=intent["create_request"],
     )
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -5070,7 +5964,7 @@ def test_protection_rollback_live_proof_allows_only_one_reentry_and_blocks_drift
         expected_create_request=drift_intent["create_request"],
         stack_status="UPDATE_COMPLETE",
     )
-    drift_provider = recovery.ConnectedDeploymentRecoveryProvider(
+    drift_provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -5148,7 +6042,7 @@ def test_reentry_attestor_and_create_event_digest_bind_exact_live_evidence(
     )
     key = f"reentry-create:route:{seed['intent_digest']}"
     dispatch = claims.results[key]
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -5256,6 +6150,7 @@ def test_reentry_execution_binding_rejects_foreign_seed_before_aws(
         _execution_authorization,
         execution,
     ) = _reentry_execution_chain(seed, now)
+    collision_admission = _reentry_execution_collision_binding(execution)
     receipt = route.seal(
         {
             "schema_version": 1,
@@ -5266,6 +6161,7 @@ def test_reentry_execution_binding_rejects_foreign_seed_before_aws(
             "execution_intent_digest": execution[
                 "execution_intent_digest"
             ],
+            "collision_admission": collision_admission,
             "stack_arn": dispatch["stack_arn"],
             "change_set_arn": dispatch["change_set_arn"],
             "execute_request_id": RECOVERY_REQUEST_UUID,
@@ -5283,7 +6179,7 @@ def test_reentry_execution_binding_rejects_foreign_seed_before_aws(
     foreign_seed.pop("intent_digest")
     foreign_seed = route.seal(foreign_seed, "intent_digest")
     timeline: list[str] = []
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -5321,6 +6217,7 @@ def test_execute_event_digest_rejects_non_null_response_elements(
         _execution_authorization,
         execution,
     ) = _reentry_execution_chain(seed, now)
+    collision_admission = _reentry_execution_collision_binding(execution)
     receipt = route.seal(
         {
             "schema_version": 1,
@@ -5331,6 +6228,7 @@ def test_execute_event_digest_rejects_non_null_response_elements(
             "execution_intent_digest": execution[
                 "execution_intent_digest"
             ],
+            "collision_admission": collision_admission,
             "stack_arn": dispatch["stack_arn"],
             "change_set_arn": dispatch["change_set_arn"],
             "execute_request_id": RECOVERY_REQUEST_UUID,
@@ -5352,6 +6250,7 @@ def test_execute_event_digest_rejects_non_null_response_elements(
         "attempt": 1,
         "execution_intent_digest": execution["execution_intent_digest"],
         "request_digest": execution["execute_request_digest"],
+        "collision_admission": collision_admission,
         "client_request_token": execution["execute_request"][
             "ClientRequestToken"
         ],
@@ -5452,7 +6351,7 @@ def test_cleanup_attestation_uses_post_live_clock_and_rejects_regression(
             assert len(iam.requests) == len(recovery.ROUTE_FIXED_IAM_ROLE_NAMES)
         return value
 
-    provider = recovery.ConnectedDeploymentRecoveryProvider(
+    provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -5478,7 +6377,7 @@ def test_cleanup_attestation_uses_post_live_clock_and_rejects_regression(
 
     regressed_cfn = TerminalReentryCloudFormation()
     regressed_samples = iter((now, now - timedelta(seconds=1)))
-    regressed_provider = recovery.ConnectedDeploymentRecoveryProvider(
+    regressed_provider = _ContractHarnessRecoveryProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,

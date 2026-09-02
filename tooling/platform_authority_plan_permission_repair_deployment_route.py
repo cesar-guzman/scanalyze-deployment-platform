@@ -64,7 +64,7 @@ EXACT_TAGS = [
     {"Key": "service", "Value": "scanalyze-platform-authority"},
     {"Key": "work_package", "Value": "GUG-376"},
 ]
-ROUTE_RESOURCE_COUNT = 8
+ROUTE_RESOURCE_COUNT = 9
 ROUTE_ASSIGNMENT_COUNT = 3
 
 ROUTE_PARAMETER_KEYS = (
@@ -469,6 +469,8 @@ class GitPort(Protocol):
 
     def read_at(self, commit: str, path: str) -> bytes: ...
 
+    def tree_at(self, commit: str) -> str: ...
+
     def render_broker_seed(
         self, private_input: Mapping[str, Any], *, protection_enabled: bool
     ) -> bytes: ...
@@ -509,6 +511,12 @@ class SubprocessGit:
 
     def read_at(self, commit: str, path: str) -> bytes:
         return self._run("show", f"{commit}:{path}")
+
+    def tree_at(self, commit: str) -> str:
+        value = self._run("rev-parse", f"{commit}^{{tree}}").decode().strip()
+        if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+            raise RouteSeedError("GIT_READ_FAILED")
+        return value
 
     def render_broker_seed(
         self, private_input: Mapping[str, Any], *, protection_enabled: bool

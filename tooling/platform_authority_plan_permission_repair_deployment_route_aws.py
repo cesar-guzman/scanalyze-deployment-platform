@@ -14,10 +14,21 @@ import os
 from pathlib import Path
 import re
 import stat
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Protocol
 from urllib.parse import urlsplit
 
 from tooling import platform_authority_plan_permission_repair_deployment_route as route
+from tooling.platform_authority_gug376_collision_admission import (
+    RouteCollisionAdmissionCapability,
+    RouteCollisionAdmissionEffectGrant,
+    assert_route_collision_admission_active,
+    consume_route_collision_admission,
+    revalidate_route_collision_admission_effect_grant,
+)
+from tooling.platform_authority_gug376_collision_atomic_admission import (
+    is_atomic_route_collision_admission_loader,
+    invoke_route_collision_admission_loader,
+)
 
 
 DISPATCH_RECORD_TYPE = (
@@ -44,6 +55,10 @@ _DISPATCH_FIELDS = frozenset(
         "create_request_digest",
         "creation_authorization",
         "creation_authorization_digest",
+        "collision_admission_digest",
+        "collision_operation",
+        "collision_effect_request_digest",
+        "bootstrap_intent_digest",
         "stack_arn",
         "change_set_arn",
         "create_request_id",
@@ -63,6 +78,10 @@ _EXECUTION_RECEIPT_FIELDS = frozenset(
         "target",
         "account_id",
         "execution_intent_digest",
+        "collision_admission_digest",
+        "collision_operation",
+        "collision_effect_request_digest",
+        "bootstrap_intent_digest",
         "stack_arn",
         "change_set_arn",
         "execute_request_id",
@@ -195,6 +214,121 @@ class ConnectedRouteError(RuntimeError):
         self.code = code
         self.uncertain = uncertain
         super().__init__(f"GUG376_CONNECTED_SEED_BLOCKED:{code}")
+
+
+class CollisionAdmissionLoader(Protocol):
+    """Load one action-bound capability at the provider's effect boundary."""
+
+    def __call__(
+        self,
+        *,
+        operation: str,
+        effect_request_digest: str,
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> RouteCollisionAdmissionCapability: ...
+
+
+_COLLISION_OPERATION_BY_TARGET: Mapping[str, Mapping[str, str]] = {
+    "route": {
+        "create": "route:create-change-set",
+        "execute": "route:execute-change-set",
+    },
+    "broker": {
+        "create": "broker:create-change-set",
+        "execute": "broker:execute-change-set",
+    },
+    route.BROKER_PROTECTION_TARGET: {
+        "create": "broker-protection:create-change-set",
+        "execute": "broker-protection:execute-change-set",
+    },
+}
+_COLLISION_BINDING_FIELDS = frozenset(
+    {
+        "collision_admission_digest",
+        "collision_operation",
+        "collision_effect_request_digest",
+        "bootstrap_intent_digest",
+    }
+)
+
+
+def derive_collision_admission_binding(
+    *,
+    action: str,
+    target: str,
+    seed_input: Mapping[str, Any],
+    seed_intent: Mapping[str, Any],
+    execution_intent: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
+    """Derive one admission selector from validated causal records."""
+
+    operations = _COLLISION_OPERATION_BY_TARGET.get(target)
+    if operations is None or action not in operations:
+        raise ConnectedRouteError("COLLISION_ADMISSION_OPERATION_INVALID")
+    intent = route.validate_seed_intent(seed_intent)
+    if target not in intent["targets"]:
+        raise ConnectedRouteError("COLLISION_ADMISSION_OPERATION_INVALID")
+    bootstrap = seed_input.get("artifact_bootstrap_intent")
+    bootstrap_digest = (
+        bootstrap.get("intent_digest")
+        if isinstance(bootstrap, Mapping)
+        else None
+    )
+    if _DIGEST_RE.fullmatch(str(bootstrap_digest)) is None:
+        raise ConnectedRouteError("COLLISION_ADMISSION_BOOTSTRAP_INVALID")
+    if action == "create":
+        if execution_intent is not None:
+            raise ConnectedRouteError("COLLISION_ADMISSION_OPERATION_INVALID")
+        request = intent["targets"][target]["create_request"]
+        effect_digest = intent["targets"][target]["create_request_digest"]
+    else:
+        if execution_intent is None:
+            raise ConnectedRouteError("COLLISION_ADMISSION_OPERATION_INVALID")
+        execution = route.validate_execution_intent(execution_intent)
+        if (
+            execution.get("target") != target
+            or execution.get("parent_intent_digest") != intent["intent_digest"]
+        ):
+            raise ConnectedRouteError("COLLISION_ADMISSION_OPERATION_INVALID")
+        request = execution["execute_request"]
+        effect_digest = execution["execute_request_digest"]
+    if effect_digest != route.digest_value(request):
+        raise ConnectedRouteError("COLLISION_ADMISSION_EFFECT_INVALID")
+    return {
+        "collision_operation": operations[action],
+        "collision_effect_request_digest": effect_digest,
+        "bootstrap_intent_digest": str(bootstrap_digest),
+    }
+
+
+def _validate_persisted_collision_binding(
+    value: Mapping[str, Any],
+    *,
+    action: str,
+    target: str,
+    effect_request_digest: str,
+) -> dict[str, str]:
+    operations = _COLLISION_OPERATION_BY_TARGET.get(target)
+    if (
+        operations is None
+        or action not in operations
+        or _DIGEST_RE.fullmatch(
+            str(value.get("collision_admission_digest", ""))
+        )
+        is None
+        or value.get("collision_operation") != operations[action]
+        or value.get("collision_effect_request_digest")
+        != effect_request_digest
+        or _DIGEST_RE.fullmatch(
+            str(value.get("bootstrap_intent_digest", ""))
+        )
+        is None
+    ):
+        raise ConnectedRouteError("COLLISION_ADMISSION_BINDING_INVALID")
+    return {
+        field: str(value[field]) for field in _COLLISION_BINDING_FIELDS
+    }
 
 
 def _timestamp(value: datetime) -> str:
@@ -1235,6 +1369,12 @@ def validate_dispatch(
     if target not in route.TARGETS:
         raise ConnectedRouteError("DISPATCH_INVALID")
     spec = intent["targets"][target]
+    _validate_persisted_collision_binding(
+        value,
+        action="create",
+        target=str(target),
+        effect_request_digest=spec["create_request_digest"],
+    )
     try:
         dispatched_at = _parse_time(
             value.get("dispatched_at"), "DISPATCH_INVALID"
@@ -1300,7 +1440,7 @@ def _validate_create_claim(
         "claimed_at",
         "retry_permitted",
         "production_authorized",
-    }
+    } | _COLLISION_BINDING_FIELDS
     claimed_at = _parse_time(
         value.get("claimed_at"), "MUTATION_CLAIM_INVALID"
     )
@@ -1312,6 +1452,15 @@ def _validate_create_claim(
             now=claimed_at,
         )
     except route.RouteSeedError as exc:
+        raise ConnectedRouteError("MUTATION_CLAIM_INVALID") from exc
+    try:
+        _validate_persisted_collision_binding(
+            value,
+            action="create",
+            target=target,
+            effect_request_digest=spec["create_request_digest"],
+        )
+    except ConnectedRouteError as exc:
         raise ConnectedRouteError("MUTATION_CLAIM_INVALID") from exc
     if (
         set(value) != expected_fields
@@ -1569,6 +1718,114 @@ class ConnectedSeedProvider:
         self._claims = claims
         self._clock = clock
 
+    def _consume_collision_admission(
+        self,
+        loader: CollisionAdmissionLoader,
+        *,
+        binding: Mapping[str, str],
+        now: datetime,
+        effect_request: Mapping[str, Any] | None = None,
+    ) -> tuple[
+        dict[str, str],
+        RouteCollisionAdmissionEffectGrant | None,
+        datetime,
+    ]:
+        """Consume one exact, action-time admission before the local claim."""
+
+        if set(binding) != {
+            "collision_operation",
+            "collision_effect_request_digest",
+            "bootstrap_intent_digest",
+        }:
+            raise ConnectedRouteError("COLLISION_ADMISSION_BINDING_INVALID")
+        try:
+            atomic = is_atomic_route_collision_admission_loader(loader)
+            if atomic and not isinstance(effect_request, Mapping):
+                raise ConnectedRouteError(
+                    "COLLISION_ADMISSION_BINDING_INVALID"
+                )
+            capability = invoke_route_collision_admission_loader(
+                loader,
+                operation=binding["collision_operation"],
+                effect_request=effect_request or {},
+                effect_request_digest=binding[
+                    "collision_effect_request_digest"
+                ],
+                bootstrap_intent_digest=binding[
+                    "bootstrap_intent_digest"
+                ],
+                now=now,
+            )
+            # The atomic loader performs connected scans before sealing the
+            # admission.  Consume against a fresh post-scan sample; the
+            # caller-provided pre-scan boundary can never prove a later seal.
+            admitted_at = self._clock() if atomic else now
+            grant = None
+            if atomic:
+                grant = consume_route_collision_admission(
+                    capability,
+                    operation=binding["collision_operation"],
+                    effect_request_digest=binding[
+                        "collision_effect_request_digest"
+                    ],
+                    bootstrap_intent_digest=binding[
+                        "bootstrap_intent_digest"
+                    ],
+                    now=admitted_at,
+                )
+                admission_digest = grant.admission_digest
+            else:
+                # Digest-only loaders remain an internal test/compatibility
+                # protocol.  Product CLIs accept only the atomic loader.
+                admission_digest = assert_route_collision_admission_active(
+                    capability,
+                    operation=binding["collision_operation"],
+                    effect_request_digest=binding[
+                        "collision_effect_request_digest"
+                    ],
+                    bootstrap_intent_digest=binding[
+                        "bootstrap_intent_digest"
+                    ],
+                    now=admitted_at,
+                )
+        except Exception as exc:
+            raise ConnectedRouteError(
+                "COLLISION_ADMISSION_NOT_ACTIVE"
+            ) from exc
+        if _DIGEST_RE.fullmatch(str(admission_digest)) is None:
+            raise ConnectedRouteError("COLLISION_ADMISSION_BINDING_INVALID")
+        return (
+            {
+                "collision_admission_digest": admission_digest,
+                **dict(binding),
+            },
+            grant,
+            admitted_at,
+        )
+
+    @staticmethod
+    def _require_collision_admission_active(
+        grant: RouteCollisionAdmissionEffectGrant | None,
+        *,
+        expected_admission_digest: str,
+        now: datetime,
+    ) -> None:
+        if grant is None:
+            return
+        try:
+            observed = revalidate_route_collision_admission_effect_grant(
+                grant,
+                now=now,
+            )
+        except Exception as exc:
+            raise ConnectedRouteError(
+                "COLLISION_ADMISSION_NOT_ACTIVE"
+            ) from exc
+        if observed != expected_admission_digest:
+            raise ConnectedRouteError(
+                "COLLISION_ADMISSION_BINDING_INVALID"
+            )
+
     def create_change_set(
         self,
         *,
@@ -1577,6 +1834,7 @@ class ConnectedSeedProvider:
         git: route.GitPort,
         target: str,
         creation_authorization: Mapping[str, Any],
+        collision_admission_loader: CollisionAdmissionLoader,
     ) -> dict[str, Any]:
         observed_at = self._clock()
         try:
@@ -1613,6 +1871,12 @@ class ConnectedSeedProvider:
         if spec["account_id"] != account_id:
             raise ConnectedRouteError("TARGET_ACCOUNT_INVALID")
         request = spec["create_request"]
+        collision_binding = derive_collision_admission_binding(
+            action="create",
+            target=target,
+            seed_input=seed_input,
+            seed_intent=intent,
+        )
         claim_key = (
             f"create:{target}:{intent['intent_digest']}:"
             f"{spec['create_request_digest']}"
@@ -1636,12 +1900,41 @@ class ConnectedSeedProvider:
             "retry_permitted": False,
             "production_authorized": False,
         }
+        consume_kwargs: dict[str, Any] = {
+            "binding": collision_binding,
+            "now": now,
+        }
+        if is_atomic_route_collision_admission_loader(
+            collision_admission_loader
+        ):
+            consume_kwargs["effect_request"] = request
+        consumed = self._consume_collision_admission(
+            collision_admission_loader,
+            **consume_kwargs,
+        )
+        if isinstance(consumed, tuple):
+            admission_binding, admission_grant, admitted_at = consumed
+        else:
+            # Compatibility for contract harnesses which override the
+            # protected hook.  Product CLIs always take the tuple path.
+            admission_binding = consumed
+            admission_grant = None
+            admitted_at = now
+        claim["claimed_at"] = _timestamp(admitted_at)
+        claim.update(admission_binding)
         self._claims.claim(claim_key, claim)
-        _active_creation_time(
+        effect_at = _active_creation_time(
             intent=intent,
             target=target,
             authorization=authorization,
             clock=self._clock,
+        )
+        self._require_collision_admission_active(
+            admission_grant,
+            expected_admission_digest=admission_binding[
+                "collision_admission_digest"
+            ],
+            now=effect_at,
         )
         try:
             response = self._cfn.create_change_set(**dict(request))
@@ -1662,13 +1955,14 @@ class ConnectedSeedProvider:
             "creation_authorization_digest": authorization[
                 "authorization_digest"
             ],
+            **admission_binding,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "create_request_id": request_id,
             # This is the pre-call dispatch boundary.  CloudTrail records the
             # request before the SDK response returns, so a post-response
             # timestamp would make a valid event permanently unverifiable.
-            "dispatched_at": _timestamp(now),
+            "dispatched_at": _timestamp(effect_at),
             "aws_mutations": 1,
             "retry_permitted": False,
             "production_authorized": False,
@@ -1837,6 +2131,10 @@ class ConnectedSeedProvider:
                 "creation_authorization_digest": claim[
                     "creation_authorization_digest"
                 ],
+                **{
+                    field: claim[field]
+                    for field in _COLLISION_BINDING_FIELDS
+                },
                 "stack_arn": match["stack_arn"],
                 "change_set_arn": match["change_set_arn"],
                 "create_request_id": match["request_id"],
@@ -2150,6 +2448,7 @@ class ConnectedSeedProvider:
         create_attestation: Mapping[str, Any],
         execution_authorization: Mapping[str, Any],
         execution_intent: Mapping[str, Any],
+        collision_admission_loader: CollisionAdmissionLoader,
     ) -> dict[str, Any]:
         observed_at = self._clock()
         try:
@@ -2246,6 +2545,13 @@ class ConnectedSeedProvider:
             clock=self._clock,
         )
         request = intent["execute_request"]
+        collision_binding = derive_collision_admission_binding(
+            action="execute",
+            target=target,
+            seed_input=seed_input,
+            seed_intent=seed,
+            execution_intent=intent,
+        )
         claim_key = f"execute:{target}:{intent['execute_operation_digest']}"
         claim = {
             "schema_version": 1,
@@ -2262,12 +2568,36 @@ class ConnectedSeedProvider:
             "retry_permitted": False,
             "production_authorized": False,
         }
+        consume_kwargs = {"binding": collision_binding, "now": now}
+        if is_atomic_route_collision_admission_loader(
+            collision_admission_loader
+        ):
+            consume_kwargs["effect_request"] = request
+        consumed = self._consume_collision_admission(
+            collision_admission_loader,
+            **consume_kwargs,
+        )
+        if isinstance(consumed, tuple):
+            admission_binding, admission_grant, admitted_at = consumed
+        else:
+            admission_binding = consumed
+            admission_grant = None
+            admitted_at = now
+        claim["claimed_at"] = _timestamp(admitted_at)
+        claim.update(admission_binding)
         self._claims.claim(claim_key, claim)
-        _active_execution_time(
+        effect_at = _active_execution_time(
             intent=seed,
             create_attestation=attestation,
             authorization=execution_authorization,
             clock=self._clock,
+        )
+        self._require_collision_admission_active(
+            admission_grant,
+            expected_admission_digest=admission_binding[
+                "collision_admission_digest"
+            ],
+            now=effect_at,
         )
         try:
             response = self._cfn.execute_change_set(**dict(request))
@@ -2283,12 +2613,13 @@ class ConnectedSeedProvider:
             "target": target,
             "account_id": account_id,
             "execution_intent_digest": intent["execution_intent_digest"],
+            **admission_binding,
             "stack_arn": request["StackName"],
             "change_set_arn": request["ChangeSetName"],
             "execute_request_id": request_id,
             # Preserve the pre-call boundary used by the CloudTrail lookup.
             # The service event may precede the SDK response timestamp.
-            "dispatched_at": _timestamp(now),
+            "dispatched_at": _timestamp(effect_at),
             "aws_mutations": 1,
             "retry_permitted": False,
             "production_authorized": False,
@@ -2328,10 +2659,19 @@ class ConnectedSeedProvider:
             "claimed_at",
             "retry_permitted",
             "production_authorized",
-        }
+        } | _COLLISION_BINDING_FIELDS
         claimed_at = _parse_time(
             claim.get("claimed_at"), "MUTATION_CLAIM_INVALID"
         )
+        try:
+            _validate_persisted_collision_binding(
+                claim,
+                action="execute",
+                target=target,
+                effect_request_digest=intent["execute_request_digest"],
+            )
+        except ConnectedRouteError as exc:
+            raise ConnectedRouteError("MUTATION_CLAIM_INVALID") from exc
         if (
             set(claim) != expected_claim_fields
             or claim.get("schema_version") != 1
@@ -2440,6 +2780,10 @@ class ConnectedSeedProvider:
                 "target": target,
                 "account_id": account_id,
                 "execution_intent_digest": intent["execution_intent_digest"],
+                **{
+                    field: claim[field]
+                    for field in _COLLISION_BINDING_FIELDS
+                },
                 "stack_arn": request["StackName"],
                 "change_set_arn": request["ChangeSetName"],
                 "execute_request_id": matches[0]["request_id"],
@@ -3527,16 +3871,26 @@ class ConnectedSeedProvider:
                 as recovery,
             )
 
+            if not isinstance(execution_receipt, Mapping):
+                raise ConnectedRouteError("EXECUTION_RECEIPT_FIELDS_INVALID")
             try:
                 execution = recovery.validate_reentry_execution_intent_structure(
                     execution_intent
+                )
+                execution_receipt = (
+                    recovery._validate_reentry_execution_receipt(
+                        execution_receipt,
+                        execution=execution,
+                    )
                 )
             except recovery.DeploymentRecoveryError as exc:
                 raise ConnectedRouteError(exc.code) from exc
             expected_receipt_record_type = (
                 recovery.REENTRY_EXECUTION_RECEIPT_RECORD_TYPE
             )
-            expected_receipt_fields = _EXECUTION_RECEIPT_FIELDS | {"attempt"}
+            expected_receipt_fields = (
+                _EXECUTION_RECEIPT_FIELDS - _COLLISION_BINDING_FIELDS
+            ) | {"attempt", "collision_admission"}
         normalized_now = _recovery_window(execution, self._clock)
         if (
             not isinstance(execution_receipt, Mapping)
@@ -3549,6 +3903,13 @@ class ConnectedSeedProvider:
             raise ConnectedRouteError(exc.code) from exc
         target = execution["target"]
         spec = seed["targets"][target]
+        if recovery is None:
+            _validate_persisted_collision_binding(
+                execution_receipt,
+                action="execute",
+                target=target,
+                effect_request_digest=execution["execute_request_digest"],
+            )
         expected_stack_status = (
             "UPDATE_COMPLETE"
             if target == route.BROKER_PROTECTION_TARGET
@@ -3980,6 +4341,7 @@ class ConnectedSeedProvider:
 
 
 __all__ = [
+    "CollisionAdmissionLoader",
     "CLAIM_RECORD_TYPE",
     "ConnectedRouteError",
     "ConnectedSeedProvider",
@@ -3988,6 +4350,7 @@ __all__ = [
     "OExclClaimStore",
     "TERMINAL_RECEIPT_RECORD_TYPE",
     "clients_from_session",
+    "derive_collision_admission_binding",
     "sdk_client_config",
     "validate_dispatch",
 ]

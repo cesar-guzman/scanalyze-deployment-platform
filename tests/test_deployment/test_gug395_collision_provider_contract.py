@@ -18,6 +18,10 @@ AUTHORITY_ACCOUNT = "042360977644"
 IDENTITY_ACCOUNT = "839393571433"
 AUTHORITY_PROFILE = "042360977644_AWSReadOnlyAccess"
 IDENTITY_PROFILE = "839393571433_AWSReadOnlyAccess"
+ARTIFACT_BUCKET = (
+    "scanalyze-g376-art-aaaaaaaaaaaa-"
+    f"{AUTHORITY_ACCOUNT}-us-east-1-an"
+)
 
 
 def _digest(label: str) -> str:
@@ -358,35 +362,10 @@ def test_partial_provider_summary_never_overclaims_an_aws_call() -> None:
     assert summary["live_provider_evidence"] is False
 
 
-class _HeadBucketError(RuntimeError):
-    def __init__(self, status: int, code: str | None = None) -> None:
-        self.response = {
-            "Error": {"Code": code or str(status)},
-            "ResponseMetadata": {
-                "HTTPStatusCode": status,
-                "HTTPHeaders": (
-                    {"x-amz-bucket-region": "us-west-2"}
-                    if status in {301, 403}
-                    else {}
-                ),
-            },
-        }
-        super().__init__(f"private-{status}-detail-must-not-escape")
-
-
-class _HeadBucketClient:
-    def __init__(self, status: int) -> None:
-        self.status = status
+class _S3Client:
+    def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         self.meta = SimpleNamespace(events=_S3Events())
-
-    def head_bucket(self, **request: Any) -> Mapping[str, Any]:
-        self.requests.append(request)
-        if 200 <= self.status <= 299:
-            return {"ResponseMetadata": {"HTTPStatusCode": self.status}}
-        if self.status in {301, 400, 403, 404}:
-            raise _HeadBucketError(self.status)
-        raise _HeadBucketError(self.status, "InternalError")
 
 
 class _S3Events:
@@ -417,12 +396,12 @@ class _S3Events:
                     },
                 },
             ),
-            operation=SimpleNamespace(name="HeadBucket"),
+            operation=SimpleNamespace(name="ListBuckets"),
         )
 
 
-class _HeadSdkSession:
-    def __init__(self, client: _HeadBucketClient) -> None:
+class _S3SdkSession:
+    def __init__(self, client: _S3Client) -> None:
         self.client_value = client
 
     def client(self, service: str, *, config: Any, verify: bool) -> Any:
@@ -432,12 +411,12 @@ class _HeadSdkSession:
         return self.client_value
 
 
-def _head_bucket_session(status: int) -> tuple[
+def _s3_session() -> tuple[
     provider._StsSession,
     contract.CollisionCallLedger,
     _TrackingBudget,
     provider.LiveProviderFactory,
-    _HeadBucketClient,
+    _S3Client,
 ]:
     budget = _TrackingBudget()
     owner = object.__new__(provider.LiveProviderFactory)
@@ -450,7 +429,7 @@ def _head_bucket_session(status: int) -> tuple[
     owner._clock = lambda: NOW
 
     ledger = contract.CollisionCallLedger()
-    session_digest = _digest(f"head-bucket-session-{status}")
+    session_digest = _digest("account-regional-list-buckets-session")
     sts_ticket = ledger.authorize(
         domain="authority",
         session_digest=session_digest,
@@ -462,11 +441,11 @@ def _head_bucket_session(status: int) -> tuple[
         sts_ticket,
         completed_at=_stamp(NOW - timedelta(seconds=1)),
     )
-    client = _HeadBucketClient(status)
+    client = _S3Client()
     session = provider._StsSession(
         owner=owner,
         domain="authority",
-        sdk_session=_HeadSdkSession(client),
+        sdk_session=_S3SdkSession(client),
         sdk_config={"retries": 0},
         sts_client=object(),
         ledger=ledger,
@@ -493,7 +472,7 @@ def _head_bucket_session(status: int) -> tuple[
 
 def test_concrete_collision_s3_client_installs_first_priority_redirect_guard(
 ) -> None:
-    session, _, _, owner, client = _head_bucket_session(301)
+    session, _, _, owner, client = _s3_session()
     owner._concrete = True
 
     assert session._client("s3") is client
@@ -511,7 +490,7 @@ def test_concrete_collision_s3_client_installs_first_priority_redirect_guard(
 
 
 def test_concrete_collision_s3_guard_fails_before_provider_request() -> None:
-    session, _, _, owner, client = _head_bucket_session(200)
+    session, _, _, owner, client = _s3_session()
     owner._concrete = True
     client.meta = SimpleNamespace(events=object())
 
@@ -523,63 +502,37 @@ def test_concrete_collision_s3_guard_fails_before_provider_request() -> None:
     assert client.requests == []
 
 
-@pytest.mark.parametrize(
-    ("status", "collision", "absent"),
-    [
-        (200, True, False),
-        (204, True, False),
-        (301, True, False),
-    ],
-)
-def test_head_bucket_classifies_global_name_without_false_absence(
-    status: int, collision: bool, absent: bool
-) -> None:
-    session, ledger, budget, owner, client = _head_bucket_session(status)
-
-    result = session._head_bucket("scanalyze-gug395-candidate")
-
-    assert result == {
-        "status_code": status,
-        "collision": collision,
-        "absent": absent,
-        **(
-            {
-                "bucket_region_header_digest": provider.canonical_digest(
-                    "us-west-2"
-                )
-            }
-            if status == 301
-            else {}
-        ),
-    }
-    assert client.requests == [{"Bucket": "scanalyze-gug395-candidate"}]
-    assert ledger.finalize()[0] == 2
-    assert len(ledger.evidence_events()) == 2
-    assert budget.provider_calls == [("s3:HeadBucket", False)]
-    assert len(budget.evidence_events()) == 1
-    assert owner._events[-1]["outcome"] == "SUCCESS"
+def test_head_bucket_is_not_in_the_collision_operation_surface() -> None:
+    assert "s3:HeadBucket" not in provider.COLLISION_PROBE_OPERATION_ALLOWLIST[
+        "authority"
+    ]
 
 
-@pytest.mark.parametrize("status", [400, 403, 404])
-def test_head_bucket_generic_failure_is_uncertain_and_fully_accounted(
-    status: int,
-) -> None:
-    session, ledger, budget, owner, client = _head_bucket_session(status)
-
-    with pytest.raises(
-        provider.LiveProviderError,
-        match="^COLLISION_HEAD_BUCKET_AMBIGUOUS$",
-    ):
-        session._head_bucket("scanalyze-gug395-candidate")
-
-    assert client.requests == [{"Bucket": "scanalyze-gug395-candidate"}]
-    assert ledger._pending == {}
-    assert ledger._events[-1]["outcome"] == "ERROR"
-    assert budget.provider_calls == [("s3:HeadBucket", False)]
-    assert owner._events[-1]["outcome"] == "ERROR"
-    assert f"private-{status}-detail" not in contract.canonical_json(
-        ledger._events + owner._events + budget.evidence_events()
+def test_authority_policy_has_no_head_bucket_permission_and_scopes_tags() -> None:
+    policy_path = (
+        Path(__file__).resolve().parents[2]
+        / "policies"
+        / "iam"
+        / "platform-authority-gug395-preplan-collision-authority-read-only.json"
     )
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    allowed_actions: set[str] = set()
+    for statement in policy["Statement"]:
+        if statement.get("Effect") != "Allow":
+            continue
+        actions = statement["Action"]
+        allowed_actions.update(
+            {actions} if isinstance(actions, str) else actions
+        )
+
+    assert "s3:ListBucket" not in allowed_actions
+    assert "s3:HeadBucket" not in allowed_actions
+    tag_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Action") == "s3:GetBucketTagging"
+    )
+    assert tag_statement["Resource"] == "${artifact_bucket_arn}"
 
 
 def test_identity_policy_uses_primary_region_only_for_supported_actions() -> None:
@@ -676,40 +629,17 @@ def test_identity_policy_scopes_indirect_kms_dependency_without_adapter_dispatch
     )
 
 
-def test_head_bucket_unexpected_error_is_closed_and_fully_accounted() -> None:
-    session, ledger, budget, owner, _ = _head_bucket_session(500)
-
-    with pytest.raises(provider.LiveProviderError, match="^PROVIDER_READ_FAILED$"):
-        session._head_bucket("scanalyze-gug395-candidate")
-
-    assert ledger._pending == {}
-    assert ledger._events[-1]["outcome"] == "ERROR"
-    with pytest.raises(
-        contract.CollisionProbeError,
-        match="^COLLISION_UNCERTAIN_RECONCILE_ONLY$",
-    ):
-        ledger.finalize()
-    assert budget.provider_calls == [("s3:HeadBucket", False)]
-    assert len(budget.evidence_events()) == 1
-    assert owner._events[-1]["outcome"] == "ERROR"
-    assert "private-500-detail" not in contract.canonical_json(
-        ledger._events + owner._events + budget.evidence_events()
-    )
-
-
 class _ScriptedCollisionSession:
     def __init__(
         self,
         *,
         pages: Mapping[str, Any] | None = None,
         values: Mapping[str, Any] | None = None,
-        head: Mapping[str, Any] | None = None,
         account_id: str = IDENTITY_ACCOUNT,
     ) -> None:
         self._account_id = account_id
         self.pages = dict(pages or {})
         self.values = dict(values or {})
-        self.head = copy.deepcopy(head)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
     def _paginate(self, **kwargs: Any) -> list[Any]:
@@ -728,14 +658,7 @@ class _ScriptedCollisionSession:
             value = value(kwargs)
         return copy.deepcopy(value)
 
-    def _head_bucket(self, bucket_name: str) -> Mapping[str, Any]:
-        self.calls.append(("head", "s3:HeadBucket", {"Bucket": bucket_name}))
-        if self.head is None:
-            raise AssertionError("unexpected HeadBucket call")
-        return copy.deepcopy(self.head)
-
-
-def test_authority_selectors_detect_tag_collision_without_exact_name() -> None:
+def test_authority_selectors_detect_exact_bucket_and_tag_collisions() -> None:
     tags = _tag_pairs(contract.AUTHORITY_TAG_CONTRACT)
     key_arn = f"arn:aws:kms:us-east-1:{AUTHORITY_ACCOUNT}:key/tagged-key"
     profile_arn = (
@@ -763,7 +686,9 @@ def test_authority_selectors_detect_tag_collision_without_exact_name() -> None:
 
     session = _ScriptedCollisionSession(
         pages={
-            "s3:ListAllMyBuckets": [{"Name": "unrelated-bucket"}],
+            "s3:ListAllMyBuckets": [
+                {"Name": ARTIFACT_BUCKET, "BucketRegion": provider.REGION}
+            ],
             "kms:ListKeys": [{"KeyId": "tagged-key", "KeyArn": key_arn}],
             "kms:ListAliases": [],
             "kms:ListResourceTags": tags,
@@ -799,16 +724,12 @@ def test_authority_selectors_detect_tag_collision_without_exact_name() -> None:
             },
             "lambda:ListTags": {"Tags": {"tag_pairs": tags}},
         },
-        head={
-            "status_code": "synthetic_not_executed",
-            "collision": False,
-            "absent": False,
-        },
+        account_id=AUTHORITY_ACCOUNT,
     )
     reader = provider._CollisionAuthorityReader(session)
 
     bucket = reader.artifact_bucket(
-        "scanalyze-gug395-candidate",
+        ARTIFACT_BUCKET,
         max_owned_buckets=1,
         tag_contract=contract.AUTHORITY_TAG_CONTRACT,
     )
@@ -827,14 +748,55 @@ def test_authority_selectors_detect_tag_collision_without_exact_name() -> None:
         max_code_signing_configs=1,
     )
 
-    assert bucket["owned_matches"] == []
+    assert bucket["owned_matches"] == [
+        {"Name": ARTIFACT_BUCKET, "BucketRegion": provider.REGION}
+    ]
     assert bucket["tag_matches"]
+    assert bucket["absent"] is False
     assert bucket["collision"] is True
     assert kms["alias_matches"] == []
     assert kms["collision"] is True
     assert signer["name_matches"] == []
     assert signer["collision"] is True
     assert signing_config["collision"] is True
+    list_call = next(
+        call for call in session.calls if call[1] == "s3:ListAllMyBuckets"
+    )
+    assert list_call[2]["request"] == {
+        "BucketRegion": provider.REGION,
+        "Prefix": ARTIFACT_BUCKET,
+        "MaxBuckets": 1,
+    }
+    tag_call = next(
+        call for call in session.calls if call[1] == "s3:GetBucketTagging"
+    )
+    assert tag_call[2]["request"] == {
+        "Bucket": ARTIFACT_BUCKET,
+        "ExpectedBucketOwner": AUTHORITY_ACCOUNT,
+    }
+
+
+def test_complete_account_regional_list_absence_skips_tag_and_head_calls() -> None:
+    session = _ScriptedCollisionSession(
+        pages={"s3:ListAllMyBuckets": []},
+        account_id=AUTHORITY_ACCOUNT,
+    )
+
+    facts = provider._CollisionAuthorityReader(session).artifact_bucket(
+        ARTIFACT_BUCKET,
+        max_owned_buckets=contract.MAX_OWNED_BUCKETS,
+        tag_contract=contract.AUTHORITY_TAG_CONTRACT,
+    )
+
+    assert facts["bucket_namespace"] == "account-regional"
+    assert facts["bucket_region"] == provider.REGION
+    assert facts["discovered_buckets"] == []
+    assert facts["owned_matches"] == []
+    assert facts["absent"] is True
+    assert facts["collision"] is False
+    assert [(kind, operation) for kind, operation, _ in session.calls] == [
+        ("paginate", "s3:ListAllMyBuckets")
+    ]
 
 
 def test_signer_inventory_includes_revoked_exact_name_collisions() -> None:
@@ -1178,7 +1140,13 @@ def test_authority_caps_stop_before_any_detail_call(
     selector: str, expected_operation: str
 ) -> None:
     responses = {
-        "s3:ListAllMyBuckets": [{"Name": "one"}, {"Name": "two"}],
+        "s3:ListAllMyBuckets": [
+            {"Name": ARTIFACT_BUCKET, "BucketRegion": provider.REGION},
+            {
+                "Name": f"{ARTIFACT_BUCKET}-other",
+                "BucketRegion": provider.REGION,
+            },
+        ],
         "kms:ListKeys": [{"KeyId": "one"}, {"KeyId": "two"}],
         "signer:ListSigningProfiles": [
             {"profileName": "one"},
@@ -1189,7 +1157,12 @@ def test_authority_caps_stop_before_any_detail_call(
             {"CodeSigningConfigArn": "arn:two"},
         ],
     }
-    session = _ScriptedCollisionSession(pages=responses)
+    session = _ScriptedCollisionSession(
+        pages=responses,
+        account_id=(
+            AUTHORITY_ACCOUNT if selector == "bucket" else IDENTITY_ACCOUNT
+        ),
+    )
     reader = provider._CollisionAuthorityReader(session)
 
     with pytest.raises(
@@ -1197,7 +1170,7 @@ def test_authority_caps_stop_before_any_detail_call(
         match="^COLLISION_RESOURCE_CAP_EXCEEDED$",
     ):
         if selector == "bucket":
-            reader.artifact_bucket("candidate", max_owned_buckets=1)
+            reader.artifact_bucket(ARTIFACT_BUCKET, max_owned_buckets=1)
         elif selector == "kms":
             reader.kms_alias("alias/candidate", max_kms_keys=1)
         elif selector == "signer":

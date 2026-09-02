@@ -21,6 +21,16 @@ from typing import Any, Callable, Mapping, Sequence
 
 from tooling import platform_authority_plan_permission_repair_deployment_route as route
 from tooling import platform_authority_plan_permission_repair_deployment_route_aws as connected
+from tooling.platform_authority_gug376_collision_admission import (
+    RouteCollisionAdmissionCapability,
+    RouteCollisionAdmissionEffectGrant,
+    RouteCollisionAdmissionError,
+    consume_route_collision_admission,
+    revalidate_route_collision_admission_effect_grant,
+)
+from tooling.platform_authority_gug376_collision_atomic_admission import (
+    invoke_route_collision_admission_loader,
+)
 
 
 PREEXECUTE_FAILURE_RECORD_TYPE = (
@@ -175,6 +185,55 @@ _TOKEN_RE = re.compile(r"^gug376-[0-9a-f]{48}$")
 _KMS_KEY_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
+CollisionAdmissionLoader = Callable[..., RouteCollisionAdmissionCapability]
+_COLLISION_ADMISSION_FIELDS = frozenset(
+    {
+        "operation",
+        "effect_request_digest",
+        "bootstrap_intent_digest",
+        "admission_digest",
+    }
+)
+_PRIMARY_COLLISION_FIELDS = frozenset(
+    {
+        "collision_admission_digest",
+        "collision_operation",
+        "collision_effect_request_digest",
+        "bootstrap_intent_digest",
+    }
+)
+_REENTRY_COLLISION_OPERATIONS = {
+    ("route", PREEXECUTE_FAILURE_RECORD_TYPE, "create"): (
+        "route-reentry-preexecute:create-change-set"
+    ),
+    ("route", PREEXECUTE_FAILURE_RECORD_TYPE, "execute"): (
+        "route-reentry-preexecute:execute-change-set"
+    ),
+    ("route", CLEANUP_TERMINAL_RECORD_TYPE, "create"): (
+        "route-reentry-cleanup:create-change-set"
+    ),
+    ("route", CLEANUP_TERMINAL_RECORD_TYPE, "execute"): (
+        "route-reentry-cleanup:execute-change-set"
+    ),
+    ("broker", PREEXECUTE_FAILURE_RECORD_TYPE, "create"): (
+        "broker-reentry-preexecute:create-change-set"
+    ),
+    ("broker", PREEXECUTE_FAILURE_RECORD_TYPE, "execute"): (
+        "broker-reentry-preexecute:execute-change-set"
+    ),
+    ("broker", CLEANUP_TERMINAL_RECORD_TYPE, "create"): (
+        "broker-reentry-cleanup:create-change-set"
+    ),
+    ("broker", CLEANUP_TERMINAL_RECORD_TYPE, "execute"): (
+        "broker-reentry-cleanup:execute-change-set"
+    ),
+    (route.BROKER_PROTECTION_TARGET, PROTECTION_ROLLBACK_RECORD_TYPE, "create"): (
+        "broker-protection-reentry-rollback:create-change-set"
+    ),
+    (route.BROKER_PROTECTION_TARGET, PROTECTION_ROLLBACK_RECORD_TYPE, "execute"): (
+        "broker-protection-reentry-rollback:execute-change-set"
+    ),
+}
 _PREEXECUTE_FAILURE_FIELDS = frozenset(
     {
         "schema_version",
@@ -276,6 +335,7 @@ _FAILED_STACK_FIELDS = frozenset(
         "target",
         "intent_digest",
         "execution_intent_digest",
+        "reentry_source_failure_record_type",
         "execution_receipt_digest",
         "execution_claim_digest",
         "execute_cloudtrail_event_digest",
@@ -304,6 +364,7 @@ _REENTRY_EXECUTION_RECEIPT_FIELDS = frozenset(
         "target",
         "account_id",
         "execution_intent_digest",
+        "collision_admission",
         "stack_arn",
         "change_set_arn",
         "execute_request_id",
@@ -347,6 +408,7 @@ _REENTRY_DISPATCH_FIELDS = frozenset(
         "account_id",
         "reentry_intent_digest",
         "create_request_digest",
+        "collision_admission",
         "stack_arn",
         "change_set_arn",
         "create_request_id",
@@ -369,6 +431,7 @@ _REENTRY_ATTESTATION_FIELDS = frozenset(
         "parent_intent_digest",
         "reentry_intent_digest",
         "create_request_digest",
+        "collision_admission",
         "dispatch_digest",
         "stack_arn",
         "change_set_arn",
@@ -434,6 +497,105 @@ def _verify_seal(value: Mapping[str, Any], field: str, code: str) -> str:
     return observed
 
 
+def _reentry_collision_operation(
+    *, target: str, failure_record_type: str, effect: str
+) -> str:
+    """Select one non-interchangeable admission operation."""
+
+    operation = _REENTRY_COLLISION_OPERATIONS.get(
+        (target, failure_record_type, effect)
+    )
+    if operation is None:
+        raise DeploymentRecoveryError("COLLISION_ADMISSION_OPERATION_INVALID")
+    return operation
+
+
+def _validate_collision_admission_binding(
+    value: object,
+    *,
+    operation: str,
+    effect_request: Mapping[str, Any],
+    bootstrap_intent_digest: str,
+) -> dict[str, str]:
+    effect_request_digest = route.digest_value(effect_request)
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != _COLLISION_ADMISSION_FIELDS
+        or value.get("operation") != operation
+        or value.get("effect_request_digest") != effect_request_digest
+        or value.get("bootstrap_intent_digest") != bootstrap_intent_digest
+        or _DIGEST_RE.fullmatch(str(value.get("admission_digest", ""))) is None
+    ):
+        raise DeploymentRecoveryError("COLLISION_ADMISSION_BINDING_INVALID")
+    return {
+        "operation": operation,
+        "effect_request_digest": effect_request_digest,
+        "bootstrap_intent_digest": bootstrap_intent_digest,
+        "admission_digest": str(value["admission_digest"]),
+    }
+
+
+def _validate_reentry_collision_binding(
+    value: object,
+    *,
+    target: str,
+    effect: str,
+    effect_request: Mapping[str, Any],
+    bootstrap_intent_digest: str,
+    failure_record_type: str | None = None,
+) -> dict[str, str]:
+    if failure_record_type is None:
+        observed_operation = (
+            value.get("operation") if isinstance(value, Mapping) else None
+        )
+        allowed = {
+            operation
+            for (
+                candidate_target,
+                _record_type,
+                candidate_effect,
+            ), operation in _REENTRY_COLLISION_OPERATIONS.items()
+            if candidate_target == target and candidate_effect == effect
+        }
+        if observed_operation not in allowed:
+            raise DeploymentRecoveryError(
+                "COLLISION_ADMISSION_BINDING_INVALID"
+            )
+        operation = str(observed_operation)
+    else:
+        operation = _reentry_collision_operation(
+            target=target,
+            failure_record_type=failure_record_type,
+            effect=effect,
+        )
+    return _validate_collision_admission_binding(
+        value,
+        operation=operation,
+        effect_request=effect_request,
+        bootstrap_intent_digest=bootstrap_intent_digest,
+    )
+
+
+def _validate_primary_collision_binding(
+    value: Mapping[str, Any],
+    *,
+    action: str,
+    target: str,
+    effect_request_digest: str,
+) -> dict[str, str]:
+    try:
+        return connected._validate_persisted_collision_binding(
+            value,
+            action=action,
+            target=target,
+            effect_request_digest=effect_request_digest,
+        )
+    except connected.ConnectedRouteError as exc:
+        raise DeploymentRecoveryError(
+            "COLLISION_ADMISSION_BINDING_INVALID"
+        ) from exc
+
+
 def _normalized_clock(clock: Callable[[], datetime]) -> datetime:
     value = clock()
     if value.tzinfo is None or value.utcoffset() is None:
@@ -489,6 +651,29 @@ def _require_active_authorization(
         intent["authorization_not_before"], invalid_code
     ) <= observed_at < _time(intent["authorization_expires_at"], invalid_code):
         raise DeploymentRecoveryError(inactive_code)
+
+
+def _resample_authorized_mutation_time(
+    intent: Mapping[str, Any],
+    clock: Callable[[], datetime],
+    *,
+    previous_at: datetime,
+    invalid_code: str,
+    inactive_code: str,
+) -> datetime:
+    """Recheck every temporal mutation gate against one fresh clock sample."""
+
+    observed_at = _normalized_clock(clock)
+    if observed_at < previous_at:
+        raise DeploymentRecoveryError("CLOCK_REGRESSED")
+    observed_at = _mutation_window(intent, lambda: observed_at)
+    _require_active_authorization(
+        intent,
+        observed_at,
+        invalid_code=invalid_code,
+        inactive_code=inactive_code,
+    )
+    return observed_at
 
 
 def _target_spec(intent: Mapping[str, Any], target: str) -> Mapping[str, Any]:
@@ -662,7 +847,7 @@ def _primary_claim(
         "claimed_at",
         "retry_permitted",
         "production_authorized",
-    }
+    } | set(_PRIMARY_COLLISION_FIELDS)
     claimed_at = _time(claim.get("claimed_at"), "PRIMARY_CLAIM_INVALID")
     try:
         authorization = route.validate_creation_authorization(
@@ -673,6 +858,12 @@ def _primary_claim(
         )
     except route.RouteSeedError as exc:
         raise DeploymentRecoveryError("PRIMARY_CLAIM_INVALID") from exc
+    _validate_primary_collision_binding(
+        claim,
+        action="create",
+        target=target,
+        effect_request_digest=spec["create_request_digest"],
+    )
     if (
         set(claim) != fields
         or claim.get("schema_version") != 1
@@ -809,6 +1000,10 @@ def _validate_primary_failure_journal(
     )
     if (
         route.digest_value(claim) != failure["primary_claim_digest"]
+        or any(
+            claim[field] != dispatch[field]
+            for field in _PRIMARY_COLLISION_FIELDS
+        )
         or dispatch["dispatch_digest"]
         != failure["primary_dispatch_digest"]
         or dispatch["stack_arn"] != failure["stack_arn"]
@@ -1111,7 +1306,10 @@ def _validate_protection_failure_journal(
         "ClientRequestToken": "gug376-" + operation_digest[7:55],
         "DisableRollback": False,
     }
-    receipt_fields = _REENTRY_EXECUTION_RECEIPT_FIELDS - {"attempt"}
+    receipt_fields = (
+        _REENTRY_EXECUTION_RECEIPT_FIELDS
+        - {"attempt", "collision_admission"}
+    ) | _PRIMARY_COLLISION_FIELDS
     claim_fields = {
         "schema_version",
         "record_type",
@@ -1126,7 +1324,19 @@ def _validate_protection_failure_journal(
         "claimed_at",
         "retry_permitted",
         "production_authorized",
-    }
+    } | set(_PRIMARY_COLLISION_FIELDS)
+    claim_collision_binding = _validate_primary_collision_binding(
+        claim,
+        action="execute",
+        target=target,
+        effect_request_digest=route.digest_value(request),
+    )
+    receipt_collision_binding = _validate_primary_collision_binding(
+        receipt,
+        action="execute",
+        target=target,
+        effect_request_digest=route.digest_value(request),
+    )
     claimed_at = _time(
         claim.get("claimed_at"),
         "FAILURE_ATTESTATION_JOURNAL_BINDING_INVALID",
@@ -1167,6 +1377,7 @@ def _validate_protection_failure_journal(
         != request["ClientRequestToken"]
         or claim.get("stack_arn") != failure["stack_arn"]
         or claim.get("change_set_arn") != failure["change_set_arn"]
+        or claim_collision_binding != receipt_collision_binding
         or route.digest_value(claim) != failure["execution_claim_digest"]
         or _DIGEST_RE.fullmatch(
             str(claim.get("caller_arn_digest", ""))
@@ -1589,6 +1800,9 @@ def _validate_failed_stack_attestation(value: Mapping[str, Any]) -> dict[str, An
     )
     target = str(value.get("target"))
     resources = value.get("resources")
+    reentry_source_failure_record_type = value.get(
+        "reentry_source_failure_record_type"
+    )
     if (
         set(value) != _FAILED_STACK_FIELDS
         or value.get("schema_version") != 1
@@ -1652,25 +1866,35 @@ def _validate_failed_stack_attestation(value: Mapping[str, Any]) -> dict[str, An
         kind="stack",
         name=_stack_name(target),
     )
-    primary_name = (
-        route.ROUTE_CHANGE_SET_NAME
-        if target == "route"
-        else route.BROKER_CHANGE_SET_NAME
-    )
+    if reentry_source_failure_record_type is None:
+        change_set_name = (
+            route.ROUTE_CHANGE_SET_NAME
+            if target == "route"
+            else route.BROKER_CHANGE_SET_NAME
+        )
+    else:
+        try:
+            _reentry_collision_operation(
+                target=target,
+                failure_record_type=str(reentry_source_failure_record_type),
+                effect="execute",
+            )
+        except DeploymentRecoveryError as exc:
+            raise DeploymentRecoveryError(
+                "FAILED_STACK_ATTESTATION_INVALID"
+            ) from exc
+        change_set_name = REENTRY_CHANGE_SET_NAMES[target]
     try:
         _full_arn(
             value.get("change_set_arn"),
             account_id=_account_id(target),
             kind="changeSet",
-            name=primary_name,
+            name=change_set_name,
         )
-    except DeploymentRecoveryError:
-        _full_arn(
-            value.get("change_set_arn"),
-            account_id=_account_id(target),
-            kind="changeSet",
-            name=REENTRY_CHANGE_SET_NAMES[target],
-        )
+    except DeploymentRecoveryError as exc:
+        raise DeploymentRecoveryError(
+            "FAILED_STACK_ATTESTATION_INVALID"
+        ) from exc
     _time(value.get("attested_at"), "FAILED_STACK_ATTESTATION_INVALID")
     return json.loads(route.canonical_json(value))
 
@@ -1970,7 +2194,10 @@ def validate_reentry_intent(
 
 
 def _validate_reentry_dispatch(
-    value: Mapping[str, Any], *, reentry_intent: Mapping[str, Any]
+    value: Mapping[str, Any],
+    *,
+    reentry_intent: Mapping[str, Any],
+    failure_record_type: str,
 ) -> dict[str, Any]:
     """Bind the provider dispatch receipt to one exact re-entry intent."""
 
@@ -1982,6 +2209,14 @@ def _validate_reentry_dispatch(
     )
     target = intent["target"]
     request = intent["create_request"]
+    collision_admission = _validate_reentry_collision_binding(
+        value.get("collision_admission"),
+        target=target,
+        effect="create",
+        effect_request=request,
+        bootstrap_intent_digest=intent["parent_intent_digest"],
+        failure_record_type=failure_record_type,
+    )
     if (
         set(value) != _REENTRY_DISPATCH_FIELDS
         or value.get("schema_version") != 1
@@ -1993,6 +2228,7 @@ def _validate_reentry_dispatch(
         != intent["reentry_intent_digest"]
         or value.get("create_request_digest")
         != intent["create_request_digest"]
+        or value.get("collision_admission") != collision_admission
         or _UUID_RE.fullmatch(str(value.get("create_request_id", ""))) is None
         or value.get("attempt") != 1
         or value.get("aws_mutations") != 1
@@ -2050,7 +2286,9 @@ def validate_reentry_attestation(
         authorization=reentry_creation_authorization,
     )
     dispatch = _validate_reentry_dispatch(
-        reentry_dispatch, reentry_intent=intent
+        reentry_dispatch,
+        reentry_intent=intent,
+        failure_record_type=str(failure_attestation.get("record_type", "")),
     )
     _verify_seal(
         value,
@@ -2075,6 +2313,8 @@ def validate_reentry_attestation(
         != intent["reentry_intent_digest"]
         or value.get("create_request_digest")
         != intent["create_request_digest"]
+        or value.get("collision_admission")
+        != dispatch["collision_admission"]
         or value.get("dispatch_digest") != dispatch["dispatch_digest"]
         or value.get("stack_arn") != dispatch["stack_arn"]
         or value.get("change_set_arn") != dispatch["change_set_arn"]
@@ -2113,6 +2353,7 @@ def _validate_reentry_create_claim(
     *,
     intent: Mapping[str, Any],
     dispatch: Mapping[str, Any],
+    failure_record_type: str,
 ) -> dict[str, Any]:
     fields = {
         "schema_version",
@@ -2122,6 +2363,7 @@ def _validate_reentry_create_claim(
         "attempt",
         "reentry_intent_digest",
         "request_digest",
+        "collision_admission",
         "client_token",
         "stack_name",
         "change_set_name",
@@ -2131,6 +2373,14 @@ def _validate_reentry_create_claim(
         "production_authorized",
     }
     request = intent["create_request"]
+    collision_admission = _validate_reentry_collision_binding(
+        value.get("collision_admission"),
+        target=str(intent["target"]),
+        effect="create",
+        effect_request=request,
+        bootstrap_intent_digest=str(intent["parent_intent_digest"]),
+        failure_record_type=failure_record_type,
+    )
     if (
         set(value) != fields
         or value.get("schema_version") != 1
@@ -2140,6 +2390,7 @@ def _validate_reentry_create_claim(
         or value.get("attempt") != 1
         or value.get("reentry_intent_digest") != intent["reentry_intent_digest"]
         or value.get("request_digest") != intent["create_request_digest"]
+        or collision_admission != dispatch.get("collision_admission")
         or value.get("client_token") != request["ClientToken"]
         or value.get("stack_name") != request["StackName"]
         or value.get("change_set_name") != request["ChangeSetName"]
@@ -2310,6 +2561,7 @@ def materialize_reentry_execution_intent(
         reentry_attestation=reentry_attestation,
     )
     target = intent["target"]
+    failure_record_type = str(failure_attestation.get("record_type", ""))
     if (
         authorization.get("record_type")
         != REENTRY_EXECUTION_AUTHORIZATION_RECORD_TYPE
@@ -2327,6 +2579,7 @@ def materialize_reentry_execution_intent(
             "record_type": REENTRY_EXECUTION_INTENT_RECORD_TYPE,
             "source_commit": intent["source_commit"],
             "target": target,
+            "failure_record_type": failure_record_type,
             "stack_arn": reentry_attestation["stack_arn"],
             "change_set_arn": reentry_attestation["change_set_arn"],
             "attempt": 1,
@@ -2347,6 +2600,7 @@ def materialize_reentry_execution_intent(
             "target": target,
             "account_id": intent["account_id"],
             "parent_intent_digest": intent["parent_intent_digest"],
+            "failure_record_type": failure_record_type,
             "reentry_intent_digest": intent["reentry_intent_digest"],
             "reentry_attestation_digest": reentry_attestation["attestation_digest"],
             "authorization_digest": authorization["authorization_digest"],
@@ -2377,6 +2631,7 @@ def validate_reentry_execution_intent_structure(
         value, "execution_intent_digest", "REENTRY_EXECUTION_INTENT_DIGEST_INVALID"
     )
     target = str(value.get("target"))
+    failure_record_type = str(value.get("failure_record_type", ""))
     request = value.get("execute_request")
     fields = {
         "schema_version",
@@ -2385,6 +2640,7 @@ def validate_reentry_execution_intent_structure(
         "target",
         "account_id",
         "parent_intent_digest",
+        "failure_record_type",
         "reentry_intent_digest",
         "reentry_attestation_digest",
         "authorization_digest",
@@ -2413,6 +2669,7 @@ def validate_reentry_execution_intent_structure(
         "record_type": REENTRY_EXECUTION_INTENT_RECORD_TYPE,
         "source_commit": value.get("source_commit"),
         "target": target,
+        "failure_record_type": failure_record_type,
         "stack_arn": request.get("StackName") if isinstance(request, Mapping) else None,
         "change_set_arn": (
             request.get("ChangeSetName") if isinstance(request, Mapping) else None
@@ -2421,6 +2678,16 @@ def validate_reentry_execution_intent_structure(
     }
     expected_operation_digest = route.digest_value(operation_seed)
     expected_token = "gug376-" + expected_operation_digest[7:55]
+    try:
+        _reentry_collision_operation(
+            target=target,
+            failure_record_type=failure_record_type,
+            effect="execute",
+        )
+    except DeploymentRecoveryError as exc:
+        raise DeploymentRecoveryError(
+            "REENTRY_EXECUTION_INTENT_INVALID"
+        ) from exc
     if (
         set(value) != fields
         or value.get("schema_version") != 1
@@ -2512,6 +2779,14 @@ def _validate_reentry_execution_receipt(
     _verify_seal(value, "receipt_digest", "EXECUTION_RECEIPT_DIGEST_INVALID")
     target = execution["target"]
     request = execution["execute_request"]
+    collision_admission = _validate_reentry_collision_binding(
+        value.get("collision_admission"),
+        target=str(target),
+        effect="execute",
+        effect_request=request,
+        bootstrap_intent_digest=str(execution["parent_intent_digest"]),
+        failure_record_type=str(execution["failure_record_type"]),
+    )
     if (
         set(value) != _REENTRY_EXECUTION_RECEIPT_FIELDS
         or value.get("schema_version") != 1
@@ -2521,6 +2796,7 @@ def _validate_reentry_execution_receipt(
         or value.get("account_id") != _account_id(target)
         or value.get("execution_intent_digest")
         != execution["execution_intent_digest"]
+        or value.get("collision_admission") != collision_admission
         or value.get("stack_arn") != request["StackName"]
         or value.get("change_set_arn") != request["ChangeSetName"]
         or _UUID_RE.fullmatch(str(value.get("execute_request_id", ""))) is None
@@ -3055,6 +3331,7 @@ class ConnectedDeploymentRecoveryProvider:
         clients: Mapping[str, Any],
         claims: connected.OExclClaimStore,
         clock: Callable[[], datetime],
+        collision_admission_loader: CollisionAdmissionLoader | None = None,
     ) -> None:
         required = {
             "sts",
@@ -3080,6 +3357,91 @@ class ConnectedDeploymentRecoveryProvider:
         self._sso = clients["sso-admin"]
         self._claims = claims
         self._clock = clock
+        self._collision_admission_loader = collision_admission_loader
+
+    def _load_collision_admission(
+        self,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> object:
+        """Load the one-shot capability before its post-loader clock gate."""
+
+        loader = self._collision_admission_loader
+        if loader is None:
+            raise DeploymentRecoveryError("COLLISION_ADMISSION_REQUIRED")
+        effect_request_digest = route.digest_value(effect_request)
+        try:
+            return invoke_route_collision_admission_loader(
+                loader,
+                operation=operation,
+                effect_request=effect_request,
+                effect_request_digest=effect_request_digest,
+                bootstrap_intent_digest=bootstrap_intent_digest,
+                now=now,
+            )
+        except RouteCollisionAdmissionError as exc:
+            raise DeploymentRecoveryError(exc.code) from exc
+
+    def _assert_collision_admission(
+        self,
+        capability: object,
+        *,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> tuple[dict[str, str], RouteCollisionAdmissionEffectGrant]:
+        """Consume one exact admission and retain its verified time bounds."""
+
+        effect_request_digest = route.digest_value(effect_request)
+        try:
+            grant = consume_route_collision_admission(
+                capability,
+                operation=operation,
+                effect_request_digest=effect_request_digest,
+                bootstrap_intent_digest=bootstrap_intent_digest,
+                now=now,
+            )
+        except RouteCollisionAdmissionError as exc:
+            raise DeploymentRecoveryError(exc.code) from exc
+        binding = _validate_collision_admission_binding(
+            {
+                "operation": operation,
+                "effect_request_digest": effect_request_digest,
+                "bootstrap_intent_digest": bootstrap_intent_digest,
+                "admission_digest": grant.admission_digest,
+            },
+            operation=operation,
+            effect_request=effect_request,
+            bootstrap_intent_digest=bootstrap_intent_digest,
+        )
+        return binding, grant
+
+    @staticmethod
+    def _require_collision_admission_active(
+        grant: RouteCollisionAdmissionEffectGrant,
+        *,
+        observed_at: datetime,
+        expected_admission_digest: str,
+    ) -> None:
+        """Prove the consumed short admission still covers the effect."""
+
+        try:
+            admission_digest = (
+                revalidate_route_collision_admission_effect_grant(
+                    grant,
+                    now=observed_at,
+                )
+            )
+        except RouteCollisionAdmissionError as exc:
+            raise DeploymentRecoveryError(exc.code) from exc
+        if admission_digest != expected_admission_digest:
+            raise DeploymentRecoveryError(
+                "COLLISION_ADMISSION_BINDING_INVALID"
+            )
 
     @staticmethod
     def _normal_identity(sts: Any, *, target: str, phase: str) -> tuple[str, str]:
@@ -3963,6 +4325,11 @@ class ConnectedDeploymentRecoveryProvider:
                 observed_at=after_sts,
             )
         request = intent["create_request"]
+        admission_operation = _reentry_collision_operation(
+            target=target,
+            failure_record_type=str(failure_type),
+            effect="create",
+        )
         key = (
             f"reentry-create:{target}:{intent['parent_intent_digest']}"
         )
@@ -3974,6 +4341,7 @@ class ConnectedDeploymentRecoveryProvider:
             "attempt": 1,
             "reentry_intent_digest": intent["reentry_intent_digest"],
             "request_digest": intent["create_request_digest"],
+            "collision_admission": None,
             "client_token": request["ClientToken"],
             "stack_name": request["StackName"],
             "change_set_name": request["ChangeSetName"],
@@ -3991,11 +4359,48 @@ class ConnectedDeploymentRecoveryProvider:
             invalid_code="REENTRY_AUTHORIZATION_INVALID",
             inactive_code="REENTRY_AUTHORIZATION_NOT_ACTIVE",
         )
-        claim["claimed_at"] = _stamp(effect_at)
+        capability = self._load_collision_admission(
+            operation=admission_operation,
+            effect_request=request,
+            bootstrap_intent_digest=intent["parent_intent_digest"],
+            now=effect_at,
+        )
+        admission_at = _resample_authorized_mutation_time(
+            intent,
+            self._clock,
+            previous_at=effect_at,
+            invalid_code="REENTRY_AUTHORIZATION_INVALID",
+            inactive_code="REENTRY_AUTHORIZATION_NOT_ACTIVE",
+        )
+        collision_admission, admission_grant = (
+            self._assert_collision_admission(
+                capability,
+                operation=admission_operation,
+                effect_request=request,
+                bootstrap_intent_digest=intent["parent_intent_digest"],
+                now=admission_at,
+            )
+        )
+        claim["claimed_at"] = _stamp(admission_at)
+        claim["collision_admission"] = collision_admission
         try:
             self._claims.claim(key, claim)
         except connected.ConnectedRouteError as exc:
             raise DeploymentRecoveryError(exc.code) from exc
+        effect_at = _resample_authorized_mutation_time(
+            intent,
+            self._clock,
+            previous_at=admission_at,
+            invalid_code="REENTRY_AUTHORIZATION_INVALID",
+            inactive_code="REENTRY_AUTHORIZATION_NOT_ACTIVE",
+        )
+        self._require_collision_admission_active(
+            admission_grant,
+            observed_at=effect_at,
+            expected_admission_digest=collision_admission[
+                "admission_digest"
+            ],
+        )
         try:
             response = self._cfn.create_change_set(**dict(request))
         except Exception as exc:
@@ -4028,6 +4433,7 @@ class ConnectedDeploymentRecoveryProvider:
                 "account_id": account,
                 "reentry_intent_digest": intent["reentry_intent_digest"],
                 "create_request_digest": intent["create_request_digest"],
+                "collision_admission": collision_admission,
                 "stack_arn": stack_arn,
                 "change_set_arn": change_set_arn,
                 "create_request_id": request_id,
@@ -4067,8 +4473,11 @@ class ConnectedDeploymentRecoveryProvider:
             failure_attestation=failure_attestation,
             authorization=authorization,
         )
+        failure_record_type = str(failure_attestation.get("record_type", ""))
         dispatch = _validate_reentry_dispatch(
-            dispatch, reentry_intent=intent
+            dispatch,
+            reentry_intent=intent,
+            failure_record_type=failure_record_type,
         )
         target = intent["target"]
         account, _caller = self._normal_identity(
@@ -4119,7 +4528,10 @@ class ConnectedDeploymentRecoveryProvider:
         except connected.ConnectedRouteError as exc:
             raise DeploymentRecoveryError(exc.code) from exc
         claim = _validate_reentry_create_claim(
-            claim, intent=intent, dispatch=dispatch
+            claim,
+            intent=intent,
+            dispatch=dispatch,
+            failure_record_type=failure_record_type,
         )
         cloudtrail_digest, pages = _reentry_create_event_digest(
             self._trail,
@@ -4139,6 +4551,7 @@ class ConnectedDeploymentRecoveryProvider:
                 "parent_intent_digest": intent["parent_intent_digest"],
                 "reentry_intent_digest": intent["reentry_intent_digest"],
                 "create_request_digest": intent["create_request_digest"],
+                "collision_admission": dispatch["collision_admission"],
                 "dispatch_digest": dispatch["dispatch_digest"],
                 "stack_arn": dispatch["stack_arn"],
                 "change_set_arn": dispatch["change_set_arn"],
@@ -4196,6 +4609,7 @@ class ConnectedDeploymentRecoveryProvider:
             execution_authorization=execution_authorization,
         )
         target = intent["target"]
+        failure_record_type = str(failure_attestation.get("record_type", ""))
         create_claim_key = (
             f"reentry-create:{target}:{intent['parent_intent_digest']}"
         )
@@ -4208,10 +4622,12 @@ class ConnectedDeploymentRecoveryProvider:
         provided_dispatch = _validate_reentry_dispatch(
             reentry_dispatch,
             reentry_intent=reentry_intent,
+            failure_record_type=failure_record_type,
         )
         persisted_dispatch = _validate_reentry_dispatch(
             persisted_dispatch_value,
             reentry_intent=reentry_intent,
+            failure_record_type=failure_record_type,
         )
         if (
             persisted_dispatch != provided_dispatch
@@ -4233,6 +4649,7 @@ class ConnectedDeploymentRecoveryProvider:
             create_claim,
             intent=reentry_intent,
             dispatch=persisted_dispatch,
+            failure_record_type=failure_record_type,
         )
         now = _mutation_window(intent, self._clock)
         _require_active_authorization(
@@ -4292,6 +4709,11 @@ class ConnectedDeploymentRecoveryProvider:
                 "REENTRY_ATTESTATION_LIVE_BINDING_INVALID"
             )
         request = intent["execute_request"]
+        admission_operation = _reentry_collision_operation(
+            target=target,
+            failure_record_type=failure_record_type,
+            effect="execute",
+        )
         key = (
             f"reentry-execute:{target}:{intent['parent_intent_digest']}"
         )
@@ -4303,6 +4725,7 @@ class ConnectedDeploymentRecoveryProvider:
             "attempt": 1,
             "execution_intent_digest": intent["execution_intent_digest"],
             "request_digest": intent["execute_request_digest"],
+            "collision_admission": None,
             "client_request_token": request["ClientRequestToken"],
             "stack_arn": request["StackName"],
             "change_set_arn": request["ChangeSetName"],
@@ -4320,11 +4743,48 @@ class ConnectedDeploymentRecoveryProvider:
             invalid_code="REENTRY_EXECUTION_AUTHORIZATION_INVALID",
             inactive_code="REENTRY_EXECUTION_AUTHORIZATION_NOT_ACTIVE",
         )
-        claim["claimed_at"] = _stamp(effect_at)
+        capability = self._load_collision_admission(
+            operation=admission_operation,
+            effect_request=request,
+            bootstrap_intent_digest=intent["parent_intent_digest"],
+            now=effect_at,
+        )
+        admission_at = _resample_authorized_mutation_time(
+            intent,
+            self._clock,
+            previous_at=effect_at,
+            invalid_code="REENTRY_EXECUTION_AUTHORIZATION_INVALID",
+            inactive_code="REENTRY_EXECUTION_AUTHORIZATION_NOT_ACTIVE",
+        )
+        collision_admission, admission_grant = (
+            self._assert_collision_admission(
+                capability,
+                operation=admission_operation,
+                effect_request=request,
+                bootstrap_intent_digest=intent["parent_intent_digest"],
+                now=admission_at,
+            )
+        )
+        claim["claimed_at"] = _stamp(admission_at)
+        claim["collision_admission"] = collision_admission
         try:
             self._claims.claim(key, claim)
         except connected.ConnectedRouteError as exc:
             raise DeploymentRecoveryError(exc.code) from exc
+        effect_at = _resample_authorized_mutation_time(
+            intent,
+            self._clock,
+            previous_at=admission_at,
+            invalid_code="REENTRY_EXECUTION_AUTHORIZATION_INVALID",
+            inactive_code="REENTRY_EXECUTION_AUTHORIZATION_NOT_ACTIVE",
+        )
+        self._require_collision_admission_active(
+            admission_grant,
+            observed_at=effect_at,
+            expected_admission_digest=collision_admission[
+                "admission_digest"
+            ],
+        )
         try:
             response = self._cfn.execute_change_set(**dict(request))
         except Exception as exc:
@@ -4342,6 +4802,7 @@ class ConnectedDeploymentRecoveryProvider:
                 "target": target,
                 "account_id": account,
                 "execution_intent_digest": intent["execution_intent_digest"],
+                "collision_admission": collision_admission,
                 "stack_arn": request["StackName"],
                 "change_set_arn": request["ChangeSetName"],
                 "execute_request_id": request_id,
@@ -4561,6 +5022,12 @@ class ConnectedDeploymentRecoveryProvider:
                 "target": target,
                 "intent_digest": seed["intent_digest"],
                 "execution_intent_digest": execution["execution_intent_digest"],
+                "reentry_source_failure_record_type": (
+                    execution["failure_record_type"]
+                    if execution["record_type"]
+                    == REENTRY_EXECUTION_INTENT_RECORD_TYPE
+                    else None
+                ),
                 "execution_receipt_digest": receipt["receipt_digest"],
                 "execution_claim_digest": route.digest_value(claim),
                 "execute_cloudtrail_event_digest": execute_digest,
@@ -4979,6 +5446,18 @@ def _primary_execute_claim(
         claim = claims.read_claim(key)
     except connected.ConnectedRouteError as exc:
         raise DeploymentRecoveryError(exc.code) from exc
+    claim_collision_binding = _validate_primary_collision_binding(
+        claim,
+        action="execute",
+        target=str(execution["target"]),
+        effect_request_digest=str(execution["execute_request_digest"]),
+    )
+    receipt_collision_binding = _validate_primary_collision_binding(
+        receipt,
+        action="execute",
+        target=str(execution["target"]),
+        effect_request_digest=str(execution["execute_request_digest"]),
+    )
     if (
         claim.get("record_type") != connected.CLAIM_RECORD_TYPE
         or claim.get("operation") != "ExecuteChangeSet"
@@ -4988,6 +5467,7 @@ def _primary_execute_claim(
         or claim.get("client_request_token") != execution["execute_request"]["ClientRequestToken"]
         or claim.get("stack_arn") != receipt["stack_arn"]
         or claim.get("change_set_arn") != receipt["change_set_arn"]
+        or claim_collision_binding != receipt_collision_binding
         or _DIGEST_RE.fullmatch(str(claim.get("caller_arn_digest", ""))) is None
         or claim.get("retry_permitted") is not False
         or claim.get("production_authorized") is not False
@@ -5020,6 +5500,7 @@ def _execution_claim(
         "attempt",
         "execution_intent_digest",
         "request_digest",
+        "collision_admission",
         "client_request_token",
         "stack_arn",
         "change_set_arn",
@@ -5028,6 +5509,14 @@ def _execution_claim(
         "retry_permitted",
         "production_authorized",
     }
+    collision_admission = _validate_reentry_collision_binding(
+        claim.get("collision_admission"),
+        target=str(execution["target"]),
+        effect="execute",
+        effect_request=execution["execute_request"],
+        bootstrap_intent_digest=str(execution["parent_intent_digest"]),
+        failure_record_type=str(execution["failure_record_type"]),
+    )
     if (
         set(claim) != fields
         or claim.get("schema_version") != 1
@@ -5037,6 +5526,7 @@ def _execution_claim(
         or claim.get("attempt") != 1
         or claim.get("execution_intent_digest") != execution["execution_intent_digest"]
         or claim.get("request_digest") != execution["execute_request_digest"]
+        or collision_admission != receipt.get("collision_admission")
         or claim.get("client_request_token")
         != execution["execute_request"]["ClientRequestToken"]
         or claim.get("stack_arn") != receipt["stack_arn"]
@@ -5094,6 +5584,7 @@ def _validate_failed_execution_journal(
             "attempt",
             "execution_intent_digest",
             "request_digest",
+            "collision_admission",
             "client_request_token",
             "stack_arn",
             "change_set_arn",
@@ -5119,7 +5610,10 @@ def _validate_failed_execution_journal(
         key = f"execute:{target}:{operation_digest}"
         receipt_record_type = connected.EXECUTION_RECEIPT_RECORD_TYPE
         claim_record_type = connected.CLAIM_RECORD_TYPE
-        receipt_fields = _REENTRY_EXECUTION_RECEIPT_FIELDS - {"attempt"}
+        receipt_fields = (
+            _REENTRY_EXECUTION_RECEIPT_FIELDS
+            - {"attempt", "collision_admission"}
+        ) | _PRIMARY_COLLISION_FIELDS
         claim_fields = {
             "schema_version",
             "record_type",
@@ -5134,7 +5628,7 @@ def _validate_failed_execution_journal(
             "claimed_at",
             "retry_permitted",
             "production_authorized",
-        }
+        } | set(_PRIMARY_COLLISION_FIELDS)
     else:
         raise DeploymentRecoveryError("FAILED_EXECUTION_JOURNAL_INVALID")
     try:
@@ -5165,6 +5659,29 @@ def _validate_failed_execution_journal(
         "ChangeSetName": failed["change_set_arn"],
         "ClientRequestToken": claim.get("client_request_token"),
     }
+    collision_admission = None
+    if reentry:
+        collision_admission = _validate_reentry_collision_binding(
+            claim.get("collision_admission"),
+            target=str(target),
+            effect="execute",
+            effect_request=execute_request,
+            bootstrap_intent_digest=str(seed_intent["intent_digest"]),
+            failure_record_type=str(failed["reentry_source_failure_record_type"]),
+        )
+    else:
+        claim_primary_collision = _validate_primary_collision_binding(
+            claim,
+            action="execute",
+            target=str(target),
+            effect_request_digest=route.digest_value(execute_request),
+        )
+        receipt_primary_collision = _validate_primary_collision_binding(
+            receipt,
+            action="execute",
+            target=str(target),
+            effect_request_digest=route.digest_value(execute_request),
+        )
     if (
         set(receipt) != receipt_fields
         or receipt.get("schema_version") != 1
@@ -5194,6 +5711,16 @@ def _validate_failed_execution_journal(
         or claim.get("execution_intent_digest")
         != failed["execution_intent_digest"]
         or claim.get("request_digest") != route.digest_value(execute_request)
+        or (
+            reentry
+            and (
+                collision_admission != receipt.get("collision_admission")
+            )
+        )
+        or (
+            not reentry
+            and claim_primary_collision != receipt_primary_collision
+        )
         or _TOKEN_RE.fullmatch(str(claim.get("client_request_token", "")))
         is None
         or claim.get("stack_arn") != failed["stack_arn"]

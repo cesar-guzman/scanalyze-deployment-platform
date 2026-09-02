@@ -52,6 +52,8 @@ from tooling.platform_authority_gug376_authority_inventory_collector import (
 IMPLEMENTATION_ISSUE = "GUG-395"
 PARENT_ISSUE = "GUG-376"
 REGION = "us-east-1"
+AUTHORITY_ACCOUNT_ID = "042360977644"
+ARTIFACT_BUCKET_NAMESPACE = "account-regional"
 EXPECTED_REMOTE_REF = "refs/remotes/origin/main"
 SCHEMA_VERSION = 1
 
@@ -101,8 +103,9 @@ _PROVIDER_ARN = re.compile(
 _KMS_ARN = re.compile(
     r"^arn:aws:kms:us-east-1:([0-9]{12}):key/[A-Za-z0-9-]{8,128}$"
 )
-_BUCKET = re.compile(
-    r"^(?!xn--)(?!.*\.\.)[a-z0-9](?:[a-z0-9.-]{1,61}[a-z0-9])$"
+_ARTIFACT_BUCKET = re.compile(
+    r"^scanalyze-g376-art-[a-f0-9]{12}-"
+    rf"{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
 )
 _AWS_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+=,.@_-]{0,127}$")
 _SIGNING_PROFILE_NAME = re.compile(r"^[A-Za-z0-9_]{2,64}$")
@@ -394,7 +397,7 @@ def _validate_decision_value(key: str, value: object, decisions: Mapping[str, st
         ):
             _fail("DECISION_REDIRECT_INVALID")
     elif key == "artifact_bucket_name":
-        if _BUCKET.fullmatch(value) is None or re.fullmatch(r"[0-9.]+", value):
+        if _ARTIFACT_BUCKET.fullmatch(value) is None:
             _fail("DECISION_BUCKET_INVALID")
     elif key == "kms_alias_name":
         if (
@@ -967,6 +970,7 @@ def build_preplan_seed(
         compiled.append(decision)
     if (
         raw_values["authority_target_id"] != raw_values["authority_account_id"]
+        or raw_values["authority_account_id"] != AUTHORITY_ACCOUNT_ID
         or any(
             raw_values[key] != expected
             for key, expected in _expected_unsigned_object_keys(source_commit).items()
@@ -1160,6 +1164,7 @@ def validate_preplan_seed(
         _verify_self_digest(item, "decision_digest", "DECISION_DIGEST_MISMATCH")
     if (
         raw_values["authority_target_id"] != raw_values["authority_account_id"]
+        or raw_values["authority_account_id"] != AUTHORITY_ACCOUNT_ID
         or any(
             raw_values[key] != expected
             for key, expected in _expected_unsigned_object_keys(

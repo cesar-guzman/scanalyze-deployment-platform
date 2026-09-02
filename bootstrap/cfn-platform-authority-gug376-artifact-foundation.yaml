@@ -11,7 +11,7 @@ Parameters:
     AllowedPattern: '^[a-f0-9]{40}$'
   ArtifactBucketName:
     Type: String
-    AllowedPattern: '^scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'
+    AllowedPattern: '^scanalyze-g376-art-[a-f0-9]{12}-042360977644-us-east-1-an$'
   ArtifactKmsAlias:
     Type: String
     AllowedPattern: '^alias/scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'
@@ -140,6 +140,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Ref ArtifactBucketName
+      BucketNamespace: account-regional
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - BucketKeyEnabled: true

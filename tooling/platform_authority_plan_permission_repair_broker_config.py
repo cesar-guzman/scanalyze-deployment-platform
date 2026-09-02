@@ -123,7 +123,7 @@ _AUTHORITY_VERIFIER_RE = re.compile(
 )
 _IDENTITY_CENTER_VERIFIER_RE = re.compile(
     r"^arn:aws:sts::839393571433:assumed-role/"
-    r"AWSReservedSSO_ScanalyzeFounderPepIdentityAdmin_[0-9A-Fa-f]{16}/"
+    r"AWSReservedSSO_AWSReadOnlyAccess_[0-9A-Fa-f]{16}/"
     r"[A-Za-z0-9+=,.@_-]{1,64}$"
 )
 
@@ -258,8 +258,7 @@ def validate_plan_snapshot(
             for field in ("profile", "caller_arn")
         )
         or authority.get("profile") != "042360977644_AWSReadOnlyAccess"
-        or identity.get("profile")
-        != "839393571433_ScanalyzeFounderPepIdentityAdmin"
+        or identity.get("profile") != "839393571433_ReadOnlyAccess"
         or _AUTHORITY_VERIFIER_RE.fullmatch(str(authority.get("caller_arn", "")))
         is None
         or _IDENTITY_CENTER_VERIFIER_RE.fullmatch(
@@ -367,6 +366,45 @@ def _outputs(source: bytes) -> list[str]:
     if not values or len(values) != len(set(values)):
         _fail("TEMPLATE_OUTPUTS_INVALID")
     return sorted(values)
+
+
+def _reader_role_source_digests(
+    source: bytes, *, logical_id: str
+) -> tuple[str, str]:
+    """Digest the exact committed trust and inline-policy source documents."""
+
+    try:
+        normalized_source = re.sub(
+            rb"@@[A-Z0-9_]+@@",
+            b"GUG376_SOURCE_PLACEHOLDER",
+            source,
+        )
+        template = seed._load_rendered_yaml(normalized_source)  # noqa: SLF001
+        resources = template.get("Resources")
+        resource = resources.get(logical_id) if isinstance(resources, Mapping) else None
+        properties = resource.get("Properties") if isinstance(resource, Mapping) else None
+        policies = properties.get("Policies") if isinstance(properties, Mapping) else None
+        trust = (
+            properties.get("AssumeRolePolicyDocument")
+            if isinstance(properties, Mapping)
+            else None
+        )
+        if (
+            not isinstance(trust, Mapping)
+            or not isinstance(policies, list)
+            or len(policies) != 1
+            or not isinstance(policies[0], Mapping)
+            or not isinstance(policies[0].get("PolicyDocument"), Mapping)
+        ):
+            _fail("COLLISION_READER_POLICY_SOURCE_INVALID")
+        return (
+            route.digest_value(policies[0]["PolicyDocument"]),
+            route.digest_value(trust),
+        )
+    except (seed.BrokerSeedError, AttributeError, TypeError) as exc:
+        raise BrokerConfigMaterializationError(
+            "COLLISION_READER_POLICY_SOURCE_INVALID"
+        ) from exc
 
 
 def _changes(resources: Sequence[Mapping[str, str]], action: str) -> list[dict[str, Any]]:
@@ -677,6 +715,12 @@ def materialize_broker_seed_input(
         name: git.read_at(source_commit, path)
         for name, path in source_paths.items()
     }
+    try:
+        source_tree_sha = git.tree_at(source_commit)
+    except Exception as exc:
+        raise BrokerConfigMaterializationError("SOURCE_TREE_INVALID") from exc
+    if _COMMIT_RE.fullmatch(str(source_tree_sha)) is None:
+        _fail("SOURCE_TREE_INVALID")
     for kind in ("route_template", "delegation_template"):
         if route.bytes_digest(sources[kind]) != validated_templates[kind]["source_sha256"]:
             _fail("TEMPLATE_GIT_BINDING_INVALID")
@@ -717,6 +761,7 @@ def materialize_broker_seed_input(
         for item in delegation_inventory_list
     }
     if set(route_inventory) != {
+        "ManagementCollisionReaderRole",
         "ManagementBrokerCreatorRole",
         "ManagementBrokerExecutorRole",
         "BrokerSeedCreatorPermissionSet",
@@ -1028,6 +1073,20 @@ def materialize_broker_seed_input(
             "expected_tags": list(EXACT_STACK_TAGS),
         },
     }
+    if _reader_role_source_digests(
+        sources["route_template"],
+        logical_id="ManagementCollisionReaderRole",
+    ) != (
+        broker.MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST,
+        broker.MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST,
+    ) or _reader_role_source_digests(
+        sources["broker_source"],
+        logical_id="AuthorityCollisionReaderRole",
+    ) != (
+        broker.AUTHORITY_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST,
+        broker.AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST,
+    ):
+        _fail("COLLISION_READER_POLICY_SOURCE_INVALID")
     config = {
         "schema_version": 1,
         "record_type": broker.CONFIG_RECORD_TYPE,
@@ -1036,6 +1095,8 @@ def materialize_broker_seed_input(
         "ledger_binding_digest": binding_digest,
         "initialization_digest": initialization_digest,
         "foundation_publish_binding_digest": publish_binding["binding_digest"],
+        "source_tree_sha": source_tree_sha,
+        "bootstrap_intent_digest": bootstrap_intent["intent_digest"],
         "repair_id": repair_id,
         "bootstrap_change_set_name": change_set_name,
         "identity_center_instance_arn": snapshot["identity_center_instance_arn"],

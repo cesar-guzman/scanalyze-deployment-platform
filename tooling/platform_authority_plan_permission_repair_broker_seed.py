@@ -92,6 +92,15 @@ PEP_LIFECYCLE_RESOURCE_IDS = (
 PACKAGE_SOURCE_PATHS = (
     Path("tooling/__init__.py"),
     Path("tooling/platform_authority_bootstrap.py"),
+    Path("tooling/platform_authority_gug365_upstream_inventory.py"),
+    Path("tooling/platform_authority_gug376_authority_inventory_collector.py"),
+    Path("tooling/platform_authority_gug376_collision_catalog.py"),
+    Path("tooling/platform_authority_gug376_collision_budget.py"),
+    Path("tooling/platform_authority_gug376_collision_policy.py"),
+    Path("tooling/platform_authority_gug376_collision_transcript_contract.py"),
+    Path("tooling/platform_authority_gug376_collision_aws_provider.py"),
+    Path("tooling/platform_authority_gug376_collision_admission.py"),
+    Path("tooling/platform_authority_gug376_collision_broker_admission.py"),
     Path("tooling/platform_authority_plan_permission_repair.py"),
     Path("tooling/platform_authority_plan_permission_repair_route_broker.py"),
 )
@@ -2000,6 +2009,9 @@ def render_template_from_source(
         b"@@BROKER_SIGNING_PROFILE_VERSION_ARN@@": data["broker_code"][
             "signing_job"
         ]["profile_version_arn"],
+        b"@@ARTIFACT_SIGNING_PROFILE_ARN@@": data[
+            "foundation_publish_binding"
+        ]["signing_profile_version_arn"].rsplit("/", 1)[0],
         b"@@BROKER_CONFIG_DIGEST@@": data["broker_config"]["config_digest"],
         b"@@ARTIFACT_KMS_KEY_ARN@@": data["foundation_publish_binding"][
             "sse_kms_key_arn"

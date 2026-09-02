@@ -224,6 +224,8 @@ def _package_bytes(root: Path) -> bytes:
 
 def _sealed_config(
     source_commit: str,
+    source_tree_sha: str,
+    bootstrap_intent_digest: str,
     foundation_publish_binding_digest: str,
     artifact_bucket: str,
     signing_profile_version_arn: str,
@@ -559,6 +561,8 @@ def _sealed_config(
         "ledger_binding_digest": binding,
         "initialization_digest": initialization,
         "foundation_publish_binding_digest": foundation_publish_binding_digest,
+        "source_tree_sha": source_tree_sha,
+        "bootstrap_intent_digest": bootstrap_intent_digest,
         "repair_id": REPAIR_ID,
         "bootstrap_change_set_name": (
             "scanalyze-platform-authority-bootstrap-20260830180000"
@@ -590,7 +594,12 @@ def _sealed_config(
     return broker.seal(value, "config_digest")
 
 
-def _input(source_root: Path, source_commit: str) -> dict[str, Any]:
+def _input(
+    source_root: Path,
+    source_commit: str,
+    *,
+    source_tree_sha: str | None = None,
+) -> dict[str, Any]:
     package = _package_bytes(source_root)
     signed_package = b"synthetic-attested-signer-output-for-tests"
     observed = datetime.now(timezone.utc).replace(microsecond=0)
@@ -671,6 +680,9 @@ def _input(source_root: Path, source_commit: str) -> dict[str, Any]:
         "pep_runtime_binding": {},
         "broker_config": _sealed_config(
             source_commit,
+            source_tree_sha
+            or _git(source_root, "rev-parse", f"{source_commit}^{{tree}}"),
+            bootstrap_intent["intent_digest"],
             storage_binding["binding_digest"],
             template_bucket,
             profile_arn,
@@ -1058,7 +1070,7 @@ def test_rendered_broker_roles_have_exact_artifact_kms_identity_authority(
             value["pep_template"]["bucket"],
         ),
         "ExecutorRole": (
-            "DecryptExactPepArtifactKeyThroughS3",
+            "DK",
             value["pep_artifact"]["bucket"],
         ),
     }
@@ -1188,7 +1200,10 @@ def test_dispatch_recovery_functions_are_role_separated_and_read_only(
                 else [statement["Action"]]
             )
         }
-        assert actions == allowed
+        expected_actions = set(allowed)
+        if logical_id == "ExecuteDispatchRecoveryRole":
+            expected_actions.add("cloudformation:DescribeStackEvents")
+        assert actions == expected_actions
         assert not actions & forbidden
         assert all(
             statement["Condition"]["DateLessThan"]["aws:CurrentTime"]
@@ -1203,6 +1218,37 @@ def test_dispatch_recovery_functions_are_role_separated_and_read_only(
             if statement["Sid"] == "DenyAfterRecovery"
         )
         by_sid = {statement["Sid"]: statement for statement in statements}
+        if logical_id == "ExecuteDispatchRecoveryRole":
+            assert by_sid["ReadExactProtectedPepLedgerControlPlane"] == {
+                "Sid": "ReadExactProtectedPepLedgerControlPlane",
+                "Effect": "Allow",
+                "Action": "dynamodb:DescribeTable",
+                "Resource": {
+                    "Fn::Sub": (
+                        "arn:${AWS::Partition}:dynamodb:us-east-1:"
+                        "042360977644:table/scanalyze-platform-authority-"
+                        "plan-policy-repair-ledger"
+                    )
+                },
+                "Condition": {
+                    "StringEquals": {"aws:RequestedRegion": "us-east-1"}
+                },
+            }
+            assert by_sid["ReadExactAuthorityPepStackEvents"] == {
+                "Sid": "ReadExactAuthorityPepStackEvents",
+                "Effect": "Allow",
+                "Action": "cloudformation:DescribeStackEvents",
+                "Resource": {
+                    "Fn::Sub": (
+                        "arn:${AWS::Partition}:cloudformation:us-east-1:"
+                        "042360977644:stack/scanalyze-platform-authority-"
+                        "bootstrap-plan-repair-pep/*"
+                    )
+                },
+                "Condition": {
+                    "StringEquals": {"aws:RequestedRegion": "us-east-1"}
+                },
+            }
         log_suffix = (
             "create-dispatch-recovery"
             if logical_id == "CreateDispatchRecoveryRole"
@@ -1488,11 +1534,27 @@ def test_materialization_writes_reproducible_exact_zip_and_private_template(
             "-S",
             "-c",
             (
-                "import sys;sys.path.insert(0,sys.argv[1]);"
+                "import json,sys;from datetime import UTC,datetime;"
+                "sys.path.insert(0,sys.argv[1]);"
                 "import tooling.platform_authority_plan_permission_repair_route_broker as b;"
+                "import tooling.platform_authority_gug376_collision_broker_admission as a;"
+                "import tooling.platform_authority_gug376_collision_admission as c;"
+                "import tooling.platform_authority_gug376_collision_policy as p;"
+                "assert callable(a.execute_inline_broker_collision_admission);"
+                "assert c.ABSENT_READY=='ABSENT_READY';"
+                "cfg=b.BrokerConfig.from_mapping(json.loads(sys.argv[2]));"
+                "adapter=b._build_inline_collision_admission_adapter("
+                "config=cfg,authority_session=object(),boto3_module=object(),"
+                "sdk_config=object(),clock=lambda:datetime.now(UTC));"
+                "inventory=p.materialize_route_collision_policy_set("
+                "adapter._catalog,identity_center_instance_arn="
+                "cfg.identity_center_instance_arn);"
+                "assert inventory['stage']=='inventory';"
+                "assert inventory['target_count']==73;"
                 "print(b.ROUTE_BROKER_STACK_NAME)"
             ),
             str(package_path),
+            broker.canonical_json(value["broker_config"]),
         ],
         check=True,
         capture_output=True,
@@ -2105,7 +2167,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     manage_roles = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "PepRolesViaCfn"
+        if statement["Sid"] == "PR"
     )
     resources = str(manage_roles["Resource"])
     assert "role/ScanalyzeBootstrapPlanRepairPlan" in resources
@@ -2116,7 +2178,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     manage_lambda = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "ManagePepLambda"
+        if statement["Sid"] == "ML"
     )
     lambda_actions = set(manage_lambda["Action"])
     assert {
@@ -2131,7 +2193,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     direct_deny = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "DenyDirectProviders"
+        if statement["Sid"] == "DP"
     )
     assert "dynamodb:*" not in direct_deny["Action"]
     creator_ledger = next(
@@ -2142,7 +2204,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     executor_ledger = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "ReadAndCasBrokerLedger"
+        if statement["Sid"] == "RBL"
     )
     assert set(creator_ledger["Action"]) == {
         "dynamodb:GetItem",
@@ -2168,7 +2230,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
         }
     for sid, policy in (
         ("AssumeExactManagementCreator", creator_policy),
-        ("AssumeManagementExecutor", executor_policy),
+        ("AME", executor_policy),
     ):
         assume = next(item for item in policy["Statement"] if item["Sid"] == sid)
         assert assume["Action"] == ["sts:AssumeRole", "sts:SetSourceIdentity"]
@@ -2181,7 +2243,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     execute_pep = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "ExecutePep"
+        if statement["Sid"] == "EP"
     )
     assert execute_pep["Condition"]["DateLessThan"]["aws:CurrentTime"] == value[
         "route_not_after"
@@ -2221,7 +2283,7 @@ def test_executor_can_manage_exact_pep_ledger_policy_and_create_rollback_through
     globals_allow = next(
         statement
         for statement in executor_policy["Statement"]
-        if statement["Sid"] == "PepGlobalsViaCfn"
+        if statement["Sid"] == "PG"
     )
     assert globals_allow["Resource"] == "*"
     assert set(globals_allow["Action"]) == {
@@ -2351,16 +2413,56 @@ def test_generated_template_and_role_policies_fit_aws_limits(
     payload = seed.render_template(source_root=root, private_input=value)
     assert len(payload) <= seed.MAX_TEMPLATE_URL_BYTES
     rendered = _load(payload)
-    for logical_id in ("CreatorRole", "ExecutorRole"):
-        policy = rendered["Resources"][logical_id]["Properties"]["Policies"][0][
-            "PolicyDocument"
+    for logical_id in (
+        "AuthorityCollisionReaderRole",
+        "CreatorRole",
+        "ExecutorRole",
+    ):
+        if logical_id == "AuthorityCollisionReaderRole":
+            assert rendered["Resources"][logical_id]["Properties"][
+                "MaxSessionDuration"
+            ] == 3600
+        policy_sizes = [
+            len(
+                json.dumps(
+                    _resolve_policy_intrinsics(policy["PolicyDocument"]),
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            )
+            for policy in rendered["Resources"][logical_id]["Properties"].get(
+                "Policies", []
+            )
         ]
-        compact = json.dumps(
-            _resolve_policy_intrinsics(policy),
-            separators=(",", ":"),
-            ensure_ascii=True,
-        )
-        assert len(compact.encode("utf-8")) <= 10_240
+        assert policy_sizes
+        assert all(size <= 10_240 for size in policy_sizes)
+        assert sum(policy_sizes) <= 10_240, (logical_id, policy_sizes)
+        if logical_id == "ExecutorRole":
+            assert sum(policy_sizes) < 9_800, policy_sizes
+    management_route = _load(
+        REPO_ROOT
+        / "bootstrap/cfn-platform-authority-gug376-temporary-change-set-route.yaml"
+    )
+    management_reader = management_route["Resources"]["ManagementCollisionReaderRole"][
+        "Properties"
+    ]
+    assert management_reader["MaxSessionDuration"] == 3600
+    for logical_id, resource in management_route["Resources"].items():
+        if resource.get("Type") != "AWS::IAM::Role":
+            continue
+        policy_sizes = [
+            len(
+                json.dumps(
+                    _resolve_policy_intrinsics(policy["PolicyDocument"]),
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            )
+            for policy in resource["Properties"].get("Policies", [])
+        ]
+        assert policy_sizes
+        assert all(size <= 10_240 for size in policy_sizes)
+        assert sum(policy_sizes) <= 10_240, (logical_id, policy_sizes)
     for logical_id in ("CreatorFunction", "ExecutorFunction"):
         environment = rendered["Resources"][logical_id]["Properties"]["Environment"][
             "Variables"
@@ -2418,6 +2520,8 @@ def test_runtime_environment_keeps_capacity_for_realistic_pep_inventory(
         "BROKER_LEDGER_KEY_ARN",
         "LEDGER_TABLE_NAME",
     }
+    config_size = len(environment["BROKER_CONFIG_JSON"].encode("utf-8"))
+    assert config_size <= 3_500
     size = sum(len(str(key)) + len(str(item)) for key, item in environment.items())
     assert size <= 4_096
 

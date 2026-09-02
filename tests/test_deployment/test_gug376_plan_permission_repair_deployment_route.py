@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OFFLINE_CLI = ROOT / "scripts/deployment/platform-authority-plan-permission-repair-deployment-route.py"
 AWS_CLI = ROOT / "scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py"
 SOURCE_COMMIT = "a" * 40
+SOURCE_TREE_SHA = "b" * 40
 INSTANCE_ARN = "arn:aws:sso:::instance/ssoins-ABCDEFGHIJKLMNOP"
 PRINCIPAL_ID = "12345678-1234-4123-8123-123456789012"
 STACK_UUID = "22222222-2222-4222-8222-222222222222"
@@ -48,6 +49,93 @@ BROKER_STACK_ARN = (
     "arn:aws:cloudformation:us-east-1:042360977644:stack/"
     f"{route.BROKER_STACK_NAME}/{STACK_UUID}"
 )
+TEST_COLLISION_CAPABILITY = object()
+TEST_COLLISION_ADMISSION_LOADER = object()
+TEST_COLLISION_ADMISSION_DIGEST = "sha256:" + "9" * 64
+TEST_BOOTSTRAP_INTENT_DIGEST = "sha256:" + "8" * 64
+
+
+def _collision_binding_fields(
+    *, target: str, action: str, effect_request_digest: str
+) -> dict[str, str]:
+    operations = {
+        "route": {
+            "create": "route:create-change-set",
+            "execute": "route:execute-change-set",
+        },
+        "broker": {
+            "create": "broker:create-change-set",
+            "execute": "broker:execute-change-set",
+        },
+        route.BROKER_PROTECTION_TARGET: {
+            "create": "broker-protection:create-change-set",
+            "execute": "broker-protection:execute-change-set",
+        },
+    }
+    return {
+        "collision_admission_digest": TEST_COLLISION_ADMISSION_DIGEST,
+        "collision_operation": operations[target][action],
+        "collision_effect_request_digest": effect_request_digest,
+        "bootstrap_intent_digest": TEST_BOOTSTRAP_INTENT_DIGEST,
+    }
+
+
+def _accepted_collision_loader(
+    timeline: list[str],
+    captured: list[dict[str, Any]],
+) -> Any:
+    def load(
+        *,
+        operation: str,
+        effect_request_digest: str,
+        bootstrap_intent_digest: str,
+        now: datetime,
+    ) -> object:
+        timeline.append("admission")
+        captured.append(
+            {
+                "operation": operation,
+                "effect_request_digest": effect_request_digest,
+                "bootstrap_intent_digest": bootstrap_intent_digest,
+                "now": now,
+            }
+        )
+        return TEST_COLLISION_CAPABILITY
+
+    return load
+
+
+class _ContractHarnessSeedProvider(aws.ConnectedSeedProvider):
+    """Exercise future seed effects without opening the product provider."""
+
+    def _consume_collision_admission(
+        self,
+        loader: object,
+        *,
+        binding: Mapping[str, str],
+        now: datetime,
+    ) -> dict[str, str]:
+        assert loader is TEST_COLLISION_ADMISSION_LOADER
+        assert now.tzinfo is not None
+        self._claims.timeline.append("admission")
+        return {
+            "collision_admission_digest": TEST_COLLISION_ADMISSION_DIGEST,
+            **dict(binding),
+        }
+
+    def create_change_set(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault(
+            "collision_admission_loader",
+            TEST_COLLISION_ADMISSION_LOADER,
+        )
+        return super().create_change_set(**kwargs)
+
+    def execute_change_set(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault(
+            "collision_admission_loader",
+            TEST_COLLISION_ADMISSION_LOADER,
+        )
+        return super().execute_change_set(**kwargs)
 
 
 def _digest(payload: bytes) -> str:
@@ -103,6 +191,10 @@ class FakeGit:
     def read_at(self, commit: str, path: str) -> bytes:
         assert commit == SOURCE_COMMIT
         return (ROOT / path).read_bytes()
+
+    def tree_at(self, commit: str) -> str:
+        assert commit == SOURCE_COMMIT
+        return "b" * 40
 
     def render_broker_seed(
         self, private_input: Mapping[str, Any], *, protection_enabled: bool
@@ -368,7 +460,11 @@ def case() -> tuple[dict[str, Any], dict[str, Any], datetime]:
     now = publication_time + timedelta(minutes=75)
     route_not_before = publication_time + timedelta(minutes=70)
     route_not_after = publication_time + timedelta(minutes=130)
-    broker_input = _broker_seed_private_input(ROOT, SOURCE_COMMIT)
+    broker_input = _broker_seed_private_input(
+        ROOT,
+        SOURCE_COMMIT,
+        source_tree_sha=SOURCE_TREE_SHA,
+    )
     broker_input["route_not_before"] = _ts(route_not_before)
     broker_input["route_not_after"] = _ts(route_not_after)
     config = dict(broker_input["broker_config"])
@@ -582,7 +678,11 @@ def test_materializes_exact_route_broker_and_broker_protection_operations(
         "TemplateURL"
     ]
     assert intent["targets"]["route"]["expected_assignment_count"] == 3
-    assert len(intent["targets"]["route"]["expected_resources"]) == 8
+    assert len(intent["targets"]["route"]["expected_resources"]) == 9
+    assert {
+        "logical_resource_id": "ManagementCollisionReaderRole",
+        "resource_type": "AWS::IAM::Role",
+    } in intent["targets"]["route"]["expected_resources"]
     assert intent["targets"]["broker"]["broker_code_sha256"] == source[
         "artifacts"
     ]["broker_code"]["signed_artifact"]["code_sha256"]
@@ -910,7 +1010,7 @@ def _live_execution_records(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     dispatch = _dispatch(intent, target, now)
     account_id = intent["targets"][target]["account_id"]
-    attestation = aws.ConnectedSeedProvider(
+    attestation = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(account_id, _creator_role(target), []),
             cfn=AttestCloudFormation(
@@ -1225,6 +1325,11 @@ class Claims:
             "claimed_at": dispatch["dispatched_at"],
             "retry_permitted": False,
             "production_authorized": False,
+            **_collision_binding_fields(
+                target=target,
+                action="create",
+                effect_request_digest=spec["create_request_digest"],
+            ),
         }
         self.results[key] = dispatch
 
@@ -1359,12 +1464,127 @@ def _clients(*, sts: Any, cfn: Any, trail: Any = None, sso: Any = None) -> dict[
     }
 
 
+@pytest.mark.parametrize(
+    ("target", "create_operation", "execute_operation"),
+    [
+        (
+            "route",
+            "route:create-change-set",
+            "route:execute-change-set",
+        ),
+        (
+            "broker",
+            "broker:create-change-set",
+            "broker:execute-change-set",
+        ),
+        (
+            route.BROKER_PROTECTION_TARGET,
+            "broker-protection:create-change-set",
+            "broker-protection:execute-change-set",
+        ),
+    ],
+)
+def test_collision_admission_bindings_are_derived_from_validated_records(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    target: str,
+    create_operation: str,
+    execute_operation: str,
+) -> None:
+    source, intent, now = case
+    create_binding = aws.derive_collision_admission_binding(
+        action="create",
+        target=target,
+        seed_input=source,
+        seed_intent=intent,
+    )
+    execution = _execution(intent, target, now)
+    execute_binding = aws.derive_collision_admission_binding(
+        action="execute",
+        target=target,
+        seed_input=source,
+        seed_intent=intent,
+        execution_intent=execution,
+    )
+    assert create_binding == {
+        "collision_operation": create_operation,
+        "collision_effect_request_digest": intent["targets"][target][
+            "create_request_digest"
+        ],
+        "bootstrap_intent_digest": source["artifact_bootstrap_intent"][
+            "intent_digest"
+        ],
+    }
+    assert execute_binding == {
+        "collision_operation": execute_operation,
+        "collision_effect_request_digest": execution[
+            "execute_request_digest"
+        ],
+        "bootstrap_intent_digest": source["artifact_bootstrap_intent"][
+            "intent_digest"
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "kwargs"),
+    [
+        (
+            "create_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": {},
+                "git": FakeGit(),
+                "target": "route",
+                "creation_authorization": {},
+                "collision_admission_loader": TEST_COLLISION_ADMISSION_LOADER,
+            },
+        ),
+        (
+            "execute_change_set",
+            {
+                "seed_input": {},
+                "seed_intent": {},
+                "git": FakeGit(),
+                "create_attestation": {},
+                "execution_authorization": {},
+                "execution_intent": {},
+                "collision_admission_loader": TEST_COLLISION_ADMISSION_LOADER,
+            },
+        ),
+    ],
+)
+def test_product_seed_provider_validates_before_admission_or_sdk(
+    method: str, kwargs: dict[str, Any]
+) -> None:
+    timeline: list[str] = []
+    provider = aws.ConnectedSeedProvider(
+        clients=_clients(sts=object(), cfn=object()),
+        claims=Claims(timeline),
+        clock=lambda: datetime(2026, 8, 30, 12, tzinfo=timezone.utc),
+    )
+    with pytest.raises((aws.ConnectedRouteError, route.RouteSeedError)):
+        getattr(provider, method)(**kwargs)
+    assert timeline == []
+
+
 def test_connected_create_sts_then_durable_claim_then_one_effect_and_no_replay(
-    case: tuple[dict[str, Any], dict[str, Any], datetime]
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source, intent, now = case
     timeline: list[str] = []
+    admission_calls: list[dict[str, Any]] = []
     claims = Claims(timeline)
+    monkeypatch.setattr(
+        aws,
+        "assert_route_collision_admission_active",
+        lambda capability, **_binding: (
+            TEST_COLLISION_ADMISSION_DIGEST
+            if capability is TEST_COLLISION_CAPABILITY
+            else pytest.fail("unexpected collision capability")
+        ),
+    )
+    loader = _accepted_collision_loader(timeline, admission_calls)
     provider = aws.ConnectedSeedProvider(
         clients=_clients(
             sts=Identity(route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", timeline),
@@ -1380,8 +1600,9 @@ def test_connected_create_sts_then_durable_claim_then_one_effect_and_no_replay(
         git=FakeGit(),
         target="route",
         creation_authorization=authorization,
+        collision_admission_loader=loader,
     )
-    assert timeline == ["sts", "claim", "mutate", "complete"]
+    assert timeline == ["sts", "admission", "claim", "mutate", "complete"]
     assert receipt["aws_mutations"] == 1
     with pytest.raises(aws.ConnectedRouteError, match="MUTATION_REPLAY_REJECTED"):
         provider.create_change_set(
@@ -1390,8 +1611,85 @@ def test_connected_create_sts_then_durable_claim_then_one_effect_and_no_replay(
             git=FakeGit(),
             target="route",
             creation_authorization=authorization,
+            collision_admission_loader=loader,
         )
-    assert timeline == ["sts", "claim", "mutate", "complete", "sts", "claim"]
+    assert timeline == [
+        "sts",
+        "admission",
+        "claim",
+        "mutate",
+        "complete",
+        "sts",
+        "admission",
+        "claim",
+    ]
+    assert len(admission_calls) == 2
+    assert admission_calls[0] == admission_calls[1]
+    assert admission_calls[0] == {
+        "operation": "route:create-change-set",
+        "effect_request_digest": intent["targets"]["route"][
+            "create_request_digest"
+        ],
+        "bootstrap_intent_digest": source["artifact_bootstrap_intent"][
+            "intent_digest"
+        ],
+        "now": now,
+    }
+    assert receipt["collision_admission_digest"] == (
+        TEST_COLLISION_ADMISSION_DIGEST
+    )
+
+
+def test_connected_create_rejects_inactive_capability_before_claim_or_effect(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, intent, now = case
+    timeline: list[str] = []
+    claims = Claims(timeline)
+
+    def reject_capability(_capability: object, **_binding: Any) -> str:
+        timeline.append("assert-admission")
+        raise ValueError("inactive")
+
+    monkeypatch.setattr(
+        aws,
+        "assert_route_collision_admission_active",
+        reject_capability,
+    )
+    provider = aws.ConnectedSeedProvider(
+        clients=_clients(
+            sts=Identity(
+                route.MANAGEMENT_ACCOUNT_ID,
+                "AWSAdministratorAccess",
+                timeline,
+            ),
+            cfn=CreateCloudFormation(intent, "route", timeline),
+        ),
+        claims=claims,
+        clock=lambda: now,
+    )
+    with pytest.raises(
+        aws.ConnectedRouteError,
+        match="COLLISION_ADMISSION_NOT_ACTIVE",
+    ):
+        provider.create_change_set(
+            seed_input=source,
+            seed_intent=intent,
+            git=FakeGit(),
+            target="route",
+            creation_authorization=_creation_authorization(
+                intent,
+                "route",
+                now,
+            ),
+            collision_admission_loader=_accepted_collision_loader(
+                timeline,
+                [],
+            ),
+        )
+    assert timeline == ["sts", "admission", "assert-admission"]
+    assert claims.seen == set()
 
 
 def test_connected_create_rejects_authorization_before_any_aws_call(
@@ -1404,7 +1702,7 @@ def test_connected_create_rejects_authorization_before_any_aws_call(
     changed["target"] = "broker"
     changed.pop("authorization_digest")
     changed = route.seal(changed, "authorization_digest")
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1441,7 +1739,7 @@ def test_connected_create_resamples_clock_immediately_before_effect(
             now + timedelta(minutes=10),
         )
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1468,7 +1766,7 @@ def test_connected_create_resamples_clock_immediately_before_effect(
                 now,
             ),
         )
-    assert timeline == ["sts", "claim"]
+    assert timeline == ["sts", "admission", "claim"]
 
 
 def test_connected_create_rejects_resealed_forged_template_url_before_aws(
@@ -1500,7 +1798,7 @@ def test_connected_create_rejects_resealed_forged_template_url_before_aws(
         )
 
     timeline: list[str] = []
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1595,10 +1893,161 @@ def test_connected_cli_validates_exact_seed_before_provider_session(
             "seed-intent.json",
             "--authorization-name",
             "creation-authorization.json",
+            "--collision-admission-root",
+            os.fspath(tmp_path / "admission"),
+            "--gug393-private-root",
+            os.fspath(tmp_path / "gug393"),
         ]
     ) == 2
     assert provider_calls == []
     assert not (private / "receipt.json").exists()
+
+
+def test_connected_cli_defers_collision_read_to_provider_effect_boundary(
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, intent, now = case
+    spec = importlib.util.spec_from_file_location(
+        "gug376_route_aws_cli_collision_jit",
+        AWS_CLI,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module.route, "SubprocessGit", lambda _root: FakeGit())
+    monkeypatch.setattr(
+        module,
+        "datetime",
+        SimpleNamespace(now=lambda _timezone: now),
+    )
+    timeline: list[str] = []
+    expected_binding = aws.derive_collision_admission_binding(
+        action="create",
+        target="route",
+        seed_input=source,
+        seed_intent=intent,
+    )
+
+    admission_root = tmp_path / "admission"
+    gug393_root = tmp_path / "gug393"
+    gug395_root = tmp_path / "gug395"
+
+    def atomic_loader(**kwargs: Any) -> object:
+        timeline.append("read-admission")
+        assert kwargs == {
+            "operation": expected_binding["collision_operation"],
+            "effect_request_digest": expected_binding[
+                "collision_effect_request_digest"
+            ],
+            "bootstrap_intent_digest": expected_binding[
+                "bootstrap_intent_digest"
+            ],
+            "now": now,
+        }
+        return TEST_COLLISION_CAPABILITY
+
+    monkeypatch.setattr(
+        module.collision_context,
+        "build_atomic_loader_from_private_context",
+        lambda **kwargs: (
+            atomic_loader
+            if kwargs
+            == {
+                "admission_private_root": admission_root,
+                    "effect_private_root": private.resolve(),
+                    "gug393_private_root": gug393_root,
+                    "gug395_private_root": gug395_root,
+                    "expected_approval_reference_digest": authorization[
+                        "authorization_digest"
+                    ],
+                    "expected_authorized_at": authorization["authorized_at"],
+                    "expected_expires_at": authorization["expires_at"],
+                    "expected_operation": expected_binding[
+                        "collision_operation"
+                    ],
+                    "expected_source_commit_sha": intent["source_commit"],
+                    "environment": os.environ,
+            }
+            else pytest.fail("unexpected atomic loader roots")
+        ),
+    )
+
+    class Provider:
+        def create_change_set(self, **kwargs: Any) -> dict[str, Any]:
+            timeline.append("provider-effect-boundary")
+            assert timeline == ["provider-created", "provider-effect-boundary"]
+            capability = kwargs["collision_admission_loader"](
+                operation=expected_binding["collision_operation"],
+                effect_request_digest=expected_binding[
+                    "collision_effect_request_digest"
+                ],
+                bootstrap_intent_digest=expected_binding[
+                    "bootstrap_intent_digest"
+                ],
+                now=now,
+            )
+            assert capability is TEST_COLLISION_CAPABILITY
+            return {
+                "record_type": aws.DISPATCH_RECORD_TYPE,
+                "status": "DISPATCHED",
+                "target": "route",
+                "aws_mutations": 1,
+            }
+
+    def provider_factory(*_args: Any, **_kwargs: Any) -> Provider:
+        timeline.append("provider-created")
+        assert "read-admission" not in timeline
+        return Provider()
+
+    monkeypatch.setattr(module, "_provider", provider_factory)
+    private = tmp_path / "private"
+    private.mkdir(mode=0o700)
+    private.chmod(0o700)
+    authorization = _creation_authorization(intent, "route", now)
+    records = {
+        "seed-input.json": source,
+        "seed-intent.json": intent,
+        "creation-authorization.json": authorization,
+    }
+    for name, value in records.items():
+        path = private / name
+        path.write_text(route.canonical_json(value) + "\n", encoding="utf-8")
+        path.chmod(0o600)
+
+    assert module.main(
+        [
+            "create-change-set",
+            "--profile",
+            "839393571433_AWSAdministratorAccess",
+            "--target",
+            "route",
+            "--source-root",
+            os.fspath(ROOT),
+            "--private-root",
+            os.fspath(private),
+            "--receipt-name",
+            "receipt.json",
+            "--input-name",
+            "seed-input.json",
+            "--intent-name",
+            "seed-intent.json",
+            "--authorization-name",
+            "creation-authorization.json",
+            "--collision-admission-root",
+            os.fspath(admission_root),
+            "--gug393-private-root",
+            os.fspath(gug393_root),
+            "--gug395-private-root",
+            os.fspath(gug395_root),
+        ]
+    ) == 0
+    assert timeline == [
+        "provider-created",
+        "provider-effect-boundary",
+        "read-admission",
+    ]
 
 
 def test_connected_broker_protection_create_uses_exact_update_request(
@@ -1607,7 +2056,7 @@ def test_connected_broker_protection_create_uses_exact_update_request(
     source, intent, now = case
     target = route.BROKER_PROTECTION_TARGET
     timeline: list[str] = []
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -1629,7 +2078,7 @@ def test_connected_broker_protection_create_uses_exact_update_request(
         ),
     )
     assert receipt["target"] == target
-    assert timeline == ["sts", "claim", "mutate", "complete"]
+    assert timeline == ["sts", "admission", "claim", "mutate", "complete"]
     request = intent["targets"][target]["create_request"]
     assert request["ChangeSetType"] == "UPDATE"
     assert "Parameters" not in request
@@ -1637,13 +2086,15 @@ def test_connected_broker_protection_create_uses_exact_update_request(
 
 
 def test_connected_execute_receipt_uses_pre_call_cloudtrail_boundary(
-    case: tuple[dict[str, Any], dict[str, Any], datetime]
+    case: tuple[dict[str, Any], dict[str, Any], datetime],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source, intent, now = case
     attestation, execution_authorization, execution = _live_execution_records(
         source, intent, "route", now
     )
     timeline: list[str] = []
+    admission_calls: list[dict[str, Any]] = []
     current = [now]
     dispatch = _dispatch(intent, "route", now)
 
@@ -1653,6 +2104,15 @@ def test_connected_execute_receipt_uses_pre_call_cloudtrail_boundary(
 
     claims = Claims(timeline)
     claims.seed_create_result(intent=intent, target="route", now=now)
+    monkeypatch.setattr(
+        aws,
+        "assert_route_collision_admission_active",
+        lambda capability, **_binding: (
+            TEST_COLLISION_ADMISSION_DIGEST
+            if capability is TEST_COLLISION_CAPABILITY
+            else pytest.fail("unexpected collision capability")
+        ),
+    )
     provider = aws.ConnectedSeedProvider(
         clients=_clients(
             sts=Identity(
@@ -1680,6 +2140,10 @@ def test_connected_execute_receipt_uses_pre_call_cloudtrail_boundary(
         create_attestation=attestation,
         execution_authorization=execution_authorization,
         execution_intent=execution,
+        collision_admission_loader=_accepted_collision_loader(
+            timeline,
+            admission_calls,
+        ),
     )
     assert timeline == [
         "read-claim",
@@ -1688,12 +2152,25 @@ def test_connected_execute_receipt_uses_pre_call_cloudtrail_boundary(
         "describe",
         "template",
         "cloudtrail",
+        "admission",
         "claim",
         "mutate",
         "complete",
     ]
     assert receipt["dispatched_at"] == _ts(now)
     assert current[0] > now
+    assert admission_calls == [
+        {
+            "operation": "route:execute-change-set",
+            "effect_request_digest": execution[
+                "execute_request_digest"
+            ],
+            "bootstrap_intent_digest": source[
+                "artifact_bootstrap_intent"
+            ]["intent_digest"],
+            "now": now,
+        }
+    ]
 
 
 def test_connected_execute_rejects_expired_authorization_before_sts(
@@ -1704,7 +2181,7 @@ def test_connected_execute_rejects_expired_authorization_before_sts(
         intent, "route", now
     )
     timeline: list[str] = []
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1746,7 +2223,7 @@ def test_connected_execute_resamples_clock_after_readback_before_effect(
             now + timedelta(minutes=10),
         )
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1807,7 +2284,7 @@ def test_connected_execute_rejects_alternate_same_name_change_set_uuid(
             )
             return response
 
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1864,7 +2341,7 @@ def test_connected_execute_rejects_alternate_bootstrap_principal_before_effect(
                     break
             return response
 
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -1945,7 +2422,7 @@ def test_connected_execute_rejects_unattested_change_set_arn_before_aws(
         )
 
     timeline: list[str] = []
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2011,7 +2488,7 @@ def test_connected_execute_requires_persisted_create_result_before_aws(
     timeline: list[str] = []
     claims = Claims(timeline)
     claims.seed_create_result(intent=intent, target="route", now=now)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2077,7 +2554,7 @@ def test_distinct_authorizations_share_one_stable_execute_claim_and_token(
     claims.seed_create_result(intent=intent, target="route", now=now)
     dispatch = _dispatch(intent, "route", now)
 
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -2135,7 +2612,7 @@ def test_connected_broker_protection_execute_keeps_rollback_enabled(
         target=route.BROKER_PROTECTION_TARGET,
         now=now,
     )
-    receipt = aws.ConnectedSeedProvider(
+    receipt = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -2172,6 +2649,7 @@ def test_connected_broker_protection_execute_keeps_rollback_enabled(
         "describe",
         "template",
         "cloudtrail",
+        "admission",
         "claim",
         "mutate",
         "complete",
@@ -2204,7 +2682,7 @@ def test_create_recovery_uses_durable_claim_cloudtrail_and_readback_without_retr
             timeline.append("mutate")
             raise TimeoutError("response lost")
 
-    first = aws.ConnectedSeedProvider(
+    first = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", timeline
@@ -2225,7 +2703,7 @@ def test_create_recovery_uses_durable_claim_cloudtrail_and_readback_without_retr
             target=target,
             creation_authorization=initial_authorization,
         )
-    assert timeline == ["sts", "claim", "mutate"]
+    assert timeline == ["sts", "admission", "claim", "mutate"]
 
     event = {
         "eventID": EVENT_UUID,
@@ -2273,7 +2751,7 @@ def test_create_recovery_uses_durable_claim_cloudtrail_and_readback_without_retr
     recovery_now = datetime.fromisoformat(
         intent["route_not_after"].replace("Z", "+00:00")
     ) + timedelta(seconds=1)
-    recovered = aws.ConnectedSeedProvider(
+    recovered = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", timeline
@@ -2314,7 +2792,7 @@ def test_execute_recovery_uses_durable_claim_cloudtrail_and_stack_readback(
 
     dispatch = _dispatch(intent, "route", now)
 
-    first = aws.ConnectedSeedProvider(
+    first = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", timeline
@@ -2374,7 +2852,7 @@ def test_execute_recovery_uses_durable_claim_cloudtrail_and_stack_readback(
                 ]
             }
 
-    recovered = aws.ConnectedSeedProvider(
+    recovered = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", timeline
@@ -2408,6 +2886,11 @@ def _dispatch(intent: Mapping[str, Any], target: str, now: datetime) -> dict[str
         "creation_authorization_digest": creation_authorization[
             "authorization_digest"
         ],
+        **_collision_binding_fields(
+            target=target,
+            action="create",
+            effect_request_digest=spec["create_request_digest"],
+        ),
         "stack_arn": (
             f"arn:aws:cloudformation:us-east-1:{spec['account_id']}:"
             f"stack/{spec['stack_name']}/{STACK_UUID}"
@@ -2821,7 +3304,7 @@ def test_create_attestation_binds_full_cloudtrail_request_template_and_changes(
             "stackId": dispatch["stack_arn"],
         },
     }
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", []
@@ -2839,7 +3322,7 @@ def test_create_attestation_binds_full_cloudtrail_request_template_and_changes(
     assert receipt["template_digest"] == intent["targets"][target]["template_digest"]
     incomplete = AttestCloudFormation(intent, dispatch)
     incomplete.next_token = ""
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", []
@@ -2860,7 +3343,7 @@ def test_create_attestation_binds_full_cloudtrail_request_template_and_changes(
         )
     drifted = copy.deepcopy(event)
     drifted["requestParameters"].pop("onStackFailure")
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", []
@@ -2903,7 +3386,7 @@ def test_broker_protection_attestation_accepts_only_exact_dual_template_update(
             "stackId": dispatch["stack_arn"],
         },
     }
-    receipt = aws.ConnectedSeedProvider(
+    receipt = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -2943,7 +3426,7 @@ def test_broker_protection_attestation_accepts_only_exact_dual_template_update(
     with pytest.raises(
         aws.ConnectedRouteError, match="CHANGE_SET_CHANGES_INVALID"
     ):
-        aws.ConnectedSeedProvider(
+        _ContractHarnessSeedProvider(
             clients=_clients(
                 sts=Identity(
                     route.AUTHORITY_ACCOUNT_ID,
@@ -3133,6 +3616,13 @@ def _execution_receipt(execution: Mapping[str, Any], now: datetime) -> dict[str,
         "target": execution["target"],
         "account_id": execution["account_id"],
         "execution_intent_digest": execution["execution_intent_digest"],
+        **_collision_binding_fields(
+            target=str(execution["target"]),
+            action="execute",
+            effect_request_digest=str(
+                execution["execute_request_digest"]
+            ),
+        ),
         "stack_arn": execution["execute_request"]["StackName"],
         "change_set_arn": execution["execute_request"]["ChangeSetName"],
         "execute_request_id": REQUEST_UUID,
@@ -3163,6 +3653,7 @@ def _reentry_execution(
             "record_type": recovery.REENTRY_EXECUTION_INTENT_RECORD_TYPE,
             "source_commit": SOURCE_COMMIT,
             "target": target,
+            "failure_record_type": recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
             "stack_arn": stack_arn,
             "change_set_arn": change_set_arn,
             "attempt": 1,
@@ -3182,6 +3673,7 @@ def _reentry_execution(
         "target": target,
         "account_id": spec["account_id"],
         "parent_intent_digest": intent["intent_digest"],
+        "failure_record_type": recovery.PREEXECUTE_FAILURE_RECORD_TYPE,
         "reentry_intent_digest": "sha256:" + "5" * 64,
         "reentry_attestation_digest": "sha256:" + "6" * 64,
         "authorization_digest": "sha256:" + "7" * 64,
@@ -3206,6 +3698,16 @@ def _reentry_execution(
 def _reentry_execution_receipt(
     execution: Mapping[str, Any], now: datetime
 ) -> dict[str, Any]:
+    collision_admission = {
+        "operation": recovery._reentry_collision_operation(
+            target=str(execution["target"]),
+            failure_record_type=str(execution["failure_record_type"]),
+            effect="execute",
+        ),
+        "effect_request_digest": execution["execute_request_digest"],
+        "bootstrap_intent_digest": execution["parent_intent_digest"],
+        "admission_digest": TEST_COLLISION_ADMISSION_DIGEST,
+    }
     return route.seal(
         {
             "schema_version": 1,
@@ -3214,6 +3716,7 @@ def _reentry_execution_receipt(
             "target": execution["target"],
             "account_id": execution["account_id"],
             "execution_intent_digest": execution["execution_intent_digest"],
+            "collision_admission": collision_admission,
             "stack_arn": execution["execute_request"]["StackName"],
             "change_set_arn": execution["execute_request"]["ChangeSetName"],
             "execute_request_id": REQUEST_UUID,
@@ -3257,7 +3760,7 @@ def test_terminal_route_readback_binds_execute_cloudtrail_and_three_assignments(
         },
         "responseElements": None,
     }
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID, "AWSAdministratorAccess", []
@@ -3285,7 +3788,7 @@ def test_terminal_route_readback_binds_execute_cloudtrail_and_three_assignments(
         execution_receipt=receipt,
     )
     assert terminal["assignment_count"] == 3
-    assert terminal["resource_count"] == 8
+    assert terminal["resource_count"] == route.ROUTE_RESOURCE_COUNT
     assert terminal["aws_calls"] == 26
     assert terminal["execute_cloudtrail_event_digest"].startswith("sha256:")
     assert terminal["live_property_read_count"] == 18
@@ -3357,6 +3860,7 @@ def test_terminal_route_readback_accepts_only_exact_claim_bound_reentry(
         "attempt": 1,
         "execution_intent_digest": execution["execution_intent_digest"],
         "request_digest": execution["execute_request_digest"],
+        "collision_admission": receipt["collision_admission"],
         "client_request_token": execution["execute_request"][
             "ClientRequestToken"
         ],
@@ -3367,7 +3871,7 @@ def test_terminal_route_readback_accepts_only_exact_claim_bound_reentry(
         "retry_permitted": False,
         "production_authorized": False,
     }
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.MANAGEMENT_ACCOUNT_ID,
@@ -3400,6 +3904,24 @@ def test_terminal_route_readback_accepts_only_exact_claim_bound_reentry(
     )
     assert terminal["stack_status"] == "CREATE_COMPLETE"
     assert "read-claim" in timeline
+
+    changed = copy.deepcopy(receipt)
+    changed["collision_admission"]["operation"] = (
+        "route-reentry-cleanup:execute-change-set"
+    )
+    changed.pop("receipt_digest")
+    changed = route.seal(changed, "receipt_digest")
+    timeline_before = list(timeline)
+    with pytest.raises(
+        aws.ConnectedRouteError,
+        match="COLLISION_ADMISSION_BINDING_INVALID",
+    ):
+        provider.terminal_readback(
+            seed_intent=intent,
+            execution_intent=execution,
+            execution_receipt=changed,
+        )
+    assert timeline == timeline_before
 
     changed = copy.deepcopy(receipt)
     changed["attempt"] = 2
@@ -3565,7 +4087,7 @@ def test_broker_terminal_status_and_live_protection_match_operation(
         source["broker_seed_input"],
         protection_enabled=(target == route.BROKER_PROTECTION_TARGET),
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=_clients(
             sts=Identity(
                 route.AUTHORITY_ACCOUNT_ID,
@@ -4435,7 +4957,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
             "logs": LiveLogs(),
         }
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     digest, calls = provider._broker_live_readback(
@@ -4448,7 +4970,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
     assert digest.startswith("sha256:")
     assert calls == 143
     clients["kms"] = LiveKms(projection, service_principal_fields=True)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     service_principal_digest, service_principal_calls = provider._broker_live_readback(
@@ -4463,7 +4985,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
     clients["lambda"] = LiveLambda(
         spec, runtime_config_json=runtime_config_json, concurrency=2
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(aws.ConnectedRouteError, match="BROKER_FUNCTION_LIVE_INVALID"):
@@ -4478,7 +5000,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         runtime_config_json=runtime_config_json,
         provisioned_concurrency=True,
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4496,7 +5018,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         runtime_config_json=runtime_config_json,
         public_policy_qualifier="1",
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4514,7 +5036,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         runtime_config_json=runtime_config_json,
         function_tags={},
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(aws.ConnectedRouteError, match="BROKER_FUNCTION_LIVE_INVALID"):
@@ -4529,7 +5051,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         runtime_config_json=runtime_config_json,
         weighted_alias=True,
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4546,7 +5068,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         runtime_config_json=runtime_config_json,
         package_type="Image",
     )
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(aws.ConnectedRouteError, match="BROKER_FUNCTION_LIVE_INVALID"):
@@ -4560,7 +5082,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         spec, runtime_config_json=runtime_config_json
     )
     clients["kms"] = LiveKms(projection, foreign_grant=True)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(aws.ConnectedRouteError, match="BROKER_KMS_GRANTS_INVALID"):
@@ -4572,7 +5094,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         )
     clients["kms"] = LiveKms(projection)
     clients["logs"] = LiveLogs(subscription=True)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4585,7 +5107,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
             stack_arn=BROKER_STACK_ARN,
         )
     clients["logs"] = LiveLogs(resource_policy=True)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4598,7 +5120,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
             stack_arn=BROKER_STACK_ARN,
         )
     clients["logs"] = LiveLogs(account_relevant_policy=True)
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(
@@ -4614,7 +5136,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         spec, runtime_config_json=runtime_config_json
     )
     clients["logs"] = LiveLogs(tags={})
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(aws.ConnectedRouteError, match="BROKER_LOG_GROUPS_INVALID"):
@@ -4630,7 +5152,7 @@ def test_broker_terminal_live_readback_covers_runtime_iam_ledger_kms_and_logs(
         public_policy=True,
     )
     clients["logs"] = LiveLogs()
-    provider = aws.ConnectedSeedProvider(
+    provider = _ContractHarnessSeedProvider(
         clients=clients, claims=Claims([]), clock=lambda: datetime.now(timezone.utc)
     )
     with pytest.raises(

@@ -78,6 +78,116 @@ Conditions:
   CreateBrokerInvokerAssignment: !Equals [!Ref BrokerInvokerAssignmentEnabled, 'true']
 
 Resources:
+  ManagementCollisionReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ScanalyzeGug376CollisionReader
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: [sts:AssumeRole, sts:SetSourceIdentity]
+            Condition:
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
+              StringEquals:
+                sts:SourceIdentity: !Sub gug376-collision-${SourceCommit}
+              DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+              DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+      Policies:
+        - PolicyName: ExactCollisionInventoryReadOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ConfirmCaller
+                Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: '*'
+              - Sid: DiscoverExactNames
+                Effect: Allow
+                Action:
+                  - cloudformation:ListStacks
+                  - sso:ListApplications
+                  - sso:ListInstances
+                  - sso:ListPermissionSets
+                Resource: '*'
+                Condition:
+                  StringEquals: {aws:RequestedRegion: us-east-1}
+                  DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+                  DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+              - Sid: ReadExactRoles
+                Effect: Allow
+                Action: [iam:GetRole, iam:ListRoleTags]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairMutation
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeBootstrapPlanRepairReadback
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376CollisionReader
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerExecutor
+                  - !Sub arn:${AWS::Partition}:iam::${ManagementAccountId}:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerRecovery
+                Condition:
+                  DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+                  DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+              - Sid: ReadExactCandidateDetails
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - sso:DescribeApplication
+                  - sso:DescribeInstance
+                  - sso:DescribePermissionSet
+                  - sso:ListTagsForResource
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-artifact-bootstrap-bridge/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
+                  - !Ref IdentityCenterInstanceArn
+                  - !Sub arn:${AWS::Partition}:sso::${ManagementAccountId}:application/*
+                  - !Sub
+                    - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/*
+                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
+                Condition:
+                  StringEquals: {aws:RequestedRegion: us-east-1}
+                  DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+                  DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+              - Sid: DenyOutsideRegion
+                Effect: Deny
+                Action: [cloudformation:*, sso:*]
+                Resource: '*'
+                Condition: {StringNotEquals: {aws:RequestedRegion: us-east-1}}
+              - Sid: DenyBeforeRoute
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition: {DateLessThan: {aws:CurrentTime: !Ref RouteNotBefore}}
+              - Sid: DenyAtRouteExpiry
+                Effect: Deny
+                Action: '*'
+                Resource: '*'
+                Condition: {DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotAfter}}
+              - Sid: DenyEveryOtherAction
+                Effect: Deny
+                NotAction:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStacks
+                  - iam:GetRole
+                  - iam:ListRoleTags
+                  - sso:DescribeApplication
+                  - sso:DescribeInstance
+                  - sso:DescribePermissionSet
+                  - sso:ListApplications
+                  - sso:ListInstances
+                  - sso:ListPermissionSets
+                  - sso:ListTagsForResource
+                  - sts:GetCallerIdentity
+                Resource: '*'
+      Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-collision-reader}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
+
   ManagementBrokerCreatorRole:
     Type: AWS::IAM::Role
     Properties:
@@ -110,7 +220,9 @@ Resources:
                 Action: [sso:DescribeAccountAssignmentCreationStatus, sso:DescribeAccountAssignmentDeletionStatus, sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:GetPermissionsBoundaryForPermissionSet, sso:ListAccountAssignments, sso:ListAccountAssignmentsForPrincipal, sso:ListAccountsForProvisionedPermissionSet, sso:ListCustomerManagedPolicyReferencesInPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource]
                 Resource:
                   - !Ref IdentityCenterInstanceArn
-                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub
+                    - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/*
+                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
                   - !Sub arn:${AWS::Partition}:sso:::account/${ManagementAccountId}
                   - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
                 Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
@@ -215,7 +327,9 @@ Resources:
                 Action: [sso:DescribeAccountAssignmentCreationStatus, sso:DescribeAccountAssignmentDeletionStatus, sso:DescribePermissionSet, sso:DescribePermissionSetProvisioningStatus, sso:GetInlinePolicyForPermissionSet, sso:GetPermissionsBoundaryForPermissionSet, sso:ListAccountAssignments, sso:ListAccountAssignmentsForPrincipal, sso:ListAccountsForProvisionedPermissionSet, sso:ListCustomerManagedPolicyReferencesInPermissionSet, sso:ListManagedPoliciesInPermissionSet, sso:ListPermissionSetProvisioningStatus, sso:ListTagsForResource]
                 Resource:
                   - !Ref IdentityCenterInstanceArn
-                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub
+                    - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/*
+                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
                   - !Sub arn:${AWS::Partition}:sso:::account/${ManagementAccountId}
                   - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
                 Condition: {StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
@@ -272,7 +386,9 @@ Resources:
                   - sso:UpdatePermissionSet
                 Resource:
                   - !Ref IdentityCenterInstanceArn
-                  - !Sub arn:${AWS::Partition}:sso:::permissionSet/ssoins-*/*
+                  - !Sub
+                    - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/*
+                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
                   - !Sub arn:${AWS::Partition}:sso:::account/${AuthorityAccountId}
                 Condition: {ForAnyValue:StringEquals: {aws:CalledVia: cloudformation.amazonaws.com}, StringEquals: {aws:RequestedRegion: us-east-1}, DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}, DateLessThan: {aws:CurrentTime: !Ref RecoveryNotAfter}}
               - Sid: DenyDirectProviderAndCreation

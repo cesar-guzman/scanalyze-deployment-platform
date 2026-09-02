@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import base64
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import inspect
@@ -20,6 +21,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tooling"))
 
 import platform_authority_plan_permission_repair_route_broker as broker  # noqa: E402
+from tooling import (  # noqa: E402
+    platform_authority_gug376_collision_admission as collision_contract,
+)
 
 
 NOW = datetime(2026, 8, 30, 19, 0, tzinfo=timezone.utc)
@@ -28,6 +32,8 @@ REPAIR_ID = "gug376-plan-permission-repair-" + ("b" * 64)
 INTENT_DIGEST = "sha256:" + ("c" * 64)
 BINDING_DIGEST = "sha256:" + ("d" * 64)
 FOUNDATION_PUBLISH_BINDING_DIGEST = "sha256:" + ("e" * 64)
+SOURCE_TREE_SHA = "f" * 40
+BOOTSTRAP_INTENT_DIGEST = "sha256:" + ("0" * 64)
 INSTANCE_ARN = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
 ROUTE_CREATOR_PS = (
     "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-1111111111111111"
@@ -57,6 +63,137 @@ NORMAL_PLAN_CALLER_DIGEST = broker.digest_value(
     {"caller_arn": NORMAL_PLAN_CALLER}
 )
 
+
+def _collision_manifest(
+    cfg: broker.BrokerConfig,
+    *,
+    phase: str,
+    operation: str,
+    effect_request: Mapping[str, Any],
+) -> dict[str, Any]:
+    return broker.seal(
+        {
+            "schema_version": 1,
+            "record_type": "synthetic.route_collision_admission.v1",
+            "phase": phase,
+            "operation": operation,
+            "effect_request_digest": broker.digest_value(effect_request),
+            "source_commit_sha": cfg.source_commit,
+            "source_tree_sha": cfg.source_tree_sha,
+            "bootstrap_intent_digest": cfg.bootstrap_intent_digest,
+        },
+        "manifest_digest",
+    )
+
+
+def _attempt_collision_manifest(
+    cfg: broker.BrokerConfig,
+    *,
+    operation: str,
+    effect_request: Mapping[str, Any],
+) -> dict[str, Any]:
+    return _collision_manifest(
+        cfg,
+        phase=collision_contract.route_collision_operation_phase(operation),
+        operation=operation,
+        effect_request=effect_request,
+    )
+
+
+class _SyntheticCollisionAdmission:
+    """Exact sealed one-shot admission used only by this broker test."""
+
+    def __init__(
+        self,
+        cfg: broker.BrokerConfig,
+        *,
+        timeline: list[str] | None = None,
+    ) -> None:
+        self.cfg = cfg
+        self.timeline = timeline if timeline is not None else []
+        self.calls: list[tuple[str, str]] = []
+        self._capabilities: dict[int, dict[str, Any]] = {}
+        self._grants: dict[int, dict[str, Any]] = {}
+
+    def admit(
+        self,
+        *,
+        phase: str,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        before_call: Callable[[], None],
+    ) -> object:
+        before_call()
+        manifest = _collision_manifest(
+            self.cfg,
+            phase=phase,
+            operation=operation,
+            effect_request=effect_request,
+        )
+        capability = object()
+        self._capabilities[id(capability)] = {
+            "capability": capability,
+            "manifest": manifest,
+            "consumed": False,
+        }
+        self.calls.append(("admit", operation))
+        self.timeline.append(f"admission:admit:{operation}")
+        return capability
+
+    def manifest(self, capability: object) -> Mapping[str, Any]:
+        state = self._capabilities.get(id(capability))
+        if state is None or state["capability"] is not capability:
+            raise broker.RouteBrokerError("SYNTHETIC_CAPABILITY_INVALID")
+        return deepcopy(state["manifest"])
+
+    def consume(
+        self,
+        capability: object,
+        *,
+        operation: str,
+        effect_request_digest: str,
+        expected_manifest_digest: str,
+        now: datetime,
+    ) -> object:
+        state = self._capabilities.get(id(capability))
+        if (
+            state is None
+            or state["capability"] is not capability
+            or state["consumed"] is not False
+            or state["manifest"]["operation"] != operation
+            or state["manifest"]["effect_request_digest"]
+            != effect_request_digest
+            or state["manifest"]["manifest_digest"]
+            != expected_manifest_digest
+            or not self.cfg.route_not_before <= now < self.cfg.route_not_after
+        ):
+            raise broker.RouteBrokerError("SYNTHETIC_CAPABILITY_INVALID")
+        state["consumed"] = True
+        grant = object()
+        self._grants[id(grant)] = {
+            "grant": grant,
+            "manifest": state["manifest"],
+            "revalidated": False,
+        }
+        self.calls.append(("consume", operation))
+        self.timeline.append(f"admission:consume:{operation}")
+        return grant
+
+    def revalidate(self, grant: object, *, now: datetime) -> str:
+        state = self._grants.get(id(grant))
+        if (
+            state is None
+            or state["grant"] is not grant
+            or state["revalidated"] is not False
+            or not self.cfg.route_not_before <= now < self.cfg.route_not_after
+        ):
+            raise broker.RouteBrokerError("SYNTHETIC_GRANT_INVALID")
+        state["revalidated"] = True
+        operation = str(state["manifest"]["operation"])
+        self.calls.append(("revalidate", operation))
+        self.timeline.append(f"admission:revalidate:{operation}")
+        return str(state["manifest"]["manifest_digest"])
+
 STACKS = {
     "seed-revoke-execute-v1": (
         broker.MANAGEMENT_ACCOUNT_ID,
@@ -83,6 +220,19 @@ STACKS = {
         "scanalyze-platform-authority-gug376-temporary-change-set-route",
     ),
 }
+
+
+class _ContractHarnessRouteBroker(broker.RouteBroker):
+    """Exercise future broker state transitions while product effects close."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        if kwargs.get("collision_admission") is None:
+            ledger = kwargs.get("ledger")
+            kwargs["collision_admission"] = _SyntheticCollisionAdmission(
+                kwargs["config"],
+                timeline=getattr(ledger, "timeline", None),
+            )
+        super().__init__(**kwargs)
 
 CREATE_TO_EXECUTE = {
     "seed-revoke-create-v1": "seed-revoke-execute-v1",
@@ -431,6 +581,8 @@ def _config_value(**changes: Any) -> dict[str, Any]:
         "foundation_publish_binding_digest": (
             FOUNDATION_PUBLISH_BINDING_DIGEST
         ),
+        "source_tree_sha": SOURCE_TREE_SHA,
+        "bootstrap_intent_digest": BOOTSTRAP_INTENT_DIGEST,
         "repair_id": REPAIR_ID,
         "bootstrap_change_set_name": "scanalyze-bootstrap-plan-20260830",
         "identity_center_instance_arn": INSTANCE_ARN,
@@ -608,8 +760,17 @@ class FakeEffects:
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
     def create_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]:
+        broker._consume_effect_permit(
+            permit,
+            operation=operation,
+            request=request,
+        )
         self.timeline.append("provider:create")
         self.calls.append(("create", operation, deepcopy(dict(request))))
         if self.fail_create:
@@ -628,8 +789,17 @@ class FakeEffects:
         }
 
     def execute_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]:
+        broker._consume_effect_permit(
+            permit,
+            operation=operation,
+            request=request,
+        )
         self.timeline.append("provider:execute")
         self.calls.append(("execute", operation, deepcopy(dict(request))))
         if self.fail_execute:
@@ -1070,22 +1240,422 @@ def runtime(
     effects: FakeEffects | None = None,
     evidence: FakeEvidence | None = None,
     clock: Callable[[], datetime] | None = None,
+    collision_admission: _SyntheticCollisionAdmission | None = None,
 ) -> tuple[broker.RouteBroker, FakeLedger, FakeEffects, FakeEvidence]:
     actual_ledger = ledger or FakeLedger(cfg)
     actual_effects = effects or FakeEffects()
     actual_evidence = evidence or FakeEvidence(cfg)
+    actual_admission = collision_admission or _SyntheticCollisionAdmission(
+        cfg,
+        timeline=actual_ledger.timeline,
+    )
     return (
-        broker.RouteBroker(
+        _ContractHarnessRouteBroker(
             config=cfg,
             ledger=actual_ledger,
             effects=actual_effects,
             evidence=actual_evidence,
             clock=clock or (lambda: NOW),
+            collision_admission=actual_admission,
         ),
         actual_ledger,
         actual_effects,
         actual_evidence,
     )
+
+
+@pytest.mark.parametrize(
+    ("handler_name", "alias", "setup_aliases", "expected_state"),
+    [
+        (
+            "creator_handler",
+            "delegation-create-v1",
+            ("seed-revoke-create-v1", "seed-revoke-execute-v1"),
+            "SEED_REVOKED",
+        ),
+        (
+            "executor_handler",
+            "delegation-execute-v1",
+            (
+                "seed-revoke-create-v1",
+                "seed-revoke-execute-v1",
+                "delegation-create-v1",
+            ),
+            "DELEGATION_CREATED",
+        ),
+    ],
+)
+def test_product_broker_requires_adapter_after_exact_request_before_cas(
+    handler_name: str,
+    alias: str,
+    setup_aliases: tuple[str, ...],
+    expected_state: str,
+) -> None:
+    cfg = config()
+    timeline: list[str] = []
+    ledger = FakeLedger(cfg, timeline=timeline)
+    effects = FakeEffects(timeline=timeline)
+    evidence = FakeEvidence(cfg)
+    harness = _ContractHarnessRouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+    for setup_alias in setup_aliases:
+        _run_effect(harness, cfg, setup_alias)
+    timeline.clear()
+    effects.calls.clear()
+    ledger.cas_count = 0
+    route = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+    with pytest.raises(
+        broker.RouteBrokerError,
+        match="COLLISION_ADMISSION_ADAPTER_MISSING",
+    ):
+        context = (
+            creator_context(alias)
+            if handler_name == "creator_handler"
+            else executor_context(alias)
+        )
+        getattr(route, handler_name)({}, context)
+    assert timeline == [
+        "ledger:control-plane",
+        f"ledger:read:{expected_state}",
+    ]
+    assert effects.calls == []
+    assert ledger.cas_count == 0
+
+
+@pytest.mark.parametrize("method", ["create_change_set", "execute_change_set"])
+def test_aws_effect_adapter_forwards_core_authorized_expansive_effect(
+    method: str,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    class CloudFormation:
+        def create_change_set(self, **request: Any) -> Mapping[str, Any]:
+            calls.append(("create_change_set", request))
+            return {
+                "Id": "change-set",
+                "StackId": "stack",
+                "ResponseMetadata": {"RequestId": "request"},
+            }
+
+        def execute_change_set(self, **request: Any) -> Mapping[str, Any]:
+            calls.append(("execute_change_set", request))
+            return {"ResponseMetadata": {"RequestId": "request"}}
+
+    effects = broker._AwsEffects(
+        {
+            broker.AUTHORITY_ACCOUNT_ID: CloudFormation(),
+            broker.MANAGEMENT_ACCOUNT_ID: CloudFormation(),
+        }
+    )
+    operation = (
+        "delegation-create-v1"
+        if method == "create_change_set"
+        else "delegation-execute-v1"
+    )
+    request = {"exact": operation}
+    permit_checks: list[str] = []
+    permit = broker._new_effect_permit(
+        operation=operation,
+        request=request,
+        revalidate=lambda: permit_checks.append(operation),
+    )
+    result = getattr(effects, method)(
+        operation=operation,
+        request=request,
+        permit=permit,
+    )
+    assert calls == [(method, {"exact": operation})]
+    assert permit_checks == [operation]
+    assert result["request_id"] == "request"
+
+    with pytest.raises(broker.RouteBrokerError, match="EFFECT_PERMIT_REUSED"):
+        getattr(effects, method)(
+            operation=operation,
+            request=request,
+            permit=permit,
+        )
+    assert calls == [(method, {"exact": operation})]
+
+
+@pytest.mark.parametrize("failure", ["missing", "stale", "mismatch"])
+def test_aws_effect_adapter_rejects_invalid_permit_before_sdk(
+    failure: str,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class CloudFormation:
+        def create_change_set(self, **request: Any) -> Mapping[str, Any]:
+            calls.append(request)
+            return {
+                "Id": "change-set",
+                "StackId": "stack",
+                "ResponseMetadata": {"RequestId": "request"},
+            }
+
+    effects = broker._AwsEffects(
+        {
+            broker.AUTHORITY_ACCOUNT_ID: CloudFormation(),
+            broker.MANAGEMENT_ACCOUNT_ID: CloudFormation(),
+        }
+    )
+    operation = "delegation-create-v1"
+    request = {"exact": operation}
+    if failure == "missing":
+        permit: object = object()
+        expected = "EFFECT_PERMIT_INVALID"
+    elif failure == "stale":
+        permit = broker._new_effect_permit(
+            operation=operation,
+            request=request,
+            revalidate=lambda: (_ for _ in ()).throw(
+                broker.RouteBrokerError("COLLISION_ADMISSION_NOT_ACTIVE")
+            ),
+        )
+        expected = "COLLISION_ADMISSION_NOT_ACTIVE"
+    else:
+        permit = broker._new_effect_permit(
+            operation=operation,
+            request={"exact": "different"},
+            revalidate=lambda: None,
+        )
+        expected = "EFFECT_PERMIT_BINDING_MISMATCH"
+
+    with pytest.raises(broker.RouteBrokerError, match=expected):
+        effects.create_change_set(
+            operation=operation,
+            request=request,
+            permit=permit,
+        )
+    assert calls == []
+
+
+def test_expired_effect_permit_after_attempt_cas_is_fail_closed_uncertain(
+) -> None:
+    cfg = config()
+    ledger = FakeLedger(cfg)
+    effects = FakeEffects()
+
+    class ExpiredGrantAdmission(_SyntheticCollisionAdmission):
+        def revalidate(self, grant: object, *, now: datetime) -> str:
+            del grant, now
+            raise broker.RouteBrokerError("COLLISION_ADMISSION_NOT_ACTIVE")
+
+    route = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=FakeEvidence(cfg),
+        clock=lambda: NOW,
+        collision_admission=ExpiredGrantAdmission(cfg),
+    )
+    for alias in ("seed-revoke-create-v1", "seed-revoke-execute-v1"):
+        _run_effect(route, cfg, alias)
+    before_calls = list(effects.calls)
+
+    with pytest.raises(broker.RouteBrokerError) as caught:
+        route.creator_handler({}, creator_context("delegation-create-v1"))
+
+    # The capability has already been consumed and the durable attempt CAS is
+    # visible, so resetting to the predecessor would authorize a second
+    # admission/effect.  Preserve fail-closed uncertainty for read-only causal
+    # recovery, while proving the SDK was never invoked.
+    assert caught.value.code == "CREATE_CHANGE_SET_UNCERTAIN"
+    assert ledger.snapshot.state == "DELEGATION_CREATE_UNCERTAIN"
+    assert effects.calls == before_calls
+
+
+def test_expansive_admission_is_claimed_consumed_once_and_receipted() -> None:
+    cfg = config()
+    timeline: list[str] = []
+    ledger = FakeLedger(cfg, timeline=timeline)
+    effects = FakeEffects(timeline=timeline)
+    admission = _SyntheticCollisionAdmission(cfg, timeline=timeline)
+    route = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=FakeEvidence(cfg),
+        clock=lambda: NOW,
+        collision_admission=admission,
+    )
+    for alias in ("seed-revoke-create-v1", "seed-revoke-execute-v1"):
+        _run_effect(route, cfg, alias)
+    timeline.clear()
+
+    dispatched = route.creator_handler(
+        {}, creator_context("delegation-create-v1")
+    )
+    assert dispatched["collision_admission_digest"].startswith("sha256:")
+    claim = json.loads(ledger.snapshot.attempt_claim_json or "{}")
+    manifest = claim["collision_admission_manifest"]
+    assert manifest["operation"] == "delegation-create-v1"
+    assert claim["collision_admission_manifest_digest"] == manifest[
+        "manifest_digest"
+    ]
+    assert timeline.index("admission:admit:delegation-create-v1") < (
+        timeline.index("ledger:cas:DELEGATION_CREATE_ATTEMPTING")
+    )
+    assert timeline.index("ledger:cas:DELEGATION_CREATE_ATTEMPTING") < (
+        timeline.index("admission:consume:delegation-create-v1")
+    )
+    assert timeline.index("admission:revalidate:delegation-create-v1") < (
+        timeline.index("provider:create")
+    )
+
+    capability_state = next(
+        state
+        for state in admission._capabilities.values()
+        if state["manifest"]["operation"] == "delegation-create-v1"
+    )
+    with pytest.raises(
+        broker.RouteBrokerError,
+        match="SYNTHETIC_CAPABILITY_INVALID",
+    ):
+        admission.consume(
+            capability_state["capability"],
+            operation="delegation-create-v1",
+            effect_request_digest=manifest["effect_request_digest"],
+            expected_manifest_digest=manifest["manifest_digest"],
+            now=NOW,
+        )
+    admission_calls = list(admission.calls)
+    completed = route.creator_handler(
+        {}, creator_context("delegation-create-v1")
+    )
+    assert completed["aws_mutations"] == 0
+    assert completed["collision_admission_digest"] is None
+    assert admission.calls == admission_calls
+
+
+def test_dispatched_receipt_must_match_attempt_admission_manifest() -> None:
+    cfg = config()
+    ledger = FakeLedger(cfg)
+    route = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=FakeEffects(),
+        evidence=FakeEvidence(cfg),
+        clock=lambda: NOW,
+        collision_admission=_SyntheticCollisionAdmission(cfg),
+    )
+    for alias in ("seed-revoke-create-v1", "seed-revoke-execute-v1"):
+        _run_effect(route, cfg, alias)
+    route.creator_handler({}, creator_context("delegation-create-v1"))
+    receipt = json.loads(ledger.snapshot.last_receipt_json or "{}")
+    receipt["collision_admission_digest"] = "sha256:" + "9" * 64
+    receipt.pop("receipt_digest")
+    receipt = broker.seal(receipt, "receipt_digest")
+    tampered = replace(
+        ledger.snapshot,
+        last_receipt_digest=receipt["receipt_digest"],
+        last_receipt_json=broker.canonical_json(receipt),
+    )
+
+    with pytest.raises(
+        broker.RouteBrokerError,
+        match="LEDGER_ADMISSION_BINDING_INVALID",
+    ):
+        broker._validate_ledger_snapshot(tampered, config=cfg)
+
+
+def test_route_broker_source_has_no_dead_collision_config_symbols() -> None:
+    source = (ROOT / "tooling" / broker.__file__.split("/")[-1]).read_text()
+    names = {
+        node.id
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Name)
+    }
+    assert "_COLLISION_CONFIG_FIELDS" not in names
+    assert "_COLLISION_IDENTITY_FIELDS" not in names
+    assert not hasattr(broker, "_validate_collision_config")
+
+
+@pytest.mark.parametrize(
+    ("method", "operation", "expected_call"),
+    [
+        ("create_change_set", "seed-revoke-create-v1", "create_change_set"),
+        (
+            "create_change_set",
+            "delegation-revoke-create-v1",
+            "create_change_set",
+        ),
+        ("create_change_set", "route-revoke-create-v1", "create_change_set"),
+        ("execute_change_set", "seed-revoke-execute-v1", "execute_change_set"),
+        (
+            "execute_change_set",
+            "delegation-revoke-execute-v1",
+            "execute_change_set",
+        ),
+        ("execute_change_set", "route-revoke-execute-v1", "execute_change_set"),
+    ],
+)
+def test_aws_effect_adapter_opens_only_exact_reducing_aliases(
+    method: str, operation: str, expected_call: str
+) -> None:
+    calls: list[str] = []
+
+    class CloudFormation:
+        def create_change_set(self, **_request: Any) -> Mapping[str, Any]:
+            calls.append("create_change_set")
+            return {
+                "Id": "change-set",
+                "StackId": "stack",
+                "ResponseMetadata": {"RequestId": "request"},
+            }
+
+        def execute_change_set(self, **_request: Any) -> Mapping[str, Any]:
+            calls.append("execute_change_set")
+            return {"ResponseMetadata": {"RequestId": "request"}}
+
+    cloudformation = CloudFormation()
+    effects = broker._AwsEffects(
+        {
+            broker.AUTHORITY_ACCOUNT_ID: cloudformation,
+            broker.MANAGEMENT_ACCOUNT_ID: cloudformation,
+        },
+        allowed_reducing_alias=operation,
+    )
+    request: dict[str, Any] = {}
+    permit = broker._new_effect_permit(
+        operation=operation,
+        request=request,
+        revalidate=lambda: None,
+    )
+    result = getattr(effects, method)(
+        operation=operation,
+        request=request,
+        permit=permit,
+    )
+    assert calls == [expected_call]
+    assert result["request_id"] == "request"
+
+    same_kind_aliases = (
+        broker._REDUCING_CREATOR_ALIASES
+        if method == "create_change_set"
+        else broker._REDUCING_EXECUTOR_ALIASES
+    )
+    wrong_alias = next(alias for alias in same_kind_aliases if alias != operation)
+    with pytest.raises(
+        broker.RouteBrokerError,
+        match="REDUCING_OPERATION_STATE_INVALID",
+    ):
+        getattr(effects, method)(
+            operation=wrong_alias,
+            request={},
+            permit=permit,
+        )
+    assert calls == [expected_call]
 
 
 def _run_effect(
@@ -1498,6 +2068,126 @@ def test_happy_path_uses_exact_cas_chain_dynamic_arns_and_assignment_counts() ->
     assert evidence.calls.count("assignment:" + ROUTE_EXECUTOR_PS) == 1
 
 
+def test_product_reducing_aliases_traverse_only_the_exact_state_chain() -> None:
+    cfg = config()
+    ledger = FakeLedger(cfg)
+    effects = FakeEffects()
+    evidence = FakeEvidence(cfg)
+    product = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+    harness = _ContractHarnessRouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+
+    for alias in ("seed-revoke-create-v1", "seed-revoke-execute-v1"):
+        _run_effect(product, cfg, alias)
+    for alias in PEP_SETUP_ALIASES[2:]:
+        _run_effect(harness, cfg, alias)
+    harness.creator_handler({}, creator_context("closeout-gate-v1"))
+    for alias in (
+        "delegation-revoke-create-v1",
+        "delegation-revoke-execute-v1",
+        "route-revoke-create-v1",
+        "route-revoke-execute-v1",
+    ):
+        dispatched, completed = _run_effect(product, cfg, alias)
+        assert dispatched["aws_mutations"] == 1
+        assert completed["aws_mutations"] == 0
+
+    assert ledger.snapshot.state == "ROUTE_REVOKED"
+    reducing_effects = {
+        operation
+        for _kind, operation, _request in effects.calls
+        if operation in broker._REDUCING_ALIASES
+    }
+    assert reducing_effects == broker._REDUCING_ALIASES
+
+
+@pytest.mark.parametrize(
+    ("handler_name", "context"),
+    [
+        ("creator_handler", creator_context("seed-revoke-create-v1")),
+        (
+            "creator_handler",
+            creator_context("delegation-revoke-create-v1"),
+        ),
+        ("creator_handler", creator_context("route-revoke-create-v1")),
+        ("executor_handler", executor_context("seed-revoke-execute-v1")),
+        (
+            "executor_handler",
+            executor_context("delegation-revoke-execute-v1"),
+        ),
+        ("executor_handler", executor_context("route-revoke-execute-v1")),
+    ],
+)
+def test_product_reducing_aliases_reject_every_wrong_state_before_effect(
+    handler_name: str, context: Any
+) -> None:
+    cfg = config()
+    ledger = FakeLedger(cfg)
+    if context.invoked_function_arn.endswith("seed-revoke-create-v1"):
+        snapshot = ledger.snapshot
+        ledger.snapshot = broker.LedgerSnapshot(
+            state="DELEGATION_CREATED",
+            version=snapshot.version,
+            binding_digest=snapshot.binding_digest,
+        )
+    effects = FakeEffects()
+    product = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=FakeEvidence(cfg),
+        clock=lambda: NOW,
+    )
+    with pytest.raises(broker.RouteBrokerError) as rejected:
+        getattr(product, handler_name)({}, context)
+    assert rejected.value.code in {"LEDGER_STATE_MISMATCH", "REPLAY_REJECTED"}
+    assert effects.calls == []
+    assert ledger.cas_count == 0
+
+
+def test_product_handlers_finish_recovered_dispatched_reads_without_admission() -> None:
+    cfg = config()
+    harness, ledger, effects, evidence = runtime(cfg)
+    for alias in ("seed-revoke-create-v1", "seed-revoke-execute-v1"):
+        _run_effect(harness, cfg, alias)
+    product = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+
+    harness.creator_handler({}, creator_context("delegation-create-v1"))
+    effect_count = len(effects.calls)
+    created = product.creator_handler(
+        {}, creator_context("delegation-create-v1")
+    )
+    assert created["state"] == "DELEGATION_CREATED"
+    assert created["aws_mutations"] == 0
+    assert len(effects.calls) == effect_count
+
+    harness.executor_handler({}, executor_context("delegation-execute-v1"))
+    effect_count = len(effects.calls)
+    executed = product.executor_handler(
+        {}, executor_context("delegation-execute-v1")
+    )
+    assert executed["state"] == "DELEGATION_TERMINAL"
+    assert executed["aws_mutations"] == 0
+    assert len(effects.calls) == effect_count
+
+
 def test_execute_requires_terminal_parameter_binding_before_claim_or_effect() -> None:
     cfg = config()
     route, ledger, effects, _evidence = runtime(cfg)
@@ -1588,13 +2278,11 @@ def test_create_response_loss_recovers_causally_without_second_effect() -> None:
     assert recovered["state"] == "SEED_REVOKE_CREATE_DISPATCHED"
     assert recovered["aws_mutations"] == 0
     assert len(effects.calls) == 1
-    assert route.create_dispatch_recovery_handler(
+    completed = route.create_dispatch_recovery_handler(
         {}, create_recovery_context()
-    ) == recovered
-    completed = route.creator_handler(
-        {}, creator_context("seed-revoke-create-v1")
     )
     assert completed["state"] == "SEED_REVOKE_CREATED"
+    assert completed["aws_mutations"] == 0
     assert len(effects.calls) == 1
 
 
@@ -1615,13 +2303,60 @@ def test_execute_response_loss_recovers_causally_without_second_effect() -> None
     assert recovered["state"] == "SEED_REVOKE_EXECUTE_DISPATCHED"
     assert recovered["aws_mutations"] == 0
     assert len(effects.calls) == 2
-    assert route.execute_dispatch_recovery_handler(
+    completed = route.execute_dispatch_recovery_handler(
         {}, execute_recovery_context()
-    ) == recovered
-    completed = route.executor_handler(
-        {}, executor_context("seed-revoke-execute-v1")
     )
     assert completed["state"] == "SEED_REVOKED"
+    assert completed["aws_mutations"] == 0
+    assert len(effects.calls) == 2
+
+
+def test_product_recovery_handlers_complete_dispatched_attempts_without_replay() -> None:
+    cfg = config()
+    harness, ledger, effects, evidence = runtime(cfg)
+    harness.creator_handler({}, creator_context("seed-revoke-create-v1"))
+    product = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
+    evidence.change_ready = False
+    with pytest.raises(broker.RouteBrokerError) as create_pending:
+        product.create_dispatch_recovery_handler(
+            {}, create_recovery_context()
+        )
+    assert create_pending.value.retryable_read_only is True
+    assert ledger.snapshot.state == "SEED_REVOKE_CREATE_DISPATCHED"
+    assert len(effects.calls) == 1
+    evidence.change_ready = True
+    created = product.create_dispatch_recovery_handler(
+        {}, create_recovery_context()
+    )
+    assert created["state"] == "SEED_REVOKE_CREATED"
+    assert created["alias"] == broker.RECOVERY_RECEIPT_ALIASES[0]
+    assert created["function_version"] == create_recovery_context().function_version
+    assert created["aws_mutations"] == 0
+    assert len(effects.calls) == 1
+
+    harness.executor_handler({}, executor_context("seed-revoke-execute-v1"))
+    evidence.terminal = False
+    with pytest.raises(broker.RouteBrokerError) as execute_pending:
+        product.execute_dispatch_recovery_handler(
+            {}, execute_recovery_context()
+        )
+    assert execute_pending.value.retryable_read_only is True
+    assert ledger.snapshot.state == "SEED_REVOKE_EXECUTE_DISPATCHED"
+    assert len(effects.calls) == 2
+    evidence.terminal = True
+    executed = product.execute_dispatch_recovery_handler(
+        {}, execute_recovery_context()
+    )
+    assert executed["state"] == "SEED_REVOKED"
+    assert executed["alias"] == broker.RECOVERY_RECEIPT_ALIASES[1]
+    assert executed["function_version"] == execute_recovery_context().function_version
+    assert executed["aws_mutations"] == 0
     assert len(effects.calls) == 2
 
 
@@ -1887,6 +2622,10 @@ def test_runtime_orders_authority_identity_ledger_preflight_before_assume_role(
 ) -> None:
     cfg = config()
     timeline: list[str] = []
+    expected_preflight = {
+        "alias": "seed-revoke-execute-v1",
+        "state": "SEED_REVOKE_CREATED",
+    }
 
     class Session:
         def __init__(self, **kwargs: Any) -> None:
@@ -1954,11 +2693,12 @@ def test_runtime_orders_authority_identity_ledger_preflight_before_assume_role(
             timeline.append("authority:dynamodb-client")
         return object()
 
-    def preflight(**kwargs: Any) -> None:
+    def preflight(**kwargs: Any) -> str:
         timeline.append("authority:ledger-preflight")
         assert kwargs["config"] == cfg
         assert kwargs["handler_kind"] == "executor"
-        assert kwargs["alias"] == "seed-revoke-execute-v1"
+        assert kwargs["alias"] == expected_preflight["alias"]
+        return expected_preflight["state"]
 
     boto3_module = types.ModuleType("boto3")
     boto3_module.session = types.SimpleNamespace(Session=Session)  # type: ignore[attr-defined]
@@ -1998,6 +2738,41 @@ def test_runtime_orders_authority_identity_ledger_preflight_before_assume_role(
         "executor", executor_context("seed-revoke-execute-v1")
     )
     assert isinstance(runtime_value, broker.RouteBroker)
+    assert runtime_value._effects._allowed_reducing_alias == (
+        "seed-revoke-execute-v1"
+    )
+    assert timeline[:4] == [
+        "authority:get-caller-identity",
+        "authority:dynamodb-client",
+        "authority:ledger-preflight",
+        "authority:assume-role",
+    ]
+    assert timeline[4] == "management:get-caller-identity"
+
+    inline_adapter = object()
+
+    def build_inline_adapter(**kwargs: Any) -> object:
+        assert kwargs["config"] == cfg
+        assert isinstance(kwargs["authority_session"], Session)
+        assert kwargs["boto3_module"] is boto3_module
+        assert callable(kwargs["clock"])
+        return inline_adapter
+
+    monkeypatch.setattr(
+        broker,
+        "_build_inline_collision_admission_adapter",
+        build_inline_adapter,
+    )
+    expected_preflight.update(
+        alias="delegation-execute-v1",
+        state="DELEGATION_CREATED",
+    )
+    timeline.clear()
+    expansive_runtime = broker._runtime_from_environment(
+        "executor", executor_context("delegation-execute-v1")
+    )
+    assert expansive_runtime._collision_admission is inline_adapter
+    assert expansive_runtime._effects._allowed_reducing_alias is None
     assert timeline[:4] == [
         "authority:get-caller-identity",
         "authority:dynamodb-client",
@@ -2018,13 +2793,22 @@ def test_terminal_readback_contradiction_marks_executor_uncertain_without_replay
             )
 
     evidence = ContradictionEvidence(cfg)
-    route, ledger, effects, _evidence = runtime(cfg, evidence=evidence)
-    _run_effect(route, cfg, "seed-revoke-create-v1")
-    route.executor_handler({}, executor_context("seed-revoke-execute-v1"))
+    harness, ledger, effects, _evidence = runtime(cfg, evidence=evidence)
+    _run_effect(harness, cfg, "seed-revoke-create-v1")
+    harness.executor_handler({}, executor_context("seed-revoke-execute-v1"))
+    product = broker.RouteBroker(
+        config=cfg,
+        ledger=ledger,
+        effects=effects,
+        evidence=evidence,
+        clock=lambda: NOW,
+    )
     mutation_count = len(effects.calls)
 
     with pytest.raises(broker.RouteBrokerError) as contradiction:
-        route.executor_handler({}, executor_context("seed-revoke-execute-v1"))
+        product.execute_dispatch_recovery_handler(
+            {}, execute_recovery_context()
+        )
     assert contradiction.value.code == "TERMINAL_READBACK_INVALID"
     assert ledger.snapshot.state == "SEED_REVOKE_EXECUTE_UNCERTAIN"
     assert len(effects.calls) == mutation_count
@@ -2040,7 +2824,9 @@ def test_terminal_readback_contradiction_marks_executor_uncertain_without_replay
     )
 
     with pytest.raises(broker.RouteBrokerError) as replay:
-        route.executor_handler({}, executor_context("seed-revoke-execute-v1"))
+        product.executor_handler(
+            {}, executor_context("seed-revoke-execute-v1")
+        )
     assert replay.value.code == "REPLAY_REJECTED"
     assert len(effects.calls) == mutation_count
 
@@ -2051,10 +2837,16 @@ def test_executor_terminal_order_uses_pre_call_attempt_boundary() -> None:
 
     class AdvancingEffects(FakeEffects):
         def execute_change_set(
-            self, *, operation: str, request: Mapping[str, Any]
+            self,
+            *,
+            operation: str,
+            request: Mapping[str, Any],
+            permit: object,
         ) -> Mapping[str, Any]:
             response = super().execute_change_set(
-                operation=operation, request=request
+                operation=operation,
+                request=request,
+                permit=permit,
             )
             current[0] = NOW.replace(minute=1)
             return response
@@ -2062,7 +2854,7 @@ def test_executor_terminal_order_uses_pre_call_attempt_boundary() -> None:
     ledger = FakeLedger(cfg)
     effects = AdvancingEffects()
     evidence = FakeEvidence(cfg)
-    route = broker.RouteBroker(
+    route = _ContractHarnessRouteBroker(
         config=cfg,
         ledger=ledger,
         effects=effects,
@@ -2138,7 +2930,7 @@ def test_closeout_rechecks_normal_plan_freshness_immediately_before_cas() -> Non
         _run_effect(route, cfg, alias)
 
     times = iter((NOW, NOW + timedelta(seconds=601)))
-    delayed = broker.RouteBroker(
+    delayed = _ContractHarnessRouteBroker(
         config=cfg,
         ledger=ledger,
         effects=effects,
@@ -2385,6 +3177,7 @@ def test_sdk_transport_source_identity_and_sts_exactness() -> None:
         "connect_timeout": 3,
         "read_timeout": 8,
         "retries": {"total_max_attempts": 1, "mode": "standard"},
+        "s3": {"us_east_1_regional_endpoint": "regional"},
     }
     source = inspect.getsource(broker._runtime_from_environment)
     assert source.count("_client(") == 9
@@ -3466,6 +4259,7 @@ def _recovery_aws_fixture(
         repair_table_name=broker.REPAIR_LEDGER_TABLE_NAME,
         deserializer=object(),
         config=cfg,
+        clock=lambda: NOW + timedelta(minutes=5),
     )
     evidence.set_budget(broker._InvocationBudget(creator_context(creator_operation)))
     coordinates = {
@@ -3804,6 +4598,11 @@ def test_aws_create_recovery_binds_original_event_and_full_readback() -> None:
         function_version="21",
         request=request,
         claimed_at="2026-08-30T18:59:00Z",
+        collision_admission_manifest=_attempt_collision_manifest(
+            cfg,
+            operation=operation,
+            effect_request=request,
+        ),
     )
     recovered = evidence.recover_create_dispatch(
         operation=operation,
@@ -3878,6 +4677,11 @@ def test_aws_execute_recovery_binds_original_event_and_semantic_snapshot() -> No
         function_version="22",
         request=request,
         claimed_at="2026-08-30T19:01:00Z",
+        collision_admission_manifest=_attempt_collision_manifest(
+            cfg,
+            operation=operation,
+            effect_request=request,
+        ),
     )
     terminal_parameters_digest = "sha256:" + ("5" * 64)
     recovered = evidence.recover_execute_dispatch(
@@ -4051,6 +4855,11 @@ def test_aws_create_recovery_rejects_noncausal_or_drifted_evidence_before_cas(
         function_version="21",
         request=request,
         claimed_at="2026-08-30T18:59:00Z",
+        collision_admission_manifest=_attempt_collision_manifest(
+            cfg,
+            operation=operation,
+            effect_request=request,
+        ),
     )
     with pytest.raises(broker.RouteBrokerError, match=error) as caught:
         evidence.recover_create_dispatch(
@@ -4199,6 +5008,11 @@ def test_aws_execute_recovery_rejects_noncausal_or_drifted_evidence_before_cas(
         function_version="22",
         request=request,
         claimed_at="2026-08-30T19:01:00Z",
+        collision_admission_manifest=_attempt_collision_manifest(
+            cfg,
+            operation=operation,
+            effect_request=request,
+        ),
     )
     with pytest.raises(broker.RouteBrokerError, match=error) as caught:
         evidence.recover_execute_dispatch(

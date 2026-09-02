@@ -35,6 +35,8 @@ from tooling.platform_authority_gug376_authority_inventory_collector import (
     write_private_json,
 )
 from tooling.platform_authority_gug395_preplan_seed import (
+    ARTIFACT_BUCKET_NAMESPACE,
+    AUTHORITY_ACCOUNT_ID,
     validate_mutation_plan,
     validate_preplan_seed,
 )
@@ -97,7 +99,6 @@ AUTHORITY_ACTIONS = frozenset(
         "sts:GetCallerIdentity",
         "s3:ListAllMyBuckets",
         "s3:GetBucketTagging",
-        "s3:HeadBucket",
         "kms:ListAliases",
         "kms:ListKeys",
         "kms:DescribeKey",
@@ -174,6 +175,10 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
 _TOKEN = re.compile(r"^[A-Z][A-Z0-9_]{2,95}$")
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_ACCOUNT_REGIONAL_ARTIFACT_BUCKET = re.compile(
+    r"^scanalyze-g376-art-[a-f0-9]{12}-"
+    rf"{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
+)
 _PRINCIPAL = re.compile(
     r"^arn:aws:sts::([0-9]{12}):assumed-role/"
     r"([A-Za-z0-9+=,.@_/-]+)/([A-Za-z0-9+=,.@_-]+)$"
@@ -525,8 +530,9 @@ def collision_target_catalog(seed: Mapping[str, Any]) -> dict[str, Any]:
     targets = {
         "artifact_bucket": {
             "domain": "authority",
-            "selector_kind": "GLOBAL_BUCKET_NAME_AND_TAG",
+            "selector_kind": "ACCOUNT_REGIONAL_BUCKET_NAME_AND_TAG",
             "name": values["artifact_bucket_name"],
+            "bucket_namespace": ARTIFACT_BUCKET_NAMESPACE,
             "expected_tag_contract_digest": authority_tags_digest,
         },
         "kms_key": {
@@ -583,8 +589,8 @@ def _validate_target_catalog(targets: object) -> Mapping[str, Any]:
     specs: Mapping[str, tuple[str, str, frozenset[str], str]] = {
         "artifact_bucket": (
             "authority",
-            "GLOBAL_BUCKET_NAME_AND_TAG",
-            frozenset({"name"}),
+            "ACCOUNT_REGIONAL_BUCKET_NAME_AND_TAG",
+            frozenset({"name", "bucket_namespace"}),
             authority_digest,
         ),
         "kms_key": (
@@ -648,6 +654,14 @@ def _validate_target_catalog(targets: object) -> Mapping[str, Any]:
                 _fail("COLLISION_TARGET_CATALOG_INVALID")
             if field == "instance_arn":
                 instance_arns.add(value)
+        if target_name == "artifact_bucket" and (
+            raw.get("bucket_namespace") != ARTIFACT_BUCKET_NAMESPACE
+            or _ACCOUNT_REGIONAL_ARTIFACT_BUCKET.fullmatch(
+                str(raw.get("name"))
+            )
+            is None
+        ):
+            _fail("COLLISION_TARGET_CATALOG_INVALID")
     if len(instance_arns) != 1:
         _fail("COLLISION_TARGET_CATALOG_INVALID")
     return targets
@@ -896,6 +910,11 @@ def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
     ):
         _fail("COLLISION_WINDOW_DIGEST_MISMATCH")
     checked_profiles = _profile_bindings(value["profiles"])
+    if (
+        checked_profiles["authority"]["expected_account_id"]
+        != AUTHORITY_ACCOUNT_ID
+    ):
+        _fail("COLLISION_PROFILE_BINDINGS_INVALID")
     if value["profile_binding_digest"] != canonical_digest(checked_profiles):
         _fail("COLLISION_PROFILE_BINDING_DIGEST_MISMATCH")
     if value["sdk_runtime_root_digest"] != canonical_digest(
@@ -1949,32 +1968,50 @@ def _validate_snapshot_target_bindings(
         assert isinstance(signer, Mapping)
         assert isinstance(signing_config, Mapping)
 
+        discovered_buckets = _snapshot_list(artifact, "discovered_buckets")
+        owned_matches = _snapshot_list(artifact, "owned_matches")
         bucket_details = _snapshot_list(artifact, "bucket_details")
         bucket_tag_matches = _snapshot_list(artifact, "tag_matches")
-        head = artifact.get("head")
         bucket_count = artifact.get("owned_bucket_count")
+        target_bucket = targets["artifact_bucket"]
+        derived_owned_matches = [
+            item
+            for item in discovered_buckets
+            if isinstance(item, Mapping)
+            and item.get("Name") == target_bucket["name"]
+        ]
         if (
-            artifact.get("target_name") != targets["artifact_bucket"]["name"]
-            or not isinstance(head, Mapping)
-            or type(head.get("status_code")) is not int
-            or type(head.get("collision")) is not bool
-            or type(head.get("absent")) is not bool
-            or not (
-                200 <= head["status_code"] <= 299
-                or head["status_code"] == 301
-            )
-            or head["collision"] is not True
-            or head["absent"] is not False
+            artifact.get("target_name") != target_bucket["name"]
+            or artifact.get("bucket_namespace")
+            != target_bucket["bucket_namespace"]
+            or artifact.get("bucket_region") != REGION
             or type(bucket_count) is not int
-            or bucket_count != len(bucket_details)
+            or bucket_count != len(discovered_buckets)
             or bucket_count > budget["max_owned_buckets"]
+            or any(
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("Name"), str)
+                or not str(item["Name"]).startswith(target_bucket["name"])
+                or item.get("BucketRegion") != REGION
+                for item in discovered_buckets
+            )
+            or not _same_json_items(owned_matches, derived_owned_matches)
+            or len(derived_owned_matches) > 1
+            or len(bucket_details) != len(derived_owned_matches)
+            or any(
+                not isinstance(item, Mapping)
+                or item.get("name") != target_bucket["name"]
+                or item.get("bucket_region") != REGION
+                for item in bucket_details
+            )
         ):
             _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
         derived_bucket_tags = _tagged_records(bucket_details)
         if (
             not _same_json_items(bucket_tag_matches, derived_bucket_tags)
+            or artifact.get("absent") is not (not derived_owned_matches)
             or artifact.get("collision")
-            is not (head["collision"] or bool(derived_bucket_tags))
+            is not bool(derived_owned_matches)
         ):
             _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
 
@@ -2781,7 +2818,6 @@ def _validate_transcript_snapshot_bindings(
             {
                 "sts:GetCallerIdentity",
                 "s3:ListAllMyBuckets",
-                "s3:HeadBucket",
                 "kms:ListKeys",
                 "kms:ListAliases",
                 "signer:ListSigningProfiles",
@@ -2821,7 +2857,11 @@ def _validate_transcript_snapshot_bindings(
             _fail("COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH")
 
         fixed_requests: dict[str, Mapping[str, Any]] = {
-            "s3:ListAllMyBuckets": {},
+            "s3:ListAllMyBuckets": {
+                "BucketRegion": REGION,
+                "Prefix": request["targets"]["artifact_bucket"]["name"],
+                "MaxBuckets": request["budget"]["max_owned_buckets"],
+            },
             "kms:ListKeys": {},
             "kms:ListAliases": {},
             "signer:ListSigningProfiles": {
@@ -2862,24 +2902,6 @@ def _validate_transcript_snapshot_bindings(
                     != expected_stream
                     for event in operation_events
                 )
-            ):
-                _fail("COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH")
-
-        if domain == "authority":
-            head_events = events_by_operation.get("s3:HeadBucket", [])
-            head = snapshot["facts"]["artifact_bucket"]["head"]
-            if (
-                len(head_events) != 1
-                or head_events[0].get("request_digest")
-                != canonical_digest(
-                    {
-                        "Bucket": request["targets"]["artifact_bucket"][
-                            "name"
-                        ]
-                    }
-                )
-                or head_events[0].get("response_digest")
-                != canonical_digest(head)
             ):
                 _fail("COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH")
 

@@ -95,6 +95,7 @@ _SERVICE_AUTHORIZATION_ACTIONS = {
         "InvokeFunction",
         "InvokeFunctionUrl",
         "ListAliases",
+        "ListCodeSigningConfigs",
         "ListEventSourceMappings",
         "ListFunctionUrlConfigs",
         "ListProvisionedConcurrencyConfigs",
@@ -355,6 +356,7 @@ def test_route_replaces_five_direct_grants_with_broker_boundary(
     assert {key for key, value in resources.items() if value["Type"] == "AWS::IAM::Role"} == {
         "ManagementBrokerCreatorRole",
         "ManagementBrokerExecutorRole",
+        "ManagementCollisionReaderRole",
     }
     assert {
         key for key, value in resources.items() if value["Type"] == "AWS::SSO::PermissionSet"
@@ -1266,21 +1268,25 @@ def test_permission_sets_and_inline_policies_fit_aws_limits(
         assert properties["Name"] == name
         assert len(name) <= 32
         assert properties["SessionDuration"] == "PT1H"
-    for logical_id in (
-        "ManagementBrokerCreatorRole",
-        "ManagementBrokerExecutorRole",
-    ):
-        compact = json.dumps(
-            _resolve(_policy(route, logical_id)),
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("utf-8")
-        assert len(compact) <= 10_240, (logical_id, len(compact))
+    for logical_id, resource in route["Resources"].items():
+        if resource.get("Type") != "AWS::IAM::Role":
+            continue
+        policy_sizes = [
+            len(
+                json.dumps(
+                    _resolve(policy["PolicyDocument"]),
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            )
+            for policy in resource["Properties"].get("Policies", [])
+        ]
+        assert policy_sizes
+        assert all(size <= 10_240 for size in policy_sizes)
+        assert sum(policy_sizes) <= 10_240, (logical_id, policy_sizes)
         trust = json.dumps(
             _resolve(
-                route["Resources"][logical_id]["Properties"][
-                    "AssumeRolePolicyDocument"
-                ]
+                resource["Properties"]["AssumeRolePolicyDocument"]
             ),
             separators=(",", ":"),
             ensure_ascii=True,

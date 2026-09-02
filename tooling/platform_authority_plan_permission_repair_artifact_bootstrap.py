@@ -14,7 +14,7 @@ from hashlib import sha256
 import base64
 import json
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import urlencode
 
 
@@ -84,6 +84,7 @@ FOUNDATION_STORAGE_BINDING_TYPE = (
 )
 PRODUCTION_STATUS = "NO-GO"
 ARTIFACT_PREFIX = "scanalyze/platform-authority/gug-376/plan-policy-repair/"
+ARTIFACT_BUCKET_NAMESPACE = "account-regional"
 ROUTE_TEMPLATE_SOURCE_PATH = (
     "bootstrap/cfn-platform-authority-gug376-temporary-change-set-route.yaml"
 )
@@ -99,6 +100,9 @@ MIN_ACCESS_WINDOW_SECONDS = 3600
 MUTATION_COMPLETION_RESERVE_SECONDS = 1800
 
 _COMMIT = re.compile(r"^[a-f0-9]{40}$")
+_ARTIFACT_BUCKET = re.compile(
+    rf"^scanalyze-g376-art-[a-f0-9]{{12}}-{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
+)
 _DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 _INSTANCE = re.compile(r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$")
 _PRINCIPAL = re.compile(
@@ -245,8 +249,13 @@ def deterministic_names(source_commit: str) -> dict[str, str]:
     if not isinstance(source_commit, str) or _COMMIT.fullmatch(source_commit) is None:
         _fail("SOURCE_COMMIT_INVALID")
     suffix = source_commit[:12]
+    artifact_bucket = (
+        f"scanalyze-g376-art-{suffix}-{AUTHORITY_ACCOUNT_ID}-{REGION}-an"
+    )
+    if _ARTIFACT_BUCKET.fullmatch(artifact_bucket) is None:
+        _fail("ARTIFACT_BUCKET_NAME_INVALID")
     return {
-        "artifact_bucket": f"scanalyze-platform-authority-gug376-artifacts-{suffix}",
+        "artifact_bucket": artifact_bucket,
         "artifact_kms_alias": (
             f"alias/scanalyze-platform-authority-gug376-artifacts-{suffix}"
         ),
@@ -268,6 +277,7 @@ def _stack_request(
     change_set_type: str,
     template_body: str,
     parameters: Mapping[str, str],
+    capabilities: Sequence[str],
     token_seed: Mapping[str, Any],
 ) -> dict[str, Any]:
     if (
@@ -275,6 +285,7 @@ def _stack_request(
         or not template_body
         or len(template_body.encode("utf-8")) > 51_200
         or "TemplateURL" in template_body
+        or list(capabilities) not in ([], ["CAPABILITY_NAMED_IAM"])
     ):
         _fail("TEMPLATE_BODY_INVALID")
     return {
@@ -284,7 +295,7 @@ def _stack_request(
         "Description": "GUG-376 bounded artifact bootstrap; not production",
         "TemplateBody": template_body,
         "Parameters": _parameters(parameters),
-        "Capabilities": [],
+        "Capabilities": list(capabilities),
         "Tags": list(STACK_TAGS),
         "IncludeNestedStacks": False,
         "NotificationARNs": [],
@@ -374,6 +385,14 @@ def materialize_bootstrap_intent(
         or b"Type: AWS::KMS::Key" in bridge_template
     ):
         _fail("BRIDGE_RESOURCE_SET_INVALID")
+    if (
+        foundation_template.count(b"BucketNamespace: account-regional") != 1
+        or bridge_template.count(
+            b"s3:x-amz-bucket-namespace: account-regional"
+        )
+        != 2
+    ):
+        _fail("ACCOUNT_REGIONAL_BUCKET_CONTRACT_INVALID")
 
     names = deterministic_names(source_commit)
     common_bridge = {
@@ -421,6 +440,7 @@ def materialize_bootstrap_intent(
                 change_set_type="CREATE",
                 template_body=bridge_text,
                 parameters=bridge_create_parameters,
+                capabilities=["CAPABILITY_NAMED_IAM"],
                 token_seed={"source_commit": source_commit, "step": "bridge-create"},
             )
         ),
@@ -431,6 +451,7 @@ def materialize_bootstrap_intent(
                 change_set_type="CREATE",
                 template_body=foundation_text,
                 parameters=foundation_parameters,
+                capabilities=[],
                 token_seed={"source_commit": source_commit, "step": "foundation-create"},
             )
         ),
@@ -441,6 +462,7 @@ def materialize_bootstrap_intent(
                 change_set_type="UPDATE",
                 template_body=bridge_text,
                 parameters=bridge_revoke_parameters,
+                capabilities=["CAPABILITY_NAMED_IAM"],
                 token_seed={"source_commit": source_commit, "step": "bridge-revoke"},
             )
         ),
@@ -615,6 +637,11 @@ def validate_bootstrap_intent(value: Mapping[str, Any]) -> dict[str, Any]:
         }
     ):
         _fail("INTENT_TEMPLATE_BINDING_INVALID")
+    if (
+        foundation_body.count("BucketNamespace: account-regional") != 1
+        or bridge_body.count("s3:x-amz-bucket-namespace: account-regional") != 2
+    ):
+        _fail("ACCOUNT_REGIONAL_BUCKET_CONTRACT_INVALID")
     bridge_parameters = {
         item.get("ParameterKey"): item.get("ParameterValue")
         for item in requests["bridge-create"].get("Parameters", [])
@@ -668,6 +695,7 @@ def validate_bootstrap_intent(value: Mapping[str, Any]) -> dict[str, Any]:
                     "AssignmentEnabled": "true",
                     "CleanupAssignmentsEnabled": "true",
                 },
+                capabilities=["CAPABILITY_NAMED_IAM"],
                 token_seed={"source_commit": source_commit, "step": "bridge-create"},
             )
         ),
@@ -678,6 +706,7 @@ def validate_bootstrap_intent(value: Mapping[str, Any]) -> dict[str, Any]:
                 change_set_type="CREATE",
                 template_body=foundation_body,
                 parameters=foundation_parameters,
+                capabilities=[],
                 token_seed={"source_commit": source_commit, "step": "foundation-create"},
             )
         ),
@@ -692,6 +721,7 @@ def validate_bootstrap_intent(value: Mapping[str, Any]) -> dict[str, Any]:
                     "AssignmentEnabled": "false",
                     "CleanupAssignmentsEnabled": "true",
                 },
+                capabilities=["CAPABILITY_NAMED_IAM"],
                 token_seed={"source_commit": source_commit, "step": "bridge-revoke"},
             )
         ),
@@ -1159,6 +1189,7 @@ def materialize_bridge_cleanup_retire(
                 "AssignmentEnabled": "false",
                 "CleanupAssignmentsEnabled": "false",
             },
+            capabilities=["CAPABILITY_NAMED_IAM"],
             token_seed={
                 "source_commit": bootstrap["source_commit"],
                 "mode": mode,
@@ -2203,6 +2234,7 @@ def materialize_bridge_pin(
             change_set_type="UPDATE",
             template_body=bridge_template.decode("utf-8"),
             parameters=parameters,
+            capabilities=["CAPABILITY_NAMED_IAM"],
             token_seed={
                 "source_commit": bootstrap["source_commit"],
                 "foundation_readback_digest": foundation["readback_digest"],
@@ -2390,6 +2422,7 @@ def materialize_foundation_access_update(
             change_set_type="UPDATE",
             template_body=foundation_template.decode("utf-8"),
             parameters=parameters,
+            capabilities=[],
             token_seed={
                 "source_commit": source_commit,
                 "route_receipt_digest": route_receipt["receipt_digest"],
@@ -3832,6 +3865,7 @@ def validate_route_release(
 
 
 __all__ = [
+    "ARTIFACT_BUCKET_NAMESPACE",
     "ARTIFACT_PREFIX",
     "AUTHORITY_ACCOUNT_ID",
     "AUTHORITY_PROFILE",

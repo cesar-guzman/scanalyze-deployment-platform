@@ -486,7 +486,14 @@ def test_capture_proves_exact_predecessor_and_sts_is_first(tmp_path: Path) -> No
     ("field", "value"),
     (
         ("authority_profile", "default"),
-        ("management_profile", "839393571433_ReadOnlyAccess"),
+        ("management_profile", "default"),
+        ("management_profile", "839393571433_AWSAdministratorAccess"),
+        ("management_profile", "839393571433_ScanalyzeFounderPepIdentityAdmin"),
+        ("management_profile", "839393571433_ScanalyzeFounderPepSeed"),
+        ("management_profile", "839393571433_ScanalyzeAuthorityBootstrapPlan"),
+        ("management_profile", "839393571433_ScanalyzeSandboxDeploy"),
+        ("management_profile", "839393571433_ScanalyzeSandboxDestroy"),
+        ("management_profile", subject.AUTHORITY_PROFILE),
         ("region", "us-west-2"),
     ),
 )
@@ -522,6 +529,59 @@ def test_non_sso_credential_source_is_rejected_before_sts(tmp_path: Path) -> Non
     with pytest.raises(subject.PlanSeedSnapshotError) as captured:
         world.capture(tmp_path)
     assert captured.value.code == "AWS_CREDENTIAL_SOURCE_INVALID"
+    assert world.timeline == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_profile", subject.AUTHORITY_PROFILE),
+        ("role_arn", "arn:aws:iam::839393571433:role/ReadOnlyChain"),
+        ("credential_source", "Environment"),
+    ),
+)
+def test_chained_management_profile_is_rejected_before_sts(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    world = World(tmp_path)
+    profile = world.management_session._session.full_config["profiles"][  # noqa: SLF001
+        subject.MANAGEMENT_PROFILE
+    ]
+    profile[field] = value
+
+    with pytest.raises(subject.PlanSeedSnapshotError) as captured:
+        world.capture(tmp_path)
+
+    assert captured.value.code == "AWS_PROFILE_CONFIGURATION_INVALID"
+    assert world.timeline == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("sso_account_id", route.AUTHORITY_ACCOUNT_ID),
+        ("sso_role_name", "AWSAdministratorAccess"),
+        ("sso_role_name", "ScanalyzeFounderPepIdentityAdmin"),
+        ("region", "us-west-2"),
+    ),
+)
+def test_management_profile_contract_drift_is_rejected_before_sts(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    world = World(tmp_path)
+    profile = world.management_session._session.full_config["profiles"][  # noqa: SLF001
+        subject.MANAGEMENT_PROFILE
+    ]
+    profile[field] = value
+
+    with pytest.raises(subject.PlanSeedSnapshotError) as captured:
+        world.capture(tmp_path)
+
+    assert captured.value.code == "AWS_PROFILE_CONFIGURATION_INVALID"
     assert world.timeline == []
 
 
@@ -770,7 +830,7 @@ def test_runbooks_require_connected_plan_snapshot_before_broker_config(
         '--private-root "$PRIVATE_ROUTE_ROOT"',
         '--output-name "$PLAN_SEED_SNAPSHOT_NAME"',
         "--authority-profile 042360977644_AWSReadOnlyAccess",
-        "--management-profile 839393571433_ScanalyzeFounderPepIdentityAdmin",
+        "--management-profile 839393571433_ReadOnlyAccess",
         "--region us-east-1",
     ):
         assert fragment in block
@@ -797,8 +857,10 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
     text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
     for fragment in (
         "aws sso login --profile \"$BROKER_PROFILE\"",
+        "aws sso login --profile \"$BROKER_RECOVERY_PROFILE\"",
         "aws sso login --profile \"$REPAIR_PROFILE\"",
         "042360977644_ScanalyzeGug376BrokerInvoker",
+        "042360977644_ScanalyzeGug376BrokerSeedCleanup",
         "042360977644_ScanalyzeBootstrapPlanRepair",
         "042360977644_ScanalyzeAuthorityBootstrapPlan",
         "--payload '{}'",
@@ -807,9 +869,11 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
         "--no-cli-pager --cli-connect-timeout 5 --cli-read-timeout 900",
         "AWS_RETRY_MODE=standard AWS_MAX_ATTEMPTS=1 aws sts get-caller-identity",
         'chmod 600 "$BROKER_IDENTITY_FILE"',
+        'chmod 600 "$BROKER_RECOVERY_IDENTITY_FILE"',
         'chmod 600 "$REPAIR_IDENTITY_FILE"',
         'chmod 600 "$NORMAL_PLAN_IDENTITY_FILE" "$NORMAL_PLAN_PREFLIGHT_FILE"',
         'AWSReservedSSO_ScanalyzeGug376BrokerInvoker_[0-9A-Fa-f]{16}',
+        'AWSReservedSSO_ScanalyzeGug376BrokerSeedCleanup_[0-9A-Fa-f]{16}',
         'AWSReservedSSO_ScanalyzeBootstrapPlanRepair_[0-9A-Fa-f]{16}',
         'AWSReservedSSO_ScanalyzeAuthorityBootstrapPlan_[0-9A-Fa-f]{16}',
         'PLAN_SEED_SNAPSHOT_FILE="$PRIVATE_ROUTE_ROOT/$PLAN_SEED_SNAPSHOT_NAME"',
@@ -852,6 +916,9 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
         "delegation-revoke-execute-v1",
         "route-revoke-create-v1",
         "route-revoke-execute-v1",
+        "recover-v1",
+        "create-dispatch-recovery-v1",
+        "execute-dispatch-recovery-v1",
         "plan-v1",
         "repair-v1",
         "reconcile-v1",
@@ -859,7 +926,8 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
         assert alias in text
     ordered_commands = [
         (
-            'complete_broker_bounded "$EXECUTOR_FUNCTION" '
+            'complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" '
+            '"$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" '
             "pep-execute-v1 PEP_EXECUTE_DISPATCHED PEP_TERMINAL route"
         ),
         (
@@ -885,7 +953,8 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
             "DELEGATION_REVOKE_CREATE_DISPATCHED"
         ),
         (
-            'complete_broker_bounded "$EXECUTOR_FUNCTION" '
+            'complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" '
+            '"$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" '
             "route-revoke-execute-v1 ROUTE_REVOKE_EXECUTE_DISPATCHED "
             "ROUTE_REVOKED recovery"
         ),
@@ -893,7 +962,8 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
     positions = [text.index(command) for command in ordered_commands]
     assert positions == sorted(positions)
     delegation_terminal = text.index(
-        'complete_broker_bounded "$EXECUTOR_FUNCTION" '
+        'complete_broker_bounded "$EXECUTE_RECOVERY_FUNCTION" '
+        '"$RECOVERY_ALIAS" "$EXECUTE_RECOVERY_RECEIPT_ALIAS" '
         "delegation-execute-v1 DELEGATION_EXECUTE_DISPATCHED "
         "DELEGATION_TERMINAL route"
     )
@@ -948,8 +1018,11 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
         'recovery) absolute_deadline_epoch="$BROKER_RECOVERY_DEADLINE_EPOCH"',
         'test "$now_epoch" -lt "$((absolute_deadline_epoch - 60))"',
         'test "$now_epoch" -lt "$local_deadline_epoch"',
-        'mktemp "$PRIVATE_ROUTE_ROOT/${alias_name}.completion.payload.XXXXXX"',
-        'mktemp "$PRIVATE_ROUTE_ROOT/${alias_name}.completion.metadata.XXXXXX"',
+        'mktemp "$PRIVATE_ROUTE_ROOT/${dispatched_alias_name}.completion.payload.XXXXXX"',
+        'mktemp "$PRIVATE_ROUTE_ROOT/${dispatched_alias_name}.completion.metadata.XXXXXX"',
+        '--function-name "$recovery_function_name" --qualifier "$recovery_qualifier"',
+        '--profile "$BROKER_RECOVERY_PROFILE" --region us-east-1',
+        '--arg alias "$expected_receipt_alias" --arg state "$expected_state"',
         '.errorType == "RouteBrokerReadOnlyPending"',
         "^GUG376_ROUTE_BROKER_READ_ONLY_PENDING:",
     ):
@@ -962,12 +1035,23 @@ def test_runbooks_define_private_fail_closed_alias_invocation(
         for line in text.splitlines()
         if line.startswith("complete_broker_bounded ")
     ]
+    assert all(len(line.split()) == 8 for line in completion_calls)
+    for line in completion_calls:
+        assert '"$RECOVERY_ALIAS"' in line
+        if '"$CREATE_RECOVERY_FUNCTION"' in line:
+            assert '"$CREATE_RECOVERY_RECEIPT_ALIAS"' in line
+            assert "-create-v1 " in line
+        else:
+            assert '"$EXECUTE_RECOVERY_FUNCTION"' in line
+            assert '"$EXECUTE_RECOVERY_RECEIPT_ALIAS"' in line
+            assert "-execute-v1 " in line
     assert all(line.endswith(" route") for line in completion_calls[:-1])
     assert completion_calls[-1].endswith(" ROUTE_REVOKED recovery")
     assert "aws_mutations == 1" in text[
         text.index("invoke_broker_once() {") : completion_start
     ]
     assert "aws_mutations == 0" in completion
+    assert '--profile "$BROKER_PROFILE"' not in completion
 
 
 def test_runbook_normal_plan_digest_matches_canonical_python_bytes() -> None:
@@ -1081,6 +1165,56 @@ def test_cli_argument_errors_are_stable(capsys: pytest.CaptureFixture[str]) -> N
     cli = _load_cli()
     assert cli.main([]) == 2
     assert json.loads(capsys.readouterr().err) == {"error": "CLI_ARGUMENTS_INVALID"}
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    (
+        ("--authority-profile", "default"),
+        ("--management-profile", "839393571433_AWSAdministratorAccess"),
+        ("--management-profile", "839393571433_ScanalyzeFounderPepIdentityAdmin"),
+        ("--management-profile", "839393571433_ScanalyzeFounderPepSeed"),
+        ("--region", "us-west-2"),
+    ),
+)
+def test_cli_rejects_non_contract_identity_before_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    value: str,
+) -> None:
+    cli = _load_cli()
+    called = False
+
+    def unexpected_capture(**_arguments: Any) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setattr(subject, "capture_plan_seed_snapshot", unexpected_capture)
+    arguments = [
+        "--source-root",
+        str(tmp_path),
+        "--source-commit",
+        SOURCE_COMMIT,
+        "--bootstrap-change-set-name",
+        CHANGE_SET_NAME,
+        "--private-root",
+        str(tmp_path / "private"),
+        "--authority-profile",
+        subject.AUTHORITY_PROFILE,
+        "--management-profile",
+        subject.MANAGEMENT_PROFILE,
+        "--region",
+        subject.EXPECTED_REGION,
+    ]
+    option_index = arguments.index(option)
+    arguments[option_index + 1] = value
+
+    assert cli.main(arguments) == 2
+    assert json.loads(capsys.readouterr().err) == {"error": "CLI_ARGUMENTS_INVALID"}
+    assert called is False
 
 
 def test_no_mutating_aws_api_names_are_reachable() -> None:

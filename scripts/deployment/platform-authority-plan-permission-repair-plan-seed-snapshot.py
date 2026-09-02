@@ -43,9 +43,23 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-name", default=subject.DEFAULT_OUTPUT_NAME
     )
-    parser.add_argument("--authority-profile", required=True)
-    parser.add_argument("--management-profile", required=True)
-    parser.add_argument("--region", required=True)
+    parser.add_argument(
+        "--authority-profile",
+        choices=(subject.AUTHORITY_PROFILE,),
+        required=True,
+        help="Exact direct authority-account AWSReadOnlyAccess SSO profile.",
+    )
+    parser.add_argument(
+        "--management-profile",
+        choices=(subject.MANAGEMENT_PROFILE,),
+        required=True,
+        help="Exact direct management-account AWSReadOnlyAccess SSO profile.",
+    )
+    parser.add_argument(
+        "--region",
+        choices=(subject.EXPECTED_REGION,),
+        required=True,
+    )
     return parser
 
 

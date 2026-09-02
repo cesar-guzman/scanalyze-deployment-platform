@@ -55,6 +55,8 @@ MANAGEMENT_ROLE_PATH = "scanalyze/platform-authority/"
 MANAGEMENT_CREATOR_ROLE_NAME = "ScanalyzeGug376RouteBrokerCreator"
 MANAGEMENT_EXECUTOR_ROLE_NAME = "ScanalyzeGug376RouteBrokerExecutor"
 MANAGEMENT_RECOVERY_ROLE_NAME = "ScanalyzeGug376RouteBrokerRecovery"
+AUTHORITY_COLLISION_READER_ROLE_NAME = "ScanalyzeGug376CollisionReader"
+MANAGEMENT_COLLISION_READER_ROLE_NAME = "ScanalyzeGug376CollisionReader"
 AUTHORITY_CREATOR_ROLE_ARN = (
     f"arn:aws:iam::{AUTHORITY_ACCOUNT_ID}:role/{AUTHORITY_CREATOR_ROLE_NAME}"
 )
@@ -72,6 +74,31 @@ MANAGEMENT_EXECUTOR_ROLE_ARN = (
 MANAGEMENT_RECOVERY_ROLE_ARN = (
     f"arn:aws:iam::{MANAGEMENT_ACCOUNT_ID}:role/{MANAGEMENT_ROLE_PATH}"
     f"{MANAGEMENT_RECOVERY_ROLE_NAME}"
+)
+AUTHORITY_COLLISION_READER_ROLE_ARN = (
+    f"arn:aws:iam::{AUTHORITY_ACCOUNT_ID}:role/"
+    f"{AUTHORITY_COLLISION_READER_ROLE_NAME}"
+)
+MANAGEMENT_COLLISION_READER_ROLE_ARN = (
+    f"arn:aws:iam::{MANAGEMENT_ACCOUNT_ID}:role/{MANAGEMENT_ROLE_PATH}"
+    f"{MANAGEMENT_COLLISION_READER_ROLE_NAME}"
+)
+# These identify the normalized, committed reader-role source contracts.  They
+# are not a claim that Lambda read a live IAM policy.  Effective permissions
+# are the AWS intersection of that deployed role and the exact, digest-bound
+# STS session policy sent by the opener below; broker-config materialization
+# proves these constants still match the source templates at ``source_commit``.
+AUTHORITY_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST = (
+    "sha256:ed4e9376f420e2ef89c5b592ca87206a35ea2afda660001c58ea15a88f8b0260"
+)
+AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST = (
+    "sha256:3ef3a79522c2794dc87201b0103e577f699a1fe5c0d8f901b0bebb09474be274"
+)
+MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST = (
+    "sha256:ad70c69b7bb3a40e725980d1ea01be0ec4b798c35034af4e20bad1752f11acf2"
+)
+MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST = (
+    "sha256:8219a0b88df42cc9e8c2d5d21f9537d6211e20c376fd73106237737ab35579fa"
 )
 PLAN_STACK_NAME = "scanalyze-platform-authority-state-backend"
 NORMAL_PLAN_CALLER_BINDING_KEY = "normal_plan.caller_arn_digest"
@@ -96,9 +123,11 @@ REPAIR_INVOKER_PERMISSION_SET_SENTINEL = (
 CONFIG_RECORD_TYPE = (
     "scanalyze.platform_authority.plan_permission_repair_route_broker_config.v1"
 )
+# This marker is intentionally compact because the complete envelope is stored
+# in Lambda environment variables under the 4,096-byte aggregate quota.  The
+# decoded config retains the full governed record type and all bindings.
 COMPRESSED_CONFIG_RECORD_TYPE = (
-    "scanalyze.platform_authority."
-    "plan_permission_repair_route_broker_config_compact_deflate_dict.v2"
+    "scanalyze.gug376.route_broker_config.v2"
 )
 LEDGER_RECORD_TYPE = (
     "scanalyze.platform_authority.plan_permission_repair_route_broker_ledger.v1"
@@ -207,6 +236,8 @@ _CONFIG_FIELDS = frozenset(
         "ledger_binding_digest",
         "initialization_digest",
         "foundation_publish_binding_digest",
+        "source_tree_sha",
+        "bootstrap_intent_digest",
         "repair_id",
         "bootstrap_change_set_name",
         "identity_center_instance_arn",
@@ -238,7 +269,7 @@ _COMPRESSED_CONFIG_FIELDS = frozenset(
 _RUNTIME_CONFIG_DICTIONARY = b"""
 schema_version record_type source_commit ledger_id ledger_binding_digest
 initialization_digest repair_id bootstrap_change_set_name
-foundation_publish_binding_digest
+foundation_publish_binding_digest source_tree_sha bootstrap_intent_digest
 identity_center_instance_arn bootstrap_principal_id route_not_before
 route_not_after recovery_not_after normal_plan_generated_role_arn
 normal_plan_generated_role_name requests creator_contracts
@@ -387,7 +418,153 @@ PermissionSetArn CleanupOrder service work_package cloudformation GUG-376
 {"account_id":"042360977644","expected_output_keys":["InvocationAuthorityInspectorRoleArn","LedgerDeletionProtectionMode","PlanExecutionRoleArn","PlanFunctionAliasArn","ProductionAuthorized","ReconcileExecutionRoleArn","ReconcileFunctionAliasArn","RepairExecutionRoleArn","RepairFunctionAliasArn","RepairLedgerKeyArn","RepairLedgerName"],"expected_resources":[{"logical_resource_id":"InvocationAuthorityInspectorRole","resource_type":"AWS::IAM::Role"},{"logical_resource_id":"PlanAlias","resource_type":"AWS::Lambda::Alias"},{"logical_resource_id":"PlanEventInvokeConfig","resource_type":"AWS::Lambda::EventInvokeConfig"},{"logical_resource_id":"PlanExecutionRole","resource_type":"AWS::IAM::Role"},{"logical_resource_id":"PlanFunction","resource_type":"AWS::Lambda::Function"},{"logical_resource_id":"PlanFunctionVersion","resource_type":"AWS::Lambda::Version"},{"logical_resource_id":"PlanLogGroup","resource_type":"AWS::Logs::LogGroup"},{"logical_resource_id":"PlanRuntimeManagementConfig","resource_type":"AWS::Lambda::RuntimeManagementConfig"},{"logical_resource_id":"ReconcileAlias","resource_type":"AWS::Lambda::Alias"},{"logical_resource_id":"ReconcileEventInvokeConfig","resource_type":"AWS::Lambda::EventInvokeConfig"},{"logical_resource_id":"ReconcileExecutionRole","resource_type":"AWS::IAM::Role"},{"logical_resource_id":"ReconcileFunction","resource_type":"AWS::Lambda::Function"},{"logical_resource_id":"ReconcileFunctionVersion","resource_type":"AWS::Lambda::Version"},{"logical_resource_id":"ReconcileLogGroup","resource_type":"AWS::Logs::LogGroup"},{"logical_resource_id":"ReconcileRuntimeManagementConfig","resource_type":"AWS::Lambda::RuntimeManagementConfig"},{"logical_resource_id":"RepairAlias","resource_type":"AWS::Lambda::Alias"},{"logical_resource_id":"RepairCodeSigningConfig","resource_type":"AWS::Lambda::CodeSigningConfig"},{"logical_resource_id":"RepairEventInvokeConfig","resource_type":"AWS::Lambda::EventInvokeConfig"},{"logical_resource_id":"RepairExecutionRole","resource_type":"AWS::IAM::Role"},{"logical_resource_id":"RepairFunction","resource_type":"AWS::Lambda::Function"},{"logical_resource_id":"RepairFunctionVersion","resource_type":"AWS::Lambda::Version"},{"logical_resource_id":"RepairLedger","resource_type":"AWS::DynamoDB::Table"},{"logical_resource_id":"RepairLedgerKey","resource_type":"AWS::KMS::Key"},{"logical_resource_id":"RepairLedgerKeyAlias","resource_type":"AWS::KMS::Alias"},{"logical_resource_id":"RepairLogGroup","resource_type":"AWS::Logs::LogGroup"},{"logical_resource_id":"RepairRuntimeManagementConfig","resource_type":"AWS::Lambda::RuntimeManagementConfig"}],"expected_static_outputs":{"LedgerDeletionProtectionMode":"true","ProductionAuthorized":"false"},"expected_tags":[{"Key":"managed_by","Value":"cloudformation"},{"Key":"service","Value":"scanalyze-platform-authority"},{"Key":"work_package","Value":"GUG-376"}],"stack_name":"scanalyze-platform-authority-bootstrap-plan-repair-pep","template_digest":"sha256:","terminal_statuses":["UPDATE_COMPLETE"]}
 {"delegation":{"account_id":"839393571433","permission_set_output_keys":["RepairInvokerPermissionSetArn"],"required_mode_outputs":{"RepairInvokerAssignmentMode":"true"},"stack_name":"scanalyze-platform-authority-bootstrap-plan-repair-delegation"},"route":{"account_id":"839393571433","permission_set_output_keys":["BrokerInvokerPermissionSetArn","BrokerSeedCreatorPermissionSetArn","BrokerSeedExecutorPermissionSetArn"],"required_mode_outputs":{"BrokerInvokerAssignmentMode":"true","SeedAssignmentMode":"true"},"stack_name":"scanalyze-platform-authority-gug376-temporary-change-set-route"}}
 {"delegation-revoke-execute-v1":{"account_id":"042360977644","instance_arn":"","permission_set_sources":[{"output_key":"RepairInvokerPermissionSetArn","source":"delegation"}]},"route-revoke-execute-v1":{"account_id":"042360977644","instance_arn":"","permission_set_sources":[{"output_key":"BrokerInvokerPermissionSetArn","source":"route"}]},"seed-revoke-execute-v1":{"account_id":"042360977644","instance_arn":"","permission_set_sources":[{"output_key":"BrokerSeedCreatorPermissionSetArn","source":"route"},{"output_key":"BrokerSeedExecutorPermissionSetArn","source":"route"}]}}
+{"logical_resource_id":"AuthorityCollisionReaderRole","resource_type":"AWS::IAM::Role"}
+{"logical_resource_id":"ManagementCollisionReaderRole","resource_type":"AWS::IAM::Role"}
+AuthorityCollisionReaderRole ManagementCollisionReaderRole ScanalyzeGug376CollisionReader
 """
+
+
+def _config_dictionary_changes(
+    resources: Sequence[tuple[str, str]], *, action: str
+) -> bytes:
+    return json.dumps(
+        [
+            {
+                "action": action,
+                "details": [],
+                "logical_resource_id": logical_id,
+                "replacement": None,
+                "resource_type": resource_type,
+                "scope": [],
+            }
+            for logical_id, resource_type in resources
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+_RUNTIME_CONFIG_CHANGE_DICTIONARY = b"\n".join(
+    (
+        _config_dictionary_changes(
+            (
+                ("MutationServiceRole", "AWS::IAM::Role"),
+                ("ReadbackServiceRole", "AWS::IAM::Role"),
+                ("RepairInvokerAssignment", "AWS::SSO::Assignment"),
+                ("RepairInvokerPermissionSet", "AWS::SSO::PermissionSet"),
+            ),
+            action="Add",
+        ),
+        _config_dictionary_changes(
+            (
+                ("InvocationAuthorityInspectorRole", "AWS::IAM::Role"),
+                ("PlanAlias", "AWS::Lambda::Alias"),
+                ("PlanEventInvokeConfig", "AWS::Lambda::EventInvokeConfig"),
+                ("PlanExecutionRole", "AWS::IAM::Role"),
+                ("PlanFunction", "AWS::Lambda::Function"),
+                ("PlanFunctionVersion", "AWS::Lambda::Version"),
+                ("PlanLogGroup", "AWS::Logs::LogGroup"),
+                ("PlanRuntimeManagementConfig", "AWS::Lambda::RuntimeManagementConfig"),
+                ("ReconcileAlias", "AWS::Lambda::Alias"),
+                ("ReconcileEventInvokeConfig", "AWS::Lambda::EventInvokeConfig"),
+                ("ReconcileExecutionRole", "AWS::IAM::Role"),
+                ("ReconcileFunction", "AWS::Lambda::Function"),
+                ("ReconcileFunctionVersion", "AWS::Lambda::Version"),
+                ("ReconcileLogGroup", "AWS::Logs::LogGroup"),
+                ("ReconcileRuntimeManagementConfig", "AWS::Lambda::RuntimeManagementConfig"),
+                ("RepairAlias", "AWS::Lambda::Alias"),
+                ("RepairCodeSigningConfig", "AWS::Lambda::CodeSigningConfig"),
+                ("RepairEventInvokeConfig", "AWS::Lambda::EventInvokeConfig"),
+                ("RepairExecutionRole", "AWS::IAM::Role"),
+                ("RepairFunction", "AWS::Lambda::Function"),
+                ("RepairFunctionVersion", "AWS::Lambda::Version"),
+                ("RepairLedger", "AWS::DynamoDB::Table"),
+                ("RepairLedgerKey", "AWS::KMS::Key"),
+                ("RepairLedgerKeyAlias", "AWS::KMS::Alias"),
+                ("RepairLogGroup", "AWS::Logs::LogGroup"),
+                ("RepairRuntimeManagementConfig", "AWS::Lambda::RuntimeManagementConfig"),
+            ),
+            action="Add",
+        ),
+        _config_dictionary_changes(
+            (
+                ("RepairInvokerAssignment", "AWS::SSO::Assignment"),
+                ("BrokerInvokerAssignment", "AWS::SSO::Assignment"),
+                ("BrokerSeedCreatorAssignment", "AWS::SSO::Assignment"),
+                ("BrokerSeedExecutorAssignment", "AWS::SSO::Assignment"),
+            ),
+            action="Remove",
+        ),
+    )
+)
+_RUNTIME_CONFIG_CREATOR_DICTIONARY = json.dumps(
+    {
+        "creator_contracts": {
+            "delegation-create-v1": {
+                "expected_changes": json.loads(
+                    _config_dictionary_changes(
+                        (
+                            ("MutationServiceRole", "AWS::IAM::Role"),
+                            ("ReadbackServiceRole", "AWS::IAM::Role"),
+                            ("RepairInvokerAssignment", "AWS::SSO::Assignment"),
+                            ("RepairInvokerPermissionSet", "AWS::SSO::PermissionSet"),
+                        ),
+                        action="Add",
+                    )
+                ),
+                "template_digest": "sha256:",
+            },
+            "delegation-revoke-create-v1": {
+                "expected_changes": json.loads(
+                    _config_dictionary_changes(
+                        (("RepairInvokerAssignment", "AWS::SSO::Assignment"),),
+                        action="Remove",
+                    )
+                ),
+                "template_digest": "sha256:",
+            },
+            "pep-create-v1": {
+                "expected_changes": json.loads(
+                    _RUNTIME_CONFIG_CHANGE_DICTIONARY.split(b"\n")[1]
+                ),
+                "template_digest": "sha256:",
+            },
+            "route-revoke-create-v1": {
+                "expected_changes": json.loads(
+                    _config_dictionary_changes(
+                        (("BrokerInvokerAssignment", "AWS::SSO::Assignment"),),
+                        action="Remove",
+                    )
+                ),
+                "template_digest": "sha256:",
+            },
+            "seed-revoke-create-v1": {
+                "expected_changes": json.loads(
+                    _config_dictionary_changes(
+                        (
+                            ("BrokerSeedCreatorAssignment", "AWS::SSO::Assignment"),
+                            ("BrokerSeedExecutorAssignment", "AWS::SSO::Assignment"),
+                        ),
+                        action="Remove",
+                    )
+                ),
+                "template_digest": "sha256:",
+            },
+        }
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+).encode("utf-8")
+_RUNTIME_CONFIG_DICTIONARY = b"\n".join(
+    (
+        _RUNTIME_CONFIG_CREATOR_DICTIONARY,
+        _RUNTIME_CONFIG_CHANGE_DICTIONARY,
+        _RUNTIME_CONFIG_DICTIONARY,
+    )
+)
+del _config_dictionary_changes
+del _RUNTIME_CONFIG_CHANGE_DICTIONARY
+del _RUNTIME_CONFIG_CREATOR_DICTIONARY
 _TERMINAL_EXPECTATION_FIELDS = frozenset(
     {
         "account_id",
@@ -462,6 +639,7 @@ _RECEIPT_FIELDS = frozenset(
         "production_status",
         "event_fields_consumed",
         "generated_at",
+        "collision_admission_digest",
         "receipt_digest",
     }
 )
@@ -479,6 +657,8 @@ _ATTEMPT_CLAIM_FIELDS = frozenset(
         "attempting_state",
         "request",
         "request_digest",
+        "collision_admission_manifest",
+        "collision_admission_manifest_digest",
         "claimed_at",
         "claim_digest",
     }
@@ -1445,6 +1625,8 @@ class BrokerConfig:
     ledger_binding_digest: str
     initialization_digest: str
     foundation_publish_binding_digest: str
+    source_tree_sha: str
+    bootstrap_intent_digest: str
     repair_id: str
     bootstrap_change_set_name: str
     identity_center_instance_arn: str
@@ -1484,6 +1666,15 @@ class BrokerConfig:
         foundation_publish_binding_digest = _require_digest(
             value.get("foundation_publish_binding_digest")
         )
+        source_tree_sha = value.get("source_tree_sha")
+        bootstrap_intent_digest = _require_digest(
+            value.get("bootstrap_intent_digest")
+        )
+        if (
+            not isinstance(source_tree_sha, str)
+            or _COMMIT_RE.fullmatch(source_tree_sha) is None
+        ):
+            raise RouteBrokerError("SOURCE_TREE_INVALID")
         expected_initialization_digest = digest_value(
             {
                 "record_type": LEDGER_RECORD_TYPE,
@@ -1975,6 +2166,8 @@ class BrokerConfig:
             ledger_binding_digest=binding_digest,
             initialization_digest=initialization_digest,
             foundation_publish_binding_digest=foundation_publish_binding_digest,
+            source_tree_sha=source_tree_sha,
+            bootstrap_intent_digest=bootstrap_intent_digest,
             repair_id=repair_id,
             bootstrap_change_set_name=change_set_name,
             identity_center_instance_arn=identity_center_instance_arn,
@@ -2008,7 +2201,6 @@ class BrokerConfig:
 
     def assignment_scope(self, alias: str) -> dict[str, Any]:
         return dict(json.loads(self._revocation_assignment_scopes_json)[alias])
-
 
 @dataclass(frozen=True, slots=True)
 class LedgerSnapshot:
@@ -2048,12 +2240,110 @@ class LedgerPort(Protocol):
 
 class EffectPort(Protocol):
     def create_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]: ...
 
     def execute_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]: ...
+
+
+class CollisionAdmissionPort(Protocol):
+    """In-process, non-serializable admission for expansive effects."""
+
+    def admit(
+        self,
+        *,
+        phase: str,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        before_call: Callable[[], None],
+    ) -> object: ...
+
+    def manifest(self, capability: object) -> Mapping[str, Any]: ...
+
+    def consume(
+        self,
+        capability: object,
+        *,
+        operation: str,
+        effect_request_digest: str,
+        expected_manifest_digest: str,
+        now: datetime,
+    ) -> object: ...
+
+    def revalidate(self, grant: object, *, now: datetime) -> str: ...
+
+
+_EFFECT_PERMIT_TOKEN = object()
+
+
+class _EffectPermit:
+    """Process-local, one-shot authority for one exact SDK mutation."""
+
+    __slots__ = ("_operation", "_request_digest", "_revalidate", "_used")
+
+    def __init__(
+        self,
+        token: object,
+        *,
+        operation: str,
+        request_digest: str,
+        revalidate: Callable[[], None],
+    ) -> None:
+        if token is not _EFFECT_PERMIT_TOKEN:
+            raise RouteBrokerError("EFFECT_PERMIT_INVALID")
+        self._operation = operation
+        self._request_digest = request_digest
+        self._revalidate = revalidate
+        self._used = False
+
+    def consume(self, *, operation: str, request_digest: str) -> None:
+        if self._used:
+            raise RouteBrokerError("EFFECT_PERMIT_REUSED")
+        self._used = True
+        if (
+            operation != self._operation
+            or request_digest != self._request_digest
+        ):
+            raise RouteBrokerError("EFFECT_PERMIT_BINDING_MISMATCH")
+        self._revalidate()
+
+
+def _new_effect_permit(
+    *,
+    operation: str,
+    request: Mapping[str, Any],
+    revalidate: Callable[[], None],
+) -> object:
+    return _EffectPermit(
+        _EFFECT_PERMIT_TOKEN,
+        operation=operation,
+        request_digest=digest_value(request),
+        revalidate=revalidate,
+    )
+
+
+def _consume_effect_permit(
+    permit: object,
+    *,
+    operation: str,
+    request: Mapping[str, Any],
+) -> None:
+    if type(permit) is not _EffectPermit:
+        raise RouteBrokerError("EFFECT_PERMIT_INVALID")
+    permit.consume(
+        operation=operation,
+        request_digest=digest_value(request),
+    )
 
 
 class EvidencePort(Protocol):
@@ -2200,6 +2490,21 @@ _REVOCATION_ALIASES = frozenset(
         "route-revoke-execute-v1",
     }
 )
+_REDUCING_CREATOR_ALIASES = frozenset(
+    {
+        "seed-revoke-create-v1",
+        "delegation-revoke-create-v1",
+        "route-revoke-create-v1",
+    }
+)
+_REDUCING_EXECUTOR_ALIASES = frozenset(
+    {
+        "seed-revoke-execute-v1",
+        "delegation-revoke-execute-v1",
+        "route-revoke-execute-v1",
+    }
+)
+_REDUCING_ALIASES = _REDUCING_CREATOR_ALIASES | _REDUCING_EXECUTOR_ALIASES
 _EXECUTOR_TO_CREATOR = {
     "seed-revoke-execute-v1": "seed-revoke-create-v1",
     "delegation-execute-v1": "delegation-create-v1",
@@ -2242,6 +2547,59 @@ _OPERATION_ACCOUNTS = {
     "route-revoke-create-v1": MANAGEMENT_ACCOUNT_ID,
     "route-revoke-execute-v1": MANAGEMENT_ACCOUNT_ID,
 }
+
+
+def _dispatched_state(stage: _Stage) -> str:
+    return stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
+
+
+def _collision_admission_required(
+    *, handler_kind: str, alias: str, ledger_state: str | None
+) -> bool:
+    """Return whether this exact invocation can cause an expansive effect.
+
+    A dispatched state is readback-only and therefore never replays the
+    provider effect.  The three finite revocation pairs cross this sentinel;
+    their exact predecessor states are enforced by the state machine and by
+    ``_reducing_state_allowed`` at live-runtime construction.  Every other
+    creator/executor invocation remains collision-admission gated.
+    """
+
+    if handler_kind == "creator":
+        if alias == "closeout-gate-v1":
+            return False
+        stage = _CREATOR_STAGES.get(alias)
+        if stage is None:
+            raise RouteBrokerError("HANDLER_ALIAS_INVALID")
+        if ledger_state == _dispatched_state(stage):
+            return False
+        if alias in _REDUCING_CREATOR_ALIASES:
+            return False
+        return True
+    if handler_kind == "executor":
+        stage = _EXECUTOR_STAGES.get(alias)
+        if stage is None:
+            raise RouteBrokerError("HANDLER_ALIAS_INVALID")
+        if ledger_state == _dispatched_state(stage):
+            return False
+        if alias in _REDUCING_EXECUTOR_ALIASES:
+            return False
+        return True
+    raise RouteBrokerError("HANDLER_KIND_INVALID")
+
+
+def _reducing_state_allowed(
+    *, handler_kind: str, alias: str, ledger_state: str | None
+) -> bool:
+    if handler_kind == "creator" and alias in _REDUCING_CREATOR_ALIASES:
+        stage = _CREATOR_STAGES[alias]
+        return ledger_state in {stage.expected, _dispatched_state(stage)} or (
+            alias == "seed-revoke-create-v1" and ledger_state is None
+        )
+    if handler_kind == "executor" and alias in _REDUCING_EXECUTOR_ALIASES:
+        stage = _EXECUTOR_STAGES[alias]
+        return ledger_state in {stage.expected, _dispatched_state(stage)}
+    return False
 
 
 def operation_account(alias: str) -> str:
@@ -2348,10 +2706,22 @@ def _validate_ledger_snapshot(
         raise RouteBrokerError("LEDGER_BINDING_INVALID")
     if snapshot.last_receipt_digest is not None:
         _require_digest(snapshot.last_receipt_digest, "LEDGER_RECEIPT_INVALID")
+    receipt = None
+    claim = None
     if snapshot.last_receipt_json is not None:
-        _stored_receipt(snapshot, config=config)
+        receipt = _stored_receipt(snapshot, config=config)
     if snapshot.attempt_claim_json is not None:
-        _attempt_claim(snapshot, config=config)
+        claim = _attempt_claim(snapshot, config=config)
+    if snapshot.state.endswith("_DISPATCHED"):
+        if not isinstance(receipt, Mapping) or not isinstance(claim, Mapping):
+            raise RouteBrokerError("LEDGER_ADMISSION_BINDING_INVALID")
+        operation = claim.get("operation")
+        if (
+            operation not in _REDUCING_ALIASES
+            and receipt.get("collision_admission_digest")
+            != claim.get("collision_admission_manifest_digest")
+        ):
+            raise RouteBrokerError("LEDGER_ADMISSION_BINDING_INVALID")
     if snapshot.dispatch_coordinates_json is not None:
         _dispatch_coordinates(snapshot)
     if snapshot.derived_bindings_json is not None:
@@ -2399,6 +2769,17 @@ def _stored_receipt(
         or value.get("production_status") != "NO-GO"
         or value.get("event_fields_consumed") != 0
         or value.get("aws_mutations") not in {0, 1}
+        or (
+            value.get("aws_mutations") == 1
+            and value.get("alias") not in _REDUCING_ALIASES
+            and _DIGEST_RE.fullmatch(
+                str(value.get("collision_admission_digest", ""))
+            ) is None
+        )
+        or (
+            value.get("alias") in _REDUCING_ALIASES
+            and value.get("collision_admission_digest") is not None
+        )
     ):
         raise RouteBrokerError("LEDGER_RECEIPT_INVALID")
     generated_at = _parse_time(
@@ -2424,8 +2805,23 @@ def _build_attempt_claim(
     function_version: str,
     request: Mapping[str, Any],
     claimed_at: str,
+    collision_admission_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     request_copy = _json_copy(request)
+    manifest_copy = (
+        _json_copy(collision_admission_manifest)
+        if collision_admission_manifest is not None
+        else None
+    )
+    manifest_digest = (
+        _verify_seal(
+            manifest_copy,
+            "manifest_digest",
+            "COLLISION_ADMISSION_MANIFEST_INVALID",
+        )
+        if isinstance(manifest_copy, Mapping)
+        else None
+    )
     value = {
         "schema_version": 1,
         "record_type": ATTEMPT_CLAIM_RECORD_TYPE,
@@ -2439,6 +2835,8 @@ def _build_attempt_claim(
         "attempting_state": stage.attempting,
         "request": request_copy,
         "request_digest": digest_value(request_copy),
+        "collision_admission_manifest": manifest_copy,
+        "collision_admission_manifest_digest": manifest_digest,
         "claimed_at": claimed_at,
     }
     sealed = seal(value, "claim_digest")
@@ -2476,6 +2874,9 @@ def _attempt_claim(
     else:
         raise RouteBrokerError("ATTEMPT_CLAIM_INVALID")
     request = value.get("request")
+    manifest = value.get("collision_admission_manifest")
+    manifest_digest = value.get("collision_admission_manifest_digest")
+    collision_required = operation not in _REDUCING_ALIASES
     if (
         not isinstance(value, dict)
         or canonical_json(value) != raw
@@ -2492,6 +2893,29 @@ def _attempt_claim(
         or value.get("attempting_state") != stage.attempting
         or not isinstance(request, Mapping)
         or value.get("request_digest") != digest_value(_json_copy(request))
+        or (
+            collision_required
+            and (
+                not isinstance(manifest, Mapping)
+                or manifest.get("operation") != operation
+                or manifest.get("effect_request_digest")
+                != value.get("request_digest")
+                or manifest.get("source_commit_sha") != config.source_commit
+                or manifest.get("source_tree_sha") != config.source_tree_sha
+                or manifest.get("bootstrap_intent_digest")
+                != config.bootstrap_intent_digest
+                or _verify_seal(
+                    manifest,
+                    "manifest_digest",
+                    "ATTEMPT_CLAIM_INVALID",
+                )
+                != manifest_digest
+            )
+        )
+        or (
+            not collision_required
+            and (manifest is not None or manifest_digest is not None)
+        )
         or _VERSION_RE.fullmatch(str(value.get("function_version", ""))) is None
     ):
         raise RouteBrokerError("ATTEMPT_CLAIM_INVALID")
@@ -2681,7 +3105,7 @@ def _runtime_ledger_preflight(
     handler_kind: str,
     alias: str,
     now: datetime,
-) -> None:
+) -> str | None:
     """Gate cross-account setup on a fresh, bound authority-ledger read."""
 
     control_digest = ledger.verify_control_plane()
@@ -2697,16 +3121,17 @@ def _runtime_ledger_preflight(
     if snapshot is not None:
         _validate_ledger_snapshot(snapshot, config=config)
     if mutation_open:
-        return
+        return snapshot.state if snapshot is not None else None
     if handler_kind == "creator" and alias in _CREATOR_STAGES:
         stage = _CREATOR_STAGES[alias]
     elif handler_kind == "executor" and alias in _EXECUTOR_STAGES:
         stage = _EXECUTOR_STAGES[alias]
     else:
         raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
-    dispatched_state = stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
+    dispatched_state = _dispatched_state(stage)
     if snapshot is None or snapshot.state != dispatched_state:
         raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
+    return snapshot.state
 
 
 def _validate_create_response(
@@ -3422,13 +3847,159 @@ class RouteBroker:
         effects: EffectPort,
         evidence: EvidencePort,
         clock: Callable[[], datetime],
+        collision_admission: CollisionAdmissionPort | None = None,
     ) -> None:
         self._config = config
         self._ledger = ledger
         self._effects = effects
         self._evidence = evidence
+        self._collision_admission = collision_admission
         self._clock = clock
         self._budget: _InvocationBudget | None = None
+
+    def _prepare_collision_admission(
+        self, *, operation: str, request: Mapping[str, Any]
+    ) -> tuple[object | None, dict[str, Any] | None]:
+        if operation in _REDUCING_ALIASES:
+            return None, None
+        adapter = self._collision_admission
+        if adapter is None:
+            raise RouteBrokerError("COLLISION_ADMISSION_ADAPTER_MISSING")
+        try:
+            from tooling import (
+                platform_authority_gug376_collision_admission as collision_contract,
+            )
+
+            phase = collision_contract.route_collision_operation_phase(
+                operation
+            )
+        except Exception as exc:
+            raise RouteBrokerError("COLLISION_ADMISSION_OPERATION_INVALID") from exc
+        try:
+            capability = adapter.admit(
+                phase=phase,
+                operation=operation,
+                effect_request=_json_copy(request),
+                before_call=self._require_read_budget,
+            )
+            manifest = _json_copy(adapter.manifest(capability))
+        except RouteBrokerError:
+            raise
+        except Exception as exc:
+            raise RouteBrokerError("COLLISION_ADMISSION_FAILED") from exc
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("operation") != operation
+            or manifest.get("effect_request_digest") != digest_value(request)
+            or manifest.get("source_commit_sha") != self._config.source_commit
+            or manifest.get("source_tree_sha") != self._config.source_tree_sha
+            or manifest.get("bootstrap_intent_digest")
+            != self._config.bootstrap_intent_digest
+        ):
+            raise RouteBrokerError("COLLISION_ADMISSION_MANIFEST_INVALID")
+        manifest_digest = _verify_seal(
+            manifest,
+            "manifest_digest",
+            "COLLISION_ADMISSION_MANIFEST_INVALID",
+        )
+        if manifest_digest != manifest.get("manifest_digest"):
+            raise RouteBrokerError("COLLISION_ADMISSION_MANIFEST_INVALID")
+        return capability, manifest
+
+    def _consume_collision_admission(
+        self,
+        *,
+        capability: object | None,
+        manifest: Mapping[str, Any] | None,
+        attempt: LedgerSnapshot,
+        operation: str,
+        request: Mapping[str, Any],
+    ) -> tuple[str | None, object]:
+        if operation in _REDUCING_ALIASES:
+            if capability is not None or manifest is not None:
+                raise RouteBrokerError("COLLISION_ADMISSION_UNEXPECTED")
+
+            def revalidate_reducing_effect() -> None:
+                self._require_mutation_budget()
+                _effect_time, mutation_open = _validate_recovery_window(
+                    self._config,
+                    self._clock(),
+                )
+                if not mutation_open:
+                    raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
+
+            return None, _new_effect_permit(
+                operation=operation,
+                request=request,
+                revalidate=revalidate_reducing_effect,
+            )
+        adapter = self._collision_admission
+        if adapter is None or capability is None or not isinstance(manifest, Mapping):
+            raise RouteBrokerError("COLLISION_ADMISSION_ADAPTER_MISSING")
+        stored_claim = _attempt_claim(
+            attempt,
+            config=self._config,
+            expected_operation=operation,
+            expected_request=request,
+        )
+        manifest_digest = str(manifest.get("manifest_digest"))
+        if (
+            stored_claim.get("collision_admission_manifest")
+            != _json_copy(manifest)
+            or stored_claim.get("collision_admission_manifest_digest")
+            != manifest_digest
+        ):
+            raise RouteBrokerError("COLLISION_ADMISSION_CLAIM_MISMATCH")
+        effect_time, mutation_open = _validate_recovery_window(
+            self._config,
+            self._clock(),
+        )
+        if not mutation_open:
+            raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
+        try:
+            grant = adapter.consume(
+                capability,
+                operation=operation,
+                effect_request_digest=digest_value(request),
+                expected_manifest_digest=manifest_digest,
+                now=_parse_time(effect_time),
+            )
+        except RouteBrokerError:
+            raise
+        except Exception as exc:
+            raise RouteBrokerError("COLLISION_ADMISSION_NOT_ACTIVE") from exc
+        admission_digest = _require_digest(
+            manifest_digest,
+            "COLLISION_ADMISSION_NOT_ACTIVE",
+        )
+
+        def revalidate_expansive_effect() -> None:
+            self._require_mutation_budget()
+            adjacent_time, adjacent_open = _validate_recovery_window(
+                self._config,
+                self._clock(),
+            )
+            if not adjacent_open:
+                raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
+            try:
+                adjacent_digest = adapter.revalidate(
+                    grant,
+                    now=_parse_time(adjacent_time),
+                )
+            except RouteBrokerError:
+                raise
+            except Exception as exc:
+                raise RouteBrokerError(
+                    "COLLISION_ADMISSION_NOT_ACTIVE"
+                ) from exc
+            if adjacent_digest != admission_digest:
+                raise RouteBrokerError("COLLISION_ADMISSION_NOT_ACTIVE")
+
+        return admission_digest, _new_effect_permit(
+            operation=operation,
+            request=request,
+            revalidate=revalidate_expansive_effect,
+        )
 
     def _begin_invocation(self, context: Any) -> None:
         budget = _InvocationBudget(context)
@@ -3648,11 +4219,17 @@ class RouteBroker:
         normal_plan_caller_arn_digest: str | None = None,
         generated_at: str,
         aws_mutations: int,
+        collision_admission_digest: str | None = None,
     ) -> dict[str, Any]:
         if normal_plan_caller_arn_digest is not None:
             _require_digest(
                 normal_plan_caller_arn_digest,
                 "NORMAL_PLAN_CALLER_INVALID",
+            )
+        if collision_admission_digest is not None:
+            _require_digest(
+                collision_admission_digest,
+                "COLLISION_ADMISSION_NOT_ACTIVE",
             )
         value = {
             "schema_version": 1,
@@ -3677,6 +4254,7 @@ class RouteBroker:
             "production_status": "NO-GO",
             "event_fields_consumed": 0,
             "generated_at": generated_at,
+            "collision_admission_digest": collision_admission_digest,
         }
         return seal(value, "receipt_digest")
 
@@ -3719,6 +4297,7 @@ class RouteBroker:
         if ledger_error is not None:
             if alias != "seed-revoke-create-v1" or ledger_error.code != "LEDGER_MISSING":
                 raise ledger_error
+        if ledger_error is not None:
             if not mutation_open:
                 raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
             snapshot = self._initialize()
@@ -3731,7 +4310,7 @@ class RouteBroker:
             config=self._config,
         )
         request_digest = digest_value(request)
-        dispatched_state = stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
+        dispatched_state = _dispatched_state(stage)
         if snapshot.state == dispatched_state:
             return self._creator_readback(
                 alias=alias,
@@ -3747,6 +4326,17 @@ class RouteBroker:
         _validate_ledger_snapshot(
             snapshot, config=self._config, expected_state=stage.expected
         )
+        admission_capability, admission_manifest = (
+            self._prepare_collision_admission(
+                operation=alias,
+                request=request,
+            )
+        )
+        occurred_at, mutation_open = _validate_recovery_window(
+            self._config, self._clock()
+        )
+        if not mutation_open:
+            raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
         attempt_claim = _build_attempt_claim(
             config=self._config,
             stage=stage,
@@ -3755,6 +4345,7 @@ class RouteBroker:
             function_version=function_version,
             request=request,
             claimed_at=occurred_at,
+            collision_admission_manifest=admission_manifest,
         )
         attempt_digest = str(attempt_claim["claim_digest"])
         self._require_mutation_budget()
@@ -3766,10 +4357,21 @@ class RouteBroker:
             attempt_claim=attempt_claim,
             after_provider_effect=True,
         )
+        collision_admission_digest, effect_permit = (
+            self._consume_collision_admission(
+                capability=admission_capability,
+                manifest=admission_manifest,
+                attempt=attempt,
+                operation=alias,
+                request=request,
+            )
+        )
         try:
             response = _validate_create_response(
                 self._effects.create_change_set(
-                    operation=alias, request=_json_copy(request)
+                    operation=alias,
+                    request=_json_copy(request),
+                    permit=effect_permit,
                 ),
                 operation=alias,
                 request=request,
@@ -3801,6 +4403,7 @@ class RouteBroker:
                 closeout_digest=None,
                 generated_at=_timestamp(self._clock()),
                 aws_mutations=1,
+                collision_admission_digest=collision_admission_digest,
             )
             self._cas(
                 attempt,
@@ -3825,6 +4428,7 @@ class RouteBroker:
         self,
         *,
         alias: str,
+        receipt_alias: str | None = None,
         function_version: str,
         stage: _Stage,
         snapshot: LedgerSnapshot,
@@ -3868,7 +4472,7 @@ class RouteBroker:
                 readback["terminal_parameters_digest"]
             )
             receipt = self._receipt(
-                alias=alias,
+                alias=receipt_alias or alias,
                 function_version=function_version,
                 state=stage.completed,
                 request_digest=request_digest,
@@ -3920,6 +4524,14 @@ class RouteBroker:
             self._config, self._clock()
         )
         stage = _EXECUTOR_STAGES[alias]
+        dispatched_state = _dispatched_state(stage)
+        if (
+            alias in _REDUCING_EXECUTOR_ALIASES
+            and snapshot.state != dispatched_state
+        ):
+            _validate_ledger_snapshot(
+                snapshot, config=self._config, expected_state=stage.expected
+            )
         configured_request = self._config.request(alias)
         create_dispatch = _dispatch_coordinates(snapshot)
         if create_dispatch["operation"] != _EXECUTOR_TO_CREATOR[alias]:
@@ -3928,7 +4540,6 @@ class RouteBroker:
         request["StackName"] = create_dispatch["stack_arn"]
         request["ChangeSetName"] = create_dispatch["change_set_arn"]
         request_digest = digest_value(request)
-        dispatched_state = stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
         if snapshot.state == dispatched_state:
             return self._executor_readback(
                 alias=alias,
@@ -3948,6 +4559,17 @@ class RouteBroker:
             snapshot=snapshot,
             config=self._config,
         )
+        admission_capability, admission_manifest = (
+            self._prepare_collision_admission(
+                operation=alias,
+                request=request,
+            )
+        )
+        occurred_at, mutation_open = _validate_recovery_window(
+            self._config, self._clock()
+        )
+        if not mutation_open:
+            raise RouteBrokerError("ROUTE_WINDOW_CLOSED")
         attempt_claim = _build_attempt_claim(
             config=self._config,
             stage=stage,
@@ -3956,6 +4578,7 @@ class RouteBroker:
             function_version=function_version,
             request=request,
             claimed_at=occurred_at,
+            collision_admission_manifest=admission_manifest,
         )
         attempt_digest = str(attempt_claim["claim_digest"])
         self._require_mutation_budget()
@@ -3967,10 +4590,21 @@ class RouteBroker:
             attempt_claim=attempt_claim,
             after_provider_effect=True,
         )
+        collision_admission_digest, effect_permit = (
+            self._consume_collision_admission(
+                capability=admission_capability,
+                manifest=admission_manifest,
+                attempt=attempt,
+                operation=alias,
+                request=request,
+            )
+        )
         try:
             response = _validate_execute_response(
                 self._effects.execute_change_set(
-                    operation=alias, request=_json_copy(request)
+                    operation=alias,
+                    request=_json_copy(request),
+                    permit=effect_permit,
                 )
             )
             provider_digest = digest_value(_json_copy(response))
@@ -4001,6 +4635,7 @@ class RouteBroker:
                 closeout_digest=None,
                 generated_at=_timestamp(self._clock()),
                 aws_mutations=1,
+                collision_admission_digest=collision_admission_digest,
             )
             self._cas(
                 attempt,
@@ -4025,6 +4660,7 @@ class RouteBroker:
         self,
         *,
         alias: str,
+        receipt_alias: str | None = None,
         function_version: str,
         stage: _Stage,
         snapshot: LedgerSnapshot,
@@ -4084,7 +4720,7 @@ class RouteBroker:
                 )
             )
             receipt = self._receipt(
-                alias=alias,
+                alias=receipt_alias or alias,
                 function_version=function_version,
                 state=stage.completed,
                 request_digest=request_digest,
@@ -4136,7 +4772,7 @@ class RouteBroker:
         )
         self._verify_ledger_control_plane()
         snapshot = self._read_raw()
-        _occurred_at, _mutation_open = _validate_recovery_window(
+        occurred_at, _mutation_open = _validate_recovery_window(
             self._config, self._clock()
         )
         claim = _attempt_claim(snapshot, config=self._config)
@@ -4147,22 +4783,25 @@ class RouteBroker:
         dispatched_state = (
             stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
         )
-        if snapshot.state == dispatched_state:
-            return _stored_receipt(
-                snapshot,
-                config=self._config,
-                alias=RECOVERY_RECEIPT_ALIASES[0],
-                function_version=function_version,
-                state=dispatched_state,
-            )
-        if snapshot.state not in {stage.attempting, stage.uncertain}:
-            raise RouteBrokerError("RECOVERY_STATE_INVALID")
         request = _materialize_creator_request(
             alias=operation,
             request=self._config.request(operation),
             snapshot=snapshot,
             config=self._config,
         )
+        if snapshot.state == dispatched_state:
+            return self._creator_readback(
+                alias=operation,
+                receipt_alias=RECOVERY_RECEIPT_ALIASES[0],
+                function_version=function_version,
+                stage=stage,
+                snapshot=snapshot,
+                request=request,
+                request_digest=digest_value(request),
+                occurred_at=occurred_at,
+            )
+        if snapshot.state not in {stage.attempting, stage.uncertain}:
+            raise RouteBrokerError("RECOVERY_STATE_INVALID")
         _attempt_claim(
             snapshot,
             config=self._config,
@@ -4201,6 +4840,11 @@ class RouteBroker:
             closeout_digest=None,
             generated_at=recovered_at,
             aws_mutations=0,
+            collision_admission_digest=(
+                str(claim["collision_admission_manifest_digest"])
+                if operation not in _REDUCING_ALIASES
+                else None
+            ),
         )
         self._cas(
             snapshot,
@@ -4225,7 +4869,7 @@ class RouteBroker:
         )
         self._verify_ledger_control_plane()
         snapshot = self._read_raw()
-        _occurred_at, _mutation_open = _validate_recovery_window(
+        occurred_at, _mutation_open = _validate_recovery_window(
             self._config, self._clock()
         )
         claim = _attempt_claim(snapshot, config=self._config)
@@ -4236,22 +4880,24 @@ class RouteBroker:
         dispatched_state = (
             stage.attempting.removesuffix("_ATTEMPTING") + "_DISPATCHED"
         )
-        if snapshot.state == dispatched_state:
-            return _stored_receipt(
-                snapshot,
-                config=self._config,
-                alias=RECOVERY_RECEIPT_ALIASES[1],
-                function_version=function_version,
-                state=dispatched_state,
-            )
-        if snapshot.state not in {stage.attempting, stage.uncertain}:
-            raise RouteBrokerError("RECOVERY_STATE_INVALID")
         create_dispatch = _dispatch_coordinates(snapshot)
         if create_dispatch["operation"] != _EXECUTOR_TO_CREATOR[operation]:
             raise RouteBrokerError("DISPATCH_COORDINATES_INVALID")
         request = self._config.request(operation)
         request["StackName"] = create_dispatch["stack_arn"]
         request["ChangeSetName"] = create_dispatch["change_set_arn"]
+        if snapshot.state == dispatched_state:
+            return self._executor_readback(
+                alias=operation,
+                receipt_alias=RECOVERY_RECEIPT_ALIASES[1],
+                function_version=function_version,
+                stage=stage,
+                snapshot=snapshot,
+                request_digest=digest_value(request),
+                occurred_at=occurred_at,
+            )
+        if snapshot.state not in {stage.attempting, stage.uncertain}:
+            raise RouteBrokerError("RECOVERY_STATE_INVALID")
         _attempt_claim(
             snapshot,
             config=self._config,
@@ -4306,6 +4952,11 @@ class RouteBroker:
             closeout_digest=None,
             generated_at=recovered_at,
             aws_mutations=0,
+            collision_admission_digest=(
+                str(claim["collision_admission_manifest_digest"])
+                if operation not in _REDUCING_ALIASES
+                else None
+            ),
         )
         self._cas(
             snapshot,
@@ -4437,6 +5088,7 @@ def _sdk_client_config(config_type: Any) -> Any:
         connect_timeout=3,
         read_timeout=8,
         retries={"total_max_attempts": 1, "mode": "standard"},
+        s3={"us_east_1_regional_endpoint": "regional"},
     )
 
 
@@ -4444,7 +5096,13 @@ _EXACT_SERVICE_ENDPOINT_HOSTS = {
     "cloudformation": f"cloudformation.{REGION}.amazonaws.com",
     "cloudtrail": f"cloudtrail.{REGION}.amazonaws.com",
     "dynamodb": f"dynamodb.{REGION}.amazonaws.com",
+    "iam": "iam.amazonaws.com",
+    "kms": f"kms.{REGION}.amazonaws.com",
+    "lambda": f"lambda.{REGION}.amazonaws.com",
+    "logs": f"logs.{REGION}.amazonaws.com",
+    "s3": f"s3.{REGION}.amazonaws.com",
     "s3control": f"s3-control.{REGION}.amazonaws.com",
+    "signer": f"signer.{REGION}.amazonaws.com",
     "sso-admin": f"sso.{REGION}.amazonaws.com",
     "sts": f"sts.{REGION}.amazonaws.com",
 }
@@ -4478,6 +5136,557 @@ def _client(session: Any, service: str, sdk_config: Any) -> Any:
     ):
         raise RouteBrokerError("AWS_CLIENT_ENDPOINT_INVALID")
     return client
+
+
+_COLLISION_SESSION_PURPOSES = {
+    "inventory": {
+        1: "policy-discovery-independent-scan-1",
+        2: "policy-discovery-independent-scan-2",
+    },
+    "inventory-and-candidate-detail": {
+        1: "independent-snapshot-1",
+        2: "independent-snapshot-2",
+        3: "pre-effect-snapshot",
+    },
+}
+_COLLISION_KMS_BINDING_SOURCE = "GUG393_PRIVATE_MATERIALIZATION"
+
+
+class _CollisionSdkSession:
+    """Enforce the broker transport policy on every provider client open."""
+
+    __slots__ = ("_session", "_sdk_config")
+
+    def __init__(self, session: Any, sdk_config: Any) -> None:
+        self._session = session
+        self._sdk_config = sdk_config
+
+    def client(self, service_name: str, *, region_name: str) -> Any:
+        if region_name != REGION:
+            raise RouteBrokerError("AWS_CLIENT_REGION_INVALID")
+        return _client(self._session, service_name, self._sdk_config)
+
+
+def _collision_reader_bindings(config: BrokerConfig) -> dict[str, Any]:
+    source_identity = f"gug376-collision-{config.source_commit}"
+    roles = {
+        "authority": {
+            "account_id": AUTHORITY_ACCOUNT_ID,
+            "role_arn": AUTHORITY_COLLISION_READER_ROLE_ARN,
+            "role_name": AUTHORITY_COLLISION_READER_ROLE_NAME,
+            "session_name": f"g376-col-a-{config.source_commit[:12]}",
+            "role_policy_digest": (
+                AUTHORITY_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST
+            ),
+            "role_trust_policy_digest": (
+                AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST
+            ),
+        },
+        "management": {
+            "account_id": MANAGEMENT_ACCOUNT_ID,
+            "role_arn": MANAGEMENT_COLLISION_READER_ROLE_ARN,
+            "role_name": MANAGEMENT_COLLISION_READER_ROLE_NAME,
+            "session_name": f"g376-col-m-{config.source_commit[:12]}",
+            "role_policy_digest": (
+                MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST
+            ),
+            "role_trust_policy_digest": (
+                MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST
+            ),
+        },
+    }
+    result: dict[str, Any] = {}
+    for domain, role in roles.items():
+        principal_arn = (
+            f"arn:aws:sts::{role['account_id']}:assumed-role/"
+            f"{role['role_name']}/{role['session_name']}"
+        )
+        authority_verification_digest = digest_value(
+            {
+                "source_commit": config.source_commit,
+                "domain": domain,
+                "role_arn": role["role_arn"],
+                "principal_arn": principal_arn,
+                "role_policy_digest": role["role_policy_digest"],
+                "role_trust_policy_digest": role["role_trust_policy_digest"],
+                "source_identity": source_identity,
+            }
+        )
+        result[domain] = {
+            "account_id": role["account_id"],
+            "source": "BROKER_SERVICE_ROLE",
+            "chain_depth": 1,
+            "principal_digest": digest_value(principal_arn),
+            "sso_role_name_digest": digest_value(role["role_name"]),
+            "role_arn_digest": digest_value(role["role_arn"]),
+            "role_policy_digest": role["role_policy_digest"],
+            "authority_verification_digest": authority_verification_digest,
+        }
+    return result
+
+
+def _collision_parameter_bindings(config: BrokerConfig) -> dict[str, Any]:
+    request = config.request("pep-create-v1")
+    parameters = request.get("Parameters")
+    if not isinstance(parameters, list):
+        raise RouteBrokerError("COLLISION_CONFIG_INVALID")
+    values: dict[str, str] = {}
+    for item in parameters:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"ParameterKey", "ParameterValue"}
+            or not isinstance(item.get("ParameterKey"), str)
+            or not isinstance(item.get("ParameterValue"), str)
+            or item["ParameterKey"] in values
+        ):
+            raise RouteBrokerError("COLLISION_CONFIG_INVALID")
+        values[item["ParameterKey"]] = item["ParameterValue"]
+    artifact_bucket = (
+        f"scanalyze-g376-art-{config.source_commit[:12]}-"
+        f"{AUTHORITY_ACCOUNT_ID}-{REGION}-an"
+    )
+    mode = values.get("IdentityCenterKmsMode")
+    raw_key_arn = values.get("IdentityCenterKmsKeyArn")
+    key_arn = raw_key_arn or None
+    if (
+        values.get("IdentityCenterInstanceArn")
+        != config.identity_center_instance_arn
+        or values.get("ArtifactBucket") != artifact_bucket
+        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or not isinstance(raw_key_arn, str)
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+        or (
+            mode == "CUSTOMER_MANAGED_KEY"
+            and re.fullmatch(
+                rf"arn:aws[a-z-]*:kms:{REGION}:{MANAGEMENT_ACCOUNT_ID}:key/"
+                r"[0-9A-Fa-f-]{36}",
+                str(key_arn),
+            )
+            is None
+        )
+    ):
+        raise RouteBrokerError("COLLISION_CONFIG_INVALID")
+    return {
+        "artifact_bucket_name": artifact_bucket,
+        "identity_center_kms_mode": mode,
+        "identity_center_kms_key_arn": key_arn,
+        "identity_center_kms_binding_digest": digest_value(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": config.identity_center_instance_arn,
+                "mode": mode,
+                "key_arn": key_arn,
+            }
+        ),
+    }
+
+
+def _collision_permission_set_name_index(
+    policy_set: Mapping[str, Any],
+) -> dict[str, str]:
+    stage = policy_set.get("stage")
+    if stage == "inventory":
+        return {}
+    if stage != "inventory-and-candidate-detail":
+        raise RouteBrokerError("COLLISION_POLICY_STAGE_INVALID")
+    evidence = policy_set.get("discovery_evidence")
+    domains = evidence.get("domains") if isinstance(evidence, Mapping) else None
+    management = (
+        domains.get("management") if isinstance(domains, Mapping) else None
+    )
+    group = (
+        management.get("sso_permission_set")
+        if isinstance(management, Mapping)
+        else None
+    )
+    pages = group.get("pages") if isinstance(group, Mapping) else None
+    candidates = policy_set.get("candidate_resources")
+    management_candidates = (
+        candidates.get("management") if isinstance(candidates, Mapping) else None
+    )
+    expected_arns = (
+        management_candidates.get("sso_permission_set")
+        if isinstance(management_candidates, Mapping)
+        else None
+    )
+    if not isinstance(pages, list) or not isinstance(expected_arns, list):
+        raise RouteBrokerError("COLLISION_PERMISSION_SET_INDEX_INVALID")
+    result: dict[str, str] = {}
+    for page in pages:
+        items = page.get("items") if isinstance(page, Mapping) else None
+        if not isinstance(items, list):
+            raise RouteBrokerError("COLLISION_PERMISSION_SET_INDEX_INVALID")
+        for item in items:
+            arn = item.get("PermissionSetArn") if isinstance(item, Mapping) else None
+            name = item.get("Name") if isinstance(item, Mapping) else None
+            if (
+                not isinstance(arn, str)
+                or _PERMISSION_SET_RE.fullmatch(arn) is None
+                or not isinstance(name, str)
+                or not name
+                or arn in result
+            ):
+                raise RouteBrokerError("COLLISION_PERMISSION_SET_INDEX_INVALID")
+            result[arn] = name
+    if set(result) != set(expected_arns):
+        raise RouteBrokerError("COLLISION_PERMISSION_SET_INDEX_INVALID")
+    return dict(sorted(result.items()))
+
+
+def _collision_session_opener_for_policy(
+    *,
+    config: BrokerConfig,
+    policy_set: Mapping[str, Any],
+    session_policies: Mapping[str, Mapping[str, Any]],
+    active_before_call: Callable[[], None],
+    authority_session: Any,
+    boto3_module: Any,
+    sdk_config: Any,
+    kms_bindings: Mapping[str, Any],
+    collision_budget_capability: object,
+) -> Callable[..., object]:
+    try:
+        from tooling import (
+            platform_authority_gug376_collision_aws_provider as collision_provider,
+        )
+        from tooling import (
+            platform_authority_gug376_collision_budget as collision_budget,
+        )
+        from tooling.platform_authority_gug365_upstream_inventory import (
+            canonical_json as collision_canonical_json,
+        )
+    except Exception as exc:
+        raise RouteBrokerError("COLLISION_RUNTIME_IMPORT_FAILED") from exc
+    if (
+        not callable(active_before_call)
+        or set(session_policies) != {"authority", "management"}
+    ):
+        raise RouteBrokerError("COLLISION_SESSION_POLICY_INVALID")
+    stage = policy_set.get("stage")
+    expected_purposes = _COLLISION_SESSION_PURPOSES.get(str(stage))
+    budget_stage = {
+        "inventory": "inventory",
+        "inventory-and-candidate-detail": "candidate",
+    }.get(str(stage))
+    policy_set_digest = _require_digest(
+        policy_set.get("policy_set_digest"),
+        "COLLISION_SESSION_POLICY_INVALID",
+    )
+    if expected_purposes is None or budget_stage is None:
+        raise RouteBrokerError("COLLISION_POLICY_STAGE_INVALID")
+    permission_set_name_by_arn = _collision_permission_set_name_index(policy_set)
+    role_values = {
+        "authority": {
+            "account_id": AUTHORITY_ACCOUNT_ID,
+            "role_arn": AUTHORITY_COLLISION_READER_ROLE_ARN,
+            "role_name": AUTHORITY_COLLISION_READER_ROLE_NAME,
+            "session_name": f"g376-col-a-{config.source_commit[:12]}",
+            "role_policy_digest": (
+                AUTHORITY_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST
+            ),
+            "role_trust_policy_digest": (
+                AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST
+            ),
+        },
+        "management": {
+            "account_id": MANAGEMENT_ACCOUNT_ID,
+            "role_arn": MANAGEMENT_COLLISION_READER_ROLE_ARN,
+            "role_name": MANAGEMENT_COLLISION_READER_ROLE_NAME,
+            "session_name": f"g376-col-m-{config.source_commit[:12]}",
+            "role_policy_digest": (
+                MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST
+            ),
+            "role_trust_policy_digest": (
+                MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST
+            ),
+        },
+    }
+    source_identity = f"gug376-collision-{config.source_commit}"
+
+    def open_session(
+        *,
+        domain: str,
+        expected_account_id: str,
+        region: str,
+        capture_index: int,
+        purpose: str,
+    ) -> object:
+        role = role_values.get(domain)
+        if (
+            role is None
+            or expected_account_id != role["account_id"]
+            or region != REGION
+            or type(capture_index) is not int
+            or expected_purposes.get(capture_index) != purpose
+        ):
+            raise RouteBrokerError("COLLISION_SESSION_REQUEST_INVALID")
+        policy_document = session_policies.get(domain)
+        if not isinstance(policy_document, Mapping):
+            raise RouteBrokerError("COLLISION_SESSION_POLICY_INVALID")
+        policy_json = collision_canonical_json(policy_document)
+        if len(policy_json.encode("utf-8")) > 2_048:
+            raise RouteBrokerError("COLLISION_SESSION_POLICY_TOO_LARGE")
+        session_policy_digest = digest_value(json.loads(policy_json))
+        try:
+            collision_budget.reserve_assume_role_open(
+                collision_budget_capability,
+                stage=budget_stage,
+                domain=domain,
+                purpose=purpose,
+                duration_seconds=900,
+            )
+        except collision_budget.CollisionBudgetError as exc:
+            raise RouteBrokerError("COLLISION_BUDGET_INVALID") from exc
+        active_before_call()
+        sts = _client(authority_session, "sts", sdk_config)
+        active_before_call()
+        try:
+            assumed = sts.assume_role(
+                RoleArn=role["role_arn"],
+                RoleSessionName=role["session_name"],
+                SourceIdentity=source_identity,
+                DurationSeconds=900,
+                Policy=policy_json,
+            )
+            credentials = assumed["Credentials"]
+            assumed_user = assumed["AssumedRoleUser"]
+            access_key = credentials["AccessKeyId"]
+            secret_key = credentials["SecretAccessKey"]
+            session_token = credentials["SessionToken"]
+        except Exception as exc:
+            raise RouteBrokerError("COLLISION_READER_ASSUME_FAILED") from exc
+        principal_arn = (
+            f"arn:aws:sts::{role['account_id']}:assumed-role/"
+            f"{role['role_name']}/{role['session_name']}"
+        )
+        assumed_role_id = (
+            assumed_user.get("AssumedRoleId")
+            if isinstance(assumed_user, Mapping)
+            else None
+        )
+        if (
+            not all(
+                isinstance(item, str) and item
+                for item in (access_key, secret_key, session_token)
+            )
+            or not isinstance(assumed_user, Mapping)
+            or assumed_user.get("Arn") != principal_arn
+            or not isinstance(assumed_role_id, str)
+            or not assumed_role_id.endswith(":" + role["session_name"])
+        ):
+            raise RouteBrokerError("COLLISION_READER_ASSUME_FAILED")
+        reader_session_parameters = {
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": secret_key,
+            "aws_session_token": session_token,
+            "region_name": REGION,
+        }
+        sdk_session = boto3_module.session.Session(**reader_session_parameters)
+        verification_digest = digest_value(
+            {
+                "source_commit": config.source_commit,
+                "domain": domain,
+                "role_arn": role["role_arn"],
+                "principal_arn": principal_arn,
+                "role_policy_digest": role["role_policy_digest"],
+                "role_trust_policy_digest": role["role_trust_policy_digest"],
+                "source_identity": source_identity,
+            }
+        )
+        management = domain == "management"
+        return collision_provider.OpenedReadOnlySession(
+            sdk_session=_CollisionSdkSession(sdk_session, sdk_config),
+            principal_arn=principal_arn,
+            sso_role_name=role["role_name"],
+            policy_digest=policy_set_digest,
+            authority_verification_digest=verification_digest,
+            session_nonce_digest=digest_value(
+                {
+                    "access_key_id": access_key,
+                    "assumed_role_id": assumed_role_id,
+                    "policy_digest": session_policy_digest,
+                }
+            ),
+            source="BROKER_SERVICE_ROLE",
+            chain_depth=1,
+            role_arn=role["role_arn"],
+            role_policy_digest=role["role_policy_digest"],
+            session_policy_digest=session_policy_digest,
+            identity_center_instance_arn=(
+                config.identity_center_instance_arn if management else None
+            ),
+            permission_set_name_by_arn=(
+                permission_set_name_by_arn if management else {}
+            ),
+            identity_center_kms_mode=(
+                kms_bindings["identity_center_kms_mode"]
+                if management
+                else None
+            ),
+            identity_center_kms_key_arn=(
+                kms_bindings["identity_center_kms_key_arn"]
+                if management
+                else None
+            ),
+            identity_center_kms_binding_source=(
+                _COLLISION_KMS_BINDING_SOURCE if management else None
+            ),
+            identity_center_kms_private_binding_digest=(
+                kms_bindings["identity_center_kms_binding_digest"]
+                if management
+                else None
+            ),
+        )
+
+    return open_session
+
+
+class _InlineCollisionAdmissionAdapter:
+    __slots__ = (
+        "_catalog",
+        "_identity_bindings",
+        "_identity_center_instance_arn",
+        "_kms_bindings",
+        "_session_opener_for_policy",
+        "_clock",
+    )
+
+    def __init__(
+        self,
+        *,
+        config: BrokerConfig,
+        session_opener_for_policy: Callable[..., Callable[..., object]],
+        kms_bindings: Mapping[str, Any],
+        clock: Callable[[], datetime],
+    ) -> None:
+        try:
+            from tooling.platform_authority_gug376_collision_catalog import (
+                materialize_route_collision_catalog,
+            )
+
+            self._catalog = materialize_route_collision_catalog(
+                source_commit_sha=config.source_commit,
+                source_tree_sha=config.source_tree_sha,
+                bootstrap_intent_digest=config.bootstrap_intent_digest,
+                not_before=_timestamp(config.route_not_before),
+                expires_at=_timestamp(config.route_not_after),
+                artifact_bucket_name=kms_bindings["artifact_bucket_name"],
+            )
+        except Exception as exc:
+            raise RouteBrokerError("COLLISION_CATALOG_INVALID") from exc
+        self._identity_bindings = _collision_reader_bindings(config)
+        self._identity_center_instance_arn = config.identity_center_instance_arn
+        self._kms_bindings = dict(kms_bindings)
+        self._session_opener_for_policy = session_opener_for_policy
+        self._clock = clock
+
+    def admit(
+        self,
+        *,
+        phase: str,
+        operation: str,
+        effect_request: Mapping[str, Any],
+        before_call: Callable[[], None],
+    ) -> object:
+        try:
+            from tooling import (
+                platform_authority_gug376_collision_broker_admission as broker_admission,
+            )
+
+            return broker_admission.execute_inline_broker_collision_admission(
+                catalog=self._catalog,
+                phase=phase,
+                operation=operation,
+                effect_request=effect_request,
+                identity_bindings=self._identity_bindings,
+                identity_center_instance_arn=self._identity_center_instance_arn,
+                session_opener_for_policy=self._session_opener_for_policy,
+                expected_identity_center_kms_binding_digest=self._kms_bindings[
+                    "identity_center_kms_binding_digest"
+                ],
+                clock=self._clock,
+                before_call=before_call,
+            )
+        except Exception as exc:
+            if isinstance(exc, RouteBrokerError):
+                raise
+            raise RouteBrokerError("COLLISION_ADMISSION_FAILED") from exc
+
+    @staticmethod
+    def manifest(capability: object) -> Mapping[str, Any]:
+        from tooling import (
+            platform_authority_gug376_collision_broker_admission as broker_admission,
+        )
+
+        return broker_admission.broker_collision_admission_manifest(capability)
+
+    @staticmethod
+    def consume(
+        capability: object,
+        *,
+        operation: str,
+        effect_request_digest: str,
+        expected_manifest_digest: str,
+        now: datetime,
+    ) -> object:
+        from tooling import (
+            platform_authority_gug376_collision_broker_admission as broker_admission,
+        )
+
+        return broker_admission.consume_broker_collision_admission(
+            capability,
+            operation=operation,
+            effect_request_digest=effect_request_digest,
+            expected_manifest_digest=expected_manifest_digest,
+            now=now,
+        )
+
+    @staticmethod
+    def revalidate(grant: object, *, now: datetime) -> str:
+        from tooling import (
+            platform_authority_gug376_collision_broker_admission as broker_admission,
+        )
+
+        return broker_admission.revalidate_broker_collision_admission_effect_grant(
+            grant,
+            now=now,
+        )
+
+
+def _build_inline_collision_admission_adapter(
+    *,
+    config: BrokerConfig,
+    authority_session: Any,
+    boto3_module: Any,
+    sdk_config: Any,
+    clock: Callable[[], datetime],
+) -> CollisionAdmissionPort:
+    kms_bindings = _collision_parameter_bindings(config)
+
+    def session_opener_for_policy(
+        policy_set: Mapping[str, Any],
+        session_policies: Mapping[str, Mapping[str, Any]],
+        active_before_call: Callable[[], None],
+        collision_budget_capability: object,
+    ) -> Callable[..., object]:
+        return _collision_session_opener_for_policy(
+            config=config,
+            policy_set=policy_set,
+            session_policies=session_policies,
+            active_before_call=active_before_call,
+            authority_session=authority_session,
+            boto3_module=boto3_module,
+            sdk_config=sdk_config,
+            kms_bindings=kms_bindings,
+            collision_budget_capability=collision_budget_capability,
+        )
+
+    return _InlineCollisionAdmissionAdapter(
+        config=config,
+        session_opener_for_policy=session_opener_for_policy,
+        kms_bindings=kms_bindings,
+        clock=clock,
+    )
 
 
 def _verify_sts_identity(
@@ -4529,13 +5738,6 @@ def _reject_ambient_endpoint_or_region() -> None:
 def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
     if _runtime_factory is not None:
         return _runtime_factory()
-    # Import is deliberately local: importing this module is AWS-free.
-    try:
-        import boto3  # type: ignore
-        from boto3.dynamodb.types import TypeDeserializer  # type: ignore
-        from botocore.config import Config  # type: ignore
-    except Exception as exc:  # pragma: no cover - deployment dependency gate.
-        raise RouteBrokerError("AWS_SDK_UNAVAILABLE") from exc
     try:
         envelope = json.loads(os.environ["BROKER_CONFIG_JSON"])
         config_raw = decode_runtime_config(envelope)
@@ -4576,6 +5778,15 @@ def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
         function_name=function_name,
         allowed=allowed_aliases,
     )
+    # Import is deliberately local.  SDK construction is still unable to
+    # reach a mutation client until the bound ledger preflight below proves an
+    # exact reducing predecessor or an already-dispatched readback state.
+    try:
+        import boto3  # type: ignore
+        from boto3.dynamodb.types import TypeDeserializer  # type: ignore
+        from botocore.config import Config  # type: ignore
+    except Exception as exc:  # pragma: no cover - deployment dependency gate.
+        raise RouteBrokerError("AWS_SDK_UNAVAILABLE") from exc
     budget = _InvocationBudget(context)
     _reject_ambient_endpoint_or_region()
     sdk_config = _sdk_client_config(Config)
@@ -4596,14 +5807,40 @@ def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
         config=config,
     )
     ledger.set_budget(budget)
+    allowed_reducing_alias: str | None = None
+    collision_admission: CollisionAdmissionPort | None = None
+
+    def runtime_clock() -> datetime:
+        return datetime.now(timezone.utc)
+
     if handler_kind in {"creator", "executor"}:
-        _runtime_ledger_preflight(
+        ledger_state = _runtime_ledger_preflight(
             config=config,
             ledger=ledger,
             handler_kind=handler_kind,
             alias=alias,
-            now=datetime.now(timezone.utc),
+            now=runtime_clock(),
         )
+        if alias in _REDUCING_ALIASES and not _reducing_state_allowed(
+            handler_kind=handler_kind,
+            alias=alias,
+            ledger_state=ledger_state,
+        ):
+            raise RouteBrokerError("REDUCING_OPERATION_STATE_INVALID")
+        if alias in _REDUCING_ALIASES:
+            allowed_reducing_alias = alias
+        if _collision_admission_required(
+            handler_kind=handler_kind,
+            alias=alias,
+            ledger_state=ledger_state,
+        ):
+            collision_admission = _build_inline_collision_admission_adapter(
+                config=config,
+                authority_session=session,
+                boto3_module=boto3,
+                sdk_config=sdk_config,
+                clock=runtime_clock,
+            )
     else:
         ledger.verify_control_plane()
     session_binding = f"gug376-{handler_kind}-{config.source_commit}"
@@ -4663,7 +5900,10 @@ def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
         AUTHORITY_ACCOUNT_ID: authority_cloudformation,
         MANAGEMENT_ACCOUNT_ID: management_cloudformation,
     }
-    effects = _AwsEffects(cloudformation_by_account)
+    effects = _AwsEffects(
+        cloudformation_by_account,
+        allowed_reducing_alias=allowed_reducing_alias,
+    )
     evidence = _AwsEvidence(
         cloudformation_by_account=cloudformation_by_account,
         sso_admin=management_sso,
@@ -4682,7 +5922,8 @@ def _runtime_from_environment(handler_kind: str, context: Any) -> RouteBroker:
         ledger=ledger,
         effects=effects,
         evidence=evidence,
-        clock=lambda: datetime.now(timezone.utc),
+        clock=runtime_clock,
+        collision_admission=collision_admission,
     )
 
 
@@ -5413,17 +6654,44 @@ class _AwsLedger:
 
 
 class _AwsEffects:
-    def __init__(self, cloudformation_by_account: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        cloudformation_by_account: Mapping[str, Any],
+        *,
+        allowed_reducing_alias: str | None = None,
+    ) -> None:
         if set(cloudformation_by_account) != {
             AUTHORITY_ACCOUNT_ID,
             MANAGEMENT_ACCOUNT_ID,
         }:
             raise RouteBrokerError("AWS_CLIENT_ACCOUNT_MAP_INVALID")
+        if (
+            allowed_reducing_alias is not None
+            and allowed_reducing_alias not in _REDUCING_ALIASES
+        ):
+            raise RouteBrokerError("REDUCING_OPERATION_ALIAS_INVALID")
         self._cloudformation = dict(cloudformation_by_account)
+        self._allowed_reducing_alias = allowed_reducing_alias
 
     def create_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]:
+        if operation in _REDUCING_CREATOR_ALIASES and (
+            operation != self._allowed_reducing_alias
+        ):
+            raise RouteBrokerError("REDUCING_OPERATION_STATE_INVALID")
+        # This must remain the last instruction before the SDK mutation.  It
+        # consumes a process-local one-shot permit and rechecks both the route
+        # window and, for expansive operations, the consumed admission grant.
+        _consume_effect_permit(
+            permit,
+            operation=operation,
+            request=request,
+        )
         response = self._cloudformation[operation_account(operation)].create_change_set(
             **dict(request)
         )
@@ -5435,8 +6703,22 @@ class _AwsEffects:
         }
 
     def execute_change_set(
-        self, *, operation: str, request: Mapping[str, Any]
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        permit: object,
     ) -> Mapping[str, Any]:
+        if operation in _REDUCING_EXECUTOR_ALIASES and (
+            operation != self._allowed_reducing_alias
+        ):
+            raise RouteBrokerError("REDUCING_OPERATION_STATE_INVALID")
+        # Keep the permit revalidation immediately adjacent to CloudFormation.
+        _consume_effect_permit(
+            permit,
+            operation=operation,
+            request=request,
+        )
         response = self._cloudformation[operation_account(operation)].execute_change_set(
             **dict(request)
         )
@@ -5461,6 +6743,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         repair_table_name: str,
         deserializer: Any,
         config: BrokerConfig,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if set(cloudformation_by_account) != {
             AUTHORITY_ACCOUNT_ID,
@@ -5480,6 +6763,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         self._repair_table = repair_table_name
         self._deserializer = deserializer
         self._config = config
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def _decode(self, item: Mapping[str, Any]) -> dict[str, Any]:
         return {key: self._deserializer.deserialize(value) for key, value in item.items()}
@@ -5899,7 +7183,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
                     }
                 ],
                 "StartTime": claimed_at,
-                "EndTime": datetime.now(timezone.utc),
+                "EndTime": self._clock(),
                 "MaxResults": 50,
             },
             error_code="CREATE_RECOVERY_PENDING",
@@ -5988,7 +7272,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
             contract=contract,
             parent_receipt_digest=str(claim["claim_digest"]),
         )
-        recovered_at = datetime.now(timezone.utc)
+        recovered_at = self._clock()
         value = {
             "schema_version": 1,
             "record_type": CREATE_RECOVERY_RECORD_TYPE,
@@ -6043,7 +7327,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
                     }
                 ],
                 "StartTime": claimed_at,
-                "EndTime": datetime.now(timezone.utc),
+                "EndTime": self._clock(),
                 "MaxResults": 50,
             },
             error_code="EXECUTE_RECOVERY_PENDING",
@@ -6153,7 +7437,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         )
         if template_digest != contract["template_digest"]:
             raise RouteBrokerError("EXECUTE_RECOVERY_READBACK_INVALID")
-        read_at = datetime.now(timezone.utc)
+        read_at = self._clock()
         event_projection = {
             "event_id": event["eventID"],
             "event_time": event["eventTime"],
@@ -6192,7 +7476,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
             "request_digest": digest_value(_json_copy(request)),
             "dispatch": dispatch,
             "change_set_snapshot": snapshot,
-            "recovered_at": _timestamp(datetime.now(timezone.utc)),
+            "recovered_at": _timestamp(self._clock()),
         }
         return seal(value, "recovery_digest")
 
@@ -6382,7 +7666,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         )
         if template_digest != contract["template_digest"]:
             raise RouteBrokerError("CHANGE_SET_TEMPLATE_INVALID")
-        now = datetime.now(timezone.utc)
+        now = self._clock()
         cloudtrail_digest = self._create_event_digest(
             account_id=account_id,
             operation=operation,
@@ -6681,7 +7965,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         execute_request["ChangeSetName"] = dispatch["change_set_arn"]
         if digest_value(execute_request) != dispatch.get("execute_request_digest"):
             raise RouteBrokerError("EXECUTE_REQUEST_BINDING_INVALID")
-        event_end_time = datetime.now(timezone.utc)
+        event_end_time = self._clock()
         execute_cloudtrail_event_digest = self._execute_event_digest(
             account_id=account_id,
             operation=operation,
@@ -6715,7 +7999,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
         )
         if final_projection != stack_projection:
             raise RouteBrokerError("TERMINAL_SNAPSHOT_CHANGED", uncertain=True)
-        read_at = datetime.now(timezone.utc)
+        read_at = self._clock()
         value = {
             "schema_version": 1,
             "record_type": TERMINAL_READBACK_RECORD_TYPE,
@@ -6805,7 +8089,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
             "assignment_count": len(assignments),
             "terminal": True,
             "terminal_readback_digest": terminal_readback_digest,
-            "read_at": _timestamp(datetime.now(timezone.utc)),
+            "read_at": _timestamp(self._clock()),
         }
         return seal(value, "readback_digest")
 
@@ -7014,7 +8298,7 @@ class _AwsEvidence(_AwsDelegationReadbackMixin):
             "complete": True,
             "normal_plan_caller_arn_digest": normal_plan_caller_arn_digest,
             "parent_events_digest": parent_events_digest,
-            "read_at": _timestamp(datetime.now(timezone.utc)),
+            "read_at": _timestamp(self._clock()),
         }
         return seal(value, "readback_digest")
 

@@ -713,6 +713,26 @@ _CONNECTED_METHODS = {
 }
 
 
+# These actions require a one-shot collision admission except for the exact
+# reducing bridge revoke. Cleanup aliases are strictly reducing and never
+# accept an admission root that their provider would not consume.
+_MUTATING_CONNECTED_ACTIONS = frozenset(
+    {
+        "dispatch-change-set",
+        "execute-change-set",
+        "dispatch-bridge-pin",
+        "execute-bridge-pin",
+        "dispatch-access-update",
+        "execute-access-update",
+        "publish-object",
+        "start-signing-job",
+    }
+)
+_BRIDGE_REVOKE_CONNECTED_ACTIONS = frozenset(
+    {"dispatch-change-set", "execute-change-set"}
+)
+
+
 _CLEANUP_CONNECTED_ACTIONS = frozenset(
     {
         "dispatch-cleanup-retire",
@@ -725,6 +745,27 @@ _CLEANUP_CONNECTED_ACTIONS = frozenset(
 )
 
 
+def _collision_operation_for_action(
+    action: str, data: Mapping[str, Any]
+) -> str:
+    if action == "dispatch-change-set":
+        return f"{data.get('operation')}:dispatch"
+    if action == "execute-change-set":
+        return f"{data.get('operation')}:execute"
+    operations = {
+        "dispatch-bridge-pin": "bridge-pin:dispatch",
+        "execute-bridge-pin": "bridge-pin:execute",
+        "dispatch-access-update": "foundation-access-update:dispatch",
+        "execute-access-update": "foundation-access-update:execute",
+        "publish-object": "publish-object",
+        "start-signing-job": "start-signing-job",
+    }
+    operation = operations.get(action)
+    if operation is None:
+        raise CliError("COLLISION_ADMISSION_OPERATION_INVALID")
+    return operation
+
+
 def _seed_modules() -> tuple[Any, Any]:
     from tooling import (
         platform_authority_plan_permission_repair_deployment_route as route,
@@ -735,6 +776,14 @@ def _seed_modules() -> tuple[Any, Any]:
     )
 
     return route, connected
+
+
+def _collision_atomic_context_module() -> Any:
+    from tooling import (
+        platform_authority_gug376_collision_atomic_context as context,
+    )
+
+    return context
 
 
 def _seed_provider(
@@ -875,10 +924,32 @@ def _connected(
     bundle: Mapping[str, Any],
     *,
     source_root: Path,
+    private_root: Path,
     profile: str,
     claim_root: Path,
+    collision_admission_root: Path | None = None,
+    gug393_private_root: Path | None = None,
+    gug395_private_root: Path | None = None,
 ) -> dict[str, Any]:
-    data = _exact(bundle, _CONNECTED_FIELDS[action])
+    collision_admission_required = action in _MUTATING_CONNECTED_ACTIONS and not (
+        action in _BRIDGE_REVOKE_CONNECTED_ACTIONS
+        and isinstance(bundle, Mapping)
+        and bundle.get("operation") == "bridge-revoke"
+    )
+    fields = set(_CONNECTED_FIELDS[action])
+    data = _exact(bundle, fields)
+    if collision_admission_required and (
+        collision_admission_root is None
+        or gug393_private_root is None
+        or gug395_private_root is None
+    ):
+        raise CliError("COLLISION_ADMISSION_REQUIRED")
+    if not collision_admission_required and (
+        collision_admission_root is not None
+        or gug393_private_root is not None
+        or gug395_private_root is not None
+    ):
+        raise CliError("COLLISION_ADMISSION_FORBIDDEN")
     if not claim_root.is_absolute() or claim_root.is_symlink():
         raise CliError("CLAIM_ROOT_INVALID")
     if action == "publish-object":
@@ -932,6 +1003,38 @@ def _connected(
             raise CliError("CLEANUP_RETIRE_MODE_INVALID")
         data["operation"] = "bridge-cleanup-retire"
 
+    collision_admission_loader = None
+    if collision_admission_root is not None:
+        assert gug393_private_root is not None
+        assert gug395_private_root is not None
+        authorization = data.get("authorization")
+        bootstrap_intent = data.get("bootstrap_intent")
+        if not isinstance(authorization, Mapping) or not isinstance(
+            bootstrap_intent, Mapping
+        ):
+            raise CliError("COLLISION_APPROVAL_BINDING_INVALID")
+        context = _collision_atomic_context_module()
+        collision_admission_loader = (
+            context.build_atomic_loader_from_private_context(
+                admission_private_root=collision_admission_root,
+                effect_private_root=private_root,
+                gug393_private_root=gug393_private_root,
+                gug395_private_root=gug395_private_root,
+                expected_approval_reference_digest=authorization.get(
+                    "authorization_digest"
+                ),
+                expected_authorized_at=authorization.get("authorized_at"),
+                expected_expires_at=authorization.get("expires_at"),
+                expected_operation=_collision_operation_for_action(
+                    action, data
+                ),
+                expected_source_commit_sha=bootstrap_intent.get(
+                    "source_commit"
+                ),
+                environment=os.environ,
+            )
+        )
+
     session = boto3.Session(profile_name=profile, region_name=contract.REGION)
     aws_boundary = _aws_module()
     clients = aws_boundary.clients_from_session(
@@ -940,12 +1043,19 @@ def _connected(
     )
     claims = aws_boundary.OExclClaimStore(claim_root)
     try:
+        provider_kwargs: dict[str, Any] = {
+            "clients": clients,
+            "claims": claims,
+            "profile": profile,
+            "clock": lambda: datetime.now(timezone.utc),
+            "cleanup_success_revalidator": cleanup_revalidator,
+        }
+        if collision_admission_loader is not None:
+            provider_kwargs["collision_admission_loader"] = (
+                collision_admission_loader
+            )
         provider = aws_boundary.ConnectedArtifactBootstrapProvider(
-            clients=clients,
-            claims=claims,
-            profile=profile,
-            clock=lambda: datetime.now(timezone.utc),
-            cleanup_success_revalidator=cleanup_revalidator,
+            **provider_kwargs,
         )
         method = getattr(provider, _CONNECTED_METHODS[action])
         return method(**data, source_root=source_root)
@@ -986,6 +1096,9 @@ def _parser() -> argparse.ArgumentParser:
                 required=True,
             )
             command.add_argument("--claim-root", type=Path, required=True)
+            command.add_argument("--collision-admission-root", type=Path)
+            command.add_argument("--gug393-private-root", type=Path)
+            command.add_argument("--gug395-private-root", type=Path)
     return parser
 
 
@@ -1007,8 +1120,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.action,
                 bundle,
                 source_root=args.source_root,
+                private_root=_root,
                 profile=args.profile,
                 claim_root=args.claim_root,
+                collision_admission_root=args.collision_admission_root,
+                gug393_private_root=args.gug393_private_root,
+                gug395_private_root=args.gug395_private_root,
             )
         else:
             result = _offline(

@@ -175,6 +175,136 @@ def test_cleanup_connected_actions_have_exact_bundles_and_provider_routes() -> N
         "recover-cleanup-retire-execution": "recover_change_set_execution",
         "readback-cleanup-retire": "readback_stack",
     }
+    assert not (cli._CLEANUP_CONNECTED_ACTIONS & cli._MUTATING_CONNECTED_ACTIONS)
+
+
+@pytest.mark.parametrize(
+    ("action", "extra"),
+    [
+        ("dispatch-cleanup-retire", {"authorization": {}}),
+        ("attest-cleanup-retire", {"dispatch_receipt": {}}),
+        (
+            "execute-cleanup-retire",
+            {
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+        ),
+        ("recover-cleanup-retire", {}),
+        (
+            "recover-cleanup-retire-execution",
+            {"dispatch_receipt": {}, "change_set_attestation": {}},
+        ),
+        ("readback-cleanup-retire", {}),
+    ],
+)
+def test_all_cleanup_aliases_forbid_atomic_roots_before_sdk(
+    tmp_path: Path,
+    action: str,
+    extra: Mapping[str, Any],
+) -> None:
+    cli = _load_cli()
+    with pytest.raises(cli.CliError, match="COLLISION_ADMISSION_FORBIDDEN"):
+        cli._connected(
+            action,
+            {**_cleanup_bundle(mode="EXPIRED"), **dict(extra)},
+            source_root=ROOT,
+            private_root=tmp_path,
+            profile=pure.MANAGEMENT_PROFILE,
+            claim_root=tmp_path,
+            collision_admission_root=tmp_path / "admission",
+            gug393_private_root=tmp_path / "gug393",
+            gug395_private_root=tmp_path / "gug395",
+        )
+
+
+@pytest.mark.parametrize(
+    ("action", "extra", "method_name"),
+    [
+        (
+            "dispatch-cleanup-retire",
+            {"authorization": {}},
+            "dispatch_change_set_once",
+        ),
+        (
+            "execute-cleanup-retire",
+            {
+                "dispatch_receipt": {},
+                "change_set_attestation": {},
+                "authorization": {},
+            },
+            "execute_change_set_once",
+        ),
+    ],
+)
+def test_cleanup_mutations_construct_provider_without_collision_loader(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    action: str,
+    extra: Mapping[str, Any],
+    method_name: str,
+) -> None:
+    cli = _load_cli()
+    profiles: list[str] = []
+    _install_fake_sdk(monkeypatch, session_profiles=profiles)
+    provider_kwargs: list[dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
+
+    class Claims:
+        def __init__(self, root: Path) -> None:
+            assert root == tmp_path
+
+        def close(self) -> None:
+            pass
+
+    class Provider:
+        def __init__(self, **kwargs: Any) -> None:
+            provider_kwargs.append(kwargs)
+            assert "collision_admission_loader" not in kwargs
+
+        def dispatch_change_set_once(self, **kwargs: Any) -> dict[str, Any]:
+            assert method_name == "dispatch_change_set_once"
+            calls.append(kwargs)
+            return {"status": "DISPATCHED"}
+
+        def execute_change_set_once(self, **kwargs: Any) -> dict[str, Any]:
+            assert method_name == "execute_change_set_once"
+            calls.append(kwargs)
+            return {"status": "EXECUTED"}
+
+    boundary = SimpleNamespace(
+        sdk_client_config=lambda _config: object(),
+        clients_from_session=lambda _session, _config: object(),
+        OExclClaimStore=Claims,
+        ConnectedArtifactBootstrapProvider=Provider,
+    )
+    monkeypatch.setattr(cli, "_aws_module", lambda: boundary)
+    monkeypatch.setattr(
+        cli.contract,
+        "validate_bridge_cleanup_retire",
+        lambda *_args, **_kwargs: {"mode": "EXPIRED"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "_collision_atomic_context_module",
+        lambda: pytest.fail("reducing cleanup must not build collision context"),
+    )
+
+    result = cli._connected(
+        action,
+        {**_cleanup_bundle(mode="EXPIRED"), **dict(extra)},
+        source_root=ROOT,
+        private_root=tmp_path,
+        profile=pure.MANAGEMENT_PROFILE,
+        claim_root=tmp_path,
+    )
+
+    assert result["status"] in {"DISPATCHED", "EXECUTED"}
+    assert profiles == [pure.MANAGEMENT_PROFILE]
+    assert len(provider_kwargs) == 1
+    assert len(calls) == 1
+    assert calls[0]["operation"] == "bridge-cleanup-retire"
 
 
 def test_offline_cleanup_materialize_and_authorize_use_exact_bundles(
@@ -428,6 +558,7 @@ def test_expired_connected_cleanup_opens_only_main_management_session(
         "readback-cleanup-retire",
         _cleanup_bundle(mode="EXPIRED"),
         source_root=ROOT,
+        private_root=tmp_path,
         profile=pure.MANAGEMENT_PROFILE,
         claim_root=tmp_path,
     )
@@ -447,6 +578,7 @@ def test_expired_connected_cleanup_opens_only_main_management_session(
             "readback-cleanup-retire",
             invalid,
             source_root=ROOT,
+            private_root=tmp_path,
             profile=pure.MANAGEMENT_PROFILE,
             claim_root=tmp_path,
         )
@@ -520,6 +652,7 @@ def test_success_readback_runs_cli_owned_jit_callback_before_provider(
         "readback-cleanup-retire",
         bundle,
         source_root=ROOT,
+        private_root=tmp_path,
         profile=pure.MANAGEMENT_PROFILE,
         claim_root=tmp_path,
     )
@@ -608,6 +741,7 @@ def test_connected_cleanup_bundle_cannot_inject_callback(
             "readback-cleanup-retire",
             bundle,
             source_root=ROOT,
+            private_root=tmp_path,
             profile=pure.MANAGEMENT_PROFILE,
             claim_root=tmp_path,
         )

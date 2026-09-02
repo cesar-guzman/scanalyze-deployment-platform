@@ -23,8 +23,12 @@ from tooling import (  # noqa: E402
 from tooling import (  # noqa: E402
     platform_authority_plan_permission_repair_deployment_route_aws as connected,
 )
-
-
+from tooling import (  # noqa: E402
+    platform_authority_gug376_collision_admission as collision_admission,
+)
+from tooling import (  # noqa: E402
+    platform_authority_gug376_collision_atomic_context as collision_context,
+)
 MAX_PRIVATE_JSON_BYTES = 16 * 1024 * 1024
 PROFILE_BY_OPERATION = {
     ("create-change-set", "route"): "839393571433_AWSAdministratorAccess",
@@ -320,6 +324,21 @@ def _parser() -> argparse.ArgumentParser:
     commands.choices["create-change-set"].add_argument(
         "--authorization-name", type=Path, required=True
     )
+    commands.choices["create-change-set"].add_argument(
+        "--collision-admission-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["create-change-set"].add_argument(
+        "--gug393-private-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["create-change-set"].add_argument(
+        "--gug395-private-root",
+        type=Path,
+        required=True,
+    )
     commands.choices["recover-create-change-set"].add_argument(
         "--intent-name", type=Path, required=True
     )
@@ -340,6 +359,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.choices["execute-change-set"].add_argument(
         "--authorization-name", type=Path, required=True
+    )
+    commands.choices["execute-change-set"].add_argument(
+        "--collision-admission-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["execute-change-set"].add_argument(
+        "--gug393-private-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["execute-change-set"].add_argument(
+        "--gug395-private-root",
+        type=Path,
+        required=True,
     )
     commands.choices["recover-execute-change-set"].add_argument(
         "--execution-intent-name", type=Path, required=True
@@ -384,6 +418,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         execution_authorization: dict[str, Any] | None = None
         execution: dict[str, Any] | None = None
         execution_receipt: dict[str, Any] | None = None
+        admission_binding: dict[str, str] | None = None
         if args.command == "create-change-set":
             seed_input = _read(root, root_fd, args.input_name)
             route.validate_seed_intent_against_input(
@@ -400,6 +435,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_intent=seed_intent,
                 target=args.target,
                 now=evaluated_at,
+            )
+            admission_binding = connected.derive_collision_admission_binding(
+                action="create",
+                target=args.target,
+                seed_input=seed_input,
+                seed_intent=seed_intent,
             )
         elif args.command == "execute-change-set":
             seed_input = _read(root, root_fd, args.input_name)
@@ -427,6 +468,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed_intent=seed_intent,
                 create_attestation=create_attestation,
                 now=evaluated_at,
+            )
+            admission_binding = connected.derive_collision_admission_binding(
+                action="execute",
+                target=args.target,
+                seed_input=seed_input,
+                seed_intent=seed_intent,
+                execution_intent=execution,
             )
         else:
             route.validate_seed_intent_against_git(seed_intent, git=git)
@@ -464,10 +512,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             root_fd,
             args.receipt_name,
         )
+        collision_admission_loader = None
+        if admission_binding is not None:
+            approval = (
+                creation_authorization
+                if args.command == "create-change-set"
+                else execution_authorization
+            )
+            assert approval is not None
+            collision_admission_loader = (
+                collision_context.build_atomic_loader_from_private_context(
+                    admission_private_root=args.collision_admission_root,
+                    effect_private_root=root,
+                    gug393_private_root=args.gug393_private_root,
+                    gug395_private_root=args.gug395_private_root,
+                    expected_approval_reference_digest=approval[
+                        "authorization_digest"
+                    ],
+                    expected_authorized_at=approval["authorized_at"],
+                    expected_expires_at=approval["expires_at"],
+                    expected_operation=admission_binding[
+                        "collision_operation"
+                    ],
+                    expected_source_commit_sha=seed_intent["source_commit"],
+                    environment=os.environ,
+                )
+            )
         provider = _provider(root, root_fd, profile=args.profile)
         if args.command == "create-change-set":
             assert seed_input is not None
             assert creation_authorization is not None
+            assert collision_admission_loader is not None
             mutation_operation = True
             value = provider.create_change_set(
                 seed_input=seed_input,
@@ -475,6 +550,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 git=git,
                 target=args.target,
                 creation_authorization=creation_authorization,
+                collision_admission_loader=collision_admission_loader,
             )
         elif args.command == "recover-create-change-set":
             value = provider.recover_create_change_set(
@@ -492,6 +568,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert create_attestation is not None
             assert execution_authorization is not None
             assert execution is not None
+            assert collision_admission_loader is not None
             mutation_operation = True
             value = provider.execute_change_set(
                 seed_input=seed_input,
@@ -500,6 +577,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 create_attestation=create_attestation,
                 execution_authorization=execution_authorization,
                 execution_intent=execution,
+                collision_admission_loader=collision_admission_loader,
             )
         elif args.command == "recover-execute-change-set":
             assert execution is not None
@@ -530,7 +608,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0
-    except (connected.ConnectedRouteError, route.RouteSeedError) as exc:
+    except (
+        connected.ConnectedRouteError,
+        route.RouteSeedError,
+        collision_admission.RouteCollisionAdmissionError,
+        collision_context.AtomicCollisionContextError,
+    ) as exc:
         code = exc.code
         uncertain = isinstance(exc, connected.ConnectedRouteError) and exc.uncertain
         if output_fd is not None:

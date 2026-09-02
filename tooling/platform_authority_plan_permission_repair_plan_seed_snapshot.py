@@ -32,9 +32,9 @@ from tooling import platform_authority_plan_permission_repair_deployment_route a
 
 
 AUTHORITY_PROFILE = "042360977644_AWSReadOnlyAccess"
-MANAGEMENT_PROFILE = "839393571433_ScanalyzeFounderPepIdentityAdmin"
+MANAGEMENT_PROFILE = "839393571433_ReadOnlyAccess"
 AUTHORITY_SSO_ROLE = "AWSReadOnlyAccess"
-MANAGEMENT_SSO_ROLE = "ScanalyzeFounderPepIdentityAdmin"
+MANAGEMENT_SSO_ROLE = "AWSReadOnlyAccess"
 EXPECTED_REGION = route.REGION
 DEFAULT_OUTPUT_NAME = "plan-seed-snapshot.json"
 POLICY_SOURCE_PATH = "policies/iam/platform-authority-bootstrap-plan-role.json"
@@ -70,7 +70,7 @@ _CALLER_PATTERNS = {
     ),
     route.MANAGEMENT_ACCOUNT_ID: re.compile(
         r"^arn:aws:sts::839393571433:assumed-role/"
-        r"AWSReservedSSO_ScanalyzeFounderPepIdentityAdmin_[0-9A-Fa-f]{16}/"
+        r"AWSReservedSSO_AWSReadOnlyAccess_[0-9A-Fa-f]{16}/"
         r"[A-Za-z0-9+=,.@_-]{1,64}$"
     ),
 }

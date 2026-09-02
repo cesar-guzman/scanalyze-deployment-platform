@@ -16,6 +16,10 @@ NOT_BEFORE = "2026-08-28T01:00:00Z"
 EXPIRES_AT = "2026-08-28T01:15:00Z"
 AUTHORITY_ACCOUNT = "042360977644"
 IDENTITY_ACCOUNT = "839393571433"
+ARTIFACT_BUCKET = (
+    "scanalyze-g376-art-111111111111-"
+    f"{AUTHORITY_ACCOUNT}-us-east-1-an"
+)
 AUTHORITY_PRINCIPAL = (
     "arn:aws:sts::042360977644:assumed-role/AWSReadOnlyAccess/gug395-audit"
 )
@@ -99,8 +103,9 @@ def _request() -> dict[str, Any]:
     targets = {
         "artifact_bucket": {
             "domain": "authority",
-            "selector_kind": "GLOBAL_BUCKET_NAME_AND_TAG",
-            "name": "scanalyze-gug395-example",
+            "selector_kind": "ACCOUNT_REGIONAL_BUCKET_NAME_AND_TAG",
+            "name": ARTIFACT_BUCKET,
+            "bucket_namespace": "account-regional",
             "expected_tag_contract_digest": authority_tag_digest,
         },
         "kms_key": {
@@ -256,18 +261,38 @@ def _identity(
 def _authority_facts(
     collisions: list[str], *, facts_marker: str
 ) -> dict[str, Any]:
-    bucket_details = (
-        []
-        if facts_marker == "stable"
-        else [
+    artifact_collision = "artifact_bucket" in collisions
+    discovered_buckets = (
+        [
             {
-                "name": "unrelated-owned-bucket",
-                "tags": {"Absent": "NoSuchTagSet"},
-                "tag_contract_matches": False,
+                "Name": ARTIFACT_BUCKET,
+                "BucketRegion": subject.REGION,
             }
         ]
+        if artifact_collision
+        else (
+            []
+            if facts_marker == "stable"
+            else [
+                {
+                    "Name": f"{ARTIFACT_BUCKET}-other",
+                    "BucketRegion": subject.REGION,
+                }
+            ]
+        )
     )
-    artifact_collision = "artifact_bucket" in collisions
+    owned_matches = [
+        item for item in discovered_buckets if item["Name"] == ARTIFACT_BUCKET
+    ]
+    bucket_details = [
+        {
+            "name": ARTIFACT_BUCKET,
+            "bucket_region": subject.REGION,
+            "tags": {"Absent": "NoSuchTagSet"},
+            "tag_contract_matches": False,
+        }
+        for _ in owned_matches
+    ]
     alias_matches = (
         [{"AliasName": "alias/scanalyze-gug395"}]
         if "kms_key" in collisions
@@ -311,16 +336,15 @@ def _authority_facts(
     ]
     return {
         "artifact_bucket": {
-            "target_name": "scanalyze-gug395-example",
-            "owned_bucket_count": len(bucket_details),
-            "owned_matches": [],
-            "head": {
-                "status_code": 200 if artifact_collision else 404,
-                "collision": artifact_collision,
-                "absent": not artifact_collision,
-            },
+            "target_name": ARTIFACT_BUCKET,
+            "bucket_namespace": "account-regional",
+            "bucket_region": subject.REGION,
+            "owned_bucket_count": len(discovered_buckets),
+            "discovered_buckets": discovered_buckets,
+            "owned_matches": owned_matches,
             "bucket_details": bucket_details,
             "tag_matches": [],
+            "absent": not owned_matches,
             "collision": artifact_collision,
         },
         "kms_key": {
@@ -468,8 +492,6 @@ def _provider_facts(
     prerequisites_ready: bool = True,
 ) -> dict[str, Any]:
     checked_collisions = sorted([] if collisions is None else collisions)
-    if domain == "authority" and "artifact_bucket" not in checked_collisions:
-        checked_collisions = sorted([*checked_collisions, "artifact_bucket"])
     facts = (
         _authority_facts(checked_collisions, facts_marker=facts_marker)
         if domain == "authority"
@@ -586,7 +608,6 @@ def _successful_provider_and_budget_evidence(
         "authority": (
             "sts:GetCallerIdentity",
             "s3:ListAllMyBuckets",
-            "s3:HeadBucket",
             "kms:ListAliases",
             "kms:ListKeys",
             "signer:ListSigningProfiles",
@@ -618,9 +639,10 @@ def _successful_provider_and_budget_evidence(
         identity = snapshot["identity"]
         fixed_requests: dict[str, dict[str, Any]] = {
             "sts:GetCallerIdentity": {},
-            "s3:ListAllMyBuckets": {},
-            "s3:HeadBucket": {
-                "Bucket": request["targets"]["artifact_bucket"]["name"]
+            "s3:ListAllMyBuckets": {
+                "BucketRegion": subject.REGION,
+                "Prefix": request["targets"]["artifact_bucket"]["name"],
+                "MaxBuckets": request["budget"]["max_owned_buckets"],
             },
             "kms:ListAliases": {},
             "kms:ListKeys": {},
@@ -677,11 +699,7 @@ def _successful_provider_and_budget_evidence(
                     "UserIdPresent": True,
                 }
                 if operation == "sts:GetCallerIdentity"
-                else (
-                    snapshot["facts"]["artifact_bucket"]["head"]
-                    if operation == "s3:HeadBucket"
-                    else {"operation": operation, "projected": True}
-                )
+                else {"operation": operation, "projected": True}
             )
             ledger.complete(
                 ticket,
@@ -862,7 +880,7 @@ def test_target_catalog_is_the_exact_seven_target_private_selector_set(
 ) -> None:
     monkeypatch.setattr(subject, "validate_preplan_seed", lambda seed: None)
     values = {
-        "artifact_bucket_name": "scanalyze-gug395-example",
+        "artifact_bucket_name": ARTIFACT_BUCKET,
         "authority_account_id": "042360977644",
         "kms_alias_name": "alias/scanalyze-gug395",
         "identity_center_application_name": "ScanalyzeAuthorityRetirement",
@@ -900,6 +918,12 @@ def test_target_catalog_is_the_exact_seven_target_private_selector_set(
     assert catalog["artifact_bucket"]["name"] == values[
         "artifact_bucket_name"
     ]
+    assert catalog["artifact_bucket"]["selector_kind"] == (
+        "ACCOUNT_REGIONAL_BUCKET_NAME_AND_TAG"
+    )
+    assert catalog["artifact_bucket"]["bucket_namespace"] == (
+        "account-regional"
+    )
     assert catalog["kms_key"]["alias_name"] == values["kms_alias_name"]
     assert catalog["identity_center_application"]["instance_arn"] == values[
         "identity_center_instance_arn"
@@ -913,7 +937,7 @@ def test_target_catalog_is_the_exact_seven_target_private_selector_set(
 @pytest.mark.parametrize(
     ("authority_collisions", "expected"),
     [
-        (None, subject.COLLISION_BLOCKED),
+        (None, subject.ABSENT_READY),
         (["artifact_bucket"], subject.COLLISION_BLOCKED),
     ],
 )
@@ -1301,7 +1325,7 @@ def test_profile_and_account_bindings_fail_closed(mutate: Any) -> None:
 def test_policy_binding_rejects_even_a_narrower_unattested_policy() -> None:
     request = _request()
     request["policies"]["authority"]["Statement"][1]["Action"].remove(
-        "s3:HeadBucket"
+        "s3:GetBucketTagging"
     )
     request["policy_digests"]["authority"] = subject.canonical_digest(
         request["policies"]["authority"]
@@ -1333,6 +1357,35 @@ def test_request_catalog_validation_is_order_independent_but_shape_exact() -> No
         request["targets"]
     )
     _reseal(request, "request_digest")
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_TARGET_CATALOG_INVALID$",
+    ):
+        subject.validate_collision_probe_request(request)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("selector_kind", "GLOBAL_BUCKET_NAME_AND_TAG"),
+        ("bucket_namespace", "global"),
+        (
+            "name",
+            "scanalyze-g376-art-111111111111-"
+            "123456789012-us-east-1-an",
+        ),
+    ],
+)
+def test_request_rejects_non_account_regional_bucket_targets(
+    field: str, value: str,
+) -> None:
+    request = _request()
+    request["targets"]["artifact_bucket"][field] = value
+    request["target_catalog_digest"] = subject.canonical_digest(
+        request["targets"]
+    )
+    _reseal(request, "request_digest")
+
     with pytest.raises(
         subject.CollisionProbeError,
         match="^COLLISION_TARGET_CATALOG_INVALID$",
@@ -1394,7 +1447,7 @@ def test_budget_transcript_operation_splice_is_rejected() -> None:
     first_provider = next(
         event for event in spliced if event["kind"] == "PROVIDER_CALL"
     )
-    first_provider["operation"] = "s3:HeadBucket"
+    first_provider["operation"] = "s3:GetBucketTagging"
 
     with pytest.raises(
         subject.CollisionProbeError,
@@ -1546,23 +1599,7 @@ def test_snapshot_transcript_session_splice_is_rejected() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    ("field", "forged_value"),
-    [
-        (
-            "request_digest",
-            subject.canonical_digest({"Bucket": "different-global-bucket"}),
-        ),
-        (
-            "response_digest",
-            subject.canonical_digest(
-                {"status_code": 404, "collision": False, "absent": True}
-            ),
-        ),
-    ],
-)
-def test_head_bucket_transcript_is_exactly_bound_to_target_and_facts(
-    field: str, forged_value: str
+def test_list_buckets_transcript_is_bound_to_exact_account_regional_request(
 ) -> None:
     request = _request()
     authority, identity = _pairs()
@@ -1573,19 +1610,25 @@ def test_head_bucket_transcript_is_exactly_bound_to_target_and_facts(
             identity_center_snapshots=identity,
         )
     )
-    head_event = next(
+    list_event = next(
         event
         for event in transcript
         if event["session_digest"]
         == authority[0]["identity"]["session_id_digest"]
-        and event["operation"] == "s3:HeadBucket"
+        and event["operation"] == "s3:ListAllMyBuckets"
     )
-    head_event[field] = forged_value
+    list_event["request_digest"] = subject.canonical_digest(
+        {
+            "BucketRegion": subject.REGION,
+            "Prefix": "different-account-regional-bucket",
+            "MaxBuckets": request["budget"]["max_owned_buckets"],
+        }
+    )
     _reseal_transcript_session(
         provider_summary=provider,
         transcript_events=transcript,
         snapshots=authority,
-        session_digest=head_event["session_digest"],
+        session_digest=list_event["session_digest"],
     )
 
     with pytest.raises(
@@ -1757,18 +1800,21 @@ def test_snapshot_target_selector_must_match_the_request_catalog(
         )
 
 
-@pytest.mark.parametrize("status_code", [400, 403, 404])
-def test_completed_snapshot_rejects_ambiguous_head_bucket_status(
-    status_code: int,
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("bucket_namespace", "global"),
+        ("bucket_region", "us-west-2"),
+        ("absent", False),
+    ],
+)
+def test_completed_snapshot_rejects_forged_account_regional_absence(
+    field: str, forged_value: object,
 ) -> None:
     request = _request()
     authority, identity = _pairs()
     for snapshot in authority:
-        snapshot["facts"]["artifact_bucket"]["head"] = {
-            "status_code": status_code,
-            "collision": False,
-            "absent": True,
-        }
+        snapshot["facts"]["artifact_bucket"][field] = forged_value
         semantic_facts = {
             key: snapshot[key]
             for key in (
@@ -1812,7 +1858,7 @@ def test_snapshot_session_requires_its_fixed_inventory_surface() -> None:
     provider, transcript, budget, budget_events = (
         _successful_provider_and_budget_evidence(
             request,
-            omit_operation=("authority", 1, "s3:HeadBucket"),
+            omit_operation=("authority", 1, "s3:ListAllMyBuckets"),
             authority_snapshots=authority,
             identity_center_snapshots=identity,
         )

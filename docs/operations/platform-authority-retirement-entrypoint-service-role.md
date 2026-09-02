@@ -513,18 +513,19 @@ Interpret only the sealed public classification:
 
 | Classification | Meaning and next action |
 |---|---|
-| `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` | Contract classification requiring independently conclusive absence for all seven targets. The current concrete HeadBucket route cannot establish it, so it is not reachable from this connected read-only implementation. |
+| `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` | All seven targets are independently and conclusively absent, the expected Identity Center instance is ready, both domain snapshots are stable, and all evidence and budgets are complete. This classification authorizes only review of the next provider iteration; it does not authorize mutation. |
 | `COLLISION_BLOCKED_NO_MUTATION` | At least one name, alias or tag matched. Preserve evidence; do not adopt, repair, delete or retry. |
 | `UNCERTAIN_RECONCILE_ONLY` | Partial, denied, over-budget, unstable, malformed or prerequisite evidence. Preserve the claim and reconcile read-only under a new reviewed request. |
 
-`s3:HeadBucket` is mandatory for the global bucket name. A non-followed `301`
-or successful response is collision. AWS documents `400`, `403` and `404` as
-generic results for either a missing bucket or missing permission and supplies
-no response body that disambiguates them. All three are uncertainty, never
-absence. Automatic S3 region redirection is disabled so one logical call cannot
-conceal a second unbudgeted request. Because no operation in this read-only
-surface proves global bucket-name absence, do not promote a connected run to
-`ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION`.
+The artifact target is an account-regional S3 bucket name, not a traditional
+global bucket name. The probe requires a complete paginated `ListBuckets`
+stream bound to the exact prefix, `BucketRegion=us-east-1`, bounded
+`MaxBuckets`, account `042360977644`, and the account-regional namespace. An
+exact match is a collision; complete zero matches proves absence only for this
+reserved account-and-region name. The probe never calls `HeadBucket`, never
+uses an ambiguous negative response, and rejects a global-namespace selector,
+partial pagination, wrong account or Region, malformed result, or substituted
+`HeadBucket` request as uncertainty.
 
 Signer inventory explicitly includes `Active`, `Canceled` and `Revoked`
 profiles, and every retained name or reviewed-tag match blocks mutation.

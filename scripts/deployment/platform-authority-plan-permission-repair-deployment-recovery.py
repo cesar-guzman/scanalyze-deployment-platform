@@ -26,6 +26,12 @@ from tooling import (  # noqa: E402
 from tooling import (  # noqa: E402
     platform_authority_plan_permission_repair_deployment_route_aws as connected,
 )
+from tooling import (  # noqa: E402
+    platform_authority_gug376_collision_admission as collision_admission,
+)
+from tooling import (  # noqa: E402
+    platform_authority_gug376_collision_atomic_context as collision_context,
+)
 
 
 MAX_PRIVATE_JSON_BYTES = 16 * 1024 * 1024
@@ -364,6 +370,21 @@ def _parser() -> argparse.ArgumentParser:
         commands.choices[command].add_argument(
             "--reentry-authorization-name", type=Path, required=True
         )
+    commands.choices["create-reentry"].add_argument(
+        "--collision-admission-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["create-reentry"].add_argument(
+        "--gug393-private-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["create-reentry"].add_argument(
+        "--gug395-private-root",
+        type=Path,
+        required=True,
+    )
     commands.choices["attest-reentry"].add_argument(
         "--reentry-dispatch-name", type=Path, required=True
     )
@@ -392,6 +413,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.choices["execute-reentry"].add_argument(
         "--execution-authorization-name", type=Path, required=True
+    )
+    commands.choices["execute-reentry"].add_argument(
+        "--collision-admission-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["execute-reentry"].add_argument(
+        "--gug393-private-root",
+        type=Path,
+        required=True,
+    )
+    commands.choices["execute-reentry"].add_argument(
+        "--gug395-private-root",
+        type=Path,
+        required=True,
     )
     for command in ("attest-protection-rollback", "attest-failed-create"):
         commands.choices[command].add_argument(
@@ -516,8 +552,69 @@ def _offline(
 
 
 def _provider(
-    root: Path, root_fd: int, *, profile: str
+    root: Path,
+    root_fd: int,
+    *,
+    profile: str,
+    collision_admission_root: Path | None = None,
+    gug393_private_root: Path | None = None,
+    gug395_private_root: Path | None = None,
+    collision_context_binding: Mapping[str, str] | None = None,
 ) -> tuple[recovery.ConnectedDeploymentRecoveryProvider, connected.OExclClaimStore]:
+    supplied_roots = (
+        collision_admission_root,
+        gug393_private_root,
+        gug395_private_root,
+    )
+    if (
+        any(candidate is None for candidate in supplied_roots)
+        and any(candidate is not None for candidate in supplied_roots)
+    ) or ((collision_admission_root is None) != (collision_context_binding is None)):
+        raise recovery.DeploymentRecoveryError(
+            "COLLISION_PRIVATE_ROOTS_INVALID"
+        )
+    collision_admission_loader = None
+    if collision_admission_root is not None:
+        assert gug393_private_root is not None
+        assert gug395_private_root is not None
+        if not isinstance(collision_context_binding, Mapping) or set(
+            collision_context_binding
+        ) != {
+            "expected_approval_reference_digest",
+            "expected_authorized_at",
+            "expected_expires_at",
+            "expected_operation",
+            "expected_source_commit_sha",
+        }:
+            raise recovery.DeploymentRecoveryError(
+                "COLLISION_AUTHORIZATION_BINDING_INVALID"
+            )
+        collision_admission_loader = (
+            collision_context.build_atomic_loader_from_private_context(
+                admission_private_root=collision_admission_root,
+                effect_private_root=root,
+                gug393_private_root=gug393_private_root,
+                gug395_private_root=gug395_private_root,
+                expected_approval_reference_digest=(
+                    collision_context_binding[
+                        "expected_approval_reference_digest"
+                    ]
+                ),
+                expected_authorized_at=collision_context_binding[
+                    "expected_authorized_at"
+                ],
+                expected_expires_at=collision_context_binding[
+                    "expected_expires_at"
+                ],
+                expected_operation=collision_context_binding[
+                    "expected_operation"
+                ],
+                expected_source_commit_sha=collision_context_binding[
+                    "expected_source_commit_sha"
+                ],
+                environment=os.environ,
+            )
+        )
     claims = connected.OExclClaimStore(
         root, expected_root_identity=_assert_root(root, root_fd)
     )
@@ -541,14 +638,76 @@ def _provider(
     except Exception as exc:
         claims.close()
         raise recovery.DeploymentRecoveryError("AWS_SESSION_INVALID") from exc
+    provider_kwargs: dict[str, Any] = {
+        "clients": clients,
+        "claims": claims,
+        "clock": lambda: datetime.now(timezone.utc),
+    }
+    if collision_admission_loader is not None:
+        provider_kwargs["collision_admission_loader"] = (
+            collision_admission_loader
+        )
     return (
-        recovery.ConnectedDeploymentRecoveryProvider(
-            clients=clients,
-            claims=claims,
-            clock=lambda: datetime.now(timezone.utc),
-        ),
+        recovery.ConnectedDeploymentRecoveryProvider(**provider_kwargs),
         claims,
     )
+
+
+def _collision_context_binding(
+    args: argparse.Namespace,
+    root: Path,
+    root_fd: int,
+    seed: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Validate and bind the exact recovery authorization to one effect."""
+
+    if args.command == "create-reentry":
+        failure = _read(root, root_fd, args.failure_attestation_name)
+        authorization = recovery.validate_reentry_authorization(
+            _read(root, root_fd, args.reentry_authorization_name),
+            seed_intent=seed,
+            failure_attestation=failure,
+        )
+        operation = recovery._reentry_collision_operation(
+            target=args.target,
+            failure_record_type=str(failure.get("record_type", "")),
+            effect="create",
+        )
+    elif args.command == "execute-reentry":
+        failure = _read(root, root_fd, args.failure_attestation_name)
+        creation_authorization = _read(
+            root, root_fd, args.reentry_creation_authorization_name
+        )
+        reentry_intent = _read(root, root_fd, args.reentry_intent_name)
+        reentry_dispatch = _read(root, root_fd, args.reentry_dispatch_name)
+        reentry_attestation = _read(
+            root, root_fd, args.reentry_attestation_name
+        )
+        authorization = recovery.validate_reentry_execution_authorization(
+            _read(root, root_fd, args.execution_authorization_name),
+            seed_intent=seed,
+            failure_attestation=failure,
+            reentry_creation_authorization=creation_authorization,
+            reentry_intent=reentry_intent,
+            reentry_dispatch=reentry_dispatch,
+            reentry_attestation=reentry_attestation,
+        )
+        operation = recovery._reentry_collision_operation(
+            target=args.target,
+            failure_record_type=str(failure.get("record_type", "")),
+            effect="execute",
+        )
+    else:
+        return None
+    return {
+        "expected_approval_reference_digest": str(
+            authorization["authorization_digest"]
+        ),
+        "expected_authorized_at": str(authorization["authorized_at"]),
+        "expected_expires_at": str(authorization["expires_at"]),
+        "expected_operation": operation,
+        "expected_source_commit_sha": str(seed["source_commit"]),
+    }
 
 
 def _connected(
@@ -696,9 +855,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             if expected_profile is None or args.profile != expected_profile:
                 raise recovery.DeploymentRecoveryError("AWS_PROFILE_INVALID")
             seed, seed_input, git = _read_seed(args, root, root_fd)
+            collision_context_binding = _collision_context_binding(
+                args,
+                root,
+                root_fd,
+                seed,
+            )
             output_name, output_fd = _reserve(root, root_fd, args.output_name)
             provider, claims = _provider(
-                root, root_fd, profile=expected_profile
+                root,
+                root_fd,
+                profile=expected_profile,
+                collision_admission_root=getattr(
+                    args, "collision_admission_root", None
+                ),
+                gug393_private_root=getattr(
+                    args, "gug393_private_root", None
+                ),
+                gug395_private_root=getattr(
+                    args, "gug395_private_root", None
+                ),
+                collision_context_binding=collision_context_binding,
             )
             value = _connected(
                 args,
@@ -730,6 +907,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         recovery.DeploymentRecoveryError,
         connected.ConnectedRouteError,
         route.RouteSeedError,
+        collision_admission.RouteCollisionAdmissionError,
+        collision_context.AtomicCollisionContextError,
     ) as exc:
         code = exc.code
         uncertain = bool(getattr(exc, "uncertain", False))
