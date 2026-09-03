@@ -42,7 +42,11 @@ def _seal(value: Mapping[str, Any], field: str) -> dict[str, Any]:
     return result
 
 
-def _snapshot() -> dict[str, Any]:
+def _snapshot(
+    *,
+    kms_mode: str = "AWS_OWNED_KMS_KEY",
+    kms_key_arn: str | None = None,
+) -> dict[str, Any]:
     policy_template = json.loads(
         (REPO_ROOT / subject._POLICY_TEMPLATE_PATH).read_text(encoding="utf-8")
     )
@@ -95,8 +99,8 @@ def _snapshot() -> dict[str, Any]:
                 "arn:aws:iam::042360977644:saml-provider/"
                 "AWSSSO_scanalyze_DO_NOT_DELETE"
             ),
-            "identity_center_kms_mode": "AWS_OWNED_KMS_KEY",
-            "identity_center_kms_key_arn": None,
+            "identity_center_kms_mode": kms_mode,
+            "identity_center_kms_key_arn": kms_key_arn,
             "authority_verifier": {
                 "profile": "042360977644_AWSReadOnlyAccess",
                 "account_id": "042360977644",
@@ -125,7 +129,11 @@ def _snapshot() -> dict[str, Any]:
     )
 
 
-def _input() -> dict[str, Any]:
+def _input(
+    *,
+    kms_mode: str = "AWS_OWNED_KMS_KEY",
+    kms_key_arn: str | None = None,
+) -> dict[str, Any]:
     foundation = build_foundation_contract(
         source_commit=SOURCE_COMMIT,
         observed_at=NOW,
@@ -152,7 +160,10 @@ def _input() -> dict[str, Any]:
             "foundation_publish_binding": foundation[
                 "foundation_publish_binding"
             ],
-            "plan_snapshot": _snapshot(),
+            "plan_snapshot": _snapshot(
+                kms_mode=kms_mode,
+                kms_key_arn=kms_key_arn,
+            ),
             "template_readbacks": {
                 "route_template": {},
                 "delegation_template": {},
@@ -304,6 +315,9 @@ def test_materializes_exact_runtime_config_with_update_previous_values(
     # environment quota; the seed parser's 3,800-byte hard ceiling is only a
     # final fail-closed bound.
     assert len(broker.canonical_json(envelope).encode("utf-8")) <= 3_500
+    assert envelope["record_type"] == broker.COMPRESSED_CONFIG_RECORD_TYPE_V3
+    assert envelope["encoding"] == "deflate-dict-v3+base85"
+    assert broker.decode_runtime_config(envelope) == config
     assert validated.source_commit == SOURCE_COMMIT
     assert config["recovery_not_after"] == "2026-08-31T21:00:00Z"
     assert validated.recovery_not_after == datetime(
@@ -407,6 +421,94 @@ def test_materializes_exact_runtime_config_with_update_previous_values(
     assert config["permission_set_output_contracts"]["route"][
         "required_mode_outputs"
     ]["SeedAssignmentMode"] == "true"
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_customer_managed_key_has_exact_snapshot_config_and_collision_parity(
+    monkeypatch: pytest.MonkeyPatch,
+    key_arn: str,
+) -> None:
+    value = _input(
+        kms_mode="CUSTOMER_MANAGED_KEY",
+        kms_key_arn=key_arn,
+    )
+
+    result = _materialize(monkeypatch, value)
+    runtime_config = result["broker_config"]
+    parsed = broker.BrokerConfig.from_mapping(runtime_config)
+    envelope = broker.encode_runtime_config(runtime_config)
+    delegation_parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in runtime_config["requests"]["delegation-create-v1"][
+            "Parameters"
+        ]
+    }
+    pep_parameters = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in runtime_config["requests"]["pep-create-v1"]["Parameters"]
+    }
+
+    assert delegation_parameters["IdentityCenterKmsKeyArn"] == key_arn
+    assert pep_parameters["IdentityCenterKmsMode"] == "CUSTOMER_MANAGED_KEY"
+    assert pep_parameters["IdentityCenterKmsKeyArn"] == key_arn
+    collision = broker._collision_parameter_bindings(parsed)  # noqa: SLF001
+    assert collision["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
+    assert collision["identity_center_kms_key_arn"] == key_arn
+    assert len(broker.canonical_json(envelope).encode("utf-8")) <= 3_500
+    assert envelope["record_type"] == broker.COMPRESSED_CONFIG_RECORD_TYPE_V3
+    assert broker.decode_runtime_config(envelope) == runtime_config
+    assert collision["identity_center_kms_binding_digest"] == (
+        broker.digest_value(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": parsed.identity_center_instance_arn,
+                "mode": "CUSTOMER_MANAGED_KEY",
+                "key_arn": key_arn,
+            }
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+    ),
+)
+def test_plan_snapshot_rejects_noncanonical_customer_managed_key(
+    key_arn: str,
+) -> None:
+    snapshot = _snapshot(
+        kms_mode="CUSTOMER_MANAGED_KEY",
+        kms_key_arn=key_arn,
+    )
+    with pytest.raises(
+        subject.BrokerConfigMaterializationError,
+        match="PLAN_SNAPSHOT_KMS_INVALID",
+    ):
+        subject.validate_plan_snapshot(
+            snapshot,
+            source_commit=SOURCE_COMMIT,
+            now=NOW,
+        )
 
 
 def test_rejects_resealed_policy_source_drift(

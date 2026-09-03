@@ -647,6 +647,8 @@ def test_materializes_exact_route_broker_and_broker_protection_operations(
         for item in route_request["Parameters"]
     }
     assert set(parameters) == set(route.ROUTE_PARAMETER_KEYS)
+    assert parameters["IdentityCenterKmsMode"] == "AWS_OWNED_KMS_KEY"
+    assert parameters["IdentityCenterKmsKeyArn"] == ""
     assert parameters["SeedAssignmentsEnabled"] == "true"
     assert parameters["BrokerInvokerAssignmentEnabled"] == "true"
     expected_recovery = _ts(
@@ -706,6 +708,81 @@ def test_materializes_exact_route_broker_and_broker_protection_operations(
     encoded = route.canonical_json(intent)
     for forbidden in (PRINCIPAL_ID, INSTANCE_ARN, "broker-signed-version-1"):
         assert forbidden in encoded  # private intent, never stdout
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "00000000-0000-4000-8000-000000000002",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_route_parameters_preserve_exact_private_identity_center_cmk(
+    key_arn: str,
+) -> None:
+    source = {
+        "broker_config": {
+            "requests": {
+                "pep-create-v1": {
+                    "Parameters": [
+                        {
+                            "ParameterKey": "IdentityCenterKmsMode",
+                            "ParameterValue": "CUSTOMER_MANAGED_KEY",
+                        },
+                        {
+                            "ParameterKey": "IdentityCenterKmsKeyArn",
+                            "ParameterValue": key_arn,
+                        },
+                    ]
+                }
+            }
+        }
+    }
+    assert route._identity_center_kms_route_parameters(source) == {
+        "IdentityCenterKmsMode": "CUSTOMER_MANAGED_KEY",
+        "IdentityCenterKmsKeyArn": key_arn,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn"),
+    (
+        ("AWS_OWNED_KMS_KEY", "not-empty"),
+        ("CUSTOMER_MANAGED_KEY", ""),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:000000000000:key/"
+            "00000000-0000-4000-8000-000000000002",
+        ),
+    ),
+)
+def test_route_parameters_reject_inconsistent_identity_center_kms_binding(
+    mode: str, key_arn: str
+) -> None:
+    source = {
+        "broker_config": {
+            "requests": {
+                "pep-create-v1": {
+                    "Parameters": [
+                        {
+                            "ParameterKey": "IdentityCenterKmsMode",
+                            "ParameterValue": mode,
+                        },
+                        {
+                            "ParameterKey": "IdentityCenterKmsKeyArn",
+                            "ParameterValue": key_arn,
+                        },
+                    ]
+                }
+            }
+        }
+    }
+    with pytest.raises(
+        route.RouteSeedError, match="IDENTITY_CENTER_KMS_BINDING_INVALID"
+    ):
+        route._identity_center_kms_route_parameters(source)
 
 
 def test_seed_intent_rejects_recovery_beyond_bootstrap_cleanup_horizon(
@@ -1895,8 +1972,8 @@ def test_connected_cli_validates_exact_seed_before_provider_session(
             "creation-authorization.json",
             "--collision-admission-root",
             os.fspath(tmp_path / "admission"),
-            "--gug393-private-root",
-            os.fspath(tmp_path / "gug393"),
+            "--gug395-private-root",
+            os.fspath(tmp_path / "gug395"),
         ]
     ) == 2
     assert provider_calls == []
@@ -1931,7 +2008,6 @@ def test_connected_cli_defers_collision_read_to_provider_effect_boundary(
     )
 
     admission_root = tmp_path / "admission"
-    gug393_root = tmp_path / "gug393"
     gug395_root = tmp_path / "gug395"
 
     def atomic_loader(**kwargs: Any) -> object:
@@ -1956,19 +2032,18 @@ def test_connected_cli_defers_collision_read_to_provider_effect_boundary(
             if kwargs
             == {
                 "admission_private_root": admission_root,
-                    "effect_private_root": private.resolve(),
-                    "gug393_private_root": gug393_root,
-                    "gug395_private_root": gug395_root,
-                    "expected_approval_reference_digest": authorization[
-                        "authorization_digest"
-                    ],
-                    "expected_authorized_at": authorization["authorized_at"],
-                    "expected_expires_at": authorization["expires_at"],
-                    "expected_operation": expected_binding[
-                        "collision_operation"
-                    ],
-                    "expected_source_commit_sha": intent["source_commit"],
-                    "environment": os.environ,
+                "effect_private_root": private.resolve(),
+                "gug395_private_root": gug395_root,
+                "expected_approval_reference_digest": authorization[
+                    "authorization_digest"
+                ],
+                "expected_authorized_at": authorization["authorized_at"],
+                "expected_expires_at": authorization["expires_at"],
+                "expected_operation": expected_binding[
+                    "collision_operation"
+                ],
+                "expected_source_commit_sha": intent["source_commit"],
+                "environment": os.environ,
             }
             else pytest.fail("unexpected atomic loader roots")
         ),
@@ -2037,8 +2112,6 @@ def test_connected_cli_defers_collision_read_to_provider_effect_boundary(
             "creation-authorization.json",
             "--collision-admission-root",
             os.fspath(admission_root),
-            "--gug393-private-root",
-            os.fspath(gug393_root),
             "--gug395-private-root",
             os.fspath(gug395_root),
         ]

@@ -141,6 +141,8 @@ class Sso:
         ]
         self.permission_sets = [PERMISSION_SET_ARN]
         self.next_token_cycle = False
+        self.identity_center_kms_mode = "AWS_OWNED_KMS_KEY"
+        self.identity_center_kms_key_arn: str | None = None
 
     def _record(self, operation: str) -> None:
         self.timeline.append("call:sso:" + operation)
@@ -169,8 +171,8 @@ class Sso:
             "Status": "ACTIVE",
             "EncryptionConfigurationDetails": {
                 "EncryptionStatus": "ENABLED",
-                "KeyType": "AWS_OWNED_KMS_KEY",
-                "KmsKeyArn": None,
+                "KeyType": self.identity_center_kms_mode,
+                "KmsKeyArn": self.identity_center_kms_key_arn,
             },
         }
 
@@ -480,6 +482,63 @@ def test_capture_proves_exact_predecessor_and_sts_is_first(tmp_path: Path) -> No
     ]
     assert snapshot["aws_calls"] == len(calls)
     assert snapshot["production_status"] == "NO-GO"
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_snapshot_preserves_canonical_customer_managed_key(
+    tmp_path: Path,
+    key_arn: str,
+) -> None:
+    world = World(tmp_path)
+    world.sso.identity_center_kms_mode = "CUSTOMER_MANAGED_KEY"
+    world.sso.identity_center_kms_key_arn = key_arn
+
+    snapshot = world.capture(tmp_path)
+
+    assert snapshot["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
+    assert snapshot["identity_center_kms_key_arn"] == key_arn
+    assert config.validate_plan_snapshot(
+        snapshot, source_commit=SOURCE_COMMIT, now=NOW
+    ) == snapshot
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+        "arn:aws:kms:us-east-1:839393571433:key/mrk-0123",
+    ),
+)
+def test_snapshot_rejects_noncanonical_customer_managed_key(
+    tmp_path: Path,
+    key_arn: str,
+) -> None:
+    world = World(tmp_path)
+    world.sso.identity_center_kms_mode = "CUSTOMER_MANAGED_KEY"
+    world.sso.identity_center_kms_key_arn = key_arn
+
+    with pytest.raises(subject.PlanSeedSnapshotError) as captured:
+        world.capture(tmp_path)
+
+    assert captured.value.code == "IDENTITY_CENTER_KMS_INVALID"
 
 
 @pytest.mark.parametrize(

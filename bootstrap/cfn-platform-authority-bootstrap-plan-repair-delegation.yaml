@@ -43,7 +43,7 @@ Parameters:
   IdentityCenterKmsKeyArn:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^arn:aws[a-z-]*:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+    AllowedPattern: '^$|^arn:aws:kms:us-east-1:839393571433:key/(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|mrk-[0-9a-f]{32})$'
 
 Rules:
   AccountAndRegionMustMatch:

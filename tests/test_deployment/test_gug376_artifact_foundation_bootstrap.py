@@ -6335,7 +6335,6 @@ def test_cli_wires_private_admission_loader_only_for_expansive_action(
         "authorization": authorization,
     }
     admission_root = tmp_path / "admission"
-    gug393_root = tmp_path / "gug393"
     gug395_root = tmp_path / "gug395"
     result = cli._connected(
         "dispatch-bridge-pin",
@@ -6345,7 +6344,6 @@ def test_cli_wires_private_admission_loader_only_for_expansive_action(
         profile=pure.MANAGEMENT_PROFILE,
         claim_root=tmp_path,
         collision_admission_root=admission_root,
-        gug393_private_root=gug393_root,
         gug395_private_root=gug395_root,
     )
     assert result == {"status": "dispatched"}
@@ -6362,7 +6360,6 @@ def test_cli_wires_private_admission_loader_only_for_expansive_action(
         {
             "admission_private_root": admission_root,
             "effect_private_root": tmp_path,
-            "gug393_private_root": gug393_root,
             "gug395_private_root": gug395_root,
             "expected_approval_reference_digest": authorization[
                 "authorization_digest"

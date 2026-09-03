@@ -1003,6 +1003,49 @@ def test_pure_source_renderer_rejects_unreviewed_source_bytes(
         )
 
 
+def test_pure_source_renderer_does_not_rescan_encoded_replacement_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_datetime = datetime
+
+    class FrozenDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz: timezone | None = None) -> FrozenDateTime:
+            value = cls(2026, 9, 3, 5, 21, 35, tzinfo=timezone.utc)
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(sys.modules[__name__], "datetime", FrozenDateTime)
+    source_commit = "a" * 40
+    value = _input(REPO_ROOT, source_commit, source_tree_sha="b" * 40)
+    config = value["broker_config"]
+    value["route_not_before"] = config[
+        "route_not_before"
+    ] = "2026-09-03T06:42:05Z"
+    value["route_not_after"] = config[
+        "route_not_after"
+    ] = "2026-09-03T07:57:05Z"
+    config["recovery_not_after"] = "2026-09-04T07:57:05Z"
+    config["config_digest"] = broker.digest_value(
+        {key: item for key, item in config.items() if key != "config_digest"}
+    )
+    _, encoded_envelope = seed._validate_config(
+        config,
+        source_commit=source_commit,
+        repair_id=value["repair_id"],
+        route_not_before=value["route_not_before"],
+        route_not_after=value["route_not_after"],
+    )
+    collision = seed._PLACEHOLDER_RE.search(encoded_envelope.encode("utf-8"))
+    assert collision is not None
+    assert collision.group(0) == b"@@9@@"
+
+    rendered = seed.render_template_from_source(
+        source=(REPO_ROOT / seed.SOURCE_TEMPLATE_PATH).read_bytes(),
+        private_input=value,
+    )
+    assert b"@@9@@" in rendered
+
+
 def test_policy_projection_is_semantic_order_stable_and_resolves_partition() -> None:
     first = {
         "Version": "2012-10-17",

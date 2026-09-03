@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import pytest
 
@@ -271,6 +271,7 @@ def _run(
     materialization_receipt: Mapping[str, Any] | None = None,
     s3_factory: Any = None,
     plans: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[dict[str, Any], list[str], S3]:
     timeline: list[str] = []
     version = "exact-version-1"
@@ -345,7 +346,8 @@ def _run(
         git=FakeGit(tmp_path, {source_path: payload}),
         session_factory=lambda profile, region: session,
         config_factory=lambda: "config",
-        clock=lambda: datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc),
+        clock=clock
+        or (lambda: datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)),
         environment={},
         gug363_validator=_accept,
         gug365_validator=_accept,
@@ -361,6 +363,7 @@ def _run_foundation(
     *,
     aws_profile: str = subject.EXPECTED_PROFILE,
     clock_at: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
     timeline: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     contract_observed = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
@@ -399,7 +402,7 @@ def _run_foundation(
         git=FakeGit(tmp_path, {route.ROUTE_TEMPLATE_PATH: payload}),
         session_factory=lambda profile, region: session,
         config_factory=lambda: "config",
-        clock=lambda: observed,
+        clock=clock or (lambda: observed),
         environment={},
         bootstrap_intent=contract["bootstrap_intent"],
         foundation_publish_binding=binding,
@@ -440,6 +443,28 @@ def test_foundation_mode_closes_exactly_at_access_not_after_before_sts(
         )
     assert raised.value.code == "FOUNDATION_ACCESS_WINDOW_CLOSED"
     assert timeline == []
+
+
+def test_foundation_mode_rechecks_access_window_after_object_reads(
+    tmp_path: Path,
+) -> None:
+    timeline: list[str] = []
+    timestamps = iter(
+        (
+            datetime(2026, 8, 30, 12, 44, 59, tzinfo=timezone.utc),
+            datetime(2026, 8, 30, 12, 45, 0, tzinfo=timezone.utc),
+        )
+    )
+
+    with pytest.raises(subject.TemplateReadbackError) as raised:
+        _run_foundation(
+            tmp_path,
+            clock=lambda: next(timestamps),
+            timeline=timeline,
+        )
+
+    assert raised.value.code == "FOUNDATION_ACCESS_WINDOW_CLOSED"
+    assert timeline[-1] == "s3:GetObject"
 
 
 def test_foundation_receipt_rejects_resealed_post_window_observation(
@@ -524,6 +549,35 @@ def test_attests_exact_route_template_with_sts_as_first_aws_call(
         ("head", expected_object_request),
         ("get", expected_object_request),
     ]
+
+
+def test_attestation_validates_freshness_at_completion_timestamp(
+    tmp_path: Path,
+) -> None:
+    timestamps = iter(
+        (
+            datetime(2026, 8, 30, 12, 0, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 30, 12, 0, 1, tzinfo=timezone.utc),
+        )
+    )
+
+    receipt, _timeline, _s3 = _run(tmp_path, clock=lambda: next(timestamps))
+
+    assert receipt["observed_at"] == "2026-08-30T12:00:01Z"
+
+
+def test_attestation_rejects_a_regressive_completion_clock(tmp_path: Path) -> None:
+    timestamps = iter(
+        (
+            datetime(2026, 8, 30, 12, 0, 0, 900_000, tzinfo=timezone.utc),
+            datetime(2026, 8, 30, 12, 0, 0, 100_000, tzinfo=timezone.utc),
+        )
+    )
+
+    with pytest.raises(subject.TemplateReadbackError) as raised:
+        _run(tmp_path, clock=lambda: next(timestamps))
+
+    assert raised.value.code == "CLOCK_INVALID"
 
 
 def test_attests_pep_template_and_derives_closed_broker_seed_descriptor(

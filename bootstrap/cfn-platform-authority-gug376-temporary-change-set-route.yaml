@@ -9,6 +9,12 @@ Parameters:
   IdentityCenterInstanceArn:
     Type: String
     AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
+  IdentityCenterKmsMode:
+    Type: String
+    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY]
+  IdentityCenterKmsKeyArn:
+    Type: String
+    AllowedPattern: '^(?:|arn:aws:kms:us-east-1:839393571433:key/(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|mrk-[0-9a-f]{32}))$'
   BootstrapPrincipalId:
     Type: String
     AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
@@ -72,10 +78,20 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref AWS::AccountId, '839393571433']
       - Assert: !Equals [!Ref AWS::Region, us-east-1]
+  IdentityCenterKmsBindingMustMatch:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref IdentityCenterKmsMode, AWS_OWNED_KMS_KEY]
+            - !Equals [!Ref IdentityCenterKmsKeyArn, '']
+          - !And
+            - !Equals [!Ref IdentityCenterKmsMode, CUSTOMER_MANAGED_KEY]
+            - !Not [!Equals [!Ref IdentityCenterKmsKeyArn, '']]
 
 Conditions:
   CreateSeedAssignments: !Equals [!Ref SeedAssignmentsEnabled, 'true']
   CreateBrokerInvokerAssignment: !Equals [!Ref BrokerInvokerAssignmentEnabled, 'true']
+  UseIdentityCenterCustomerManagedKey: !Equals [!Ref IdentityCenterKmsMode, CUSTOMER_MANAGED_KEY]
 
 Resources:
   ManagementCollisionReaderRole:
@@ -115,10 +131,19 @@ Resources:
                   - cloudformation:ListStacks
                   - sso:ListApplications
                   - sso:ListInstances
-                  - sso:ListPermissionSets
                 Resource: '*'
                 Condition:
                   StringEquals: {aws:RequestedRegion: us-east-1}
+                  DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+                  DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+              - Sid: ListBoundIdentityCenterPermissionSets
+                Effect: Allow
+                Action: sso:ListPermissionSets
+                Resource: !Ref IdentityCenterInstanceArn
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+                    sso:PrimaryRegion: us-east-1
                   DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
                   DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
               - Sid: ReadExactRoles
@@ -147,7 +172,9 @@ Resources:
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-gug376-temporary-change-set-route/*
                   - !Sub arn:${AWS::Partition}:cloudformation:us-east-1:${ManagementAccountId}:stack/scanalyze-platform-authority-bootstrap-plan-repair-delegation/*
                   - !Ref IdentityCenterInstanceArn
-                  - !Sub arn:${AWS::Partition}:sso::${ManagementAccountId}:application/*
+                  - !Sub
+                    - arn:${AWS::Partition}:sso::${ManagementAccountId}:application/${InstanceId}/*
+                    - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
                   - !Sub
                     - arn:${AWS::Partition}:sso:::permissionSet/${InstanceId}/*
                     - InstanceId: !Select [1, !Split ['/', !Ref IdentityCenterInstanceArn]]
@@ -155,9 +182,28 @@ Resources:
                   StringEquals: {aws:RequestedRegion: us-east-1}
                   DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
                   DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+              - !If
+                - UseIdentityCenterCustomerManagedKey
+                - Sid: DecryptIdentityCenterMetadataThroughExactInstance
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref IdentityCenterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalAccount: !Ref ManagementAccountId
+                      aws:RequestedRegion: us-east-1
+                      kms:CallerAccount: !Ref ManagementAccountId
+                      kms:ViaService: sso.us-east-1.amazonaws.com
+                      kms:EncryptionContext:aws:sso:instance-arn: !Ref IdentityCenterInstanceArn
+                    DateGreaterThanEquals: {aws:CurrentTime: !Ref RouteNotBefore}
+                    DateLessThan: {aws:CurrentTime: !Ref RouteNotAfter}
+                - !Ref AWS::NoValue
               - Sid: DenyOutsideRegion
                 Effect: Deny
-                Action: [cloudformation:*, sso:*]
+                Action:
+                  - cloudformation:*
+                  - sso:*
+                  - !If [UseIdentityCenterCustomerManagedKey, kms:*, !Ref AWS::NoValue]
                 Resource: '*'
                 Condition: {StringNotEquals: {aws:RequestedRegion: us-east-1}}
               - Sid: DenyBeforeRoute
@@ -185,6 +231,7 @@ Resources:
                   - sso:ListPermissionSets
                   - sso:ListTagsForResource
                   - sts:GetCallerIdentity
+                  - !If [UseIdentityCenterCustomerManagedKey, kms:Decrypt, !Ref AWS::NoValue]
                 Resource: '*'
       Tags: [{Key: managed_by, Value: cloudformation}, {Key: service, Value: scanalyze-platform-authority}, {Key: work_package, Value: GUG-376}, {Key: component, Value: gug376-collision-reader}, {Key: environment, Value: non-production}, {Key: production, Value: 'false'}]
 

@@ -376,11 +376,6 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     commands.choices["create-reentry"].add_argument(
-        "--gug393-private-root",
-        type=Path,
-        required=True,
-    )
-    commands.choices["create-reentry"].add_argument(
         "--gug395-private-root",
         type=Path,
         required=True,
@@ -416,11 +411,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.choices["execute-reentry"].add_argument(
         "--collision-admission-root",
-        type=Path,
-        required=True,
-    )
-    commands.choices["execute-reentry"].add_argument(
-        "--gug393-private-root",
         type=Path,
         required=True,
     )
@@ -557,13 +547,11 @@ def _provider(
     *,
     profile: str,
     collision_admission_root: Path | None = None,
-    gug393_private_root: Path | None = None,
     gug395_private_root: Path | None = None,
     collision_context_binding: Mapping[str, str] | None = None,
 ) -> tuple[recovery.ConnectedDeploymentRecoveryProvider, connected.OExclClaimStore]:
     supplied_roots = (
         collision_admission_root,
-        gug393_private_root,
         gug395_private_root,
     )
     if (
@@ -575,7 +563,6 @@ def _provider(
         )
     collision_admission_loader = None
     if collision_admission_root is not None:
-        assert gug393_private_root is not None
         assert gug395_private_root is not None
         if not isinstance(collision_context_binding, Mapping) or set(
             collision_context_binding
@@ -593,7 +580,6 @@ def _provider(
             collision_context.build_atomic_loader_from_private_context(
                 admission_private_root=collision_admission_root,
                 effect_private_root=root,
-                gug393_private_root=gug393_private_root,
                 gug395_private_root=gug395_private_root,
                 expected_approval_reference_digest=(
                     collision_context_binding[
@@ -868,9 +854,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 profile=expected_profile,
                 collision_admission_root=getattr(
                     args, "collision_admission_root", None
-                ),
-                gug393_private_root=getattr(
-                    args, "gug393_private_root", None
                 ),
                 gug395_private_root=getattr(
                     args, "gug395_private_root", None

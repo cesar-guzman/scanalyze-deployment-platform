@@ -1391,6 +1391,7 @@ docs-check: contributor-docs-check phase0-docs-check
 			docs/operations/platform-authority-lambda-audit-permission-set.md \
 			docs/operations/platform-authority-lambda-audit-provisioning-repair.md \
 			docs/operations/platform-authority-bootstrap-plan-permission-repair.md \
+			docs/operations/platform-authority-gug393-kms-dual-mode-contract.md \
 			docs/operations/platform-authority-gug357-identity-center-audit-permission-set.md \
 			docs/operations/platform-authority-retained-change-set-retirement.md \
 			docs/operations/platform-authority-retirement-entrypoint-materialization.md \

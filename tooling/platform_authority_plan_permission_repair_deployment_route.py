@@ -72,6 +72,8 @@ ROUTE_PARAMETER_KEYS = (
     "AuthorityAccountId",
     "SourceCommit",
     "IdentityCenterInstanceArn",
+    "IdentityCenterKmsMode",
+    "IdentityCenterKmsKeyArn",
     "BootstrapPrincipalId",
     "SeedAssignmentsEnabled",
     "BrokerInvokerAssignmentEnabled",
@@ -330,6 +332,11 @@ _UUID_RE = re.compile(
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _INSTANCE_RE = re.compile(r"^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$")
+_IDENTITY_CENTER_KMS_KEY_RE = re.compile(
+    rf"^arn:aws:kms:{REGION}:{MANAGEMENT_ACCOUNT_ID}:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _PRINCIPAL_RE = re.compile(
     r"^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
 )
@@ -1027,6 +1034,47 @@ def _parameter_list(values: Mapping[str, str]) -> list[dict[str, str]]:
     ]
 
 
+def _identity_center_kms_route_parameters(
+    broker_seed_input: Mapping[str, Any],
+) -> dict[str, str]:
+    broker_config = broker_seed_input.get("broker_config")
+    requests = (
+        broker_config.get("requests")
+        if isinstance(broker_config, Mapping)
+        else None
+    )
+    pep_request = requests.get("pep-create-v1") if isinstance(requests, Mapping) else None
+    parameters = pep_request.get("Parameters") if isinstance(pep_request, Mapping) else None
+    if not isinstance(parameters, list):
+        raise RouteSeedError("IDENTITY_CENTER_KMS_BINDING_INVALID")
+    values: dict[str, str] = {}
+    for item in parameters:
+        if (
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("ParameterKey"), str)
+            or not isinstance(item.get("ParameterValue"), str)
+            or item["ParameterKey"] in values
+        ):
+            raise RouteSeedError("IDENTITY_CENTER_KMS_BINDING_INVALID")
+        values[item["ParameterKey"]] = item["ParameterValue"]
+    mode = values.get("IdentityCenterKmsMode")
+    key_arn = values.get("IdentityCenterKmsKeyArn")
+    if (
+        mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or not isinstance(key_arn, str)
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn != "")
+        or (
+            mode == "CUSTOMER_MANAGED_KEY"
+            and _IDENTITY_CENTER_KMS_KEY_RE.fullmatch(key_arn) is None
+        )
+    ):
+        raise RouteSeedError("IDENTITY_CENTER_KMS_BINDING_INVALID")
+    return {
+        "IdentityCenterKmsMode": mode,
+        "IdentityCenterKmsKeyArn": key_arn,
+    }
+
+
 def _recovery_not_after(route_not_after: str) -> str:
     """Derive the one and only read-only recovery horizon."""
 
@@ -1120,12 +1168,16 @@ def materialize_seed_intent(
     broker_code = broker_code_receipt["signed_artifact"]
     signing_job = broker_code_receipt["signing_job"]
     recovery_not_after = _recovery_not_after(source["route_not_after"])
+    identity_center_kms = _identity_center_kms_route_parameters(
+        source["broker_seed_input"]
+    )
     route_parameters = _parameter_list(
         {
             "ManagementAccountId": MANAGEMENT_ACCOUNT_ID,
             "AuthorityAccountId": AUTHORITY_ACCOUNT_ID,
             "SourceCommit": source["source_commit"],
             "IdentityCenterInstanceArn": source["identity_center_instance_arn"],
+            **identity_center_kms,
             "BootstrapPrincipalId": source["bootstrap_principal_id"],
             "SeedAssignmentsEnabled": "true",
             "BrokerInvokerAssignmentEnabled": "true",
@@ -1638,6 +1690,21 @@ def validate_seed_intent(value: Mapping[str, Any]) -> dict[str, Any]:
                 or parameter_map["SourceCommit"] != value["source_commit"]
                 or parameter_map["IdentityCenterInstanceArn"]
                 != value["identity_center_instance_arn"]
+                or parameter_map["IdentityCenterKmsMode"]
+                not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+                or (
+                    parameter_map["IdentityCenterKmsMode"]
+                    == "AWS_OWNED_KMS_KEY"
+                    and parameter_map["IdentityCenterKmsKeyArn"] != ""
+                )
+                or (
+                    parameter_map["IdentityCenterKmsMode"]
+                    == "CUSTOMER_MANAGED_KEY"
+                    and _IDENTITY_CENTER_KMS_KEY_RE.fullmatch(
+                        parameter_map["IdentityCenterKmsKeyArn"]
+                    )
+                    is None
+                )
                 or parameter_map["BootstrapPrincipalId"]
                 != value["bootstrap_principal_id"]
                 or parameter_map["SeedAssignmentsEnabled"] != "true"

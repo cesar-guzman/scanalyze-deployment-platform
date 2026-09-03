@@ -2051,17 +2051,18 @@ def render_template_from_source(
     }
     if set(_PLACEHOLDER_RE.findall(source)) != set(replacements):
         _fail("SOURCE_TEMPLATE_PLACEHOLDERS_INVALID")
-    rendered = source
-    for token, value in replacements.items():
+
+    def replace_placeholder(match: re.Match[bytes]) -> bytes:
+        value = replacements[match.group(0)]
         if isinstance(value, str):
-            replacement = value.encode("utf-8")
-        else:
-            replacement = value
-        rendered = rendered.replace(token, replacement)
-    if (
-        _PLACEHOLDER_RE.search(rendered)
-        or len(rendered) > MAX_TEMPLATE_URL_BYTES
-    ):
+            return value.encode("utf-8")
+        return value
+
+    # Substitute only tokens discovered in the reviewed source.  Replacement
+    # bytes can legitimately contain token-shaped Base85 text and must never be
+    # interpreted as a second source placeholder.
+    rendered = _PLACEHOLDER_RE.sub(replace_placeholder, source)
+    if len(rendered) > MAX_TEMPLATE_URL_BYTES:
         _fail("GENERATED_TEMPLATE_INVALID")
     loaded = _load_rendered_yaml(rendered)
     if (

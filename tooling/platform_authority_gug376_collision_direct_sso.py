@@ -51,7 +51,9 @@ _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INSTANCE = re.compile(r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$")
 _KMS = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/[A-Za-z0-9-]{8,128}$"
+    r"^arn:aws:kms:us-east-1:839393571433:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
 )
 LOCAL_DIRECT_SSO = admission.LOCAL_DIRECT_SSO
 
@@ -546,7 +548,7 @@ class _Adapter:
                     self._kms_key_arn if domain == "management" else None
                 ),
                 identity_center_kms_binding_source=(
-                    "GUG393_PRIVATE_MATERIALIZATION"
+                    "GUG376_ATTESTED_IDENTITY_CENTER_KMS_BINDING"
                     if domain == "management"
                     else None
                 ),

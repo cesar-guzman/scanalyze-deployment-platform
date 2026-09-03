@@ -33,10 +33,10 @@ class _Reader:
         self._domain = domain
         self._capture_index = capture_index
         self._facts = facts
-        self.caps: dict[str, int] | None = None
+        self.caps: dict[str, Any] | None = None
 
     def read_collision_facts(
-        self, targets: dict[str, Any], **caps: int
+        self, targets: dict[str, Any], **caps: Any
     ) -> dict[str, Any]:
         assert tuple(targets) == contract.TARGET_ORDER
         self.caps = caps
@@ -126,7 +126,7 @@ class _Provider:
         self.collision = collision
         self.fail_at = fail_at
         self.opened: list[tuple[str, int]] = []
-        self.caps: dict[tuple[str, int], dict[str, int]] = {}
+        self.caps: dict[tuple[str, int], dict[str, Any]] = {}
 
     def _build(
         self,
@@ -530,6 +530,10 @@ def test_executor_orchestrates_four_attested_sessions_and_persists_result(
     identity_caps = {
         "max_applications": contract.MAX_APPLICATIONS,
         "max_permission_sets": contract.MAX_PERMISSION_SETS,
+        "expected_identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+        "expected_identity_center_kms_key_arn": (
+            probe_data.IDENTITY_KMS_KEY_ARN
+        ),
     }
     assert provider.caps == {
         ("authority", 1): authority_caps,

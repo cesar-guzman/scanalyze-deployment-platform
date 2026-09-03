@@ -330,11 +330,6 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     commands.choices["create-change-set"].add_argument(
-        "--gug393-private-root",
-        type=Path,
-        required=True,
-    )
-    commands.choices["create-change-set"].add_argument(
         "--gug395-private-root",
         type=Path,
         required=True,
@@ -362,11 +357,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.choices["execute-change-set"].add_argument(
         "--collision-admission-root",
-        type=Path,
-        required=True,
-    )
-    commands.choices["execute-change-set"].add_argument(
-        "--gug393-private-root",
         type=Path,
         required=True,
     )
@@ -524,7 +514,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 collision_context.build_atomic_loader_from_private_context(
                     admission_private_root=args.collision_admission_root,
                     effect_private_root=root,
-                    gug393_private_root=args.gug393_private_root,
                     gug395_private_root=args.gug395_private_root,
                     expected_approval_reference_digest=approval[
                         "authorization_digest"

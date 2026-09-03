@@ -150,18 +150,29 @@ def _source_bundle() -> tuple[dict[str, Any], dict[str, str]]:
     }
     body = {
         "record_type": discovery.SOURCE_BUNDLE_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "gug363_plan": plan363,
         "gug365_plan": plan365,
         "identity_center_application_name": "ScanalyzeAuthority",
         "identity_center_application_provider_arn": (
             "arn:aws:sso::aws:applicationProvider/custom"
         ),
+        "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
         "identity_center_kms_key_arn": (
             f"arn:aws:kms:us-east-1:{IDENTITY_CENTER_ACCOUNT}:"
             "key/abcdefab-cdef-abcd-efab-cdefabcdefab"
         ),
     }
+    body["identity_center_kms_binding_digest"] = canonical_digest(
+        {
+            "binding_name": "identity_center_kms_key_arn",
+            "identity_center_instance_arn": plan363["parameters"][
+                "IdentityCenterInstanceArn"
+            ],
+            "mode": body["identity_center_kms_mode"],
+            "key_arn": body["identity_center_kms_key_arn"],
+        }
+    )
     return (
         {**body, "source_bundle_digest": canonical_digest(body)},
         runtime,
@@ -206,3 +217,104 @@ def test_runtime_source_selectors_are_provenanced_to_gug365(
             "value_digest": canonical_digest(document["authority_targets"][field]),
         }
         assert selector["artifact_digest"] != GUG363_PLAN_DIGEST
+
+
+@pytest.mark.parametrize(
+    "mode,key_arn",
+    [
+        ("AWS_OWNED_KMS_KEY", None),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            f"arn:aws:kms:us-east-1:{IDENTITY_CENTER_ACCOUNT}:"
+            "key/abcdefab-cdef-abcd-efab-cdefabcdefab",
+        ),
+    ],
+)
+def test_source_contract_preserves_exact_kms_mode_binding(
+    monkeypatch: pytest.MonkeyPatch, mode: str, key_arn: str | None
+) -> None:
+    monkeypatch.setattr(
+        discovery.gug363, "validate_materialization_plan", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        discovery.gug365,
+        "validate_service_role_materialization_plan",
+        lambda *args, **kwargs: None,
+    )
+    bundle, _ = _source_bundle()
+    bundle["identity_center_kms_mode"] = mode
+    bundle["identity_center_kms_key_arn"] = key_arn
+    binding = {
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": bundle["gug363_plan"]["parameters"][
+            "IdentityCenterInstanceArn"
+        ],
+        "mode": mode,
+        "key_arn": key_arn,
+    }
+    bundle["identity_center_kms_binding_digest"] = canonical_digest(binding)
+    bundle["source_bundle_digest"] = canonical_digest(
+        {key: value for key, value in bundle.items() if key != "source_bundle_digest"}
+    )
+
+    contract = discovery.derive_source_contract(
+        source_bundle=bundle,
+        source_commit_sha=SOURCE_COMMIT,
+        source_tree_sha=SOURCE_TREE,
+    ).document
+
+    assert contract["schema_version"] == 2
+    assert contract["identity_center_kms_binding_digest"] == canonical_digest(binding)
+    assert contract["identity_center_private_targets"]["identity_center_kms_mode"] == mode
+    assert contract["identity_center_private_targets"]["identity_center_kms_key_arn"] == key_arn
+
+
+@pytest.mark.parametrize(
+    "mode,key_arn",
+    [
+        (
+            "AWS_OWNED_KMS_KEY",
+            f"arn:aws:kms:us-east-1:{IDENTITY_CENTER_ACCOUNT}:"
+            "key/abcdefab-cdef-abcd-efab-cdefabcdefab",
+        ),
+        ("CUSTOMER_MANAGED_KEY", None),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:999999999999:"
+            "key/abcdefab-cdef-abcd-efab-cdefabcdefab",
+        ),
+    ],
+)
+def test_source_contract_rejects_invalid_kms_mode_pairs(
+    monkeypatch: pytest.MonkeyPatch, mode: str, key_arn: str | None
+) -> None:
+    monkeypatch.setattr(
+        discovery.gug363, "validate_materialization_plan", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        discovery.gug365,
+        "validate_service_role_materialization_plan",
+        lambda *args, **kwargs: None,
+    )
+    bundle, _ = _source_bundle()
+    bundle["identity_center_kms_mode"] = mode
+    bundle["identity_center_kms_key_arn"] = key_arn
+    bundle["identity_center_kms_binding_digest"] = canonical_digest(
+        {
+            "binding_name": "identity_center_kms_key_arn",
+            "identity_center_instance_arn": bundle["gug363_plan"]["parameters"][
+                "IdentityCenterInstanceArn"
+            ],
+            "mode": mode,
+            "key_arn": key_arn,
+        }
+    )
+    bundle["source_bundle_digest"] = canonical_digest(
+        {key: value for key, value in bundle.items() if key != "source_bundle_digest"}
+    )
+    with pytest.raises(discovery.PrivateInputDiscoveryError):
+        discovery.derive_source_contract(
+            source_bundle=bundle,
+            source_commit_sha=SOURCE_COMMIT,
+            source_tree_sha=SOURCE_TREE,
+        )

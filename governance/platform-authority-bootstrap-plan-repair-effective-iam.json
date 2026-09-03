@@ -40,8 +40,8 @@
       "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
       "inline_policy_name": "Gug376ReconcileAndAttest",
       "normalized_inline_policy_digests": {
-        "AWS_OWNED_KMS_KEY": "sha256:dca2250c30d57c142995e08542a17a05d6e7186b282bbfdf8babddf30d3a2296",
-        "CUSTOMER_MANAGED_KEY": "sha256:dca2250c30d57c142995e08542a17a05d6e7186b282bbfdf8babddf30d3a2296"
+        "AWS_OWNED_KMS_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7",
+        "CUSTOMER_MANAGED_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7"
       }
     },
     {

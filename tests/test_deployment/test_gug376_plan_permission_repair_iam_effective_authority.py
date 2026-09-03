@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping
 from urllib.parse import quote
 
@@ -378,6 +380,43 @@ def test_reviewed_control_is_exact_projection_of_both_templates(
                 assert digest_value(normalized) == spec.policy_digest_for(mode)
 
 
+def test_both_templates_share_exact_canonical_kms_allowed_pattern() -> None:
+    expected = (
+        "^$|^arn:aws:kms:us-east-1:839393571433:key/"
+        "(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+        "mrk-[0-9a-f]{32})$"
+    )
+    patterns = {
+        _load_template(path)["Parameters"]["IdentityCenterKmsKeyArn"][
+            "AllowedPattern"
+        ]
+        for path in (AUTHORITY_TEMPLATE, MANAGEMENT_TEMPLATE)
+    }
+    assert patterns == {expected}
+    pattern = re.compile(expected)
+    for accepted in (
+        "",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ):
+        assert pattern.fullmatch(accepted)
+    for rejected in (
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+    ):
+        assert pattern.fullmatch(rejected) is None
+
+
 def test_management_portable_policies_have_template_parity(
     bindings: PlanRepairIamBindings,
 ) -> None:
@@ -541,6 +580,54 @@ def test_malformed_or_colliding_bindings_fail_before_readback(
     with pytest.raises(PlanPermissionRepairError) as exc_info:
         PlanRepairIamBindings(**payload)
     assert exc_info.value.code == "IAM_BINDING_COLLISION"
+
+
+def test_multiregion_key_has_effective_iam_parity(
+    bindings: PlanRepairIamBindings,
+) -> None:
+    key_arn = (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef"
+    )
+    mrk_bindings = replace(
+        bindings,
+        identity_center_kms_key_arn=key_arn,
+    )
+    verifier, _, _ = _verifier(mrk_bindings)
+
+    snapshot = verifier.snapshot(mrk_bindings)
+
+    assert len(snapshot.authority_roles) == 4
+    assert len(snapshot.management_roles) == 2
+    assert (
+        key_arn,
+        "${identity_center_kms_key_arn}",
+    ) in mrk_bindings.normalization_replacements()
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+    ),
+)
+def test_effective_iam_rejects_noncanonical_identity_center_key(
+    bindings: PlanRepairIamBindings,
+    key_arn: str,
+) -> None:
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        replace(bindings, identity_center_kms_key_arn=key_arn)
+    assert exc_info.value.code == "IAM_BINDING_MALFORMED"
 
 
 def test_private_seed_materializes_exact_effective_iam_bindings(

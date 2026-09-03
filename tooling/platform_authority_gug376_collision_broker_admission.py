@@ -193,6 +193,7 @@ def materialize_assume_role_session_policy(
         _fail("BROKER_COLLISION_POLICY_INVALID")
     wildcard_actions: set[str] = set()
     statements: list[dict[str, Any]] = []
+    conditional_statements: dict[str, dict[str, Any]] = {}
     for stage, document in documents.items():
         raw = document.get("Statement") if isinstance(document, Mapping) else None
         if not isinstance(raw, list):
@@ -202,6 +203,24 @@ def materialize_assume_role_session_policy(
                 continue
             actions = _actions(statement.get("Action"))
             resources = statement.get("Resource")
+            if actions == ["kms:Decrypt"]:
+                condition = statement.get("Condition")
+                if (
+                    domain != "management"
+                    or not isinstance(resources, str)
+                    or not isinstance(condition, Mapping)
+                ):
+                    _fail("BROKER_COLLISION_POLICY_INVALID")
+                projected = {
+                    "Effect": "Allow",
+                    "Action": "kms:Decrypt",
+                    "Resource": resources,
+                    "Condition": _copy(
+                        condition, "BROKER_COLLISION_POLICY_INVALID"
+                    ),
+                }
+                conditional_statements[canonical_json(projected)] = projected
+                continue
             if stage == "candidate_detail":
                 if resources == "*" and actions == ["sts:GetCallerIdentity"]:
                     wildcard_actions.update(actions)
@@ -256,6 +275,27 @@ def materialize_assume_role_session_policy(
         exact_actions.update(item["Action"])
         exact_resources.update(resource_values)
 
+    # A candidate-stage policy also contains the inventory permission-set
+    # prefix needed to discover AWS-assigned ids. Exact permission-set ARNs are
+    # therefore redundant in the STS intersection and consume scarce bytes.
+    # Remove only values covered by that exact-instance prefix; no other ARN
+    # class is compacted.
+    permission_set_prefixes = {
+        resource[:-1]
+        for resource in exact_resources
+        if resource.startswith("arn:aws:sso:::permissionSet/")
+        and resource.endswith("/*")
+    }
+    if permission_set_prefixes:
+        exact_resources = {
+            resource
+            for resource in exact_resources
+            if not (
+                "/ps-" in resource
+                and any(resource.startswith(prefix) for prefix in permission_set_prefixes)
+            )
+        }
+
     def compact(values: set[str]) -> str | list[str]:
         ordered = sorted(values)
         return ordered[0] if len(ordered) == 1 else ordered
@@ -277,6 +317,9 @@ def materialize_assume_role_session_policy(
                 "Resource": compact(exact_resources),
             }
         )
+    compacted.extend(
+        conditional_statements[key] for key in sorted(conditional_statements)
+    )
     # Scalarizing singleton Action/Resource values preserves the intersection
     # while reserving deterministic headroom below STS's 2,048-byte quota.
     result = {"Version": "2012-10-17", "Statement": compacted}
@@ -558,6 +601,8 @@ def execute_inline_broker_collision_admission(
     effect_request: Mapping[str, Any],
     identity_bindings: Mapping[str, Any],
     identity_center_instance_arn: str,
+    identity_center_kms_mode: str,
+    identity_center_kms_key_arn: str | None,
     session_opener_for_policy: SessionOpenerForPolicy,
     expected_identity_center_kms_binding_digest: str,
     clock: Callable[[], datetime],
@@ -568,6 +613,15 @@ def execute_inline_broker_collision_admission(
     try:
         validate_route_collision_catalog(catalog)
         claimed_at = _stamp(clock())
+        if expected_identity_center_kms_binding_digest != canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": identity_center_instance_arn,
+                "mode": identity_center_kms_mode,
+                "key_arn": identity_center_kms_key_arn,
+            }
+        ):
+            _fail("BROKER_COLLISION_IDENTITY_CENTER_BINDING_INVALID")
         if not callable(before_call):
             _fail("BROKER_COLLISION_BUDGET_GATE_INVALID")
         not_before = _time(catalog["not_before"])
@@ -596,6 +650,8 @@ def execute_inline_broker_collision_admission(
         inventory = policy.materialize_route_collision_policy_set(
             catalog,
             identity_center_instance_arn=identity_center_instance_arn,
+            identity_center_kms_mode=identity_center_kms_mode,
+            identity_center_kms_key_arn=identity_center_kms_key_arn,
         )
         inventory_session_policies = {
             domain: materialize_assume_role_session_policy(
@@ -638,6 +694,8 @@ def execute_inline_broker_collision_admission(
             catalog,
             discovery_capability=discovery,
             identity_center_instance_arn=identity_center_instance_arn,
+            identity_center_kms_mode=identity_center_kms_mode,
+            identity_center_kms_key_arn=identity_center_kms_key_arn,
         )
         candidate_session_policies = {
             domain: materialize_assume_role_session_policy(

@@ -7,6 +7,8 @@ import json
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+import pytest
+
 from tests.test_deployment import (
     test_gug376_collision_policy as policy_fixtures,
     test_gug376_plan_permission_repair_route_broker as route_fixtures,
@@ -159,6 +161,18 @@ class _FakeReadClient:
                         "OwnerAccountId": broker.MANAGEMENT_ACCOUNT_ID,
                     }
                 ]
+            }
+        if method == "describe_instance":
+            return {
+                "InstanceArn": INSTANCE_ARN,
+                "IdentityStoreId": "d-1234567890",
+                "OwnerAccountId": broker.MANAGEMENT_ACCOUNT_ID,
+                "Status": "ACTIVE",
+                "EncryptionConfigurationDetails": {
+                    "KeyType": "AWS_OWNED_KMS_KEY",
+                    "KmsKeyArn": None,
+                    "EncryptionStatus": "ENABLED",
+                },
             }
         if method == "list_applications":
             return {
@@ -469,6 +483,7 @@ def test_runtime_adapter_runs_inline_admission_with_ten_exact_sts_sessions(
         for item in inventory_requests
         if item["RoleArn"] == broker.MANAGEMENT_COLLISION_READER_ROLE_ARN
     )
+    assert "kms:" not in management_inventory
     assert "permissionSet/ssoins-1234567890abcdef/*" in management_inventory
     assert "permissionSet/ssoins-*/*" not in management_inventory
     management_candidate = next(
@@ -476,8 +491,10 @@ def test_runtime_adapter_runs_inline_admission_with_ten_exact_sts_sessions(
         for item in candidate_requests
         if item["RoleArn"] == broker.MANAGEMENT_COLLISION_READER_ROLE_ARN
     )
-    assert PERMISSION_SET_ARN in management_candidate
+    assert PERMISSION_SET_ARN not in management_candidate
+    assert "permissionSet/ssoins-1234567890abcdef/*" in management_candidate
     assert APPLICATION_ARN in management_candidate
+    assert "kms:" not in management_candidate
     assert {
         key: manifest["session_uniqueness_registry"][key]
         for key in (
@@ -580,6 +597,10 @@ def test_maximum_live_candidate_session_policies_keep_exact_headroom() -> None:
             policy_fixtures.DISCOVERY_PROVENANCE_DIGEST
         ),
         identity_center_instance_arn=INSTANCE_ARN,
+        identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        identity_center_kms_key_arn=candidates["management"][
+            "identity_center_kms_key"
+        ][0],
     )
     collision_policy.validate_route_collision_policy_set(
         policy_set,
@@ -598,7 +619,7 @@ def test_maximum_live_candidate_session_policies_keep_exact_headroom() -> None:
         domain: len(canonical_json(value).encode("utf-8"))
         for domain, value in policies.items()
     }
-    assert sizes == {"authority": 1_654, "management": 1_730}
+    assert sizes == {"authority": 1_654, "management": 1_599}
     assert all(
         size <= subject.MAX_MATERIALIZED_SESSION_POLICY_BYTES
         and subject.MAX_SESSION_POLICY_BYTES - size
@@ -611,6 +632,7 @@ def test_maximum_live_candidate_session_policies_keep_exact_headroom() -> None:
         "cloudformation:DescribeStacks": {"cloudformation_stack"},
         "cloudformation:DescribeStackResource": {"cloudformation_stack"},
         "kms:DescribeKey": {"kms_key"},
+        "kms:Decrypt": {"kms_key"},
         "kms:ListResourceTags": {"kms_key"},
         "lambda:GetAlias": {"lambda_function"},
         "lambda:GetCodeSigningConfig": {"lambda_code_signing_config"},
@@ -678,7 +700,6 @@ def test_maximum_live_candidate_session_policies_keep_exact_headroom() -> None:
         reviewed_resources = {
             resource
             for kind, resources in candidates[domain].items()
-            if kind != "identity_center_kms_key"
             for resource in resources
         }
         if domain == "authority":
@@ -719,15 +740,56 @@ def test_maximum_live_candidate_session_policies_keep_exact_headroom() -> None:
                 assert effective_resources
                 assert effective_resources <= reviewed_resources
 
+        if domain == "management":
+            decrypt = next(
+                statement
+                for statement in session_policy["Statement"]
+                if statement["Action"] == "kms:Decrypt"
+            )
+            assert decrypt["Resource"] == candidates["management"][
+                "identity_center_kms_key"
+            ][0]
+            assert decrypt["Condition"]["StringEquals"] == {
+                "aws:PrincipalAccount": broker.MANAGEMENT_ACCOUNT_ID,
+                "aws:RequestedRegion": broker.REGION,
+                "kms:CallerAccount": broker.MANAGEMENT_ACCOUNT_ID,
+                "kms:EncryptionContext:aws:sso:instance-arn": INSTANCE_ARN,
+                "kms:ViaService": "sso.us-east-1.amazonaws.com",
+            }
+
         rendered = canonical_json(session_policy)
         for kind, resources in candidates[domain].items():
-            if kind == "identity_center_kms_key":
+            if kind == "sso_permission_set":
                 continue
             assert all(resource in rendered for resource in resources)
         assert "permissionSet/ssoins-*/*" not in rendered
         assert ":key/*" not in rendered
         assert ":code-signing-config:*" not in rendered
         assert ":application/*" not in rendered
+
+
+def test_inline_admission_rejects_kms_binding_digest_mismatch_before_sessions(
+) -> None:
+    with pytest.raises(subject.BrokerCollisionAdmissionError) as captured:
+        subject.execute_inline_broker_collision_admission(
+            catalog=policy_fixtures._catalog(),
+            phase="delegation",
+            operation="delegation-create-v1",
+            effect_request={},
+            identity_bindings={},
+            identity_center_instance_arn=INSTANCE_ARN,
+            identity_center_kms_mode="AWS_OWNED_KMS_KEY",
+            identity_center_kms_key_arn=None,
+            session_opener_for_policy=lambda *_args: None,
+            expected_identity_center_kms_binding_digest=(
+                "sha256:" + "0" * 64
+            ),
+            clock=lambda: datetime(2026, 9, 1, tzinfo=UTC),
+            before_call=lambda: None,
+        )
+    assert captured.value.code == (
+        "BROKER_COLLISION_IDENTITY_CENTER_BINDING_INVALID"
+    )
 
 
 def test_broker_lifecycle_uses_the_canonical_phase_for_every_operation() -> None:

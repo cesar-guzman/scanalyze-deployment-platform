@@ -249,7 +249,6 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-artifact-bo
   --profile 839393571433_AWSAdministratorAccess \
   --claim-root "$PRIVATE_CLAIM_ROOT" \
   --collision-admission-root "$EFFECT_COLLISION_ADMISSION_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 ```
 
@@ -268,10 +267,11 @@ in a bundle is not standing authorization. The exact authorization text is
 `AUTHORIZE GUG-376 <operation>:<dispatch-or-execute> <SOURCE_COMMIT>`.
 
 Every expansive connected artifact effect must also consume one atomic
-four-root collision context materialized after its exact authorization. The
-context's effect root is `$PRIVATE_ARTIFACT_ROOT`; the immutable GUG-395 and
-GUG-393 roots are the same lineage used by the route, while the admission root
-is new and empty for that one effect. Bind `approval_reference_digest`,
+three-root collision context materialized after its exact authorization. Its
+three distinct roots are the new, empty collision-admission root for that one
+effect; the `$PRIVATE_ARTIFACT_ROOT` effect-authorization root containing the
+exact authorization and effect claim; and the reusable immutable GUG-395
+lineage root shared with the route. Bind `approval_reference_digest`,
 `authorized_at` and `expires_at` to the exact authorization record, and bind
 `approved_operation` to one of `bridge-create:dispatch`,
 `bridge-create:execute`, `foundation-create:dispatch`,
@@ -283,9 +283,9 @@ is new and empty for that one effect. Bind `approval_reference_digest`,
 the initial GUG-395 absence result is not action authorization.
 
 The reducing `bridge-revoke` and `bridge-cleanup-retire` paths, every
-attestation/readback and every ambiguity-recovery action reject all three
-collision-root flags. They validate their original write-once causal records
-and cannot create or expand resources.
+attestation/readback and every ambiguity-recovery action reject the additional
+collision-admission and GUG-395 root flags. They validate their original
+write-once causal records and cannot create or expand resources.
 
 The artifact bridge and foundation expose their non-secret causal parameters
 for exact provider readback: bootstrap principal ID, Signer profile version,
@@ -389,7 +389,11 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-template-re
 ```
 
 Repeat with the exact artifact kind/version for delegation, PEP and broker
-templates. The product CLI exposes no legacy storage-plan flags.
+templates. The product CLI exposes no legacy storage-plan flags. The receipt's
+`observed_at` and its freshness evaluation use the same completion timestamp
+captured after the final object read, so crossing a whole-second boundary during
+the four-call attestation cannot create a false stale result. A completion clock
+earlier than the pre-call clock fails closed.
 
 ## Phase 4 — Publish the broker closure, revoke the bridge and release the route
 
@@ -466,6 +470,27 @@ name, and reseals the complete input. Materialize within the sealed 15-minute
 freshness interval. A stale snapshot requires a new read-only
 capture and a new private output name; it never authorizes a write, deployment
 or production claim.
+
+The current producer writes only the explicit
+`scanalyze.gug376.route_broker_config.v3` / `deflate-dict-v3+base85` envelope.
+Its SHA-256 packing is lossless and is reversed before the closed broker config
+is validated. Canonical V2 envelopes remain readable solely for historical
+compatibility under their original V2 record type and encoding; they are not
+relabelled or resealed as V3. Re-materialization always emits V3. Before using a
+rendered template, retain the 3,500-byte envelope gate across AWS-owned KMS,
+customer-managed UUID keys and customer-managed multi-Region keys. The
+3,800-byte parser ceiling is a final fail-closed bound, not additional capacity
+for the materializer.
+The historical V2 reader must retain the independently frozen dictionary
+binding
+`sha256:d3b7a22de520d6bb478a7ac60d2603ac465a3383568e476748b0cdbc1492266a`.
+Do not point V2 decoding at a dictionary modified for V3; V3 has a distinct
+selection even while its initial dictionary bytes are identical.
+The template renderer substitutes only the exact closed placeholder set found
+in the reviewed source and does so in one pass. Do not re-scan encoded Base85
+replacement bytes for placeholder-shaped text: values such as `@@9@@` can be
+valid encoded data. Source placeholder closure, rendered size and template
+structure remain independent fail-closed checks.
 
 The broker CLI writes fixed write-once package, template and receipt names in
 the private root. Publish and read back the resulting parameterless broker
@@ -549,12 +574,34 @@ equal the sealed request before execution.
 ### Create and consume a fresh atomic collision context for each effect
 
 The mutating local route commands accept no collision digest. They reconstruct
-one atomic admission from four distinct, absolute, non-symlink, owner-only
-mode-`0700` roots: the reusable initial `$GUG395_PRIVATE_ROOT` lineage, the
-matching reusable `$GUG393_PRIVATE_ROOT` materialization, the
-`$PRIVATE_ROUTE_ROOT` effect custody and one new empty collision-admission root
-for the exact effect. Never place a root under Git, a worktree, a synced/File
-Provider path or another root, and never reuse an admission root.
+one atomic admission from exactly three distinct, absolute, non-symlink,
+owner-only mode-`0700` roots: one new empty collision-admission root for the
+exact effect; the `$PRIVATE_ROUTE_ROOT` effect-authorization custody containing
+the exact authorization and effect claim; and the reusable immutable
+`$GUG395_PRIVATE_ROOT` lineage. Never place a root under Git, a worktree, a
+synced/File Provider path or another root, and never reuse an admission root.
+
+The Identity Center instance/KMS binding comes only from the GUG-395 result's
+two attested `DescribeInstance` observations. Each of the three ordered
+action-time GUG-376 collision snapshots (`independent-snapshot-1`,
+`independent-snapshot-2` and `pre-effect-snapshot`) freshly calls
+`ListInstances`, then calls `DescribeInstance` for the sole exact instance
+before `ListApplications` or `ListPermissionSets`, and requires the result to
+match that GUG-395 binding.
+
+Do not translate between KMS modes. `AWS_OWNED_KMS_KEY` requires an empty key
+ARN and zero KMS authority in both the attached management collision-reader
+role and the STS session policy, including `NotAction`. A customer-managed
+binding requires `CUSTOMER_MANAGED_KEY` plus one canonical lowercase
+`us-east-1` management-account key ARN ending in either a UUID or
+`mrk-` plus 32 lowercase hexadecimal characters. The role and intersecting
+session policy must each contain exactly one `kms:Decrypt` allow for that ARN,
+with exact `StringEquals` constraints for `aws:PrincipalAccount`,
+`aws:RequestedRegion`, `kms:CallerAccount`,
+`kms:ViaService=sso.us-east-1.amazonaws.com` and the exact instance encryption
+context, plus the sealed time window. The checked-in GUG-395 IAM JSON is
+attested source custody; validate the freshly rendered `policy_set` actually
+consumed by the broker before every effect.
 
 Run the complete GUG-395 seed, materialization, connected read-only probe and
 receipt validation sequence once, before the foundation resources exist.
@@ -583,11 +630,9 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --output-name "$CREATION_AUTHORIZATION_NAME"
 
 test -d "$PRIVATE_ROUTE_ROOT"
-test -d "$GUG393_PRIVATE_ROOT"
 test -d "$GUG395_PRIVATE_ROOT"
 test -d "$CREATE_COLLISION_ADMISSION_ROOT"
 test "$(stat -f '%Lp' "$PRIVATE_ROUTE_ROOT")" = 700
-test "$(stat -f '%Lp' "$GUG393_PRIVATE_ROOT")" = 700
 test "$(stat -f '%Lp' "$GUG395_PRIVATE_ROOT")" = 700
 test "$(stat -f '%Lp' "$CREATE_COLLISION_ADMISSION_ROOT")" = 700
 test "$(find "$CREATE_COLLISION_ADMISSION_ROOT" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 0
@@ -604,7 +649,6 @@ env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
   materialize-context \
   --admission-private-root "$CREATE_COLLISION_ADMISSION_ROOT" \
   --effect-private-root "$PRIVATE_ROUTE_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT" \
   --bootstrap-intent-digest "$BOOTSTRAP_INTENT_DIGEST" \
   --approval-reference-digest "$CREATE_APPROVAL_DIGEST" \
@@ -617,7 +661,6 @@ env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
   validate-context \
   --admission-private-root "$CREATE_COLLISION_ADMISSION_ROOT" \
   --effect-private-root "$PRIVATE_ROUTE_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 ```
 
@@ -645,7 +688,6 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --input-name "$ROUTE_SEED_INPUT_NAME" \
   --authorization-name "$CREATION_AUTHORIZATION_NAME" \
   --collision-admission-root "$CREATE_COLLISION_ADMISSION_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
@@ -690,7 +732,6 @@ env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
   materialize-context \
   --admission-private-root "$EXECUTE_COLLISION_ADMISSION_ROOT" \
   --effect-private-root "$PRIVATE_ROUTE_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT" \
   --bootstrap-intent-digest "$BOOTSTRAP_INTENT_DIGEST" \
   --approval-reference-digest "$EXECUTE_APPROVAL_DIGEST" \
@@ -711,7 +752,6 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --create-attestation-name "$CREATE_ATTESTATION_NAME" \
   --authorization-name "$EXECUTION_AUTHORIZATION_NAME" \
   --collision-admission-root "$EXECUTE_COLLISION_ADMISSION_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-route-aws.py \
@@ -840,7 +880,6 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --failure-attestation-name "$PREEXECUTE_FAILURE_ATTESTATION_NAME" \
   --reentry-authorization-name "$REENTRY_CREATION_AUTHORIZATION_NAME" \
   --collision-admission-root "$REENTRY_CREATE_COLLISION_ADMISSION_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 
 python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-recovery.py \
@@ -905,12 +944,11 @@ python3 scripts/deployment/platform-authority-plan-permission-repair-deployment-
   --reentry-dispatch-name "$REENTRY_DISPATCH_NAME" \
   --execution-authorization-name "$REENTRY_EXECUTION_AUTHORIZATION_NAME" \
   --collision-admission-root "$REENTRY_EXECUTE_COLLISION_ADMISSION_ROOT" \
-  --gug393-private-root "$GUG393_PRIVATE_ROOT" \
   --gug395-private-root "$GUG395_PRIVATE_ROOT"
 ```
 
 Immediately before `create-reentry` and `execute-reentry`, materialize a new
-four-root context from the corresponding re-entry authorization. Bind the
+three-root context from the corresponding re-entry authorization. Bind the
 create operation to `<target>-reentry-<basis>:create-change-set` and the
 execute operation to `<target>-reentry-<basis>:execute-change-set`, where the
 validated recovery basis is exactly `preexecute`, `cleanup`, or the reviewed
@@ -1352,7 +1390,9 @@ Only after the broker reaches the required PEP terminal state, invoke the Plan,
 repair and reconcile aliases in that order. The success path requires exactly
 one `reconcile-v1` invocation after `REPAIR_VERIFIED` and exact sealed
 `RECONCILE_VERIFIED` readback. An ambiguous result stops for the separately
-reviewed recovery branch; it never authorizes a second reconcile invocation.
+reviewed recovery branch with `required_next_action=REVIEW_BLOCKER`; it never
+authorizes a second reconcile invocation. A `RECONCILE_VERIFIED` receipt always
+binds attempted/completed `2/2`.
 
 ```bash
 invoke_repair() {
@@ -1540,6 +1580,13 @@ Independently read the sealed ledger/public receipt after each terminal state
 before advancing. These invocations are non-production only and never prove a
 production deployment.
 
+The current functions produce only the v2 private intent and v2 public receipt
+record types. Validation dispatches on the exact version/type pair. Retain v1
+artifacts byte-for-byte as historical evidence: do not relabel or reseal them,
+and never use v1 acceptance as current execution authority. Under v2,
+`RECONCILE_VERIFIED` is valid only at attempted/completed `2/2`; a reconcile
+that remains uncertain terminates with `REVIEW_BLOCKER`.
+
 ## Phase 6 — Plan
 
 Start a fresh invoke-only SSO session. Invoke only the qualified `plan-v1`
@@ -1583,8 +1630,10 @@ wall-clock guards do not substitute for the Lambda millisecond reserves.
 
 Invoke `reconcile-v1` with `{}` even after apparent success. It performs no
 Identity Center, IAM, Lambda or CloudFormation mutation and must enter with
-more than 60,000 milliseconds remaining. After exact convergence it performs
-one conditional control-metadata write to
+more than 60,000 milliseconds remaining. Before the provider snapshot it
+performs one conditional control-metadata write to
+`<repair-id>#reconcile-attempt-v1` and strongly reads back that exact sealed
+claim. After exact convergence it conditionally writes
 `<repair-id>#reconcile-v1`, then strongly reads back the exact sealed
 attestation. Require convergence of:
 
@@ -1601,8 +1650,18 @@ Require the original base ledger to remain `REPAIR_VERIFIED`,
 the suffixed attestation's source, intent, base-ledger, final-state,
 invocation-authority and published-function bindings. Do not treat a public
 `RECONCILE_VERIFIED` receipt, equivalent provider state or an uncertain base
-ledger as closeout evidence. A second reconcile invocation is a replay and
-must fail closed.
+ledger as closeout evidence. Both the attestation producer and route-broker
+consumer reject every `UNCERTAIN_RECONCILE_ONLY` stage; later equivalent state
+cannot upgrade an ambiguous ledger into closeout authority. A second reconcile
+invocation is a replay and must fail closed.
+For either terminal ledger state, the first `reconcile-v1` invocation must
+create the write-once `${repair_id}#reconcile-attempt-v1` claim before its
+provider snapshot. Preserve that private claim with the base ledger. A valid
+existing claim returns `REPLAY_BLOCKED` without a new snapshot, including for
+concurrent success-path invocations. A claim write exception is recoverable
+only through byte-equivalent strongly consistent readback; missing, malformed
+or different readback returns `RECONCILE_ATTEMPT_UNPROVEN` and performs no
+snapshot.
 
 Then start a completely new normal Plan SSO session and run the bounded GUG-214
 read-only recovery preflight. Successful `ListChangeSets` pagination is the
@@ -1667,6 +1726,12 @@ separately reviewed session-revocation control before declaring
 Retain the inactive permission sets and route stack as evidence. Their deletion
 would require a separate administrator change and is not part of the repair.
 
+GUG-393 is not a prerequisite for any of these phases and is not an atomic
+collision root. It remains only a downstream exact read-only verification lane
+after all nine live GUG-376 phases, independent terminal verification and
+certified post-phase materialization of the complete GUG-363 and fresh GUG-365
+plans.
+
 ## Uncertainty and recovery
 
 After any possible dispatch:
@@ -1682,6 +1747,9 @@ After any possible dispatch:
 Equivalent final provider state is insufficient if the ledger cannot attribute
 both effects. A new attempt requires a new repair ID, window, artifact binding
 and explicit authorization.
+An uncertain public receipt is valid only for a durable-ledger progress pair of
+`1/0`, `1/1`, `2/1` or `2/2` attempted/completed effects; any other pair is
+invalid evidence and must be rejected.
 
 If the attempt to seal an uncertain state is itself unproven, the function
 emits no public receipt and returns `UNCERTAINTY_LEDGER_UNPROVEN`. The existing

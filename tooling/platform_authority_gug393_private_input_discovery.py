@@ -50,7 +50,7 @@ from tooling.platform_authority_gug376_identity_center_inventory_collector impor
     NAMES as PERMISSION_SET_NAMES,
     PERMISSION_DESCRIPTIONS,
     POLICY_SHA256 as IDENTITY_POLICY_SHA256,
-    POLICY_TARGET_FIELDS as IDENTITY_TARGET_FIELDS,
+    LIVE_POLICY_TARGET_FIELDS as IDENTITY_TARGET_FIELDS,
     bind_live_discovery_transition,
     certify_live as certify_identity_live,
     plan_binding as identity_plan_binding,
@@ -86,10 +86,10 @@ LIVE_ISSUE = "GUG-392"
 REGION = "us-east-1"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_BUNDLE_TYPE = (
-    "scanalyze.platform_authority.gug393_private_input_source_bundle.v1"
+    "scanalyze.platform_authority.gug393_private_input_source_bundle.v2"
 )
 SOURCE_CONTRACT_TYPE = (
-    "scanalyze.platform_authority.gug393_private_input_source_contract.v1"
+    "scanalyze.platform_authority.gug393_private_input_source_contract.v2"
 )
 REQUEST_TYPE = "scanalyze.platform_authority.gug393_discovery_request.v2"
 CHECKPOINT_TYPE = "scanalyze.platform_authority.gug393_discovery_checkpoint.v2"
@@ -202,8 +202,10 @@ _STS_ARN = re.compile(
     r"assumed-role/[A-Za-z0-9+=,.@_/-]+/[A-Za-z0-9+=,.@_-]+$"
 )
 _KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:(?P<account>[0-9]{12}):key/[A-Za-z0-9-]{8,128}$"
+    r"^arn:aws:kms:us-east-1:(?P<account>[0-9]{12}):key/"
+    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
 )
+_KMS_MODES = {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
 _APPLICATION_ARN = re.compile(
     r"^arn:aws:sso::(?P<account>[0-9]{12}):application/"
     r"(?P<instance>ssoins-[A-Za-z0-9.-]{16})/[A-Za-z0-9-]+$"
@@ -921,6 +923,98 @@ class DerivedSourceContract:
         return _copy(self._document, "SOURCE_CONTRACT_INVALID")
 
 
+def _identity_center_kms_binding(
+    *, instance_arn: object, mode: object, key_arn: object, account: str
+) -> dict[str, Any]:
+    if not isinstance(instance_arn, str) or _INSTANCE_ARN.fullmatch(instance_arn) is None:
+        _fail("SOURCE_SELECTOR_MISSING")
+    if mode not in _KMS_MODES:
+        _fail("SOURCE_SELECTOR_MISSING")
+    if mode == "AWS_OWNED_KMS_KEY":
+        if key_arn is not None:
+            _fail("SOURCE_SELECTOR_MISSING")
+    else:
+        match = _KMS_ARN.fullmatch(str(key_arn))
+        if match is None or match.group("account") != account:
+            _fail("SOURCE_SELECTOR_MISSING")
+    return {
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": instance_arn,
+        "mode": mode,
+        "key_arn": key_arn,
+    }
+
+
+def _validated_source_contract_kms_binding(
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    private = contract.get("identity_center_private_targets")
+    expectations = contract.get("identity_center_source_expectations")
+    account = contract.get("identity_center_account_id")
+    if (
+        not isinstance(private, Mapping)
+        or not isinstance(expectations, Mapping)
+        or not isinstance(account, str)
+        or private.get("identity_center_instance_arn")
+        != expectations.get("instance_arn")
+    ):
+        _fail("SOURCE_CONTRACT_INVALID")
+    binding = _identity_center_kms_binding(
+        instance_arn=private.get("identity_center_instance_arn"),
+        mode=private.get("identity_center_kms_mode"),
+        key_arn=private.get("identity_center_kms_key_arn"),
+        account=account,
+    )
+    digest = canonical_digest(binding)
+    if (
+        private.get("identity_center_kms_binding_digest") != digest
+        or contract.get("identity_center_kms_binding_digest") != digest
+    ):
+        _fail("SOURCE_CONTRACT_INVALID")
+    return binding
+
+
+def _validated_observed_identity_instance(
+    contract: Mapping[str, Any], instance: object
+) -> dict[str, Any]:
+    expected = _validated_source_contract_kms_binding(contract)
+    private = contract["identity_center_private_targets"]
+    if not isinstance(instance, Mapping) or set(instance) != {
+        "instance_arn",
+        "identity_store_id",
+        "owner_account_id",
+        "status",
+        "encryption",
+    }:
+        _fail("IDENTITY_STATE_DRIFT")
+    encryption = instance.get("encryption")
+    if not isinstance(encryption, Mapping) or set(encryption) != {
+        "key_type",
+        "kms_key_arn",
+        "status",
+    }:
+        _fail("IDENTITY_STATE_DRIFT")
+    observed = _identity_center_kms_binding(
+        instance_arn=instance.get("instance_arn"),
+        mode=encryption.get("key_type"),
+        key_arn=encryption.get("kms_key_arn"),
+        account=str(contract["identity_center_account_id"]),
+    )
+    if (
+        canonical_digest(observed)
+        != contract.get("identity_center_kms_binding_digest")
+        or observed != expected
+        or encryption.get("status") != "ENABLED"
+        or instance.get("status") != "ACTIVE"
+        or instance.get("owner_account_id")
+        != contract.get("identity_center_account_id")
+        or instance.get("identity_store_id")
+        != private.get("identity_store_id")
+    ):
+        _fail("IDENTITY_STATE_DRIFT")
+    return _copy(instance, "IDENTITY_STATE_DRIFT")
+
+
 def derive_source_contract(
     *,
     source_bundle: Mapping[str, Any],
@@ -942,14 +1036,16 @@ def derive_source_contract(
         "gug365_plan",
         "identity_center_application_name",
         "identity_center_application_provider_arn",
+        "identity_center_kms_mode",
         "identity_center_kms_key_arn",
+        "identity_center_kms_binding_digest",
         "source_bundle_digest",
     }
     if (
         not isinstance(bundle, dict)
         or set(bundle) != fields
         or bundle.get("record_type") != SOURCE_BUNDLE_TYPE
-        or bundle.get("schema_version") != 1
+        or bundle.get("schema_version") != 2
     ):
         _fail("SOURCE_BUNDLE_INVALID")
     _self_digest(bundle, "source_bundle_digest", "SOURCE_BUNDLE_INVALID")
@@ -1057,14 +1153,11 @@ def derive_source_contract(
     store_match = _STORE_ARN.fullmatch(str(identity_store_arn))
     instance_match = _INSTANCE_ARN.fullmatch(str(identity_instance_arn))
     application_match = _APPLICATION_ARN.fullmatch(str(identity_application_arn))
-    kms_match = _KMS_ARN.fullmatch(str(bundle["identity_center_kms_key_arn"]))
     if (
         store_match is None
         or instance_match is None
         or application_match is None
-        or kms_match is None
         or application_match.group("instance") != instance_match.group("instance")
-        or application_match.group("account") != kms_match.group("account")
         or _PROVIDER_ARN.fullmatch(
             str(bundle["identity_center_application_provider_arn"])
         )
@@ -1074,6 +1167,14 @@ def derive_source_contract(
     ):
         _fail("SOURCE_SELECTOR_MISSING")
     identity_account = application_match.group("account")
+    kms_binding = _identity_center_kms_binding(
+        instance_arn=identity_instance_arn,
+        mode=bundle["identity_center_kms_mode"],
+        key_arn=bundle["identity_center_kms_key_arn"],
+        account=identity_account,
+    )
+    if bundle["identity_center_kms_binding_digest"] != canonical_digest(kms_binding):
+        _fail("SOURCE_BINDING_MISMATCH")
     identity_store_id = store_match.group("store")
     actor_policy, actor_digest = render_application_actor_policy(
         authority_targets, authority_account_id=str(authority_account)
@@ -1094,9 +1195,12 @@ def derive_source_contract(
             f"arn:aws:identitystore:::user/{identity_store_id}/{approved_user_id}"
         ),
         "authority_account_arn": f"arn:aws:sso:::account/{authority_account}",
-        "identity_center_kms_key_arn": str(
-            bundle["identity_center_kms_key_arn"]
-        ),
+        "identity_center_instance_arn": str(identity_instance_arn),
+        "identity_center_kms_binding_digest": bundle[
+            "identity_center_kms_binding_digest"
+        ],
+        "identity_center_kms_mode": bundle["identity_center_kms_mode"],
+        "identity_center_kms_key_arn": bundle["identity_center_kms_key_arn"],
         "identity_store_arn": str(identity_store_arn),
         "identity_store_id": identity_store_id,
     }
@@ -1176,7 +1280,7 @@ def derive_source_contract(
     }
     body: dict[str, Any] = {
         "record_type": SOURCE_CONTRACT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "live_issue": LIVE_ISSUE,
@@ -1191,6 +1295,9 @@ def derive_source_contract(
         "identity_center_account_id": identity_account,
         "authority_targets": authority_targets,
         "identity_center_private_targets": identity_private,
+        "identity_center_kms_binding_digest": bundle[
+            "identity_center_kms_binding_digest"
+        ],
         "identity_center_source_expectations": {
             "instance_arn": str(identity_instance_arn),
             "application_arn": str(identity_application_arn),
@@ -1328,6 +1435,7 @@ def materialize_discovery_request(
     if (
         not isinstance(contract, dict)
         or contract.get("record_type") != SOURCE_CONTRACT_TYPE
+        or contract.get("schema_version") != 2
         or contract.get("source_contract_digest")
         != canonical_digest(
             {
@@ -1340,6 +1448,7 @@ def materialize_discovery_request(
         or contract.get("executor_source_tree_sha") != source_tree_sha
     ):
         _fail("SOURCE_CONTRACT_INVALID")
+    _validated_source_contract_kms_binding(contract)
     if not isinstance(profiles, Mapping) or set(profiles) != {
         "authority",
         "identity_center",
@@ -1615,6 +1724,7 @@ def _validate_request_pair(
     if (
         not isinstance(contract, Mapping)
         or contract.get("record_type") != SOURCE_CONTRACT_TYPE
+        or contract.get("schema_version") != 2
         or contract.get("executor_source_commit_sha")
         != checked_request.get("source_commit_sha")
         or contract.get("executor_source_tree_sha")
@@ -1631,6 +1741,7 @@ def _validate_request_pair(
         )
     ):
         _fail("SOURCE_CONTRACT_INVALID")
+    _validated_source_contract_kms_binding(contract)
     profiles = _stored_profiles(checked_request.get("profiles"))
     if (
         canonical_digest(profiles) != checked_request.get("profile_binding_digest")
@@ -3171,6 +3282,9 @@ def _derive_discovery_proposal(
     source_expectations = contract["identity_center_source_expectations"]
     if instances[0].get("instance_arn") != source_expectations["instance_arn"]:
         _fail("IDENTITY_STATE_DRIFT")
+    observed_instance = _validated_observed_identity_instance(
+        contract, identity_facts.get("instance")
+    )
     absent = not applications and not permission_sets
     exact = len(applications) == 1 and len(permission_sets) == 2
     if not absent and not exact:
@@ -3192,7 +3306,7 @@ def _derive_discovery_proposal(
         trust_digests = _absent_trust_digests()
         expected_state = {
             "classification": "ABSENT_READY",
-            "instance": instances[0],
+            "instance": observed_instance,
         }
     else:
         if (

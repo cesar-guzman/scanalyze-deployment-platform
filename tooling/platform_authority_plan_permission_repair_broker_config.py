@@ -112,6 +112,11 @@ _SAML_RE = re.compile(
     r"^arn:aws:iam::042360977644:saml-provider/"
     r"AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$"
 )
+_IDENTITY_CENTER_KMS_RE = re.compile(
+    r"^arn:aws:kms:us-east-1:839393571433:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _TIME_RE = re.compile(
     r"^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T"
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
@@ -279,12 +284,7 @@ def validate_plan_snapshot(
         snapshot["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
         and (
             not isinstance(kms_key, str)
-            or re.fullmatch(
-                r"arn:aws:kms:us-east-1:839393571433:key/"
-                r"[0-9a-fA-F-]{36}",
-                kms_key,
-            )
-            is None
+            or _IDENTITY_CENTER_KMS_RE.fullmatch(kms_key) is None
         )
     ):
         _fail("PLAN_SNAPSHOT_KMS_INVALID")

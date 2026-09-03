@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,13 +14,17 @@ from tooling.platform_authority_plan_permission_repair import (
     Assignment,
     FUNCTION_NAMES,
     FUNCTION_QUALIFIERS,
+    INTENT_RECORD_TYPE_V1,
+    INTENT_RECORD_TYPE_V2,
     LAMBDA_ENTRY_MINIMUM_REMAINING_MS,
     MUTATION_WINDOW_MIN_REMAINING_SECONDS,
     OperationResult,
     PRIVATE_INTENT_FIELDS,
     PRIVATE_LEDGER_ACTIVE_FIELDS,
     PRIVATE_LEDGER_PLAN_FIELDS,
+    PRIVATE_RECONCILE_ATTEMPT_FIELDS,
     PRIVATE_RECONCILE_ATTESTATION_FIELDS,
+    RECEIPT_RECORD_TYPE_V2,
     PUBLIC_RECEIPT_FIELDS,
     PlanPermissionRepair,
     PlanPermissionRepairError,
@@ -31,6 +36,7 @@ from tooling.platform_authority_plan_permission_repair import (
     build_private_intent,
     build_reconcile_attestation,
     digest_value,
+    immutable_configuration_digest_from_intent,
     install_runtime_factory,
     parse_timestamp,
     plan_handler,
@@ -39,8 +45,10 @@ from tooling.platform_authority_plan_permission_repair import (
     transition_ledger,
     validate_private_intent,
     validate_private_ledger,
+    validate_reconcile_attempt,
     validate_reconcile_attestation,
     validate_public_receipt,
+    validate_runtime_environment,
     validate_snapshot,
     validate_versioned_lambda_contract,
 )
@@ -182,6 +190,7 @@ class MemoryLedger:
     def __init__(self, timeline: list[str]) -> None:
         self.item: dict[str, Any] | None = None
         self.attestation: dict[str, Any] | None = None
+        self.reconcile_attempt: dict[str, Any] | None = None
         self.timeline = timeline
 
     def put_if_absent(self, ledger: Mapping[str, Any]) -> None:
@@ -231,6 +240,22 @@ class MemoryLedger:
             return None
         return deepcopy(self.attestation)
 
+    def put_reconcile_attempt(self, attempt: Mapping[str, Any]) -> None:
+        if self.reconcile_attempt is not None:
+            raise RuntimeError("conditional reconcile attempt write failed")
+        self.reconcile_attempt = deepcopy(dict(attempt))
+        self.timeline.append("ledger:RECONCILE_ATTEMPT_CLAIMED")
+
+    def read_reconcile_attempt(
+        self, repair_id: str
+    ) -> Mapping[str, Any] | None:
+        if (
+            self.reconcile_attempt is None
+            or self.reconcile_attempt["base_repair_id"] != repair_id
+        ):
+            return None
+        return deepcopy(self.reconcile_attempt)
+
 
 class FailUncertainSealLedger(MemoryLedger):
     def compare_and_swap(
@@ -265,6 +290,26 @@ class MissingAttestationLedger(MemoryLedger):
     ) -> None:
         del attestation
         raise RuntimeError("synthetic absent attestation response")
+
+
+class AmbiguousReconcileAttemptLedger(MemoryLedger):
+    def put_reconcile_attempt(self, attempt: Mapping[str, Any]) -> None:
+        super().put_reconcile_attempt(attempt)
+        raise RuntimeError("synthetic ambiguous reconcile attempt response")
+
+
+class MissingReconcileAttemptLedger(MemoryLedger):
+    def put_reconcile_attempt(self, attempt: Mapping[str, Any]) -> None:
+        del attempt
+        raise RuntimeError("synthetic absent reconcile attempt response")
+
+
+class RacingReconcileAttemptLedger(MemoryLedger):
+    def put_reconcile_attempt(self, attempt: Mapping[str, Any]) -> None:
+        self.reconcile_attempt = deepcopy(dict(attempt))
+        raise PlanPermissionRepairError(
+            "REPLAY_BLOCKED", "synthetic concurrent reconcile winner"
+        )
 
 
 class MemoryProvider:
@@ -327,6 +372,29 @@ class MemoryProvider:
         return status
 
 
+def _install_uncertain_ledger(
+    ledger: MemoryLedger,
+    *,
+    stage: str,
+    effects_attempted: int,
+    effects_completed: int,
+) -> dict[str, Any]:
+    assert ledger.item is not None
+    uncertain = dict(ledger.item)
+    uncertain.update(
+        {
+            "status": "UNCERTAIN_RECONCILE_ONLY",
+            "stage": stage,
+            "effects_attempted": effects_attempted,
+            "effects_completed": effects_completed,
+        }
+    )
+    uncertain = _reseal(uncertain, "ledger_digest")
+    validate_private_ledger(uncertain)
+    ledger.item = uncertain
+    return uncertain
+
+
 def test_policy_repair_is_exactly_one_added_statement() -> None:
     target = render_target_policy(_binding_record()["change_set_name"])
     predecessor = render_predecessor_policy(target)
@@ -341,6 +409,8 @@ def test_private_intent_is_source_rendered_and_sealed(
     intent: dict[str, Any],
 ) -> None:
     validate_private_intent(intent)
+    assert intent["schema_version"] == 2
+    assert intent["record_type"] == INTENT_RECORD_TYPE_V2
     changed = deepcopy(intent)
     changed["authorized_mutations"].append("sso:CreatePermissionSet")
     with pytest.raises(PlanPermissionRepairError) as exc_info:
@@ -358,6 +428,164 @@ def test_private_intent_rejects_resealed_extra_field(
         validate_private_intent(changed)
     assert exc_info.value.code == "INTENT_FIELDS_INVALID"
     assert set(intent) == PRIVATE_INTENT_FIELDS
+
+
+def test_private_intent_v1_reader_remains_exactly_compatible() -> None:
+    fixture_path = (
+        REPO_ROOT
+        / "fixtures/valid/"
+        "platform-authority-plan-permission-repair-intent-v1-synthetic.json"
+    )
+    raw = fixture_path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == (
+        "8e189b20d04b814446e87423298abcfb70aba50c7df203d4cee18ad280ef0a40"
+    )
+    legacy = json.loads(raw)
+
+    validate_private_intent(legacy)
+    assert set(legacy) == PRIVATE_INTENT_FIELDS
+    assert legacy["schema_version"] == 1
+    assert legacy["record_type"] == INTENT_RECORD_TYPE_V1
+    with pytest.raises(PlanPermissionRepairError) as active:
+        PlanPermissionRepair(
+            intent=legacy,
+            provider=MemoryProvider(legacy, []),
+            ledger=MemoryLedger([]),
+            now=lambda: NOW,
+        )
+    assert active.value.code == "ACTIVE_INTENT_VERSION_REQUIRED"
+
+
+def test_private_intent_v1_reader_does_not_backport_mrk_semantics() -> None:
+    legacy = json.loads(
+        (
+            REPO_ROOT
+            / "fixtures/valid/"
+            "platform-authority-plan-permission-repair-intent-v1-synthetic.json"
+        ).read_text(encoding="utf-8")
+    )
+    legacy.update(
+        {
+            "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+            "identity_center_kms_key_arn": (
+                "arn:aws:kms:us-east-1:839393571433:key/"
+                "mrk-0123456789abcdef0123456789abcdef"
+            ),
+        }
+    )
+    legacy = _reseal(legacy, "intent_digest")
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        validate_private_intent(legacy)
+    assert exc_info.value.code == "INVALID_KMS_BINDING"
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_private_intent_v2_accepts_canonical_customer_managed_key_and_env(
+    key_arn: str,
+) -> None:
+    record = _binding_record()
+    record.update(
+        {
+            "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+            "identity_center_kms_key_arn": key_arn,
+        }
+    )
+    candidate = build_private_intent(
+        RepairBinding.from_mapping(record), repo_root=REPO_ROOT
+    )
+
+    validate_private_intent(candidate)
+    assert candidate["schema_version"] == 2
+    assert candidate["record_type"] == INTENT_RECORD_TYPE_V2
+    assert candidate["identity_center_kms_key_arn"] == key_arn
+
+    env = {
+        "SOURCE_COMMIT": candidate["source_commit"],
+        "SOURCE_BUNDLE_DIGEST": candidate["source_bundle_digest"],
+        "REPAIR_ID": candidate["repair_id"],
+        "PRINCIPAL_ID": candidate["principal_id"],
+        "IDENTITY_STORE_ID": candidate["identity_store_id"],
+        "IDENTITY_CENTER_INSTANCE_ARN": candidate["instance_arn"],
+        "PLAN_PERMISSION_SET_ARN": candidate["permission_set_arn"],
+        "EXPECTED_PERMISSION_SET_DESCRIPTION": candidate[
+            "permission_set_description"
+        ],
+        "REPAIR_INVOKER_PERMISSION_SET_ARN": candidate[
+            "repair_invoker_permission_set_arn"
+        ],
+        "CURRENT_POLICY_DIGEST": candidate["predecessor_policy_digest"],
+        "DESIRED_POLICY_DIGEST": candidate["target_policy_digest"],
+        "EXPECTED_PLAN_PERMISSION_SET_TAGS_JSON": json.dumps(
+            candidate["permission_set_tags"],
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        "BOOTSTRAP_CHANGE_SET_NAME": candidate["change_set_name"],
+        "REPAIR_LEDGER_TABLE_NAME": candidate["ledger_table_name"],
+        "REPAIR_LEDGER_KMS_KEY_ARN": candidate["ledger_kms_key_arn"],
+        "EXPECTED_ARTIFACT_CODE_SHA256": candidate[
+            "expected_artifact_code_sha256"
+        ],
+        "EXPECTED_CODE_SIGNING_CONFIG_ARN": candidate[
+            "expected_code_signing_config_arn"
+        ],
+        "EXPECTED_SIGNING_PROFILE_VERSION_ARN": candidate[
+            "expected_signing_profile_version_arn"
+        ],
+        "REPAIR_NOT_BEFORE": candidate["not_before"],
+        "REPAIR_NOT_AFTER": candidate["not_after"],
+        "PLAN_SAML_PROVIDER_ARN": candidate["saml_provider_arn"],
+        "IDENTITY_CENTER_KMS_MODE": candidate["identity_center_kms_mode"],
+        "IDENTITY_CENTER_KMS_KEY_ARN": key_arn,
+        "EXPECTED_BOTO3_VERSION": candidate["expected_boto3_version"],
+        "EXPECTED_BOTOCORE_VERSION": candidate["expected_botocore_version"],
+        "AWS_LAMBDA_FUNCTION_VERSION": candidate["function_versions"]["plan"],
+    }
+    env["IMMU_CONFIG_DIGEST"] = immutable_configuration_digest_from_intent(
+        candidate
+    )
+    validate_runtime_environment(candidate, mode="plan", env=env)
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+        "arn:aws:kms:us-east-1:839393571433:key/mrk-0123",
+    ),
+)
+def test_new_binding_rejects_noncanonical_identity_center_key(
+    key_arn: str,
+) -> None:
+    record = _binding_record()
+    record.update(
+        {
+            "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+            "identity_center_kms_key_arn": key_arn,
+        }
+    )
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        RepairBinding.from_mapping(record)
+    assert exc_info.value.code == "INVALID_KMS_BINDING"
 
 
 def test_private_ledger_rejects_resealed_extra_fields_and_bool_counters(
@@ -424,6 +652,9 @@ def test_complete_two_effect_state_machine_is_at_most_once(
     repair_receipt = runtime.repair()
     reconcile_receipt = runtime.reconcile()
 
+    for receipt in (plan_receipt, repair_receipt, reconcile_receipt):
+        assert receipt["schema_version"] == 2
+        assert receipt["record_type"] == RECEIPT_RECORD_TYPE_V2
     assert plan_receipt["status"] == "PLAN_VERIFIED"
     assert repair_receipt["status"] == "REPAIR_VERIFIED"
     assert repair_receipt["effects_attempted"] == 2
@@ -437,15 +668,25 @@ def test_complete_two_effect_state_machine_is_at_most_once(
     )
     assert ledger.item is not None
     assert set(ledger.item) == PRIVATE_LEDGER_ACTIVE_FIELDS
+    assert ledger.reconcile_attempt is not None
+    assert set(ledger.reconcile_attempt) == PRIVATE_RECONCILE_ATTEMPT_FIELDS
     assert ledger.attestation is not None
     assert set(ledger.attestation) == PRIVATE_RECONCILE_ATTESTATION_FIELDS
     assert ledger.attestation["repair_ledger_digest"] == (
         ledger.item["ledger_digest"]
     )
     assert timeline.index("ledger:REPAIR_VERIFIED") < timeline.index(
+        "ledger:RECONCILE_ATTEMPT_CLAIMED"
+    ) < timeline.index(
+        "provider:snapshot",
+        timeline.index("ledger:RECONCILE_ATTEMPT_CLAIMED"),
+    ) < timeline.index(
         "ledger:RECONCILE_ATTESTED"
     )
     validate_private_ledger(ledger.item)
+    validate_reconcile_attempt(
+        ledger.reconcile_attempt, intent=intent, ledger=ledger.item
+    )
     validate_reconcile_attestation(
         ledger.attestation, intent=intent, ledger=ledger.item
     )
@@ -454,7 +695,7 @@ def test_complete_two_effect_state_machine_is_at_most_once(
     validate_public_receipt(reconcile_receipt)
 
 
-def test_reconcile_attestation_response_loss_is_read_only_idempotent(
+def test_reconcile_attestation_response_loss_is_recovered_only_in_first_invoke(
     intent: dict[str, Any],
 ) -> None:
     timeline: list[str] = []
@@ -470,23 +711,58 @@ def test_reconcile_attestation_response_loss_is_read_only_idempotent(
     runtime.plan()
     runtime.repair()
     first = runtime.reconcile()
-    second = runtime.reconcile()
+    snapshot_count = timeline.count("provider:snapshot")
 
-    assert second == first
+    assert first["schema_version"] == 2
+    assert first["record_type"] == RECEIPT_RECORD_TYPE_V2
+    with pytest.raises(PlanPermissionRepairError) as replay:
+        runtime.reconcile()
+    assert replay.value.code == "REPLAY_BLOCKED"
+    assert timeline.count("provider:snapshot") == snapshot_count
+    assert ledger.reconcile_attempt is not None
     assert timeline.count("ledger:RECONCILE_ATTESTED") == 1
 
 
+def test_concurrent_success_reconcile_loser_stops_before_snapshot(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    provider = MemoryProvider(intent, timeline)
+    ledger = RacingReconcileAttemptLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    snapshot_count = timeline.count("provider:snapshot")
+
+    with pytest.raises(PlanPermissionRepairError) as replay:
+        runtime.reconcile()
+
+    assert replay.value.code == "REPLAY_BLOCKED"
+    assert timeline.count("provider:snapshot") == snapshot_count
+    assert ledger.reconcile_attempt is not None
+    assert ledger.attestation is None
+
+
 @pytest.mark.parametrize(
-    ("stage", "effects_completed"),
+    ("stage", "effects_attempted", "effects_completed"),
     [
-        ("UNCERTAIN_PROVISION_PERMISSION_SET", 1),
-        ("UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT", 2),
-        ("UNCERTAIN_FINAL_READBACK", 2),
+        ("UNCERTAIN_PUT_INLINE_POLICY", 1, 0),
+        ("UNCERTAIN_PUT_INLINE_POLICY_LEDGER_COMMIT", 1, 1),
+        ("UNCERTAIN_PROVISION_PERMISSION_SET", 2, 1),
+        ("UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT", 2, 2),
+        ("UNCERTAIN_FINAL_READBACK", 2, 2),
     ],
 )
-def test_reconcile_final_exact_uncertainty_always_writes_and_reads_attestation(
+def test_reconcile_final_exact_uncertainty_never_creates_closeout_attestation(
     intent: dict[str, Any],
     stage: str,
+    effects_attempted: int,
     effects_completed: int,
 ) -> None:
     timeline: list[str] = []
@@ -501,32 +777,124 @@ def test_reconcile_final_exact_uncertainty_always_writes_and_reads_attestation(
     )
     runtime.plan()
     runtime.repair()
-    assert ledger.item is not None
-    uncertain = dict(ledger.item)
-    uncertain.update(
-        {
-            "status": "UNCERTAIN_RECONCILE_ONLY",
-            "stage": stage,
-            "effects_attempted": 2,
-            "effects_completed": effects_completed,
-        }
+    uncertain = _install_uncertain_ledger(
+        ledger,
+        stage=stage,
+        effects_attempted=effects_attempted,
+        effects_completed=effects_completed,
     )
-    uncertain = _reseal(uncertain, "ledger_digest")
-    validate_private_ledger(uncertain)
-    ledger.item = uncertain
 
     first = runtime.reconcile()
-    second = runtime.reconcile()
-    assert first["status"] == "RECONCILE_VERIFIED"
-    assert second == first
-    assert ledger.attestation is not None
-    assert ledger.attestation["repair_ledger_digest"] == uncertain["ledger_digest"]
-    assert timeline.count("ledger:RECONCILE_ATTESTED") == 1
-    validate_reconcile_attestation(
-        ledger.attestation,
+    snapshot_count = timeline.count("provider:snapshot")
+    with pytest.raises(PlanPermissionRepairError) as replay:
+        runtime.reconcile()
+    assert first["status"] == "UNCERTAIN_RECONCILE_ONLY"
+    assert first["required_next_action"] == "REVIEW_BLOCKER"
+    assert replay.value.code == "REPLAY_BLOCKED"
+    assert timeline.count("provider:snapshot") == snapshot_count
+    assert ledger.attestation is None
+    assert ledger.reconcile_attempt is not None
+    assert set(ledger.reconcile_attempt) == PRIVATE_RECONCILE_ATTEMPT_FIELDS
+    validate_reconcile_attempt(
+        ledger.reconcile_attempt,
         intent=intent,
         ledger=uncertain,
     )
+    non_integer_progress = deepcopy(ledger.reconcile_attempt)
+    non_integer_progress["effects_attempted"] = True
+    non_integer_progress = _reseal(non_integer_progress, "attempt_digest")
+    with pytest.raises(PlanPermissionRepairError) as invalid_attempt:
+        validate_reconcile_attempt(non_integer_progress)
+    assert invalid_attempt.value.code == "RECONCILE_ATTEMPT_OVERCLAIM"
+    reconcile_snapshot_index = max(
+        index
+        for index, event in enumerate(timeline)
+        if event == "provider:snapshot"
+    )
+    assert (
+        timeline.index("ledger:RECONCILE_ATTEMPT_CLAIMED")
+        < reconcile_snapshot_index
+    )
+    assert timeline.count("ledger:RECONCILE_ATTESTED") == 0
+
+    with pytest.raises(PlanPermissionRepairError) as blocked:
+        build_reconcile_attestation(
+            intent,
+            uncertain,
+            observed_state_digest=provider.snapshot(intent).digest(),
+            reconciled_at=NOW,
+        )
+    assert blocked.value.code == "RECONCILE_ATTESTATION_BINDING_MISMATCH"
+
+    repeated = deepcopy(first)
+    repeated["required_next_action"] = "INVOKE_RECONCILE_ALIAS"
+    repeated = _reseal(repeated, "receipt_digest")
+    with pytest.raises(PlanPermissionRepairError) as overclaim:
+        validate_public_receipt(repeated)
+    assert overclaim.value.code == "PUBLIC_OVERCLAIM"
+
+
+def test_uncertain_reconcile_attempt_accepts_only_exact_ambiguous_readback(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    provider = MemoryProvider(intent, timeline)
+    ledger = AmbiguousReconcileAttemptLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    uncertain = _install_uncertain_ledger(
+        ledger,
+        stage="UNCERTAIN_FINAL_READBACK",
+        effects_attempted=2,
+        effects_completed=2,
+    )
+
+    receipt = runtime.reconcile()
+
+    assert receipt["status"] == "UNCERTAIN_RECONCILE_ONLY"
+    assert ledger.reconcile_attempt is not None
+    validate_reconcile_attempt(
+        ledger.reconcile_attempt,
+        intent=intent,
+        ledger=uncertain,
+    )
+
+
+def test_uncertain_reconcile_stops_before_snapshot_when_claim_is_unproven(
+    intent: dict[str, Any],
+) -> None:
+    timeline: list[str] = []
+    provider = MemoryProvider(intent, timeline)
+    ledger = MissingReconcileAttemptLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    runtime.repair()
+    _install_uncertain_ledger(
+        ledger,
+        stage="UNCERTAIN_FINAL_READBACK",
+        effects_attempted=2,
+        effects_completed=2,
+    )
+    snapshot_count = timeline.count("provider:snapshot")
+
+    with pytest.raises(PlanPermissionRepairError) as unproven:
+        runtime.reconcile()
+
+    assert unproven.value.code == "RECONCILE_ATTEMPT_UNPROVEN"
+    assert timeline.count("provider:snapshot") == snapshot_count
 
 
 def test_reconcile_attestation_accepts_only_exact_ambiguous_readback(
@@ -934,6 +1302,8 @@ def test_public_receipt_validator_matches_version_and_reconcile_schema(
             "status": "RECONCILE_VERIFIED",
             "function_version": "3",
             "function_qualifier": "reconcile-v1",
+            "effects_attempted": 2,
+            "effects_completed": 1,
             "required_next_action": "NONE",
         }
     )
@@ -941,6 +1311,43 @@ def test_public_receipt_validator_matches_version_and_reconcile_schema(
     with pytest.raises(PlanPermissionRepairError) as reconcile_exc:
         validate_public_receipt(invalid_reconcile)
     assert reconcile_exc.value.code == "PUBLIC_OVERCLAIM"
+
+
+@pytest.mark.parametrize(
+    ("attempted", "completed"),
+    ((0, 0), (0, 2), (1, 2), (2, 0)),
+)
+def test_public_receipt_validator_rejects_nonledger_uncertainty_progress(
+    intent: dict[str, Any],
+    attempted: int,
+    completed: int,
+) -> None:
+    timeline: list[str] = []
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=MemoryProvider(intent, timeline),
+        ledger=MemoryLedger(timeline),
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    receipt = runtime.plan()
+    receipt.update(
+        {
+            "mode": "repair",
+            "status": "UNCERTAIN_RECONCILE_ONLY",
+            "function_version": intent["function_versions"]["repair"],
+            "function_qualifier": "repair-v1",
+            "effects_attempted": attempted,
+            "effects_completed": completed,
+            "required_next_action": "INVOKE_RECONCILE_ALIAS",
+        }
+    )
+    receipt = _reseal(receipt, "receipt_digest")
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        validate_public_receipt(receipt)
+
+    assert exc_info.value.code == "IMPOSSIBLE_RECEIPT_PROGRESS"
 
 
 def test_repair_requires_immutable_window_reserve_before_provider_or_claim(

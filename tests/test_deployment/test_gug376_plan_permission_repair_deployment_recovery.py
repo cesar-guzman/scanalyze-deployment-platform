@@ -4479,7 +4479,8 @@ def test_reentry_mutation_cli_requires_atomic_private_roots(
     )
     assert result.returncode == 0, result.stderr
     assert "--collision-admission-root" in result.stdout
-    assert "--gug393-private-root" in result.stdout
+    assert "--gug395-private-root" in result.stdout
+    assert "--gug393-private-root" not in result.stdout
     assert "--collision-admission-digest" not in result.stdout
 
 
@@ -4576,11 +4577,9 @@ def test_connected_cli_validates_seed_before_provider_or_admission(
             "reentry-authorization.json",
             "--collision-admission-root",
             str(tmp_path / "admission"),
-                "--gug393-private-root",
-                str(tmp_path / "gug393"),
-                "--gug395-private-root",
-                str(tmp_path / "gug395"),
-            ]
+            "--gug395-private-root",
+            str(tmp_path / "gug395"),
+        ]
     )
     emitted = json.loads(capsys.readouterr().out)
     assert result == 2
@@ -4647,7 +4646,6 @@ def test_recovery_cli_provider_builds_atomic_private_context_loader(
         cli.recovery, "ConnectedDeploymentRecoveryProvider", Provider
     )
     admission_root = tmp_path / "admission"
-    gug393_root = tmp_path / "gug393"
     gug395_root = tmp_path / "gug395"
     context_binding = {
         "expected_approval_reference_digest": "sha256:" + "1" * 64,
@@ -4665,7 +4663,6 @@ def test_recovery_cli_provider_builds_atomic_private_context_loader(
             == {
                 "admission_private_root": admission_root,
                 "effect_private_root": tmp_path,
-                "gug393_private_root": gug393_root,
                 "gug395_private_root": gug395_root,
                 **context_binding,
                 "environment": os.environ,
@@ -4680,7 +4677,6 @@ def test_recovery_cli_provider_builds_atomic_private_context_loader(
             root_fd,
             profile="839393571433_AWSAdministratorAccess",
             collision_admission_root=admission_root,
-            gug393_private_root=gug393_root,
             gug395_private_root=gug395_root,
             collision_context_binding=context_binding,
         )

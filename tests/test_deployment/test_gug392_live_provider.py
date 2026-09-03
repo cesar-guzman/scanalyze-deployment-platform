@@ -115,6 +115,74 @@ def test_operation_allowlist_is_closed_read_only_and_dual_domain() -> None:
     )
 
 
+def _identity_transition_reader(
+    operations: list[str],
+) -> tuple[Any, str]:
+    session_digest = "sha256:" + "b" * 64
+    execution_capability = object()
+    owner = SimpleNamespace(
+        _execution_capability=execution_capability,
+        _provider_attestation=(
+            live_provider_module._DISCOVERY_PROVIDER_ATTESTATION
+        ),
+        _events=[
+            {
+                "session_digest": session_digest,
+                "operation": operation,
+                "outcome": "SUCCESS",
+            }
+            for operation in operations
+        ],
+    )
+    session = SimpleNamespace(
+        _owner=owner,
+        _stage="discovery",
+        _identity_validated=True,
+        _session_digest=session_digest,
+        _capture_index=1,
+        _policy_digest=DIGEST,
+    )
+    reader = live_provider_module._IdentityDiscoveryReader(session)
+    reader._observed = {
+        "instances": [{"instance_arn": "instance"}],
+        "applications": [],
+        "permission_sets": [],
+    }
+    reader._instance = {"instance_arn": "instance", "encryption": {}}
+    return reader, canonical_digest(
+        {"discovery": reader._observed, "instance": reader._instance}
+    )
+
+
+def test_identity_transition_attestation_requires_causal_discovery_order(
+) -> None:
+    ordered = [
+        "sts:GetCallerIdentity",
+        "sso:ListInstances",
+        "sso:DescribeInstance",
+        "sso:ListApplications",
+        "sso:ListPermissionSets",
+        "sso:DescribePermissionSet",
+    ]
+    reader, digest = _identity_transition_reader(ordered)
+    assert type(reader.attest_transition(digest)).__name__ == (
+        "_IdentityDiscoveryTransitionAttestation"
+    )
+
+    invalid_sequences = (
+        [ordered[0], ordered[1], ordered[3], ordered[2], *ordered[4:]],
+        [*ordered[:3], ordered[2], *ordered[3:]],
+        [*ordered, "sso:ListInstances"],
+    )
+    for operations in invalid_sequences:
+        invalid, invalid_digest = _identity_transition_reader(operations)
+        with pytest.raises(
+            LiveProviderError,
+            match="DISCOVERY_TRANSITION_ATTESTATION_INVALID",
+        ):
+            invalid.attest_transition(invalid_digest)
+
+
 def test_every_allowed_operation_has_one_closed_response_projector() -> None:
     assert set(_RESPONSE_PROJECTORS) == set().union(*OPERATION_ALLOWLIST.values())
     assert all(callable(projector) for projector in _RESPONSE_PROJECTORS.values())
@@ -2363,6 +2431,58 @@ def test_identity_exact_reader_preserves_closed_application_configuration_facts(
     assert value["actor_policy"] == {
         "policy_digest": canonical_policy_digest(actor_policy)
     }
+
+
+def test_identity_application_discovery_sends_only_the_bound_instance() -> None:
+    instance = "arn:aws:sso:::instance/ssoins-abc123"
+    application = (
+        f"arn:aws:sso::{OTHER_ACCOUNT}:application/ssoins-abc123/apl-exact"
+    )
+    handlers = {
+        ("sts", "get_caller_identity"): lambda: {
+            "Account": OTHER_ACCOUNT,
+            "Arn": IDENTITY_PRINCIPAL,
+            "UserId": "AROA:operator",
+        },
+        ("sso-admin", "list_applications"): lambda **request: {
+            "Applications": [
+                {"ApplicationArn": application, "Name": "TargetApplication"}
+            ]
+        },
+    }
+    factory, calls, _, _, _ = injected(handlers)
+    ledger = FakeLedger()
+    rendered = policy(
+        {
+            "Sid": "DiscoverExactIdentityCenterApplication",
+            "Effect": "Allow",
+            "Action": "sso:ListApplications",
+            "Resource": "*",
+        }
+    )
+    session = factory.build_identity(
+        profile=IDENTITY_PROFILE, ledger=ledger, capture_index=1, retries=0
+    ).open_sts(
+        stage="discovery",
+        policy=rendered,
+        policy_digest=canonical_digest(rendered),
+        region="us-east-1",
+    )
+    session.get_caller_identity()
+
+    page = session.open_discovery().list_applications(
+        instance, "TargetApplication", None
+    )
+
+    request = next(
+        value
+        for service, method, value in calls
+        if (service, method) == ("sso-admin", "list_applications")
+    )
+    assert request == {"InstanceArn": instance}
+    assert page["items"] == [
+        {"application_arn": application, "name": "TargetApplication"}
+    ]
 
 
 def test_identity_permission_set_discovery_describes_every_arn_and_filters_names() -> None:

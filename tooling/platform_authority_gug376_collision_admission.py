@@ -50,9 +50,13 @@ AUTHORITY_ACCOUNT_ID = "042360977644"
 MANAGEMENT_ACCOUNT_ID = "839393571433"
 ABSENT_READY = "ABSENT_READY"
 
-REQUEST_TYPE = (
+REQUEST_TYPE_V1 = (
     "scanalyze.platform_authority.gug376_route_collision_admission_request.v1"
 )
+REQUEST_TYPE_V2 = (
+    "scanalyze.platform_authority.gug376_route_collision_admission_request.v2"
+)
+REQUEST_TYPE = REQUEST_TYPE_V2
 CLAIM_TYPE = (
     "scanalyze.platform_authority.gug376_route_collision_admission_claim.v1"
 )
@@ -825,6 +829,35 @@ def materialize_route_collision_admission_request(
     collision_discovery_provenance_digest = checked_policy_set.get(
         "discovery_provenance_digest"
     )
+    expected_identity_center_kms_binding_digest: str | None = None
+    discovery_evidence = checked_policy_set.get("discovery_evidence")
+    if collision_policy_stage == "inventory-and-candidate-detail":
+        domains = (
+            discovery_evidence.get("domains")
+            if isinstance(discovery_evidence, Mapping)
+            else None
+        )
+        management = (
+            domains.get("management") if isinstance(domains, Mapping) else None
+        )
+        kms_group = (
+            management.get("identity_center_kms_key")
+            if isinstance(management, Mapping)
+            else None
+        )
+        pages = kms_group.get("pages") if isinstance(kms_group, Mapping) else None
+        items = [
+            item
+            for page in pages
+            if isinstance(page, Mapping)
+            for item in page.get("items", [])
+        ] if isinstance(pages, list) else []
+        if len(items) != 1 or not isinstance(items[0], Mapping):
+            _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
+        expected_identity_center_kms_binding_digest = _require_digest(
+            items[0].get("PrivateBindingDigest"),
+            "ROUTE_COLLISION_KMS_BINDING_INVALID",
+        )
     if (
         not isinstance(collision_policy_digests, Mapping)
         or collision_policy_stage
@@ -959,8 +992,8 @@ def materialize_route_collision_admission_request(
         checked_catalog, checked_phase, checked_operation
     )
     request = {
-        "record_type": REQUEST_TYPE,
-        "schema_version": 1,
+        "record_type": REQUEST_TYPE_V2,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "source_commit_sha": commit,
         "source_tree_sha": tree,
@@ -984,6 +1017,9 @@ def materialize_route_collision_admission_request(
         "collision_policy_stage": collision_policy_stage,
         "collision_discovery_provenance_digest": (
             collision_discovery_provenance_digest
+        ),
+        "expected_identity_center_kms_binding_digest": (
+            expected_identity_center_kms_binding_digest
         ),
         "collision_provider_implementation_digest": (
             COLLISION_PROVIDER_IMPLEMENTATION_DIGEST
@@ -1013,7 +1049,7 @@ def materialize_route_collision_admission_request(
     return _seal(request, "request_digest")
 
 
-_REQUEST_FIELDS = {
+_REQUEST_FIELDS_V1 = {
     "record_type",
     "schema_version",
     "implementation_issue",
@@ -1053,18 +1089,37 @@ _REQUEST_FIELDS = {
     "window_digest",
     "request_digest",
 }
+_REQUEST_FIELDS_V2 = _REQUEST_FIELDS_V1 | {
+    "expected_identity_center_kms_binding_digest"
+}
 
 
-def validate_route_collision_admission_request(
-    request: Mapping[str, Any],
+def _route_collision_admission_request_version(
+    value: Mapping[str, Any],
+) -> int:
+    selector = (value.get("record_type"), value.get("schema_version"))
+    if selector == (REQUEST_TYPE_V1, 1):
+        return 1
+    if selector == (REQUEST_TYPE_V2, 2):
+        return 2
+    _fail("ROUTE_COLLISION_REQUEST_VERSION_UNSUPPORTED")
+
+
+def _validate_route_collision_admission_request(
+    request: Mapping[str, Any], *, schema_version: int
 ) -> None:
     value = _copy(request, "ROUTE_COLLISION_REQUEST_INVALID")
     if not isinstance(value, Mapping):
         _fail("ROUTE_COLLISION_REQUEST_INVALID")
-    _exact(value, _REQUEST_FIELDS, "ROUTE_COLLISION_REQUEST_FIELDS_INVALID")
+    fields = {
+        1: _REQUEST_FIELDS_V1,
+        2: _REQUEST_FIELDS_V2,
+    }[schema_version]
+    _exact(value, fields, "ROUTE_COLLISION_REQUEST_FIELDS_INVALID")
     if (
-        value.get("record_type") != REQUEST_TYPE
-        or value.get("schema_version") != 1
+        value.get("record_type")
+        != {1: REQUEST_TYPE_V1, 2: REQUEST_TYPE_V2}[schema_version]
+        or value.get("schema_version") != schema_version
         or value.get("implementation_issue") != IMPLEMENTATION_ISSUE
     ):
         _fail("ROUTE_COLLISION_REQUEST_INVALID")
@@ -1113,7 +1168,11 @@ def validate_route_collision_admission_request(
     ) != 3:
         _fail("ROUTE_COLLISION_EFFECT_ROOT_BINDING_INVALID")
     try:
-        expected_budget_digest = collision_budget.collision_budget_digest(
+        budget_digest_reader = {
+            1: collision_budget.collision_budget_digest_v1,
+            2: collision_budget.collision_budget_digest_v2,
+        }[schema_version]
+        expected_budget_digest = budget_digest_reader(
             session_mode=str(value.get("session_mode")),
             operation=str(value.get("operation")),
         )
@@ -1138,6 +1197,11 @@ def validate_route_collision_admission_request(
     discovery_provenance_digest = value.get(
         "collision_discovery_provenance_digest"
     )
+    kms_binding_digest = (
+        value.get("expected_identity_center_kms_binding_digest")
+        if schema_version == 2
+        else None
+    )
     if (
         not isinstance(policy_digests, Mapping)
         or set(policy_digests) != {"authority", "management"}
@@ -1151,8 +1215,24 @@ def validate_route_collision_admission_request(
             and _DIGEST.fullmatch(str(discovery_provenance_digest))
             is None
         )
-        or value.get("collision_provider_implementation_digest")
-        != COLLISION_PROVIDER_IMPLEMENTATION_DIGEST
+        or (
+            schema_version == 2
+            and policy_stage == "inventory"
+            and kms_binding_digest is not None
+        )
+        or (
+            schema_version == 2
+            and policy_stage == "inventory-and-candidate-detail"
+            and _DIGEST.fullmatch(str(kms_binding_digest)) is None
+        )
+        or (
+            schema_version == 1
+            and kms_binding_digest is not None
+        )
+        or (
+            value.get("collision_provider_implementation_digest")
+            != COLLISION_PROVIDER_IMPLEMENTATION_DIGEST
+        )
     ):
         _fail("ROUTE_COLLISION_POLICY_BINDING_INVALID")
     for domain in ("authority", "management"):
@@ -1260,6 +1340,40 @@ def validate_route_collision_admission_request(
     ):
         _fail("ROUTE_COLLISION_WINDOW_INVALID")
     _verify_seal(value, "request_digest", "ROUTE_COLLISION_REQUEST_DIGEST_MISMATCH")
+
+
+def validate_route_collision_admission_request_v1(
+    request: Mapping[str, Any],
+) -> None:
+    value = _copy(request, "ROUTE_COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping) or (
+        _route_collision_admission_request_version(value) != 1
+    ):
+        _fail("ROUTE_COLLISION_REQUEST_VERSION_UNSUPPORTED")
+    _validate_route_collision_admission_request(value, schema_version=1)
+
+
+def validate_route_collision_admission_request_v2(
+    request: Mapping[str, Any],
+) -> None:
+    value = _copy(request, "ROUTE_COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping) or (
+        _route_collision_admission_request_version(value) != 2
+    ):
+        _fail("ROUTE_COLLISION_REQUEST_VERSION_UNSUPPORTED")
+    _validate_route_collision_admission_request(value, schema_version=2)
+
+
+def validate_route_collision_admission_request(
+    request: Mapping[str, Any],
+) -> None:
+    """Dispatch a persisted request through its exact versioned reader."""
+
+    value = _copy(request, "ROUTE_COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping):
+        _fail("ROUTE_COLLISION_REQUEST_INVALID")
+    version = _route_collision_admission_request_version(value)
+    _validate_route_collision_admission_request(value, schema_version=version)
 
 
 def persist_route_collision_admission_request(
@@ -2683,6 +2797,9 @@ __all__ = [
     "OPERATION_PRESENT_OWNED_TARGET_IDS",
     "PHASE_OPERATION_ALLOWLIST",
     "POST_READER_RUNTIME",
+    "REQUEST_TYPE",
+    "REQUEST_TYPE_V1",
+    "REQUEST_TYPE_V2",
     "ROUTE_CREATED_TARGET_IDS",
     "TRANSCRIPT_SIDECAR_TYPE",
     "RouteCollisionAdmissionCapability",
@@ -2706,5 +2823,7 @@ __all__ = [
     "route_collision_operation_phase",
     "collision_session_mode_for_operation",
     "validate_route_collision_admission_request",
+    "validate_route_collision_admission_request_v1",
+    "validate_route_collision_admission_request_v2",
     "validate_route_collision_snapshot",
 ]

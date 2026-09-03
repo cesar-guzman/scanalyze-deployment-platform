@@ -187,16 +187,16 @@ def _complete_pre_with_two_calls() -> tuple[dict, list[dict], list[dict]]:
 def test_worst_case_caps_are_derived_with_headroom_and_cost_coherence() -> None:
     value = subject.collision_budget_worst_case()
 
-    inventory = 2 * (2 + 7 * transcript.MAX_PAGES + 73 + 2_048)
-    candidate = 3 * (2 + 73 * transcript.MAX_PAGES + 73)
+    inventory = 2 * (2 + 7 * transcript.MAX_PAGES + 73 + 1 + 2_048)
+    candidate = 3 * (2 + 73 * transcript.MAX_PAGES + 73 + 1)
     provider_base = inventory + candidate
     page_base = 2 * 7 * transcript.MAX_PAGES + 3 * 73 * transcript.MAX_PAGES
 
-    assert value["inventory_provider_calls_base"] == inventory == 4_694
-    assert value["candidate_provider_calls_base"] == candidate == 7_233
-    assert value["provider_calls_base"] == provider_base == 11_927
-    assert value["provider_calls_headroom"] == 1_193
-    assert subject.MAX_PROVIDER_CALLS == 13_120
+    assert value["inventory_provider_calls_base"] == inventory == 4_696
+    assert value["candidate_provider_calls_base"] == candidate == 7_236
+    assert value["provider_calls_base"] == provider_base == 11_932
+    assert value["provider_calls_headroom"] == 1_194
+    assert subject.MAX_PROVIDER_CALLS == 13_126
     assert value["page_calls_base"] == page_base == 7_456
     assert value["page_calls_headroom"] == 746
     assert subject.MAX_PAGE_CALLS == 8_202
@@ -208,6 +208,78 @@ def test_worst_case_caps_are_derived_with_headroom_and_cost_coherence() -> None:
     assert value["derivation_digest"] == canonical_digest(
         {key: item for key, item in value.items() if key != "derivation_digest"}
     )
+
+
+def test_versioned_budget_readers_preserve_exact_v1_digests() -> None:
+    legacy_worst_case = subject.collision_budget_worst_case_v1()
+    current_worst_case = subject.collision_budget_worst_case_v2()
+
+    assert subject.validate_collision_budget_worst_case(legacy_worst_case) == 1
+    assert subject.validate_collision_budget_worst_case(current_worst_case) == 2
+    assert legacy_worst_case["record_type"] == subject.WORST_CASE_RECORD_TYPE_V1
+    assert (
+        legacy_worst_case["derivation_digest"]
+        == "sha256:b886bc0bc4a6ac83640ffdba07bf8c4316b1253933045e3cb62998642f4693a9"
+    )
+    assert (
+        subject.collision_budget_digest_v1(
+            session_mode=subject.LOCAL_DIRECT_SSO,
+            operation=OPERATION,
+        )
+        == "sha256:de7dcbc36d84affdb3ef95333c8d432b6e030ef7e44834ec6fbb1c1feb554b99"
+    )
+    assert subject.collision_budget_digest(
+        session_mode=subject.LOCAL_DIRECT_SSO,
+        operation=OPERATION,
+    ) == subject.collision_budget_digest_v2(
+        session_mode=subject.LOCAL_DIRECT_SSO,
+        operation=OPERATION,
+    )
+    assert (
+        "inventory_instance_attestation_calls_per_capture"
+        not in legacy_worst_case
+    )
+    assert (
+        current_worst_case["inventory_instance_attestation_calls_per_capture"]
+        == 1
+    )
+
+
+def test_summary_reader_dispatch_accepts_historical_v1_shape() -> None:
+    summary, events, transcript_events = _complete_pre_with_two_calls()
+    legacy = deepcopy(summary)
+    legacy["record_type"] = subject.SUMMARY_RECORD_TYPE_V1
+    legacy["budget_digest"] = subject.collision_budget_digest_v1(
+        session_mode=subject.LOCAL_DIRECT_SSO,
+        operation=OPERATION,
+    )
+    legacy["summary_digest"] = canonical_digest(
+        {
+            key: value
+            for key, value in legacy.items()
+            if key != "summary_digest"
+        }
+    )
+
+    assert subject.validate_collision_budget_evidence_v1(
+        summary=legacy,
+        events=events,
+        transcript_events=transcript_events,
+    ) == legacy
+    assert subject.validate_collision_budget_evidence(
+        summary=legacy,
+        events=events,
+        transcript_events=transcript_events,
+    ) == legacy
+    with pytest.raises(
+        subject.CollisionBudgetError,
+        match="COLLISION_BUDGET_VERSION_UNSUPPORTED",
+    ):
+        subject.validate_collision_budget_evidence_v2(
+            summary=legacy,
+            events=events,
+            transcript_events=transcript_events,
+        )
 
 
 def test_pre_budget_is_shared_sealed_and_replayable() -> None:

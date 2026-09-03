@@ -211,7 +211,14 @@ def assert_closed_lambda_and_dynamodb_actions(value: Any) -> None:
         if isinstance(item, dict):
             for key, child in item.items():
                 if key == "Action":
-                    actions.extend([child] if isinstance(child, str) else child)
+                    if isinstance(child, str):
+                        actions.append(child)
+                    elif isinstance(child, list):
+                        actions.extend(
+                            value
+                            for value in child
+                            if isinstance(value, str)
+                        )
                 collect(child)
         elif isinstance(item, list):
             for child in item:
@@ -227,7 +234,18 @@ def assert_closed_lambda_and_dynamodb_actions(value: Any) -> None:
         ), action
 
 
-def _resolve(value: Any) -> Any:
+_NO_VALUE = object()
+
+
+def _resolve(
+    value: Any,
+    *,
+    identity_center_kms_mode: str = "CUSTOMER_MANAGED_KEY",
+    identity_center_kms_key_arn: str = (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "00000000-0000-4000-8000-000000000002"
+    ),
+) -> Any:
     replacements = {
         "AWS::Partition": "aws",
         "AuthorityAccountId": AUTHORITY_ACCOUNT,
@@ -235,6 +253,12 @@ def _resolve(value: Any) -> Any:
         "SourceCommit": "a" * 40,
         "IdentityCenterInstanceArn": (
             "arn:aws:sso:::instance/ssoins-0123456789ABCDEF"
+        ),
+        "IdentityCenterKmsMode": identity_center_kms_mode,
+        "IdentityCenterKmsKeyArn": (
+            identity_center_kms_key_arn
+            if identity_center_kms_mode == "CUSTOMER_MANAGED_KEY"
+            else ""
         ),
         "RouteNotBefore": "2030-01-01T00:00:00Z",
         "RouteNotAfter": "2030-01-01T02:00:00Z",
@@ -287,38 +311,59 @@ def _resolve(value: Any) -> Any:
             "ScanalyzeGug376/ABCDEFGHIJ"
         ),
     }
-    if isinstance(value, list):
-        return [_resolve(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    if set(value) == {"Ref"}:
-        return replacements[value["Ref"]]
-    if set(value) == {"Fn::Sub"}:
-        specification = value["Fn::Sub"]
-        if isinstance(specification, str):
-            template = specification
-            variables: dict[str, Any] = {}
-        else:
-            template, raw_variables = specification
-            variables = {
-                key: _resolve(item) for key, item in raw_variables.items()
-            }
-        substitutions = {**replacements, **variables}
-        return re.sub(
-            r"\$\{([^}]+)\}",
-            lambda match: substitutions[match.group(1)],
-            template,
-        )
-    if set(value) == {"Fn::Split"}:
-        delimiter, source = value["Fn::Split"]
-        return _resolve(source).split(delimiter)
-    if set(value) == {"Fn::Select"}:
-        index, items = value["Fn::Select"]
-        return _resolve(items)[index]
-    if set(value) == {"Fn::Join"}:
-        delimiter, items = value["Fn::Join"]
-        return delimiter.join(_resolve(items))
-    return {key: _resolve(item) for key, item in value.items()}
+
+    def resolve(item: Any) -> Any:
+        if isinstance(item, list):
+            resolved = [resolve(child) for child in item]
+            return [child for child in resolved if child is not _NO_VALUE]
+        if not isinstance(item, dict):
+            return item
+        if set(item) == {"Ref"}:
+            if item["Ref"] == "AWS::NoValue":
+                return _NO_VALUE
+            return replacements[item["Ref"]]
+        if set(item) == {"Fn::If"}:
+            condition, true_value, false_value = item["Fn::If"]
+            assert condition == "UseIdentityCenterCustomerManagedKey"
+            return resolve(
+                true_value
+                if identity_center_kms_mode == "CUSTOMER_MANAGED_KEY"
+                else false_value
+            )
+        if set(item) == {"Fn::Sub"}:
+            specification = item["Fn::Sub"]
+            if isinstance(specification, str):
+                template = specification
+                variables: dict[str, Any] = {}
+            else:
+                template, raw_variables = specification
+                variables = {
+                    key: resolve(child)
+                    for key, child in raw_variables.items()
+                }
+            substitutions = {**replacements, **variables}
+            return re.sub(
+                r"\$\{([^}]+)\}",
+                lambda match: substitutions[match.group(1)],
+                template,
+            )
+        if set(item) == {"Fn::Split"}:
+            delimiter, source = item["Fn::Split"]
+            return resolve(source).split(delimiter)
+        if set(item) == {"Fn::Select"}:
+            index, items = item["Fn::Select"]
+            return resolve(items)[index]
+        if set(item) == {"Fn::Join"}:
+            delimiter, items = item["Fn::Join"]
+            return delimiter.join(resolve(items))
+        resolved = {key: resolve(child) for key, child in item.items()}
+        return {
+            key: child
+            for key, child in resolved.items()
+            if child is not _NO_VALUE
+        }
+
+    return resolve(value)
 
 
 @pytest.fixture(scope="module")
@@ -418,6 +463,116 @@ def test_route_parameters_are_exactly_readable_non_secret_coordinates(
         "NoEcho" not in parameter
         for parameter in route["Parameters"].values()
     )
+
+
+def test_management_collision_list_permission_sets_uses_exact_instance(
+    route: dict[str, Any],
+) -> None:
+    policy = _policy(route, "ManagementCollisionReaderRole")
+    wildcard_inventory = _by_sid(policy, "DiscoverExactNames")
+    assert wildcard_inventory["Resource"] == "*"
+    assert "sso:ListPermissionSets" not in wildcard_inventory["Action"]
+    permission_sets = _by_sid(
+        policy, "ListBoundIdentityCenterPermissionSets"
+    )
+    assert permission_sets["Action"] == "sso:ListPermissionSets"
+    assert permission_sets["Resource"] == {"Ref": "IdentityCenterInstanceArn"}
+    assert permission_sets["Condition"]["StringEquals"] == {
+        "aws:RequestedRegion": REGION,
+        "sso:PrimaryRegion": REGION,
+    }
+    exact_details = _by_sid(policy, "ReadExactCandidateDetails")
+    instance_id = {
+        "InstanceId": {
+            "Fn::Select": [
+                1,
+                {"Fn::Split": ["/", {"Ref": "IdentityCenterInstanceArn"}]},
+            ]
+        }
+    }
+    assert {
+        "Fn::Sub": [
+            (
+                "arn:${AWS::Partition}:sso::${ManagementAccountId}:"
+                "application/${InstanceId}/*"
+            ),
+            instance_id,
+        ]
+    } in exact_details["Resource"]
+    assert {
+        "Fn::Sub": (
+            "arn:${AWS::Partition}:sso::${ManagementAccountId}:application/*"
+        )
+    } not in exact_details["Resource"]
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "00000000-0000-4000-8000-000000000002",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_management_collision_reader_grants_only_bound_identity_center_cmk(
+    route: dict[str, Any], key_arn: str
+) -> None:
+    parameters = route["Parameters"]
+    assert parameters["IdentityCenterKmsMode"]["AllowedValues"] == [
+        "AWS_OWNED_KMS_KEY",
+        "CUSTOMER_MANAGED_KEY",
+    ]
+    assert re.fullmatch(
+        parameters["IdentityCenterKmsKeyArn"]["AllowedPattern"], key_arn
+    )
+    assert route["Rules"]["IdentityCenterKmsBindingMustMatch"]
+
+    policy = _resolve(
+        _policy(route, "ManagementCollisionReaderRole"),
+        identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        identity_center_kms_key_arn=key_arn,
+    )
+    decrypt = _by_sid(
+        policy, "DecryptIdentityCenterMetadataThroughExactInstance"
+    )
+    assert decrypt == {
+        "Sid": "DecryptIdentityCenterMetadataThroughExactInstance",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": key_arn,
+        "Condition": {
+            "StringEquals": {
+                "aws:PrincipalAccount": MANAGEMENT_ACCOUNT,
+                "aws:RequestedRegion": REGION,
+                "kms:CallerAccount": MANAGEMENT_ACCOUNT,
+                "kms:ViaService": "sso.us-east-1.amazonaws.com",
+                "kms:EncryptionContext:aws:sso:instance-arn": (
+                    "arn:aws:sso:::instance/ssoins-0123456789ABCDEF"
+                ),
+            },
+            "DateGreaterThanEquals": {
+                "aws:CurrentTime": "2030-01-01T00:00:00Z"
+            },
+            "DateLessThan": {
+                "aws:CurrentTime": "2030-01-01T02:00:00Z"
+            },
+        },
+    }
+    deny_boundary = _by_sid(
+        policy, "DenyEveryOtherAction"
+    )
+    assert "kms:Decrypt" in deny_boundary["NotAction"]
+
+
+def test_management_collision_reader_aws_owned_mode_has_zero_kms_authority(
+    route: dict[str, Any],
+) -> None:
+    policy = _resolve(
+        _policy(route, "ManagementCollisionReaderRole"),
+        identity_center_kms_mode="AWS_OWNED_KMS_KEY",
+    )
+    assert "kms:" not in json.dumps(policy, sort_keys=True)
 
 
 def test_management_roles_trust_only_exact_authority_broker_roles(

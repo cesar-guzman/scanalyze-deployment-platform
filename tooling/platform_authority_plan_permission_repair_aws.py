@@ -53,12 +53,14 @@ from tooling.platform_authority_plan_permission_repair import (
     canonical_json,
     install_runtime_factory,
     parse_timestamp,
+    reconcile_attempt_id,
     reconcile_attestation_id,
     render_target_policy,
     validate_immutable_configuration_digest,
     validate_lambda_environment_budget,
     validate_private_intent,
     validate_private_ledger,
+    validate_reconcile_attempt,
     validate_reconcile_attestation,
 )
 from tooling.platform_authority_plan_permission_repair_iam_effective_authority import (
@@ -1319,6 +1321,25 @@ class DynamoLedger:
                 "durable reconcile attestation outcome is ambiguous"
             ) from None
 
+    def put_reconcile_attempt(self, attempt: Mapping[str, Any]) -> None:
+        validate_reconcile_attempt(attempt)
+        try:
+            self._client.put_item(
+                TableName=self._table_name,
+                Item=self._encode(attempt),
+                ConditionExpression="attribute_not_exists(repair_id)",
+                ReturnConsumedCapacity="NONE",
+            )
+        except Exception as exc:
+            if _provider_code(exc) == "ConditionalCheckFailedException":
+                raise PlanPermissionRepairError(
+                    "REPLAY_BLOCKED",
+                    "reconcile attempt is already present",
+                ) from None
+            raise ProviderResponseAmbiguous(
+                "durable reconcile attempt outcome is ambiguous"
+            ) from None
+
     def read(self, repair_id: str) -> Mapping[str, Any] | None:
         try:
             response = _checked_page(
@@ -1354,6 +1375,15 @@ class DynamoLedger:
         if observed is None:
             return None
         validate_reconcile_attestation(observed)
+        return observed
+
+    def read_reconcile_attempt(
+        self, repair_id: str
+    ) -> Mapping[str, Any] | None:
+        observed = self.read(reconcile_attempt_id(repair_id))
+        if observed is None:
+            return None
+        validate_reconcile_attempt(observed)
         return observed
 
     def compare_and_swap(
@@ -2028,7 +2058,8 @@ def _expected_ledger_resource_policy(
                     },
                     "ForAllValues:StringNotEquals": {
                         "dynamodb:LeadingKeys": [
-                            repair_id + "#reconcile-v1"
+                            repair_id + "#reconcile-v1",
+                            repair_id + "#reconcile-attempt-v1",
                         ]
                     },
                     "Null": {"dynamodb:LeadingKeys": "false"},

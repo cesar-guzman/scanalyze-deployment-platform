@@ -87,7 +87,7 @@ Parameters:
     Type: String
     Default: ''
     MaxLength: 75
-    AllowedPattern: '^$|^arn:aws[a-z-]*:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+    AllowedPattern: '^$|^arn:aws:kms:us-east-1:839393571433:key/(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|mrk-[0-9a-f]{32})$'
   ExpectedBoto3Version:
     Type: String
     MaxLength: 32
@@ -281,6 +281,7 @@ Resources:
                 ForAllValues:StringNotEquals:
                   dynamodb:LeadingKeys:
                     - !Sub '${RepairId}#reconcile-v1'
+                    - !Sub '${RepairId}#reconcile-attempt-v1'
                 'Null':
                   dynamodb:LeadingKeys: 'false'
             - Sid: DenyReconcileWritesWithoutAttestationKey
@@ -844,6 +845,7 @@ Resources:
                     dynamodb:LeadingKeys:
                       - !Ref RepairId
                       - !Sub '${RepairId}#reconcile-v1'
+                      - !Sub '${RepairId}#reconcile-attempt-v1'
                   'Null':
                     dynamodb:LeadingKeys: 'false'
               - Sid: WriteExactReconcileAttestation
@@ -854,6 +856,7 @@ Resources:
                   ForAllValues:StringEquals:
                     dynamodb:LeadingKeys:
                       - !Sub '${RepairId}#reconcile-v1'
+                      - !Sub '${RepairId}#reconcile-attempt-v1'
                   'Null':
                     dynamodb:LeadingKeys: 'false'
               - Sid: AssumeExactReadbackServiceRole

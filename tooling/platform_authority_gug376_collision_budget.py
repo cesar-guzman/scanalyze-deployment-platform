@@ -24,13 +24,27 @@ from tooling import (
 )
 
 
-BUDGET_RECORD_TYPE = "scanalyze.platform_authority.gug376_collision_budget.v1"
-SUMMARY_RECORD_TYPE = (
+BUDGET_RECORD_TYPE_V1 = (
+    "scanalyze.platform_authority.gug376_collision_budget.v1"
+)
+BUDGET_RECORD_TYPE_V2 = (
+    "scanalyze.platform_authority.gug376_collision_budget.v2"
+)
+SUMMARY_RECORD_TYPE_V1 = (
     "scanalyze.platform_authority.gug376_collision_budget_summary.v1"
 )
-WORST_CASE_RECORD_TYPE = (
+SUMMARY_RECORD_TYPE_V2 = (
+    "scanalyze.platform_authority.gug376_collision_budget_summary.v2"
+)
+WORST_CASE_RECORD_TYPE_V1 = (
     "scanalyze.platform_authority.gug376_collision_budget_worst_case.v1"
 )
+WORST_CASE_RECORD_TYPE_V2 = (
+    "scanalyze.platform_authority.gug376_collision_budget_worst_case.v2"
+)
+BUDGET_RECORD_TYPE = BUDGET_RECORD_TYPE_V2
+SUMMARY_RECORD_TYPE = SUMMARY_RECORD_TYPE_V2
+WORST_CASE_RECORD_TYPE = WORST_CASE_RECORD_TYPE_V2
 
 LOCAL_DIRECT_SSO = "LOCAL_DIRECT_SSO"
 POST_READER_RUNTIME = "POST_READER_RUNTIME"
@@ -64,6 +78,8 @@ MODELED_COST_MICRO_USD_PER_RESPONSE_QUANTUM = 1
 # target as both a MAX_PAGES inventory stream and a one-call ownership stream.
 INVENTORY_PAGINATED_STREAMS_PER_CAPTURE = 7
 INVENTORY_DIRECT_SELECTOR_CALLS_PER_CAPTURE = TARGET_COUNT
+INVENTORY_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE = 1
+CANDIDATE_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE = 1
 # The paginator can return up to the provider's closed 2,048-item cap across
 # its pages, after which the provider performs one DescribePermissionSet call
 # per returned ARN.  The call budget must cover those attempts even if a later
@@ -77,16 +93,34 @@ def _ceil_percent(value: int, percent: int) -> int:
     return (value * percent + 99) // 100
 
 
+_INVENTORY_PROVIDER_BASE_V1 = INVENTORY_CAPTURE_COUNT * (
+    IDENTITY_CALLS_PER_CAPTURE
+    + INVENTORY_PAGINATED_STREAMS_PER_CAPTURE * transcript.MAX_PAGES
+    + INVENTORY_DIRECT_SELECTOR_CALLS_PER_CAPTURE
+    + MAX_PERMISSION_SET_DETAIL_CALLS_PER_CAPTURE
+)
+_CANDIDATE_PROVIDER_BASE_V1 = CANDIDATE_CAPTURE_COUNT * (
+    IDENTITY_CALLS_PER_CAPTURE
+    + TARGET_COUNT * transcript.MAX_PAGES
+    + TARGET_COUNT
+)
+_PROVIDER_BASE_V1 = _INVENTORY_PROVIDER_BASE_V1 + _CANDIDATE_PROVIDER_BASE_V1
+_PROVIDER_HEADROOM_V1 = _ceil_percent(_PROVIDER_BASE_V1, HEADROOM_PERCENT)
+MAX_PROVIDER_CALLS_V1 = _PROVIDER_BASE_V1 + _PROVIDER_HEADROOM_V1
+MAX_NETWORK_CALLS_V1 = MAX_PROVIDER_CALLS_V1 + MAX_SESSION_OPENS
+
 _INVENTORY_PROVIDER_BASE = INVENTORY_CAPTURE_COUNT * (
     IDENTITY_CALLS_PER_CAPTURE
     + INVENTORY_PAGINATED_STREAMS_PER_CAPTURE * transcript.MAX_PAGES
     + INVENTORY_DIRECT_SELECTOR_CALLS_PER_CAPTURE
+    + INVENTORY_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE
     + MAX_PERMISSION_SET_DETAIL_CALLS_PER_CAPTURE
 )
 _CANDIDATE_PROVIDER_BASE = CANDIDATE_CAPTURE_COUNT * (
     IDENTITY_CALLS_PER_CAPTURE
     + TARGET_COUNT * transcript.MAX_PAGES
     + TARGET_COUNT
+    + CANDIDATE_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE
 )
 _PROVIDER_BASE = _INVENTORY_PROVIDER_BASE + _CANDIDATE_PROVIDER_BASE
 _PROVIDER_HEADROOM = _ceil_percent(_PROVIDER_BASE, HEADROOM_PERCENT)
@@ -174,11 +208,30 @@ def _modeled_response_cost(byte_count: int) -> int:
     return quanta * MODELED_COST_MICRO_USD_PER_RESPONSE_QUANTUM
 
 
-def collision_budget_worst_case() -> dict[str, Any]:
-    """Return the fixed, replayable derivation of provider/page caps."""
+def _collision_budget_worst_case(schema_version: int) -> dict[str, Any]:
+    """Return the exact replayable derivation for one persisted version."""
+
+    if schema_version == 1:
+        record_type = WORST_CASE_RECORD_TYPE_V1
+        inventory_provider_base = _INVENTORY_PROVIDER_BASE_V1
+        candidate_provider_base = _CANDIDATE_PROVIDER_BASE_V1
+        provider_base = _PROVIDER_BASE_V1
+        provider_headroom = _PROVIDER_HEADROOM_V1
+        max_provider_calls = MAX_PROVIDER_CALLS_V1
+        max_network_calls = MAX_NETWORK_CALLS_V1
+    elif schema_version == 2:
+        record_type = WORST_CASE_RECORD_TYPE_V2
+        inventory_provider_base = _INVENTORY_PROVIDER_BASE
+        candidate_provider_base = _CANDIDATE_PROVIDER_BASE
+        provider_base = _PROVIDER_BASE
+        provider_headroom = _PROVIDER_HEADROOM
+        max_provider_calls = MAX_PROVIDER_CALLS
+        max_network_calls = MAX_NETWORK_CALLS
+    else:
+        _fail("COLLISION_BUDGET_VERSION_UNSUPPORTED")
 
     body = {
-        "record_type": WORST_CASE_RECORD_TYPE,
+        "record_type": record_type,
         "target_count": TARGET_COUNT,
         "inventory_capture_count": INVENTORY_CAPTURE_COUNT,
         "candidate_capture_count": CANDIDATE_CAPTURE_COUNT,
@@ -193,40 +246,88 @@ def collision_budget_worst_case() -> dict[str, Any]:
             MAX_PERMISSION_SET_DETAIL_CALLS_PER_CAPTURE
         ),
         "identity_calls_per_capture": IDENTITY_CALLS_PER_CAPTURE,
-        "inventory_provider_calls_base": _INVENTORY_PROVIDER_BASE,
-        "candidate_provider_calls_base": _CANDIDATE_PROVIDER_BASE,
-        "provider_calls_base": _PROVIDER_BASE,
-        "provider_calls_headroom": _PROVIDER_HEADROOM,
-        "max_provider_calls": MAX_PROVIDER_CALLS,
+        "inventory_provider_calls_base": inventory_provider_base,
+        "candidate_provider_calls_base": candidate_provider_base,
+        "provider_calls_base": provider_base,
+        "provider_calls_headroom": provider_headroom,
+        "max_provider_calls": max_provider_calls,
         "page_calls_base": _PAGE_BASE,
         "page_calls_headroom": _PAGE_HEADROOM,
         "max_page_calls": MAX_PAGE_CALLS,
         "headroom_percent": HEADROOM_PERCENT,
-        "max_network_calls": MAX_NETWORK_CALLS,
+        "max_network_calls": max_network_calls,
         "max_response_bytes": MAX_RESPONSE_BYTES,
         "max_total_response_bytes": MAX_TOTAL_RESPONSE_BYTES,
         "max_modeled_cost_micro_usd": MAX_MODELED_COST_MICRO_USD,
         "modeled_max_cost_micro_usd": (
-            MAX_PROVIDER_CALLS * MODELED_COST_MICRO_USD_PER_CALL
+            max_provider_calls * MODELED_COST_MICRO_USD_PER_CALL
             + MAX_SESSION_OPENS * MODELED_COST_MICRO_USD_PER_ROLE_OPEN
             + _modeled_response_cost(MAX_TOTAL_RESPONSE_BYTES)
         ),
     }
+    if schema_version == 2:
+        body["inventory_instance_attestation_calls_per_capture"] = (
+            INVENTORY_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE
+        )
+        body["candidate_instance_attestation_calls_per_capture"] = (
+            CANDIDATE_INSTANCE_ATTESTATION_CALLS_PER_CAPTURE
+        )
     return {**body, "derivation_digest": canonical_digest(body)}
 
 
-def _budget_body(session_mode: str, operation: str) -> dict[str, Any]:
-    derivation = collision_budget_worst_case()
+def collision_budget_worst_case_v1() -> dict[str, Any]:
+    return _collision_budget_worst_case(1)
+
+
+def collision_budget_worst_case_v2() -> dict[str, Any]:
+    return _collision_budget_worst_case(2)
+
+
+def collision_budget_worst_case() -> dict[str, Any]:
+    """Return the active KMS-attested v2 derivation."""
+
+    return collision_budget_worst_case_v2()
+
+
+def validate_collision_budget_worst_case(value: Mapping[str, Any]) -> int:
+    """Select and validate an immutable v1 or v2 worst-case record."""
+
+    checked = _copy(value, "COLLISION_BUDGET_WORST_CASE_INVALID")
+    if not isinstance(checked, dict):
+        _fail("COLLISION_BUDGET_WORST_CASE_INVALID")
+    version = {
+        WORST_CASE_RECORD_TYPE_V1: 1,
+        WORST_CASE_RECORD_TYPE_V2: 2,
+    }.get(checked.get("record_type"))
+    if version is None or checked != _collision_budget_worst_case(version):
+        _fail("COLLISION_BUDGET_WORST_CASE_INVALID")
+    return version
+
+
+def _budget_body(
+    session_mode: str, operation: str, *, schema_version: int
+) -> dict[str, Any]:
+    derivation = _collision_budget_worst_case(schema_version)
+    if schema_version == 1:
+        record_type = BUDGET_RECORD_TYPE_V1
+        max_provider_calls = MAX_PROVIDER_CALLS_V1
+        max_network_calls = MAX_NETWORK_CALLS_V1
+    elif schema_version == 2:
+        record_type = BUDGET_RECORD_TYPE_V2
+        max_provider_calls = MAX_PROVIDER_CALLS
+        max_network_calls = MAX_NETWORK_CALLS
+    else:
+        _fail("COLLISION_BUDGET_VERSION_UNSUPPORTED")
     return {
-        "record_type": BUDGET_RECORD_TYPE,
+        "record_type": record_type,
         "session_mode": session_mode,
         "operation": operation,
         "operation_digest": canonical_digest(operation),
         "max_session_opens": MAX_SESSION_OPENS,
         "max_source_credential_bindings": MAX_SOURCE_CREDENTIAL_BINDINGS,
         "max_source_credential_vends": MAX_SOURCE_CREDENTIAL_VENDS,
-        "max_provider_calls": MAX_PROVIDER_CALLS,
-        "max_network_calls": MAX_NETWORK_CALLS,
+        "max_provider_calls": max_provider_calls,
+        "max_network_calls": max_network_calls,
         "max_page_calls": MAX_PAGE_CALLS,
         "max_response_bytes": MAX_RESPONSE_BYTES,
         "max_total_response_bytes": MAX_TOTAL_RESPONSE_BYTES,
@@ -238,12 +339,28 @@ def _budget_body(session_mode: str, operation: str) -> dict[str, Any]:
     }
 
 
+def collision_budget_digest_v1(*, session_mode: str, operation: str) -> str:
+    if session_mode not in SESSION_MODES or _OPERATION.fullmatch(operation) is None:
+        _fail("COLLISION_BUDGET_CONFIG_INVALID")
+    return canonical_digest(
+        _budget_body(session_mode, operation, schema_version=1)
+    )
+
+
+def collision_budget_digest_v2(*, session_mode: str, operation: str) -> str:
+    if session_mode not in SESSION_MODES or _OPERATION.fullmatch(operation) is None:
+        _fail("COLLISION_BUDGET_CONFIG_INVALID")
+    return canonical_digest(
+        _budget_body(session_mode, operation, schema_version=2)
+    )
+
+
 def collision_budget_digest(*, session_mode: str, operation: str) -> str:
     """Compute the fixed budget digest for an already validated mode/op pair."""
 
-    if session_mode not in SESSION_MODES or _OPERATION.fullmatch(operation) is None:
-        _fail("COLLISION_BUDGET_CONFIG_INVALID")
-    return canonical_digest(_budget_body(session_mode, operation))
+    return collision_budget_digest_v2(
+        session_mode=session_mode, operation=operation
+    )
 
 
 def _operation_phase(operation: str) -> str:
@@ -1127,7 +1244,10 @@ def _validate_source_event(
 
 
 def _validate_provider_event(
-    value: Mapping[str, Any], transcript_event: Mapping[str, Any]
+    value: Mapping[str, Any],
+    transcript_event: Mapping[str, Any],
+    *,
+    schema_version: int,
 ) -> tuple[int, int, int]:
     fields = {
         "ordinal", "kind", "stage", "domain", "operation", "page_call",
@@ -1140,12 +1260,15 @@ def _validate_provider_event(
     response_bytes = value.get("response_bytes")
     cost = value.get("modeled_cost_micro_usd")
     page_call = value.get("page_call")
+    operation_allowlist = transcript.READ_ONLY_OPERATION_ALLOWLIST
+    if schema_version == 1:
+        operation_allowlist = operation_allowlist - {"sso:DescribeInstance"}
     if (
         set(value) != fields
         or value.get("kind") != "PROVIDER_CALL"
         or stage not in _STAGES
         or value.get("domain") not in _DOMAINS
-        or operation not in transcript.READ_ONLY_OPERATION_ALLOWLIST
+        or operation not in operation_allowlist
         or type(page_call) is not bool
         or page_call is not (operation in transcript.LIST_DISCOVERY_OPERATIONS)
         or type(projected) is not int
@@ -1191,18 +1314,31 @@ def validate_collision_budget_evidence(
     }
     if not isinstance(checked_summary, dict):
         _fail("COLLISION_BUDGET_SUMMARY_INVALID")
+    schema_version = {
+        SUMMARY_RECORD_TYPE_V1: 1,
+        SUMMARY_RECORD_TYPE_V2: 2,
+    }.get(checked_summary.get("record_type"))
+    if schema_version == 1:
+        expected_budget_digest = collision_budget_digest_v1
+        max_provider_calls = MAX_PROVIDER_CALLS_V1
+        max_network_calls = MAX_NETWORK_CALLS_V1
+    elif schema_version == 2:
+        expected_budget_digest = collision_budget_digest_v2
+        max_provider_calls = MAX_PROVIDER_CALLS
+        max_network_calls = MAX_NETWORK_CALLS
+    else:
+        _fail("COLLISION_BUDGET_VERSION_UNSUPPORTED")
     mode = checked_summary.get("session_mode")
     operation = checked_summary.get("operation")
     if (
         not isinstance(checked_events, list)
         or not isinstance(checked_transcript, list)
         or set(checked_summary) != fields
-        or checked_summary.get("record_type") != SUMMARY_RECORD_TYPE
         or checked_summary.get("status") != "COMPLETED"
         or mode not in SESSION_MODES
         or not isinstance(operation, str)
         or checked_summary.get("budget_digest")
-        != collision_budget_digest(session_mode=mode, operation=operation)
+        != expected_budget_digest(session_mode=mode, operation=operation)
         or checked_summary.get("operation_phase")
         != _operation_phase(operation)
         or checked_summary.get("summary_digest")
@@ -1250,7 +1386,9 @@ def validate_collision_budget_evidence(
             if provider_index >= len(checked_transcript):
                 _fail("COLLISION_BUDGET_TRANSCRIPT_MISMATCH")
             page, byte_count, cost = _validate_provider_event(
-                event, checked_transcript[provider_index]
+                event,
+                checked_transcript[provider_index],
+                schema_version=schema_version,
             )
             provider_index += 1
             page_count += page
@@ -1281,9 +1419,9 @@ def validate_collision_budget_evidence(
         not (pre_valid or post_valid)
         or session_keys != set(_EXPECTED_SESSION_KEYS)
         or provider_index != len(checked_transcript)
-        or provider_index > MAX_PROVIDER_CALLS
+        or provider_index > max_provider_calls
         or page_count > MAX_PAGE_CALLS
-        or network_count > MAX_NETWORK_CALLS
+        or network_count > max_network_calls
         or response_total > MAX_TOTAL_RESPONSE_BYTES
         or modeled_cost > MAX_MODELED_COST_MICRO_USD
         or checked_summary.get("session_open_count") != len(session_keys)
@@ -1314,21 +1452,59 @@ def validate_collision_budget_summary(
     )
 
 
+def validate_collision_budget_evidence_v1(
+    *,
+    summary: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]],
+    transcript_events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if summary.get("record_type") != SUMMARY_RECORD_TYPE_V1:
+        _fail("COLLISION_BUDGET_VERSION_UNSUPPORTED")
+    return validate_collision_budget_evidence(
+        summary=summary,
+        events=events,
+        transcript_events=transcript_events,
+    )
+
+
+def validate_collision_budget_evidence_v2(
+    *,
+    summary: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]],
+    transcript_events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if summary.get("record_type") != SUMMARY_RECORD_TYPE_V2:
+        _fail("COLLISION_BUDGET_VERSION_UNSUPPORTED")
+    return validate_collision_budget_evidence(
+        summary=summary,
+        events=events,
+        transcript_events=transcript_events,
+    )
+
+
 __all__ = [
     "ASSUME_ROLE", "ASSUME_ROLE_DURATION_SECONDS", "BUDGET_RECORD_TYPE",
+    "BUDGET_RECORD_TYPE_V1", "BUDGET_RECORD_TYPE_V2",
     "CANDIDATE_CAPTURE_COUNT", "CollisionBudgetError", "DIRECT_SSO",
     "INVENTORY_CAPTURE_COUNT", "MAX_MODELED_COST_MICRO_USD",
-    "MAX_NETWORK_CALLS", "MAX_PAGE_CALLS", "MAX_PROVIDER_CALLS",
+    "MAX_NETWORK_CALLS", "MAX_NETWORK_CALLS_V1", "MAX_PAGE_CALLS",
+    "MAX_PROVIDER_CALLS", "MAX_PROVIDER_CALLS_V1",
     "MAX_RESPONSE_BYTES", "MAX_ROLE_OPENS", "MAX_SESSION_OPENS",
     "MAX_SOURCE_CREDENTIAL_BINDINGS", "MAX_SOURCE_CREDENTIAL_VENDS",
     "MAX_TOTAL_RESPONSE_BYTES", "MODELED_COST_MICRO_USD_PER_CALL",
     "LOCAL_DIRECT_SSO", "POST_READER_RUNTIME", "SESSION_MODES",
-    "SUMMARY_RECORD_TYPE", "account_provider_response",
+    "SUMMARY_RECORD_TYPE", "SUMMARY_RECORD_TYPE_V1", "SUMMARY_RECORD_TYPE_V2",
+    "WORST_CASE_RECORD_TYPE", "WORST_CASE_RECORD_TYPE_V1",
+    "WORST_CASE_RECORD_TYPE_V2", "account_provider_response",
     "bind_provider_transcript_event", "build_collision_budget",
-    "collision_budget_digest", "collision_budget_events",
-    "collision_budget_worst_case", "complete_collision_budget",
+    "collision_budget_digest", "collision_budget_digest_v1",
+    "collision_budget_digest_v2", "collision_budget_events",
+    "collision_budget_worst_case", "collision_budget_worst_case_v1",
+    "collision_budget_worst_case_v2", "complete_collision_budget",
     "record_source_credential_binding", "reserve_assume_role_open",
     "reserve_direct_sso_session_open", "reserve_provider_call",
     "reserve_session_open", "validate_collision_budget_evidence",
-    "validate_collision_budget_summary",
+    "validate_collision_budget_evidence_v1",
+    "validate_collision_budget_evidence_v2",
+    "validate_collision_budget_summary", "validate_collision_budget_worst_case",
 ]

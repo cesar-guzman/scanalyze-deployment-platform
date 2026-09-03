@@ -53,6 +53,7 @@ IMPLEMENTATION_ISSUE = "GUG-395"
 PARENT_ISSUE = "GUG-376"
 REGION = "us-east-1"
 AUTHORITY_ACCOUNT_ID = "042360977644"
+IDENTITY_CENTER_ACCOUNT_ID = "839393571433"
 ARTIFACT_BUCKET_NAMESPACE = "account-regional"
 EXPECTED_REMOTE_REF = "refs/remotes/origin/main"
 SCHEMA_VERSION = 1
@@ -63,17 +64,21 @@ OWNER_INPUT_TYPE = (
 SEED_TYPE = "scanalyze.platform_authority.gug395_preplan_seed.v1"
 PLAN_TYPE = "scanalyze.platform_authority.gug395_mutation_plan.v1"
 TERMINAL_HANDOFF_TYPE = (
-    "scanalyze.platform_authority.gug376_mutation_terminal_handoff.v1"
+    "scanalyze.platform_authority.gug376_mutation_terminal_handoff.v2"
 )
 DOWNSTREAM_MANIFEST_TYPE = (
-    "scanalyze.platform_authority.gug395_downstream_materialization.v1"
+    "scanalyze.platform_authority.gug395_downstream_materialization.v2"
 )
 SEED_RECEIPT_TYPE = (
     "scanalyze.platform_authority.gug395_preplan_seed_receipt.v1"
 )
-DOWNSTREAM_RECEIPT_TYPE = (
+DOWNSTREAM_RECEIPT_TYPE_V1 = (
     "scanalyze.platform_authority.gug395_downstream_materialization_receipt.v1"
 )
+DOWNSTREAM_RECEIPT_TYPE_V2 = (
+    "scanalyze.platform_authority.gug395_downstream_materialization_receipt.v2"
+)
+DOWNSTREAM_RECEIPT_TYPE = DOWNSTREAM_RECEIPT_TYPE_V2
 
 EVIDENCE_SCOPE = "REPOSITORY_OFFLINE_PREPLAN_ONLY"
 TERMINAL_EVIDENCE_SCOPE = "LIVE_PROVIDER_ATTESTED_PRIVATE"
@@ -101,8 +106,10 @@ _PROVIDER_ARN = re.compile(
     r"^arn:aws:sso::aws:applicationProvider/[A-Za-z0-9/-]{1,256}$"
 )
 _KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/[A-Za-z0-9-]{8,128}$"
+    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
+    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
 )
+_KMS_MODES = {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
 _ARTIFACT_BUCKET = re.compile(
     r"^scanalyze-g376-art-[a-f0-9]{12}-"
     rf"{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
@@ -1405,9 +1412,11 @@ def validate_preplan_seed_receipt(
         _fail("SEED_RECEIPT_CAPABILITY_MISMATCH")
 
 
-def _downstream_receipt_private_projection(
+def _downstream_receipt_private_projection_v1(
     value: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Reconstruct the immutable private-manifest binding used by receipt v1."""
+
     return {
         "record_type": (
             "scanalyze.platform_authority."
@@ -1442,6 +1451,175 @@ def _downstream_receipt_private_projection(
     }
 
 
+def validate_downstream_materialization_receipt_v1_shape(
+    receipt: Mapping[str, Any],
+) -> None:
+    """Validate frozen v1 evidence without granting current execution authority."""
+
+    value = _copy(receipt, "DOWNSTREAM_RECEIPT_INVALID")
+    required = {
+        "record_type",
+        "schema_version",
+        "implementation_issue",
+        "parent_issue",
+        "discovery_issue",
+        "upstream_plan_issue",
+        "downstream_consumer_issue",
+        "status",
+        "evidence_scope",
+        "checkpoint_builder_status",
+        "certified_terminal_capability_present",
+        "source_commit_sha",
+        "source_tree_sha",
+        "preplan_seed_digest",
+        "terminal_verification_digest",
+        "mutation_plan_digest",
+        "terminal_handoff_digest",
+        "execution_ledger_digest",
+        "phase_count",
+        "operation_count",
+        "phase_certification_digests",
+        "operation_receipt_digests",
+        "provider_slot_binding_set_digest",
+        "broker_package_manifest_digest",
+        "broker_signing_contract_digest",
+        "ledger_factory_package_manifest_digest",
+        "ledger_factory_signing_contract_digest",
+        "gug363_intent_digest",
+        "gug363_plan_digest",
+        "gug365_plan_status",
+        "gug365_plan_materialized",
+        "consumer_fresh_checkpoint_required",
+        "private_manifest_digest",
+        "aws_calls",
+        "aws_mutations",
+        "deployment_authorized",
+        "production",
+        "two_human_status",
+        "independent_approval_present",
+        "production_status",
+        "created_at",
+        "receipt_digest",
+    }
+    _require_keys(value, required, "DOWNSTREAM_RECEIPT_FIELDS_INVALID")
+    constants = {
+        "record_type": DOWNSTREAM_RECEIPT_TYPE_V1,
+        "schema_version": 1,
+        "implementation_issue": IMPLEMENTATION_ISSUE,
+        "parent_issue": PARENT_ISSUE,
+        "discovery_issue": "GUG-393",
+        "upstream_plan_issue": "GUG-363",
+        "downstream_consumer_issue": "GUG-365",
+        "phase_count": 9,
+        "operation_count": 30,
+        "gug365_plan_status": "PENDING_FRESH_PROVIDER_CHECKPOINT",
+        "gug365_plan_materialized": False,
+        "consumer_fresh_checkpoint_required": True,
+        "aws_calls": 0,
+        "aws_mutations": 0,
+        "deployment_authorized": False,
+        "production": False,
+        "two_human_status": "NOT_PROVEN",
+        "independent_approval_present": False,
+        "production_status": PRODUCTION_STATUS,
+    }
+    if any(value.get(key) != expected for key, expected in constants.items()):
+        _fail("DOWNSTREAM_RECEIPT_SCOPE_INVALID")
+    modes = {
+        "SYNTHETIC_CONTRACT_ONLY_BLOCKED": (
+            "SYNTHETIC_SCHEMA_EXAMPLE",
+            "BLOCKED_LIVE_EXECUTION_NOT_IMPLEMENTED",
+            False,
+        ),
+        "READY_FOR_GUG365_FRESH_CHECKPOINT": (
+            "CERTIFIED_PRIVATE_HANDOFF_DIGEST_ONLY",
+            "MATERIALIZED_FROM_VERIFIED_TERMINAL_HANDOFF",
+            True,
+        ),
+    }
+    expected_mode = modes.get(value.get("status"))
+    if expected_mode != (
+        value.get("evidence_scope"),
+        value.get("checkpoint_builder_status"),
+        value.get("certified_terminal_capability_present"),
+    ):
+        _fail("DOWNSTREAM_RECEIPT_SCOPE_INVALID")
+    _sha(value.get("source_commit_sha"), "DOWNSTREAM_RECEIPT_SOURCE_INVALID")
+    _sha(value.get("source_tree_sha"), "DOWNSTREAM_RECEIPT_SOURCE_INVALID")
+    for field in required - set(constants) - {
+        "source_commit_sha",
+        "source_tree_sha",
+        "created_at",
+        "phase_certification_digests",
+        "operation_receipt_digests",
+        "receipt_digest",
+    }:
+        if field.endswith("_digest"):
+            _digest(value.get(field), "DOWNSTREAM_RECEIPT_DIGEST_INVALID")
+    for field, count in (
+        ("phase_certification_digests", 9),
+        ("operation_receipt_digests", 30),
+    ):
+        items = value.get(field)
+        if (
+            not isinstance(items, list)
+            or len(items) != count
+            or len(set(items)) != count
+        ):
+            _fail("DOWNSTREAM_RECEIPT_CHAIN_INVALID")
+        for item in items:
+            _digest(item, "DOWNSTREAM_RECEIPT_CHAIN_INVALID")
+    if value["private_manifest_digest"] != canonical_digest(
+        _downstream_receipt_private_projection_v1(value)
+    ):
+        _fail("DOWNSTREAM_RECEIPT_PRIVATE_MANIFEST_MISMATCH")
+    _timestamp(value.get("created_at"), "DOWNSTREAM_RECEIPT_TIME_INVALID")
+    _verify_self_digest(
+        value, "receipt_digest", "DOWNSTREAM_RECEIPT_DIGEST_MISMATCH"
+    )
+    _assert_public(value)
+
+
+def _downstream_receipt_private_projection(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "record_type": (
+            "scanalyze.platform_authority."
+            "gug395_downstream_private_manifest_binding.v2"
+        ),
+        "source_commit_sha": value["source_commit_sha"],
+        "source_tree_sha": value["source_tree_sha"],
+        "preplan_seed_digest": value["preplan_seed_digest"],
+        "terminal_verification_digest": value["terminal_verification_digest"],
+        "mutation_plan_digest": value["mutation_plan_digest"],
+        "terminal_handoff_digest": value["terminal_handoff_digest"],
+        "execution_ledger_digest": value["execution_ledger_digest"],
+        "phase_certification_digests": value["phase_certification_digests"],
+        "operation_receipt_digests": value["operation_receipt_digests"],
+        "provider_slot_binding_set_digest": value[
+            "provider_slot_binding_set_digest"
+        ],
+        "identity_center_kms_binding_digest": value[
+            "identity_center_kms_binding_digest"
+        ],
+        "broker_package_manifest_digest": value[
+            "broker_package_manifest_digest"
+        ],
+        "broker_signing_contract_digest": value[
+            "broker_signing_contract_digest"
+        ],
+        "ledger_factory_package_manifest_digest": value[
+            "ledger_factory_package_manifest_digest"
+        ],
+        "ledger_factory_signing_contract_digest": value[
+            "ledger_factory_signing_contract_digest"
+        ],
+        "gug363_intent_digest": value["gug363_intent_digest"],
+        "gug363_plan_digest": value["gug363_plan_digest"],
+    }
+
+
 def validate_downstream_materialization_receipt_shape(
     receipt: Mapping[str, Any],
 ) -> None:
@@ -1457,7 +1635,8 @@ def validate_downstream_materialization_receipt_shape(
         "mutation_plan_digest", "terminal_handoff_digest",
         "execution_ledger_digest", "phase_count", "operation_count",
         "phase_certification_digests", "operation_receipt_digests",
-        "provider_slot_binding_set_digest", "broker_package_manifest_digest",
+        "provider_slot_binding_set_digest", "identity_center_kms_binding_digest",
+        "broker_package_manifest_digest",
         "broker_signing_contract_digest",
         "ledger_factory_package_manifest_digest",
         "ledger_factory_signing_contract_digest", "gug363_intent_digest",
@@ -1471,7 +1650,7 @@ def validate_downstream_materialization_receipt_shape(
     _require_keys(value, required, "DOWNSTREAM_RECEIPT_FIELDS_INVALID")
     constants = {
         "record_type": DOWNSTREAM_RECEIPT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "discovery_issue": "GUG-393",
@@ -1578,6 +1757,9 @@ def validate_downstream_materialization_receipt(
         "operation_receipt_digests": operation_digests,
         "provider_slot_binding_set_digest": handoff[
             "provider_slot_binding_set_digest"
+        ],
+        "identity_center_kms_binding_digest": handoff[
+            "identity_center_kms_binding_digest"
         ],
         "broker_package_manifest_digest": handoff[
             "broker_package_manifest_digest"
@@ -1791,7 +1973,9 @@ def validate_terminal_handoff(
         "identity_center_private_targets_digest",
         "identity_center_application_name_digest",
         "identity_center_application_provider_arn_digest",
-        "identity_center_kms_key_arn_digest", "external_verification_digest",
+        "identity_center_kms_mode", "identity_center_kms_key_arn",
+        "identity_center_kms_mode_digest", "identity_center_kms_key_arn_digest",
+        "identity_center_kms_binding_digest", "external_verification_digest",
         "provider_slot_binding_set_digest", "broker_package_manifest_digest",
         "broker_signing_contract_digest",
         "ledger_factory_package_manifest_digest",
@@ -1804,7 +1988,7 @@ def validate_terminal_handoff(
     _require_keys(value, required, "TERMINAL_HANDOFF_FIELDS_INVALID")
     constants = {
         "record_type": TERMINAL_HANDOFF_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": PARENT_ISSUE,
         "parent_issue": "GUG-365",
         "environment": "authority-non-production",
@@ -1833,13 +2017,26 @@ def validate_terminal_handoff(
     decision_values = {
         item["key"]: item["value"] for item in seed["decisions"]
     }
+    kms_binding = _validate_identity_selectors(
+        decision_values["identity_center_application_name"],
+        decision_values["identity_center_application_provider_arn"],
+        decision_values["identity_center_instance_arn"],
+        value.get("identity_center_kms_mode"),
+        value.get("identity_center_kms_key_arn"),
+    )
     if (
         value.get("identity_center_application_name_digest")
         != canonical_digest(decision_values["identity_center_application_name"])
         or value.get("identity_center_application_provider_arn_digest")
         != canonical_digest(
-            decision_values["identity_center_application_provider_arn"]
-        )
+                decision_values["identity_center_application_provider_arn"]
+            )
+        or value.get("identity_center_kms_mode_digest")
+        != canonical_digest(value.get("identity_center_kms_mode"))
+        or value.get("identity_center_kms_key_arn_digest")
+        != canonical_digest(value.get("identity_center_kms_key_arn"))
+        or value.get("identity_center_kms_binding_digest")
+        != canonical_digest(kms_binding)
     ):
         _fail("TERMINAL_HANDOFF_OWNER_BINDING_MISMATCH")
     for field in (
@@ -1848,7 +2045,8 @@ def validate_terminal_handoff(
         "identity_center_private_targets_digest",
         "identity_center_application_name_digest",
         "identity_center_application_provider_arn_digest",
-        "identity_center_kms_key_arn_digest", "external_verification_digest",
+        "identity_center_kms_mode_digest", "identity_center_kms_key_arn_digest",
+        "identity_center_kms_binding_digest", "external_verification_digest",
         "provider_slot_binding_set_digest", "broker_package_manifest_digest",
         "broker_signing_contract_digest",
         "ledger_factory_package_manifest_digest",
@@ -1910,7 +2108,7 @@ def validate_terminal_handoff(
     downstream_binding = {
         "record_type": (
             "scanalyze.platform_authority."
-            "gug395_terminal_downstream_checkpoint_binding.v1"
+            "gug395_terminal_downstream_checkpoint_binding.v2"
         ),
         "source_commit_sha": value["source_commit_sha"],
         "source_tree_sha": value["source_tree_sha"],
@@ -1918,6 +2116,9 @@ def validate_terminal_handoff(
         "plan_digest": value["plan_digest"],
         "provider_slot_binding_set_digest": value[
             "provider_slot_binding_set_digest"
+        ],
+        "identity_center_kms_binding_digest": value[
+            "identity_center_kms_binding_digest"
         ],
         "phase_certification_digests": phase_digests,
         "operation_receipt_digests": operation_digests,
@@ -2109,6 +2310,9 @@ def build_downstream_checkpoint_receipt(
 
     broker_contract_digest = str(plan363["artifact_signing_contract_digest"])
     expected_terminal = {
+        "identity_center_kms_binding_digest": handoff[
+            "identity_center_kms_binding_digest"
+        ],
         "broker_package_manifest_digest": broker_manifest["manifest_digest"],
         "broker_signing_contract_digest": broker_contract_digest,
         "ledger_factory_package_manifest_digest": factory_contract[
@@ -2131,7 +2335,7 @@ def build_downstream_checkpoint_receipt(
     ]
     receipt: dict[str, Any] = {
         "record_type": DOWNSTREAM_RECEIPT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "discovery_issue": "GUG-393",
@@ -2243,13 +2447,44 @@ class DownstreamMaterialization:
     public_manifest: dict[str, Any]
 
 
-def _validate_identity_selectors(name: object, provider_arn: object, kms_arn: object) -> None:
+def _identity_center_kms_binding(
+    *, instance_arn: object, mode: object, key_arn: object
+) -> dict[str, Any]:
+    if not isinstance(instance_arn, str) or _INSTANCE_ARN.fullmatch(instance_arn) is None:
+        _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
+    if mode not in _KMS_MODES:
+        _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
+    if mode == "AWS_OWNED_KMS_KEY":
+        if key_arn is not None:
+            _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
+    else:
+        match = _KMS_ARN.fullmatch(str(key_arn))
+        if match is None or match.group(1) != IDENTITY_CENTER_ACCOUNT_ID:
+            _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
+    return {
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": instance_arn,
+        "mode": mode,
+        "key_arn": key_arn,
+    }
+
+
+def _validate_identity_selectors(
+    name: object,
+    provider_arn: object,
+    instance_arn: object,
+    kms_mode: object,
+    kms_arn: object,
+) -> dict[str, Any]:
     if not isinstance(name, str) or _AWS_NAME.fullmatch(name) is None:
         _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
     if not isinstance(provider_arn, str) or _PROVIDER_ARN.fullmatch(provider_arn) is None:
         _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
-    if not isinstance(kms_arn, str) or _KMS_ARN.fullmatch(kms_arn) is None:
-        _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
+    return _identity_center_kms_binding(
+        instance_arn=instance_arn,
+        mode=kms_mode,
+        key_arn=kms_arn,
+    )
 
 
 def materialize_post_checkpoint_source_bundle(
@@ -2263,7 +2498,8 @@ def materialize_post_checkpoint_source_bundle(
     gug365_plan: Mapping[str, Any],
     identity_center_application_name: str,
     identity_center_application_provider_arn: str,
-    identity_center_kms_key_arn: str,
+    identity_center_kms_mode: str,
+    identity_center_kms_key_arn: str | None,
     materialized_at: str,
     repo_root: Path,
 ) -> DownstreamMaterialization:
@@ -2309,9 +2545,16 @@ def materialize_post_checkpoint_source_bundle(
         for key, expected in checkpoint_bindings.items()
     ):
         _fail("DOWNSTREAM_CHECKPOINT_CAUSAL_BINDING_MISMATCH")
-    _validate_identity_selectors(
+    identity_center_instance_arn = next(
+        item["value"]
+        for item in seed["decisions"]
+        if item["key"] == "identity_center_instance_arn"
+    )
+    kms_binding = _validate_identity_selectors(
         identity_center_application_name,
         identity_center_application_provider_arn,
+        identity_center_instance_arn,
+        identity_center_kms_mode,
         identity_center_kms_key_arn,
     )
     if (
@@ -2319,8 +2562,14 @@ def materialize_post_checkpoint_source_bundle(
         != handoff["identity_center_application_name_digest"]
         or canonical_digest(identity_center_application_provider_arn)
         != handoff["identity_center_application_provider_arn_digest"]
+        or identity_center_kms_mode != handoff["identity_center_kms_mode"]
+        or identity_center_kms_key_arn != handoff["identity_center_kms_key_arn"]
+        or canonical_digest(identity_center_kms_mode)
+        != handoff["identity_center_kms_mode_digest"]
         or canonical_digest(identity_center_kms_key_arn)
         != handoff["identity_center_kms_key_arn_digest"]
+        or canonical_digest(kms_binding)
+        != handoff["identity_center_kms_binding_digest"]
     ):
         _fail("DOWNSTREAM_IDENTITY_SELECTOR_MISMATCH")
     root = Path(repo_root)
@@ -2408,12 +2657,14 @@ def materialize_post_checkpoint_source_bundle(
         _fail("DOWNSTREAM_PLAN_TERMINAL_BINDING_MISMATCH")
     body = {
         "record_type": discovery.SOURCE_BUNDLE_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "gug363_plan": plan363,
         "gug365_plan": plan365,
         "identity_center_application_name": identity_center_application_name,
         "identity_center_application_provider_arn": identity_center_application_provider_arn,
+        "identity_center_kms_mode": identity_center_kms_mode,
         "identity_center_kms_key_arn": identity_center_kms_key_arn,
+        "identity_center_kms_binding_digest": canonical_digest(kms_binding),
     }
     source_bundle = {**body, "source_bundle_digest": canonical_digest(body)}
     try:
@@ -2434,7 +2685,7 @@ def materialize_post_checkpoint_source_bundle(
         _fail("DOWNSTREAM_PROVIDER_BINDING_MISMATCH")
     manifest = {
         "record_type": DOWNSTREAM_MANIFEST_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "source_commit_sha": seed["source_commit_sha"],
@@ -2462,6 +2713,9 @@ def materialize_post_checkpoint_source_bundle(
         "gug365_checkpoint_expires_at": fresh_gug365_checkpoint.expires_at,
         "source_bundle_digest": source_bundle["source_bundle_digest"],
         "source_contract_digest": derived["source_contract_digest"],
+        "identity_center_kms_binding_digest": handoff[
+            "identity_center_kms_binding_digest"
+        ],
         "private_payload_emitted": False,
         "gug365_fresh_checkpoint_satisfied": True,
         "gug393_fresh_discovery_required": True,
@@ -2508,7 +2762,7 @@ def validate_downstream_manifest(manifest: Mapping[str, Any]) -> None:
         "gug365_fresh_checkpoint_digest", "gug365_provider_evidence_digest",
         "gug365_inventory_digest", "gug365_caller_identity_digest",
         "gug365_checkpoint_verified_at", "gug365_checkpoint_expires_at",
-        "source_bundle_digest",
+        "source_bundle_digest", "identity_center_kms_binding_digest",
         "source_contract_digest", "private_payload_emitted",
         "gug365_fresh_checkpoint_satisfied", "gug393_fresh_discovery_required",
         "aws_calls", "aws_mutations",
@@ -2518,7 +2772,7 @@ def validate_downstream_manifest(manifest: Mapping[str, Any]) -> None:
     _require_keys(value, required, "DOWNSTREAM_MANIFEST_FIELDS_INVALID")
     constants = {
         "record_type": DOWNSTREAM_MANIFEST_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "private_payload_emitted": False,

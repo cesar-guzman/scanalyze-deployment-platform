@@ -214,7 +214,6 @@ def test_all_cleanup_aliases_forbid_atomic_roots_before_sdk(
             profile=pure.MANAGEMENT_PROFILE,
             claim_root=tmp_path,
             collision_admission_root=tmp_path / "admission",
-            gug393_private_root=tmp_path / "gug393",
             gug395_private_root=tmp_path / "gug395",
         )
 

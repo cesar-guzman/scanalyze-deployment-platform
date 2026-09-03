@@ -44,6 +44,15 @@ MAX_DISCOVERY_PAGES = 32
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ARN_SAFE = re.compile(r"^[A-Za-z0-9+=,.@_:/-]+$")
+_IDENTITY_CENTER_INSTANCE_ARN = re.compile(
+    r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}$"
+)
+_IDENTITY_CENTER_KMS_KEY_ARN = re.compile(
+    rf"^arn:aws:kms:{catalog_contract.REGION}:"
+    rf"{catalog_contract.MANAGEMENT_ACCOUNT_ID}:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _DYNAMIC_RESOURCE_KINDS = {
     "authority": frozenset(
         {
@@ -66,9 +75,7 @@ _DISCOVERY_OPERATIONS = {
     "cloudformation_stack": "cloudformation:ListStacks",
     "kms_key": "kms:ListAliases",
     "lambda_code_signing_config": "cloudformation:DescribeStackResource",
-    "identity_center_kms_key": (
-        "gug393:MaterializePrivateIdentityCenterKmsKey"
-    ),
+    "identity_center_kms_key": "sso:DescribeInstance",
     "sso_application": "sso:ListApplications",
     "sso_instance": "sso:ListInstances",
     "sso_permission_set": "sso:ListPermissionSets",
@@ -196,6 +203,64 @@ def _condition(
         "StringEquals": equals,
         "DateGreaterThanEquals": {"aws:CurrentTime": not_before},
         "DateLessThan": {"aws:CurrentTime": expires_at},
+    }
+
+
+def _identity_center_kms_binding(
+    *,
+    mode: str | None,
+    key_arn: str | None,
+    instance_arn: str | None,
+) -> tuple[str | None, str | None]:
+    """Validate one optional runtime KMS binding without broadening legacy paths."""
+
+    if mode is None:
+        if key_arn is not None:
+            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+        return None, None
+    if mode == "AWS_OWNED_KMS_KEY":
+        if key_arn is not None:
+            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+        return mode, None
+    if (
+        mode != "CUSTOMER_MANAGED_KEY"
+        or not isinstance(key_arn, str)
+        or _IDENTITY_CENTER_KMS_KEY_ARN.fullmatch(key_arn) is None
+        or not isinstance(instance_arn, str)
+        or _IDENTITY_CENTER_INSTANCE_ARN.fullmatch(instance_arn) is None
+    ):
+        _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+    return mode, key_arn
+
+
+def _identity_center_kms_decrypt_statement(
+    *,
+    key_arn: str,
+    instance_arn: str,
+    not_before: str,
+    expires_at: str,
+) -> dict[str, Any]:
+    condition = _condition(
+        account_id=catalog_contract.MANAGEMENT_ACCOUNT_ID,
+        not_before=not_before,
+        expires_at=expires_at,
+        regional=True,
+    )
+    condition["StringEquals"].update(
+        {
+            "kms:CallerAccount": catalog_contract.MANAGEMENT_ACCOUNT_ID,
+            "kms:EncryptionContext:aws:sso:instance-arn": instance_arn,
+            "kms:ViaService": (
+                f"sso.{catalog_contract.REGION}.amazonaws.com"
+            ),
+        }
+    )
+    return {
+        "Sid": "DecryptIdentityCenterMetadataThroughExactInstance",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": key_arn,
+        "Condition": condition,
     }
 
 
@@ -361,6 +426,8 @@ def _build_inventory_policy(
     coverage: Sequence[Mapping[str, Any]],
     candidates: Mapping[str, Sequence[str]],
     identity_center_instance_arn: str | None,
+    identity_center_kms_mode: str | None,
+    identity_center_kms_key_arn: str | None,
 ) -> dict[str, Any]:
     account_id = (
         catalog_contract.AUTHORITY_ACCOUNT_ID
@@ -411,27 +478,40 @@ def _build_inventory_policy(
             continue
         if service == "sso":
             bound_instance = candidates.get("sso_instance", [])
+            if identity_center_instance_arn is not None:
+                statements.append(
+                    {
+                        "Sid": "DescribeAttestedIdentityCenterInstance",
+                        "Effect": "Allow",
+                        "Action": ["sso:DescribeInstance"],
+                        "Resource": identity_center_instance_arn,
+                        "Condition": _condition(
+                            account_id=account_id,
+                            not_before=not_before,
+                            expires_at=expires_at,
+                            regional=True,
+                            sso=True,
+                        ),
+                    }
+                )
             sso_groups = (
                 (
                     "DiscoverIdentityCenterInstances",
                     sorted(actions & {"sso:ListInstances"}),
-                    False,
                     False,
                 ),
                 (
                     "DiscoverIdentityCenterApplications",
                     sorted(actions & {"sso:ListApplications"}),
                     False,
-                    True,
                 ),
                 (
                     "DiscoverIdentityCenterPermissionSets",
                     sorted(actions & {"sso:ListPermissionSets"}),
                     True,
-                    False,
                 ),
             )
-            for sid, group_actions, primary_region, application_account in sso_groups:
+            for sid, group_actions, primary_region in sso_groups:
                 if not group_actions:
                     continue
                 condition = _condition(
@@ -441,8 +521,6 @@ def _build_inventory_policy(
                     regional=True,
                     sso=primary_region,
                 )
-                if application_account:
-                    condition["StringEquals"]["sso:ApplicationAccount"] = account_id
                 statements.append(
                     {
                         "Sid": sid,
@@ -484,6 +562,19 @@ def _build_inventory_policy(
                             sso=True,
                         ),
                     }
+                )
+            if identity_center_kms_mode == "CUSTOMER_MANAGED_KEY":
+                if not isinstance(identity_center_kms_key_arn, str) or not isinstance(
+                    identity_center_instance_arn, str
+                ):
+                    _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+                statements.append(
+                    _identity_center_kms_decrypt_statement(
+                        key_arn=identity_center_kms_key_arn,
+                        instance_arn=identity_center_instance_arn,
+                        not_before=not_before,
+                        expires_at=expires_at,
+                    )
                 )
             continue
         condition = _condition(
@@ -1068,7 +1159,6 @@ def _candidate_action_contract(kind: str) -> tuple[str, ...]:
             "sso:ListTagsForResource",
         ),
         "sso_instance": (
-            "sso:DescribeInstance",
             "sso:ListPermissionSets",
             "sso:ListTagsForResource",
         ),
@@ -1084,6 +1174,9 @@ def _build_candidate_detail_policy(
     domain: str,
     catalog: Mapping[str, Any],
     candidates: Mapping[str, Sequence[str]],
+    identity_center_kms_mode: str | None,
+    identity_center_kms_key_arn: str | None,
+    identity_center_instance_arn: str | None,
 ) -> dict[str, Any]:
     account_id = (
         catalog_contract.AUTHORITY_ACCOUNT_ID
@@ -1106,6 +1199,19 @@ def _build_candidate_detail_policy(
             ),
         }
     ]
+    if domain == "management" and identity_center_kms_mode == "CUSTOMER_MANAGED_KEY":
+        if not isinstance(identity_center_kms_key_arn, str) or not isinstance(
+            identity_center_instance_arn, str
+        ):
+            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+        statements.append(
+            _identity_center_kms_decrypt_statement(
+                key_arn=identity_center_kms_key_arn,
+                instance_arn=identity_center_instance_arn,
+                not_before=not_before,
+                expires_at=expires_at,
+            )
+        )
     service_groups: dict[str, dict[str, set[str]]] = defaultdict(
         lambda: {"actions": set(), "resources": set()}
     )
@@ -1126,10 +1232,9 @@ def _build_candidate_detail_policy(
         if not resources:
             continue
         if kind == "identity_center_kms_key":
-            # The key ARN is a selector binding supplied by the validated
-            # private discovery evidence.  Collision inventory never decrypts
-            # data, so the runtime policy intentionally grants no KMS data
-            # plane action for this candidate kind.
+            # The key ARN is a private binding, not an independently queried
+            # candidate.  Its dependent ``kms:Decrypt`` authority is emitted
+            # above as one exact-key, exact-instance conditional statement.
             continue
         if kind == "cloudformation_stack":
             stack_resource_arns.update(
@@ -1137,6 +1242,22 @@ def _build_candidate_detail_policy(
                 for arn in resources
                 if arn.split(":stack/", 1)[1].split("/", 1)[0]
                 in stack_resource_names
+            )
+        if kind == "sso_instance":
+            statements.append(
+                {
+                    "Sid": "DescribeAttestedIdentityCenterInstance",
+                    "Effect": "Allow",
+                    "Action": ["sso:DescribeInstance"],
+                    "Resource": sorted(resources),
+                    "Condition": _condition(
+                        account_id=account_id,
+                        not_before=not_before,
+                        expires_at=expires_at,
+                        regional=True,
+                        sso=True,
+                    ),
+                }
             )
         service = _candidate_action_contract(kind)[0].split(":", 1)[0]
         service_groups[service]["actions"].update(
@@ -1303,6 +1424,8 @@ def _build_policy_set(
     discovery_evidence: Mapping[str, Any] | None,
     discovery_provenance_digest: str | None = None,
     identity_center_instance_arn: str | None = None,
+    identity_center_kms_mode: str | None = None,
+    identity_center_kms_key_arn: str | None = None,
 ) -> dict[str, Any]:
     """Build a structurally sealed policy set, never an authority token.
 
@@ -1315,11 +1438,18 @@ def _build_policy_set(
     become operational authority merely by recomputing its formal digests.
     """
     catalog_contract.validate_route_collision_catalog(catalog)
-    if identity_center_instance_arn is not None and re.fullmatch(
-        r"arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}",
-        identity_center_instance_arn,
-    ) is None:
+    if identity_center_instance_arn is not None and (
+        _IDENTITY_CENTER_INSTANCE_ARN.fullmatch(identity_center_instance_arn)
+        is None
+    ):
         _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+    identity_center_kms_mode, identity_center_kms_key_arn = (
+        _identity_center_kms_binding(
+            mode=identity_center_kms_mode,
+            key_arn=identity_center_kms_key_arn,
+            instance_arn=identity_center_instance_arn,
+        )
+    )
     normalized_evidence, normalized_candidates = _normalize_discovery_evidence(
         catalog, discovery_evidence
     )
@@ -1353,19 +1483,38 @@ def _build_policy_set(
         if len(kms_items) != 1:
             _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
         kms_item = kms_items[0]
+        observed_kms_mode = kms_item.get("Mode")
+        observed_kms_key_arn = kms_item.get("KeyArn")
         if (
-            kms_item.get("Mode") == "AWS_OWNED_KMS_KEY"
+            observed_kms_mode == "AWS_OWNED_KMS_KEY"
             and kms_candidates != []
         ) or (
-            kms_item.get("Mode") == "CUSTOMER_MANAGED_KEY"
+            observed_kms_mode == "CUSTOMER_MANAGED_KEY"
             and (
                 len(kms_candidates) != 1
-                or kms_item.get("KeyArn") != kms_candidates[0]
+                or observed_kms_key_arn != kms_candidates[0]
             )
-        ) or kms_item.get("Mode") not in {
+        ) or observed_kms_mode not in {
             "AWS_OWNED_KMS_KEY",
             "CUSTOMER_MANAGED_KEY",
         }:
+            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+        if identity_center_kms_mode is None:
+            identity_center_kms_mode, identity_center_kms_key_arn = (
+                _identity_center_kms_binding(
+                    mode=str(observed_kms_mode),
+                    key_arn=(
+                        str(observed_kms_key_arn)
+                        if observed_kms_key_arn is not None
+                        else None
+                    ),
+                    instance_arn=identity_center_instance_arn,
+                )
+            )
+        elif (
+            identity_center_kms_mode != observed_kms_mode
+            or identity_center_kms_key_arn != observed_kms_key_arn
+        ):
             _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
         if len(management_candidates.get("sso_instance", [])) != 1:
             _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
@@ -1392,6 +1541,12 @@ def _build_policy_set(
                 if domain == "management"
                 else None
             ),
+            identity_center_kms_mode=(
+                identity_center_kms_mode if domain == "management" else None
+            ),
+            identity_center_kms_key_arn=(
+                identity_center_kms_key_arn if domain == "management" else None
+            ),
         )
         policies[domain] = {"inventory": inventory}
         if normalized_evidence is not None:
@@ -1399,6 +1554,17 @@ def _build_policy_set(
                 domain=domain,
                 catalog=catalog,
                 candidates=normalized_candidates[domain],
+                identity_center_kms_mode=(
+                    identity_center_kms_mode if domain == "management" else None
+                ),
+                identity_center_kms_key_arn=(
+                    identity_center_kms_key_arn if domain == "management" else None
+                ),
+                identity_center_instance_arn=(
+                    identity_center_instance_arn
+                    if domain == "management"
+                    else None
+                ),
             )
         policy_digests[domain] = {
             name: canonical_digest(policy)
@@ -1456,6 +1622,8 @@ def materialize_route_collision_policy_set(
     *,
     discovery_capability: object | None = None,
     identity_center_instance_arn: str | None = None,
+    identity_center_kms_mode: str | None = None,
+    identity_center_kms_key_arn: str | None = None,
 ) -> dict[str, Any]:
     """Build inventory policy or consume one exact provider capability once."""
 
@@ -1464,6 +1632,8 @@ def materialize_route_collision_policy_set(
             catalog,
             discovery_evidence=None,
             identity_center_instance_arn=identity_center_instance_arn,
+            identity_center_kms_mode=identity_center_kms_mode,
+            identity_center_kms_key_arn=identity_center_kms_key_arn,
         )
         validate_route_collision_policy_set(value, catalog=catalog)
         return value
@@ -1481,6 +1651,8 @@ def materialize_route_collision_policy_set(
         discovery_evidence=evidence,
         discovery_provenance_digest=provenance_digest,
         identity_center_instance_arn=identity_center_instance_arn,
+        identity_center_kms_mode=identity_center_kms_mode,
+        identity_center_kms_key_arn=identity_center_kms_key_arn,
     )
     validate_route_collision_policy_set(value, catalog=catalog)
     provider.bind_materialized_candidate_policy(
@@ -1550,6 +1722,37 @@ def validate_route_collision_policy_set(
             _fail("COLLISION_POLICY_CANDIDATE_SET_INVALID")
     else:
         _fail("COLLISION_POLICY_STAGE_INVALID")
+    supplied_policies = value.get("policies")
+    management_policies = (
+        supplied_policies.get("management")
+        if isinstance(supplied_policies, Mapping)
+        else None
+    )
+    if not isinstance(management_policies, Mapping):
+        _fail("COLLISION_POLICY_SET_BINDING_INVALID")
+    decrypt_statements: list[Mapping[str, Any]] = []
+    for document in management_policies.values():
+        statements = document.get("Statement") if isinstance(document, Mapping) else None
+        if not isinstance(statements, list):
+            _fail("COLLISION_POLICY_SET_BINDING_INVALID")
+        decrypt_statements.extend(
+            statement
+            for statement in statements
+            if isinstance(statement, Mapping)
+            and statement.get("Effect") == "Allow"
+            and statement.get("Action") == "kms:Decrypt"
+        )
+    identity_center_kms_mode: str | None = None
+    identity_center_kms_key_arn: str | None = None
+    if decrypt_statements:
+        resources = [statement.get("Resource") for statement in decrypt_statements]
+        if (
+            any(not isinstance(resource, str) for resource in resources)
+            or len(set(resources)) != 1
+        ):
+            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+        identity_center_kms_mode = "CUSTOMER_MANAGED_KEY"
+        identity_center_kms_key_arn = str(resources[0])
     expected = _build_policy_set(
         catalog,
         discovery_evidence=(
@@ -1565,6 +1768,8 @@ def validate_route_collision_policy_set(
         identity_center_instance_arn=value.get(
             "identity_center_instance_arn"
         ),
+        identity_center_kms_mode=identity_center_kms_mode,
+        identity_center_kms_key_arn=identity_center_kms_key_arn,
     )
     if canonical_json(value) != canonical_json(expected):
         _fail("COLLISION_POLICY_SET_BINDING_INVALID")

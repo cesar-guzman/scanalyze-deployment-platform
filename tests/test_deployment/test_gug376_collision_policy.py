@@ -199,10 +199,19 @@ def _structural_candidate_policy(
 ) -> dict[str, object]:
     """Build only a structural validator fixture, never an authority capability."""
 
+    instance_items = evidence["domains"]["management"]["sso_instance"][
+        "pages"
+    ][0]["items"]
+    instance_arn = (
+        instance_items[0].get("InstanceArn")
+        if len(instance_items) == 1
+        else None
+    )
     value = subject._build_policy_set(  # noqa: SLF001
         catalog,
         discovery_evidence=evidence,
         discovery_provenance_digest=DISCOVERY_PROVENANCE_DIGEST,
+        identity_center_instance_arn=instance_arn,
     )
     subject.validate_route_collision_policy_set(value, catalog=catalog)
     return value
@@ -502,7 +511,7 @@ def test_identity_center_inventory_is_read_only_and_later_binds_instance() -> No
         "sso:ListInstances",
         "sso:ListPermissionSets",
     } <= actions
-    assert "kms:Decrypt" not in actions
+    assert "kms:Decrypt" in actions
     permission_sets = next(
         item
         for item in _allow_statements(inventory)
@@ -510,6 +519,135 @@ def test_identity_center_inventory_is_read_only_and_later_binds_instance() -> No
     )
     assert permission_sets["Resource"] == (
         "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    )
+    applications = next(
+        item
+        for item in _allow_statements(inventory)
+        if item["Sid"] == "DiscoverIdentityCenterApplications"
+    )
+    assert applications["Resource"] == "*"
+    assert applications["Condition"]["StringEquals"] == {
+        "aws:PrincipalAccount": catalog_contract.MANAGEMENT_ACCOUNT_ID,
+        "aws:RequestedRegion": "us-east-1",
+    }
+    assert "sso:ApplicationAccount" not in json.dumps(applications)
+    inventory_describe = next(
+        item
+        for item in _allow_statements(inventory)
+        if item["Sid"] == "DescribeAttestedIdentityCenterInstance"
+    )
+    assert inventory_describe["Action"] == ["sso:DescribeInstance"]
+    assert inventory_describe["Resource"] == (
+        "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    )
+
+    candidate = bound["policies"]["management"]["candidate_detail"]
+    candidate_describe = next(
+        item
+        for item in _allow_statements(candidate)
+        if item["Sid"] == "DescribeAttestedIdentityCenterInstance"
+    )
+    assert candidate_describe["Action"] == ["sso:DescribeInstance"]
+    assert candidate_describe["Resource"] == [
+        "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    ]
+    assert all(
+        "sso:DescribeInstance"
+        not in (
+            item["Action"]
+            if isinstance(item["Action"], list)
+            else [item["Action"]]
+        )
+        for item in _allow_statements(candidate)
+        if item["Sid"] != "DescribeAttestedIdentityCenterInstance"
+    )
+    expected_kms_condition = {
+        "StringEquals": {
+            "aws:PrincipalAccount": catalog_contract.MANAGEMENT_ACCOUNT_ID,
+            "aws:RequestedRegion": catalog_contract.REGION,
+            "kms:CallerAccount": catalog_contract.MANAGEMENT_ACCOUNT_ID,
+            "kms:EncryptionContext:aws:sso:instance-arn": (
+                "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+            ),
+            "kms:ViaService": "sso.us-east-1.amazonaws.com",
+        },
+        "DateGreaterThanEquals": {
+            "aws:CurrentTime": "2026-09-01T00:00:00Z"
+        },
+        "DateLessThan": {"aws:CurrentTime": "2026-09-01T02:00:00Z"},
+    }
+    for document in (inventory, candidate):
+        decrypt = next(
+            item
+            for item in _allow_statements(document)
+            if item["Action"] == "kms:Decrypt"
+        )
+        assert decrypt["Resource"] == (
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "12345678-abcd-1234-abcd-1234567890ab"
+        )
+        assert decrypt["Condition"] == expected_kms_condition
+        assert "kms:Decrypt" in _deny(
+            document, "DenyEveryMutationAndUnreviewedAction"
+        )["NotAction"]
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "12345678-abcd-1234-abcd-1234567890ab",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_identity_center_cmk_uuid_and_mrk_render_identical_bound_authority(
+    key_arn: str,
+) -> None:
+    catalog = _catalog()
+    candidates = _candidates()
+    candidates["management"]["identity_center_kms_key"] = [key_arn]
+    evidence = _discovery_evidence(catalog, candidates)
+    instance_arn = candidates["management"]["sso_instance"][0]
+    value = subject._build_policy_set(  # noqa: SLF001
+        catalog,
+        discovery_evidence=evidence,
+        discovery_provenance_digest=DISCOVERY_PROVENANCE_DIGEST,
+        identity_center_instance_arn=instance_arn,
+        identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        identity_center_kms_key_arn=key_arn,
+    )
+    subject.validate_route_collision_policy_set(value, catalog=catalog)
+    for document in value["policies"]["management"].values():
+        decrypt = [
+            statement
+            for statement in _allow_statements(document)
+            if statement["Action"] == "kms:Decrypt"
+        ]
+        assert len(decrypt) == 1
+        assert decrypt[0]["Resource"] == key_arn
+        assert decrypt[0]["Condition"]["StringEquals"][
+            "kms:EncryptionContext:aws:sso:instance-arn"
+        ] == instance_arn
+
+
+def test_identity_center_kms_runtime_binding_must_match_private_evidence(
+) -> None:
+    catalog = _catalog()
+    evidence = _discovery_evidence(catalog)
+    with pytest.raises(subject.CollisionPolicyError) as captured:
+        subject._build_policy_set(  # noqa: SLF001
+            catalog,
+            discovery_evidence=evidence,
+            discovery_provenance_digest=DISCOVERY_PROVENANCE_DIGEST,
+            identity_center_instance_arn=(
+                "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+            ),
+            identity_center_kms_mode="AWS_OWNED_KMS_KEY",
+            identity_center_kms_key_arn=None,
+        )
+    assert captured.value.code == (
+        "COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID"
     )
 
 
@@ -552,6 +690,10 @@ def test_candidate_detail_stage_accepts_only_finite_exact_arns_and_is_stable() -
         for statement in _allow_statements(stages["candidate_detail"]):
             if statement["Sid"] == "ConfirmOnlyTheCurrentCaller":
                 assert statement["Resource"] == "*"
+                continue
+            if statement["Action"] == "kms:Decrypt":
+                assert isinstance(statement["Resource"], str)
+                assert "*" not in statement["Resource"]
                 continue
             assert isinstance(statement["Resource"], list)
             assert statement["Resource"]
@@ -738,6 +880,9 @@ def test_aws_owned_identity_center_kms_is_explicit_and_has_no_candidate_arn(
     assert value["discovery_evidence"]["domains"]["management"][
         "identity_center_kms_key"
     ]["pages"][0]["items"] == items
+    assert "kms:" not in subject.canonical_json(
+        value["policies"]["management"]
+    )
 
 
 def test_discovery_contract_binds_catalog_operation_selector_and_pagination() -> None:

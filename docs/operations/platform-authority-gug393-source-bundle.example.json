@@ -1,10 +1,12 @@
 {
-  "record_type": "scanalyze.platform_authority.gug393_private_input_source_bundle.v1",
-  "schema_version": 1,
+  "record_type": "scanalyze.platform_authority.gug393_private_input_source_bundle.v2",
+  "schema_version": 2,
   "gug363_plan": {},
   "gug365_plan": {},
   "identity_center_application_name": "ReplaceApprovedApplication",
   "identity_center_application_provider_arn": "arn:aws:sso::aws:applicationProvider/custom",
-  "identity_center_kms_key_arn": "arn:aws:kms:us-east-1:444455556666:key/22222222-2222-2222-2222-222222222222",
-  "source_bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  "identity_center_kms_mode": "AWS_OWNED_KMS_KEY",
+  "identity_center_kms_key_arn": null,
+  "identity_center_kms_binding_digest": "sha256:4cc83f0bd8b10063f2b483f575d91b1aac310d24d231a0f8dbee55e51414919d",
+  "source_bundle_digest": "sha256:03f51a342bde998ef48f7897e419cb50dec23443d9780bdab4959323275bdcaa"
 }

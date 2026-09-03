@@ -16,6 +16,10 @@ NOT_BEFORE = "2026-08-28T01:00:00Z"
 EXPIRES_AT = "2026-08-28T01:15:00Z"
 AUTHORITY_ACCOUNT = "042360977644"
 IDENTITY_ACCOUNT = "839393571433"
+IDENTITY_KMS_KEY_ARN = (
+    "arn:aws:kms:us-east-1:839393571433:"
+    "key/33333333-3333-3333-3333-333333333333"
+)
 ARTIFACT_BUCKET = (
     "scanalyze-g376-art-111111111111-"
     f"{AUTHORITY_ACCOUNT}-us-east-1-an"
@@ -37,7 +41,7 @@ def _reseal(value: dict[str, Any], field: str) -> None:
     value[field] = subject.canonical_digest(value)
 
 
-def _profiles() -> dict[str, dict[str, str]]:
+def _profiles() -> dict[str, dict[str, Any]]:
     return {
         "authority": {
             "name": "042360977644_AWSReadOnlyAccess",
@@ -56,6 +60,8 @@ def _profiles() -> dict[str, dict[str, str]]:
             ),
             "expected_sso_role_name_digest": _digest("identity-role"),
             "authority_verification_digest": _digest("identity-verification"),
+            "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+            "identity_center_kms_key_arn": IDENTITY_KMS_KEY_ARN,
         },
     }
 
@@ -162,7 +168,7 @@ def _request() -> dict[str, Any]:
     budget = _budget_contract()
     request: dict[str, Any] = {
         "record_type": subject.REQUEST_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": subject.IMPLEMENTATION_ISSUE,
         "seed_issue": subject.SEED_ISSUE,
         "downstream_consumer_issue": subject.DOWNSTREAM_CONSUMER_ISSUE,
@@ -218,6 +224,69 @@ def _request() -> dict[str, Any]:
     _reseal(request, "request_digest")
     subject.validate_collision_probe_request(request)
     return request
+
+
+def _legacy_v1_request() -> dict[str, Any]:
+    request = copy.deepcopy(_request())
+    identity = request["profiles"]["identity_center"]
+    identity.pop("identity_center_kms_mode")
+    identity.pop("identity_center_kms_key_arn")
+    request["record_type"] = subject.REQUEST_TYPE_V1
+    request["schema_version"] = 1
+    request["policies"] = {
+        domain: subject._closed_policy(
+            domain=domain,
+            not_before=NOT_BEFORE,
+            expires_at=EXPIRES_AT,
+            schema_version=1,
+        )
+        for domain in ("authority", "identity_center")
+    }
+    request["policy_digests"] = {
+        domain: subject.canonical_digest(policy)
+        for domain, policy in request["policies"].items()
+    }
+    request["policy_set_digest"] = subject.canonical_digest(
+        request["policy_digests"]
+    )
+    request["profile_binding_digest"] = subject.canonical_digest(
+        request["profiles"]
+    )
+    _reseal(request, "request_digest")
+    return request
+
+
+def test_collision_request_version_readers_preserve_v1_and_select_v2() -> None:
+    legacy = _legacy_v1_request()
+    current = _request()
+
+    subject.validate_collision_probe_request_v1(legacy)
+    subject.validate_collision_probe_request_v2(current)
+    subject.validate_collision_probe_request(legacy)
+    subject.validate_collision_probe_request(current)
+    assert set(legacy["profiles"]["identity_center"]) == {
+        "name",
+        "expected_account_id",
+        "expected_principal_digest",
+        "expected_sso_role_name_digest",
+        "authority_verification_digest",
+    }
+    assert legacy["request_digest"] == subject.canonical_digest(
+        {
+            key: value
+            for key, value in legacy.items()
+            if key != "request_digest"
+        }
+    )
+    assert (
+        legacy["request_digest"]
+        == "sha256:5302ddf947ef9693acd007882d2b9996deb42e23d0c68ad733f230aad1e1ecac"
+    )
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_REQUEST_VERSION_UNSUPPORTED$",
+    ):
+        subject.validate_collision_probe_request_v1(current)
 
 
 def _identity(
@@ -388,8 +457,17 @@ def _identity_facts(
 ) -> dict[str, Any]:
     instance = {
         "InstanceArn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+        "IdentityStoreId": "d-1234567890",
         "Status": "ACTIVE" if prerequisites_ready else "CREATING",
         "OwnerAccountId": IDENTITY_ACCOUNT,
+    }
+    described_instance = {
+        **instance,
+        "EncryptionConfigurationDetails": {
+            "KeyType": "CUSTOMER_MANAGED_KEY",
+            "KmsKeyArn": IDENTITY_KMS_KEY_ARN,
+            "EncryptionStatus": "ENABLED",
+        },
     }
     applications: list[dict[str, Any]] = []
     if facts_marker != "stable":
@@ -464,6 +542,7 @@ def _identity_facts(
         ],
         "instances": [instance],
         "instance_matches": [instance],
+        "described_instance": described_instance,
         "applications": applications,
         "applications_examined": len(applications),
         "described_applications": described_applications,
@@ -616,6 +695,7 @@ def _successful_provider_and_budget_evidence(
         "identity_center": (
             "sts:GetCallerIdentity",
             "sso:ListInstances",
+            "sso:DescribeInstance",
             "sso:ListApplications",
             "sso:ListPermissionSets",
         ),
@@ -652,6 +732,11 @@ def _successful_provider_and_budget_evidence(
             },
             "lambda:ListCodeSigningConfigs": {},
             "sso:ListInstances": {},
+            "sso:DescribeInstance": {
+                "InstanceArn": request["targets"][
+                    "identity_center_application"
+                ]["instance_arn"]
+            },
             "sso:ListApplications": {
                 "InstanceArn": request["targets"][
                     "identity_center_application"
@@ -692,15 +777,18 @@ def _successful_provider_and_budget_evidence(
                 ),
             )
             budget.record_response(16)
-            response = (
-                {
+            if operation == "sts:GetCallerIdentity":
+                response = {
                     "Account": identity["account_id"],
                     "Arn": identity["principal_arn"],
                     "UserIdPresent": True,
                 }
-                if operation == "sts:GetCallerIdentity"
-                else {"operation": operation, "projected": True}
-            )
+            elif operation == "sso:DescribeInstance":
+                response = copy.deepcopy(
+                    snapshot["facts"]["described_instance"]
+                )
+            else:
+                response = {"operation": operation, "projected": True}
             ledger.complete(
                 ticket,
                 response,
@@ -966,13 +1054,13 @@ def test_two_unique_stable_sessions_apply_the_connected_collision_lattice(
 
 @pytest.mark.parametrize(
     "destabilize",
-    ["facts", "incomplete", "prerequisites"],
+    ["authority_facts", "incomplete", "identity_facts"],
 )
 def test_any_unstable_pair_is_uncertain_and_reconciliation_only(
     destabilize: str,
 ) -> None:
     authority, identity = _pairs()
-    if destabilize == "facts":
+    if destabilize == "authority_facts":
         authority[1] = _snapshot(
             "authority", 2, facts_marker="changed"
         )
@@ -980,7 +1068,7 @@ def test_any_unstable_pair_is_uncertain_and_reconciliation_only(
         identity[1] = _snapshot("identity_center", 2, complete=False)
     else:
         identity[1] = _snapshot(
-            "identity_center", 2, prerequisites_ready=False
+            "identity_center", 2, facts_marker="changed"
         )
 
     result = subject.classify_collision_probe_snapshots(
@@ -990,11 +1078,46 @@ def test_any_unstable_pair_is_uncertain_and_reconciliation_only(
 
     assert result["classification"] == subject.UNCERTAIN
     destabilized_domain = (
-        "authority" if destabilize == "facts" else "identity_center"
+        "authority"
+        if destabilize == "authority_facts"
+        else "identity_center"
     )
     assert result[destabilized_domain]["classification"] == subject.UNCERTAIN
     assert result["evidence_stable"] is False
     assert result["evidence_complete"] is False
+    assert result["reconciliation_only"] is True
+
+
+def test_identity_kms_drift_between_snapshots_is_uncertain() -> None:
+    authority, identity = _pairs()
+    identity[1]["facts"]["described_instance"][
+        "EncryptionConfigurationDetails"
+    ]["KmsKeyArn"] = (
+        "arn:aws:kms:us-east-1:839393571433:"
+        "key/44444444-4444-4444-4444-444444444444"
+    )
+    semantic_facts = {
+        key: identity[1][key]
+        for key in (
+            "complete",
+            "prerequisites_ready",
+            "collisions",
+            "collision_count",
+            "resource_counts",
+            "facts",
+        )
+    }
+    identity[1]["facts_digest"] = subject.canonical_digest(semantic_facts)
+    _reseal(identity[1], "snapshot_digest")
+
+    result = subject.classify_collision_probe_snapshots(
+        authority_snapshots=authority,
+        identity_center_snapshots=identity,
+    )
+
+    assert result["classification"] == subject.UNCERTAIN
+    assert result["identity_center"]["classification"] == subject.UNCERTAIN
+    assert result["identity_center"]["stable"] is False
     assert result["reconciliation_only"] is True
 
 
@@ -1310,6 +1433,83 @@ def test_call_ledger_rejects_an_unfinished_pagination_stream() -> None:
 def test_profile_and_account_bindings_fail_closed(mutate: Any) -> None:
     request = _request()
     mutate(request["profiles"])
+    request["profile_binding_digest"] = subject.canonical_digest(
+        request["profiles"]
+    )
+    _reseal(request, "request_digest")
+
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_PROFILE_BINDINGS_INVALID$",
+    ):
+        subject.validate_collision_probe_request(request)
+
+
+def test_aws_owned_identity_kms_profile_binding_requires_a_null_key() -> None:
+    request = _request()
+    identity = request["profiles"]["identity_center"]
+    identity["identity_center_kms_mode"] = "AWS_OWNED_KMS_KEY"
+    identity["identity_center_kms_key_arn"] = None
+    request["profile_binding_digest"] = subject.canonical_digest(
+        request["profiles"]
+    )
+    _reseal(request, "request_digest")
+
+    subject.validate_collision_probe_request(request)
+
+
+def test_customer_managed_identity_kms_profile_accepts_exact_mrk_arn() -> None:
+    request = _request()
+    identity = request["profiles"]["identity_center"]
+    identity["identity_center_kms_mode"] = "CUSTOMER_MANAGED_KEY"
+    identity["identity_center_kms_key_arn"] = (
+        "arn:aws:kms:us-east-1:839393571433:key/mrk-" + "a" * 32
+    )
+    request["profile_binding_digest"] = subject.canonical_digest(
+        request["profiles"]
+    )
+    _reseal(request, "request_digest")
+
+    subject.validate_collision_probe_request(request)
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn"),
+    [
+        ("AWS_OWNED_KMS_KEY", IDENTITY_KMS_KEY_ARN),
+        ("CUSTOMER_MANAGED_KEY", None),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:042360977644:"
+            "key/33333333-3333-3333-3333-333333333333",
+        ),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-west-2:839393571433:"
+            "key/33333333-3333-3333-3333-333333333333",
+        ),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/not-a-key-id",
+        ),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:"
+            "key/AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+        ),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/mrk-1234",
+        ),
+    ],
+)
+def test_identity_kms_profile_binding_fails_closed(
+    mode: str, key_arn: str | None
+) -> None:
+    request = _request()
+    identity = request["profiles"]["identity_center"]
+    identity["identity_center_kms_mode"] = mode
+    identity["identity_center_kms_key_arn"] = key_arn
     request["profile_binding_digest"] = subject.canonical_digest(
         request["profiles"]
     )
@@ -1747,6 +1947,172 @@ def test_fixed_transcript_operations_require_exact_request_or_response(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "forged_value"),
+    [
+        ("request_digest", _digest("wrong-describe-instance-request")),
+        ("response_digest", _digest("wrong-describe-instance-response")),
+    ],
+)
+def test_describe_instance_transcript_binds_exact_request_and_response(
+    field: str, forged_value: str
+) -> None:
+    request = _request()
+    authority, identity = _pairs()
+    provider, transcript, budget, budget_events = (
+        _successful_provider_and_budget_evidence(
+            request,
+            authority_snapshots=authority,
+            identity_center_snapshots=identity,
+        )
+    )
+    session_digest = identity[0]["identity"]["session_id_digest"]
+    event = next(
+        item
+        for item in transcript
+        if item["session_digest"] == session_digest
+        and item["operation"] == "sso:DescribeInstance"
+    )
+    event[field] = forged_value
+    _reseal_transcript_session(
+        provider_summary=provider,
+        transcript_events=transcript,
+        snapshots=identity,
+        session_digest=session_digest,
+    )
+
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH$",
+    ):
+        subject.build_collision_probe_result(
+            request=request,
+            authority_snapshots=authority,
+            identity_center_snapshots=identity,
+            provider_summary=provider,
+            transcript_events=transcript,
+            budget_summary=budget,
+            budget_events=budget_events,
+            sealed_at="2026-08-28T01:10:00Z",
+        )
+
+
+def test_aws_owned_describe_instance_uses_the_canonical_enum() -> None:
+    request = _request()
+    identity_profile = request["profiles"]["identity_center"]
+    identity_profile["identity_center_kms_mode"] = "AWS_OWNED_KMS_KEY"
+    identity_profile["identity_center_kms_key_arn"] = None
+    request["profile_binding_digest"] = subject.canonical_digest(
+        request["profiles"]
+    )
+    _reseal(request, "request_digest")
+    authority, identity = _pairs()
+    for snapshot in identity:
+        snapshot["facts"]["described_instance"][
+            "EncryptionConfigurationDetails"
+        ] = {
+            "KeyType": "AWS_OWNED_KMS_KEY",
+            "KmsKeyArn": None,
+            "EncryptionStatus": "ENABLED",
+        }
+        semantic_facts = {
+            key: snapshot[key]
+            for key in (
+                "complete",
+                "prerequisites_ready",
+                "collisions",
+                "collision_count",
+                "resource_counts",
+                "facts",
+            )
+        }
+        snapshot["facts_digest"] = subject.canonical_digest(semantic_facts)
+        _reseal(snapshot, "snapshot_digest")
+    provider, transcript, budget, budget_events = (
+        _successful_provider_and_budget_evidence(
+            request,
+            authority_snapshots=authority,
+            identity_center_snapshots=identity,
+        )
+    )
+
+    result = subject.build_collision_probe_result(
+        request=request,
+        authority_snapshots=authority,
+        identity_center_snapshots=identity,
+        provider_summary=provider,
+        transcript_events=transcript,
+        budget_summary=budget,
+        budget_events=budget_events,
+        sealed_at="2026-08-28T01:10:00Z",
+    )
+
+    assert result.private_evidence["classification"]["classification"] == (
+        subject.ABSENT_READY
+    )
+    describe_events = [
+        event
+        for event in transcript
+        if event["operation"] == "sso:DescribeInstance"
+    ]
+    assert len(describe_events) == 2
+    assert {
+        event["response_digest"] for event in describe_events
+    } == {
+        subject.canonical_digest(identity[0]["facts"]["described_instance"])
+    }
+
+
+@pytest.mark.parametrize(
+    ("key_type", "key_arn", "status"),
+    [
+        ("AWS_OWNED_KMS_KEY", None, "ENABLED"),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/different-key-id",
+            "ENABLED",
+        ),
+        ("CUSTOMER_MANAGED_KEY", IDENTITY_KMS_KEY_ARN, "DISABLED"),
+    ],
+)
+def test_snapshot_rejects_identity_instance_encryption_drift(
+    key_type: str, key_arn: str | None, status: str
+) -> None:
+    request = _request()
+    snapshot = _snapshot("identity_center", 1)
+    encryption = snapshot["facts"]["described_instance"][
+        "EncryptionConfigurationDetails"
+    ]
+    encryption.update(
+        {
+            "KeyType": key_type,
+            "KmsKeyArn": key_arn,
+            "EncryptionStatus": status,
+        }
+    )
+    semantic_facts = {
+        key: snapshot[key]
+        for key in (
+            "complete",
+            "prerequisites_ready",
+            "collisions",
+            "collision_count",
+            "resource_counts",
+            "facts",
+        )
+    }
+    snapshot["facts_digest"] = subject.canonical_digest(semantic_facts)
+    _reseal(snapshot, "snapshot_digest")
+
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_SNAPSHOT_SEMANTICS_INVALID$",
+    ):
+        subject._validate_snapshot_target_bindings(
+            request, snapshot, "identity_center"
+        )
+
+
 @pytest.mark.parametrize("domain", ["authority", "identity_center"])
 def test_snapshot_target_selector_must_match_the_request_catalog(
     domain: str,
@@ -1852,13 +2218,22 @@ def test_completed_snapshot_rejects_forged_account_regional_absence(
         )
 
 
-def test_snapshot_session_requires_its_fixed_inventory_surface() -> None:
+@pytest.mark.parametrize(
+    "omitted_operation",
+    [
+        ("authority", 1, "s3:ListAllMyBuckets"),
+        ("identity_center", 1, "sso:DescribeInstance"),
+    ],
+)
+def test_snapshot_session_requires_its_fixed_inventory_surface(
+    omitted_operation: tuple[str, int, str],
+) -> None:
     request = _request()
     authority, identity = _pairs()
     provider, transcript, budget, budget_events = (
         _successful_provider_and_budget_evidence(
             request,
-            omit_operation=("authority", 1, "s3:ListAllMyBuckets"),
+            omit_operation=omitted_operation,
             authority_snapshots=authority,
             identity_center_snapshots=identity,
         )
@@ -2233,6 +2608,12 @@ def test_live_capability_gate_rechecks_operational_host_before_provider_use(
         ],
         "identity_expected_sso_role_name_digest": identity[
             "expected_sso_role_name_digest"
+        ],
+        "identity_expected_kms_mode": identity[
+            "identity_center_kms_mode"
+        ],
+        "identity_expected_kms_key_arn": identity[
+            "identity_center_kms_key_arn"
         ],
         "authority_verification_digest": authority[
             "authority_verification_digest"

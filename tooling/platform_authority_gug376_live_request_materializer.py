@@ -45,7 +45,7 @@ from tooling.platform_authority_gug376_authority_inventory_collector import (
 )
 from tooling.platform_authority_gug376_identity_center_inventory_collector import (
     LIVE_PRIVATE_FIELDS as IDENTITY_LIVE_PRIVATE_FIELDS,
-    POLICY_TARGET_FIELDS as IDENTITY_POLICY_TARGET_FIELDS,
+    LIVE_POLICY_TARGET_FIELDS as IDENTITY_POLICY_TARGET_FIELDS,
     _valid_exact as valid_identity_center_exact_facts,
     plan_binding as identity_center_plan_binding,
     render_live_policy as render_identity_center_policy,
@@ -65,10 +65,10 @@ PARENT_ISSUE = "GUG-376"
 REGION = "us-east-1"
 ACTION = "DUAL_DOMAIN_LIVE_READ_ONLY_INVENTORY"
 REQUEST_RECORD_TYPE = (
-    "scanalyze.platform_authority.gug376_live_readonly_request.v1"
+    "scanalyze.platform_authority.gug376_live_readonly_request.v2"
 )
 CHECKPOINT_RECORD_TYPE = (
-    "scanalyze.platform_authority.gug376_live_readonly_owner_checkpoint.v1"
+    "scanalyze.platform_authority.gug376_live_readonly_owner_checkpoint.v2"
 )
 MAX_CHECKPOINT_WINDOW = timedelta(minutes=15)
 CONSUMPTION_CLAIM = "gug376-live-consumption-claim.json"
@@ -742,6 +742,22 @@ def _validate_cross_domain_source_contract(
     return expected_digest
 
 
+def _identity_center_kms_binding(private: Mapping[str, Any]) -> dict[str, Any]:
+    binding = {
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": private.get(
+            "identity_center_instance_arn"
+        ),
+        "mode": private.get("identity_center_kms_mode"),
+        "key_arn": private.get("identity_center_kms_key_arn"),
+    }
+    if private.get("identity_center_kms_binding_digest") != canonical_digest(
+        binding
+    ):
+        _fail("IDENTITY_CENTER_KMS_BINDING_INVALID")
+    return binding
+
+
 def materialize_live_plans(
     *,
     authority_input: Mapping[str, Any],
@@ -767,6 +783,9 @@ def materialize_live_plans(
         or set(identity_seed["private_targets"]) != IDENTITY_LIVE_PRIVATE_FIELDS
     ):
         _fail("IDENTITY_CENTER_PLAN_INPUT_INVALID")
+    kms_binding = _identity_center_kms_binding(
+        identity_seed["private_targets"]
+    )
     _validate_cross_domain_source_contract(authority_seed, identity_seed)
 
     authority_candidate = {
@@ -806,12 +825,21 @@ def materialize_live_plans(
                 "instance_arn",
                 "owner_account_id",
                 "status",
+                "encryption",
             }
             or expected_instance.get("identity_store_id")
             != private_targets.get("identity_store_id")
             or expected_instance.get("owner_account_id")
             != identity_seed["expected_account_id"]
             or expected_instance.get("status") != "ACTIVE"
+            or expected_instance.get("instance_arn")
+            != kms_binding["identity_center_instance_arn"]
+            or expected_instance.get("encryption")
+            != {
+                "key_type": kms_binding["mode"],
+                "kms_key_arn": kms_binding["key_arn"],
+                "status": "ENABLED",
+            }
             or re.fullmatch(
                 r"arn:aws:sso:::instance/ssoins-[A-Za-z0-9-]+",
                 str(expected_instance.get("instance_arn")),
@@ -822,10 +850,21 @@ def materialize_live_plans(
         expected_targets: dict[str, Any] = {}
         expected_facts: dict[str, Any] = {
             "discovery": {
-                "instances": [expected_instance],
+                "instances": [
+                    {
+                        key: expected_instance[key]
+                        for key in (
+                            "identity_store_id",
+                            "instance_arn",
+                            "owner_account_id",
+                            "status",
+                        )
+                    }
+                ],
                 "applications": [],
                 "permission_sets": [],
-            }
+            },
+            "instance": expected_instance,
         }
         expected_exact_policy_digest = canonical_digest(
             {
@@ -845,6 +884,12 @@ def materialize_live_plans(
         if (
             not isinstance(expected_targets, dict)
             or set(expected_targets) != IDENTITY_POLICY_TARGET_FIELDS
+            or expected_targets.get("identity_center_instance_arn")
+            != kms_binding["identity_center_instance_arn"]
+            or expected_targets.get("identity_center_kms_mode")
+            != kms_binding["mode"]
+            or expected_targets.get("identity_center_kms_key_arn")
+            != kms_binding["key_arn"]
             or not isinstance(expected_facts, dict)
         ):
             _fail("IDENTITY_CENTER_EXPECTED_STATE_INVALID")
@@ -1242,7 +1287,7 @@ def materialize_live_request(
 
     request_core: dict[str, Any] = {
         "record_type": REQUEST_RECORD_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "action": ACTION,
@@ -1276,7 +1321,7 @@ def materialize_live_request(
     request_binding_digest = canonical_digest(request_core)
     checkpoint_body: dict[str, Any] = {
         "record_type": CHECKPOINT_RECORD_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "parent_issue": PARENT_ISSUE,
         "action": ACTION,

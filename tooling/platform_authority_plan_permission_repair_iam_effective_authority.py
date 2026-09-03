@@ -59,7 +59,8 @@ _LEDGER_KMS_ARN = re.compile(
 )
 _IDENTITY_CENTER_KMS_ARN = re.compile(
     r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
 )
 _CODE_SIGNING_CONFIG_ARN = re.compile(
     r"^arn:aws:lambda:us-east-1:042360977644:"

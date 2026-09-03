@@ -1210,6 +1210,7 @@ def attest_template_readback(
     clock_reader = clock or (lambda: datetime.now(timezone.utc))
     observed = clock_reader()
     observed_at = _timestamp(observed)
+    started = _parse_timestamp(observed_at, "CLOCK_INVALID")
     if foundation_mode:
         assert bootstrap_intent is not None
         assert foundation_publish_binding is not None
@@ -1217,7 +1218,6 @@ def attest_template_readback(
             bootstrap_intent=bootstrap_intent,
             foundation_publish_binding=foundation_publish_binding,
         )
-        observed_utc = _parse_timestamp(observed_at, "CLOCK_INVALID")
         access_not_before = _parse_timestamp(
             bootstrap_intent.get("access_not_before"),
             "FOUNDATION_ACCESS_WINDOW_INVALID",
@@ -1226,7 +1226,7 @@ def attest_template_readback(
             storage.get("access_not_after"),
             "FOUNDATION_ACCESS_WINDOW_INVALID",
         )
-        if not access_not_before <= observed_utc < access_not_after:
+        if not access_not_before <= started < access_not_after:
             _fail("FOUNDATION_ACCESS_WINDOW_CLOSED")
     else:
         if not isinstance(gug363_plan, Mapping) or not isinstance(
@@ -1313,9 +1313,12 @@ def attest_template_readback(
     if remote_payload != artifact_payload:
         _fail("S3_OBJECT_BYTES_MISMATCH")
 
-    observed_at = _timestamp(clock_reader())
+    completion_clock = clock_reader()
+    observed_at = _timestamp(completion_clock)
+    if completion_clock.astimezone(timezone.utc) < observed.astimezone(timezone.utc):
+        _fail("CLOCK_INVALID")
+    completed = _parse_timestamp(observed_at, "CLOCK_INVALID")
     if foundation_mode:
-        completed = _parse_timestamp(observed_at, "CLOCK_INVALID")
         access_not_before = _parse_timestamp(
             bootstrap_intent.get("access_not_before"),
             "FOUNDATION_ACCESS_WINDOW_INVALID",
@@ -1359,7 +1362,7 @@ def attest_template_readback(
         sealed,
         artifact_kind=artifact_kind,
         source_commit=source_commit,
-        now=observed,
+        now=completed,
         materialization_validator=materialization_validator,
         expected_storage_binding=storage,
     )

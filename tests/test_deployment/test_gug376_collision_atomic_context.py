@@ -12,9 +12,6 @@ from typing import Any
 import pytest
 
 from tests.test_deployment import (
-    test_gug392_live_request_materializer as gug392_data,
-)
-from tests.test_deployment import (
     test_gug395_preplan_collision_probe as gug395_data,
 )
 from tooling.platform_authority_gug365_upstream_inventory import canonical_digest
@@ -28,8 +25,6 @@ from tooling import (
 )
 from tooling import platform_authority_gug376_collision_direct_sso as direct_sso
 from tooling import platform_authority_gug376_collision_policy as collision_policy
-from tooling import platform_authority_gug376_live_request_materializer as gug392
-from tooling import platform_authority_gug393_private_input_discovery as gug393
 from tooling import platform_authority_gug395_preplan_collision_probe as gug395
 
 
@@ -50,18 +45,6 @@ def _root(tmp_path: Path, name: str) -> Path:
     value.mkdir(mode=0o700)
     value.chmod(0o700)
     return value.resolve(strict=True)
-
-
-def _replace(value: Any, replacements: dict[str, str]) -> Any:
-    if isinstance(value, str):
-        for old, new in replacements.items():
-            value = value.replace(old, new)
-        return value
-    if isinstance(value, list):
-        return [_replace(item, replacements) for item in value]
-    if isinstance(value, dict):
-        return {key: _replace(item, replacements) for key, item in value.items()}
-    return value
 
 
 def _persist_gug395(root: Path) -> dict[str, Any]:
@@ -91,140 +74,25 @@ def _replace_gug395_with_valid_absent_result(root: Path) -> None:
     )
 
 
-def _persist_gug393(root: Path, request395: dict[str, Any]) -> dict[str, Any]:
-    authority_input, identity_input = gug392_data._plan_inputs()  # noqa: SLF001
-    replacements = {
-        gug392_data.AUTHORITY_ACCOUNT: gug395_data.AUTHORITY_ACCOUNT,
-        gug392_data.IDENTITY_ACCOUNT: gug395_data.IDENTITY_ACCOUNT,
-        "synthetic-private-artifacts": gug395_data.ARTIFACT_BUCKET,
-    }
-    authority_input = _replace(authority_input, replacements)
-    identity_input = _replace(identity_input, replacements)
-    authority_profile = request395["profiles"]["authority"]
-    identity_profile = request395["profiles"]["identity_center"]
-    authority_input.update(
-        {
-            "not_before": request395["not_before"],
-            "not_after": request395["expires_at"],
-            "expected_account_id": authority_profile["expected_account_id"],
-            "expected_principal_arn": gug395_data.AUTHORITY_PRINCIPAL,
-            "authority_verification_digest": authority_profile[
-                "authority_verification_digest"
-            ],
-        }
-    )
-    identity_input.update(
-        {
-            "not_before": request395["not_before"],
-            "not_after": request395["expires_at"],
-            "expected_account_id": identity_profile["expected_account_id"],
-            "expected_principal_arn": gug395_data.IDENTITY_PRINCIPAL,
-            "authority_verification_digest": identity_profile[
-                "authority_verification_digest"
-            ],
-        }
-    )
-    instance_arn = request395["targets"]["identity_center_application"][
-        "instance_arn"
-    ]
-    identity_input["expected_state"]["instance"]["instance_arn"] = instance_arn
-    identity_input["expected_state"]["instance"]["owner_account_id"] = (
-        gug395_data.IDENTITY_ACCOUNT
-    )
-    _actor_policy, actor_digest = gug392.render_application_actor_policy(
-        authority_input["targets"],
-        authority_account_id=gug395_data.AUTHORITY_ACCOUNT,
-    )
-    identity_input["private_targets"][
-        "application_actor_policy_digest"
-    ] = actor_digest
-    plans = gug393.materialize_live_plans(
-        authority_input=authority_input,
-        identity_center_input=identity_input,
-    )
-    decision_body = {
-        "approval": "synthetic-gug393-owner-decision",
-        "source_commit_sha": request395["source_commit_sha"],
-        "source_tree_sha": request395["source_tree_sha"],
-    }
-    decision = {**decision_body, "decision_digest": canonical_digest(decision_body)}
-    artifacts = {
-        gug393.DEFAULT_AUTHORITY_INPUT_FILE: authority_input,
-        gug393.DEFAULT_IDENTITY_INPUT_FILE: identity_input,
-        gug393.DEFAULT_AUTHORITY_PLAN_FILE: plans.authority_plan,
-        gug393.DEFAULT_IDENTITY_PLAN_FILE: plans.identity_center_plan,
-        gug393.DEFAULT_DECISION_FILE: decision,
-    }
-    manifest_body = {
-        "record_type": gug393.MANIFEST_TYPE,
-        "schema_version": 1,
-        "implementation_issue": gug393.IMPLEMENTATION_ISSUE,
-        "parent_issue": gug393.PARENT_ISSUE,
-        "live_issue": gug393.LIVE_ISSUE,
-        "proposal_digest": canonical_digest({"proposal": "synthetic"}),
-        "decision_digest": decision["decision_digest"],
-        "source_commit_sha": request395["source_commit_sha"],
-        "source_tree_sha": request395["source_tree_sha"],
-        "source_contract_digest": canonical_digest({"source": "synthetic"}),
-        "request_digest": canonical_digest({"request": "synthetic"}),
-        "budget_digest": canonical_digest({"budget": "synthetic"}),
-        "private_root_digest": gug393.private_root_binding_digest(root),
-        "host_digest": gug393.operational_host_digest(),
-        "artifact_digests": {
-            name: canonical_digest(value) for name, value in artifacts.items()
-        },
-        "authority_input_file": gug393.DEFAULT_AUTHORITY_INPUT_FILE,
-        "identity_center_input_file": gug393.DEFAULT_IDENTITY_INPUT_FILE,
-        "authority_plan_file": gug393.DEFAULT_AUTHORITY_PLAN_FILE,
-        "identity_center_plan_file": gug393.DEFAULT_IDENTITY_PLAN_FILE,
-        "decision_file": gug393.DEFAULT_DECISION_FILE,
-        "manifest_file": gug393.DEFAULT_MANIFEST_FILE,
-        "materialized_at": request395["not_before"],
-        "read_only": True,
-        "aws_calls": 0,
-        "aws_mutations": 0,
-        "deployment_authorized": False,
-        "two_human_status": "NOT_PROVEN",
-        "independent_approval_present": False,
-        "production_status": "NO-GO",
-    }
-    manifest = {
-        **manifest_body,
-        "manifest_digest": canonical_digest(manifest_body),
-    }
-    for name, value in artifacts.items():
-        write_private_json(root, name, value)
-    write_private_json(root, gug393.DEFAULT_MANIFEST_FILE, manifest)
-    assert gug393.validate_input_materialization_manifest(root, manifest) == manifest
-    return manifest
-
-
 def _materialized_roots(
     tmp_path: Path,
     *,
     suffix: str = "",
-    gug393_root: Path | None = None,
     gug395_root: Path | None = None,
     approval_reference_digest: str = APPROVAL_REFERENCE_DIGEST,
     approved_operation: str = APPROVED_OPERATION,
     authorized_at: str = NOT_BEFORE,
     expires_at: str = EXPIRES_AT,
     now: datetime = NOW,
-) -> tuple[Path, Path, Path, Path, dict[str, Any]]:
+) -> tuple[Path, Path, Path, dict[str, Any]]:
     admission_root = _root(tmp_path, f"admission{suffix}")
     effect_root = _root(tmp_path, f"effect{suffix}")
-    if (gug393_root is None) != (gug395_root is None):
-        raise ValueError("shared lineage roots must be supplied together")
-    if gug393_root is None and gug395_root is None:
-        gug393_root = _root(tmp_path, "gug393")
+    if gug395_root is None:
         gug395_root = _root(tmp_path, "gug395")
-        request395 = _persist_gug395(gug395_root)
-        _persist_gug393(gug393_root, request395)
-    assert gug393_root is not None and gug395_root is not None
+        _persist_gug395(gug395_root)
     context = subject.materialize_atomic_collision_context(
         admission_private_root=admission_root,
         effect_private_root=effect_root,
-        gug393_private_root=gug393_root,
         gug395_private_root=gug395_root,
         bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
         approval_reference_digest=approval_reference_digest,
@@ -233,7 +101,7 @@ def _materialized_roots(
         expires_at=expires_at,
         clock=lambda: now,
     )
-    return admission_root, effect_root, gug393_root, gug395_root, context
+    return admission_root, effect_root, gug395_root, context
 
 
 def test_context_reuses_one_absent_lineage_across_two_fresh_effects(
@@ -245,17 +113,16 @@ def test_context_reuses_one_absent_lineage_across_two_fresh_effects(
     second = _materialized_roots(
         tmp_path,
         suffix="-two",
-        gug393_root=first[2],
-        gug395_root=first[3],
+        gug395_root=first[2],
         approval_reference_digest=second_approval,
         authorized_at="2026-08-28T02:00:00Z",
         expires_at="2026-08-28T02:10:00Z",
         now=datetime(2026, 8, 28, 2, 1, tzinfo=UTC),
     )
 
-    first_context = first[4]
-    second_context = second[4]
-    assert first[2:4] == second[2:4]
+    first_context = first[3]
+    second_context = second[3]
+    assert first[2] == second[2]
     assert first_context["gug395_private_root_digest"] == second_context[
         "gug395_private_root_digest"
     ]
@@ -285,8 +152,7 @@ def test_context_reuses_one_absent_lineage_across_two_fresh_effects(
     first_config = subject.build_atomic_loader_from_private_context(
         admission_private_root=first[0],
         effect_private_root=first[1],
-        gug393_private_root=first[2],
-        gug395_private_root=first[3],
+        gug395_private_root=first[2],
         expected_approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
         expected_authorized_at=NOT_BEFORE,
         expected_expires_at=EXPIRES_AT,
@@ -298,8 +164,7 @@ def test_context_reuses_one_absent_lineage_across_two_fresh_effects(
     second_config = subject.build_atomic_loader_from_private_context(
         admission_private_root=second[0],
         effect_private_root=second[1],
-        gug393_private_root=second[2],
-        gug395_private_root=second[3],
+        gug395_private_root=second[2],
         expected_approval_reference_digest=second_approval,
         expected_authorized_at="2026-08-28T02:00:00Z",
         expected_expires_at="2026-08-28T02:10:00Z",
@@ -316,7 +181,6 @@ def test_context_reuses_one_absent_lineage_across_two_fresh_effects(
 def test_context_rejects_collision_blocked_lineage(tmp_path: Path) -> None:
     admission_root = _root(tmp_path, "admission")
     effect_root = _root(tmp_path, "effect")
-    gug393_root = _root(tmp_path, "gug393")
     gug395_root = _root(tmp_path, "gug395")
     request, claim = gug395_data._write_result_custody(  # noqa: SLF001
         gug395_root
@@ -331,8 +195,6 @@ def test_context_rejects_collision_blocked_lineage(tmp_path: Path) -> None:
         result=result,
         expected_claim_digest=claim["claim_digest"],
     )
-    _persist_gug393(gug393_root, request)
-
     with pytest.raises(
         subject.AtomicCollisionContextError,
         match="ATOMIC_COLLISION_GUG395_RESULT_INVALID",
@@ -340,7 +202,6 @@ def test_context_rejects_collision_blocked_lineage(tmp_path: Path) -> None:
         subject.materialize_atomic_collision_context(
             admission_private_root=admission_root,
             effect_private_root=effect_root,
-            gug393_private_root=gug393_root,
             gug395_private_root=gug395_root,
             bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
             approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
@@ -374,7 +235,6 @@ def test_context_rejects_overlong_or_stale_effect_window(
 ) -> None:
     admission_root = _root(tmp_path, "admission")
     effect_root = _root(tmp_path, "effect")
-    gug393_root = _root(tmp_path, "gug393")
     gug395_root = _root(tmp_path, "gug395")
 
     with pytest.raises(
@@ -384,7 +244,6 @@ def test_context_rejects_overlong_or_stale_effect_window(
         subject.materialize_atomic_collision_context(
             admission_private_root=admission_root,
             effect_private_root=effect_root,
-            gug393_private_root=gug393_root,
             gug395_private_root=gug395_root,
             bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
             approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
@@ -405,7 +264,6 @@ def test_context_rejects_inline_broker_only_operation_for_local_cli(
         subject.materialize_atomic_collision_context(
             admission_private_root=_root(tmp_path, "admission"),
             effect_private_root=_root(tmp_path, "effect"),
-            gug393_private_root=_root(tmp_path, "gug393"),
             gug395_private_root=_root(tmp_path, "gug395"),
             bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
             approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
@@ -422,20 +280,18 @@ def test_context_reopens_both_custodies_and_derives_canonical_kms_binding(
     (
         admission_root,
         effect_root,
-        gug393_root,
         gug395_root,
         context,
     ) = _materialized_roots(tmp_path)
     checked = subject.read_atomic_collision_context(
         admission_private_root=admission_root,
         effect_private_root=effect_root,
-        gug393_private_root=gug393_root,
         gug395_private_root=gug395_root,
         clock=lambda: NOW,
     )
     bindings = checked["private_bindings"]
     assert checked == context
-    assert bindings["source"] == "GUG393_PERSISTED_MATERIALIZATION"
+    assert bindings["source"] == subject.PRIVATE_BINDINGS_SOURCE
     assert bindings["identity_center_instance_arn"] == (
         "arn:aws:sso:::instance/ssoins-1234567890abcdef"
     )
@@ -455,120 +311,50 @@ def test_context_reopens_both_custodies_and_derives_canonical_kms_binding(
     assert context["gug395_private_root_digest"] not in {
         context["effect_private_root_digest"],
         context["admission_private_root_digest"],
-        context["gug393_private_root_digest"],
     }
     assert context["approval_reference_digest"] == APPROVAL_REFERENCE_DIGEST
 
 
-def test_context_readback_rejects_resealed_gug393_artifact(
+def test_context_rejects_gug395_kms_observation_drift(
     tmp_path: Path,
 ) -> None:
-    (
-        admission_root,
-        effect_root,
-        gug393_root,
-        gug395_root,
-        _context,
-    ) = _materialized_roots(tmp_path)
-    plan_path = gug393_root / gug393.DEFAULT_AUTHORITY_PLAN_FILE
-    changed = read_private_json(gug393_root, gug393.DEFAULT_AUTHORITY_PLAN_FILE)
-    changed["tampered"] = True
-    plan_path.unlink()
-    write_private_json(gug393_root, gug393.DEFAULT_AUTHORITY_PLAN_FILE, changed)
-
-    with pytest.raises(
-        subject.AtomicCollisionContextError,
-        match="ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID",
-    ):
-        subject.read_atomic_collision_context(
-            admission_private_root=admission_root,
-            effect_private_root=effect_root,
-            gug393_private_root=gug393_root,
-            gug395_private_root=gug395_root,
-            clock=lambda: NOW,
-        )
-
-
-def test_context_rejects_gug393_artifact_swap_after_manifest_validation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    admission_root = _root(tmp_path, "admission")
-    effect_root = _root(tmp_path, "effect")
-    gug393_root = _root(tmp_path, "gug393")
     gug395_root = _root(tmp_path, "gug395")
-    request395 = _persist_gug395(gug395_root)
-    _persist_gug393(gug393_root, request395)
-    original_validate = gug393.validate_input_materialization_manifest
-    swapped = False
-
-    def validate_then_swap(
-        private_root: Path,
-        manifest: dict[str, Any],
-    ) -> dict[str, Any]:
-        nonlocal swapped
-        checked = original_validate(private_root, manifest)
-        authority_input = read_private_json(
-            private_root,
-            checked["authority_input_file"],
-        )
-        identity_input = read_private_json(
-            private_root,
-            checked["identity_center_input_file"],
-        )
-        identity_input["private_targets"][
-            "identity_center_kms_key_arn"
-        ] = (
-            "arn:aws:kms:us-east-1:839393571433:key/"
-            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-        )
-        replacement = gug393.materialize_live_plans(
-            authority_input=authority_input,
-            identity_center_input=identity_input,
-        )
-        artifacts = {
-            checked["authority_input_file"]: authority_input,
-            checked["identity_center_input_file"]: identity_input,
-            checked["authority_plan_file"]: replacement.authority_plan,
-            checked["identity_center_plan_file"]: (
-                replacement.identity_center_plan
-            ),
-        }
-        for name, artifact in artifacts.items():
-            (private_root / name).unlink()
-            write_private_json(private_root, name, artifact)
-        swapped = True
-        return checked
-
-    monkeypatch.setattr(
-        subject.gug393,
-        "validate_input_materialization_manifest",
-        validate_then_swap,
+    _persist_gug395(gug395_root)
+    request, receipt, bundle = subject._gug395_evidence(  # noqa: SLF001
+        gug395_root
     )
+    changed = copy.deepcopy(bundle)
+    changed["private_evidence"]["identity_center_snapshots"][0]["facts"][
+        "described_instance"
+    ]["EncryptionConfigurationDetails"]["KmsKeyArn"] = (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    )
+
     with pytest.raises(
         subject.AtomicCollisionContextError,
-        match="ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID",
+        match="ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID",
     ):
-        subject.materialize_atomic_collision_context(
-            admission_private_root=admission_root,
-            effect_private_root=effect_root,
-            gug393_private_root=gug393_root,
+        subject._derive_gug395_bindings(  # noqa: SLF001
             gug395_private_root=gug395_root,
-            bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
-            approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
-            approved_operation=APPROVED_OPERATION,
-            authorized_at=NOT_BEFORE,
-            expires_at=EXPIRES_AT,
-            clock=lambda: NOW,
+            gug395_request=request,
+            gug395_receipt=receipt,
+            gug395_bundle=changed,
         )
-    assert swapped is True
+
+
+def test_context_has_no_post_phase_gug393_dependency() -> None:
+    source = Path(subject.__file__).read_text(encoding="utf-8").casefold()
+    cli = SCRIPT.read_text(encoding="utf-8").casefold()
+
+    assert "gug393" not in source
+    assert "gug393" not in cli
 
 
 def test_context_readback_rejects_context_tamper(tmp_path: Path) -> None:
     (
         admission_root,
         effect_root,
-        gug393_root,
         gug395_root,
         _context,
     ) = _materialized_roots(tmp_path)
@@ -587,7 +373,6 @@ def test_context_readback_rejects_context_tamper(tmp_path: Path) -> None:
         subject.read_atomic_collision_context(
             admission_private_root=admission_root,
             effect_private_root=effect_root,
-            gug393_private_root=gug393_root,
             gug395_private_root=gug395_root,
             clock=lambda: NOW,
         )
@@ -604,8 +389,7 @@ def test_context_readback_rejects_expired_authorization_window(
         subject.read_atomic_collision_context(
             admission_private_root=roots[0],
             effect_private_root=roots[1],
-            gug393_private_root=roots[2],
-            gug395_private_root=roots[3],
+            gug395_private_root=roots[2],
             clock=lambda: datetime(2026, 8, 28, 1, 15, tzinfo=UTC),
         )
 
@@ -614,11 +398,8 @@ def test_context_readback_rejects_expired_authorization_window(
     ("left", "right"),
     [
         ("admission", "effect"),
-        ("admission", "gug393"),
         ("admission", "gug395"),
-        ("effect", "gug393"),
         ("effect", "gug395"),
-        ("gug393", "gug395"),
     ],
 )
 def test_context_forbids_any_private_root_reuse(
@@ -628,14 +409,11 @@ def test_context_forbids_any_private_root_reuse(
 ) -> None:
     admission_root = _root(tmp_path, "admission")
     effect_root = _root(tmp_path, "effect")
-    gug393_root = _root(tmp_path, "gug393")
     gug395_root = _root(tmp_path, "gug395")
-    request395 = _persist_gug395(gug395_root)
-    _persist_gug393(gug393_root, request395)
+    _persist_gug395(gug395_root)
     roots = {
         "admission": admission_root,
         "effect": effect_root,
-        "gug393": gug393_root,
         "gug395": gug395_root,
     }
     roots[right] = roots[left]
@@ -647,7 +425,6 @@ def test_context_forbids_any_private_root_reuse(
         subject.materialize_atomic_collision_context(
             admission_private_root=roots["admission"],
             effect_private_root=roots["effect"],
-            gug393_private_root=roots["gug393"],
             gug395_private_root=roots["gug395"],
             bootstrap_intent_digest=BOOTSTRAP_INTENT_DIGEST,
             approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
@@ -665,7 +442,6 @@ def test_context_builds_only_the_local_direct_sso_execution_locus(
     (
         admission_root,
         effect_root,
-        gug393_root,
         gug395_root,
         _context,
     ) = _materialized_roots(tmp_path)
@@ -684,7 +460,6 @@ def test_context_builds_only_the_local_direct_sso_execution_locus(
     config = subject.build_atomic_loader_from_private_context(
         admission_private_root=admission_root,
         effect_private_root=effect_root,
-        gug393_private_root=gug393_root,
         gug395_private_root=gug395_root,
         expected_approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
         expected_authorized_at=NOT_BEFORE,
@@ -739,8 +514,7 @@ def test_context_builder_rejects_authorization_mismatch_before_adapter(
         subject.build_atomic_loader_from_private_context(
             admission_private_root=roots[0],
             effect_private_root=roots[1],
-            gug393_private_root=roots[2],
-            gug395_private_root=roots[3],
+            gug395_private_root=roots[2],
             expected_approval_reference_digest=canonical_digest(
                 {"approval": "wrong"}
             ),
@@ -778,8 +552,7 @@ def test_context_builder_rejects_source_mismatch_before_adapter(
         subject.build_atomic_loader_from_private_context(
             admission_private_root=roots[0],
             effect_private_root=roots[1],
-            gug393_private_root=roots[2],
-            gug395_private_root=roots[3],
+            gug395_private_root=roots[2],
             expected_approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
             expected_authorized_at=NOT_BEFORE,
             expected_expires_at=EXPIRES_AT,
@@ -811,8 +584,7 @@ def test_atomic_loader_rejects_valid_lineage_swap_before_session_open(
     loader = subject.build_atomic_loader_from_private_context(
         admission_private_root=roots[0],
         effect_private_root=roots[1],
-        gug393_private_root=roots[2],
-        gug395_private_root=roots[3],
+        gug395_private_root=roots[2],
         expected_approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
         expected_authorized_at=NOT_BEFORE,
         expected_expires_at=EXPIRES_AT,
@@ -821,7 +593,7 @@ def test_atomic_loader_rejects_valid_lineage_swap_before_session_open(
         environment={},
         clock=lambda: NOW,
     )
-    _replace_gug395_with_valid_absent_result(roots[3])
+    _replace_gug395_with_valid_absent_result(roots[2])
     effect_request = {"effect": "synthetic-foundation-dispatch"}
 
     with pytest.raises(
@@ -849,7 +621,7 @@ def test_context_builder_rejects_lineage_swap_before_sdk_cache(
 
     def read_then_swap(**kwargs: Any) -> dict[str, Any]:
         context = original_read(**kwargs)
-        _replace_gug395_with_valid_absent_result(roots[3])
+        _replace_gug395_with_valid_absent_result(roots[2])
         return context
 
     def sdk_must_not_load(_root: Path) -> object:
@@ -867,8 +639,7 @@ def test_context_builder_rejects_lineage_swap_before_sdk_cache(
         subject.build_atomic_loader_from_private_context(
             admission_private_root=roots[0],
             effect_private_root=roots[1],
-            gug393_private_root=roots[2],
-            gug395_private_root=roots[3],
+            gug395_private_root=roots[2],
             expected_approval_reference_digest=APPROVAL_REFERENCE_DIGEST,
             expected_authorized_at=NOT_BEFORE,
             expected_expires_at=EXPIRES_AT,
@@ -888,7 +659,7 @@ def _load_cli() -> ModuleType:
     return module
 
 
-def test_context_cli_requires_persisted_gug393_custody_and_has_no_manual_file(
+def test_context_cli_requires_gug395_custody_and_rejects_legacy_gug393_arg(
 ) -> None:
     parser = _load_cli()._parser()  # noqa: SLF001
     with pytest.raises(SystemExit):
@@ -899,8 +670,6 @@ def test_context_cli_requires_persisted_gug393_custody_and_has_no_manual_file(
                 "/tmp/admission",
                 "--effect-private-root",
                 "/tmp/effect",
-                "--gug393-private-root",
-                "/tmp/gug393",
                 "--bootstrap-intent-digest",
                 "sha256:" + "1" * 64,
             ]
@@ -913,10 +682,10 @@ def test_context_cli_requires_persisted_gug393_custody_and_has_no_manual_file(
                 "/tmp/admission",
                 "--effect-private-root",
                 "/tmp/effect",
-                "--gug393-private-root",
-                "/tmp/gug393",
                 "--gug395-private-root",
                 "/tmp/gug395",
+                "--gug393-private-root",
+                "/tmp/gug393",
                 "--approval-reference-digest",
                 "sha256:" + "2" * 64,
                 "--approved-operation",

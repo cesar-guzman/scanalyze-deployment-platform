@@ -31,8 +31,23 @@ IDENTITY_CENTER_KMS_KEY_ARN = (
 )
 PRIVATE_KMS_BINDING_DIGEST = canonical_digest(
     {
-        "source": "GUG393_PRIVATE_MATERIALIZATION",
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": INSTANCE_ARN,
+        "mode": "CUSTOMER_MANAGED_KEY",
         "key_arn": IDENTITY_CENTER_KMS_KEY_ARN,
+    }
+)
+DESCRIBED_INSTANCE_DIGEST = canonical_digest(
+    {
+        "InstanceArn": INSTANCE_ARN,
+        "IdentityStoreId": "d-1234567890",
+        "OwnerAccountId": MANAGEMENT,
+        "Status": "ACTIVE",
+        "EncryptionConfigurationDetails": {
+            "KeyType": "CUSTOMER_MANAGED_KEY",
+            "KmsKeyArn": IDENTITY_CENTER_KMS_KEY_ARN,
+            "EncryptionStatus": "ENABLED",
+        },
     }
 )
 
@@ -97,7 +112,10 @@ def _policy(
     catalog: dict[str, Any], *, inventory_only: bool = False
 ) -> dict[str, Any]:
     del inventory_only
-    return policy_contract.materialize_route_collision_policy_set(catalog)
+    return policy_contract.materialize_route_collision_policy_set(
+        catalog,
+        identity_center_instance_arn=INSTANCE_ARN,
+    )
 
 
 def _principal(domain: str) -> str:
@@ -130,6 +148,13 @@ def _expected_identities(policy: dict[str, Any]) -> dict[str, Any]:
 
 
 def _request(catalog: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    kms_binding_digest = None
+    if policy["stage"] == "inventory-and-candidate-detail":
+        kms_binding_digest = policy["discovery_evidence"]["domains"][
+            "management"
+        ]["identity_center_kms_key"]["pages"][0]["items"][0][
+            "PrivateBindingDigest"
+        ]
     value = {
         "catalog": catalog,
         "catalog_digest": catalog["catalog_digest"],
@@ -139,6 +164,7 @@ def _request(catalog: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
         "collision_provider_implementation_digest": (
             transcript.COLLISION_PROVIDER_IMPLEMENTATION_DIGEST
         ),
+        "expected_identity_center_kms_binding_digest": kms_binding_digest,
         "expected_identities": _expected_identities(policy),
         "expected_dispositions": {
             target["target_id"]: "ABSENT_AT_SNAPSHOT"
@@ -183,6 +209,18 @@ class FakeClient:
             raise FakeAwsError("ResourceNotFoundException")
         if method == "get_signing_profile":
             raise FakeAwsError("ResourceNotFoundException")
+        if method == "describe_instance":
+            return {
+                "InstanceArn": INSTANCE_ARN,
+                "IdentityStoreId": "d-1234567890",
+                "OwnerAccountId": MANAGEMENT,
+                "Status": "ACTIVE",
+                "EncryptionConfigurationDetails": {
+                    "KeyType": self.sdk.kms_mode,
+                    "KmsKeyArn": self.sdk.kms_key_arn,
+                    "EncryptionStatus": "ENABLED",
+                },
+            }
         empty = {
             "list_stacks": {"StackSummaries": []},
             "list_aliases": {"Aliases": [], "Truncated": False},
@@ -213,6 +251,8 @@ class FakeSdkSession:
         self.account = AUTHORITY if domain == "authority" else MANAGEMENT
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
         self.scripts: dict[tuple[str, str], list[Any]] = defaultdict(list)
+        self.kms_mode = "CUSTOMER_MANAGED_KEY"
+        self.kms_key_arn: str | None = IDENTITY_CENTER_KMS_KEY_ARN
 
     def client(self, service: str, *, region_name: str) -> FakeClient:
         assert region_name == subject.REGION
@@ -229,8 +269,8 @@ class Harness:
         reuse_sdk_session: bool = False,
         session_setup: Any | None = None,
         discovery_capability: object | None = None,
-        kms_binding_source: str = "GUG393_PRIVATE_MATERIALIZATION",
-        kms_binding_digest: str = PRIVATE_KMS_BINDING_DIGEST,
+        kms_binding_source: str = "GUG376_ATTESTED_IDENTITY_CENTER_KMS_BINDING",
+        kms_binding_digest: str | None = None,
         kms_mode: str = "CUSTOMER_MANAGED_KEY",
         kms_key_arn: str | None = IDENTITY_CENTER_KMS_KEY_ARN,
         before_call: Any | None = None,
@@ -239,6 +279,14 @@ class Harness:
         permission_set_name_by_arn: dict[str, str] | None = None,
     ) -> None:
         self.policy = policy
+        self.kms_binding_digest = kms_binding_digest or canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": INSTANCE_ARN,
+                "mode": kms_mode,
+                "key_arn": kms_key_arn,
+            }
+        )
         account_overrides = account_overrides or {}
         self.sessions: dict[tuple[int, str], FakeSdkSession] = {}
         shared_session: FakeSdkSession | None = shared_sdk_session
@@ -256,6 +304,8 @@ class Harness:
             session.domain = domain
             session.account = AUTHORITY if domain == "authority" else MANAGEMENT
             session.account = account_overrides.get(domain, session.account)
+            session.kms_mode = kms_mode
+            session.kms_key_arn = kms_key_arn
             self.sessions[(capture, domain)] = session
             if session_setup is not None:
                 session_setup(capture, domain, session)
@@ -275,7 +325,17 @@ class Harness:
                 ),
                 permission_set_name_by_arn={
                     PERMISSION_SET_ARN: "ScanalyzeGug376ArtifactBootstrap"
-                } if permission_set_name_by_arn is None else permission_set_name_by_arn,
+                }
+                if permission_set_name_by_arn is None
+                and not (
+                    policy["stage"] == "inventory"
+                    and policy.get("identity_center_instance_arn") is not None
+                )
+                else (
+                    {}
+                    if permission_set_name_by_arn is None
+                    else permission_set_name_by_arn
+                ),
                 identity_center_kms_mode=(
                     kms_mode
                     if domain == "management"
@@ -292,7 +352,7 @@ class Harness:
                     else None
                 ),
                 identity_center_kms_private_binding_digest=(
-                    kms_binding_digest
+                    self.kms_binding_digest
                     if domain == "management"
                     else None
                 ),
@@ -341,12 +401,13 @@ def _discover_candidate_policy(
         catalog=catalog,
         expected_identities=_expected_identities(harness.policy),
         expected_identity_center_kms_binding_digest=(
-            PRIVATE_KMS_BINDING_DIGEST
+            harness.kms_binding_digest
         ),
     )
     policy = policy_contract.materialize_route_collision_policy_set(
         catalog,
         discovery_capability=capability,
+        identity_center_instance_arn=INSTANCE_ARN,
     )
     return capability, policy
 
@@ -426,9 +487,56 @@ def test_discovery_models_aws_owned_identity_center_kms_without_inventing_arn(
         {
             "BindingName": "identity_center_kms_key_arn",
             "Mode": "AWS_OWNED_KMS_KEY",
-            "PrivateBindingDigest": PRIVATE_KMS_BINDING_DIGEST,
+            "PrivateBindingDigest": harness.kms_binding_digest,
         }
     ]
+
+
+def test_discovery_accepts_exact_multiregion_identity_center_kms_key() -> None:
+    catalog = _catalog()
+    inventory = _policy(catalog)
+    harness = Harness(
+        inventory,
+        kms_key_arn=(
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "mrk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+    )
+
+    harness.factory.discover_route_collision_candidates(
+        catalog=catalog,
+        expected_identities=_expected_identities(inventory),
+        expected_identity_center_kms_binding_digest=harness.kms_binding_digest,
+    )
+
+
+@pytest.mark.parametrize(
+    "kms_key_arn",
+    [
+        "arn:aws:kms:us-east-1:839393571433:key/not-a-key-id",
+        (
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "11111111-1111-1111-1111-111111111111"
+        ),
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+    ],
+)
+def test_discovery_rejects_noncanonical_identity_center_kms_key(
+    kms_key_arn: str,
+) -> None:
+    catalog = _catalog()
+    inventory = _policy(catalog)
+    harness = Harness(inventory, kms_key_arn=kms_key_arn)
+
+    with pytest.raises(subject.CollisionAwsProviderError) as rejected:
+        harness.factory.discover_route_collision_candidates(
+            catalog=catalog,
+            expected_identities=_expected_identities(inventory),
+            expected_identity_center_kms_binding_digest=(
+                harness.kms_binding_digest
+            ),
+        )
+    assert rejected.value.code == "COLLISION_DISCOVERY_KMS_BINDING_INVALID"
 
 
 def test_exact_instance_inventory_resolves_permission_set_names_in_transcript(
@@ -503,7 +611,12 @@ def test_exact_instance_inventory_rejects_stale_injected_name_index() -> None:
         catalog,
         identity_center_instance_arn=INSTANCE_ARN,
     )
-    harness = Harness(inventory)
+    harness = Harness(
+        inventory,
+        permission_set_name_by_arn={
+            PERMISSION_SET_ARN: "stale-untrusted-name"
+        },
+    )
 
     with pytest.raises(subject.CollisionAwsProviderError) as raised:
         harness.factory.discover_route_collision_candidates(
@@ -533,6 +646,137 @@ def test_candidate_factory_rejects_json_duck_type_and_missing_capability() -> No
         Harness(candidate_policy)
     assert missing.value.code == "COLLISION_PROVIDER_DISCOVERY_BINDING_INVALID"
     Harness(candidate_policy, discovery_capability=capability)
+
+
+def test_each_candidate_snapshot_re_describes_exact_instance_before_sso_reads(
+) -> None:
+    catalog = _catalog()
+    discovery = Harness(_policy(catalog))
+    capability, candidate_policy = _discover_candidate_policy(
+        discovery,
+        catalog,
+    )
+    harness = Harness(
+        candidate_policy,
+        discovery_capability=capability,
+        permission_set_name_by_arn={},
+    )
+    request = _request(catalog, candidate_policy)
+    target = next(
+        item
+        for item in _domain_targets(request, "management")
+        if item["service"] == "sso" and item["scope"] == "application"
+    )
+    expected_target_ids = sorted(
+        item["target_id"]
+        for item in _domain_targets(request, "management")
+        if item["service"] == "sso"
+    )
+
+    for capture in (1, 2, 3):
+        snapshot = _open(harness, request, capture)
+        snapshot.read_identity(domain="management")
+        snapshot.read_target_observations(
+            domain="management",
+            targets=[target],
+            expected_dispositions={
+                target["target_id"]: "ABSENT_AT_SNAPSHOT"
+            },
+        )
+
+        calls = harness.sessions[(capture, "management")].calls
+        describe_positions = [
+            index
+            for index, call in enumerate(calls)
+            if call[:2] == ("sso-admin", "describe_instance")
+        ]
+        other_sso_positions = [
+            index
+            for index, (service, method, _kwargs) in enumerate(calls)
+            if service == "sso-admin" and method != "describe_instance"
+        ]
+        assert calls[0] == ("sts", "get_caller_identity", {})
+        assert describe_positions == [1]
+        assert other_sso_positions
+        assert describe_positions[0] < min(other_sso_positions)
+        assert calls[describe_positions[0]][2] == {
+            "InstanceArn": INSTANCE_ARN
+        }
+
+        describe_event = next(
+            event
+            for event in snapshot._calls  # noqa: SLF001
+            if event.operation == "sso:DescribeInstance"
+        )
+        assert describe_event.page_item_digests == sorted(
+            [PRIVATE_KMS_BINDING_DIGEST, DESCRIBED_INSTANCE_DIGEST]
+        )
+        assert describe_event.target_ids == expected_target_ids
+
+
+def test_pre_effect_instance_kms_drift_stops_before_candidate_sso_inventory(
+) -> None:
+    catalog = _catalog()
+    discovery = Harness(_policy(catalog))
+    capability, candidate_policy = _discover_candidate_policy(
+        discovery,
+        catalog,
+    )
+
+    def setup(capture: int, domain: str, session: FakeSdkSession) -> None:
+        if capture == 3 and domain == "management":
+            session.scripts[("sso-admin", "describe_instance")] = [
+                {
+                    "InstanceArn": INSTANCE_ARN,
+                    "IdentityStoreId": "d-1234567890",
+                    "OwnerAccountId": MANAGEMENT,
+                    "Status": "ACTIVE",
+                    "EncryptionConfigurationDetails": {
+                        "KeyType": "CUSTOMER_MANAGED_KEY",
+                        "KmsKeyArn": (
+                            "arn:aws:kms:us-east-1:839393571433:key/"
+                            "ffffffff-ffff-ffff-ffff-ffffffffffff"
+                        ),
+                        "EncryptionStatus": "ENABLED",
+                    },
+                }
+            ]
+
+    harness = Harness(
+        candidate_policy,
+        discovery_capability=capability,
+        session_setup=setup,
+        permission_set_name_by_arn={},
+    )
+    request = _request(catalog, candidate_policy)
+    target = next(
+        item
+        for item in _domain_targets(request, "management")
+        if item["service"] == "sso" and item["scope"] == "application"
+    )
+    expected = {target["target_id"]: "ABSENT_AT_SNAPSHOT"}
+    for capture in (1, 2):
+        snapshot = _open(harness, request, capture)
+        snapshot.read_identity(domain="management")
+        snapshot.read_target_observations(
+            domain="management",
+            targets=[target],
+            expected_dispositions=expected,
+        )
+
+    pre_effect = _open(harness, request, 3)
+    pre_effect.read_identity(domain="management")
+    with pytest.raises(subject.CollisionAwsProviderError) as drift:
+        pre_effect.read_target_observations(
+            domain="management",
+            targets=[target],
+            expected_dispositions=expected,
+        )
+    assert drift.value.code == "COLLISION_DISCOVERY_KMS_BINDING_INVALID"
+    calls = harness.sessions[(3, "management")].calls
+    assert [method for service, method, _kwargs in calls if service == "sso-admin"] == [
+        "describe_instance"
+    ]
 
 
 def test_discovery_rejects_independent_result_mismatch() -> None:

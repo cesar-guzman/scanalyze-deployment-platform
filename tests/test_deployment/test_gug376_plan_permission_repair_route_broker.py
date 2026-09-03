@@ -1708,6 +1708,69 @@ def test_exact_names_and_closed_config_contract() -> None:
         assert role.value.code == "NORMAL_PLAN_ROLE_INVALID"
 
 
+def _config_with_identity_center_kms_key(key_arn: str) -> broker.BrokerConfig:
+    value = _config_value()
+    for parameter in value["requests"]["pep-create-v1"]["Parameters"]:
+        if parameter["ParameterKey"] == "IdentityCenterKmsMode":
+            parameter["ParameterValue"] = "CUSTOMER_MANAGED_KEY"
+        elif parameter["ParameterKey"] == "IdentityCenterKmsKeyArn":
+            parameter["ParameterValue"] = key_arn
+        elif parameter["ParameterKey"] == "ArtifactBucket":
+            parameter["ParameterValue"] = (
+                "scanalyze-g376-art-aaaaaaaaaaaa-"
+                "042360977644-us-east-1-an"
+            )
+    value.pop("config_digest")
+    return broker.BrokerConfig.from_mapping(
+        broker.seal(value, "config_digest")
+    )
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdef",
+    ),
+)
+def test_collision_bindings_accept_only_canonical_key_forms(
+    key_arn: str,
+) -> None:
+    bindings = broker._collision_parameter_bindings(  # noqa: SLF001
+        _config_with_identity_center_kms_key(key_arn)
+    )
+    assert bindings["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
+    assert bindings["identity_center_kms_key_arn"] == key_arn
+
+
+@pytest.mark.parametrize(
+    "key_arn",
+    (
+        "arn:aws:kms:us-east-1:839393571433:alias/identity-center",
+        "arn:aws-cn:kms:us-east-1:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-west-2:839393571433:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:000000000000:key/"
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "arn:aws:kms:us-east-1:839393571433:key/"
+        "mrk-0123456789abcdef0123456789abcdeF",
+    ),
+)
+def test_collision_bindings_reject_noncanonical_key_forms(
+    key_arn: str,
+) -> None:
+    with pytest.raises(broker.RouteBrokerError) as exc_info:
+        broker._collision_parameter_bindings(  # noqa: SLF001
+            _config_with_identity_center_kms_key(key_arn)
+        )
+    assert exc_info.value.code == "COLLISION_CONFIG_INVALID"
+
+
 def test_broker_parameter_attestation_rejects_masks_substitution_and_duplicates() -> None:
     pep_parameters = deepcopy(config().request("pep-create-v1")["Parameters"])
     delegation_parameters = [
@@ -2902,7 +2965,7 @@ def test_closeout_cloudtrail_delay_leaves_pep_terminal_then_succeeds() -> None:
         ("UNCERTAIN_FINAL_READBACK", 2),
     ],
 )
-def test_closeout_accepts_only_attested_final_exact_uncertain_repair(
+def test_closeout_rejects_attestation_from_uncertain_repair_ledger(
     stage: str,
     effects_completed: int,
 ) -> None:
@@ -2918,9 +2981,14 @@ def test_closeout_accepts_only_attested_final_exact_uncertain_repair(
     )
     evidence.repair = repair
     evidence.attestation = _attestation(repair)
-    receipt = route.creator_handler({}, creator_context("closeout-gate-v1"))
-    assert receipt["state"] == "CLOSEOUT_PREREQUISITES_VERIFIED"
-    assert ledger.snapshot.state == "CLOSEOUT_PREREQUISITES_VERIFIED"
+    cas_count = ledger.cas_count
+
+    with pytest.raises(broker.RouteBrokerError) as blocked:
+        route.creator_handler({}, creator_context("closeout-gate-v1"))
+
+    assert blocked.value.code == "REPAIR_NOT_VERIFIED"
+    assert ledger.snapshot.state == "PEP_PROTECTED"
+    assert ledger.cas_count == cas_count
 
 
 def test_closeout_rechecks_normal_plan_freshness_immediately_before_cas() -> None:
@@ -5043,6 +5111,8 @@ def test_no_import_time_aws_dependency_and_config_fits_environment() -> None:
     assert "boto3" not in imports
     assert "botocore" not in imports
     envelope = broker.encode_runtime_config(_config_value())
+    assert envelope["record_type"] == broker.COMPRESSED_CONFIG_RECORD_TYPE_V3
+    assert envelope["encoding"] == "deflate-dict-v3+base85"
     assert len(broker.canonical_json(envelope).encode("utf-8")) <= 3500
     assert broker.decode_runtime_config(envelope) == _config_value()
     assert all(hasattr(broker, name) for name in broker.__all__)
@@ -5061,7 +5131,8 @@ def test_no_import_time_aws_dependency_and_config_fits_environment() -> None:
 def test_runtime_config_base85_is_canonical_and_bounded() -> None:
     config_value = _config_value()
     envelope = broker.encode_runtime_config(config_value)
-    assert envelope["encoding"] == "deflate-dict-v2+base85"
+    assert envelope["record_type"] == broker.COMPRESSED_CONFIG_RECORD_TYPE_V3
+    assert envelope["encoding"] == "deflate-dict-v3+base85"
     assert "@" in envelope["payload"]
     # Python's b85 alphabet deliberately excludes ':'. Raw b85 therefore has
     # no lossy character substitution and is valid inside a JSON string.
@@ -5075,7 +5146,7 @@ def test_runtime_config_base85_is_canonical_and_bounded() -> None:
         wbits=-zlib.MAX_WBITS,
         memLevel=9,
         strategy=zlib.Z_DEFAULT_STRATEGY,
-        zdict=broker._RUNTIME_CONFIG_DICTIONARY,
+        zdict=broker._RUNTIME_CONFIG_DICTIONARY_V3,
     )
     alternate_payload = alternate.compress(raw) + alternate.flush()
     alternate_envelope = dict(envelope)
@@ -5104,7 +5175,7 @@ def test_runtime_config_base85_is_canonical_and_bounded() -> None:
         wbits=-zlib.MAX_WBITS,
         memLevel=9,
         strategy=zlib.Z_DEFAULT_STRATEGY,
-        zdict=broker._RUNTIME_CONFIG_DICTIONARY,
+        zdict=broker._RUNTIME_CONFIG_DICTIONARY_V3,
     )
     bomb_payload = bomb.compress(b"x" * 65_537) + bomb.flush()
     bomb_envelope = dict(envelope)
@@ -5113,6 +5184,80 @@ def test_runtime_config_base85_is_canonical_and_bounded() -> None:
         broker.RouteBrokerError, match="RUNTIME_CONFIG_ENVELOPE_INVALID"
     ):
         broker.decode_runtime_config(bomb_envelope)
+
+
+def test_runtime_config_reads_fixed_v2_golden_without_relabeling() -> None:
+    config_value = _config_value()
+    legacy_envelope = json.loads(
+        (
+            ROOT
+            / "tests/test_deployment/fixtures/gug376_route_broker/"
+            "runtime-config-v2-golden.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert sha256(broker._RUNTIME_CONFIG_DICTIONARY_V2).hexdigest() == (
+        "d3b7a22de520d6bb478a7ac60d2603ac"
+        "465a3383568e476748b0cdbc1492266a"
+    )
+    # The fixture is a byte-frozen envelope emitted by committed HEAD before
+    # V3 existed.  Do not regenerate it from production constants: decoding
+    # this independent blob is the compatibility contract.
+    assert sha256(
+        broker.canonical_json(legacy_envelope).encode("utf-8")
+    ).hexdigest() == (
+        "42b1439c589c27e4f49c3f528bbbab35"
+        "c085861cfdd84098f0e1c0299b4dd194"
+    )
+    assert broker._encode_runtime_config_v2(config_value) == legacy_envelope
+    assert broker.decode_runtime_config(legacy_envelope) == config_value
+
+    current_envelope = broker.encode_runtime_config(config_value)
+    assert current_envelope["record_type"] == (
+        broker.COMPRESSED_CONFIG_RECORD_TYPE_V3
+    )
+    assert current_envelope != legacy_envelope
+
+
+def test_runtime_config_v3_rejects_malformed_tokens_and_version_pairs() -> None:
+    config_value = _config_value()
+    envelope = broker.encode_runtime_config(config_value)
+
+    mismatched = dict(envelope)
+    mismatched["record_type"] = broker.COMPRESSED_CONFIG_RECORD_TYPE_V2
+    with pytest.raises(
+        broker.RouteBrokerError, match="RUNTIME_CONFIG_ENVELOPE_INVALID"
+    ):
+        broker.decode_runtime_config(mismatched)
+
+    packed = broker._pack_runtime_config_v3(  # noqa: SLF001
+        json.loads(broker.canonical_json(config_value))
+    )
+    packed["config_digest"] = ":" + ("0" * 39) + "/"
+    malformed_raw = broker.canonical_json(packed).encode("utf-8")
+    compressor = zlib.compressobj(
+        level=9,
+        method=zlib.DEFLATED,
+        wbits=-zlib.MAX_WBITS,
+        memLevel=9,
+        strategy=zlib.Z_DEFAULT_STRATEGY,
+        zdict=broker._RUNTIME_CONFIG_DICTIONARY_V3,
+    )
+    malformed_payload = compressor.compress(malformed_raw) + compressor.flush()
+    malformed = dict(envelope)
+    malformed["payload"] = base64.b85encode(malformed_payload).decode("ascii")
+    with pytest.raises(
+        broker.RouteBrokerError, match="RUNTIME_CONFIG_ENVELOPE_INVALID"
+    ):
+        broker.decode_runtime_config(malformed)
+
+    escaped = {
+        "digest": "sha256:" + ("a" * 64),
+        "one_colon": ":literal",
+        "two_colons": "::literal",
+    }
+    assert broker._unpack_runtime_config_v3(  # noqa: SLF001
+        broker._pack_runtime_config_v3(escaped)  # noqa: SLF001
+    ) == escaped
 
 
 def test_broker_cloudtrail_pagination_reaches_second_page_and_rejects_cycle() -> None:

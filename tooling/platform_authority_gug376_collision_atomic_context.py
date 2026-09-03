@@ -27,7 +27,6 @@ from tooling.platform_authority_gug376_collision_direct_sso import (
     LOCAL_DIRECT_SSO,
     build_direct_sso_policy_session_opener_factory,
 )
-from tooling import platform_authority_gug393_private_input_discovery as gug393
 from tooling.platform_authority_gug395_preplan_collision_probe import (
     ABSENT_READY as GUG395_ABSENT_READY,
     DEFAULT_RESULT_FILE as GUG395_RESULT_FILE,
@@ -37,15 +36,19 @@ from tooling.platform_authority_gug395_preplan_collision_probe import (
 
 CONTEXT_FILE = "gug376-route-collision-atomic-context.json"
 CONTEXT_TYPE = (
-    "scanalyze.platform_authority.gug376_route_collision_atomic_context.v1"
+    "scanalyze.platform_authority.gug376_route_collision_atomic_context.v2"
 )
 PRIVATE_BINDINGS_TYPE = (
-    "scanalyze.platform_authority.gug376_route_collision_private_bindings.v1"
+    "scanalyze.platform_authority.gug376_route_collision_private_bindings.v2"
 )
+PRIVATE_BINDINGS_SOURCE = "GUG395_ATTESTED_PREPLAN_COLLISION_RESULT"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INSTANCE = re.compile(r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$")
+_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
 _KMS = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/[A-Za-z0-9-]{8,128}$"
+    r"^arn:aws:kms:us-east-1:839393571433:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
 )
 _TIME = re.compile(
     r"^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T"
@@ -133,8 +136,12 @@ def _validate_bindings(value: object) -> dict[str, Any]:
         "identity_center_kms_mode",
         "identity_center_kms_key_arn",
         "identity_center_kms_binding_digest",
-        "gug393_private_root_digest",
-        "gug393_manifest_digest",
+        "gug395_private_root_digest",
+        "gug395_request_digest",
+        "gug395_receipt_digest",
+        "gug395_bundle_digest",
+        "identity_center_snapshot_digests",
+        "identity_authority_verification_digest",
         "external_verification_digest",
         "binding_digest",
     }
@@ -144,8 +151,8 @@ def _validate_bindings(value: object) -> dict[str, Any]:
     key = value.get("identity_center_kms_key_arn")
     if (
         value.get("record_type") != PRIVATE_BINDINGS_TYPE
-        or value.get("schema_version") != 1
-        or value.get("source") != "GUG393_PERSISTED_MATERIALIZATION"
+        or value.get("schema_version") != 2
+        or value.get("source") != PRIVATE_BINDINGS_SOURCE
         or _INSTANCE.fullmatch(
             str(value.get("identity_center_instance_arn"))
         )
@@ -157,10 +164,23 @@ def _validate_bindings(value: object) -> dict[str, Any]:
             str(value.get("identity_center_kms_binding_digest"))
         )
         is None
-        or _DIGEST.fullmatch(str(value.get("gug393_private_root_digest")))
-        is None
-        or _DIGEST.fullmatch(str(value.get("gug393_manifest_digest")))
-        is None
+        or any(
+            _DIGEST.fullmatch(str(value.get(field))) is None
+            for field in (
+                "gug395_private_root_digest",
+                "gug395_request_digest",
+                "gug395_receipt_digest",
+                "gug395_bundle_digest",
+                "identity_authority_verification_digest",
+            )
+        )
+        or not isinstance(value.get("identity_center_snapshot_digests"), list)
+        or len(value["identity_center_snapshot_digests"]) != 2
+        or len(set(value["identity_center_snapshot_digests"])) != 2
+        or any(
+            not isinstance(item, str) or _DIGEST.fullmatch(item) is None
+            for item in value["identity_center_snapshot_digests"]
+        )
         or _DIGEST.fullmatch(
             str(value.get("external_verification_digest"))
         )
@@ -175,40 +195,9 @@ def _validate_bindings(value: object) -> dict[str, Any]:
     return checked
 
 
-def _gug393_root(value: Path) -> Path:
-    try:
-        supplied = Path(value)
-        resolved = supplied.resolve(strict=True)
-        mode = resolved.stat().st_mode & 0o777
-    except OSError:
-        raise AtomicCollisionContextError(
-            "ATOMIC_COLLISION_GUG393_ROOT_INVALID"
-        ) from None
-    if (
-        not supplied.is_absolute()
-        or supplied.is_symlink()
-        or resolved != supplied
-        or not resolved.is_dir()
-        or mode != 0o700
-    ):
-        _fail("ATOMIC_COLLISION_GUG393_ROOT_INVALID")
-    return resolved
-
-
-def _gug393_root_digest(value: Path) -> str:
-    root = _gug393_root(value)
-    try:
-        return gug393.private_root_binding_digest(root)
-    except Exception:
-        raise AtomicCollisionContextError(
-            "ATOMIC_COLLISION_GUG393_ROOT_INVALID"
-        ) from None
-
-
 def _validate_distinct_roots(
     admission_private_root: Path,
     effect_private_root: Path,
-    gug393_private_root: Path,
     gug395_private_root: Path,
 ) -> None:
     try:
@@ -221,20 +210,19 @@ def _validate_distinct_roots(
         roots = {
             admission,
             effect,
-            _gug393_root(gug393_private_root),
             gug395,
         }
     except AtomicCollisionContextError:
         raise
     except OSError:
         _fail("ATOMIC_COLLISION_CONTEXT_ROOT_INVALID")
-    if len(roots) != 4:
+    if len(roots) != 3:
         _fail("ATOMIC_COLLISION_ROOT_REUSE_FORBIDDEN")
 
 
 def _gug395_evidence(
     private_root: Path,
-) -> tuple[dict[str, Any], dict[str, Any], str]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     try:
         bundle = read_private_json(private_root, GUG395_RESULT_FILE)
         result = read_collision_probe_result(private_root=private_root)
@@ -272,177 +260,23 @@ def _gug395_evidence(
         or _DIGEST.fullmatch(str(bundle.get("bundle_digest"))) is None
     ):
         _fail("ATOMIC_COLLISION_GUG395_RESULT_INVALID")
-    return request, receipt, str(bundle["bundle_digest"])
+    return request, receipt, dict(bundle)
 
 
-def _derive_gug393_bindings(
+def _derive_gug395_bindings(
     *,
-    gug393_private_root: Path,
+    gug395_private_root: Path,
     gug395_request: Mapping[str, Any],
+    gug395_receipt: Mapping[str, Any],
+    gug395_bundle: Mapping[str, Any],
 ) -> dict[str, Any]:
-    root = _gug393_root(gug393_private_root)
-    try:
-        manifest = read_private_json(root, gug393.DEFAULT_MANIFEST_FILE)
-        checked_manifest = gug393.validate_input_materialization_manifest(
-            root,
-            manifest,
-        )
-        authority_input = read_private_json(
-            root, str(checked_manifest["authority_input_file"])
-        )
-        identity_input = read_private_json(
-            root, str(checked_manifest["identity_center_input_file"])
-        )
-        authority_plan = read_private_json(
-            root, str(checked_manifest["authority_plan_file"])
-        )
-        identity_plan = read_private_json(
-            root, str(checked_manifest["identity_center_plan_file"])
-        )
-        decision = read_private_json(
-            root, str(checked_manifest["decision_file"])
-        )
-        reopened_artifacts = {
-            str(checked_manifest["authority_input_file"]): authority_input,
-            str(checked_manifest["identity_center_input_file"]): (
-                identity_input
-            ),
-            str(checked_manifest["authority_plan_file"]): authority_plan,
-            str(checked_manifest["identity_center_plan_file"]): identity_plan,
-            str(checked_manifest["decision_file"]): decision,
-        }
-        artifact_digests = checked_manifest["artifact_digests"]
-        if set(reopened_artifacts) != set(artifact_digests) or any(
-            canonical_digest(artifact) != artifact_digests[name]
-            for name, artifact in reopened_artifacts.items()
-        ):
-            _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-        recomputed = gug393.materialize_live_plans(
-            authority_input=authority_input,
-            identity_center_input=identity_input,
-        )
-    except Exception:
-        raise AtomicCollisionContextError(
-            "ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID"
-        ) from None
-    if (
-        recomputed.authority_plan != authority_plan
-        or recomputed.identity_center_plan != identity_plan
-        or checked_manifest.get("source_commit_sha")
-        != gug395_request.get("source_commit_sha")
-        or checked_manifest.get("source_tree_sha")
-        != gug395_request.get("source_tree_sha")
-    ):
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
     profiles = gug395_request.get("profiles")
     gug395_targets = gug395_request.get("targets")
-    authority_profile = (
-        profiles.get("authority") if isinstance(profiles, Mapping) else None
-    )
     identity_profile = (
         profiles.get("identity_center")
         if isinstance(profiles, Mapping)
         else None
     )
-    if (
-        not isinstance(authority_input, Mapping)
-        or not isinstance(identity_input, Mapping)
-        or not isinstance(authority_profile, Mapping)
-        or not isinstance(identity_profile, Mapping)
-        or authority_input.get("not_before") != gug395_request.get("not_before")
-        or authority_input.get("not_after") != gug395_request.get("expires_at")
-        or identity_input.get("not_before") != gug395_request.get("not_before")
-        or identity_input.get("not_after") != gug395_request.get("expires_at")
-        or authority_input.get("expected_account_id")
-        != authority_profile.get("expected_account_id")
-        or identity_input.get("expected_account_id")
-        != identity_profile.get("expected_account_id")
-        or canonical_digest(authority_input.get("expected_principal_arn"))
-        != authority_profile.get("expected_principal_digest")
-        or canonical_digest(identity_input.get("expected_principal_arn"))
-        != identity_profile.get("expected_principal_digest")
-        or authority_input.get("authority_verification_digest")
-        != authority_profile.get("authority_verification_digest")
-        or identity_input.get("authority_verification_digest")
-        != identity_profile.get("authority_verification_digest")
-    ):
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-    authority_targets = authority_input.get("targets")
-    artifact_selector = (
-        gug395_targets.get("artifact_bucket")
-        if isinstance(gug395_targets, Mapping)
-        else None
-    )
-    artifact_name = (
-        artifact_selector.get("name")
-        if isinstance(artifact_selector, Mapping)
-        else None
-    )
-    if (
-        not isinstance(authority_targets, Mapping)
-        or not isinstance(artifact_name, str)
-        or authority_targets.get("artifact_bucket_arn")
-        != f"arn:aws:s3:::{artifact_name}"
-        or any(
-            not str(authority_targets.get(name, "")).startswith(
-                f"arn:aws:s3:::{artifact_name}/"
-            )
-            for name in (
-                "broker_signed_object_arn",
-                "broker_unsigned_object_arn",
-                "ledger_factory_signed_object_arn",
-                "ledger_factory_unsigned_object_arn",
-            )
-        )
-    ):
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-    state = identity_input.get("expected_state")
-    private_targets = identity_input.get("private_targets")
-    if not isinstance(state, Mapping) or not isinstance(private_targets, Mapping):
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-    classification = state.get("classification")
-    if classification == "ABSENT_READY":
-        instance_record = state.get("instance")
-        instance_arn = (
-            instance_record.get("instance_arn")
-            if isinstance(instance_record, Mapping)
-            else None
-        )
-        if (
-            not isinstance(instance_record, Mapping)
-            or instance_record.get("owner_account_id")
-            != identity_profile.get("expected_account_id")
-        ):
-            _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-    elif classification == "EXACT_PRESENT_NO_TOUCH":
-        targets = state.get("targets")
-        facts = state.get("facts")
-        discovery = facts.get("discovery") if isinstance(facts, Mapping) else None
-        instances = (
-            discovery.get("instances")
-            if isinstance(discovery, Mapping)
-            else None
-        )
-        instance_record = facts.get("instance") if isinstance(facts, Mapping) else None
-        if (
-            not isinstance(instances, list)
-            or len(instances) != 1
-            or not isinstance(instances[0], Mapping)
-            or not isinstance(instance_record, Mapping)
-            or instances[0].get("instance_arn")
-            != instance_record.get("instance_arn")
-            or instance_record.get("owner_account_id")
-            != identity_profile.get("expected_account_id")
-            or not isinstance(targets, Mapping)
-            or targets.get("identity_center_instance_arn")
-            != instance_record.get("instance_arn")
-            or targets.get("identity_center_kms_key_arn")
-            != private_targets.get("identity_center_kms_key_arn")
-        ):
-            _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-        instance_arn = instance_record.get("instance_arn")
-    else:
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
     selectors = gug395_targets
     selector_instances = {
         selectors[name].get("instance_arn")
@@ -454,17 +288,92 @@ def _derive_gug393_bindings(
         if isinstance(selectors, Mapping)
         and isinstance(selectors.get(name), Mapping)
     }
-    key_arn = private_targets.get("identity_center_kms_key_arn")
-    if _INSTANCE.fullmatch(str(instance_arn)) is None or selector_instances != {
-        instance_arn
-    }:
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
-    if key_arn is None:
-        mode = "AWS_OWNED_KMS_KEY"
-    elif _KMS.fullmatch(str(key_arn)) is not None:
-        mode = "CUSTOMER_MANAGED_KEY"
-    else:
-        _fail("ATOMIC_COLLISION_GUG393_MATERIALIZATION_INVALID")
+    instance_arn = next(iter(selector_instances), None)
+    private_evidence = gug395_bundle.get("private_evidence")
+    snapshots = (
+        private_evidence.get("identity_center_snapshots")
+        if isinstance(private_evidence, Mapping)
+        else None
+    )
+    mode = (
+        identity_profile.get("identity_center_kms_mode")
+        if isinstance(identity_profile, Mapping)
+        else None
+    )
+    key_arn = (
+        identity_profile.get("identity_center_kms_key_arn")
+        if isinstance(identity_profile, Mapping)
+        else None
+    )
+    verification_digest = (
+        identity_profile.get("authority_verification_digest")
+        if isinstance(identity_profile, Mapping)
+        else None
+    )
+    if (
+        not isinstance(identity_profile, Mapping)
+        or _INSTANCE.fullmatch(str(instance_arn)) is None
+        or selector_instances != {instance_arn}
+        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+        or (mode == "CUSTOMER_MANAGED_KEY" and _KMS.fullmatch(str(key_arn)) is None)
+        or _DIGEST.fullmatch(str(verification_digest)) is None
+        or not isinstance(snapshots, list)
+        or len(snapshots) != 2
+    ):
+        _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
+
+    snapshot_digests: list[str] = []
+    described_instances: list[dict[str, Any]] = []
+    for snapshot in snapshots:
+        facts = snapshot.get("facts") if isinstance(snapshot, Mapping) else None
+        described = facts.get("described_instance") if isinstance(facts, Mapping) else None
+        encryption = (
+            described.get("EncryptionConfigurationDetails")
+            if isinstance(described, Mapping)
+            else None
+        )
+        observed_mode = (
+            encryption.get("KeyType") if isinstance(encryption, Mapping) else None
+        )
+        normalized_mode = observed_mode
+        observed_key = (
+            encryption.get("KmsKeyArn")
+            if isinstance(encryption, Mapping)
+            else None
+        )
+        snapshot_digest = (
+            snapshot.get("snapshot_digest")
+            if isinstance(snapshot, Mapping)
+            else None
+        )
+        identity = snapshot.get("identity") if isinstance(snapshot, Mapping) else None
+        if (
+            not isinstance(described, Mapping)
+            or described.get("InstanceArn") != instance_arn
+            or _STORE.fullmatch(str(described.get("IdentityStoreId"))) is None
+            or described.get("OwnerAccountId")
+            != identity_profile.get("expected_account_id")
+            or described.get("Status") != "ACTIVE"
+            or not isinstance(encryption, Mapping)
+            or encryption.get("EncryptionStatus") != "ENABLED"
+            or normalized_mode != mode
+            or observed_key != key_arn
+            or _DIGEST.fullmatch(str(snapshot_digest)) is None
+            or not isinstance(identity, Mapping)
+            or identity.get("authority_verification_digest")
+            != verification_digest
+        ):
+            _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
+        snapshot_digests.append(str(snapshot_digest))
+        described_instances.append(dict(described))
+    if (
+        len(set(snapshot_digests)) != 2
+        or canonical_digest(described_instances[0])
+        != canonical_digest(described_instances[1])
+    ):
+        _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
+
     kms_binding_digest = canonical_digest(
         {
             "binding_name": "identity_center_kms_key_arn",
@@ -475,26 +384,28 @@ def _derive_gug393_bindings(
     )
     external_verification_digest = canonical_digest(
         {
-            "private_root_digest": checked_manifest["private_root_digest"],
-            "manifest_digest": checked_manifest["manifest_digest"],
-            "artifact_digests": checked_manifest["artifact_digests"],
-            "authority_plan_digest": canonical_digest(authority_plan),
-            "identity_center_plan_digest": canonical_digest(identity_plan),
+            "gug395_private_root_digest": _root_digest(gug395_private_root),
             "gug395_request_digest": gug395_request["request_digest"],
+            "gug395_receipt_digest": gug395_receipt["receipt_digest"],
+            "gug395_bundle_digest": gug395_bundle["bundle_digest"],
+            "identity_center_snapshot_digests": snapshot_digests,
+            "identity_authority_verification_digest": verification_digest,
         }
     )
     body: dict[str, Any] = {
         "record_type": PRIVATE_BINDINGS_TYPE,
-        "schema_version": 1,
-        "source": "GUG393_PERSISTED_MATERIALIZATION",
+        "schema_version": 2,
+        "source": PRIVATE_BINDINGS_SOURCE,
         "identity_center_instance_arn": instance_arn,
         "identity_center_kms_mode": mode,
         "identity_center_kms_key_arn": key_arn,
         "identity_center_kms_binding_digest": kms_binding_digest,
-        "gug393_private_root_digest": checked_manifest[
-            "private_root_digest"
-        ],
-        "gug393_manifest_digest": checked_manifest["manifest_digest"],
+        "gug395_private_root_digest": _root_digest(gug395_private_root),
+        "gug395_request_digest": gug395_request["request_digest"],
+        "gug395_receipt_digest": gug395_receipt["receipt_digest"],
+        "gug395_bundle_digest": gug395_bundle["bundle_digest"],
+        "identity_center_snapshot_digests": snapshot_digests,
+        "identity_authority_verification_digest": verification_digest,
         "external_verification_digest": external_verification_digest,
     }
     body["binding_digest"] = canonical_digest(body)
@@ -565,7 +476,6 @@ def materialize_atomic_collision_context(
     *,
     admission_private_root: Path,
     effect_private_root: Path,
-    gug393_private_root: Path,
     gug395_private_root: Path,
     bootstrap_intent_digest: str,
     approval_reference_digest: str,
@@ -579,7 +489,6 @@ def materialize_atomic_collision_context(
     _validate_distinct_roots(
         admission_private_root,
         effect_private_root,
-        gug393_private_root,
         gug395_private_root,
     )
     admission_digest = _root_digest(admission_private_root)
@@ -604,12 +513,14 @@ def materialize_atomic_collision_context(
         expires_at=expires_at,
         clock=clock,
     )
-    request395, receipt395, bundle395_digest = _gug395_evidence(
+    request395, receipt395, bundle395 = _gug395_evidence(
         gug395_private_root
     )
-    bindings = _derive_gug393_bindings(
-        gug393_private_root=gug393_private_root,
+    bindings = _derive_gug395_bindings(
+        gug395_private_root=gug395_private_root,
         gug395_request=request395,
+        gug395_receipt=receipt395,
+        gug395_bundle=bundle395,
     )
     targets = request395.get("targets")
     artifact = targets.get("artifact_bucket") if isinstance(targets, Mapping) else None
@@ -628,16 +539,13 @@ def materialize_atomic_collision_context(
     )
     context: dict[str, Any] = {
         "record_type": CONTEXT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "admission_private_root_digest": admission_digest,
         "effect_private_root_digest": effect_digest,
         "gug395_private_root_digest": gug395_digest,
-        "gug393_private_root_digest": bindings[
-            "gug393_private_root_digest"
-        ],
         "gug395_request_digest": request395["request_digest"],
         "gug395_receipt_digest": receipt395["receipt_digest"],
-        "gug395_bundle_digest": bundle395_digest,
+        "gug395_bundle_digest": bundle395["bundle_digest"],
         "approval_reference_digest": approval_reference_digest,
         "approved_operation": approved_operation,
         "authorized_at": active_not_before,
@@ -668,14 +576,12 @@ def read_atomic_collision_context(
     *,
     admission_private_root: Path,
     effect_private_root: Path,
-    gug393_private_root: Path,
     gug395_private_root: Path,
     clock: Any = lambda: datetime.now(UTC),
 ) -> dict[str, Any]:
     _validate_distinct_roots(
         admission_private_root,
         effect_private_root,
-        gug393_private_root,
         gug395_private_root,
     )
     try:
@@ -690,7 +596,6 @@ def read_atomic_collision_context(
         "admission_private_root_digest",
         "effect_private_root_digest",
         "gug395_private_root_digest",
-        "gug393_private_root_digest",
         "gug395_request_digest",
         "gug395_receipt_digest",
         "gug395_bundle_digest",
@@ -737,13 +642,15 @@ def read_atomic_collision_context(
     (
         current_request395,
         current_receipt395,
-        current_bundle395_digest,
+        current_bundle395,
     ) = _gug395_evidence(
         gug395_private_root
     )
-    current_bindings = _derive_gug393_bindings(
-        gug393_private_root=gug393_private_root,
+    current_bindings = _derive_gug395_bindings(
+        gug395_private_root=gug395_private_root,
         gug395_request=current_request395,
+        gug395_receipt=current_receipt395,
+        gug395_bundle=current_bundle395,
     )
     current_catalog = materialize_route_collision_catalog(
         source_commit_sha=str(current_request395["source_commit_sha"]),
@@ -757,21 +664,19 @@ def read_atomic_collision_context(
     )
     if (
         value.get("record_type") != CONTEXT_TYPE
-        or value.get("schema_version") != 1
+        or value.get("schema_version") != 2
         or value.get("admission_private_root_digest")
         != _root_digest(admission_private_root)
         or value.get("effect_private_root_digest")
         != _root_digest(effect_private_root)
         or value.get("gug395_private_root_digest")
         != _root_digest(gug395_private_root)
-        or value.get("gug393_private_root_digest")
-        != _gug393_root_digest(gug393_private_root)
         or value.get("gug395_request_digest")
         != current_request395.get("request_digest")
         or value.get("gug395_receipt_digest")
         != current_receipt395.get("receipt_digest")
         or value.get("gug395_bundle_digest")
-        != current_bundle395_digest
+        != current_bundle395.get("bundle_digest")
         or _DIGEST.fullmatch(
             str(value.get("approval_reference_digest"))
         )
@@ -794,7 +699,6 @@ def build_atomic_loader_from_private_context(
     *,
     admission_private_root: Path,
     effect_private_root: Path,
-    gug393_private_root: Path,
     gug395_private_root: Path,
     expected_approval_reference_digest: str,
     expected_authorized_at: str,
@@ -809,7 +713,6 @@ def build_atomic_loader_from_private_context(
     context = read_atomic_collision_context(
         admission_private_root=admission_private_root,
         effect_private_root=effect_private_root,
-        gug393_private_root=gug393_private_root,
         gug395_private_root=gug395_private_root,
         clock=clock,
     )

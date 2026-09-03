@@ -41,6 +41,11 @@ _CAPTURE_PURPOSES = {
 }
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
+_IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
+_KMS_KEY_ARN = re.compile(
+    rf"^arn:aws:kms:{REGION}:(?P<account>[0-9]{{12}}):key/"
+    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
+)
 _ROLE = re.compile(r"^[A-Za-z0-9+=,.@_/-]{1,128}$")
 _ARN = re.compile(r"^arn:aws[a-z-]*:[a-z0-9-]+:[^:]*:[0-9]{0,12}:.+$")
 _FACTORY_TOKEN = object()
@@ -56,7 +61,9 @@ _DISCOVERY_CAPABILITY_RECORD_TYPE = (
 _DISCOVERY_PROVENANCE_RECORD_TYPE = (
     "scanalyze.platform_authority.gug376_collision_discovery_provenance.v1"
 )
-_IDENTITY_CENTER_KMS_BINDING_SOURCE = "GUG393_PRIVATE_MATERIALIZATION"
+_IDENTITY_CENTER_KMS_BINDING_SOURCE = (
+    "GUG376_ATTESTED_IDENTITY_CENTER_KMS_BINDING"
+)
 _DEFAULT_OWNERSHIP_TAGS = {
     "service": "scanalyze-platform-authority",
     "work_package": "GUG-376",
@@ -751,6 +758,7 @@ class _SnapshotProvider:
     __slots__ = (
         "_owner", "_request", "_targets", "_capture_index", "_purpose",
         "_sessions", "_identities", "_observations", "_calls", "_sealed",
+        "_identity_center_attested",
     )
 
     def __init__(self, owner: "_AttestedProviderFactory", request: Mapping[str, Any], capture_index: int, purpose: str) -> None:
@@ -764,6 +772,7 @@ class _SnapshotProvider:
         self._observations: dict[str, dict[str, Any]] = {}
         self._calls: list[_PendingCall] = []
         self._sealed = False
+        self._identity_center_attested = False
 
     def _session(self, domain: str) -> OpenedReadOnlySession:
         value = self._sessions.get(domain)
@@ -1254,6 +1263,136 @@ class _SnapshotProvider:
         result["inventory_binding_digest"] = canonical_digest(result)
         return result
 
+    def _attest_identity_center_instance(
+        self,
+    ) -> tuple[str, str | None, str, str]:
+        """Re-read and bind the exact encrypted instance once per snapshot."""
+
+        domain = "management"
+        if (
+            self._sealed
+            or domain not in self._identities
+            or self._identity_center_attested
+        ):
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+        envelope = self._session(domain)
+        expected_binding = _require_digest(
+            self._request.get(
+                "expected_identity_center_kms_binding_digest"
+            ),
+            "COLLISION_DISCOVERY_KMS_BINDING_INVALID",
+        )
+        mode = envelope.identity_center_kms_mode
+        key_arn = envelope.identity_center_kms_key_arn
+        instance_arn = envelope.identity_center_instance_arn
+        if (
+            envelope.identity_center_kms_binding_source
+            != _IDENTITY_CENTER_KMS_BINDING_SOURCE
+            or envelope.identity_center_kms_private_binding_digest
+            != expected_binding
+            or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+            or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+            or (
+                mode == "CUSTOMER_MANAGED_KEY"
+                and (
+                    not isinstance(key_arn, str)
+                    or (key_match := _KMS_KEY_ARN.fullmatch(key_arn)) is None
+                    or key_match.group("account")
+                    != self._identities[domain]["account_id"]
+                )
+            )
+            or not isinstance(instance_arn, str)
+            or re.fullmatch(
+                r"arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}",
+                instance_arn,
+            )
+            is None
+        ):
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+        derived_binding = canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": instance_arn,
+                "mode": mode,
+                "key_arn": key_arn,
+            }
+        )
+        if derived_binding != expected_binding:
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+        target_ids = sorted(
+            target["target_id"]
+            for target in self._targets.values()
+            if target["domain"] == domain and target["service"] == "sso"
+        )
+        if not target_ids:
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+        outcome, response, reservation = self._call(
+            domain=domain,
+            operation="sso:DescribeInstance",
+            service="sso-admin",
+            method="describe_instance",
+            request={"InstanceArn": instance_arn},
+        )
+        encryption = response.get("EncryptionConfigurationDetails")
+        raw_mode = (
+            encryption.get("KeyType")
+            if isinstance(encryption, Mapping)
+            else None
+        )
+        observed_mode = raw_mode
+        observed_key_arn = (
+            encryption.get("KmsKeyArn")
+            if isinstance(encryption, Mapping)
+            else None
+        )
+        described_projection = {
+            "InstanceArn": response.get("InstanceArn"),
+            "IdentityStoreId": response.get("IdentityStoreId"),
+            "OwnerAccountId": response.get("OwnerAccountId"),
+            "Status": response.get("Status"),
+            "EncryptionConfigurationDetails": {
+                "KeyType": observed_mode,
+                "KmsKeyArn": observed_key_arn,
+                "EncryptionStatus": (
+                    encryption.get("EncryptionStatus")
+                    if isinstance(encryption, Mapping)
+                    else None
+                ),
+            },
+        }
+        if (
+            outcome != "SUCCESS"
+            or described_projection["InstanceArn"] != instance_arn
+            or _IDENTITY_STORE.fullmatch(
+                str(described_projection["IdentityStoreId"])
+            )
+            is None
+            or described_projection["OwnerAccountId"]
+            != self._identities[domain]["account_id"]
+            or described_projection["Status"] != "ACTIVE"
+            or described_projection["EncryptionConfigurationDetails"]
+            != {
+                "KeyType": mode,
+                "KmsKeyArn": key_arn,
+                "EncryptionStatus": "ENABLED",
+            }
+        ):
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+        described_instance_digest = canonical_digest(described_projection)
+        self._append_call(
+            domain=domain,
+            operation="sso:DescribeInstance",
+            outcome="SUCCESS",
+            page_index=1,
+            input_cursor_digest=None,
+            output_cursor_digest=None,
+            page_item_digests=[expected_binding, described_instance_digest],
+            target_ids=target_ids,
+            budget_reservation=reservation,
+        )
+        self._identity_center_attested = True
+        return mode, key_arn, expected_binding, described_instance_digest
+
     def discover_candidate_groups(
         self,
         *,
@@ -1424,35 +1563,12 @@ class _SnapshotProvider:
                     }
                 ]
             elif kind == "identity_center_kms_key":
-                expected_binding = self._request[
-                    "expected_identity_center_kms_binding_digest"
-                ]
-                mode = envelope.identity_center_kms_mode
-                key_arn = envelope.identity_center_kms_key_arn
-                if (
-                    envelope.identity_center_kms_binding_source
-                    != _IDENTITY_CENTER_KMS_BINDING_SOURCE
-                    or envelope.identity_center_kms_private_binding_digest
-                    != expected_binding
-                    or mode not in {
-                        "AWS_OWNED_KMS_KEY",
-                        "CUSTOMER_MANAGED_KEY",
-                    }
-                    or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-                    or (
-                        mode == "CUSTOMER_MANAGED_KEY"
-                        and (
-                            not isinstance(key_arn, str)
-                            or re.fullmatch(
-                                rf"arn:aws:kms:{REGION}:839393571433:key/"
-                                r"[A-Za-z0-9-]+",
-                                key_arn,
-                            )
-                            is None
-                        )
-                    )
-                ):
-                    _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
+                (
+                    mode,
+                    key_arn,
+                    expected_binding,
+                    described_instance_digest,
+                ) = self._attest_identity_center_instance()
                 kms_session_binding_digest = canonical_digest(
                     {
                         "source": _IDENTITY_CENTER_KMS_BINDING_SOURCE,
@@ -1463,6 +1579,7 @@ class _SnapshotProvider:
                         "authority_verification_digest": self._identities[domain][
                             "authority_verification_digest"
                         ],
+                        "described_instance_digest": described_instance_digest,
                     }
                 )
                 pages = [
@@ -1903,6 +2020,14 @@ class _SnapshotProvider:
             for value in expected.values()
         ):
             _fail("COLLISION_PROVIDER_DISPOSITIONS_INVALID")
+        if (
+            domain == "management"
+            and self._request.get(
+                "expected_identity_center_kms_binding_digest"
+            )
+            is not None
+        ):
+            self._attest_identity_center_instance()
         result: dict[str, dict[str, Any]] = {}
         for target_id in sorted(supplied):
             target = supplied[target_id]

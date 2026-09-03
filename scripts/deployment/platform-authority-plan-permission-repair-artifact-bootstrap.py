@@ -928,7 +928,6 @@ def _connected(
     profile: str,
     claim_root: Path,
     collision_admission_root: Path | None = None,
-    gug393_private_root: Path | None = None,
     gug395_private_root: Path | None = None,
 ) -> dict[str, Any]:
     collision_admission_required = action in _MUTATING_CONNECTED_ACTIONS and not (
@@ -940,13 +939,11 @@ def _connected(
     data = _exact(bundle, fields)
     if collision_admission_required and (
         collision_admission_root is None
-        or gug393_private_root is None
         or gug395_private_root is None
     ):
         raise CliError("COLLISION_ADMISSION_REQUIRED")
     if not collision_admission_required and (
         collision_admission_root is not None
-        or gug393_private_root is not None
         or gug395_private_root is not None
     ):
         raise CliError("COLLISION_ADMISSION_FORBIDDEN")
@@ -1005,7 +1002,6 @@ def _connected(
 
     collision_admission_loader = None
     if collision_admission_root is not None:
-        assert gug393_private_root is not None
         assert gug395_private_root is not None
         authorization = data.get("authorization")
         bootstrap_intent = data.get("bootstrap_intent")
@@ -1018,7 +1014,6 @@ def _connected(
             context.build_atomic_loader_from_private_context(
                 admission_private_root=collision_admission_root,
                 effect_private_root=private_root,
-                gug393_private_root=gug393_private_root,
                 gug395_private_root=gug395_private_root,
                 expected_approval_reference_digest=authorization.get(
                     "authorization_digest"
@@ -1097,7 +1092,6 @@ def _parser() -> argparse.ArgumentParser:
             )
             command.add_argument("--claim-root", type=Path, required=True)
             command.add_argument("--collision-admission-root", type=Path)
-            command.add_argument("--gug393-private-root", type=Path)
             command.add_argument("--gug395-private-root", type=Path)
     return parser
 
@@ -1124,7 +1118,6 @@ def main(argv: list[str] | None = None) -> int:
                 profile=args.profile,
                 claim_root=args.claim_root,
                 collision_admission_root=args.collision_admission_root,
-                gug393_private_root=args.gug393_private_root,
                 gug395_private_root=args.gug395_private_root,
             )
         else:

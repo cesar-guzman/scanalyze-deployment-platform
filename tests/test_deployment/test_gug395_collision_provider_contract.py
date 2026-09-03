@@ -18,6 +18,11 @@ AUTHORITY_ACCOUNT = "042360977644"
 IDENTITY_ACCOUNT = "839393571433"
 AUTHORITY_PROFILE = "042360977644_AWSReadOnlyAccess"
 IDENTITY_PROFILE = "839393571433_AWSReadOnlyAccess"
+IDENTITY_STORE_ID = "d-Ab12Cd34E5"
+IDENTITY_KMS_KEY_ARN = (
+    "arn:aws:kms:us-east-1:839393571433:"
+    "key/33333333-3333-3333-3333-333333333333"
+)
 ARTIFACT_BUCKET = (
     "scanalyze-g376-art-aaaaaaaaaaaa-"
     f"{AUTHORITY_ACCOUNT}-us-east-1-an"
@@ -44,6 +49,53 @@ def _tag_pairs(tag_contract: Mapping[str, str]) -> list[dict[str, str]]:
             for key, value in tag_contract.items()
         ),
         key=lambda item: (item["key_digest"], item["value_digest"]),
+    )
+
+
+def _instance_summary(instance_arn: str) -> dict[str, str]:
+    return {
+        "InstanceArn": instance_arn,
+        "IdentityStoreId": IDENTITY_STORE_ID,
+        "OwnerAccountId": IDENTITY_ACCOUNT,
+        "Status": "ACTIVE",
+    }
+
+
+def _described_instance(
+    instance_arn: str,
+    *,
+    key_type: str = "CUSTOMER_MANAGED_KEY",
+    kms_key_arn: str | None = IDENTITY_KMS_KEY_ARN,
+    encryption_status: str = "ENABLED",
+) -> dict[str, Any]:
+    return {
+        **_instance_summary(instance_arn),
+        "EncryptionConfigurationDetails": {
+            "KeyType": key_type,
+            "KmsKeyArn": kms_key_arn,
+            "EncryptionStatus": encryption_status,
+        },
+    }
+
+
+def test_describe_instance_projector_preserves_canonical_aws_owned_shape() -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+
+    projected = provider._RESPONSE_PROJECTORS["sso:DescribeInstance"](
+        {
+            **_instance_summary(instance_arn),
+            "EncryptionConfigurationDetails": {
+                "KeyType": "AWS_OWNED_KMS_KEY",
+                "EncryptionStatus": "ENABLED",
+            },
+        },
+        {"InstanceArn": instance_arn},
+    )
+
+    assert projected == _described_instance(
+        instance_arn,
+        key_type="AWS_OWNED_KMS_KEY",
+        kms_key_arn=None,
     )
 
 
@@ -93,6 +145,8 @@ def _builder_arguments(sdk_runtime_root: Path) -> dict[str, Any]:
         "identity_expected_account_id": IDENTITY_ACCOUNT,
         "identity_expected_principal_digest": _digest("identity-principal"),
         "identity_expected_sso_role_name_digest": _digest("identity-role"),
+        "identity_expected_kms_mode": "CUSTOMER_MANAGED_KEY",
+        "identity_expected_kms_key_arn": IDENTITY_KMS_KEY_ARN,
         "authority_verification_digest": _digest("authority-verification"),
         "identity_authority_verification_digest": _digest(
             "identity-verification"
@@ -545,6 +599,7 @@ def test_identity_policy_uses_primary_region_only_for_supported_actions() -> Non
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     supported = {
         "sso:DescribeApplication",
+        "sso:DescribeInstance",
         "sso:DescribePermissionSet",
         "sso:ListPermissionSets",
     }
@@ -574,6 +629,68 @@ def test_identity_policy_uses_primary_region_only_for_supported_actions() -> Non
 
     assert primary_region_actions == supported
     assert non_primary_region_actions == unsupported
+    describe_instance = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "DescribeExactIdentityCenterInstance"
+    )
+    assert describe_instance["Action"] == "sso:DescribeInstance"
+    assert describe_instance["Resource"] == "${identity_center_instance_arn}"
+    assert all(
+        "sso:DescribeInstance"
+        not in (
+            {statement["Action"]}
+            if isinstance(statement.get("Action"), str)
+            else set(statement.get("Action", []))
+        )
+        for statement in policy["Statement"]
+        if statement.get("Sid") != "DescribeExactIdentityCenterInstance"
+        and statement.get("Effect") == "Allow"
+    )
+    describe_permission_set = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid")
+        == "DescribePrimaryRegionIdentityCenterPermissionSets"
+    )
+    assert describe_permission_set["Action"] == "sso:DescribePermissionSet"
+    assert describe_permission_set["Resource"] == [
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*",
+    ]
+    describe_application = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid")
+        == "DescribePrimaryRegionIdentityCenterApplications"
+    )
+    assert describe_application["Resource"] == (
+        "arn:aws:sso::${management_account_id}:application/"
+        "${identity_center_instance_id}/*"
+    )
+    tag_statement = next(
+        statement
+        for statement in policy["Statement"]
+        if statement.get("Sid") == "ReadOnlyIdentityCenterCandidateTags"
+    )
+    assert tag_statement["Resource"] == [
+        "${identity_center_instance_arn}",
+        (
+            "arn:aws:sso::${management_account_id}:application/"
+            "${identity_center_instance_id}/*"
+        ),
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*",
+    ]
+    rendered_resources = json.dumps(
+        [
+            statement.get("Resource")
+            for statement in policy["Statement"]
+            if statement.get("Effect") == "Allow"
+        ],
+        sort_keys=True,
+    )
+    assert 'application/*"' not in rendered_resources
+    assert 'permissionSet/*"' not in rendered_resources
 
 
 def test_identity_policy_scopes_indirect_kms_dependency_without_adapter_dispatch(
@@ -600,11 +717,10 @@ def test_identity_policy_scopes_indirect_kms_dependency_without_adapter_dispatch
             "Resource": "${identity_center_kms_key_arn}",
             "Condition": {
                 "StringEquals": {
+                    "aws:PrincipalAccount": "${management_account_id}",
                     "aws:RequestedRegion": provider.REGION,
                     "kms:CallerAccount": "${management_account_id}",
                     "kms:ViaService": "sso.us-east-1.amazonaws.com",
-                },
-                "StringLike": {
                     "kms:EncryptionContext:aws:sso:instance-arn": (
                         "${identity_center_instance_arn}"
                     )
@@ -657,6 +773,187 @@ class _ScriptedCollisionSession:
         if callable(value):
             value = value(kwargs)
         return copy.deepcopy(value)
+
+
+@pytest.mark.parametrize(
+    (
+        "expected_mode",
+        "expected_key_arn",
+        "observed_key_type",
+    ),
+    [
+        ("AWS_OWNED_KMS_KEY", None, "AWS_OWNED_KMS_KEY"),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            IDENTITY_KMS_KEY_ARN,
+            "CUSTOMER_MANAGED_KEY",
+        ),
+    ],
+)
+def test_identity_instance_encryption_is_bound_before_inventory(
+    expected_mode: str,
+    expected_key_arn: str | None,
+    observed_key_type: str,
+) -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    session = _ScriptedCollisionSession(
+        pages={
+            "sso:ListInstances": [_instance_summary(instance_arn)],
+            "sso:ListApplications": [],
+            "sso:ListPermissionSets": [],
+        },
+        values={
+            "sso:DescribeInstance": _described_instance(
+                instance_arn,
+                key_type=observed_key_type,
+                kms_key_arn=expected_key_arn,
+            )
+        },
+    )
+
+    facts = provider._CollisionIdentityReader(session)._read_explicit_facts(
+        instance_arn=instance_arn,
+        expected_identity_center_kms_mode=expected_mode,
+        expected_identity_center_kms_key_arn=expected_key_arn,
+        application_name="ScanalyzeAuthorityRetirement",
+        classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+        approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+        tag_contract=contract.IDENTITY_TAG_CONTRACT,
+        max_applications=1,
+        max_permission_sets=1,
+    )
+
+    assert facts["described_instance"] == _described_instance(
+        instance_arn,
+        key_type=expected_mode,
+        kms_key_arn=expected_key_arn,
+    )
+    assert [(kind, operation) for kind, operation, _ in session.calls] == [
+        ("paginate", "sso:ListInstances"),
+        ("invoke", "sso:DescribeInstance"),
+        ("paginate", "sso:ListApplications"),
+        ("paginate", "sso:ListPermissionSets"),
+    ]
+    assert session.calls[1][2]["request"] == {"InstanceArn": instance_arn}
+
+
+@pytest.mark.parametrize(
+    ("key_type", "kms_key_arn", "encryption_status"),
+    [
+        ("AWS_OWNED_KEY", None, "ENABLED"),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/different-key-id",
+            "ENABLED",
+        ),
+        ("CUSTOMER_MANAGED_KEY", IDENTITY_KMS_KEY_ARN, "DISABLED"),
+    ],
+)
+def test_identity_instance_encryption_drift_fails_before_candidate_inventory(
+    key_type: str,
+    kms_key_arn: str | None,
+    encryption_status: str,
+) -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    session = _ScriptedCollisionSession(
+        pages={"sso:ListInstances": [_instance_summary(instance_arn)]},
+        values={
+            "sso:DescribeInstance": _described_instance(
+                instance_arn,
+                key_type=key_type,
+                kms_key_arn=kms_key_arn,
+                encryption_status=encryption_status,
+            )
+        },
+    )
+
+    with pytest.raises(
+        provider.LiveProviderError,
+        match="^COLLISION_IDENTITY_KMS_BINDING_MISMATCH$",
+    ):
+        provider._CollisionIdentityReader(session)._read_explicit_facts(
+            instance_arn=instance_arn,
+            expected_identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+            expected_identity_center_kms_key_arn=IDENTITY_KMS_KEY_ARN,
+            application_name="ScanalyzeAuthorityRetirement",
+            classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+            approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+            tag_contract=contract.IDENTITY_TAG_CONTRACT,
+            max_applications=1,
+            max_permission_sets=1,
+        )
+
+    assert [operation for _, operation, _ in session.calls] == [
+        "sso:ListInstances",
+        "sso:DescribeInstance",
+    ]
+
+
+def test_aws_owned_wire_alias_is_rejected_fail_closed() -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    session = _ScriptedCollisionSession(
+        pages={"sso:ListInstances": [_instance_summary(instance_arn)]},
+        values={
+            "sso:DescribeInstance": _described_instance(
+                instance_arn,
+                key_type="AWS_OWNED_KEY",
+                kms_key_arn=None,
+            )
+        },
+    )
+
+    with pytest.raises(
+        provider.LiveProviderError,
+        match="^COLLISION_IDENTITY_KMS_BINDING_MISMATCH$",
+    ):
+        provider._CollisionIdentityReader(session)._read_explicit_facts(
+            instance_arn=instance_arn,
+            expected_identity_center_kms_mode="AWS_OWNED_KMS_KEY",
+            expected_identity_center_kms_key_arn=None,
+            application_name="ScanalyzeAuthorityRetirement",
+            classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+            approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+            tag_contract=contract.IDENTITY_TAG_CONTRACT,
+            max_applications=1,
+            max_permission_sets=1,
+        )
+
+    assert [operation for _, operation, _ in session.calls] == [
+        "sso:ListInstances",
+        "sso:DescribeInstance",
+    ]
+
+
+def test_described_identity_store_must_cross_match_list_instances() -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    described = _described_instance(instance_arn)
+    described["IdentityStoreId"] = "d-Zy98Xw76V5"
+    session = _ScriptedCollisionSession(
+        pages={"sso:ListInstances": [_instance_summary(instance_arn)]},
+        values={"sso:DescribeInstance": described},
+    )
+
+    with pytest.raises(
+        provider.LiveProviderError,
+        match="^COLLISION_IDENTITY_KMS_BINDING_MISMATCH$",
+    ):
+        provider._CollisionIdentityReader(session)._read_explicit_facts(
+            instance_arn=instance_arn,
+            expected_identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+            expected_identity_center_kms_key_arn=IDENTITY_KMS_KEY_ARN,
+            application_name="ScanalyzeAuthorityRetirement",
+            classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+            approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+            tag_contract=contract.IDENTITY_TAG_CONTRACT,
+            max_applications=1,
+            max_permission_sets=1,
+        )
+
+    assert [operation for _, operation, _ in session.calls] == [
+        "sso:ListInstances",
+        "sso:DescribeInstance",
+    ]
+
 
 def test_authority_selectors_detect_exact_bucket_and_tag_collisions() -> None:
     tags = _tag_pairs(contract.AUTHORITY_TAG_CONTRACT)
@@ -1007,11 +1304,7 @@ def test_identity_selectors_detect_tag_collision_without_exact_name() -> None:
     session = _ScriptedCollisionSession(
         pages={
             "sso:ListInstances": [
-                {
-                    "InstanceArn": instance_arn,
-                    "OwnerAccountId": IDENTITY_ACCOUNT,
-                    "Status": "ACTIVE",
-                }
+                _instance_summary(instance_arn)
             ],
             "sso:ListApplications": [
                 {
@@ -1025,6 +1318,7 @@ def test_identity_selectors_detect_tag_collision_without_exact_name() -> None:
             "sso:ListTagsForResource": tags,
         },
         values={
+            "sso:DescribeInstance": _described_instance(instance_arn),
             "sso:DescribeApplication": {
                 "ApplicationArn": application_arn,
                 "ApplicationAccount": IDENTITY_ACCOUNT,
@@ -1039,6 +1333,8 @@ def test_identity_selectors_detect_tag_collision_without_exact_name() -> None:
 
     facts = provider._CollisionIdentityReader(session)._read_explicit_facts(
         instance_arn=instance_arn,
+        expected_identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        expected_identity_center_kms_key_arn=IDENTITY_KMS_KEY_ARN,
         application_name="ScanalyzeAuthorityRetirement",
         classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
         approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
@@ -1073,11 +1369,7 @@ def test_identity_instance_and_application_bindings_fail_closed(
         f"arn:aws:sso::{IDENTITY_ACCOUNT}:application/"
         "ssoins-1234567890abcdef/apl-1234567890abcdef"
     )
-    instance = {
-        "InstanceArn": instance_arn,
-        "OwnerAccountId": IDENTITY_ACCOUNT,
-        "Status": "ACTIVE",
-    }
+    instance = _instance_summary(instance_arn)
     summary = {
         "ApplicationArn": application_arn,
         "ApplicationAccount": IDENTITY_ACCOUNT,
@@ -1106,18 +1398,23 @@ def test_identity_instance_and_application_bindings_fail_closed(
             "sso:ListApplications": [summary],
             "sso:ListPermissionSets": [],
         },
-        values={"sso:DescribeApplication": description},
+        values={
+            "sso:DescribeInstance": _described_instance(instance_arn),
+            "sso:DescribeApplication": description,
+        },
     )
 
     with pytest.raises(
         provider.LiveProviderError,
         match=(
-            "^COLLISION_(?:IDENTITY_OWNER_MISMATCH|"
+            "^COLLISION_(?:IDENTITY_INSTANCE_MISMATCH|"
             "PROBE_RESPONSE_CONFLICT)$"
         ),
     ):
         provider._CollisionIdentityReader(session)._read_explicit_facts(
             instance_arn=instance_arn,
+            expected_identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+            expected_identity_center_kms_key_arn=IDENTITY_KMS_KEY_ARN,
             application_name="ApplicationName",
             classifier_permission_set_name="Classifier",
             approver_permission_set_name="Approver",
@@ -1193,11 +1490,7 @@ def test_identity_caps_stop_before_corresponding_detail_calls(
     instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
     pages: dict[str, Any] = {
         "sso:ListInstances": [
-            {
-                "InstanceArn": instance_arn,
-                "OwnerAccountId": IDENTITY_ACCOUNT,
-                "Status": "ACTIVE",
-            }
+            _instance_summary(instance_arn)
         ],
         "sso:ListApplications": [],
         "sso:ListPermissionSets": [],
@@ -1212,7 +1505,12 @@ def test_identity_caps_stop_before_corresponding_detail_calls(
             "arn:permission-set:one",
             "arn:permission-set:two",
         ]
-    session = _ScriptedCollisionSession(pages=pages)
+    session = _ScriptedCollisionSession(
+        pages=pages,
+        values={
+            "sso:DescribeInstance": _described_instance(instance_arn)
+        },
+    )
 
     with pytest.raises(
         provider.LiveProviderError,
@@ -1220,6 +1518,8 @@ def test_identity_caps_stop_before_corresponding_detail_calls(
     ):
         provider._CollisionIdentityReader(session)._read_explicit_facts(
             instance_arn=instance_arn,
+            expected_identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+            expected_identity_center_kms_key_arn=IDENTITY_KMS_KEY_ARN,
             application_name="ScanalyzeAuthorityRetirement",
             classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
             approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
@@ -1230,11 +1530,23 @@ def test_identity_caps_stop_before_corresponding_detail_calls(
 
     operations = [operation for _, operation, _ in session.calls]
     if over_cap_resource == "applications":
-        assert operations == ["sso:ListInstances", "sso:ListApplications"]
+        assert operations == [
+            "sso:ListInstances",
+            "sso:DescribeInstance",
+            "sso:ListApplications",
+        ]
     else:
         assert operations == [
             "sso:ListInstances",
+            "sso:DescribeInstance",
             "sso:ListApplications",
             "sso:ListPermissionSets",
         ]
-    assert all(kind == "paginate" for kind, _, _ in session.calls)
+    assert [kind for kind, _, _ in session.calls] == [
+        "paginate",
+        "invoke",
+        *(["paginate"] if over_cap_resource == "applications" else [
+            "paginate",
+            "paginate",
+        ]),
+    ]

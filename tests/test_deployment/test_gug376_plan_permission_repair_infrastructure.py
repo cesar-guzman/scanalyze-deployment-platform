@@ -757,7 +757,8 @@ def test_ledger_is_retained_encrypted_protected_and_stage_writer_bound(
         },
         "ForAllValues:StringNotEquals": {
             "dynamodb:LeadingKeys": [
-                {"Fn::Sub": "${RepairId}#reconcile-v1"}
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
             ]
         },
         "Null": {"dynamodb:LeadingKeys": "false"},
@@ -862,25 +863,28 @@ def test_runtime_expected_ledger_policy_is_exactly_the_resolved_template_policy(
 
 
 @pytest.mark.parametrize(
-    ("outside_sid", "missing_sid", "role", "exact_key"),
+    ("outside_sid", "missing_sid", "role", "exact_keys"),
     [
         (
             "DenyPlanWritesOutsideBaseKey",
             "DenyPlanWritesWithoutBaseKey",
             "PlanExecutionRole",
-            {"Ref": "RepairId"},
+            [{"Ref": "RepairId"}],
         ),
         (
             "DenyRepairWritesOutsideBaseKey",
             "DenyRepairWritesWithoutBaseKey",
             "RepairExecutionRole",
-            {"Ref": "RepairId"},
+            [{"Ref": "RepairId"}],
         ),
         (
             "DenyReconcileWritesOutsideAttestationKey",
             "DenyReconcileWritesWithoutAttestationKey",
             "ReconcileExecutionRole",
-            {"Fn::Sub": "${RepairId}#reconcile-v1"},
+            [
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ],
         ),
     ],
 )
@@ -889,7 +893,7 @@ def test_external_ledger_grant_cannot_bypass_exact_writer_key(
     outside_sid: str,
     missing_sid: str,
     role: str,
-    exact_key: dict[str, str],
+    exact_keys: list[dict[str, str]],
 ) -> None:
     statements = authority["Resources"]["RepairLedger"]["Properties"][
         "ResourcePolicy"
@@ -906,7 +910,7 @@ def test_external_ledger_grant_cannot_bypass_exact_writer_key(
         expected_principal
     )
     assert outside["Condition"]["ForAllValues:StringNotEquals"] == {
-        "dynamodb:LeadingKeys": [exact_key]
+        "dynamodb:LeadingKeys": exact_keys
     }
     assert outside["Condition"]["Null"] == {
         "dynamodb:LeadingKeys": "false"
@@ -940,7 +944,19 @@ def test_execution_roles_preserve_plan_repair_reconcile_separation(
     assert reconcile_write["Condition"] == {
         "ForAllValues:StringEquals": {
             "dynamodb:LeadingKeys": [
-                {"Fn::Sub": "${RepairId}#reconcile-v1"}
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    reconcile_read = _by_sid(reconcile, "ReadExactRepairLedgerItem")
+    assert reconcile_read["Condition"] == {
+        "ForAllValues:StringEquals": {
+            "dynamodb:LeadingKeys": [
+                {"Ref": "RepairId"},
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
             ]
         },
         "Null": {"dynamodb:LeadingKeys": "false"},
@@ -953,6 +969,9 @@ def test_execution_roles_preserve_plan_repair_reconcile_separation(
     assert "ScanalyzeBootstrapPlanRepairMutation" not in json.dumps(reconcile)
     assert "ScanalyzeBootstrapPlanRepairReadback" in json.dumps(plan)
     assert "ScanalyzeBootstrapPlanRepairReadback" in json.dumps(reconcile)
+    assert "#reconcile-attempt-v1" not in json.dumps(plan)
+    assert "#reconcile-attempt-v1" not in json.dumps(repair)
+    assert "#reconcile-attempt-v1" in json.dumps(reconcile)
     for policy, sid, function_name in (
         (
             plan,

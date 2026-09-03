@@ -100,6 +100,7 @@ Identity Center permits only:
 ```text
 sts:GetCallerIdentity
 sso:ListInstances
+sso:DescribeInstance
 sso:ListApplications
 sso:DescribeApplication
 sso:ListPermissionSets
@@ -125,6 +126,20 @@ call in each of four independent sessions. SDK retries and automatic S3
 regional redirection are disabled. The two profiles must be distinct,
 non-default, direct SSO, read-only and bound to different expected accounts
 and exact expected role/principal digests.
+
+Each Identity Center snapshot has one fixed causal sequence: confirm the
+caller, close the complete `sso:ListInstances` stream, require exactly one
+matching active target instance, call `sso:DescribeInstance` exactly once for
+that instance ARN, and only then list applications and permission sets. The
+projected description must cross-match the list summary and the owner-sealed
+expected account, Identity Store ID, status and encryption selectors. The
+private binding fields `identity_center_kms_mode` and
+`identity_center_kms_key_arn` are expected selectors, not evidence. The
+authoritative state is the pair of stable live `DescribeInstance` responses.
+`AWS_OWNED_KMS_KEY` requires a null key ARN; `CUSTOMER_MANAGED_KEY` requires the
+exact private `us-east-1` key ARN owned by the expected management account.
+Any mismatch, missing description, disabled encryption or instability is
+`UNCERTAIN_RECONCILE_ONLY`.
 
 ### 4. Bound pages, resources, responses, network attempts and modeled cost
 

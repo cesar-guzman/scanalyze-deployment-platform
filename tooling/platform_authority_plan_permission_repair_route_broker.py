@@ -95,7 +95,7 @@ AUTHORITY_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST = (
     "sha256:3ef3a79522c2794dc87201b0103e577f699a1fe5c0d8f901b0bebb09474be274"
 )
 MANAGEMENT_COLLISION_READER_POLICY_SOURCE_CONTRACT_DIGEST = (
-    "sha256:ad70c69b7bb3a40e725980d1ea01be0ec4b798c35034af4e20bad1752f11acf2"
+    "sha256:d930e9fc3bd64af42c1e789a5828742990de10f64ddeed44ef0216d47db5648e"
 )
 MANAGEMENT_COLLISION_READER_TRUST_SOURCE_CONTRACT_DIGEST = (
     "sha256:8219a0b88df42cc9e8c2d5d21f9537d6211e20c376fd73106237737ab35579fa"
@@ -123,12 +123,21 @@ REPAIR_INVOKER_PERMISSION_SET_SENTINEL = (
 CONFIG_RECORD_TYPE = (
     "scanalyze.platform_authority.plan_permission_repair_route_broker_config.v1"
 )
-# This marker is intentionally compact because the complete envelope is stored
-# in Lambda environment variables under the 4,096-byte aggregate quota.  The
-# decoded config retains the full governed record type and all bindings.
-COMPRESSED_CONFIG_RECORD_TYPE = (
+# These markers are intentionally compact because the complete envelope is
+# stored in Lambda environment variables under the 4,096-byte aggregate quota.
+# V2 remains a read-compatible historical representation.  New producers emit
+# V3, which losslessly packs SHA-256 values before dictionary compression; the
+# decoded config retains the full governed record type and every binding.
+COMPRESSED_CONFIG_RECORD_TYPE_V2 = (
     "scanalyze.gug376.route_broker_config.v2"
 )
+COMPRESSED_CONFIG_RECORD_TYPE_V3 = (
+    "scanalyze.gug376.route_broker_config.v3"
+)
+COMPRESSED_CONFIG_RECORD_TYPE = COMPRESSED_CONFIG_RECORD_TYPE_V3
+_RUNTIME_CONFIG_ENCODING_V2 = "deflate-dict-v2+base85"
+_RUNTIME_CONFIG_ENCODING_V3 = "deflate-dict-v3+base85"
+_RUNTIME_CONFIG_DIGEST_TOKEN_PREFIX = ":"
 LEDGER_RECORD_TYPE = (
     "scanalyze.platform_authority.plan_permission_repair_route_broker_ledger.v1"
 )
@@ -216,6 +225,11 @@ _AUTHORITY_KMS_KEY_ARN_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+_IDENTITY_CENTER_KMS_KEY_ARN_RE = re.compile(
+    rf"^arn:aws:kms:{REGION}:{MANAGEMENT_ACCOUNT_ID}:key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -266,7 +280,7 @@ _COMPRESSED_CONFIG_FIELDS = frozenset(
         "payload",
     }
 )
-_RUNTIME_CONFIG_DICTIONARY = b"""
+_RUNTIME_CONFIG_DICTIONARY_BASE = b"""
 schema_version record_type source_commit ledger_id ledger_binding_digest
 initialization_digest repair_id bootstrap_change_set_name
 foundation_publish_binding_digest source_tree_sha bootstrap_intent_digest
@@ -555,16 +569,20 @@ _RUNTIME_CONFIG_CREATOR_DICTIONARY = json.dumps(
     sort_keys=True,
     separators=(",", ":"),
 ).encode("utf-8")
-_RUNTIME_CONFIG_DICTIONARY = b"\n".join(
+_RUNTIME_CONFIG_DICTIONARY_V2 = b"\n".join(
     (
         _RUNTIME_CONFIG_CREATOR_DICTIONARY,
         _RUNTIME_CONFIG_CHANGE_DICTIONARY,
-        _RUNTIME_CONFIG_DICTIONARY,
+        _RUNTIME_CONFIG_DICTIONARY_BASE,
     )
 )
+# V2 is the exact dictionary used by the last committed V2 producer.  Keep V3
+# independently named so future V3 tuning cannot silently invalidate V2 input.
+_RUNTIME_CONFIG_DICTIONARY_V3 = _RUNTIME_CONFIG_DICTIONARY_V2
 del _config_dictionary_changes
 del _RUNTIME_CONFIG_CHANGE_DICTIONARY
 del _RUNTIME_CONFIG_CREATOR_DICTIONARY
+del _RUNTIME_CONFIG_DICTIONARY_BASE
 _TERMINAL_EXPECTATION_FIELDS = frozenset(
     {
         "account_id",
@@ -1159,48 +1177,128 @@ def _json_copy(value: Any) -> Any:
         raise RouteBrokerError("CONFIG_JSON_INVALID") from exc
 
 
-def encode_runtime_config(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the deterministic dictionary-compressed runtime envelope."""
-
-    # Parse first so the compressed envelope can never legitimize bad config.
-    BrokerConfig.from_mapping(value)
-    raw = canonical_json(value).encode("utf-8")
+def _compress_runtime_config(raw: bytes, *, dictionary: bytes) -> str:
     compressor = zlib.compressobj(
         level=9,
         method=zlib.DEFLATED,
         wbits=-zlib.MAX_WBITS,
         memLevel=9,
         strategy=zlib.Z_DEFAULT_STRATEGY,
-        zdict=_RUNTIME_CONFIG_DICTIONARY,
+        zdict=dictionary,
     )
     compressed = compressor.compress(raw) + compressor.flush()
+    return base64.b85encode(compressed).decode("ascii")
+
+
+def _pack_runtime_config_v3(value: Any) -> Any:
+    """Losslessly shorten digests without changing the governed config."""
+
+    if isinstance(value, str):
+        if _DIGEST_RE.fullmatch(value) is not None:
+            digest_bytes = bytes.fromhex(value.removeprefix("sha256:"))
+            return _RUNTIME_CONFIG_DIGEST_TOKEN_PREFIX + base64.b85encode(
+                digest_bytes
+            ).decode("ascii")
+        if value.startswith(_RUNTIME_CONFIG_DIGEST_TOKEN_PREFIX):
+            return _RUNTIME_CONFIG_DIGEST_TOKEN_PREFIX + value
+        return value
+    if isinstance(value, list):
+        return [_pack_runtime_config_v3(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _pack_runtime_config_v3(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _unpack_runtime_config_v3(value: Any) -> Any:
+    """Reverse the V3 digest packing, rejecting non-canonical tokens."""
+
+    if isinstance(value, str):
+        prefix = _RUNTIME_CONFIG_DIGEST_TOKEN_PREFIX
+        if value.startswith(prefix + prefix):
+            return value.removeprefix(prefix)
+        if value.startswith(prefix):
+            token = value.removeprefix(prefix)
+            if len(token) != 40:
+                raise ValueError("invalid packed digest length")
+            digest_bytes = base64.b85decode(token)
+            if (
+                len(digest_bytes) != 32
+                or base64.b85encode(digest_bytes).decode("ascii") != token
+            ):
+                raise ValueError("non-canonical packed digest")
+            return "sha256:" + digest_bytes.hex()
+        return value
+    if isinstance(value, list):
+        return [_unpack_runtime_config_v3(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _unpack_runtime_config_v3(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _encode_runtime_config_v2(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Reproduce the historical V2 envelope for canonical read validation."""
+
+    BrokerConfig.from_mapping(value)
+    raw = canonical_json(value).encode("utf-8")
     return {
         "schema_version": 1,
-        "record_type": COMPRESSED_CONFIG_RECORD_TYPE,
-        "encoding": "deflate-dict-v2+base85",
-        "payload": base64.b85encode(compressed).decode("ascii"),
+        "record_type": COMPRESSED_CONFIG_RECORD_TYPE_V2,
+        "encoding": _RUNTIME_CONFIG_ENCODING_V2,
+        "payload": _compress_runtime_config(
+            raw, dictionary=_RUNTIME_CONFIG_DICTIONARY_V2
+        ),
+    }
+
+
+def encode_runtime_config(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the deterministic current-version compressed runtime envelope."""
+
+    # Parse first so the compressed envelope can never legitimize bad config.
+    BrokerConfig.from_mapping(value)
+    normalized = json.loads(canonical_json(value))
+    packed = _pack_runtime_config_v3(normalized)
+    raw = canonical_json(packed).encode("utf-8")
+    return {
+        "schema_version": 1,
+        "record_type": COMPRESSED_CONFIG_RECORD_TYPE_V3,
+        "encoding": _RUNTIME_CONFIG_ENCODING_V3,
+        "payload": _compress_runtime_config(
+            raw, dictionary=_RUNTIME_CONFIG_DICTIONARY_V3
+        ),
     }
 
 
 def decode_runtime_config(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Decode one closed envelope with an explicit 64 KiB expansion ceiling."""
+    """Decode canonical V2/V3 envelopes with a 64 KiB expansion ceiling."""
 
     if not isinstance(value, Mapping) or set(value) != _COMPRESSED_CONFIG_FIELDS:
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
-    if (
-        value.get("schema_version") != 1
-        or value.get("record_type") != COMPRESSED_CONFIG_RECORD_TYPE
-        or value.get("encoding") != "deflate-dict-v2+base85"
-    ):
+    record_type = value.get("record_type")
+    encoding = value.get("encoding")
+    if value.get("schema_version") != 1 or (record_type, encoding) not in {
+        (COMPRESSED_CONFIG_RECORD_TYPE_V2, _RUNTIME_CONFIG_ENCODING_V2),
+        (COMPRESSED_CONFIG_RECORD_TYPE_V3, _RUNTIME_CONFIG_ENCODING_V3),
+    }:
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
     payload = value.get("payload")
     if not isinstance(payload, str) or len(payload) > 65536:
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
     try:
         compressed = base64.b85decode(payload)
+        dictionary = (
+            _RUNTIME_CONFIG_DICTIONARY_V3
+            if record_type == COMPRESSED_CONFIG_RECORD_TYPE_V3
+            else _RUNTIME_CONFIG_DICTIONARY_V2
+        )
         inflater = zlib.decompressobj(
             wbits=-zlib.MAX_WBITS,
-            zdict=_RUNTIME_CONFIG_DICTIONARY,
+            zdict=dictionary,
         )
         raw = inflater.decompress(compressed, 65537)
         if (
@@ -1210,16 +1308,32 @@ def decode_runtime_config(value: Mapping[str, Any]) -> dict[str, Any]:
             or inflater.unused_data
         ):
             raise ValueError("expanded config exceeds limit")
-        decoded = json.loads(raw)
-    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        packed = json.loads(raw)
+    except (ValueError, OSError, json.JSONDecodeError, RecursionError) as exc:
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID") from exc
-    if not isinstance(decoded, dict):
+    if not isinstance(packed, dict):
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
     # Re-rendering rejects alternate JSON encodings hidden by compression.
-    if canonical_json(decoded).encode("utf-8") != raw:
+    if canonical_json(packed).encode("utf-8") != raw:
+        raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
+    try:
+        decoded = (
+            _unpack_runtime_config_v3(packed)
+            if record_type == COMPRESSED_CONFIG_RECORD_TYPE_V3
+            else packed
+        )
+        decoded_raw = canonical_json(decoded).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID") from exc
+    if not isinstance(decoded, dict) or len(decoded_raw) > 65536:
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
     BrokerConfig.from_mapping(decoded)
-    if encode_runtime_config(decoded) != dict(value):
+    canonical_envelope = (
+        encode_runtime_config(decoded)
+        if record_type == COMPRESSED_CONFIG_RECORD_TYPE_V3
+        else _encode_runtime_config_v2(decoded)
+    )
+    if canonical_envelope != dict(value):
         raise RouteBrokerError("RUNTIME_CONFIG_ENVELOPE_INVALID")
     return decoded
 
@@ -3563,23 +3677,12 @@ def _validate_repair_ledger(value: Mapping[str, Any], config: BrokerConfig) -> M
         and value.get("effects_attempted") == 2
         and value.get("effects_completed") == 2
     )
-    uncertain_reconciled = (
-        value.get("status") == "UNCERTAIN_RECONCILE_ONLY"
-        and value.get("stage")
-        in {
-            "UNCERTAIN_PROVISION_PERMISSION_SET",
-            "UNCERTAIN_PROVISION_PERMISSION_SET_LEDGER_COMMIT",
-            "UNCERTAIN_FINAL_READBACK",
-        }
-        and value.get("effects_attempted") == 2
-        and value.get("effects_completed") in {1, 2}
-    )
     if (
         value.get("schema_version") != 1
         or value.get("record_type") != REPAIR_LEDGER_RECORD_TYPE
         or value.get("repair_id") != config.repair_id
         or value.get("source_commit") != config.source_commit
-        or not (repair_verified or uncertain_reconciled)
+        or not repair_verified
         or value.get("provider_immutable") is not True
         or value.get("claim_condition") != "attribute_not_exists(repair_id)"
         or value.get("mutation_retry_attempted") is not False
@@ -3612,11 +3715,7 @@ def _validate_attestation(
         or value.get("source_commit") != config.source_commit
         or value.get("intent_digest") != repair_ledger["intent_digest"]
         or value.get("repair_ledger_digest") != repair_ledger["ledger_digest"]
-        or (
-            repair_ledger.get("status") == "REPAIR_VERIFIED"
-            and value.get("observed_state_digest")
-            != repair_ledger["state_digest"]
-        )
+        or value.get("observed_state_digest") != repair_ledger["state_digest"]
         or value.get("function_qualifier") != "reconcile-v1"
         or not isinstance(value.get("function_version"), str)
         or _VERSION_RE.fullmatch(str(value.get("function_version"))) is None
@@ -5149,7 +5248,9 @@ _COLLISION_SESSION_PURPOSES = {
         3: "pre-effect-snapshot",
     },
 }
-_COLLISION_KMS_BINDING_SOURCE = "GUG393_PRIVATE_MATERIALIZATION"
+_COLLISION_KMS_BINDING_SOURCE = (
+    "GUG376_ATTESTED_IDENTITY_CENTER_KMS_BINDING"
+)
 
 
 class _CollisionSdkSession:
@@ -5257,11 +5358,7 @@ def _collision_parameter_bindings(config: BrokerConfig) -> dict[str, Any]:
         or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
         or (
             mode == "CUSTOMER_MANAGED_KEY"
-            and re.fullmatch(
-                rf"arn:aws[a-z-]*:kms:{REGION}:{MANAGEMENT_ACCOUNT_ID}:key/"
-                r"[0-9A-Fa-f-]{36}",
-                str(key_arn),
-            )
+            and _IDENTITY_CENTER_KMS_KEY_ARN_RE.fullmatch(str(key_arn))
             is None
         )
     ):
@@ -5600,6 +5697,12 @@ class _InlineCollisionAdmissionAdapter:
                 effect_request=effect_request,
                 identity_bindings=self._identity_bindings,
                 identity_center_instance_arn=self._identity_center_instance_arn,
+                identity_center_kms_mode=self._kms_bindings[
+                    "identity_center_kms_mode"
+                ],
+                identity_center_kms_key_arn=self._kms_bindings[
+                    "identity_center_kms_key_arn"
+                ],
                 session_opener_for_policy=self._session_opener_for_policy,
                 expected_identity_center_kms_binding_digest=self._kms_bindings[
                     "identity_center_kms_binding_digest"
@@ -8317,6 +8420,8 @@ __all__ = [
     "CHANGE_SET_READBACK_RECORD_TYPE",
     "CONFIG_RECORD_TYPE",
     "COMPRESSED_CONFIG_RECORD_TYPE",
+    "COMPRESSED_CONFIG_RECORD_TYPE_V2",
+    "COMPRESSED_CONFIG_RECORD_TYPE_V3",
     "CREATE_RECOVERY_FUNCTION_NAME",
     "CREATE_RECOVERY_RECORD_TYPE",
     "CREATOR_ALIASES",

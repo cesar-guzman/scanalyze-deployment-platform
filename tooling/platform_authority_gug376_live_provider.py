@@ -80,6 +80,7 @@ COLLISION_PROBE_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = (
                 {
                     "sts:GetCallerIdentity",
                     "sso:ListInstances",
+                    "sso:DescribeInstance",
                     "sso:ListApplications",
                     "sso:DescribeApplication",
                     "sso:ListPermissionSets",
@@ -103,6 +104,15 @@ _ACCOUNT_REGIONAL_ARTIFACT_BUCKET = re.compile(
 )
 _SSO_ROLE_NAME = re.compile(r"^[A-Za-z0-9+=,.@_-]{1,64}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
+_IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
+_INSTANCE_ARN = re.compile(
+    r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$"
+)
+_KMS_KEY_ARN = re.compile(
+    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRINCIPAL = re.compile(
     r"^arn:aws:sts::([0-9]{12}):assumed-role/([A-Za-z0-9+=,.@_/-]+)/"
@@ -1263,9 +1273,11 @@ def _project_sso_describe_instance(
     )
     encryption = value.get("EncryptionConfigurationDetails")
     if isinstance(encryption, Mapping):
-        result["EncryptionConfigurationDetails"] = _selected(
-            encryption, ("KeyType", "KmsKeyArn", "EncryptionStatus")
-        )
+        result["EncryptionConfigurationDetails"] = {
+            "KeyType": encryption.get("KeyType"),
+            "KmsKeyArn": encryption.get("KmsKeyArn"),
+            "EncryptionStatus": encryption.get("EncryptionStatus"),
+        }
     return result
 
 
@@ -4600,13 +4612,24 @@ def consume_identity_discovery_transition_attestation(
         if value._consumed:  # type: ignore[attr-defined]
             _fail("DISCOVERY_TRANSITION_ATTESTATION_CONSUMED")
         value._consumed = True  # type: ignore[attr-defined]
-    return json.loads(canonical_json(value._discovery))  # type: ignore[attr-defined]
+    observation = json.loads(
+        canonical_json(value._discovery)  # type: ignore[attr-defined]
+    )
+    if (
+        not isinstance(observation, dict)
+        or set(observation) != {"discovery", "instance"}
+        or not isinstance(observation["discovery"], dict)
+        or not isinstance(observation["instance"], dict)
+    ):
+        _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+    return observation["discovery"]
 
 
 class _IdentityDiscoveryReader:
     def __init__(self, session: _StsSession) -> None:
         self._session = session
         self._observed: dict[str, list[dict[str, Any]]] = {}
+        self._instance: dict[str, Any] | None = None
         self._attested = False
 
     def _record_surface(
@@ -4676,6 +4699,31 @@ class _IdentityDiscoveryReader:
                 items.append({"name": name, "permission_set_arn": arn})
         return _identity_page(self._record_surface("permission_sets", items))
 
+    def describe_instance(self, instance_arn: str) -> Mapping[str, Any]:
+        if self._instance is not None:
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+        value = self._session._invoke(
+            operation="sso:DescribeInstance",
+            service="sso-admin",
+            method="describe_instance",
+            request={"InstanceArn": instance_arn},
+        )
+        encryption = value.get("EncryptionConfigurationDetails")
+        if not isinstance(encryption, Mapping):
+            _fail("PROVIDER_RESPONSE_INVALID")
+        self._instance = {
+            "instance_arn": value.get("InstanceArn"),
+            "identity_store_id": value.get("IdentityStoreId"),
+            "owner_account_id": value.get("OwnerAccountId"),
+            "status": value.get("Status"),
+            "encryption": {
+                "key_type": encryption.get("KeyType"),
+                "kms_key_arn": encryption.get("KmsKeyArn"),
+                "status": encryption.get("EncryptionStatus"),
+            },
+        }
+        return _one(self._instance)
+
     def attest_transition(
         self, discovery_digest: str
     ) -> _IdentityDiscoveryTransitionAttestation:
@@ -4686,6 +4734,7 @@ class _IdentityDiscoveryReader:
             for key in ("instances", "applications", "permission_sets")
             if key in self._observed
         }
+        observation = {"discovery": discovery, "instance": self._instance}
         session_events = [
             item
             for item in owner._events
@@ -4696,7 +4745,42 @@ class _IdentityDiscoveryReader:
             "sso:ListInstances",
             "sso:ListApplications",
             "sso:ListPermissionSets",
+            "sso:DescribeInstance",
         }
+        event_operations = [item.get("operation") for item in session_events]
+        operation_positions = {
+            operation: [
+                index
+                for index, observed in enumerate(event_operations)
+                if observed == operation
+            ]
+            for operation in required_operations
+        }
+        allowed_operations = required_operations | {
+            "sso:DescribePermissionSet"
+        }
+        ordered_discovery = (
+            len(operation_positions["sts:GetCallerIdentity"]) == 1
+            and operation_positions["sts:GetCallerIdentity"] == [0]
+            and len(operation_positions["sso:DescribeInstance"]) == 1
+            and all(
+                operation_positions[operation]
+                for operation in (
+                    "sso:ListInstances",
+                    "sso:ListApplications",
+                    "sso:ListPermissionSets",
+                )
+            )
+            and max(operation_positions["sso:ListInstances"])
+            < operation_positions["sso:DescribeInstance"][0]
+            < min(operation_positions["sso:ListApplications"])
+            < min(operation_positions["sso:ListPermissionSets"])
+            and all(
+                position > max(operation_positions["sso:ListPermissionSets"])
+                for position, operation in enumerate(event_operations)
+                if operation == "sso:DescribePermissionSet"
+            )
+        )
         if (
             self._attested
             or owner._provider_attestation is not _DISCOVERY_PROVIDER_ATTESTATION
@@ -4705,12 +4789,18 @@ class _IdentityDiscoveryReader:
             or self._session._identity_validated is not True
             or set(discovery)
             != {"instances", "applications", "permission_sets"}
+            or not isinstance(self._instance, dict)
             or _DIGEST.fullmatch(str(discovery_digest)) is None
-            or canonical_digest(discovery) != discovery_digest
+            or canonical_digest(observation) != discovery_digest
             or not session_events
             or session_events[0].get("operation") != "sts:GetCallerIdentity"
             or required_operations
             - {item.get("operation") for item in session_events}
+            or any(
+                operation not in allowed_operations
+                for operation in event_operations
+            )
+            or not ordered_discovery
             or any(item.get("outcome") != "SUCCESS" for item in session_events)
         ):
             _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
@@ -4722,7 +4812,7 @@ class _IdentityDiscoveryReader:
             capture_index=self._session._capture_index,
             session_digest=self._session._session_digest,
             policy_digest=self._session._policy_digest,
-            discovery=discovery,
+            discovery=observation,
             discovery_digest=discovery_digest,
             session_events_digest=canonical_digest(session_events),
         )
@@ -5111,6 +5201,31 @@ def _bounded_collision_facts(value: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(bounded, Mapping):
         _fail("PROVIDER_RESPONSE_INVALID")
     return bounded
+
+
+def _collision_identity_kms_binding(
+    *, mode: object, key_arn: object, account_id: str
+) -> tuple[str, str | None]:
+    """Validate the owner-sealed Identity Center encryption expectation."""
+
+    key_match = (
+        _KMS_KEY_ARN.fullmatch(key_arn)
+        if isinstance(key_arn, str)
+        else None
+    )
+    if (
+        mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+        or (
+            mode == "CUSTOMER_MANAGED_KEY"
+            and (
+                key_match is None
+                or key_match.group(1) != account_id
+            )
+        )
+    ):
+        _fail("COLLISION_IDENTITY_KMS_BINDING_INVALID")
+    return str(mode), key_arn if isinstance(key_arn, str) else None
 
 
 class _CollisionAuthorityReader:
@@ -5650,6 +5765,8 @@ class _CollisionIdentityReader:
         self,
         *,
         instance_arn: str,
+        expected_identity_center_kms_mode: str,
+        expected_identity_center_kms_key_arn: str | None,
         application_name: str,
         classifier_permission_set_name: str,
         approver_permission_set_name: str,
@@ -5658,6 +5775,8 @@ class _CollisionIdentityReader:
         max_permission_sets: int,
     ) -> Mapping[str, Any]:
         instance_arn = _collision_selector(instance_arn)
+        if _INSTANCE_ARN.fullmatch(instance_arn) is None:
+            _fail("COLLISION_SELECTOR_INVALID")
         application_name = _collision_selector(application_name)
         classifier_permission_set_name = _collision_selector(
             classifier_permission_set_name
@@ -5667,6 +5786,13 @@ class _CollisionIdentityReader:
         )
         if classifier_permission_set_name == approver_permission_set_name:
             _fail("COLLISION_SELECTOR_INVALID")
+        expected_kms_mode, expected_kms_key_arn = (
+            _collision_identity_kms_binding(
+                mode=expected_identity_center_kms_mode,
+                key_arn=expected_identity_center_kms_key_arn,
+                account_id=self._session._account_id,
+            )
+        )
         tag_contract = _collision_tag_contract(tag_contract)
         max_applications = _collision_resource_cap(
             max_applications, maximum=MAX_COLLISION_APPLICATIONS
@@ -5689,11 +5815,60 @@ class _CollisionIdentityReader:
             if isinstance(item, Mapping)
             and item.get("InstanceArn") == instance_arn
         ]
-        if len(instance_matches) > 1 or any(
-            item.get("OwnerAccountId") != self._session._account_id
-            for item in instance_matches
+        if len(instances) != 1 or len(instance_matches) != 1:
+            _fail("COLLISION_IDENTITY_INSTANCE_MISMATCH")
+        instance_summary = instance_matches[0]
+        summary_fields = {
+            "InstanceArn",
+            "IdentityStoreId",
+            "OwnerAccountId",
+            "Status",
+        }
+        if (
+            set(instance_summary) != summary_fields
+            or instance_summary.get("OwnerAccountId")
+            != self._session._account_id
+            or instance_summary.get("Status") != "ACTIVE"
+            or _IDENTITY_STORE.fullmatch(
+                str(instance_summary.get("IdentityStoreId"))
+            )
+            is None
         ):
-            _fail("COLLISION_IDENTITY_OWNER_MISMATCH")
+            _fail("COLLISION_IDENTITY_INSTANCE_MISMATCH")
+        described = self._session._invoke(
+            operation="sso:DescribeInstance",
+            service="sso-admin",
+            method="describe_instance",
+            request={"InstanceArn": instance_arn},
+        )
+        encryption = described.get("EncryptionConfigurationDetails")
+        if not isinstance(encryption, Mapping):
+            _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
+        described_instance = {
+            "InstanceArn": described.get("InstanceArn"),
+            "IdentityStoreId": described.get("IdentityStoreId"),
+            "OwnerAccountId": described.get("OwnerAccountId"),
+            "Status": described.get("Status"),
+            "EncryptionConfigurationDetails": {
+                "KeyType": encryption.get("KeyType"),
+                "KmsKeyArn": encryption.get("KmsKeyArn"),
+                "EncryptionStatus": encryption.get("EncryptionStatus"),
+            },
+        }
+        if (
+            {
+                key: described_instance[key]
+                for key in summary_fields
+            }
+            != instance_summary
+            or described_instance["EncryptionConfigurationDetails"]
+            != {
+                "KeyType": expected_kms_mode,
+                "KmsKeyArn": expected_kms_key_arn,
+                "EncryptionStatus": "ENABLED",
+            }
+        ):
+            _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
         applications: list[Any] = []
         described_applications: list[dict[str, Any]] = []
         application_matches: list[dict[str, Any]] = []
@@ -5839,6 +6014,7 @@ class _CollisionIdentityReader:
                 ),
                 "instances": instances,
                 "instance_matches": instance_matches,
+                "described_instance": described_instance,
                 "applications": applications,
                 "applications_examined": len(applications),
                 "described_applications": described_applications,
@@ -5868,6 +6044,8 @@ class _CollisionIdentityReader:
         *,
         max_applications: int,
         max_permission_sets: int,
+        expected_identity_center_kms_mode: str,
+        expected_identity_center_kms_key_arn: str | None,
     ) -> Mapping[str, Any]:
         _, identity_contract_raw = _collision_plaintext_contracts()
         application_target, identity_contract = _collision_target(
@@ -5906,6 +6084,12 @@ class _CollisionIdentityReader:
             _fail("COLLISION_TARGETS_INVALID")
         facts = self._read_explicit_facts(
             instance_arn=str(application_target["instance_arn"]),
+            expected_identity_center_kms_mode=(
+                expected_identity_center_kms_mode
+            ),
+            expected_identity_center_kms_key_arn=(
+                expected_identity_center_kms_key_arn
+            ),
             application_name=str(application_target["name"]),
             classifier_permission_set_name=str(classifier_target["name"]),
             approver_permission_set_name=str(approver_target["name"]),
@@ -5932,6 +6116,7 @@ class _CollisionIdentityReader:
             and len(instances) == 1
             and isinstance(matched_instance, Mapping)
             and matched_instance.get("Status") == "ACTIVE"
+            and facts.get("described_instance") is not None
         )
         return _bounded_collision_facts(
             {
@@ -6104,6 +6289,8 @@ def build_collision_probe_provider_factory(
     identity_expected_account_id: str,
     identity_expected_principal_digest: str,
     identity_expected_sso_role_name_digest: str,
+    identity_expected_kms_mode: str,
+    identity_expected_kms_key_arn: str | None,
     authority_verification_digest: str,
     identity_authority_verification_digest: str,
     collision_budget: object,
@@ -6183,6 +6370,8 @@ def build_collision_probe_provider_factory(
             identity_expected_sso_role_name_digest=(
                 identity_expected_sso_role_name_digest
             ),
+            identity_expected_kms_mode=identity_expected_kms_mode,
+            identity_expected_kms_key_arn=identity_expected_kms_key_arn,
             authority_verification_digest=authority_verification_digest,
             identity_authority_verification_digest=(
                 identity_authority_verification_digest

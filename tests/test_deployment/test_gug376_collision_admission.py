@@ -18,6 +18,7 @@ from tooling import (
     platform_authority_gug376_collision_transcript_contract as transcript_contract,
 )
 from tooling import platform_authority_gug376_collision_catalog as catalog_contract
+from tooling import platform_authority_gug376_collision_budget as budget_contract
 from tooling import platform_authority_gug376_collision_policy as policy_contract
 from tooling import platform_authority_plan_permission_repair_route_broker as broker
 
@@ -75,7 +76,7 @@ def test_session_mode_changes_only_after_both_readers_and_survives_route_revoke(
             subject.collision_session_mode_for_operation(operation)
 
     route_revoke = json.loads(
-        broker._RUNTIME_CONFIG_DICTIONARY.splitlines()[0]  # noqa: SLF001
+        broker._RUNTIME_CONFIG_DICTIONARY_V3.splitlines()[0]  # noqa: SLF001
     )["creator_contracts"]["route-revoke-create-v1"]["expected_changes"]
     assert route_revoke == [
         {
@@ -313,6 +314,7 @@ def _request(
     expires_at: datetime | None = None,
     expected_gug395_request_digest: str = "sha256:" + "f" * 64,
     expected_identities: dict[str, object] | None = None,
+    candidate_stage: bool = False,
 ) -> dict[str, object]:
     lineage_root = _gug395_root(root)
     monkeypatch.setattr(
@@ -321,13 +323,16 @@ def _request(
         lambda _root: _gug395_result(lineage_root, expires_at=expires_at),
     )
     catalog = _catalog()
+    policy_set = (
+        _candidate_policy_set(catalog)
+        if candidate_stage
+        else policy_contract.materialize_route_collision_policy_set(catalog)
+    )
     return subject.materialize_route_collision_admission_request(
         private_root=root,
         gug395_private_root=lineage_root,
         catalog=catalog,
-        collision_policy_set=(
-            policy_contract.materialize_route_collision_policy_set(catalog)
-        ),
+        collision_policy_set=policy_set,
         phase=phase or "artifact-foundation",
         operation=OPERATION,
         effect_request=EFFECT_REQUEST,
@@ -344,6 +349,64 @@ def _request(
         expires_at=_stamp(NOW + timedelta(minutes=10)),
         created_at=_stamp(NOW),
     )
+
+
+def _legacy_v1_request(
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    *,
+    candidate_stage: bool = False,
+) -> dict[str, object]:
+    request = copy.deepcopy(
+        _request(
+            monkeypatch,
+            root,
+            candidate_stage=candidate_stage,
+        )
+    )
+    request.pop("expected_identity_center_kms_binding_digest")
+    request["record_type"] = subject.REQUEST_TYPE_V1
+    request["schema_version"] = 1
+    request["collision_budget_digest"] = (
+        budget_contract.collision_budget_digest_v1(
+            session_mode=str(request["session_mode"]),
+            operation=str(request["operation"]),
+        )
+    )
+    request.pop("request_digest")
+    request["request_digest"] = subject.canonical_digest(request)
+    return request
+
+
+def test_request_version_readers_preserve_v1_and_select_v2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    current_root = _root(tmp_path / "current")
+    legacy_root = _root(tmp_path / "legacy")
+    current = _request(monkeypatch, current_root, candidate_stage=True)
+    legacy = _legacy_v1_request(
+        monkeypatch, legacy_root, candidate_stage=True
+    )
+
+    subject.validate_route_collision_admission_request_v1(legacy)
+    subject.validate_route_collision_admission_request_v2(current)
+    subject.validate_route_collision_admission_request(legacy)
+    subject.validate_route_collision_admission_request(current)
+    assert legacy["record_type"] == subject.REQUEST_TYPE_V1
+    assert legacy["schema_version"] == 1
+    assert "expected_identity_center_kms_binding_digest" not in legacy
+    assert legacy["request_digest"] == subject.canonical_digest(
+        {
+            key: value
+            for key, value in legacy.items()
+            if key != "request_digest"
+        }
+    )
+    with pytest.raises(
+        subject.RouteCollisionAdmissionError,
+        match="ROUTE_COLLISION_REQUEST_VERSION_UNSUPPORTED",
+    ):
+        subject.validate_route_collision_admission_request_v1(current)
 
 
 def test_atomic_root_rejects_relative_and_symlink_paths(tmp_path: Path) -> None:
@@ -514,6 +577,17 @@ _LIST_DISCOVERY_OPERATIONS = {
 }
 
 
+def _synthetic_described_instance_digest(
+    request: dict[str, object],
+) -> str:
+    return subject.canonical_digest(
+        {
+            "record_type": "test.synthetic_identity_center_instance.v1",
+            "request_digest": request["request_digest"],
+        }
+    )
+
+
 def _transcript_events(
     request: dict[str, object],
     capture_index: int,
@@ -535,6 +609,22 @@ def _transcript_events(
         operations: list[tuple[str, str, list[str]]] = [
             ("sts:GetCallerIdentity", "SUCCESS", [])
         ]
+        kms_binding = request.get(
+            "expected_identity_center_kms_binding_digest"
+        )
+        if domain == "management" and kms_binding is not None:
+            operations.append(
+                (
+                    "sso:DescribeInstance",
+                    "SUCCESS",
+                    sorted(
+                        str(target["target_id"])
+                        for target in targets
+                        if target["domain"] == "management"
+                        and target["service"] == "sso"
+                    ),
+                )
+            )
         for raw_target in targets:
             assert isinstance(raw_target, dict)
             if raw_target["domain"] != domain:
@@ -559,19 +649,26 @@ def _transcript_events(
                 if ownership != discovery:
                     operations.append((ownership, "SUCCESS", [target_id]))
         for operation, outcome, target_ids in operations:
-            projection = {
-                "page_item_digests": (
+            if operation == "sso:DescribeInstance":
+                page_item_digests = sorted(
                     [
-                        subject.canonical_digest(
-                            {
-                                "operation": operation,
-                                "target_ids": target_ids,
-                            }
-                        )
+                        str(kms_binding),
+                        _synthetic_described_instance_digest(request),
                     ]
-                    if target_ids and outcome == "SUCCESS"
-                    else []
-                ),
+                )
+            elif target_ids and outcome == "SUCCESS":
+                page_item_digests = [
+                    subject.canonical_digest(
+                        {
+                            "operation": operation,
+                            "target_ids": target_ids,
+                        }
+                    )
+                ]
+            else:
+                page_item_digests = []
+            projection = {
+                "page_item_digests": page_item_digests,
                 "output_cursor_digest": None,
                 "page_complete": True,
                 "target_evidence_digests": {
@@ -669,6 +766,64 @@ def _snapshot(
     }
     value["snapshot_digest"] = subject.canonical_digest(value)
     return value
+
+
+def _transcript_bundle(
+    request: dict[str, object],
+) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, object]]:
+    snapshots = [_snapshot(request, index) for index in (1, 2, 3)]
+    events = [
+        event
+        for snapshot in snapshots
+        for event in _transcript_events(
+            request,
+            int(snapshot["capture_index"]),
+            snapshot["target_observations"],
+        )
+    ]
+    summary: dict[str, object] = {
+        "record_type": subject.TRANSCRIPT_SUMMARY_TYPE,
+        "schema_version": 1,
+        "request_digest": request["request_digest"],
+        "snapshot_count": 3,
+        "provider_calls": len(events),
+        "aws_calls": len(events),
+        "aws_mutations": 0,
+        "read_only": True,
+        "transcript_digest": subject.canonical_digest(events),
+    }
+    return snapshots, events, summary
+
+
+def _rebind_transcript_bundle(
+    *,
+    request: dict[str, object],
+    snapshots: list[dict[str, object]],
+    events: list[dict[str, object]],
+    summary: dict[str, object],
+) -> None:
+    for ordinal, event in enumerate(events, 1):
+        event["ordinal"] = ordinal
+        event["operation_request_digest"] = subject.canonical_digest(
+            transcript_contract.operation_request_descriptor(
+                request=request,
+                event=event,
+            )
+        )
+        event["response_digest"] = subject.canonical_digest(
+            event["response_projection"]
+        )
+    for capture_index, snapshot in enumerate(snapshots, 1):
+        snapshot["transcript_digest"] = subject.canonical_digest(
+            [
+                event
+                for event in events
+                if event["capture_index"] == capture_index
+            ]
+        )
+    summary["provider_calls"] = len(events)
+    summary["aws_calls"] = len(events)
+    summary["transcript_digest"] = subject.canonical_digest(events)
 
 
 def _claimed(
@@ -817,6 +972,150 @@ def test_candidate_stage_request_materializes_and_validates(
         candidate_policy["discovery_provenance_digest"]
     )
     subject.validate_route_collision_admission_request(request)
+
+
+def test_candidate_transcript_binds_one_fresh_instance_read_per_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        monkeypatch,
+        _root(tmp_path),
+        candidate_stage=True,
+    )
+    snapshots, events, summary = _transcript_bundle(request)
+
+    transcript_contract.validate_route_collision_transcript_bundle(
+        events=events,
+        summary=summary,
+        request=request,
+        snapshots=snapshots,
+    )
+
+    expected_binding = request["expected_identity_center_kms_binding_digest"]
+    expected_instance = _synthetic_described_instance_digest(request)
+    expected_targets = sorted(
+        str(target["target_id"])
+        for target in request["catalog"]["targets"]
+        if target["domain"] == "management" and target["service"] == "sso"
+    )
+    described = [
+        event
+        for event in events
+        if event["operation"] == "sso:DescribeInstance"
+    ]
+    assert [event["capture_index"] for event in described] == [1, 2, 3]
+    for capture_index, event in enumerate(described, 1):
+        assert event["target_ids"] == expected_targets
+        assert event["response_projection"]["page_item_digests"] == sorted(
+            [expected_binding, expected_instance]
+        )
+        segment = [
+            candidate
+            for candidate in events
+            if candidate["capture_index"] == capture_index
+        ]
+        sts_index = next(
+            index
+            for index, candidate in enumerate(segment)
+            if candidate["domain"] == "management"
+            and candidate["operation"] == "sts:GetCallerIdentity"
+        )
+        describe_index = segment.index(event)
+        first_other_sso = next(
+            index
+            for index, candidate in enumerate(segment)
+            if candidate["domain"] == "management"
+            and str(candidate["operation"]).startswith("sso:")
+            and candidate["operation"] != "sso:DescribeInstance"
+        )
+        assert sts_index < describe_index < first_other_sso
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "missing",
+        "duplicate",
+        "wrong_order",
+        "wrong_targets",
+        "wrong_digest",
+        "described_instance_drift",
+    ],
+)
+def test_candidate_transcript_rejects_invalid_instance_attestation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    request = _request(
+        monkeypatch,
+        _root(tmp_path),
+        candidate_stage=True,
+    )
+    snapshots, events, summary = _transcript_bundle(request)
+    describe_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["capture_index"] == 3
+        and event["operation"] == "sso:DescribeInstance"
+    )
+
+    if tamper == "missing":
+        events.pop(describe_index)
+    elif tamper == "duplicate":
+        events.insert(describe_index + 1, copy.deepcopy(events[describe_index]))
+    elif tamper == "wrong_order":
+        described = events.pop(describe_index)
+        first_other_sso = next(
+            index
+            for index, event in enumerate(events)
+            if event["capture_index"] == 3
+            and event["domain"] == "management"
+            and str(event["operation"]).startswith("sso:")
+        )
+        events.insert(first_other_sso + 1, described)
+    elif tamper == "wrong_targets":
+        event = events[describe_index]
+        event["target_ids"] = event["target_ids"][:-1]
+        projection = event["response_projection"]
+        projection["target_evidence_digests"].pop(
+            next(reversed(projection["target_evidence_digests"]))
+        )
+    elif tamper == "wrong_digest":
+        events[describe_index]["response_projection"][
+            "page_item_digests"
+        ] = ["sha256:" + "9" * 64]
+    else:
+        events[describe_index]["response_projection"][
+            "page_item_digests"
+        ] = sorted(
+            [
+                str(
+                    request[
+                        "expected_identity_center_kms_binding_digest"
+                    ]
+                ),
+                "sha256:" + "8" * 64,
+            ]
+        )
+
+    _rebind_transcript_bundle(
+        request=request,
+        snapshots=snapshots,
+        events=events,
+        summary=summary,
+    )
+    with pytest.raises(
+        transcript_contract.CollisionTranscriptContractError
+    ) as rejected:
+        transcript_contract.validate_route_collision_transcript_bundle(
+            events=events,
+            summary=summary,
+            request=request,
+            snapshots=snapshots,
+        )
+    assert rejected.value.code == "ROUTE_COLLISION_KMS_BINDING_INVALID"
 
 
 def test_request_rejects_resealed_collision_policy_binding_drift(

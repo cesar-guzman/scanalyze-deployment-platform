@@ -706,9 +706,18 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
         for item in seed["decisions"]
     }
     kms_arn = (
-        "arn:aws:kms:us-east-1:042360977644:key/"
+        "arn:aws:kms:us-east-1:839393571433:key/"
         "12345678-1234-1234-1234-1234567890ab"
     )
+    kms_mode = "CUSTOMER_MANAGED_KEY"
+    kms_binding = {
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": decisions[
+            "identity_center_instance_arn"
+        ],
+        "mode": kms_mode,
+        "key_arn": kms_arn,
+    }
     verification_digest = subject.canonical_digest("terminal-verifier-a")
     phase_certifications = [
         {
@@ -763,7 +772,11 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
                 decisions["identity_center_application_provider_arn"]
             )
         ),
+        "identity_center_kms_mode": kms_mode,
+        "identity_center_kms_key_arn": kms_arn,
+        "identity_center_kms_mode_digest": subject.canonical_digest(kms_mode),
         "identity_center_kms_key_arn_digest": subject.canonical_digest(kms_arn),
+        "identity_center_kms_binding_digest": subject.canonical_digest(kms_binding),
         **terminal_bindings,
     }
     verified_handoff = subject.VerifiedTerminalHandoff(
@@ -775,7 +788,7 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
         (
             REPO_ROOT
             / "fixtures/valid/"
-            "platform-authority-gug395-downstream-materialization-receipt-v1-synthetic.json"
+            "platform-authority-gug395-downstream-materialization-receipt-v2-synthetic.json"
         ).read_text(encoding="utf-8")
     )
     receipt.update(
@@ -799,6 +812,9 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
         ],
         provider_slot_binding_set_digest=handoff[
             "provider_slot_binding_set_digest"
+        ],
+        identity_center_kms_binding_digest=handoff[
+            "identity_center_kms_binding_digest"
         ],
         **terminal_bindings,
     )
@@ -887,6 +903,7 @@ def test_post_checkpoint_materializer_rejects_cross_run_plan_splice(
             identity_center_application_provider_arn=decisions[
                 "identity_center_application_provider_arn"
             ],
+            identity_center_kms_mode=kms_mode,
             identity_center_kms_key_arn=kms_arn,
             materialized_at="2026-08-28T00:05:00Z",
             repo_root=REPO_ROOT,

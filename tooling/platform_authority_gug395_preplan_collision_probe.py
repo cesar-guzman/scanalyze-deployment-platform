@@ -52,7 +52,15 @@ PRODUCTION_STATUS = "NO-GO"
 EXECUTION_COMPLETED = "COMPLETED"
 EXECUTION_BLOCKED = "BLOCKED"
 
-REQUEST_TYPE = "scanalyze.platform_authority.gug395_preplan_collision_request.v1"
+REQUEST_TYPE_V1 = (
+    "scanalyze.platform_authority.gug395_preplan_collision_request.v1"
+)
+REQUEST_TYPE_V2 = (
+    "scanalyze.platform_authority.gug395_preplan_collision_request.v2"
+)
+# New materializations are KMS-bound v2 records.  The explicit v1 constant and
+# validator below remain available for persisted pre-migration requests.
+REQUEST_TYPE = REQUEST_TYPE_V2
 CLAIM_TYPE = "scanalyze.platform_authority.gug395_preplan_collision_claim.v1"
 PRIVATE_EVIDENCE_TYPE = (
     "scanalyze.platform_authority.gug395_preplan_collision_private_evidence.v1"
@@ -111,7 +119,7 @@ AUTHORITY_ACTIONS = frozenset(
         "lambda:ListTags",
     }
 )
-IDENTITY_ACTIONS = frozenset(
+IDENTITY_ACTIONS_V1 = frozenset(
     {
         "sts:GetCallerIdentity",
         "sso:ListInstances",
@@ -122,9 +130,15 @@ IDENTITY_ACTIONS = frozenset(
         "sso:ListTagsForResource",
     }
 )
+IDENTITY_ACTIONS_V2 = IDENTITY_ACTIONS_V1 | {"sso:DescribeInstance"}
+IDENTITY_ACTIONS = IDENTITY_ACTIONS_V2
+COLLISION_OPERATION_ALLOWLIST_V1: Mapping[str, frozenset[str]] = {
+    "authority": AUTHORITY_ACTIONS,
+    "identity_center": IDENTITY_ACTIONS_V1,
+}
 COLLISION_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = {
     "authority": AUTHORITY_ACTIONS,
-    "identity_center": IDENTITY_ACTIONS,
+    "identity_center": IDENTITY_ACTIONS_V2,
 }
 PAGINATED_ACTIONS = frozenset(
     {
@@ -173,6 +187,15 @@ _SOURCE_PATHS = (
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
+_IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
+_INSTANCE_ARN = re.compile(
+    r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$"
+)
+_KMS_KEY_ARN = re.compile(
+    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _TOKEN = re.compile(r"^[A-Z][A-Z0-9_]{2,95}$")
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ACCOUNT_REGIONAL_ARTIFACT_BUCKET = re.compile(
@@ -448,7 +471,11 @@ def private_root_digest(private_root: Path) -> str:
     return canonical_digest({"private_root": str(root)})
 
 
-def _profile_bindings(value: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+def _profile_bindings_v1(
+    value: Mapping[str, Any],
+) -> dict[str, dict[str, str]]:
+    """Read the historical v1 profile shape without changing its digest."""
+
     if not isinstance(value, Mapping) or set(value) != {
         "authority",
         "identity_center",
@@ -489,6 +516,89 @@ def _profile_bindings(value: Mapping[str, Any]) -> dict[str, dict[str, str]]:
     ):
         _fail("COLLISION_PROFILE_BINDINGS_INVALID")
     return result
+
+
+def _profile_bindings_v2(
+    value: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, Mapping) or set(value) != {
+        "authority",
+        "identity_center",
+    }:
+        _fail("COLLISION_PROFILE_BINDINGS_INVALID")
+    result: dict[str, dict[str, Any]] = {}
+    common_fields = {
+        "name",
+        "expected_account_id",
+        "expected_principal_digest",
+        "expected_sso_role_name_digest",
+        "authority_verification_digest",
+    }
+    for domain in ("authority", "identity_center"):
+        raw = value.get(domain)
+        if not isinstance(raw, Mapping):
+            _fail("COLLISION_PROFILE_BINDINGS_INVALID")
+        fields = common_fields | (
+            {
+                "identity_center_kms_mode",
+                "identity_center_kms_key_arn",
+            }
+            if domain == "identity_center"
+            else set()
+        )
+        _require_exact_keys(raw, fields, "COLLISION_PROFILE_BINDINGS_INVALID")
+        name = raw.get("name")
+        account = raw.get("expected_account_id")
+        if (
+            not isinstance(name, str)
+            or _PROFILE.fullmatch(name) is None
+            or name.casefold() == "default"
+            or _forbidden_profile(name)
+            or not isinstance(account, str)
+            or _ACCOUNT.fullmatch(account) is None
+        ):
+            _fail("COLLISION_PROFILE_BINDINGS_INVALID")
+        for field in common_fields - {"name", "expected_account_id"}:
+            _digest(raw.get(field), "COLLISION_PROFILE_BINDINGS_INVALID")
+        result[domain] = {key: raw[key] for key in fields}
+        if domain == "identity_center":
+            mode = raw.get("identity_center_kms_mode")
+            key_arn = raw.get("identity_center_kms_key_arn")
+            key_match = (
+                _KMS_KEY_ARN.fullmatch(key_arn)
+                if isinstance(key_arn, str)
+                else None
+            )
+            if (
+                mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+                or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+                or (
+                    mode == "CUSTOMER_MANAGED_KEY"
+                    and (
+                        key_match is None
+                        or key_match.group(1) != account
+                    )
+                )
+            ):
+                _fail("COLLISION_PROFILE_BINDINGS_INVALID")
+    if (
+        result["authority"]["name"].casefold()
+        == result["identity_center"]["name"].casefold()
+        or result["authority"]["expected_account_id"]
+        == result["identity_center"]["expected_account_id"]
+    ):
+        _fail("COLLISION_PROFILE_BINDINGS_INVALID")
+    return result
+
+
+def _profile_bindings(
+    value: Mapping[str, Any], *, schema_version: int
+) -> dict[str, dict[str, Any]]:
+    if schema_version == 1:
+        return _profile_bindings_v1(value)
+    if schema_version == 2:
+        return _profile_bindings_v2(value)
+    _fail("COLLISION_REQUEST_VERSION_UNSUPPORTED")
 
 
 def _decision_values(seed: Mapping[str, Any]) -> dict[str, str]:
@@ -653,6 +763,8 @@ def _validate_target_catalog(targets: object) -> Mapping[str, Any]:
             if not isinstance(value, str) or not value or value != value.strip():
                 _fail("COLLISION_TARGET_CATALOG_INVALID")
             if field == "instance_arn":
+                if _INSTANCE_ARN.fullmatch(value) is None:
+                    _fail("COLLISION_TARGET_CATALOG_INVALID")
                 instance_arns.add(value)
         if target_name == "artifact_bucket" and (
             raw.get("bucket_namespace") != ARTIFACT_BUCKET_NAMESPACE
@@ -668,9 +780,19 @@ def _validate_target_catalog(targets: object) -> Mapping[str, Any]:
 
 
 def _closed_policy(
-    *, domain: str, not_before: str, expires_at: str
+    *,
+    domain: str,
+    not_before: str,
+    expires_at: str,
+    schema_version: int = 2,
 ) -> dict[str, Any]:
-    actions = COLLISION_OPERATION_ALLOWLIST.get(domain)
+    allowlist = {
+        1: COLLISION_OPERATION_ALLOWLIST_V1,
+        2: COLLISION_OPERATION_ALLOWLIST,
+    }.get(schema_version)
+    if allowlist is None:
+        _fail("COLLISION_REQUEST_VERSION_UNSUPPORTED")
+    actions = allowlist.get(domain)
     if actions is None:
         _fail("COLLISION_POLICY_DOMAIN_INVALID")
     return {
@@ -741,7 +863,7 @@ def materialize_collision_probe_request(
     created = _parse_stamp(created_at, "COLLISION_CREATED_AT_INVALID")
     if not timedelta(seconds=1) <= end - start <= MAX_WINDOW or created > end:
         _fail("COLLISION_WINDOW_INVALID")
-    checked_profiles = _profile_bindings(profiles)
+    checked_profiles = _profile_bindings(profiles, schema_version=2)
     if checked_profiles["authority"]["expected_account_id"] != _decision_values(
         seed
     )["authority_account_id"]:
@@ -755,7 +877,10 @@ def materialize_collision_probe_request(
     targets = collision_target_catalog(seed)
     policies = {
         domain: _closed_policy(
-            domain=domain, not_before=not_before, expires_at=expires_at
+            domain=domain,
+            not_before=not_before,
+            expires_at=expires_at,
+            schema_version=2,
         )
         for domain in ("authority", "identity_center")
     }
@@ -783,8 +908,8 @@ def materialize_collision_probe_request(
     }
     _seal(budget, "budget_digest")
     request = {
-        "record_type": REQUEST_TYPE,
-        "schema_version": 1,
+        "record_type": REQUEST_TYPE_V2,
+        "schema_version": 2,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "seed_issue": SEED_ISSUE,
         "downstream_consumer_issue": DOWNSTREAM_CONSUMER_ISSUE,
@@ -843,7 +968,18 @@ def materialize_collision_probe_request(
     return request
 
 
-def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
+def _collision_probe_request_version(value: Mapping[str, Any]) -> int:
+    selector = (value.get("record_type"), value.get("schema_version"))
+    if selector == (REQUEST_TYPE_V1, 1):
+        return 1
+    if selector == (REQUEST_TYPE_V2, 2):
+        return 2
+    _fail("COLLISION_REQUEST_VERSION_UNSUPPORTED")
+
+
+def _validate_collision_probe_request(
+    request: Mapping[str, Any], *, schema_version: int
+) -> None:
     value = _copy(request, "COLLISION_REQUEST_INVALID")
     if not isinstance(value, Mapping):
         _fail("COLLISION_REQUEST_INVALID")
@@ -866,8 +1002,11 @@ def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
     }
     _require_exact_keys(value, required, "COLLISION_REQUEST_FIELDS_INVALID")
     constants = {
-        "record_type": REQUEST_TYPE,
-        "schema_version": 1,
+        "record_type": {
+            1: REQUEST_TYPE_V1,
+            2: REQUEST_TYPE_V2,
+        }[schema_version],
+        "schema_version": schema_version,
         "implementation_issue": IMPLEMENTATION_ISSUE,
         "seed_issue": SEED_ISSUE,
         "downstream_consumer_issue": DOWNSTREAM_CONSUMER_ISSUE,
@@ -909,7 +1048,9 @@ def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
         {"not_before": value["not_before"], "expires_at": value["expires_at"]}
     ):
         _fail("COLLISION_WINDOW_DIGEST_MISMATCH")
-    checked_profiles = _profile_bindings(value["profiles"])
+    checked_profiles = _profile_bindings(
+        value["profiles"], schema_version=schema_version
+    )
     if (
         checked_profiles["authority"]["expected_account_id"]
         != AUTHORITY_ACCOUNT_ID
@@ -936,6 +1077,7 @@ def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
             domain=domain,
             not_before=str(value["not_before"]),
             expires_at=str(value["expires_at"]),
+            schema_version=schema_version,
         )
         for domain in ("authority", "identity_center")
     }
@@ -977,6 +1119,34 @@ def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
     _verify_self_digest(
         value, "request_digest", "COLLISION_REQUEST_DIGEST_MISMATCH"
     )
+
+
+def validate_collision_probe_request_v1(
+    request: Mapping[str, Any],
+) -> None:
+    value = _copy(request, "COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping) or _collision_probe_request_version(value) != 1:
+        _fail("COLLISION_REQUEST_VERSION_UNSUPPORTED")
+    _validate_collision_probe_request(value, schema_version=1)
+
+
+def validate_collision_probe_request_v2(
+    request: Mapping[str, Any],
+) -> None:
+    value = _copy(request, "COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping) or _collision_probe_request_version(value) != 2:
+        _fail("COLLISION_REQUEST_VERSION_UNSUPPORTED")
+    _validate_collision_probe_request(value, schema_version=2)
+
+
+def validate_collision_probe_request(request: Mapping[str, Any]) -> None:
+    """Dispatch a persisted request through its exact versioned reader."""
+
+    value = _copy(request, "COLLISION_REQUEST_INVALID")
+    if not isinstance(value, Mapping):
+        _fail("COLLISION_REQUEST_INVALID")
+    version = _collision_probe_request_version(value)
+    _validate_collision_probe_request(value, schema_version=version)
 
 
 def persist_collision_probe_request(
@@ -1283,6 +1453,8 @@ def assert_collision_probe_provider_capability_bindings(
     identity_expected_account_id: str,
     identity_expected_principal_digest: str,
     identity_expected_sso_role_name_digest: str,
+    identity_expected_kms_mode: str,
+    identity_expected_kms_key_arn: str | None,
     authority_verification_digest: str,
     identity_authority_verification_digest: str,
     budget_digest: str,
@@ -1308,6 +1480,8 @@ def assert_collision_probe_provider_capability_bindings(
         "identity_expected_sso_role_name_digest": (
             identity_expected_sso_role_name_digest
         ),
+        "identity_expected_kms_mode": identity_expected_kms_mode,
+        "identity_expected_kms_key_arn": identity_expected_kms_key_arn,
         "authority_verification_digest": authority_verification_digest,
         "identity_authority_verification_digest": (
             identity_authority_verification_digest
@@ -1331,6 +1505,12 @@ def assert_collision_probe_provider_capability_bindings(
         ],
         "identity_expected_sso_role_name_digest": identity[
             "expected_sso_role_name_digest"
+        ],
+        "identity_expected_kms_mode": identity[
+            "identity_center_kms_mode"
+        ],
+        "identity_expected_kms_key_arn": identity[
+            "identity_center_kms_key_arn"
         ],
         "authority_verification_digest": authority[
             "authority_verification_digest"
@@ -1848,6 +2028,7 @@ def _snapshot_facts(snapshot: Mapping[str, Any], domain: str) -> dict[str, Any]:
             ) from exc
         instances = facts.get("instances")
         instance_matches = facts.get("instance_matches")
+        described_instance = _identity_described_instance(facts)
         matched = (
             instance_matches[0]
             if isinstance(instance_matches, list) and len(instance_matches) == 1
@@ -1858,12 +2039,23 @@ def _snapshot_facts(snapshot: Mapping[str, Any], domain: str) -> dict[str, Any]:
             isinstance(instances, list)
             and len(instances) == 1
             and isinstance(matched, Mapping)
-            and matched.get("Status") == "ACTIVE"
+            and {
+                key: described_instance[key]
+                for key in (
+                    "InstanceArn",
+                    "IdentityStoreId",
+                    "OwnerAccountId",
+                    "Status",
+                )
+            }
+            == matched
         )
     if (
-        any(type(value) is not int or value < 0 for value in expected_counts.values())
-        or
-        collisions != expected_collisions
+        any(
+            type(value) is not int or value < 0
+            for value in expected_counts.values()
+        )
+        or collisions != expected_collisions
         or snapshot["collision_count"] != len(expected_collisions)
         or resource_counts != expected_counts
         or snapshot["complete"] is not expected_complete
@@ -1931,6 +2123,54 @@ def _snapshot_list(
     if not isinstance(result, list):
         _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     return result
+
+
+def _identity_described_instance(facts: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the normalized, private Identity Center instance projection."""
+
+    value = facts.get("described_instance")
+    fields = {
+        "InstanceArn",
+        "IdentityStoreId",
+        "OwnerAccountId",
+        "Status",
+        "EncryptionConfigurationDetails",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
+    encryption = value.get("EncryptionConfigurationDetails")
+    if not isinstance(encryption, Mapping) or set(encryption) != {
+        "KeyType",
+        "KmsKeyArn",
+        "EncryptionStatus",
+    }:
+        _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
+    owner = value.get("OwnerAccountId")
+    mode = encryption.get("KeyType")
+    key_arn = encryption.get("KmsKeyArn")
+    key_match = (
+        _KMS_KEY_ARN.fullmatch(key_arn)
+        if isinstance(key_arn, str)
+        else None
+    )
+    if (
+        _INSTANCE_ARN.fullmatch(str(value.get("InstanceArn"))) is None
+        or _IDENTITY_STORE.fullmatch(str(value.get("IdentityStoreId"))) is None
+        or _ACCOUNT.fullmatch(str(owner)) is None
+        or value.get("Status") != "ACTIVE"
+        or encryption.get("EncryptionStatus") != "ENABLED"
+        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+        or (
+            mode == "CUSTOMER_MANAGED_KEY"
+            and (
+                key_match is None
+                or key_match.group(1) != owner
+            )
+        )
+    ):
+        _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
+    return dict(value)
 
 
 def _tagged_records(records: Sequence[Any]) -> list[Mapping[str, Any]]:
@@ -2099,8 +2339,10 @@ def _validate_snapshot_target_bindings(
     expected_permission_names = sorted(
         [classifier_target["name"], approver_target["name"]]
     )
+    identity_profile = request["profiles"]["identity_center"]
     instances = _snapshot_list(facts, "instances")
     instance_matches = _snapshot_list(facts, "instance_matches")
+    described_instance = _identity_described_instance(facts)
     applications = _snapshot_list(facts, "applications")
     described_applications = _snapshot_list(facts, "described_applications")
     application_matches = _snapshot_list(facts, "application_matches")
@@ -2115,11 +2357,31 @@ def _validate_snapshot_target_bindings(
         if isinstance(item, Mapping)
         and item.get("InstanceArn") == application_target["instance_arn"]
     ]
-    if any(
-        not isinstance(item, Mapping)
-        or item.get("OwnerAccountId")
-        != request["profiles"]["identity_center"]["expected_account_id"]
-        for item in derived_instance_matches
+    expected_instance_summary = {
+        key: described_instance[key]
+        for key in (
+            "InstanceArn",
+            "IdentityStoreId",
+            "OwnerAccountId",
+            "Status",
+        )
+    }
+    expected_encryption = {
+        "KeyType": identity_profile["identity_center_kms_mode"],
+        "KmsKeyArn": identity_profile["identity_center_kms_key_arn"],
+        "EncryptionStatus": "ENABLED",
+    }
+    if (
+        len(instances) != 1
+        or len(derived_instance_matches) != 1
+        or not _same_json_items(instance_matches, derived_instance_matches)
+        or derived_instance_matches[0] != expected_instance_summary
+        or described_instance["InstanceArn"]
+        != application_target["instance_arn"]
+        or described_instance["OwnerAccountId"]
+        != identity_profile["expected_account_id"]
+        or described_instance["EncryptionConfigurationDetails"]
+        != expected_encryption
     ):
         _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     derived_application_matches: list[Mapping[str, Any]] = []
@@ -2167,7 +2429,6 @@ def _validate_snapshot_target_bindings(
         or approver_target["instance_arn"] != application_target["instance_arn"]
         or facts.get("target_application_name") != application_target["name"]
         or facts.get("target_permission_set_names") != expected_permission_names
-        or not _same_json_items(instance_matches, derived_instance_matches)
         or type(applications_examined) is not int
         or applications_examined != len(applications)
         or len(described_applications) != len(applications)
@@ -2824,7 +3085,11 @@ def _validate_transcript_snapshot_bindings(
                 "lambda:ListCodeSigningConfigs",
             }
             if domain == "authority"
-            else {"sts:GetCallerIdentity", "sso:ListInstances"}
+            else {
+                "sts:GetCallerIdentity",
+                "sso:ListInstances",
+                "sso:DescribeInstance",
+            }
         )
         if domain == "identity_center" and snapshot["facts"][
             "instance_matches"
@@ -2870,6 +3135,11 @@ def _validate_transcript_snapshot_bindings(
             },
             "lambda:ListCodeSigningConfigs": {},
             "sso:ListInstances": {},
+            "sso:DescribeInstance": {
+                "InstanceArn": request["targets"][
+                    "identity_center_application"
+                ]["instance_arn"]
+            },
             "sso:ListApplications": {
                 "InstanceArn": request["targets"][
                     "identity_center_application"
@@ -2901,6 +3171,30 @@ def _validate_transcript_snapshot_bindings(
                     event.get("pagination_stream_digest")
                     != expected_stream
                     for event in operation_events
+                )
+            ):
+                _fail("COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH")
+        if domain == "identity_center":
+            describe_events = events_by_operation.get(
+                "sso:DescribeInstance", []
+            )
+            if (
+                len(describe_events) != 1
+                or describe_events[0].get("request_digest")
+                != canonical_digest(fixed_requests["sso:DescribeInstance"])
+                or describe_events[0].get("response_digest")
+                != canonical_digest(snapshot["facts"]["described_instance"])
+                or operations.index("sso:ListInstances")
+                >= operations.index("sso:DescribeInstance")
+                or (
+                    "sso:ListApplications" in operations
+                    and operations.index("sso:DescribeInstance")
+                    >= operations.index("sso:ListApplications")
+                )
+                or (
+                    "sso:ListPermissionSets" in operations
+                    and operations.index("sso:DescribeInstance")
+                    >= operations.index("sso:ListPermissionSets")
                 )
             ):
                 _fail("COLLISION_SNAPSHOT_TRANSCRIPT_MISMATCH")
@@ -3760,6 +4054,9 @@ __all__ = [
     "MAX_PERMISSION_SETS",
     "MAX_SESSION_BOOTSTRAP_ATTEMPTS",
     "MAX_SIGNING_PROFILES",
+    "REQUEST_TYPE",
+    "REQUEST_TYPE_V1",
+    "REQUEST_TYPE_V2",
     "RECEIPT_TYPE",
     "TARGET_ORDER",
     "UNCERTAIN",
@@ -3783,6 +4080,8 @@ __all__ = [
     "read_and_claim_collision_probe_request",
     "read_collision_probe_result",
     "validate_collision_probe_request",
+    "validate_collision_probe_request_v1",
+    "validate_collision_probe_request_v2",
     "validate_private_collision_probe_evidence",
     "validate_public_collision_probe_receipt",
     "verify_collision_probe_source",

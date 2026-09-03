@@ -58,6 +58,7 @@ READ_ONLY_OPERATION_ALLOWLIST = frozenset(
         "signer:ListSigningProfiles",
         "signer:ListTagsForResource",
         "sso:DescribeApplication",
+        "sso:DescribeInstance",
         "sso:DescribePermissionSet",
         "sso:ListApplications",
         "sso:ListInstances",
@@ -578,6 +579,83 @@ def validate_route_collision_transcript_bundle(
         offset += len(segment)
     if offset != len(checked):
         _fail("ROUTE_COLLISION_TRANSCRIPT_INVALID")
+    expected_kms_binding = request.get(
+        "expected_identity_center_kms_binding_digest"
+    )
+    expected_sso_targets = sorted(
+        target_id
+        for target_id, target in targets.items()
+        if target.get("domain") == "management"
+        and target.get("service") == "sso"
+    )
+    if expected_kms_binding is not None:
+        if (
+            _DIGEST.fullmatch(str(expected_kms_binding)) is None
+            or not expected_sso_targets
+        ):
+            _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
+        described_instance_digests: list[str] = []
+        for capture_index in (1, 2, 3):
+            segment = [
+                event
+                for event in checked
+                if event["capture_index"] == capture_index
+            ]
+            described = [
+                event
+                for event in segment
+                if event["domain"] == "management"
+                and event["operation"] == "sso:DescribeInstance"
+            ]
+            if len(described) != 1:
+                _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
+            event = described[0]
+            projection = event["response_projection"]
+            page_item_digests = projection["page_item_digests"]
+            management_sts_index = next(
+                (
+                    index
+                    for index, candidate in enumerate(segment)
+                    if candidate["domain"] == "management"
+                    and candidate["operation"] == "sts:GetCallerIdentity"
+                ),
+                -1,
+            )
+            describe_index = segment.index(event)
+            later_sso_indexes = [
+                index
+                for index, candidate in enumerate(segment)
+                if candidate["domain"] == "management"
+                and str(candidate["operation"]).startswith("sso:")
+                and candidate["operation"] != "sso:DescribeInstance"
+            ]
+            if (
+                event["outcome"] != "SUCCESS"
+                or event["page_index"] != 1
+                or event["input_cursor_digest"] is not None
+                or projection["output_cursor_digest"] is not None
+                or projection["page_complete"] is not True
+                or len(page_item_digests) != 2
+                or expected_kms_binding not in page_item_digests
+                or event["target_ids"] != expected_sso_targets
+                or not management_sts_index < describe_index
+                or any(describe_index >= index for index in later_sso_indexes)
+            ):
+                _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
+            described_instance_digests.extend(
+                digest
+                for digest in page_item_digests
+                if digest != expected_kms_binding
+            )
+        if (
+            len(described_instance_digests) != 3
+            or len(set(described_instance_digests)) != 1
+        ):
+            _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
+    elif any(
+        event["operation"] == "sso:DescribeInstance" for event in checked
+    ):
+        _fail("ROUTE_COLLISION_KMS_BINDING_INVALID")
     _validate_streams(checked, snapshots=snapshots, targets=targets)
     if (
         checked_summary.get("record_type") != TRANSCRIPT_SUMMARY_TYPE

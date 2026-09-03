@@ -24,7 +24,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     materialize.add_argument("--admission-private-root", type=Path, required=True)
     materialize.add_argument("--effect-private-root", type=Path, required=True)
-    materialize.add_argument("--gug393-private-root", type=Path, required=True)
     materialize.add_argument("--gug395-private-root", type=Path, required=True)
     materialize.add_argument("--bootstrap-intent-digest", required=True)
     materialize.add_argument("--approval-reference-digest", required=True)
@@ -37,7 +36,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     validate.add_argument("--admission-private-root", type=Path, required=True)
     validate.add_argument("--effect-private-root", type=Path, required=True)
-    validate.add_argument("--gug393-private-root", type=Path, required=True)
     validate.add_argument("--gug395-private-root", type=Path, required=True)
     return parser
 
@@ -50,7 +48,6 @@ def _materialize(args: argparse.Namespace) -> dict[str, Any]:
     context = materialize_atomic_collision_context(
         admission_private_root=args.admission_private_root,
         effect_private_root=args.effect_private_root,
-        gug393_private_root=args.gug393_private_root,
         gug395_private_root=args.gug395_private_root,
         bootstrap_intent_digest=args.bootstrap_intent_digest,
         approval_reference_digest=args.approval_reference_digest,
@@ -84,7 +81,6 @@ def _validate(args: argparse.Namespace) -> dict[str, Any]:
     context = read_atomic_collision_context(
         admission_private_root=args.admission_private_root,
         effect_private_root=args.effect_private_root,
-        gug393_private_root=args.gug393_private_root,
         gug395_private_root=args.gug395_private_root,
     )
     return {
