@@ -5,6 +5,13 @@
 # matched values. A new value in an otherwise allowlisted file remains blocked.
 
 allowlist:
+  - path: tooling/platform_authority_gug376_collision_direct_sso.py
+    line_pattern: '^\s*aws_secret_access_key\s*=\s*frozen\.secret_key,\s*$'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: d4575dda46d4b14a9a131349f9e48007fd7870abd6a7b71b4f6d12a7f0018bb4
+    reason: "Temporary STS credential is passed by reference to the isolated SDK session factory; no literal secret is stored"
+    owner: platform-security
+
   - path: ADR/ADR-005-deployment-schemas.md
     line_pattern: '[A-Z&]{3,4}[0-9]{6}[A-Z0-9]{3}'
     pattern_id: RFC

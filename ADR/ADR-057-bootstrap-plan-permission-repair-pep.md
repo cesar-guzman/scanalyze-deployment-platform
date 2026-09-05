@@ -3,7 +3,7 @@
 - **Status:** Proposed repository implementation; deployment not executed
 - **Date:** 2026-08-30
 - **Implementation issue:** GUG-376
-- **AWS live validation:** None
+- **AWS live validation:** Bounded read-only inventory only; repair not executed
 - **AWS mutations:** None
 - **Production:** **NO-GO**
 
@@ -25,6 +25,31 @@ roles and policy are bound to the separate
 `ScanalyzeAuthorityLambdaAudit` collector repair.
 
 ## Decision
+
+### 0. Require the closed GUG-376 artifact foundation
+
+The PEP package, template and signed-artifact attestor accept only the exact
+GUG-376 artifact foundation defined by ADR-058. Before the temporary artifact
+bootstrap assignment is removed, every producer must validate the same sealed
+`artifact_foundation_publish_binding`: clean merged source, terminal foundation
+and access-update readbacks, exact route/delegation S3 versions, KMS key,
+Signer profile version and Lambda code-signing configuration. Product CLIs do
+not auto-discover or fall back to GUG-363/GUG-365 storage.
+
+The bootstrap principal ID, Signer profile version, and exact route and
+delegation object-version IDs are causal identifiers, not secrets. Their
+CloudFormation parameters therefore are not `NoEcho`. Both Change Set
+attestation and terminal stack readback require one unique parameter key and
+the exact sealed value; masked, missing, duplicated or substituted values fail
+closed and cannot prove this foundation.
+
+The normal route cannot be opened merely because that publication binding
+exists. It additionally requires the post-revocation
+`artifact_bootstrap_route_release`, which proves zero bridge assignments,
+expiry of the `PT1H` credential boundary and the complete template,
+signed-artifact and broker-seed receipt set. This keeps the PEP deployment
+causally downstream of the closed publication authority without making the
+publication process circular.
 
 ### 1. Repair only one exact predecessor
 
@@ -99,8 +124,10 @@ failure or indeterminate readback produces `UNCERTAIN_RECONCILE_ONLY` only when
 that terminal state is durably sealed and read back. If its CAS cannot be
 proven, no public receipt is emitted, `UNCERTAINTY_LEDGER_UNPROVEN` is returned
 and replay remains blocked by the attempting state. Repair never resumes from
-uncertainty. Reconcile is read-only and cannot attribute success unless the
-ledger proves that provisioning was attempted.
+uncertainty. Reconcile is provider-read-only. Only an original, terminal
+`REPAIR_VERIFIED` ledger with exact final state can create one append-only
+`#reconcile-v1` attestation; uncertain ledgers cannot create that closeout
+proof.
 
 ### 4. Preserve immutable source and evidence bindings
 
@@ -131,11 +158,13 @@ repair PEP. The existing Plan role is too narrow, read-only roles cannot
 deploy, and the founder PEP roles are resource- and work-package-bound to their
 own control plane.
 
-Deployment therefore requires a separately reviewed bootstrap route with
-exact management and authority Change Set creator/executor identities. A
-temporary authority executor or a service-managed StackSet may be selected,
-but the choice, template/account/Region scope and readback must be explicitly
-authorized. Broad administrator access is not silently substituted.
+Deployment therefore uses the separately reviewed temporary route in ADR-058.
+One explicit management-account administrator seed creates time-bound Identity
+Center Creator and Executor assignments. The broad session ends before either
+target Change Set is created. Creator cannot execute, each Executor is bound to
+one account and exact Change Sets, provider actions require CloudFormation
+forward access, and the target Change Sets carry no persistent `RoleARN`.
+Broad administrator access is never the delegation, PEP or repair executor.
 
 ### 6. Bind provider ports only inside the reviewed artifact
 
@@ -155,9 +184,13 @@ the first SDK client, then proves local/assumed identities, all six effective
 IAM roles, published Lambda controls, invocation graph, DynamoDB/KMS controls
 and complete Identity Center state. It preserves zero SDK retries, bounded
 pagination/polling, phase-specific service roles, source/artifact bindings and
-read-only reconcile. It requires more than 75,000 milliseconds immediately
-before either mutation and more than 60,000 milliseconds before every provider
-read or provisioning poll, leaving time to seal uncertainty.
+provider-read-only reconcile. It requires more than 75,000 milliseconds
+immediately before either mutation and more than 60,000 milliseconds before every provider
+read or provisioning poll, leaving time to seal uncertainty. Reconcile has no
+Identity Center, IAM or Lambda mutation authority. Its only write is a
+conditional DynamoDB `PutItem` to the exact suffixed attestation key, followed
+by strongly consistent readback; the table policy binds Plan and reconcile to
+their disjoint keys.
 
 The package and signed-artifact tools bind exact Git-object bytes, the runtime
 lock, handlers, source-set digest, ZIP digest, S3 versions, Signer job and
@@ -170,6 +203,8 @@ remain separately authorized operations after merge.
   control plane without granting a human raw SSO mutation authority.
 - The normal Plan policy remains a single source-rendered document; no second
   desired-policy copy is introduced.
+- The temporary bootstrap route is separately revocable and leaves no
+  CloudFormation service role attached to either target stack.
 - GUG-221, GUG-215 and GUG-274 keep their existing identities and effects.
 - A repository implementation or green CI does not prove deployment, repair,
   staging certification or production readiness.
@@ -187,7 +222,7 @@ removes only `RepairInvokerAssignment`. Read back the parameter/output as
 `false`, zero temporary assignments and no pending deletion while retaining the
 permission set, service roles, ledger, keys, versions and logs for evidence.
 After either SSO effect is dispatched, do not repeat it from local tooling or
-delete the ledger. Invoke the read-only reconcile alias, preserve
+delete the ledger. Invoke the provider-read-only reconcile alias, preserve
 CloudTrail/provider evidence and obtain a new reviewed recovery decision.
 
 The desired final policy is not rolled back merely to recreate the known-bad
@@ -197,7 +232,7 @@ predecessor. A policy rollback is a separate reviewed Identity Center change.
 REPOSITORY_EXECUTABLE_CONTROL_PLANE=IMPLEMENTED_FOR_REVIEW
 RUNTIME_PORTS=BOUND_IN_SOURCE_CLOSED_PACKAGE
 SIGNED_ARTIFACT=NOT_BUILT
-AWS_CALLS=0
+AWS_CALLS=9
 AWS_MUTATIONS=0
 DEPLOYMENT=NOT_EXECUTED
 REPAIR=NOT_EXECUTED
@@ -209,5 +244,6 @@ PRODUCTION=NO-GO
 - [ADR-034](ADR-034-dedicated-platform-authority-account-bootstrap.md)
 - [ADR-041](ADR-041-retained-change-set-retirement.md)
 - [ADR-047](ADR-047-lambda-audit-provisioning-repair.md)
+- [ADR-058](ADR-058-gug376-temporary-changeset-route.md)
 - [Deployment contract](../docs/deployment/platform-authority-bootstrap-plan-permission-repair.md)
 - [Operations runbook](../docs/operations/platform-authority-bootstrap-plan-permission-repair.md)

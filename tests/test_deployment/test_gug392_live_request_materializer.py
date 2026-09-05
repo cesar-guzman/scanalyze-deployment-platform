@@ -187,6 +187,8 @@ def _identity_plan(*, exact: bool = False) -> dict[str, Any]:
             f"arn:aws:identitystore:::user/{store}/{user}"
         ),
         "authority_account_arn": f"arn:aws:sso:::account/{AUTHORITY_ACCOUNT}",
+        "identity_center_instance_arn": IDENTITY_INSTANCE,
+        "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
         "identity_center_kms_key_arn": (
             f"arn:aws:kms:us-east-1:{IDENTITY_ACCOUNT}:"
             "key/22222222-2222-2222-2222-222222222222"
@@ -195,6 +197,25 @@ def _identity_plan(*, exact: bool = False) -> dict[str, Any]:
             f"arn:aws:identitystore:::identitystore/{store}"
         ),
         "identity_store_id": store,
+    }
+    private_targets["identity_center_kms_binding_digest"] = canonical_digest(
+        {
+            "binding_name": "identity_center_kms_key_arn",
+            "identity_center_instance_arn": IDENTITY_INSTANCE,
+            "mode": private_targets["identity_center_kms_mode"],
+            "key_arn": private_targets["identity_center_kms_key_arn"],
+        }
+    )
+    expected_instance = {
+        "identity_store_id": store,
+        "instance_arn": IDENTITY_INSTANCE,
+        "owner_account_id": IDENTITY_ACCOUNT,
+        "status": "ACTIVE",
+        "encryption": {
+            "key_type": private_targets["identity_center_kms_mode"],
+            "kms_key_arn": private_targets["identity_center_kms_key_arn"],
+            "status": "ENABLED",
+        },
     }
     plan: dict[str, Any] = {
         "private_targets": private_targets,
@@ -221,22 +242,26 @@ def _identity_plan(*, exact: bool = False) -> dict[str, Any]:
                 "discovery": {
                     "instances": [
                         {
-                            "identity_store_id": store,
-                            "instance_arn": IDENTITY_INSTANCE,
-                            "owner_account_id": IDENTITY_ACCOUNT,
-                            "status": "ACTIVE",
+                            key: expected_instance[key]
+                            for key in (
+                                "identity_store_id",
+                                "instance_arn",
+                                "owner_account_id",
+                                "status",
+                            )
                         }
                     ],
                     "applications": [],
                     "permission_sets": [],
-                }
+                },
+                "instance": expected_instance,
             }
         ),
     }
     runtime_plan = copy.deepcopy(plan)
     runtime_plan["not_before"], runtime_plan["not_after"] = START, END
     plan["expected_discovery_policy_digest"] = render_identity_center_source(
-        runtime_plan, None, live_discovery=True
+        runtime_plan, None, live=True, live_discovery=True
     )[1]
     return plan
 
@@ -321,6 +346,15 @@ def _plan_inputs(*, exact: bool = False) -> tuple[dict[str, Any], dict[str, Any]
             "instance_arn": IDENTITY_INSTANCE,
             "owner_account_id": IDENTITY_ACCOUNT,
             "status": "ACTIVE",
+            "encryption": {
+                "key_type": identity["private_targets"][
+                    "identity_center_kms_mode"
+                ],
+                "kms_key_arn": identity["private_targets"][
+                    "identity_center_kms_key_arn"
+                ],
+                "status": "ENABLED",
+            },
         },
     }
     return authority, identity
@@ -351,6 +385,7 @@ def _exact_expected_state(*, boundary_present: bool = False) -> dict[str, Any]:
         "approved_single_operator_user_arn": private[
             "approved_single_operator_user_arn"
         ],
+        "identity_center_kms_mode": private["identity_center_kms_mode"],
         "identity_center_kms_key_arn": private["identity_center_kms_key_arn"],
         "identity_center_application_arn": application,
         "retire_approve_permission_set_arn": permission_arns[NAMES[0]],
@@ -403,7 +438,7 @@ def _exact_expected_state(*, boundary_present: bool = False) -> dict[str, Any]:
         "instance": {
             **discovery["instances"][0],
             "encryption": {
-                "key_type": "CUSTOMER_MANAGED_KEY",
+                "key_type": private["identity_center_kms_mode"],
                 "kms_key_arn": private["identity_center_kms_key_arn"],
                 "status": "ENABLED",
             },
@@ -584,14 +619,15 @@ def test_plan_materialization_computes_live_policy_and_absence_digests(
                 ],
                 "applications": [],
                 "permission_sets": [],
-            }
+            },
+            "instance": identity_input["expected_state"]["instance"],
         }
     )
     runtime_identity = copy.deepcopy(first.identity_center_plan)
     runtime_identity["not_before"], runtime_identity["not_after"] = START, END
     assert first.identity_center_plan["expected_discovery_policy_digest"] == (
         render_identity_center_source(
-            runtime_identity, None, live_discovery=True
+            runtime_identity, None, live=True, live_discovery=True
         )[1]
     )
 
@@ -799,7 +835,10 @@ def test_exact_plan_materialization_is_closed_and_request_ready(
     runtime_identity["not_before"], runtime_identity["not_after"] = START, END
     assert plans.identity_center_plan["expected_exact_policy_digest"] == (
         render_identity_center_source(
-            runtime_identity, exact["targets"], live_discovery=False
+            runtime_identity,
+            exact["targets"],
+            live=True,
+            live_discovery=False,
         )[1]
     )
     encoded = canonical_json(plans.identity_center_plan)
@@ -1723,11 +1762,27 @@ class _LiveIdentityReader:
         assert self.exact_state is not None
         return self.exact_state["facts"]
 
+    def _instance(self) -> Mapping[str, Any]:
+        if self.exact_state is not None:
+            return self._facts()["instance"]
+        private = self.plan["private_targets"]
+        return {
+            "identity_store_id": private["identity_store_id"],
+            "instance_arn": private["identity_center_instance_arn"],
+            "owner_account_id": self.plan["expected_account_id"],
+            "status": "ACTIVE",
+            "encryption": {
+                "key_type": private["identity_center_kms_mode"],
+                "kms_key_arn": private["identity_center_kms_key_arn"],
+                "status": "ENABLED",
+            },
+        }
+
     def describe_instance(self, instance_arn: str) -> Mapping[str, Any]:
         assert instance_arn == IDENTITY_INSTANCE
         return self.actor.call(
             "sso:DescribeInstance",
-            {"complete": True, "value": copy.deepcopy(self._facts()["instance"])},
+            {"complete": True, "value": copy.deepcopy(self._instance())},
         )
 
     def read_application(self, application_arn: str) -> Mapping[str, Any]:
@@ -2191,7 +2246,7 @@ def test_offline_causal_harness_runs_materializer_collectors_executor_and_bundle
     assert live_executor.validate_live_bundle(run, handoff) == (run, handoff)
     assert run["authority_classification"] == "ABSENT_READY"
     assert run["identity_center_classification"] == "ABSENT_READY"
-    assert run["provider_calls"] == run["aws_calls"] == 24
+    assert run["provider_calls"] == run["aws_calls"] == 26
     assert len(run["identity_center_session_digests"]) == 2
     evidence = read_private_json(
         root, offline_collector_harness.live.EVIDENCE_MANIFEST_NAME

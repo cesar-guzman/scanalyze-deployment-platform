@@ -47,12 +47,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install '.[test]'
 
-      - name: Bootstrap local
-        run: make bootstrap-local
-
-      - name: Repro check
-        run: make repro-check
-
       - name: Install frontend dependencies
         working-directory: frontend/scanalyze-frontend-ui
         run: npm ci
@@ -64,6 +58,9 @@ jobs:
           npm run audit
 
       - name: Release dry-run
+        # release-dry-run depends on repro-check, which depends on bootstrap-local.
+        # Invoke the dependency chain once so the bounded job does not repeat the
+        # complete Python suite.
         run: make release-dry-run
 
       - name: Report success

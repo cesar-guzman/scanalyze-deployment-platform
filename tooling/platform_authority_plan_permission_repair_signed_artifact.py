@@ -16,6 +16,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 import re
+import stat
 from typing import Any, Callable, Mapping
 from zipfile import BadZipFile, ZipFile
 
@@ -35,6 +36,16 @@ from tooling.platform_authority_plan_permission_repair_package import (
     validate_plan_permission_repair_package,
     verify_clean_source_commit,
 )
+from tooling.platform_authority_plan_permission_repair_artifact_bootstrap import (
+    ArtifactBootstrapError,
+    FOUNDATION_STORAGE_BINDING_TYPE,
+    validate_foundation_publish_binding,
+)
+from tooling.platform_authority_plan_permission_repair_template_readback import (
+    STORAGE_BINDING_TYPE,
+    TemplateReadbackError,
+    derive_upstream_storage_binding,
+)
 
 
 ARTIFACT_TYPE = (
@@ -48,7 +59,10 @@ REGION = "us-east-1"
 SIGNING_PLATFORM = "AWSLambda-SHA384-ECDSA"
 EVIDENCE_STATUS = "SIGNED_ARTIFACT_BOUND_FOR_CHANGE_SET_REVIEW"
 PRODUCTION_STATUS = "NO-GO"
-EXPECTED_VERIFIER_PROFILE = "042360977644_AWSReadOnlyAccess"
+EXPECTED_VERIFIER_PROFILE = (
+    "042360977644_ScanalyzeGug376ArtifactBootstrap"
+)
+LEGACY_VERIFIER_PROFILE = "042360977644_AWSReadOnlyAccess"
 MAX_ARCHIVE_BYTES = 10 * 1024 * 1024
 MAX_S3_VERSION_PAGES = 100
 MAX_RECEIPT_AGE = timedelta(minutes=15)
@@ -87,12 +101,38 @@ _SIGNED_KEY_RE = re.compile(
 )
 _CALLER_ARN_RE = re.compile(
     r"^arn:aws:sts::042360977644:assumed-role/"
+    r"AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_[0-9a-fA-F]{16}/"
+    r"[A-Za-z0-9+=,.@_-]{1,64}$"
+)
+_LEGACY_CALLER_ARN_RE = re.compile(
+    r"^arn:aws:sts::042360977644:assumed-role/"
     r"AWSReservedSSO_AWSReadOnlyAccess_[0-9a-fA-F]{16}/"
     r"[A-Za-z0-9+=,.@_-]{1,64}$"
 )
 _CERTIFICATE_ARN_RE = re.compile(
     r"^arn:aws:acm:us-east-1:042360977644:certificate/"
     r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+)
+_KMS_ARN_RE = re.compile(
+    r"^arn:aws[a-z-]*:kms:us-east-1:042360977644:key/"
+    r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+)
+_OUTPUT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\.json$")
+_UPSTREAM_STORAGE_BINDING_FIELDS = frozenset(
+    {
+        "schema_version",
+        "record_type",
+        "gug363_plan_digest",
+        "gug363_artifact_signing_contract_digest",
+        "gug365_plan_digest",
+        "gug365_ledger_factory_artifact_signing_contract_digest",
+        "gug365_signed_artifact_binding_digest",
+        "bucket",
+        "sse_algorithm",
+        "sse_kms_key_arn",
+        "source_marker",
+        "binding_digest",
+    }
 )
 
 
@@ -151,6 +191,118 @@ def _optional_checksum(value: Any, code: str) -> str | None:
     return _checksum(value, code)
 
 
+def _validate_upstream_storage_binding(
+    value: Any,
+    *,
+    bootstrap_intent: Mapping[str, Any] | None = None,
+    foundation_publish_binding: Mapping[str, Any] | None = None,
+    allow_legacy_upstream_storage_binding: bool = False,
+    observed_at: datetime | None = None,
+) -> Mapping[str, Any]:
+    """Validate exactly one explicitly selected storage-causality route."""
+
+    if bootstrap_intent is not None or foundation_publish_binding is not None:
+        if (
+            allow_legacy_upstream_storage_binding
+            or not isinstance(bootstrap_intent, Mapping)
+            or not isinstance(foundation_publish_binding, Mapping)
+        ):
+            raise PlanPermissionRepairSignedArtifactError(
+                "FOUNDATION_PUBLISH_BINDING_INVALID"
+            )
+        try:
+            validated = validate_foundation_publish_binding(
+                foundation_publish_binding,
+                bootstrap_intent=bootstrap_intent,
+            )
+        except (ArtifactBootstrapError, TypeError, ValueError) as exc:
+            raise PlanPermissionRepairSignedArtifactError(
+                "FOUNDATION_PUBLISH_BINDING_INVALID"
+            ) from exc
+        if (
+            dict(value) != validated
+            or validated.get("record_type") != FOUNDATION_STORAGE_BINDING_TYPE
+            or validated.get("source_marker")
+            != "VALIDATED_GUG376_FOUNDATION_PUBLISH_AUTHORITY"
+        ):
+            raise PlanPermissionRepairSignedArtifactError(
+                "FOUNDATION_PUBLISH_BINDING_MISMATCH"
+            )
+        if observed_at is not None:
+            observed = _timestamp(observed_at, "EVALUATION_TIME_INVALID")
+            not_before = _timestamp(
+                bootstrap_intent.get("access_not_before"),
+                "FOUNDATION_PUBLISH_WINDOW_INVALID",
+            )
+            not_after = _timestamp(
+                validated.get("access_not_after"),
+                "FOUNDATION_PUBLISH_WINDOW_INVALID",
+            )
+            if observed < not_before or observed >= not_after:
+                raise PlanPermissionRepairSignedArtifactError(
+                    "FOUNDATION_PUBLISH_WINDOW_INVALID"
+                )
+        return validated
+
+    if not allow_legacy_upstream_storage_binding:
+        raise PlanPermissionRepairSignedArtifactError(
+            "FOUNDATION_PUBLISH_BINDING_REQUIRED"
+        )
+
+    if not isinstance(value, Mapping):
+        raise PlanPermissionRepairSignedArtifactError(
+            "UPSTREAM_STORAGE_BINDING_INVALID"
+        )
+    binding = dict(value)
+    digest_fields = (
+        "gug363_plan_digest",
+        "gug363_artifact_signing_contract_digest",
+        "gug365_plan_digest",
+        "gug365_ledger_factory_artifact_signing_contract_digest",
+        "gug365_signed_artifact_binding_digest",
+    )
+    claimed_digest = binding.get("binding_digest")
+    try:
+        expected_digest = "sha256:" + sha256(
+            canonical_json(
+                {
+                    key: item
+                    for key, item in binding.items()
+                    if key != "binding_digest"
+                }
+            ).encode("utf-8")
+        ).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise PlanPermissionRepairSignedArtifactError(
+            "UPSTREAM_STORAGE_BINDING_INVALID"
+        ) from exc
+    if (
+        set(binding) != _UPSTREAM_STORAGE_BINDING_FIELDS
+        or binding.get("schema_version") != 1
+        or binding.get("record_type") != STORAGE_BINDING_TYPE
+        or binding.get("source_marker")
+        != "VALIDATED_GUG363_AND_GUG365_CAUSAL_PLANS"
+        or any(
+            _SOURCE_BUNDLE_DIGEST_RE.fullmatch(
+                str(binding.get(field, ""))
+            )
+            is None
+            for field in digest_fields
+        )
+        or _BUCKET_RE.fullmatch(str(binding.get("bucket", ""))) is None
+        or binding.get("sse_algorithm") != "aws:kms"
+        or _KMS_ARN_RE.fullmatch(
+            str(binding.get("sse_kms_key_arn", ""))
+        )
+        is None
+        or claimed_digest != expected_digest
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "UPSTREAM_STORAGE_BINDING_INVALID"
+        )
+    return binding
+
+
 def _aws_call(call: Any, /, **kwargs: Any) -> Mapping[str, Any]:
     try:
         response = call(**kwargs)
@@ -195,8 +347,14 @@ def _s3_location(value: Any, *, signed: bool) -> tuple[str, str, str | None]:
 
 
 def _read_exact_object(
-    *, s3_client: Any, bucket: str, key: str, version_id: str
+    *,
+    s3_client: Any,
+    bucket: str,
+    key: str,
+    version_id: str,
+    kms_key_arn: str,
 ) -> tuple[bytes, Mapping[str, Any]]:
+    version_id = _strict_version_id(version_id)
     common = {
         "Bucket": bucket,
         "Key": key,
@@ -210,6 +368,10 @@ def _read_exact_object(
         head.get("VersionId") != version_id
         or type(content_length) is not int
         or not 0 < content_length <= MAX_ARCHIVE_BYTES
+        or head.get("ServerSideEncryption") != "aws:kms"
+        or head.get("SSEKMSKeyId") != kms_key_arn
+        or head.get("DeleteMarker") is True
+        or head.get("ContentRange") is not None
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "S3_OBJECT_HEAD_INVALID"
@@ -218,10 +380,22 @@ def _read_exact_object(
         head.get("ChecksumSHA256"),
         "S3_OBJECT_CHECKSUM_INVALID",
     )
+    head_checksum_type = head.get("ChecksumType")
+    if (head_checksum is None and head_checksum_type is not None) or (
+        head_checksum is not None
+        and head_checksum_type not in (None, "FULL_OBJECT")
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "S3_OBJECT_CHECKSUM_INVALID"
+        )
     response = _aws_call(s3_client.get_object, **common)
     if (
         response.get("VersionId") != version_id
         or response.get("ContentLength") != content_length
+        or response.get("ServerSideEncryption") != "aws:kms"
+        or response.get("SSEKMSKeyId") != kms_key_arn
+        or response.get("DeleteMarker") is True
+        or response.get("ContentRange") is not None
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "S3_OBJECT_READBACK_DRIFT"
@@ -230,6 +404,17 @@ def _read_exact_object(
         response.get("ChecksumSHA256"),
         "S3_OBJECT_CHECKSUM_INVALID",
     )
+    response_checksum_type = response.get("ChecksumType")
+    if (
+        response_checksum is None
+        and response_checksum_type is not None
+    ) or (
+        response_checksum is not None
+        and response_checksum_type not in (None, "FULL_OBJECT")
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "S3_OBJECT_CHECKSUM_INVALID"
+        )
     if (head_checksum is None) != (response_checksum is None) or (
         head_checksum is not None and head_checksum != response_checksum
     ):
@@ -241,8 +426,28 @@ def _read_exact_object(
         raise PlanPermissionRepairSignedArtifactError(
             "S3_OBJECT_BODY_INVALID"
         )
+    chunks: list[bytes] = []
+    total = 0
     try:
-        payload = body.read(content_length + 1)
+        while True:
+            remaining = MAX_ARCHIVE_BYTES + 1 - total
+            if remaining <= 0:
+                raise PlanPermissionRepairSignedArtifactError(
+                    "S3_OBJECT_BODY_INVALID"
+                )
+            requested = min(65_536, remaining)
+            chunk = body.read(requested)
+            if not isinstance(chunk, bytes) or len(chunk) > requested:
+                raise PlanPermissionRepairSignedArtifactError(
+                    "S3_OBJECT_BODY_INVALID"
+                )
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        payload = b"".join(chunks)
+    except PlanPermissionRepairSignedArtifactError:
+        raise
     except Exception as exc:
         raise PlanPermissionRepairSignedArtifactError(
             "S3_OBJECT_BODY_INVALID"
@@ -271,6 +476,8 @@ def _read_exact_object(
             if head_checksum is not None
             else "LOCAL_SHA256_OF_EXACT_S3_VERSION"
         ),
+        "sse_algorithm": "aws:kms",
+        "sse_kms_key_arn": kms_key_arn,
     }
 
 
@@ -289,6 +496,9 @@ def _single_signed_version(*, s3_client: Any, bucket: str, key: str) -> str:
         page_delete_markers = response.get("DeleteMarkers", [])
         if not isinstance(page_versions, list) or not isinstance(
             page_delete_markers, list
+        ) or any(
+            not isinstance(item, Mapping)
+            for item in (*page_versions, *page_delete_markers)
         ):
             raise PlanPermissionRepairSignedArtifactError(
                 "S3_VERSION_INVENTORY_INVALID"
@@ -303,15 +513,19 @@ def _single_signed_version(*, s3_client: Any, bucket: str, key: str) -> str:
             for item in page_delete_markers
             if isinstance(item, Mapping) and item.get("Key") == key
         )
-        truncated = response.get("IsTruncated", False)
+        truncated = response.get("IsTruncated")
         if type(truncated) is not bool:
             raise PlanPermissionRepairSignedArtifactError(
                 "S3_VERSION_INVENTORY_INVALID"
             )
-        if not truncated:
-            break
         next_key = response.get("NextKeyMarker")
         next_version = response.get("NextVersionIdMarker")
+        if not truncated:
+            if next_key is not None or next_version is not None:
+                raise PlanPermissionRepairSignedArtifactError(
+                    "S3_VERSION_PAGINATION_INVALID"
+                )
+            break
         marker = (str(next_key), str(next_version))
         if (
             not isinstance(next_key, str)
@@ -343,6 +557,12 @@ def _single_signed_version(*, s3_client: Any, bucket: str, key: str) -> str:
 
 def _digest_text(value: str) -> str:
     return "sha256:" + sha256(value.encode("utf-8")).hexdigest()
+
+
+def _canonical_digest(value: Mapping[str, Any]) -> str:
+    return "sha256:" + sha256(
+        canonical_json(dict(value)).encode("utf-8")
+    ).hexdigest()
 
 
 def _certificate_revocation_hash(
@@ -438,7 +658,7 @@ def _verify_revocation_status(
         jobArn=job_arn,
         certificateHashes=[certificate_hash],
     )
-    revoked = response.get("revokedEntities", [])
+    revoked = response.get("revokedEntities")
     if not isinstance(revoked, list) or any(
         not isinstance(item, str) or not item for item in revoked
     ):
@@ -500,6 +720,10 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
     source_review: Mapping[str, Any],
     revocation_check: Mapping[str, Any],
     cloudformation_template_digests: Mapping[str, str],
+    upstream_storage_binding: Mapping[str, Any],
+    bootstrap_intent: Mapping[str, Any] | None = None,
+    foundation_publish_binding: Mapping[str, Any] | None = None,
+    allow_legacy_upstream_storage_binding: bool = False,
     now: datetime | None = None,
 ) -> Mapping[str, Any]:
     """Bind values derived by the AWS/Git adapter to the exact CFN tuple.
@@ -510,6 +734,29 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
     than accepting either value from an operator.
     """
 
+    evaluated = now or datetime.now(UTC)
+    if evaluated.tzinfo is None or evaluated.utcoffset() is None:
+        raise PlanPermissionRepairSignedArtifactError(
+            "EVALUATION_TIME_INVALID"
+        )
+    evaluated = evaluated.astimezone(UTC)
+    storage_binding = _validate_upstream_storage_binding(
+        upstream_storage_binding,
+        bootstrap_intent=bootstrap_intent,
+        foundation_publish_binding=foundation_publish_binding,
+        allow_legacy_upstream_storage_binding=(
+            allow_legacy_upstream_storage_binding
+        ),
+        observed_at=evaluated,
+    )
+    if (
+        not allow_legacy_upstream_storage_binding
+        and unsigned_manifest.get("source_commit")
+        != storage_binding.get("source_commit")
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "FOUNDATION_PUBLISH_SOURCE_COMMIT_MISMATCH"
+        )
     try:
         validate_plan_permission_repair_package(
             archive=downloaded_unsigned_archive,
@@ -519,15 +766,16 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
         raise PlanPermissionRepairSignedArtifactError(
             "UNSIGNED_PACKAGE_INVALID"
         ) from exc
-    evaluated = now or datetime.now(UTC)
-    if evaluated.tzinfo is None or evaluated.utcoffset() is None:
-        raise PlanPermissionRepairSignedArtifactError(
-            "EVALUATION_TIME_INVALID"
-        )
-    evaluated = evaluated.astimezone(UTC)
     evaluated_at = _timestamp_text(evaluated, "EVALUATION_TIME_INVALID")
     profile_match = _PROFILE_ARN_RE.fullmatch(expected_profile_version_arn)
-    if profile_match is None:
+    if (
+        profile_match is None
+        or (
+            not allow_legacy_upstream_storage_binding
+            and expected_profile_version_arn
+            != storage_binding["signing_profile_version_arn"]
+        )
+    ):
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNING_PROFILE_INVALID"
         )
@@ -590,6 +838,7 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
     )
     if (
         source_bucket != signed_bucket
+        or source_bucket != storage_binding["bucket"]
         or signed_key
         != (
             "scanalyze/platform-authority/gug-376/plan-policy-repair/"
@@ -609,11 +858,17 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
             "content_length",
             "checksum_sha256",
             "checksum_provenance",
+            "sse_algorithm",
+            "sse_kms_key_arn",
         }
         or signed_object_head.get("bucket") != signed_bucket
         or signed_object_head.get("key") != signed_key
         or signed_object_head.get("content_length")
         != len(downloaded_signed_archive)
+        or signed_object_head.get("sse_algorithm")
+        != storage_binding["sse_algorithm"]
+        or signed_object_head.get("sse_kms_key_arn")
+        != storage_binding["sse_kms_key_arn"]
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNED_OBJECT_HEAD_MISMATCH"
@@ -644,17 +899,41 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
                 raise PlanPermissionRepairSignedArtifactError(
                     "SIGNED_ARCHIVE_PATH_SET_INVALID"
                 )
+            total_uncompressed = 0
             for info in package.infolist():
                 unix_mode = info.external_attr >> 16
-                if info.flag_bits & 0x1 or unix_mode & 0o170000 == 0o120000:
+                if (
+                    info.flag_bits & 0x1
+                    or info.create_system != 3
+                    or info.external_attr
+                    != (stat.S_IFREG | 0o644) << 16
+                    or unix_mode != (stat.S_IFREG | 0o644)
+                ):
                     raise PlanPermissionRepairSignedArtifactError(
                         "SIGNED_ARCHIVE_ENTRY_UNSAFE"
                     )
-                payload = package.read(info)
                 expected = expected_entries[info.filename]
+                expected_size = expected.get("size_bytes")
+                if (
+                    type(expected_size) is not int
+                    or expected_size < 0
+                    or expected_size > MAX_ARCHIVE_BYTES
+                    or info.file_size != expected_size
+                    or info.compress_size < 0
+                    or info.compress_size > MAX_ARCHIVE_BYTES
+                ):
+                    raise PlanPermissionRepairSignedArtifactError(
+                        "SIGNED_ARCHIVE_ENTRY_SIZE_INVALID"
+                    )
+                total_uncompressed += expected_size
+                if total_uncompressed > MAX_ARCHIVE_BYTES:
+                    raise PlanPermissionRepairSignedArtifactError(
+                        "SIGNED_ARCHIVE_ENTRY_SIZE_INVALID"
+                    )
+                payload = package.read(info)
                 if (
                     sha256(payload).hexdigest() != expected["sha256"]
-                    or len(payload) != expected["size_bytes"]
+                    or len(payload) != expected_size
                 ):
                     raise PlanPermissionRepairSignedArtifactError(
                         "SIGNED_ARCHIVE_SOURCE_ENTRY_DRIFT"
@@ -786,6 +1065,8 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
                 "bucket": source_bucket,
                 "key": source_key,
                 "version": source_version,
+                "sse_algorithm": storage_binding["sse_algorithm"],
+                "sse_kms_key_arn": storage_binding["sse_kms_key_arn"],
             },
         },
         "signed_artifact": {
@@ -796,7 +1077,10 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
             "lambda_code_sha256": signed_code_sha,
             "size_bytes": len(downloaded_signed_archive),
             "checksum_provenance": checksum_provenance,
+            "sse_algorithm": storage_binding["sse_algorithm"],
+            "sse_kms_key_arn": storage_binding["sse_kms_key_arn"],
         },
+        "upstream_storage_binding": dict(storage_binding),
         "expected_sdk_versions": {
             "boto3": runtime["expected_boto3_version"],
             "botocore": runtime["expected_botocore_version"],
@@ -822,12 +1106,26 @@ def _build_signed_artifact_receipt_from_trusted_readbacks(
         "evidence_status": EVIDENCE_STATUS,
         "production_status": PRODUCTION_STATUS,
     }
-    validate_signed_artifact_receipt(receipt, now=evaluated)
+    receipt["receipt_digest"] = _canonical_digest(receipt)
+    validate_signed_artifact_receipt(
+        receipt,
+        now=evaluated,
+        bootstrap_intent=bootstrap_intent,
+        foundation_publish_binding=foundation_publish_binding,
+        allow_legacy_upstream_storage_binding=(
+            allow_legacy_upstream_storage_binding
+        ),
+    )
     return receipt
 
 
 def validate_signed_artifact_receipt(
-    receipt: Mapping[str, Any], *, now: datetime | None = None
+    receipt: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+    bootstrap_intent: Mapping[str, Any] | None = None,
+    foundation_publish_binding: Mapping[str, Any] | None = None,
+    allow_legacy_upstream_storage_binding: bool = False,
 ) -> None:
     """Reject a receipt whose duplicated package/CFN bindings diverge."""
 
@@ -841,6 +1139,7 @@ def validate_signed_artifact_receipt(
         "unsigned_archive_sha256",
         "signing_job",
         "signed_artifact",
+        "upstream_storage_binding",
         "expected_sdk_versions",
         "verifier",
         "source_review",
@@ -850,9 +1149,18 @@ def validate_signed_artifact_receipt(
         "evaluated_at",
         "evidence_status",
         "production_status",
+        "receipt_digest",
     }
     if (
         set(receipt) != required
+        or receipt.get("receipt_digest")
+        != _canonical_digest(
+            {
+                key: value
+                for key, value in receipt.items()
+                if key != "receipt_digest"
+            }
+        )
         or receipt.get("artifact_type") != ARTIFACT_TYPE
         or receipt.get("schema_version") != SCHEMA_VERSION
         or receipt.get("work_package") != WORK_PACKAGE
@@ -877,6 +1185,22 @@ def validate_signed_artifact_receipt(
         )
     signing = receipt.get("signing_job")
     signed = receipt.get("signed_artifact")
+    storage = _validate_upstream_storage_binding(
+        receipt.get("upstream_storage_binding"),
+        bootstrap_intent=bootstrap_intent,
+        foundation_publish_binding=foundation_publish_binding,
+        allow_legacy_upstream_storage_binding=(
+            allow_legacy_upstream_storage_binding
+        ),
+        observed_at=receipt.get("evaluated_at"),
+    )
+    if (
+        not allow_legacy_upstream_storage_binding
+        and receipt.get("source_commit") != storage.get("source_commit")
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "FOUNDATION_PUBLISH_SOURCE_COMMIT_MISMATCH"
+        )
     sdk = receipt.get("expected_sdk_versions")
     verifier = receipt.get("verifier")
     source_review = receipt.get("source_review")
@@ -906,10 +1230,25 @@ def validate_signed_artifact_receipt(
             str(signing.get("profile_version_arn"))
         )
         is None
+        or (
+            not allow_legacy_upstream_storage_binding
+            and signing.get("profile_version_arn")
+            != storage.get("signing_profile_version_arn")
+        )
         or not isinstance(source, Mapping)
-        or set(source) != {"bucket", "key", "version"}
+        or set(source)
+        != {
+            "bucket",
+            "key",
+            "version",
+            "sse_algorithm",
+            "sse_kms_key_arn",
+        }
         or _BUCKET_RE.fullmatch(str(source.get("bucket"))) is None
         or _SOURCE_KEY_RE.fullmatch(str(source.get("key"))) is None
+        or source.get("bucket") != storage["bucket"]
+        or source.get("sse_algorithm") != storage["sse_algorithm"]
+        or source.get("sse_kms_key_arn") != storage["sse_kms_key_arn"]
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNED_RECEIPT_SIGNING_JOB_INVALID"
@@ -925,8 +1264,13 @@ def validate_signed_artifact_receipt(
             "lambda_code_sha256",
             "size_bytes",
             "checksum_provenance",
+            "sse_algorithm",
+            "sse_kms_key_arn",
         }
         or signed.get("bucket") != source.get("bucket")
+        or signed.get("bucket") != storage["bucket"]
+        or signed.get("sse_algorithm") != storage["sse_algorithm"]
+        or signed.get("sse_kms_key_arn") != storage["sse_kms_key_arn"]
         or _SIGNED_KEY_RE.fullmatch(str(signed.get("key"))) is None
         or not str(signed.get("key")).endswith(
             f"/{signing['job_id']}.zip"
@@ -957,9 +1301,19 @@ def validate_signed_artifact_receipt(
     if (
         not isinstance(verifier, Mapping)
         or set(verifier) != {"profile", "account_id", "caller_arn"}
-        or verifier.get("profile") != EXPECTED_VERIFIER_PROFILE
+        or verifier.get("profile")
+        != (
+            LEGACY_VERIFIER_PROFILE
+            if allow_legacy_upstream_storage_binding
+            else EXPECTED_VERIFIER_PROFILE
+        )
         or verifier.get("account_id") != AUTHORITY_ACCOUNT_ID
-        or _CALLER_ARN_RE.fullmatch(str(verifier.get("caller_arn"))) is None
+        or (
+            _LEGACY_CALLER_ARN_RE
+            if allow_legacy_upstream_storage_binding
+            else _CALLER_ARN_RE
+        ).fullmatch(str(verifier.get("caller_arn")))
+        is None
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNED_RECEIPT_VERIFIER_INVALID"
@@ -1130,6 +1484,14 @@ def build_signed_artifact_receipt_from_aws(
     signer_data_client: Any,
     acm_client: Any,
     s3_client: Any,
+    bootstrap_intent: Mapping[str, Any] | None = None,
+    foundation_publish_binding: Mapping[str, Any] | None = None,
+    gug363_plan: Mapping[str, Any] | None = None,
+    gug365_plan: Mapping[str, Any] | None = None,
+    upstream_source_root: Path | None = None,
+    gug363_validator: Callable[..., Any] | None = None,
+    gug365_validator: Callable[..., Any] | None = None,
+    allow_legacy_upstream_plans: bool = False,
     now: datetime | None = None,
     source_review_verifier: Callable[..., Mapping[str, Any]] = (
         verify_github_merged_release
@@ -1137,10 +1499,6 @@ def build_signed_artifact_receipt_from_aws(
 ) -> Mapping[str, Any]:
     """Rebuild main and read one exact completed Signer job without writes."""
 
-    if profile_name != EXPECTED_VERIFIER_PROFILE:
-        raise PlanPermissionRepairSignedArtifactError(
-            "VERIFIER_PROFILE_INVALID"
-        )
     if _JOB_RE.fullmatch(job_id) is None:
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNING_JOB_ID_INVALID"
@@ -1151,14 +1509,87 @@ def build_signed_artifact_receipt_from_aws(
             "EVALUATION_TIME_INVALID"
         )
     evaluated = evaluated.astimezone(UTC)
+    foundation_mode = (
+        isinstance(bootstrap_intent, Mapping)
+        and isinstance(foundation_publish_binding, Mapping)
+        and not allow_legacy_upstream_plans
+        and gug363_plan is None
+        and gug365_plan is None
+        and upstream_source_root is None
+        and gug363_validator is None
+        and gug365_validator is None
+    )
+    legacy_mode = (
+        allow_legacy_upstream_plans
+        and bootstrap_intent is None
+        and foundation_publish_binding is None
+        and isinstance(gug363_plan, Mapping)
+        and isinstance(gug365_plan, Mapping)
+    )
+    if not foundation_mode and not legacy_mode:
+        raise PlanPermissionRepairSignedArtifactError(
+            "STORAGE_CAUSALITY_ROUTE_INVALID"
+        )
+    expected_verifier_profile = (
+        LEGACY_VERIFIER_PROFILE if legacy_mode else EXPECTED_VERIFIER_PROFILE
+    )
+    expected_caller = _LEGACY_CALLER_ARN_RE if legacy_mode else _CALLER_ARN_RE
+    if profile_name != expected_verifier_profile:
+        raise PlanPermissionRepairSignedArtifactError(
+            "VERIFIER_PROFILE_INVALID"
+        )
     identity = _aws_call(sts_client.get_caller_identity)
     if (
         identity.get("Account") != AUTHORITY_ACCOUNT_ID
-        or _CALLER_ARN_RE.fullmatch(str(identity.get("Arn"))) is None
+        or expected_caller.fullmatch(str(identity.get("Arn"))) is None
     ):
         raise PlanPermissionRepairSignedArtifactError(
             "VERIFIER_IDENTITY_INVALID"
         )
+    if foundation_mode:
+        storage_binding = _validate_upstream_storage_binding(
+            foundation_publish_binding,
+            bootstrap_intent=bootstrap_intent,
+            foundation_publish_binding=foundation_publish_binding,
+            observed_at=evaluated,
+        )
+    elif legacy_mode:
+        try:
+            storage_binding = derive_upstream_storage_binding(
+                gug363_plan=gug363_plan,
+                gug365_plan=gug365_plan,
+                source_root=upstream_source_root or source_root,
+                gug363_validator=gug363_validator,
+                gug365_validator=gug365_validator,
+            )
+        except TemplateReadbackError as exc:
+            raise PlanPermissionRepairSignedArtifactError(
+                "UPSTREAM_STORAGE_BINDING_INVALID"
+            ) from exc
+        storage_binding = _validate_upstream_storage_binding(
+            storage_binding,
+            allow_legacy_upstream_storage_binding=True,
+        )
+    else:
+        raise PlanPermissionRepairSignedArtifactError(
+            "STORAGE_CAUSALITY_ROUTE_INVALID"
+        )
+    if (
+        foundation_mode
+        and source_commit != storage_binding["source_commit"]
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "FOUNDATION_PUBLISH_SOURCE_COMMIT_MISMATCH"
+        )
+    if (
+        foundation_mode
+        and expected_profile_version_arn
+        != storage_binding["signing_profile_version_arn"]
+    ):
+        raise PlanPermissionRepairSignedArtifactError(
+            "SIGNING_PROFILE_FOUNDATION_MISMATCH"
+        )
+    kms_key_arn = str(storage_binding["sse_kms_key_arn"])
     committed_sources = verify_clean_source_commit(
         source_root=source_root,
         source_commit=source_commit,
@@ -1209,7 +1640,11 @@ def build_signed_artifact_receipt_from_aws(
     signed_bucket, signed_key, _ = _s3_location(
         signed_wrapper["s3"], signed=True
     )
-    if source_version is None or source_bucket != signed_bucket:
+    if (
+        source_version is None
+        or source_bucket != signed_bucket
+        or source_bucket != storage_binding["bucket"]
+    ):
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNING_JOB_LOCATION_NOT_EXACT"
         )
@@ -1227,6 +1662,7 @@ def build_signed_artifact_receipt_from_aws(
         bucket=source_bucket,
         key=source_key,
         version_id=source_version,
+        kms_key_arn=kms_key_arn,
     )
     if (
         unsigned_head["checksum_sha256"]
@@ -1246,6 +1682,7 @@ def build_signed_artifact_receipt_from_aws(
         bucket=signed_bucket,
         key=signed_key,
         version_id=signed_version,
+        kms_key_arn=kms_key_arn,
     )
     revocation_check = _verify_revocation_status(
         signing_job=signing_job,
@@ -1266,38 +1703,132 @@ def build_signed_artifact_receipt_from_aws(
         source_review=source_review,
         revocation_check=revocation_check,
         cloudformation_template_digests=template_digests,
+        upstream_storage_binding=storage_binding,
+        bootstrap_intent=bootstrap_intent,
+        foundation_publish_binding=foundation_publish_binding,
+        allow_legacy_upstream_storage_binding=legacy_mode,
         now=evaluated,
     )
 
 
 def write_signed_artifact_receipt(
-    *, receipt: Mapping[str, Any], output_path: Path, source_root: Path
+    *,
+    receipt: Mapping[str, Any],
+    output_path: Path,
+    source_root: Path,
+    private_root: Path,
+    now: datetime | None = None,
+    bootstrap_intent: Mapping[str, Any] | None = None,
+    foundation_publish_binding: Mapping[str, Any] | None = None,
+    allow_legacy_upstream_storage_binding: bool = False,
 ) -> None:
     """Write private evidence once with owner-only permissions."""
 
     root = source_root.resolve(strict=True)
-    requested = output_path.resolve(strict=False)
+    if (
+        not private_root.is_absolute()
+        or private_root.is_symlink()
+        or not output_path.is_absolute()
+        or not _OUTPUT_NAME_RE.fullmatch(output_path.name)
+    ):
+        raise PlanPermissionRepairSignedArtifactError("PRIVATE_ROOT_INVALID")
     try:
-        requested.relative_to(root)
+        resolved_private_root = private_root.resolve(strict=True)
+    except OSError as exc:
+        raise PlanPermissionRepairSignedArtifactError(
+            "PRIVATE_ROOT_INVALID"
+        ) from exc
+    requested = output_path.resolve(strict=False)
+    if (
+        resolved_private_root != private_root
+        or requested.parent != resolved_private_root
+    ):
+        raise PlanPermissionRepairSignedArtifactError("PRIVATE_ROOT_INVALID")
+    try:
+        resolved_private_root.relative_to(root)
     except ValueError:
         pass
     else:
         raise PlanPermissionRepairSignedArtifactError(
             "OUTPUT_MUST_BE_OUTSIDE_SOURCE_ROOT"
         )
-    validate_signed_artifact_receipt(receipt)
+    validate_signed_artifact_receipt(
+        receipt,
+        now=now,
+        bootstrap_intent=bootstrap_intent,
+        foundation_publish_binding=foundation_publish_binding,
+        allow_legacy_upstream_storage_binding=(
+            allow_legacy_upstream_storage_binding
+        ),
+    )
     payload = (canonical_json(receipt) + "\n").encode("utf-8")
+    root_descriptor: int | None = None
+    output_descriptor: int | None = None
+    created = False
     try:
-        descriptor = os.open(
-            output_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
+        root_descriptor = os.open(
+            resolved_private_root,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
         )
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+        root_metadata = os.fstat(root_descriptor)
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(root_metadata.st_mode) != 0o700
+        ):
+            raise PlanPermissionRepairSignedArtifactError(
+                "PRIVATE_ROOT_MODE_INVALID"
+            )
+        output_descriptor = os.open(
+            output_path.name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=root_descriptor,
+        )
+        created = True
+        os.fchmod(output_descriptor, 0o600)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(output_descriptor, remaining)
+            if written <= 0:
+                raise OSError
+            remaining = remaining[written:]
+        os.fsync(output_descriptor)
+        metadata = os.fstat(output_descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_size != len(payload)
+        ):
+            raise PlanPermissionRepairSignedArtifactError(
+                "SIGNED_RECEIPT_OUTPUT_INVALID"
+            )
+        os.fsync(root_descriptor)
+    except PlanPermissionRepairSignedArtifactError:
+        if created and root_descriptor is not None:
+            try:
+                os.unlink(output_path.name, dir_fd=root_descriptor)
+            except OSError:
+                pass
+        raise
     except OSError as exc:
+        if created and root_descriptor is not None:
+            try:
+                os.unlink(output_path.name, dir_fd=root_descriptor)
+            except OSError:
+                pass
         raise PlanPermissionRepairSignedArtifactError(
             "SIGNED_RECEIPT_WRITE_FAILED"
         ) from exc
+    finally:
+        if output_descriptor is not None:
+            os.close(output_descriptor)
+        if root_descriptor is not None:
+            os.close(root_descriptor)

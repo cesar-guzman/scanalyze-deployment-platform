@@ -136,10 +136,22 @@ compile its own plan. That checkpoint capability binds both the authoritative
 downstream receipt digest and its private-manifest digest. Only a separate
 GUG-395 post-checkpoint helper may validate that receipt and fresh plan, require
 the terminal verifier digest plus every GUG-363/package/signing digest to match
-the same handoff, derive the legacy GUG-393 source bundle and compare its exact
+the same handoff, derive the GUG-393 v2 source bundle and compare its exact
 Authority and Identity Center projections with the terminal handoff. The first
 downstream receipt cannot be resealed, omitted or reinterpreted as that later
 capability.
+
+The v2 boundary supports exactly two Identity Center encryption states. An
+AWS-owned key is represented by `AWS_OWNED_KMS_KEY` plus a JSON `null` key ARN;
+a customer-managed key is represented by `CUSTOMER_MANAGED_KEY` plus the exact
+management-account, `us-east-1` KMS key ARN. The complete private binding is
+the tuple of Identity Center instance ARN, mode and nullable key ARN. Both the
+private source bundle and sanitized downstream receipt bind the canonical
+digest of that tuple. The public receipt never carries the raw instance, mode
+or key ARN. The immutable v1 receipt remains available only as historical
+schema evidence and is never upgraded by relabeling or resealing it. The
+[dual-mode operations contract](../docs/operations/platform-authority-gug393-kms-dual-mode-contract.md)
+defines the exact matrix, digest projection and public leak boundary.
 
 ### 5. Preserve downstream ownership and production gates
 

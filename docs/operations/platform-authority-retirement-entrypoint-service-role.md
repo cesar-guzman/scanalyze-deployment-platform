@@ -360,10 +360,22 @@ missing or does not prove the closed read-only surface, stop with
     "expected_account_id": "111111111111",
     "expected_principal_digest": "sha256:REDACTED_64_HEX",
     "expected_sso_role_name_digest": "sha256:REDACTED_64_HEX",
-    "authority_verification_digest": "sha256:REDACTED_64_HEX"
+    "authority_verification_digest": "sha256:REDACTED_64_HEX",
+    "identity_center_kms_mode": "AWS_OWNED_KMS_KEY",
+    "identity_center_kms_key_arn": null
   }
 }
 ```
+
+The example shows the AWS-owned-key form. In that form the mode must be
+`AWS_OWNED_KMS_KEY` and `identity_center_kms_key_arn` must be null. For a
+customer-managed instance, use `CUSTOMER_MANAGED_KEY` and place the exact
+private `us-east-1` KMS key ARN owned by the expected management account in
+`identity_center_kms_key_arn`; do not print, publish or paste that ARN into
+public evidence. These fields are expected selectors, not evidence and do not
+assert the instance state. The authority for the encryption state is the two
+stable live `sso:DescribeInstance` observations made by the probe. A mismatch
+between either observation and either selector is reconciliation-only.
 
 Before materialization, record the exact merged commit and tree:
 
@@ -448,6 +460,14 @@ read-only inventory and no AWS mutation. Launch it from an empty environment
 and restore only `HOME`, `PATH` and `TMPDIR`; a partial `env -u` list is not
 sufficient because every ambient `AWS_*` override is fail-closed:
 
+Within each Identity Center session, the exact read sequence is
+`sts:GetCallerIdentity`, the complete `sso:ListInstances` stream, one
+`sso:DescribeInstance` request for the sole exact active target instance, and
+then the bounded application and permission-set inventory. `DescribeInstance`
+is part of the closed read allowlist. Its projected instance, Identity Store,
+owner, status and encryption fields must cross-match `ListInstances` and the
+private selectors before any candidate inventory continues.
+
 IAM Identity Center may require the dependent `kms:Decrypt` permission for
 List/Describe reads when its instance uses a customer managed KMS key. The
 deployable Identity policy template includes only the reviewed indirect grant:
@@ -513,18 +533,19 @@ Interpret only the sealed public classification:
 
 | Classification | Meaning and next action |
 |---|---|
-| `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` | Contract classification requiring independently conclusive absence for all seven targets. The current concrete HeadBucket route cannot establish it, so it is not reachable from this connected read-only implementation. |
+| `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` | All seven targets are independently and conclusively absent, the expected Identity Center instance is ready, both domain snapshots are stable, and all evidence and budgets are complete. This classification authorizes only review of the next provider iteration; it does not authorize mutation. |
 | `COLLISION_BLOCKED_NO_MUTATION` | At least one name, alias or tag matched. Preserve evidence; do not adopt, repair, delete or retry. |
 | `UNCERTAIN_RECONCILE_ONLY` | Partial, denied, over-budget, unstable, malformed or prerequisite evidence. Preserve the claim and reconcile read-only under a new reviewed request. |
 
-`s3:HeadBucket` is mandatory for the global bucket name. A non-followed `301`
-or successful response is collision. AWS documents `400`, `403` and `404` as
-generic results for either a missing bucket or missing permission and supplies
-no response body that disambiguates them. All three are uncertainty, never
-absence. Automatic S3 region redirection is disabled so one logical call cannot
-conceal a second unbudgeted request. Because no operation in this read-only
-surface proves global bucket-name absence, do not promote a connected run to
-`ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION`.
+The artifact target is an account-regional S3 bucket name, not a traditional
+global bucket name. The probe requires a complete paginated `ListBuckets`
+stream bound to the exact prefix, `BucketRegion=us-east-1`, bounded
+`MaxBuckets`, account `042360977644`, and the account-regional namespace. An
+exact match is a collision; complete zero matches proves absence only for this
+reserved account-and-region name. The probe never calls `HeadBucket`, never
+uses an ambiguous negative response, and rejects a global-namespace selector,
+partial pagination, wrong account or Region, malformed result, or substituted
+`HeadBucket` request as uncertainty.
 
 Signer inventory explicitly includes `Active`, `Canceled` and `Revoked`
 profiles, and every retained name or reviewed-tag match blocks mutation.

@@ -819,6 +819,12 @@ def _identity_plan_binding(
                 "not_before": plan["not_before"],
                 "not_after": plan["not_after"],
                 "region": "us-east-1",
+                "identity_center_instance_arn": private[
+                    "identity_center_instance_arn"
+                ],
+                "identity_center_kms_binding_digest": private[
+                    "identity_center_kms_binding_digest"
+                ],
             }
         )
     except (KeyError, TypeError) as exc:

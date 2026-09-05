@@ -21,13 +21,20 @@ absence. Conversely, a resource that appears compatible cannot be adopted:
 ownership, creator identity and a complete mutation transcript are not
 established by tags.
 
-S3 bucket names are global. `s3:ListAllMyBuckets` proves only that a bucket is
-or is not visible in the current account. `s3:HeadBucket` adds useful collision
-evidence, but it cannot complete a globally authoritative absence proof. A
-successful response or a non-followed `301` proves that the name is occupied.
-AWS documents `400`, `403` and `404` as generic responses for either a missing
-bucket or missing permission and returns no body that disambiguates them. All
-three are therefore uncertainty, never demonstrated collision or absence.
+Traditional S3 bucket names use the global namespace. For those names,
+`s3:ListAllMyBuckets` sees only the authenticated account and `HeadBucket`
+`400`, `403`, and `404` responses cannot distinguish a missing bucket from an
+inaccessible bucket. Therefore this probe does not use a traditional global
+name and does not call `HeadBucket`.
+
+The artifact bucket instead uses S3's account-regional namespace. Its exact
+form is
+`scanalyze-g376-art-<12 lowercase hex>-042360977644-us-east-1-an`, and the
+future create request must set `BucketNamespace=account-regional`. AWS reserves
+that account-and-region suffix to the named account. A complete regional
+`ListBuckets` stream can therefore prove whether that account already owns the
+exact reserved name without making a mutation or interpreting an ambiguous
+negative response.
 
 ## Decision
 
@@ -50,7 +57,7 @@ The exact target catalog is:
 
 | Domain | Target | Selector |
 |---|---|---|
-| Authority | Artifact bucket | Global bucket name and expected tag digest |
+| Authority | Artifact bucket | Account-regional bucket name, namespace and expected tag digest |
 | Authority | KMS key | Exact alias or expected tag digest |
 | Authority | Signing profile | Exact profile name or expected tag digest |
 | Authority | Lambda code-signing config | Expected tag digest |
@@ -76,7 +83,6 @@ Authority permits only:
 sts:GetCallerIdentity
 s3:ListAllMyBuckets
 s3:GetBucketTagging
-s3:HeadBucket
 kms:ListAliases
 kms:ListKeys
 kms:DescribeKey
@@ -94,6 +100,7 @@ Identity Center permits only:
 ```text
 sts:GetCallerIdentity
 sso:ListInstances
+sso:DescribeInstance
 sso:ListApplications
 sso:DescribeApplication
 sso:ListPermissionSets
@@ -120,6 +127,20 @@ regional redirection are disabled. The two profiles must be distinct,
 non-default, direct SSO, read-only and bound to different expected accounts
 and exact expected role/principal digests.
 
+Each Identity Center snapshot has one fixed causal sequence: confirm the
+caller, close the complete `sso:ListInstances` stream, require exactly one
+matching active target instance, call `sso:DescribeInstance` exactly once for
+that instance ARN, and only then list applications and permission sets. The
+projected description must cross-match the list summary and the owner-sealed
+expected account, Identity Store ID, status and encryption selectors. The
+private binding fields `identity_center_kms_mode` and
+`identity_center_kms_key_arn` are expected selectors, not evidence. The
+authoritative state is the pair of stable live `DescribeInstance` responses.
+`AWS_OWNED_KMS_KEY` requires a null key ARN; `CUSTOMER_MANAGED_KEY` requires the
+exact private `us-east-1` key ARN owned by the expected management account.
+Any mismatch, missing description, disabled encryption or instability is
+`UNCERTAIN_RECONCILE_ONLY`.
+
 ### 4. Bound pages, resources, responses, network attempts and modeled cost
 
 The global four-session budget stops before an over-limit call:
@@ -129,9 +150,18 @@ The global four-session budget stops before an over-limit call:
 - exactly four session-bootstrap attempts, zero to four actual cached-or-live
   credential-vending calls, and at most 2,052 network calls;
 - 256 KiB per projected response and 16 MiB total;
-- 256 owned buckets before tag fan-out, 256 KMS keys, 256 signing profiles,
+- 256 filtered bucket summaries before exact-match tag read, 256 KMS keys,
+  256 signing profiles,
   256 code-signing configs, 256 applications and 512 permission sets; and
 - a conservative modeled upper cost of USD 0.05.
+
+The artifact query is always a complete paginated `ListBuckets` stream with
+the exact `Prefix`, `BucketRegion=us-east-1`, and a bounded `MaxBuckets`.
+Every returned candidate must carry `BucketRegion=us-east-1`. Only an exact
+name match is tagged, and that `GetBucketTagging` request includes
+`ExpectedBucketOwner=042360977644`. Complete zero exact matches is absence for
+this reserved account-regional name; an exact match is a collision regardless
+of its tags. No negative `HeadBucket` result participates in the decision.
 
 Repeated tokens, incomplete pagination, malformed responses, access denial,
 timeouts, an expired window or a resource cap are never absence.
@@ -157,13 +187,12 @@ The public contract defines these classifications:
 Even the absent result authorizes no mutation. It only permits review of the
 next provider implementation iteration.
 
-The current concrete provider cannot emit the absent classification from the
-allowed S3 read-only surface: neither `ListAllMyBuckets` nor a generic
-`HeadBucket` failure proves global-name absence. A connected run can therefore
-record a detected collision or preserve uncertainty, but it cannot truthfully
-promote the seven-target result to `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION`.
-Closing that gap requires a separately reviewed design; it must not reinterpret
-`404` or expand this request into an S3 mutation.
+The concrete provider can emit the absent classification only because the
+request binds the account-regional namespace, exact account and region, exact
+name pattern, complete filtered pagination and expected-owner tag read. A
+traditional global bucket selector, missing namespace binding, different
+account or region, unbounded request, partial page stream, or any attempted
+`HeadBucket` substitution fails closed.
 
 ### 6. Preserve private facts and publish only digests
 

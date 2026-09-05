@@ -1,0 +1,294 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GUG-376 immutable, versioned artifact foundation (not a deployment).
+
+Parameters:
+  AuthorityAccountId:
+    Type: String
+    Default: '042360977644'
+    AllowedValues: ['042360977644']
+  SourceCommit:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{40}$'
+  ArtifactBucketName:
+    Type: String
+    AllowedPattern: '^scanalyze-g376-art-[a-f0-9]{12}-042360977644-us-east-1-an$'
+  ArtifactKmsAlias:
+    Type: String
+    AllowedPattern: '^alias/scanalyze-platform-authority-gug376-artifacts-[a-f0-9]{12}$'
+  SigningProfileName:
+    Type: String
+    AllowedPattern: '^ScanalyzeGug376ArtifactSigner_[a-f0-9]{12}$'
+  CrossAccountAccessEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  RouteTemplateVersion:
+    Type: String
+    Default: NOT_CONFIGURED
+    AllowedPattern: '^(?:NOT_CONFIGURED|[A-Za-z0-9._~+/=-]{1,1024})$'
+  DelegationTemplateVersion:
+    Type: String
+    Default: NOT_CONFIGURED
+    AllowedPattern: '^(?:NOT_CONFIGURED|[A-Za-z0-9._~+/=-]{1,1024})$'
+
+Rules:
+  RequireVersionIdsBeforeCrossAccountAccess:
+    RuleCondition: !Equals [!Ref CrossAccountAccessEnabled, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref RouteTemplateVersion, NOT_CONFIGURED]]
+        AssertDescription: RouteTemplateVersion must be exact before access opens
+      - Assert: !Not [!Equals [!Ref DelegationTemplateVersion, NOT_CONFIGURED]]
+        AssertDescription: DelegationTemplateVersion must be exact before access opens
+
+Conditions:
+  EnableCrossAccountAccess: !Equals [!Ref CrossAccountAccessEnabled, 'true']
+
+Mappings:
+  Fixed:
+    Values:
+      ArtifactPrefix: scanalyze/platform-authority/gug-376/plan-policy-repair/
+
+Resources:
+  ArtifactKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: GUG-376 temporary bootstrap artifact key; retained for immutable evidence
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PreserveAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: AllowOnlyTemporaryBootstrapRoleThroughExactS3
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: '*'
+            Condition:
+              ArnLike:
+                aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_*
+              StringEquals:
+                kms:ViaService: s3.us-east-1.amazonaws.com
+              StringLike:
+                kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
+          - Sid: AllowSignerServiceThroughExactBucket
+            Effect: Allow
+            Principal:
+              Service: signer.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AuthorityAccountId
+                kms:ViaService: s3.us-east-1.amazonaws.com
+              StringLike:
+                kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
+          - !If
+            - EnableCrossAccountAccess
+            - Sid: AllowExactGug376ReadersThroughBucketKeyS3Only
+              Effect: Allow
+              Principal:
+                AWS:
+                  - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:root
+                  - arn:aws:iam::839393571433:root
+              Action: kms:Decrypt
+              Resource: '*'
+              Condition:
+                ArnLike:
+                  aws:PrincipalArn:
+                    - arn:aws:iam::839393571433:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AWSAdministratorAccess_*
+                    - arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+                    - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_*
+                    - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeGug376BrokerSeedCreator_*
+                    - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_ScanalyzeGug376BrokerSeedExec_*
+                    - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerCreator
+                    - !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug376RouteBrokerExecutor
+                StringEquals:
+                  aws:RequestedRegion: us-east-1
+                  kms:ViaService: s3.us-east-1.amazonaws.com
+                  kms:EncryptionContext:aws:s3:arn: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucketName}
+            - !Ref AWS::NoValue
+  ArtifactKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Ref ArtifactKmsAlias
+      TargetKeyId: !Ref ArtifactKey
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ArtifactBucketName
+      BucketNamespace: account-regional
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt ArtifactKey.Arn
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+      VersioningConfiguration:
+        Status: Enabled
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt ArtifactBucket.Arn
+              - !Sub ${ArtifactBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: DenyUnencryptedObjectWrites
+            Effect: Deny
+            NotPrincipal:
+              Service: signer.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-376/plan-policy-repair/*
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption: aws:kms
+          - Sid: DenyWrongKmsKey
+            Effect: Deny
+            NotPrincipal:
+              Service: signer.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-376/plan-policy-repair/*
+            Condition:
+              StringNotEquals:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt ArtifactKey.Arn
+          - Sid: AllowSignerSourceAndDestination
+            Effect: Allow
+            Principal:
+              Service: signer.amazonaws.com
+            Action:
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource: !Sub ${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-376/plan-policy-repair/*
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AuthorityAccountId
+          - !If
+            - EnableCrossAccountAccess
+            - Sid: AllowManagementExactRouteTemplateVersion
+              Effect: Allow
+              Principal:
+                AWS: arn:aws:iam::839393571433:root
+              Action: s3:GetObjectVersion
+              Resource: !Sub ${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-376/plan-policy-repair/templates/${SourceCommit}/cfn-platform-authority-gug376-temporary-change-set-route.yaml
+              Condition:
+                ArnLike:
+                  aws:PrincipalArn:
+                    - arn:aws:iam::839393571433:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AWSAdministratorAccess_*
+                    - arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+                StringEquals:
+                  s3:VersionId: !Ref RouteTemplateVersion
+            - !Ref AWS::NoValue
+          - !If
+            - EnableCrossAccountAccess
+            - Sid: AllowManagementCreatorExactDelegationTemplateVersion
+              Effect: Allow
+              Principal:
+                AWS: arn:aws:iam::839393571433:root
+              Action: s3:GetObjectVersion
+              Resource: !Sub ${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-376/plan-policy-repair/templates/${SourceCommit}/cfn-platform-authority-bootstrap-plan-repair-delegation.yaml
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: arn:aws:iam::839393571433:role/scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator
+                StringEquals:
+                  s3:VersionId: !Ref DelegationTemplateVersion
+            - !Ref AWS::NoValue
+
+  SigningProfile:
+    Type: AWS::Signer::SigningProfile
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      PlatformId: AWSLambda-SHA384-ECDSA
+      ProfileName: !Ref SigningProfileName
+      SignatureValidityPeriod:
+        Type: MONTHS
+        Value: 12
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+
+  CodeSigningConfig:
+    Type: AWS::Lambda::CodeSigningConfig
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      AllowedPublishers:
+        SigningProfileVersionArns:
+          - !GetAtt SigningProfile.ProfileVersionArn
+      CodeSigningPolicies:
+        UntrustedArtifactOnDeployment: Enforce
+      Description: GUG-376 exact artifact bootstrap signing trust root
+      Tags:
+        - {Key: managed_by, Value: cloudformation}
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-376}
+        - {Key: source_commit, Value: !Ref SourceCommit}
+
+Outputs:
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  ArtifactBucketArn:
+    Value: !GetAtt ArtifactBucket.Arn
+  ArtifactKmsKeyArn:
+    Value: !GetAtt ArtifactKey.Arn
+  ArtifactKmsAlias:
+    Value: !Ref ArtifactKeyAlias
+  SigningProfileName:
+    Value: !GetAtt SigningProfile.ProfileName
+  SigningProfileVersionArn:
+    Value: !GetAtt SigningProfile.ProfileVersionArn
+  CodeSigningConfigArn:
+    Value: !GetAtt CodeSigningConfig.CodeSigningConfigArn
+  ProductionAuthorized:
+    Value: 'false'
+  CrossAccountAccessMode:
+    Value: !Ref CrossAccountAccessEnabled

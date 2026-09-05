@@ -54,16 +54,48 @@
       }
     },
     {
-      "Sid": "DescribePrimaryRegionIdentityCenterCandidates",
+      "Sid": "DescribeExactIdentityCenterInstance",
       "Effect": "Allow",
-      "Action": [
-        "sso:DescribeApplication",
-        "sso:DescribePermissionSet"
-      ],
+      "Action": "sso:DescribeInstance",
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DescribePrimaryRegionIdentityCenterApplications",
+      "Effect": "Allow",
+      "Action": "sso:DescribeApplication",
+      "Resource": "arn:aws:sso::${management_account_id}:application/${identity_center_instance_id}/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DescribePrimaryRegionIdentityCenterPermissionSets",
+      "Effect": "Allow",
+      "Action": "sso:DescribePermissionSet",
       "Resource": [
         "${identity_center_instance_arn}",
-        "arn:aws:sso::${management_account_id}:application/*",
-        "arn:aws:sso:::permissionSet/*"
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*"
       ],
       "Condition": {
         "StringEquals": {
@@ -84,8 +116,8 @@
       "Action": "sso:ListTagsForResource",
       "Resource": [
         "${identity_center_instance_arn}",
-        "arn:aws:sso::${management_account_id}:application/*",
-        "arn:aws:sso:::permissionSet/*"
+        "arn:aws:sso::${management_account_id}:application/${identity_center_instance_id}/*",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*"
       ],
       "Condition": {
         "StringEquals": {
@@ -106,11 +138,10 @@
       "Resource": "${identity_center_kms_key_arn}",
       "Condition": {
         "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
           "aws:RequestedRegion": "us-east-1",
           "kms:CallerAccount": "${management_account_id}",
-          "kms:ViaService": "sso.us-east-1.amazonaws.com"
-        },
-        "StringLike": {
+          "kms:ViaService": "sso.us-east-1.amazonaws.com",
           "kms:EncryptionContext:aws:sso:instance-arn": "${identity_center_instance_arn}"
         },
         "DateGreaterThanEquals": {
@@ -159,6 +190,7 @@
       "Effect": "Deny",
       "NotAction": [
         "sso:DescribeApplication",
+        "sso:DescribeInstance",
         "sso:DescribePermissionSet",
         "sso:ListApplications",
         "sso:ListInstances",

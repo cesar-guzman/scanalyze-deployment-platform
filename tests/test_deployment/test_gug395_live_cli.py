@@ -22,6 +22,10 @@ RUNBOOK = (
     ROOT
     / "docs/operations/platform-authority-retirement-entrypoint-service-role.md"
 )
+DEPLOYMENT_GUIDE = (
+    ROOT
+    / "docs/deployment/platform-authority-retirement-entrypoint-service-role.md"
+)
 
 
 def _module() -> Any:
@@ -70,6 +74,44 @@ def test_connected_runbook_clears_every_ambient_aws_override() -> None:
     assert connected.count(
         "platform-authority-gug395-preplan-collision-probe.py"
     ) == 1
+
+
+def test_deployment_guide_preserves_account_regional_s3_collision_contract(
+) -> None:
+    deployment = DEPLOYMENT_GUIDE.read_text(encoding="utf-8")
+    collision_boundary = " ".join(
+        deployment.split(
+            "The collision action surface is closed",
+            maxsplit=1,
+        )[1]
+        .split("Signer listing", maxsplit=1)[0]
+        .split()
+    )
+
+    for required in (
+        "account-regional S3 bucket namespace in `us-east-1`",
+        "complete paginated `ListBuckets` stream",
+        "`s3:ListAllMyBuckets`",
+        "exact prefix",
+        "`BucketRegion=us-east-1`",
+        "bounded `MaxBuckets`",
+        "expected authority account `042360977644`",
+        "never calls `s3:HeadBucket`",
+        "`HeadBucket` is prohibited",
+        "Complete zero matches",
+        "`ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION`",
+        "both domain snapshots are stable",
+        "`UNCERTAIN_RECONCILE_ONLY`",
+    ):
+        assert required in collision_boundary
+
+    for obsolete_claim in (
+        "`s3:HeadBucket` is required",
+        "bucket names are global",
+        "cannot certify global-name absence",
+        "cannot certify global-name absence or emit",
+    ):
+        assert obsolete_claim not in collision_boundary
 
 
 def test_probe_emits_blocked_receipt_and_returns_exit_two(

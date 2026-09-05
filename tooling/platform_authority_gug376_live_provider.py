@@ -44,6 +44,10 @@ from tooling.platform_authority_gug376_live_request_materializer import (
 from tooling.platform_authority_gug395_preplan_collision_probe import (
     MAX_OWNED_BUCKETS as MAX_COLLISION_OWNED_BUCKETS,
 )
+from tooling.platform_authority_gug395_preplan_seed import (
+    ARTIFACT_BUCKET_NAMESPACE,
+    AUTHORITY_ACCOUNT_ID,
+)
 
 
 REGION = "us-east-1"
@@ -60,7 +64,6 @@ COLLISION_PROBE_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = (
                     "sts:GetCallerIdentity",
                     "s3:ListAllMyBuckets",
                     "s3:GetBucketTagging",
-                    "s3:HeadBucket",
                     "kms:ListAliases",
                     "kms:ListKeys",
                     "kms:DescribeKey",
@@ -77,6 +80,7 @@ COLLISION_PROBE_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = (
                 {
                     "sts:GetCallerIdentity",
                     "sso:ListInstances",
+                    "sso:DescribeInstance",
                     "sso:ListApplications",
                     "sso:DescribeApplication",
                     "sso:ListPermissionSets",
@@ -87,12 +91,6 @@ COLLISION_PROBE_OPERATION_ALLOWLIST: Mapping[str, frozenset[str]] = (
         }
     )
 )
-# ``HeadBucket`` is the SDK/ledger operation. AWS IAM has no
-# ``s3:HeadBucket`` action; the deployable policy grants its exact underlying
-# authorization, ``s3:ListBucket``, only on the request-bound candidate ARN.
-COLLISION_PROBE_IAM_ACTION_MAP: Mapping[str, str] = MappingProxyType(
-    {"s3:HeadBucket": "s3:ListBucket"}
-)
 MAX_COLLISION_KMS_KEYS = 256
 MAX_COLLISION_SIGNING_PROFILES = 256
 MAX_COLLISION_CODE_SIGNING_CONFIGS = 256
@@ -100,8 +98,21 @@ MAX_COLLISION_APPLICATIONS = 256
 MAX_COLLISION_PERMISSION_SETS = 512
 
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_ACCOUNT_REGIONAL_ARTIFACT_BUCKET = re.compile(
+    r"^scanalyze-g376-art-[a-f0-9]{12}-"
+    rf"{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
+)
 _SSO_ROLE_NAME = re.compile(r"^[A-Za-z0-9+=,.@_-]{1,64}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
+_IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
+_INSTANCE_ARN = re.compile(
+    r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$"
+)
+_KMS_KEY_ARN = re.compile(
+    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
+    r"mrk-[0-9a-f]{32})$"
+)
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRINCIPAL = re.compile(
     r"^arn:aws:sts::([0-9]{12}):assumed-role/([A-Za-z0-9+=,.@_/-]+)/"
@@ -572,31 +583,6 @@ def _project_sts_identity(
     result = _selected(value, ("Account", "Arn"))
     user_id = value.get("UserId")
     result["UserIdPresent"] = isinstance(user_id, str) and bool(user_id)
-    return result
-
-
-def _project_s3_head_bucket(
-    value: Mapping[str, Any], request: Mapping[str, Any]
-) -> Mapping[str, Any]:
-    """Project only the HTTP existence result of the global name probe."""
-
-    del request
-    metadata = value.get("ResponseMetadata")
-    status = (
-        metadata.get("HTTPStatusCode")
-        if isinstance(metadata, Mapping)
-        else None
-    )
-    if type(status) is not int or not 200 <= status <= 299:
-        _fail("COLLISION_HEAD_BUCKET_RESPONSE_INVALID")
-    result: dict[str, Any] = {
-        "status_code": status,
-        "collision": True,
-        "absent": False,
-    }
-    region_digest = _s3_region_header_digest(value)
-    if region_digest is not None:
-        result["bucket_region_header_digest"] = region_digest
     return result
 
 
@@ -1287,9 +1273,11 @@ def _project_sso_describe_instance(
     )
     encryption = value.get("EncryptionConfigurationDetails")
     if isinstance(encryption, Mapping):
-        result["EncryptionConfigurationDetails"] = _selected(
-            encryption, ("KeyType", "KmsKeyArn", "EncryptionStatus")
-        )
+        result["EncryptionConfigurationDetails"] = {
+            "KeyType": encryption.get("KeyType"),
+            "KmsKeyArn": encryption.get("KmsKeyArn"),
+            "EncryptionStatus": encryption.get("EncryptionStatus"),
+        }
     return result
 
 
@@ -1467,7 +1455,9 @@ _RESPONSE_PROJECTORS: Mapping[str, _ResponseProjector] = MappingProxyType(
     {
         "sts:GetCallerIdentity": _project_sts_identity,
         "s3:ListAllMyBuckets": _page(
-            "Buckets", _item_fields("Name"), "ContinuationToken"
+            "Buckets",
+            _item_fields("Name", "BucketRegion"),
+            "ContinuationToken",
         ),
         "s3:GetAccountPublicAccessBlock": _project_public_access_block,
         "s3:GetBucketPublicAccessBlock": _project_public_access_block,
@@ -1638,10 +1628,9 @@ _RESPONSE_PROJECTORS: Mapping[str, _ResponseProjector] = MappingProxyType(
 
 if set(_RESPONSE_PROJECTORS) != set().union(*OPERATION_ALLOWLIST.values()):
     raise RuntimeError("GUG392_RESPONSE_PROJECTOR_COVERAGE_INVALID")
-if (
-    set().union(*COLLISION_PROBE_OPERATION_ALLOWLIST.values())
-    - {"s3:HeadBucket"}
-) - set(_RESPONSE_PROJECTORS):
+if set().union(*COLLISION_PROBE_OPERATION_ALLOWLIST.values()) - set(
+    _RESPONSE_PROJECTORS
+):
     raise RuntimeError("GUG395_RESPONSE_PROJECTOR_COVERAGE_INVALID")
 
 
@@ -3984,184 +3973,6 @@ class _StsSession:
         )
         return detached
 
-    def _head_bucket(self, bucket_name: str) -> Mapping[str, Any]:
-        """Probe the global name without treating generic failures as absence."""
-
-        operation = "s3:HeadBucket"
-        if (
-            operation not in self._owner._operation_allowlist[self._domain]
-            or operation not in self._policy_actions
-        ):
-            _fail("PROVIDER_OPERATION_NOT_ALLOWED")
-        request = {"Bucket": bucket_name}
-        started_at = self._assert_active_window()
-        request_digest = canonical_digest(request)
-        self._owner._reserve_discovery_provider_call(operation, is_page=False)
-        ticket = self._ledger.authorize(
-            domain=self._domain,
-            session_digest=self._session_digest,
-            operation=operation,
-            retries=0,
-            request=request_digest,
-            started_at=_stamp(started_at),
-        )
-        try:
-            response = self._client("s3").head_bucket(**request)
-        except Exception as exc:
-            status = _error_status(exc)
-            code = _error_code(exc)
-            try:
-                completed_at = self._assert_active_window()
-            except Exception as gate_error:
-                self._fail_pending_post_response(
-                    ticket=ticket,
-                    operation=operation,
-                    request_digest=request_digest,
-                    completed_at=getattr(
-                        gate_error, "_observed_at", started_at
-                    ),
-                )
-                raise
-            if status == 301:
-                detached = {
-                    "status_code": status,
-                    "collision": True,
-                    "absent": False,
-                }
-                region_digest = (
-                    getattr(exc, "region_header_digest", None)
-                    or _s3_region_header_digest(exc)
-                )
-                if (
-                    isinstance(region_digest, str)
-                    and _DIGEST.fullmatch(region_digest) is not None
-                ):
-                    detached["bucket_region_header_digest"] = region_digest
-                try:
-                    bounded = _bounded(detached)
-                    assert isinstance(bounded, Mapping)
-                    self._owner._record_discovery_response(bounded)
-                except LiveProviderError:
-                    self._fail_pending_post_response(
-                        ticket=ticket,
-                        operation=operation,
-                        request_digest=request_digest,
-                        completed_at=completed_at,
-                    )
-                    raise
-                response_digest = canonical_digest(bounded)
-                self._ledger.complete(
-                    ticket,
-                    response_digest,
-                    completed_at=_stamp(completed_at),
-                )
-                self._owner._record(
-                    domain=self._domain,
-                    session_digest=self._session_digest,
-                    operation=operation,
-                    request_digest=request_digest,
-                    response_digest=response_digest,
-                    outcome="SUCCESS",
-                )
-                return bounded
-            detached_error = {"error_code": code, "status_code": status}
-            try:
-                self._owner._record_discovery_response(detached_error)
-            except LiveProviderError:
-                self._fail_pending_post_response(
-                    ticket=ticket,
-                    operation=operation,
-                    request_digest=request_digest,
-                    completed_at=completed_at,
-                )
-                raise
-            response_digest = canonical_digest(detached_error)
-            self._ledger.complete(
-                ticket,
-                response_digest,
-                outcome="ERROR",
-                completed_at=_stamp(completed_at),
-            )
-            self._owner._record(
-                domain=self._domain,
-                session_digest=self._session_digest,
-                operation=operation,
-                request_digest=request_digest,
-                response_digest=response_digest,
-                outcome="ERROR",
-            )
-            if status in {400, 403, 404}:
-                # HeadBucket deliberately returns these generic status codes
-                # for either a missing bucket or missing access.  The empty
-                # response body cannot establish global-name absence.
-                raise LiveProviderError(
-                    "COLLISION_HEAD_BUCKET_AMBIGUOUS"
-                ) from exc
-            if isinstance(exc, _S3RegionRedirectBlocked):
-                raise LiveProviderError(exc.code) from exc
-            if (
-                isinstance(exc, LiveProviderError)
-                and str(exc) == "COLLISION_S3_REDIRECT_GUARD_REQUIRED"
-            ):
-                raise
-            if code in _ACCESS_DENIED:
-                raise AuthorityAccessDenied(code) from exc
-            raise LiveProviderError("PROVIDER_READ_FAILED") from exc
-
-        try:
-            completed_at = self._assert_active_window()
-        except Exception as gate_error:
-            self._fail_pending_post_response(
-                ticket=ticket,
-                operation=operation,
-                request_digest=request_digest,
-                completed_at=getattr(gate_error, "_observed_at", started_at),
-            )
-            raise
-        try:
-            if not isinstance(response, Mapping):
-                _fail("COLLISION_HEAD_BUCKET_RESPONSE_INVALID")
-            projected = _project_s3_head_bucket(response, request)
-            bounded = _bounded(projected)
-            assert isinstance(bounded, Mapping)
-            self._owner._record_discovery_response(bounded)
-            response_digest = canonical_digest(bounded)
-        except Exception as exc:
-            blocked_digest = canonical_digest({"blocked": True})
-            self._ledger.complete(
-                ticket,
-                blocked_digest,
-                outcome="ERROR",
-                completed_at=_stamp(completed_at),
-            )
-            self._owner._record(
-                domain=self._domain,
-                session_digest=self._session_digest,
-                operation=operation,
-                request_digest=request_digest,
-                response_digest=blocked_digest,
-                outcome="ERROR",
-            )
-            if isinstance(exc, LiveProviderError):
-                raise
-            raise LiveProviderError(
-                "COLLISION_HEAD_BUCKET_RESPONSE_INVALID"
-            ) from exc
-        self._ledger.complete(
-            ticket,
-            response_digest,
-            completed_at=_stamp(completed_at),
-        )
-        self._owner._record(
-            domain=self._domain,
-            session_digest=self._session_digest,
-            operation=operation,
-            request_digest=request_digest,
-            response_digest=response_digest,
-            outcome="SUCCESS",
-        )
-        return bounded
-
     def _paginate(
         self,
         *,
@@ -4801,13 +4612,24 @@ def consume_identity_discovery_transition_attestation(
         if value._consumed:  # type: ignore[attr-defined]
             _fail("DISCOVERY_TRANSITION_ATTESTATION_CONSUMED")
         value._consumed = True  # type: ignore[attr-defined]
-    return json.loads(canonical_json(value._discovery))  # type: ignore[attr-defined]
+    observation = json.loads(
+        canonical_json(value._discovery)  # type: ignore[attr-defined]
+    )
+    if (
+        not isinstance(observation, dict)
+        or set(observation) != {"discovery", "instance"}
+        or not isinstance(observation["discovery"], dict)
+        or not isinstance(observation["instance"], dict)
+    ):
+        _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+    return observation["discovery"]
 
 
 class _IdentityDiscoveryReader:
     def __init__(self, session: _StsSession) -> None:
         self._session = session
         self._observed: dict[str, list[dict[str, Any]]] = {}
+        self._instance: dict[str, Any] | None = None
         self._attested = False
 
     def _record_surface(
@@ -4877,6 +4699,31 @@ class _IdentityDiscoveryReader:
                 items.append({"name": name, "permission_set_arn": arn})
         return _identity_page(self._record_surface("permission_sets", items))
 
+    def describe_instance(self, instance_arn: str) -> Mapping[str, Any]:
+        if self._instance is not None:
+            _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
+        value = self._session._invoke(
+            operation="sso:DescribeInstance",
+            service="sso-admin",
+            method="describe_instance",
+            request={"InstanceArn": instance_arn},
+        )
+        encryption = value.get("EncryptionConfigurationDetails")
+        if not isinstance(encryption, Mapping):
+            _fail("PROVIDER_RESPONSE_INVALID")
+        self._instance = {
+            "instance_arn": value.get("InstanceArn"),
+            "identity_store_id": value.get("IdentityStoreId"),
+            "owner_account_id": value.get("OwnerAccountId"),
+            "status": value.get("Status"),
+            "encryption": {
+                "key_type": encryption.get("KeyType"),
+                "kms_key_arn": encryption.get("KmsKeyArn"),
+                "status": encryption.get("EncryptionStatus"),
+            },
+        }
+        return _one(self._instance)
+
     def attest_transition(
         self, discovery_digest: str
     ) -> _IdentityDiscoveryTransitionAttestation:
@@ -4887,6 +4734,7 @@ class _IdentityDiscoveryReader:
             for key in ("instances", "applications", "permission_sets")
             if key in self._observed
         }
+        observation = {"discovery": discovery, "instance": self._instance}
         session_events = [
             item
             for item in owner._events
@@ -4897,7 +4745,42 @@ class _IdentityDiscoveryReader:
             "sso:ListInstances",
             "sso:ListApplications",
             "sso:ListPermissionSets",
+            "sso:DescribeInstance",
         }
+        event_operations = [item.get("operation") for item in session_events]
+        operation_positions = {
+            operation: [
+                index
+                for index, observed in enumerate(event_operations)
+                if observed == operation
+            ]
+            for operation in required_operations
+        }
+        allowed_operations = required_operations | {
+            "sso:DescribePermissionSet"
+        }
+        ordered_discovery = (
+            len(operation_positions["sts:GetCallerIdentity"]) == 1
+            and operation_positions["sts:GetCallerIdentity"] == [0]
+            and len(operation_positions["sso:DescribeInstance"]) == 1
+            and all(
+                operation_positions[operation]
+                for operation in (
+                    "sso:ListInstances",
+                    "sso:ListApplications",
+                    "sso:ListPermissionSets",
+                )
+            )
+            and max(operation_positions["sso:ListInstances"])
+            < operation_positions["sso:DescribeInstance"][0]
+            < min(operation_positions["sso:ListApplications"])
+            < min(operation_positions["sso:ListPermissionSets"])
+            and all(
+                position > max(operation_positions["sso:ListPermissionSets"])
+                for position, operation in enumerate(event_operations)
+                if operation == "sso:DescribePermissionSet"
+            )
+        )
         if (
             self._attested
             or owner._provider_attestation is not _DISCOVERY_PROVIDER_ATTESTATION
@@ -4906,12 +4789,18 @@ class _IdentityDiscoveryReader:
             or self._session._identity_validated is not True
             or set(discovery)
             != {"instances", "applications", "permission_sets"}
+            or not isinstance(self._instance, dict)
             or _DIGEST.fullmatch(str(discovery_digest)) is None
-            or canonical_digest(discovery) != discovery_digest
+            or canonical_digest(observation) != discovery_digest
             or not session_events
             or session_events[0].get("operation") != "sts:GetCallerIdentity"
             or required_operations
             - {item.get("operation") for item in session_events}
+            or any(
+                operation not in allowed_operations
+                for operation in event_operations
+            )
+            or not ordered_discovery
             or any(item.get("outcome") != "SUCCESS" for item in session_events)
         ):
             _fail("DISCOVERY_TRANSITION_ATTESTATION_INVALID")
@@ -4923,7 +4812,7 @@ class _IdentityDiscoveryReader:
             capture_index=self._session._capture_index,
             session_digest=self._session._session_digest,
             policy_digest=self._session._policy_digest,
-            discovery=discovery,
+            discovery=observation,
             discovery_digest=discovery_digest,
             session_events_digest=canonical_digest(session_events),
         )
@@ -5262,9 +5151,11 @@ def _collision_target(
     key: str,
     *,
     domain: str,
+    selector_kind: str,
     selector_field: str | None,
     expected_contract: object,
     require_instance: bool = False,
+    exact_fields: Mapping[str, str] | None = None,
 ) -> tuple[Mapping[str, Any], dict[str, str]]:
     if not isinstance(targets, Mapping):
         _fail("COLLISION_TARGETS_INVALID")
@@ -5278,12 +5169,20 @@ def _collision_target(
         expected_fields.add(selector_field)
     if require_instance:
         expected_fields.add("instance_arn")
+    if exact_fields is not None:
+        expected_fields.update(exact_fields)
     if not isinstance(target, Mapping) or set(target) != expected_fields:
         _fail("COLLISION_TARGETS_INVALID")
     if (
         target.get("domain") != domain
-        or not isinstance(target.get("selector_kind"), str)
-        or not target.get("selector_kind")
+        or target.get("selector_kind") != selector_kind
+        or (
+            exact_fields is not None
+            and any(
+                target.get(field) != value
+                for field, value in exact_fields.items()
+            )
+        )
     ):
         _fail("COLLISION_TARGETS_INVALID")
     if selector_field is not None:
@@ -5304,6 +5203,31 @@ def _bounded_collision_facts(value: Mapping[str, Any]) -> Mapping[str, Any]:
     return bounded
 
 
+def _collision_identity_kms_binding(
+    *, mode: object, key_arn: object, account_id: str
+) -> tuple[str, str | None]:
+    """Validate the owner-sealed Identity Center encryption expectation."""
+
+    key_match = (
+        _KMS_KEY_ARN.fullmatch(key_arn)
+        if isinstance(key_arn, str)
+        else None
+    )
+    if (
+        mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
+        or (
+            mode == "CUSTOMER_MANAGED_KEY"
+            and (
+                key_match is None
+                or key_match.group(1) != account_id
+            )
+        )
+    ):
+        _fail("COLLISION_IDENTITY_KMS_BINDING_INVALID")
+    return str(mode), key_arn if isinstance(key_arn, str) else None
+
+
 class _CollisionAuthorityReader:
     """Closed pre-plan collision inventory for the authority account."""
 
@@ -5318,33 +5242,50 @@ class _CollisionAuthorityReader:
         tag_contract: Mapping[str, str] | None = None,
     ) -> Mapping[str, Any]:
         bucket_name = _collision_selector(bucket_name)
+        if (
+            self._session._account_id != AUTHORITY_ACCOUNT_ID
+            or _ACCOUNT_REGIONAL_ARTIFACT_BUCKET.fullmatch(bucket_name) is None
+        ):
+            _fail("COLLISION_TARGETS_INVALID")
         max_owned_buckets = _collision_resource_cap(
             max_owned_buckets, maximum=MAX_COLLISION_OWNED_BUCKETS
         )
+        list_request = {
+            "BucketRegion": REGION,
+            "Prefix": bucket_name,
+            "MaxBuckets": max_owned_buckets,
+        }
         buckets = self._session._paginate(
             operation="s3:ListAllMyBuckets",
             service="s3",
             method="list_buckets",
-            request={},
+            request=list_request,
             item_key="Buckets",
             request_token_key="ContinuationToken",
             response_token_key="ContinuationToken",
         )
         if len(buckets) > max_owned_buckets:
             _fail("COLLISION_RESOURCE_CAP_EXCEEDED")
+        if any(
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("Name"), str)
+            or not str(item["Name"]).startswith(bucket_name)
+            or item.get("BucketRegion") != REGION
+            for item in buckets
+        ):
+            _fail("PROVIDER_RESPONSE_INVALID")
         owned_matches = [
             item
             for item in buckets
-            if isinstance(item, Mapping) and item.get("Name") == bucket_name
+            if isinstance(item, Mapping)
+            and item.get("Name") == bucket_name
+            and item.get("BucketRegion") == REGION
         ]
         if len(owned_matches) > 1:
             _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
-        head = self._session._head_bucket(bucket_name)
-        if head.get("absent") is True and owned_matches:
-            _fail("COLLISION_PROBE_RESPONSE_CONFLICT")
         bucket_details: list[dict[str, Any]] = []
         tag_matches: list[dict[str, Any]] = []
-        for bucket in buckets:
+        for bucket in owned_matches:
             discovered_name = (
                 bucket.get("Name") if isinstance(bucket, Mapping) else None
             )
@@ -5354,7 +5295,10 @@ class _CollisionAuthorityReader:
                 operation="s3:GetBucketTagging",
                 service="s3",
                 method="get_bucket_tagging",
-                request={"Bucket": discovered_name},
+                request={
+                    "Bucket": discovered_name,
+                    "ExpectedBucketOwner": self._session._account_id,
+                },
                 absent_ok=True,
             )
             matches_contract = (
@@ -5364,6 +5308,7 @@ class _CollisionAuthorityReader:
             )
             record = {
                 "name": discovered_name,
+                "bucket_region": bucket.get("BucketRegion"),
                 "tags": tags,
                 "tag_contract_matches": matches_contract,
             }
@@ -5373,14 +5318,15 @@ class _CollisionAuthorityReader:
         return _bounded_collision_facts(
             {
                 "target_name": bucket_name,
+                "bucket_namespace": ARTIFACT_BUCKET_NAMESPACE,
+                "bucket_region": REGION,
                 "owned_bucket_count": len(buckets),
+                "discovered_buckets": buckets,
                 "owned_matches": owned_matches,
-                "head": head,
                 "bucket_details": bucket_details,
                 "tag_matches": tag_matches,
-                "collision": (
-                    head.get("collision") is True or bool(tag_matches)
-                ),
+                "absent": not owned_matches,
+                "collision": bool(owned_matches),
             }
         )
 
@@ -5726,13 +5672,16 @@ class _CollisionAuthorityReader:
             targets,
             "artifact_bucket",
             domain="authority",
+            selector_kind="ACCOUNT_REGIONAL_BUCKET_NAME_AND_TAG",
             selector_field="name",
             expected_contract=authority_contract_raw,
+            exact_fields={"bucket_namespace": ARTIFACT_BUCKET_NAMESPACE},
         )
         kms_target, _ = _collision_target(
             targets,
             "kms_key",
             domain="authority",
+            selector_kind="KMS_ALIAS_OR_TAG",
             selector_field="alias_name",
             expected_contract=authority_contract_raw,
         )
@@ -5740,6 +5689,7 @@ class _CollisionAuthorityReader:
             targets,
             "signing_profile",
             domain="authority",
+            selector_kind="SIGNING_PROFILE_NAME_OR_TAG",
             selector_field="name",
             expected_contract=authority_contract_raw,
         )
@@ -5747,6 +5697,7 @@ class _CollisionAuthorityReader:
             targets,
             "code_signing_config",
             domain="authority",
+            selector_kind="TAG_ONLY",
             selector_field=None,
             expected_contract=authority_contract_raw,
         )
@@ -5814,6 +5765,8 @@ class _CollisionIdentityReader:
         self,
         *,
         instance_arn: str,
+        expected_identity_center_kms_mode: str,
+        expected_identity_center_kms_key_arn: str | None,
         application_name: str,
         classifier_permission_set_name: str,
         approver_permission_set_name: str,
@@ -5822,6 +5775,8 @@ class _CollisionIdentityReader:
         max_permission_sets: int,
     ) -> Mapping[str, Any]:
         instance_arn = _collision_selector(instance_arn)
+        if _INSTANCE_ARN.fullmatch(instance_arn) is None:
+            _fail("COLLISION_SELECTOR_INVALID")
         application_name = _collision_selector(application_name)
         classifier_permission_set_name = _collision_selector(
             classifier_permission_set_name
@@ -5831,6 +5786,13 @@ class _CollisionIdentityReader:
         )
         if classifier_permission_set_name == approver_permission_set_name:
             _fail("COLLISION_SELECTOR_INVALID")
+        expected_kms_mode, expected_kms_key_arn = (
+            _collision_identity_kms_binding(
+                mode=expected_identity_center_kms_mode,
+                key_arn=expected_identity_center_kms_key_arn,
+                account_id=self._session._account_id,
+            )
+        )
         tag_contract = _collision_tag_contract(tag_contract)
         max_applications = _collision_resource_cap(
             max_applications, maximum=MAX_COLLISION_APPLICATIONS
@@ -5853,11 +5815,60 @@ class _CollisionIdentityReader:
             if isinstance(item, Mapping)
             and item.get("InstanceArn") == instance_arn
         ]
-        if len(instance_matches) > 1 or any(
-            item.get("OwnerAccountId") != self._session._account_id
-            for item in instance_matches
+        if len(instances) != 1 or len(instance_matches) != 1:
+            _fail("COLLISION_IDENTITY_INSTANCE_MISMATCH")
+        instance_summary = instance_matches[0]
+        summary_fields = {
+            "InstanceArn",
+            "IdentityStoreId",
+            "OwnerAccountId",
+            "Status",
+        }
+        if (
+            set(instance_summary) != summary_fields
+            or instance_summary.get("OwnerAccountId")
+            != self._session._account_id
+            or instance_summary.get("Status") != "ACTIVE"
+            or _IDENTITY_STORE.fullmatch(
+                str(instance_summary.get("IdentityStoreId"))
+            )
+            is None
         ):
-            _fail("COLLISION_IDENTITY_OWNER_MISMATCH")
+            _fail("COLLISION_IDENTITY_INSTANCE_MISMATCH")
+        described = self._session._invoke(
+            operation="sso:DescribeInstance",
+            service="sso-admin",
+            method="describe_instance",
+            request={"InstanceArn": instance_arn},
+        )
+        encryption = described.get("EncryptionConfigurationDetails")
+        if not isinstance(encryption, Mapping):
+            _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
+        described_instance = {
+            "InstanceArn": described.get("InstanceArn"),
+            "IdentityStoreId": described.get("IdentityStoreId"),
+            "OwnerAccountId": described.get("OwnerAccountId"),
+            "Status": described.get("Status"),
+            "EncryptionConfigurationDetails": {
+                "KeyType": encryption.get("KeyType"),
+                "KmsKeyArn": encryption.get("KmsKeyArn"),
+                "EncryptionStatus": encryption.get("EncryptionStatus"),
+            },
+        }
+        if (
+            {
+                key: described_instance[key]
+                for key in summary_fields
+            }
+            != instance_summary
+            or described_instance["EncryptionConfigurationDetails"]
+            != {
+                "KeyType": expected_kms_mode,
+                "KmsKeyArn": expected_kms_key_arn,
+                "EncryptionStatus": "ENABLED",
+            }
+        ):
+            _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
         applications: list[Any] = []
         described_applications: list[dict[str, Any]] = []
         application_matches: list[dict[str, Any]] = []
@@ -6003,6 +6014,7 @@ class _CollisionIdentityReader:
                 ),
                 "instances": instances,
                 "instance_matches": instance_matches,
+                "described_instance": described_instance,
                 "applications": applications,
                 "applications_examined": len(applications),
                 "described_applications": described_applications,
@@ -6032,12 +6044,15 @@ class _CollisionIdentityReader:
         *,
         max_applications: int,
         max_permission_sets: int,
+        expected_identity_center_kms_mode: str,
+        expected_identity_center_kms_key_arn: str | None,
     ) -> Mapping[str, Any]:
         _, identity_contract_raw = _collision_plaintext_contracts()
         application_target, identity_contract = _collision_target(
             targets,
             "identity_center_application",
             domain="identity_center",
+            selector_kind="INSTANCE_NAME_OR_TAG",
             selector_field="name",
             expected_contract=identity_contract_raw,
             require_instance=True,
@@ -6046,6 +6061,7 @@ class _CollisionIdentityReader:
             targets,
             "classifier_permission_set",
             domain="identity_center",
+            selector_kind="INSTANCE_NAME_OR_TAG",
             selector_field="name",
             expected_contract=identity_contract_raw,
             require_instance=True,
@@ -6054,6 +6070,7 @@ class _CollisionIdentityReader:
             targets,
             "approver_permission_set",
             domain="identity_center",
+            selector_kind="INSTANCE_NAME_OR_TAG",
             selector_field="name",
             expected_contract=identity_contract_raw,
             require_instance=True,
@@ -6067,6 +6084,12 @@ class _CollisionIdentityReader:
             _fail("COLLISION_TARGETS_INVALID")
         facts = self._read_explicit_facts(
             instance_arn=str(application_target["instance_arn"]),
+            expected_identity_center_kms_mode=(
+                expected_identity_center_kms_mode
+            ),
+            expected_identity_center_kms_key_arn=(
+                expected_identity_center_kms_key_arn
+            ),
             application_name=str(application_target["name"]),
             classifier_permission_set_name=str(classifier_target["name"]),
             approver_permission_set_name=str(approver_target["name"]),
@@ -6093,6 +6116,7 @@ class _CollisionIdentityReader:
             and len(instances) == 1
             and isinstance(matched_instance, Mapping)
             and matched_instance.get("Status") == "ACTIVE"
+            and facts.get("described_instance") is not None
         )
         return _bounded_collision_facts(
             {
@@ -6265,6 +6289,8 @@ def build_collision_probe_provider_factory(
     identity_expected_account_id: str,
     identity_expected_principal_digest: str,
     identity_expected_sso_role_name_digest: str,
+    identity_expected_kms_mode: str,
+    identity_expected_kms_key_arn: str | None,
     authority_verification_digest: str,
     identity_authority_verification_digest: str,
     collision_budget: object,
@@ -6344,6 +6370,8 @@ def build_collision_probe_provider_factory(
             identity_expected_sso_role_name_digest=(
                 identity_expected_sso_role_name_digest
             ),
+            identity_expected_kms_mode=identity_expected_kms_mode,
+            identity_expected_kms_key_arn=identity_expected_kms_key_arn,
             authority_verification_digest=authority_verification_digest,
             identity_authority_verification_digest=(
                 identity_authority_verification_digest
@@ -6591,7 +6619,6 @@ def is_attested_collision_probe_provider(
 
 
 __all__ = [
-    "COLLISION_PROBE_IAM_ACTION_MAP",
     "COLLISION_PROBE_OPERATION_ALLOWLIST",
     "LiveProviderError",
     "LiveProviderFactory",

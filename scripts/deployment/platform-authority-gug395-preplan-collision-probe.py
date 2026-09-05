@@ -201,6 +201,12 @@ def _probe(args: argparse.Namespace) -> dict[str, Any]:
             identity_expected_sso_role_name_digest=identity[
                 "expected_sso_role_name_digest"
             ],
+            identity_expected_kms_mode=identity[
+                "identity_center_kms_mode"
+            ],
+            identity_expected_kms_key_arn=identity[
+                "identity_center_kms_key_arn"
+            ],
             authority_verification_digest=authority[
                 "authority_verification_digest"
             ],

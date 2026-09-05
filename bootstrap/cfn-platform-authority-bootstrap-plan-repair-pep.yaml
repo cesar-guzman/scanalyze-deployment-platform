@@ -28,7 +28,6 @@ Parameters:
     AllowedPattern: '^gug376-plan-permission-repair-[a-f0-9]{64}$'
   PrincipalId:
     Type: String
-    NoEcho: true
     MaxLength: 47
     AllowedPattern: '^(?:[0-9a-f]{10}-)?[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
   IdentityStoreId:
@@ -45,7 +44,6 @@ Parameters:
     AllowedPattern: '^arn:aws[a-z-]*:sso:::permissionSet/ssoins-[A-Za-z0-9]{16}/ps-[A-Za-z0-9]{16}$'
   ExpectedPermissionSetDescription:
     Type: String
-    NoEcho: true
     MinLength: 1
     MaxLength: 700
     AllowedPattern: '^[ -~]{1,700}$'
@@ -63,7 +61,6 @@ Parameters:
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
   ExpectedPlanPermissionSetTagsJson:
     Type: String
-    NoEcho: true
     MinLength: 2
     MaxLength: 1024
     AllowedPattern: '^[ -~]{2,1024}$'
@@ -90,7 +87,7 @@ Parameters:
     Type: String
     Default: ''
     MaxLength: 75
-    AllowedPattern: '^$|^arn:aws[a-z-]*:kms:us-east-1:839393571433:key/[0-9a-fA-F-]{36}$'
+    AllowedPattern: '^$|^arn:aws:kms:us-east-1:839393571433:key/(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|mrk-[0-9a-f]{32})$'
   ExpectedBoto3Version:
     Type: String
     MaxLength: 32
@@ -107,7 +104,6 @@ Parameters:
     AllowedPattern: '^scanalyze/platform-authority/gug-376/plan-policy-repair/signed/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$'
   ArtifactVersion:
     Type: String
-    NoEcho: true
     MinLength: 1
     MaxLength: 1024
   ArtifactCodeSha256:
@@ -122,7 +118,6 @@ Parameters:
     Type: String
     MaxLength: 71
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
-
 Rules:
   AccountAndRegionMustMatch:
     Assertions:
@@ -148,8 +143,8 @@ Rules:
 Resources:
   RepairLedgerKey:
     Type: AWS::KMS::Key
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       Description: GUG-376 retained bootstrap Plan policy repair ledger key
       Enabled: true
@@ -206,16 +201,16 @@ Resources:
 
   RepairLedgerKeyAlias:
     Type: AWS::KMS::Alias
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       AliasName: alias/scanalyze/platform-authority/gug376-plan-policy-repair-ledger
       TargetKeyId: !Ref RepairLedgerKey
 
   RepairLedger:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       TableName: scanalyze-platform-authority-plan-policy-repair-ledger
       BillingMode: PAY_PER_REQUEST
@@ -225,7 +220,7 @@ Resources:
       KeySchema:
         - AttributeName: repair_id
           KeyType: HASH
-      DeletionProtectionEnabled: true
+      DeletionProtectionEnabled: PEP_LEDGER_PROTECTION_BOOLEAN_SENTINEL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
         RecoveryPeriodInDays: 35
@@ -238,7 +233,7 @@ Resources:
         PolicyDocument:
           Version: '2012-10-17'
           Statement:
-            - Sid: DenyPlanCreationOutsidePlanExecution
+            - Sid: DenyItemCreationOutsideExactWriters
               Effect: Deny
               Principal:
                 AWS: '*'
@@ -246,7 +241,60 @@ Resources:
               Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
               Condition:
                 ArnNotEquals:
+                  aws:PrincipalArn:
+                    - !GetAtt PlanExecutionRole.Arn
+                    - !GetAtt ReconcileExecutionRole.Arn
+            - Sid: DenyPlanWritesOutsideBaseKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
                   aws:PrincipalArn: !GetAtt PlanExecutionRole.Arn
+                ForAllValues:StringNotEquals:
+                  dynamodb:LeadingKeys:
+                    - !Ref RepairId
+                'Null':
+                  dynamodb:LeadingKeys: 'false'
+            - Sid: DenyPlanWritesWithoutBaseKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: !GetAtt PlanExecutionRole.Arn
+                'Null':
+                  dynamodb:LeadingKeys: 'true'
+            - Sid: DenyReconcileWritesOutsideAttestationKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: !GetAtt ReconcileExecutionRole.Arn
+                ForAllValues:StringNotEquals:
+                  dynamodb:LeadingKeys:
+                    - !Sub '${RepairId}#reconcile-v1'
+                    - !Sub '${RepairId}#reconcile-attempt-v1'
+                'Null':
+                  dynamodb:LeadingKeys: 'false'
+            - Sid: DenyReconcileWritesWithoutAttestationKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: !GetAtt ReconcileExecutionRole.Arn
+                'Null':
+                  dynamodb:LeadingKeys: 'true'
             - Sid: DenyPlanConsumptionOutsideRepairExecution
               Effect: Deny
               Principal:
@@ -256,6 +304,31 @@ Resources:
               Condition:
                 ArnNotEquals:
                   aws:PrincipalArn: !GetAtt RepairExecutionRole.Arn
+            - Sid: DenyRepairWritesOutsideBaseKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: !GetAtt RepairExecutionRole.Arn
+                ForAllValues:StringNotEquals:
+                  dynamodb:LeadingKeys:
+                    - !Ref RepairId
+                'Null':
+                  dynamodb:LeadingKeys: 'false'
+            - Sid: DenyRepairWritesWithoutBaseKey
+              Effect: Deny
+              Principal:
+                AWS: '*'
+              Action: dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+              Condition:
+                ArnEquals:
+                  aws:PrincipalArn: !GetAtt RepairExecutionRole.Arn
+                'Null':
+                  dynamodb:LeadingKeys: 'true'
             - Sid: DenyEveryUnsupportedLedgerMutation
               Effect: Deny
               Principal:
@@ -266,7 +339,6 @@ Resources:
                 - dynamodb:PartiQLDelete
                 - dynamodb:PartiQLInsert
                 - dynamodb:PartiQLUpdate
-                - dynamodb:TransactWriteItems
               Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
       Tags:
         - {Key: managed_by, Value: cloudformation}
@@ -278,8 +350,8 @@ Resources:
 
   PlanLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-plan
       RetentionInDays: 365
@@ -292,8 +364,8 @@ Resources:
 
   RepairLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-repair
       RetentionInDays: 365
@@ -306,8 +378,8 @@ Resources:
 
   ReconcileLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: PEP_DELETION_POLICY_SENTINEL
+    UpdateReplacePolicy: PEP_UPDATE_REPLACE_POLICY_SENTINEL
     Properties:
       LogGroupName: /aws/lambda/scanalyze-platform-authority-plan-policy-reconcile
       RetentionInDays: 365
@@ -466,7 +538,6 @@ Resources:
                   - dynamodb:PartiQLDelete
                   - dynamodb:PartiQLInsert
                   - dynamodb:PartiQLUpdate
-                  - dynamodb:TransactWriteItems
                   - dynamodb:UpdateItem
                   - identitystore:*
                   - iam:Add*
@@ -675,7 +746,6 @@ Resources:
                   - dynamodb:PartiQLInsert
                   - dynamodb:PartiQLUpdate
                   - dynamodb:PutItem
-                  - dynamodb:TransactWriteItems
                   - identitystore:*
                   - iam:Add*
                   - iam:Attach*
@@ -748,7 +818,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: Gug376ReadOnlyPlanPolicyReconciliation
+        - PolicyName: Gug376ReconcileAndAttest
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -772,7 +842,21 @@ Resources:
                 Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
                 Condition:
                   ForAllValues:StringEquals:
-                    dynamodb:LeadingKeys: [!Ref RepairId]
+                    dynamodb:LeadingKeys:
+                      - !Ref RepairId
+                      - !Sub '${RepairId}#reconcile-v1'
+                      - !Sub '${RepairId}#reconcile-attempt-v1'
+                  'Null':
+                    dynamodb:LeadingKeys: 'false'
+              - Sid: WriteExactReconcileAttestation
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:us-east-1:${AuthorityAccountId}:table/scanalyze-platform-authority-plan-policy-repair-ledger
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - !Sub '${RepairId}#reconcile-v1'
+                      - !Sub '${RepairId}#reconcile-attempt-v1'
                   'Null':
                     dynamodb:LeadingKeys: 'false'
               - Sid: AssumeExactReadbackServiceRole
@@ -880,8 +964,6 @@ Resources:
                   - dynamodb:PartiQLDelete
                   - dynamodb:PartiQLInsert
                   - dynamodb:PartiQLUpdate
-                  - dynamodb:PutItem
-                  - dynamodb:TransactWriteItems
                   - dynamodb:UpdateItem
                   - identitystore:*
                   - iam:Add*
@@ -1390,3 +1472,5 @@ Outputs:
     Value: !GetAtt InvocationAuthorityInspectorRole.Arn
   ProductionAuthorized:
     Value: 'false'
+  LedgerDeletionProtectionMode:
+    Value: PEP_LEDGER_PROTECTION_TEXT_SENTINEL

@@ -2,12 +2,30 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ReadBoundIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "sso:DescribeInstance",
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1",
+          "sso:PrimaryRegion": "us-east-1"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${inventory_not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${inventory_not_after}"
+        }
+      }
+    },
+    {
       "Sid": "DiscoverPermissionSetNames",
       "Effect": "Allow",
       "Action": "sso:DescribePermissionSet",
       "Resource": [
-        "arn:aws:sso:::instance/*",
-        "arn:aws:sso:::permissionSet/*"
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*"
       ],
       "Condition": {
         "StringEquals": {
@@ -29,12 +47,11 @@
       "Resource": "${identity_center_kms_key_arn}",
       "Condition": {
         "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
           "aws:RequestedRegion": "us-east-1",
+          "kms:EncryptionContext:aws:sso:instance-arn": "${identity_center_instance_arn}",
           "kms:CallerAccount": "${management_account_id}",
           "kms:ViaService": "sso.us-east-1.amazonaws.com"
-        },
-        "StringLike": {
-          "kms:EncryptionContext:aws:sso:instance-arn": "arn:aws:sso:::instance/ssoins-*"
         },
         "DateGreaterThanEquals": {
           "aws:CurrentTime": "${inventory_not_before}"
