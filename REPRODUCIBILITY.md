@@ -126,6 +126,18 @@ repeating the full Python suite inside the 30-minute job budget. The
 manual `verify-clean-clone.sh` wrapper remains the evidence that an exact commit
 can be fetched from a named remote; the workflow does not invoke that wrapper.
 
+The PR validation job `Lint, security, and schema checks` also has a bounded
+30-minute budget. On commit `1a80bf3c596b8725ea4b6138b4ee2f4b00d3a205`,
+[run 33724951440](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/33724951440)
+exceeded its former 15-minute limit during the platform-authority bootstrap
+gate, leaving subsequent governance, formatting, documentation, and frontend
+checks unexecuted. This budget provides additional time for the complete
+existing sequence; successful completion must be confirmed by CI on the new
+commit. It does not remove checks, change permissions, or tolerate failed steps. Other
+PR job budgets are unchanged. The upper bound for this job increases by
+15 runner-minutes per attempt. Reverting this timeout adjustment restores the
+former cap; remote validation is complete only after the new commit passes CI.
+
 When `--ref HEAD` names a local commit that has not been pushed to the selected
 remote, clean-clone verification fails intentionally. Push the reviewed commit
 or pass a remote that is authoritative for that exact SHA; do not treat another
