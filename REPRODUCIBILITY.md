@@ -127,8 +127,8 @@ manual `verify-clean-clone.sh` wrapper remains the evidence that an exact commit
 can be fetched from a named remote; the workflow does not invoke that wrapper.
 
 The PR validation job `Lint, security, and schema checks` also has a bounded
-30-minute budget. On commit `1a80bf3c596b8725ea4b6138b4ee2f4b00d3a205`,
-[run 33724951440](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/33724951440)
+30-minute budget. The validation run for
+[commit 1a80bf3](https://github.com/cesar-guzman/scanalyze-deployment-platform/commit/1a80bf3c596b8725ea4b6138b4ee2f4b00d3a205)
 exceeded its former 15-minute limit during the platform-authority bootstrap
 gate, leaving subsequent governance, formatting, documentation, and frontend
 checks unexecuted. This budget provides additional time for the complete
