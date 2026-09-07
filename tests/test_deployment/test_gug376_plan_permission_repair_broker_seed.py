@@ -1944,6 +1944,130 @@ def test_owner_only_root_o_excl_and_cli_boundary(
     assert str(private) not in completed.stdout + completed.stderr
 
 
+def test_pep_cli_persists_both_private_receipts_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "pep-source"
+    source.mkdir()
+    template = source / seed.PEP_SOURCE_TEMPLATE_PATH
+    template.parent.mkdir(parents=True)
+    template.write_bytes(PEP_TEMPLATE.read_bytes())
+    _git(source, "init", "-b", "main")
+    _git(source, "config", "user.name", "GUG-376 test")
+    _git(source, "config", "user.email", "gug376@example.invalid")
+    _git(source, "add", "--", seed.PEP_SOURCE_TEMPLATE_PATH.as_posix())
+    _git(source, "commit", "-m", "fixture: PEP template source")
+    source_commit = _git(source, "rev-parse", "HEAD")
+    private = _private_root(tmp_path)
+    command = [
+        sys.executable,
+        "-I",
+        "-B",
+        str(CLI),
+        "materialize-pep-templates",
+        "--source-root",
+        str(source),
+        "--private-root",
+        str(private),
+        "--source-commit",
+        source_commit,
+    ]
+    clean_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key in {"PATH", "HOME", "TMPDIR", "LANG"}
+    }
+    completed = subprocess.run(
+        command,
+        env=clean_env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        shell=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    summary = json.loads(completed.stdout)
+    assert summary["source_commit"] == source_commit
+    assert summary["aws_calls"] == summary["aws_mutations"] == 0
+    assert summary["deployment_authorized"] is False
+    assert summary["production_status"] == "NO-GO"
+    assert str(private) not in completed.stdout + completed.stderr
+    expected_names = set()
+    for label, receipt_name, template_name, enabled in (
+        (
+            "pep_template",
+            seed.PEP_MATERIALIZATION_RECEIPT_OUTPUT_NAME,
+            seed.PEP_OUTPUT_NAME,
+            False,
+        ),
+        (
+            "pep_protection_template",
+            seed.PEP_PROTECTION_MATERIALIZATION_RECEIPT_OUTPUT_NAME,
+            seed.PEP_PROTECTION_OUTPUT_NAME,
+            True,
+        ),
+    ):
+        expected_names.update((receipt_name, template_name))
+        receipt = json.loads((private / receipt_name).read_text(encoding="utf-8"))
+        assert seed.validate_pep_template_materialization_receipt(
+            receipt, expected_protection_enabled=enabled
+        ) == receipt
+        payload = (private / template_name).read_bytes()
+        assert receipt["source_commit"] == source_commit
+        assert receipt["output_name"] == template_name
+        assert receipt["template_sha256"] == "sha256:" + sha256(payload).hexdigest()
+        assert receipt["template_bytes"] == len(payload)
+        assert summary["receipts"][label] == {
+            "receipt_name": receipt_name,
+            "receipt_digest": receipt["receipt_digest"],
+            "template_sha256": receipt["template_sha256"],
+            "template_bytes": receipt["template_bytes"],
+        }
+    assert {path.name for path in private.iterdir()} == expected_names
+    before = {}
+    for path in private.iterdir():
+        metadata = path.lstat()
+        assert stat.S_ISREG(metadata.st_mode)
+        assert stat.S_IMODE(metadata.st_mode) == 0o600
+        assert metadata.st_uid == os.geteuid()
+        assert metadata.st_nlink == 1
+        before[path.name] = (path.read_bytes(), metadata.st_ino, metadata.st_mtime_ns)
+    repeated = subprocess.run(
+        command,
+        env=clean_env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        shell=False,
+    )
+    assert repeated.returncode == 2
+    assert json.loads(repeated.stderr) == {"error": "PRIVATE_OUTPUT_EXISTS"}
+    assert not repeated.stdout
+    after = {
+        path.name: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+        for path in private.iterdir()
+    }
+    assert after == before
+    assert not _git(source, "status", "--porcelain=v1")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "unexpected-receipt.json",
+        "../pep-template-materialization-receipt.json",
+        "/pep-template-materialization-receipt.json",
+    ],
+)
+def test_private_receipt_names_remain_closed(tmp_path: Path, name: str) -> None:
+    private = _private_root(tmp_path)
+    with pytest.raises(seed.BrokerSeedError, match="PRIVATE_RECEIPT_NAME_INVALID"):
+        seed.write_private_receipt(private_root=private, name=name, receipt={})
+    assert not list(private.iterdir())
+
+
 def test_private_mode_duplicate_json_and_symlink_are_rejected(tmp_path: Path) -> None:
     private = _private_root(tmp_path)
     bad = private / "input.json"

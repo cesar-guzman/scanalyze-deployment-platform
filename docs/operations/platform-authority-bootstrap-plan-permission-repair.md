@@ -128,6 +128,23 @@ reviewed runtime, renderer and lock file. Upload and AWS Signer actions require
 their own exact authorization. Never deploy an unsigned object or an object
 without an exact version and SHA-256 readback.
 
+The offline broker-seed CLI's `materialize-pep-templates` command must complete
+with two PEP lifecycle templates and both fixed-name receipts:
+`pep-template-materialization-receipt.json` and
+`pep-protection-template-materialization-receipt.json`. All four files remain
+owner-only (`0600`) in the private root (`0700`); each receipt binds the exact
+source commit, lifecycle variant and rendered template digest. The receipt
+writer explicitly admits these two PEP names alongside its existing broker
+receipt names. Arbitrary names and path traversal remain rejected.
+
+Earlier code could render both templates and then fail with
+`PRIVATE_RECEIPT_NAME_INVALID` before persisting either PEP receipt. Such a
+partial directory is not a completed materialization. Preserve it for diagnosis
+and rerun the corrected command from the exact clean merged source into a new
+private root; do not invent missing receipts or overwrite the prior files.
+Repeating the command against an already populated root remains blocked by
+`PRIVATE_OUTPUT_EXISTS`. This correction authorizes no upload or AWS action.
+
 Before any route materialization, stage the exact Git-object bytes of the
 route, delegation and PEP templates in approved versioned S3 buckets. Record
 each exact HTTPS URL, key, `VersionId` and SHA-256 readback. The PEP template
