@@ -6,9 +6,11 @@ import pytest
 from tooling.security_sentinel import (
     AllowlistConfigurationError,
     PII_PATTERNS,
+    SECRET_PATTERNS,
     is_allowlisted,
     load_allowlist,
     scan_file,
+    should_scan,
 )
 from tooling import security_sentinel
 
@@ -93,6 +95,28 @@ def test_scan_file_fingerprints_each_concrete_match(tmp_path):
         f'first="{SYNTHETIC_CURP}" second="{SYNTHETIC_CURP}"\n'
     }
     assert {finding[4] for finding in findings} == {SYNTHETIC_CURP_HASH}
+
+
+def test_generated_build_tree_is_excluded_without_excluding_source():
+    assert not should_scan(Path("build/lib/tooling/generated.py"))
+    assert should_scan(Path("tooling/generated.py"))
+
+
+def test_gug376_temporary_sdk_credential_binding_is_narrowly_allowlisted():
+    repo_root = Path(__file__).resolve().parents[2]
+    source = repo_root / "tooling/platform_authority_gug376_collision_direct_sso.py"
+    allowlist = load_allowlist(repo_root / "sentinel_allowlist.yaml")
+    findings = scan_file(source, {"AWS_SECRET_KEY": SECRET_PATTERNS["AWS_SECRET_KEY"]})
+
+    assert len(findings) == 1
+    pattern_id, _, _, line, fingerprint = findings[0]
+    assert is_allowlisted(
+        source.relative_to(repo_root),
+        pattern_id,
+        line,
+        fingerprint,
+        allowlist,
+    )
 
 
 def test_repository_scan_has_no_unallowlisted_findings(monkeypatch):

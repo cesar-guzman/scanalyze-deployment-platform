@@ -1772,6 +1772,367 @@ def test_dangerous_policy_and_plan_substitution_are_rejected() -> None:
     ):
         _operation("KMS_FOUNDATION", 1, "kms:CreateKey", foreign_principal)
 
+
+def test_exact_gug376_cross_account_s3_kms_contract_is_version_and_role_bound() -> None:
+    commit = "a" * 40
+    kms_key_arn = (
+        "arn:aws:kms:us-east-1:042360977644:key/"
+        "00000000-0000-4000-8000-000000000001"
+    )
+    contract = public_upstream.build_gug376_cross_account_artifact_read_contract(
+        source_commit=commit,
+        artifact_bucket="scanalyze-gug365-artifacts",
+        artifact_kms_key_arn=kms_key_arn,
+        route_template_version="route-version-1",
+        delegation_template_version="delegation-version-1",
+    )
+    assert contract["aws_calls"] == contract["aws_mutations"] == 0
+    assert contract["contract_digest"] == canonical_digest(
+        {
+            key: value
+            for key, value in contract.items()
+            if key != "contract_digest"
+        }
+    )
+    kms = contract["kms_key_policy_statements"][0]
+    assert kms["Action"] == "kms:Decrypt"
+    assert kms["Condition"]["StringEquals"] == {
+        "aws:RequestedRegion": "us-east-1",
+        "kms:EncryptionContext:aws:s3:arn": (
+            "arn:aws:s3:::scanalyze-gug365-artifacts"
+        ),
+        "kms:ViaService": "s3.us-east-1.amazonaws.com",
+    }
+    principals = kms["Condition"]["ArnLike"]["aws:PrincipalArn"]
+    assert (
+        "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+        "AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_*"
+    ) in principals
+    assert not any(
+        "AWSReservedSSO_AWSReadOnlyAccess_" in value for value in principals
+    )
+    assert any(
+        value.endswith("AWSReservedSSO_ScanalyzeGug376BrokerSeedCreator_*")
+        for value in principals
+    )
+    assert any(
+        value.endswith("AWSReservedSSO_ScanalyzeGug376BrokerSeedExec_*")
+        for value in principals
+    )
+    assert (
+        "arn:aws:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator"
+        in principals
+    )
+    assert (
+        "arn:aws:iam::042360977644:role/ScanalyzeGug376RouteBrokerExecutor"
+        in principals
+    )
+    assert not any("ScanalyzeAuthorityBootstrapPlan" in value for value in principals)
+    assert all("839393571433" in value or "042360977644" in value for value in principals)
+    assert not any(value == "*" for value in principals)
+    assert all(
+        statement["Action"] == "s3:GetObjectVersion"
+        for statement in contract["s3_bucket_policy_statements"]
+    )
+    route_read, delegation_read = contract["s3_bucket_policy_statements"]
+    assert route_read["Condition"]["StringEquals"]["s3:VersionId"] == "route-version-1"
+    assert delegation_read["Condition"]["StringEquals"]["s3:VersionId"] == "delegation-version-1"
+    assert route_read["Resource"].endswith(
+        f"/{commit}/cfn-platform-authority-gug376-temporary-change-set-route.yaml"
+    )
+    assert delegation_read["Resource"].endswith(
+        f"/{commit}/cfn-platform-authority-bootstrap-plan-repair-delegation.yaml"
+    )
+    public_upstream._validate_policy_document(  # noqa: SLF001
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "ExactAuthorityKeyAdministration",
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": "arn:aws:iam::042360977644:root"
+                    },
+                    "Action": ["kms:DescribeKey", "kms:GetKeyPolicy"],
+                    "Resource": "*",
+                },
+                *contract["kms_key_policy_statements"],
+            ],
+        },
+        policy_kind="KMS_KEY",
+        allowed_principal_digests=[
+            canonical_digest("arn:aws:iam::042360977644:root"),
+            canonical_digest("arn:aws:iam::839393571433:root"),
+        ],
+    )
+    public_upstream._validate_policy_document(  # noqa: SLF001
+        {
+            "Version": "2012-10-17",
+            "Statement": contract["s3_bucket_policy_statements"],
+        },
+        policy_kind="S3_BUCKET",
+        allowed_principal_digests=[
+            canonical_digest("arn:aws:iam::839393571433:root")
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_direct_role",
+    [
+        (
+            "arn:aws:iam::042360977644:role/"
+            "ScanalyzeGug376RouteBrokerCreatorExtra"
+        ),
+        (
+            "arn:aws:iam::210987654321:role/"
+            "ScanalyzeGug376RouteBrokerCreator"
+        ),
+    ],
+)
+def test_gug376_cross_account_kms_contract_rejects_unapproved_direct_roles(
+    invalid_direct_role: str,
+) -> None:
+    contract = public_upstream.build_gug376_cross_account_artifact_read_contract(
+        source_commit="a" * 40,
+        artifact_bucket="scanalyze-gug365-artifacts",
+        artifact_kms_key_arn=(
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        route_template_version="route-version-1",
+        delegation_template_version="delegation-version-1",
+    )
+    kms_statement = copy.deepcopy(contract["kms_key_policy_statements"][0])
+    principals = kms_statement["Condition"]["ArnLike"]["aws:PrincipalArn"]
+    principals[principals.index(
+        "arn:aws:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator"
+    )] = invalid_direct_role
+    with pytest.raises(
+        UpstreamPrerequisiteError,
+        match="STOP_UPSTREAM_SOURCE_CONTRACT_GAP",
+    ):
+        public_upstream._validate_policy_document(  # noqa: SLF001
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ExactAuthorityKeyAdministration",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "AWS": "arn:aws:iam::042360977644:root"
+                        },
+                        "Action": ["kms:DescribeKey", "kms:GetKeyPolicy"],
+                        "Resource": "*",
+                    },
+                    kms_statement,
+                ],
+            },
+            policy_kind="KMS_KEY",
+            allowed_principal_digests=[
+                canonical_digest("arn:aws:iam::042360977644:root"),
+                canonical_digest("arn:aws:iam::839393571433:root"),
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_principal",
+    [
+        (
+            "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+            "AWSReservedSSO_AWSReadOnlyAccess_*"
+        ),
+        (
+            "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+            "AWSReservedSSO_UnreviewedPermissionSet_*"
+        ),
+        (
+            "arn:aws:iam::839393571433:role/scanalyze/platform-authority/"
+            "UnreviewedRouteBrokerRole"
+        ),
+    ],
+)
+def test_gug376_kms_contract_rejects_sso_and_path_role_substitution(
+    invalid_principal: str,
+) -> None:
+    contract = public_upstream.build_gug376_cross_account_artifact_read_contract(
+        source_commit="a" * 40,
+        artifact_bucket="scanalyze-gug365-artifacts",
+        artifact_kms_key_arn=(
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        route_template_version="route-version-1",
+        delegation_template_version="delegation-version-1",
+    )
+    statement = copy.deepcopy(contract["kms_key_policy_statements"][0])
+    principals = statement["Condition"]["ArnLike"]["aws:PrincipalArn"]
+    principals[0] = invalid_principal
+    with pytest.raises(
+        UpstreamPrerequisiteError,
+        match="STOP_UPSTREAM_SOURCE_CONTRACT_GAP",
+    ):
+        public_upstream._validate_policy_document(  # noqa: SLF001
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "AWS": "arn:aws:iam::042360977644:root"
+                        },
+                        "Action": ["kms:DescribeKey", "kms:GetKeyPolicy"],
+                        "Resource": "*",
+                    },
+                    statement,
+                ],
+            },
+            policy_kind="KMS_KEY",
+            allowed_principal_digests=[
+                canonical_digest("arn:aws:iam::042360977644:root"),
+                canonical_digest("arn:aws:iam::839393571433:root"),
+            ],
+        )
+
+
+@pytest.mark.parametrize("action", ["kms:Encrypt", "kms:GenerateDataKey"])
+def test_gug376_kms_read_contract_rejects_write_action_escalation(
+    action: str,
+) -> None:
+    contract = public_upstream.build_gug376_cross_account_artifact_read_contract(
+        source_commit="a" * 40,
+        artifact_bucket="scanalyze-gug365-artifacts",
+        artifact_kms_key_arn=(
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        route_template_version="route-version-1",
+        delegation_template_version="delegation-version-1",
+    )
+    statement = copy.deepcopy(contract["kms_key_policy_statements"][0])
+    statement["Action"] = ["kms:Decrypt", action]
+    with pytest.raises(
+        UpstreamPrerequisiteError,
+        match="STOP_UPSTREAM_SOURCE_CONTRACT_GAP",
+    ):
+        public_upstream._validate_policy_document(  # noqa: SLF001
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "AWS": "arn:aws:iam::042360977644:root"
+                        },
+                        "Action": ["kms:DescribeKey", "kms:GetKeyPolicy"],
+                        "Resource": "*",
+                    },
+                    statement,
+                ],
+            },
+            policy_kind="KMS_KEY",
+            allowed_principal_digests=[
+                canonical_digest("arn:aws:iam::042360977644:root"),
+                canonical_digest("arn:aws:iam::839393571433:root"),
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("statement_index", "invalid_principal"),
+    [
+        (
+            0,
+            "arn:aws:iam::839393571433:role/aws-reserved/"
+            "sso.amazonaws.com/AWSReservedSSO_AWSReadOnlyAccess_*",
+        ),
+        (
+            0,
+            "arn:aws:iam::839393571433:role/scanalyze/platform-authority/"
+            "ScanalyzeGug376RouteBrokerCreator",
+        ),
+        (
+            1,
+            "arn:aws:iam::839393571433:role/aws-reserved/"
+            "sso.amazonaws.com/AWSReservedSSO_AWSAdministratorAccess_*",
+        ),
+        (
+            1,
+            "arn:aws:iam::839393571433:role/scanalyze/platform-authority/"
+            "UnreviewedRouteBrokerRole",
+        ),
+    ],
+)
+def test_gug376_s3_contract_rejects_profile_and_route_delegation_swap(
+    statement_index: int,
+    invalid_principal: str,
+) -> None:
+    contract = public_upstream.build_gug376_cross_account_artifact_read_contract(
+        source_commit="a" * 40,
+        artifact_bucket="scanalyze-gug365-artifacts",
+        artifact_kms_key_arn=(
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        route_template_version="route-version-1",
+        delegation_template_version="delegation-version-1",
+    )
+    statements = copy.deepcopy(contract["s3_bucket_policy_statements"])
+    statements[statement_index]["Condition"]["ArnLike"][
+        "aws:PrincipalArn"
+    ] = invalid_principal
+    with pytest.raises(
+        UpstreamPrerequisiteError,
+        match="S3_BUCKET_POLICY_VERSION_BINDING_INVALID",
+    ):
+        public_upstream._validate_policy_document(  # noqa: SLF001
+            {"Version": "2012-10-17", "Statement": statements},
+            policy_kind="S3_BUCKET",
+            allowed_principal_digests=[
+                canonical_digest("arn:aws:iam::839393571433:root")
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_commit", "b" * 39),
+        ("artifact_bucket", "Foreign_Bucket"),
+        (
+            "artifact_kms_key_arn",
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "00000000-0000-4000-8000-000000000001",
+        ),
+        ("route_template_version", "null"),
+        ("delegation_template_version", "v" * 1025),
+    ],
+)
+def test_gug376_cross_account_artifact_contract_rejects_substitution(
+    field: str, value: str
+) -> None:
+    kwargs = {
+        "source_commit": "a" * 40,
+        "artifact_bucket": "scanalyze-gug365-artifacts",
+        "artifact_kms_key_arn": (
+            "arn:aws:kms:us-east-1:042360977644:key/"
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        "route_template_version": "route-version-1",
+        "delegation_template_version": "delegation-version-1",
+    }
+    kwargs[field] = value
+    with pytest.raises(
+        UpstreamPrerequisiteError,
+        match="GUG376_ARTIFACT_ACCESS_INPUT_INVALID",
+    ):
+        public_upstream.build_gug376_cross_account_artifact_read_contract(
+            **kwargs
+        )
+
+
+def test_dangerous_resource_and_plan_substitution_are_rejected() -> None:
     exact_resource_phase, _ = _kms_phase(unresolved=False)
     with pytest.raises(
         UpstreamPrerequisiteError,

@@ -104,6 +104,7 @@ def test_live_closed_policy_keeps_kms_dependency_non_dispatchable() -> None:
 
     assert policy["dependencies"] == {"identity_center": ["kms:Decrypt"]}
     operations = policy["operations"]["identity_center"]
+    assert "sso:DescribeInstance" in operations
     assert "sso:DescribePermissionSet" in operations
     assert "kms:Decrypt" not in operations
     assert all("kms:Decrypt" not in actions for actions in ALLOWED_OPERATIONS.values())
@@ -355,10 +356,31 @@ def _durable_request_artifacts(
         ),
         "expected_policy_digest": policy_digest,
     }
+    identity_instance_arn = (
+        "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    )
+    identity_kms_key_arn = (
+        "arn:aws:kms:us-east-1:444455556666:"
+        "key/22222222-2222-2222-2222-222222222222"
+    )
+    identity_kms_binding_digest = canonical_digest(
+        {
+            "binding_name": "identity_center_kms_key_arn",
+            "identity_center_instance_arn": identity_instance_arn,
+            "mode": "CUSTOMER_MANAGED_KEY",
+            "key_arn": identity_kms_key_arn,
+        }
+    )
     identity_plan = {
         "private_targets": {
             "identity_store_id": "d-1234567890",
             "application_name": "ApprovedApplication",
+            "identity_center_instance_arn": identity_instance_arn,
+            "identity_center_kms_mode": "CUSTOMER_MANAGED_KEY",
+            "identity_center_kms_key_arn": identity_kms_key_arn,
+            "identity_center_kms_binding_digest": (
+                identity_kms_binding_digest
+            ),
         },
         "not_before": "2025-01-01T00:00:00Z",
         "not_after": "2025-01-01T00:30:00Z",

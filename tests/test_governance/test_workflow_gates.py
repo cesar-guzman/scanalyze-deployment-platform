@@ -564,16 +564,31 @@ def test_validation_gate_rejects_failures_cancellation_and_inconsistent_states(
 def test_reproducibility_workflow_has_one_run_per_event_and_pinned_toolchain() -> None:
     workflow = _load_workflow(REPRO_WORKFLOW)
     triggers = workflow["on"]
+    job = workflow["jobs"]["clean-clone-check"]
 
     assert workflow["name"] == "Reproducibility check"
     assert set(triggers) == {"pull_request", "push", "schedule", "workflow_dispatch"}
     assert triggers["pull_request"] == {"branches": ["main"]}
     assert triggers["push"] == {"branches": ["main"]}
     assert "feat/**" not in REPRO_WORKFLOW.read_text(encoding="utf-8")
+    assert job["timeout-minutes"] == "30"
+
+    make_steps = [
+        step["run"]
+        for step in job["steps"]
+        if isinstance(step, dict)
+        and isinstance(step.get("run"), str)
+        and step["run"].startswith("make ")
+    ]
+    assert make_steps == ["make release-dry-run"]
+    makefile_lines = (REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    assert "release-dry-run: repro-check" in makefile_lines
+    assert "repro-check: bootstrap-local" in makefile_lines
+    assert "bootstrap-local: toolchain-check" in makefile_lines
 
     terraform_step = next(
         step
-        for step in workflow["jobs"]["clean-clone-check"]["steps"]
+        for step in job["steps"]
         if step["name"] == "Set up Terraform"
     )
     assert terraform_step["with"]["terraform_version"] == "1.14.6"

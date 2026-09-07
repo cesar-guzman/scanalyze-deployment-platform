@@ -39,27 +39,10 @@
       }
     },
     {
-      "Sid": "ProbeExactGlobalBucketNameForHeadBucket",
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "${artifact_bucket_arn}",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestedRegion": "us-east-1"
-        },
-        "DateGreaterThanEquals": {
-          "aws:CurrentTime": "${inventory_not_before}"
-        },
-        "DateLessThan": {
-          "aws:CurrentTime": "${inventory_not_after}"
-        }
-      }
-    },
-    {
-      "Sid": "ReadOnlyOwnedBucketTags",
+      "Sid": "ReadOnlyExactAccountRegionalBucketTags",
       "Effect": "Allow",
       "Action": "s3:GetBucketTagging",
-      "Resource": "arn:aws:s3:::*",
+      "Resource": "${artifact_bucket_arn}",
       "Condition": {
         "StringEquals": {
           "aws:RequestedRegion": "us-east-1"
@@ -151,7 +134,6 @@
         "lambda:ListTags",
         "s3:GetBucketTagging",
         "s3:ListAllMyBuckets",
-        "s3:ListBucket",
         "signer:GetSigningProfile",
         "signer:ListSigningProfiles",
         "signer:ListTagsForResource",

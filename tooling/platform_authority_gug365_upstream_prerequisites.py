@@ -502,6 +502,7 @@ OWNER_REQUEST_VALUE_BINDINGS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]]
 
 KMS_KEY_POLICY_ALLOWED_ACTIONS = frozenset(
     {
+        "kms:Decrypt",
         "kms:DescribeKey",
         "kms:GetKeyPolicy",
         "kms:GetKeyRotationStatus",
@@ -517,9 +518,51 @@ S3_BUCKET_POLICY_ALLOWED_ACTIONS = frozenset(
         "s3:GetObject",
         "s3:GetObjectAttributes",
         "s3:GetObjectTagging",
+        "s3:GetObjectVersion",
         "s3:PutObject",
         "s3:PutObjectTagging",
     }
+)
+
+_GUG376_MANAGEMENT_ADMIN_PATTERN = (
+    "arn:aws:iam::839393571433:role/aws-reserved/sso.amazonaws.com/"
+    "AWSReservedSSO_AWSAdministratorAccess_*"
+)
+_GUG376_MANAGEMENT_CREATOR_ARN = (
+    "arn:aws:iam::839393571433:role/scanalyze/platform-authority/"
+    "ScanalyzeGug376RouteBrokerCreator"
+)
+_GUG376_KMS_ARTIFACT_PRINCIPAL_PATTERNS = frozenset(
+    {
+        (
+            "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+            "AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_*"
+        ),
+        (
+            "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+            "AWSReservedSSO_ScanalyzeGug376BrokerSeedCreator_*"
+        ),
+        (
+            "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/"
+            "AWSReservedSSO_ScanalyzeGug376BrokerSeedExec_*"
+        ),
+        "arn:aws:iam::042360977644:role/ScanalyzeGug376RouteBrokerCreator",
+        "arn:aws:iam::042360977644:role/ScanalyzeGug376RouteBrokerExecutor",
+        _GUG376_MANAGEMENT_ADMIN_PATTERN,
+        _GUG376_MANAGEMENT_CREATOR_ARN,
+    }
+)
+_GUG376_ROUTE_TEMPLATE_RESOURCE = re.compile(
+    r"^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/"
+    r"scanalyze/platform-authority/gug-376/plan-policy-repair/templates/"
+    r"[0-9a-f]{40}/"
+    r"cfn-platform-authority-gug376-temporary-change-set-route\.yaml$"
+)
+_GUG376_DELEGATION_TEMPLATE_RESOURCE = re.compile(
+    r"^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/"
+    r"scanalyze/platform-authority/gug-376/plan-policy-repair/templates/"
+    r"[0-9a-f]{40}/"
+    r"cfn-platform-authority-bootstrap-plan-repair-delegation\.yaml$"
 )
 
 
@@ -551,6 +594,181 @@ def canonical_json(value: Any) -> str:
 
 def canonical_digest(value: Any) -> str:
     return "sha256:" + sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def build_gug376_cross_account_artifact_read_contract(
+    *,
+    source_commit: str,
+    artifact_bucket: str,
+    artifact_kms_key_arn: str,
+    route_template_version: str,
+    delegation_template_version: str,
+) -> dict[str, Any]:
+    """Compile the exact cross-account reads required by the GUG-376 route.
+
+    The initial route is created by the management-account administrator; the
+    resulting fixed creator role reads only the delegation template.  S3 pins
+    each principal to one object version.  KMS cannot see an S3 VersionId, so
+    its grant is additionally limited to those principals, S3 ViaService, and
+    the single bucket-key encryption context.  No policy is applied here.
+    """
+
+    authority_account_id = "042360977644"
+    management_account_id = "839393571433"
+    version_pattern = re.compile(r"^[A-Za-z0-9._~+/=-]{1,1024}$")
+    if (
+        not isinstance(source_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+        or not isinstance(artifact_bucket, str)
+        or re.fullmatch(
+            r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", artifact_bucket
+        )
+        is None
+        or not isinstance(artifact_kms_key_arn, str)
+        or _KMS_KEY_ARN.fullmatch(artifact_kms_key_arn) is None
+        or _KMS_KEY_ARN.fullmatch(artifact_kms_key_arn).group("account_id")
+        != authority_account_id
+        or any(
+            not isinstance(version, str)
+            or version_pattern.fullmatch(version) is None
+            or version.casefold() == "null"
+            for version in (route_template_version, delegation_template_version)
+        )
+    ):
+        _fail("GUG376_ARTIFACT_ACCESS_INPUT_INVALID")
+
+    bucket_arn = f"arn:aws:s3:::{artifact_bucket}"
+    route_key = (
+        "scanalyze/platform-authority/gug-376/plan-policy-repair/templates/"
+        f"{source_commit}/"
+        "cfn-platform-authority-gug376-temporary-change-set-route.yaml"
+    )
+    delegation_key = (
+        "scanalyze/platform-authority/gug-376/plan-policy-repair/templates/"
+        f"{source_commit}/"
+        "cfn-platform-authority-bootstrap-plan-repair-delegation.yaml"
+    )
+    administrator_role_pattern = (
+        f"arn:aws:iam::{management_account_id}:role/"
+        "aws-reserved/sso.amazonaws.com/"
+        "AWSReservedSSO_AWSAdministratorAccess_*"
+    )
+    creator_role_arn = (
+        f"arn:aws:iam::{management_account_id}:role/"
+        "scanalyze/platform-authority/ScanalyzeGug376RouteBrokerCreator"
+    )
+    attestor_role_pattern = (
+        f"arn:aws:iam::{authority_account_id}:role/"
+        "aws-reserved/sso.amazonaws.com/"
+        "AWSReservedSSO_ScanalyzeGug376ArtifactBootstrap_*"
+    )
+    broker_seed_creator_role_pattern = (
+        f"arn:aws:iam::{authority_account_id}:role/"
+        "aws-reserved/sso.amazonaws.com/"
+        "AWSReservedSSO_ScanalyzeGug376BrokerSeedCreator_*"
+    )
+    broker_seed_executor_role_pattern = (
+        f"arn:aws:iam::{authority_account_id}:role/"
+        "aws-reserved/sso.amazonaws.com/"
+        "AWSReservedSSO_ScanalyzeGug376BrokerSeedExec_*"
+    )
+    authority_broker_creator_role_arn = (
+        f"arn:aws:iam::{authority_account_id}:role/"
+        "ScanalyzeGug376RouteBrokerCreator"
+    )
+    authority_broker_executor_role_arn = (
+        f"arn:aws:iam::{authority_account_id}:role/"
+        "ScanalyzeGug376RouteBrokerExecutor"
+    )
+    kms_statement = {
+        "Sid": "DecryptGug376ArtifactsOnlyThroughExactS3Bucket",
+        "Effect": "Allow",
+        "Principal": {
+            "AWS": [
+                f"arn:aws:iam::{authority_account_id}:root",
+                f"arn:aws:iam::{management_account_id}:root",
+            ]
+        },
+        "Action": "kms:Decrypt",
+        "Resource": "*",
+        "Condition": {
+            "ArnLike": {
+                "aws:PrincipalArn": [
+                    attestor_role_pattern,
+                    broker_seed_creator_role_pattern,
+                    broker_seed_executor_role_pattern,
+                    authority_broker_creator_role_arn,
+                    authority_broker_executor_role_arn,
+                    administrator_role_pattern,
+                    creator_role_arn,
+                ]
+            },
+            "StringEquals": {
+                "aws:RequestedRegion": REGION,
+                "kms:EncryptionContext:aws:s3:arn": bucket_arn,
+                "kms:ViaService": "s3.us-east-1.amazonaws.com",
+            },
+        },
+    }
+
+    def exact_version_statement(
+        *, sid: str, principal_arn: str, key: str, version: str
+    ) -> dict[str, Any]:
+        return {
+            "Sid": sid,
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": f"arn:aws:iam::{management_account_id}:root"
+            },
+            "Action": "s3:GetObjectVersion",
+            "Resource": f"{bucket_arn}/{key}",
+            "Condition": {
+                "ArnLike": {"aws:PrincipalArn": principal_arn},
+                "StringEquals": {
+                    "aws:RequestedRegion": REGION,
+                    "s3:VersionId": version,
+                },
+            },
+        }
+
+    s3_statements = [
+        exact_version_statement(
+            sid="ReadExactGug376RouteTemplateVersion",
+            principal_arn=administrator_role_pattern,
+            key=route_key,
+            version=route_template_version,
+        ),
+        exact_version_statement(
+            sid="ReadExactGug376DelegationTemplateVersion",
+            principal_arn=creator_role_arn,
+            key=delegation_key,
+            version=delegation_template_version,
+        ),
+    ]
+    contract: dict[str, Any] = {
+        "schema_version": 1,
+        "record_type": (
+            "scanalyze.platform_authority."
+            "gug376_cross_account_artifact_read_contract.v1"
+        ),
+        "source_commit": source_commit,
+        "authority_account_id": authority_account_id,
+        "management_account_id": management_account_id,
+        "artifact_bucket": artifact_bucket,
+        "artifact_kms_key_arn": artifact_kms_key_arn,
+        "route_template": {"key": route_key, "version": route_template_version},
+        "delegation_template": {
+            "key": delegation_key,
+            "version": delegation_template_version,
+        },
+        "kms_key_policy_statements": [kms_statement],
+        "s3_bucket_policy_statements": s3_statements,
+        "aws_calls": 0,
+        "aws_mutations": 0,
+        "source_marker": "GUG365_EXACT_S3_KMS_ACCESS_POLICY_COMPILER",
+    }
+    contract["contract_digest"] = canonical_digest(contract)
+    return contract
 
 
 def _snapshot(value: Any, code: str) -> Any:
@@ -1608,6 +1826,25 @@ def _string_list(value: object, code: str) -> list[str]:
     return list(values)
 
 
+def _principal_arn_condition_values(
+    condition: Mapping[str, Any],
+) -> list[str] | None:
+    arn_like = condition.get("ArnLike")
+    if arn_like is None:
+        return None
+    if not isinstance(arn_like, Mapping) or set(arn_like) != {"aws:PrincipalArn"}:
+        _fail("POLICY_PRINCIPAL_ARN_CONDITION_INVALID")
+    values = arn_like.get("aws:PrincipalArn")
+    patterns = [values] if isinstance(values, str) else values
+    if (
+        not isinstance(patterns, list)
+        or not patterns
+        or not all(isinstance(pattern, str) and pattern for pattern in patterns)
+    ):
+        _fail("POLICY_PRINCIPAL_ARN_CONDITION_INVALID")
+    return list(patterns)
+
+
 def _validate_policy_document(
     value: object,
     *,
@@ -1634,7 +1871,9 @@ def _validate_policy_document(
     inline_allow_actions: set[str] = set()
     kms_allow_actions: set[str] = set()
     s3_allow_actions: set[str] = set()
+    kms_artifact_use_actions = {"kms:Decrypt"}
     expected_principal_digests = sorted(set(allowed_principal_digests))
+    observed_principal_digests: set[str] = set()
     for digest in expected_principal_digests:
         _digest(digest, "POLICY_ALLOWED_PRINCIPAL_DIGEST_INVALID")
     for statement in statements:
@@ -1675,11 +1914,14 @@ def _validate_policy_document(
                     principal_values = _string_list(
                         principal, "POLICY_PRINCIPAL_INVALID"
                     )
-                if (
-                    sorted(canonical_digest(item) for item in principal_values)
-                    != expected_principal_digests
+                statement_principal_digests = {
+                    canonical_digest(item) for item in principal_values
+                }
+                if not statement_principal_digests.issubset(
+                    expected_principal_digests
                 ):
                     _fail("POLICY_PRINCIPAL_NOT_APPROVED")
+                observed_principal_digests.update(statement_principal_digests)
             resources = _string_list(statement.get("Resource"), "POLICY_RESOURCE_INVALID")
             if policy_kind in {"IDENTITY_INLINE", "S3_BUCKET"} and any(
                 resource == "*" or "*" in resource for resource in resources
@@ -1687,15 +1929,120 @@ def _validate_policy_document(
                 _fail("POLICY_WILDCARD_RESOURCE_FORBIDDEN")
             if policy_kind == "IDENTITY_INLINE":
                 inline_allow_actions.update(actions)
+            if policy_kind == "KMS_KEY" and kms_artifact_use_actions.intersection(
+                actions
+            ):
+                condition = statement.get("Condition")
+                string_equals = (
+                    condition.get("StringEquals")
+                    if isinstance(condition, Mapping)
+                    else None
+                )
+                encryption_context = (
+                    string_equals.get("kms:EncryptionContext:aws:s3:arn")
+                    if isinstance(string_equals, Mapping)
+                    else None
+                )
+                principal_patterns = (
+                    _principal_arn_condition_values(condition)
+                    if isinstance(condition, Mapping)
+                    else None
+                )
+                if (
+                    statement.get("Action") != "kms:Decrypt"
+                    or set(actions) != {"kms:Decrypt"}
+                    or set(principal_values)
+                    != {
+                        "arn:aws:iam::042360977644:root",
+                        "arn:aws:iam::839393571433:root",
+                    }
+                    or not isinstance(condition, Mapping)
+                    or set(condition) not in (
+                        {"StringEquals"},
+                        {"StringEquals", "ArnLike"},
+                    )
+                    or set(principal_patterns or ())
+                    != _GUG376_KMS_ARTIFACT_PRINCIPAL_PATTERNS
+                    or len(principal_patterns or ())
+                    != len(_GUG376_KMS_ARTIFACT_PRINCIPAL_PATTERNS)
+                    or not isinstance(string_equals, Mapping)
+                    or set(string_equals)
+                    != {
+                        "aws:RequestedRegion",
+                        "kms:EncryptionContext:aws:s3:arn",
+                        "kms:ViaService",
+                    }
+                    or string_equals.get("aws:RequestedRegion") != REGION
+                    or string_equals.get("kms:ViaService")
+                    != "s3.us-east-1.amazonaws.com"
+                    or not isinstance(encryption_context, str)
+                    or re.fullmatch(
+                        r"arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]",
+                        encryption_context,
+                    )
+                    is None
+                ):
+                    _fail("STOP_UPSTREAM_SOURCE_CONTRACT_GAP")
+            if policy_kind == "S3_BUCKET" and "s3:GetObjectVersion" in actions:
+                condition = statement.get("Condition")
+                string_equals = (
+                    condition.get("StringEquals")
+                    if isinstance(condition, Mapping)
+                    else None
+                )
+                version_id = (
+                    string_equals.get("s3:VersionId")
+                    if isinstance(string_equals, Mapping)
+                    else None
+                )
+                principal_patterns = (
+                    _principal_arn_condition_values(condition)
+                    if isinstance(condition, Mapping)
+                    else None
+                )
+                resource = resources[0] if len(resources) == 1 else ""
+                if _GUG376_ROUTE_TEMPLATE_RESOURCE.fullmatch(resource):
+                    expected_principal = _GUG376_MANAGEMENT_ADMIN_PATTERN
+                elif _GUG376_DELEGATION_TEMPLATE_RESOURCE.fullmatch(resource):
+                    expected_principal = _GUG376_MANAGEMENT_CREATOR_ARN
+                else:
+                    expected_principal = None
+                if (
+                    statement.get("Action") != "s3:GetObjectVersion"
+                    or set(actions) != {"s3:GetObjectVersion"}
+                    or principal_values
+                    != ["arn:aws:iam::839393571433:root"]
+                    or not isinstance(condition, Mapping)
+                    or set(condition) not in (
+                        {"StringEquals"},
+                        {"StringEquals", "ArnLike"},
+                    )
+                    or expected_principal is None
+                    or principal_patterns != [expected_principal]
+                    or not isinstance(string_equals, Mapping)
+                    or set(string_equals)
+                    != {"aws:RequestedRegion", "s3:VersionId"}
+                    or string_equals.get("aws:RequestedRegion") != REGION
+                    or not isinstance(version_id, str)
+                    or re.fullmatch(r"[A-Za-z0-9._~+/=-]{1,1024}", version_id)
+                    is None
+                    or version_id.casefold() == "null"
+                ):
+                    _fail("S3_BUCKET_POLICY_VERSION_BINDING_INVALID")
     if policy_kind == "IDENTITY_INLINE" and inline_allow_actions != {
         "sso-oauth:CreateTokenWithIAM", "sts:AssumeRole", "sts:SetContext"
     }:
         _fail("IDENTITY_INLINE_POLICY_ACTION_SET_INVALID")
+    if (
+        policy_kind in {"KMS_KEY", "S3_BUCKET"}
+        and observed_principal_digests != set(expected_principal_digests)
+    ):
+        _fail("POLICY_APPROVED_PRINCIPAL_COVERAGE_INVALID")
     if policy_kind == "KMS_KEY" and (
         not kms_allow_actions
         or not kms_allow_actions.issubset(KMS_KEY_POLICY_ALLOWED_ACTIONS)
     ):
-        if kms_allow_actions & {"kms:Decrypt", "kms:GenerateDataKey"}:
+        if kms_allow_actions & kms_artifact_use_actions:
             _fail("STOP_UPSTREAM_SOURCE_CONTRACT_GAP")
         _fail("KMS_KEY_POLICY_ACTION_SET_INVALID")
     if policy_kind == "S3_BUCKET" and (

@@ -82,10 +82,10 @@ def test_exact_discovery_transitions_to_a_target_bound_plan_and_two_sessions(
         exact_plan_materializer=exact_materializer,
     )
 
-    expected_plan = exact_probe_identity_plan(plan, identity_data.TARGETS)
+    expected_plan = exact_probe_identity_plan(plan, identity_data.LIVE_TARGETS)
     snapshot = read_private_json(root, "exact.json")
     assert snapshot["plan_binding_digest"] == plan_binding(expected_plan)[1]
-    assert snapshot["target_digest"] == canonical_digest(identity_data.TARGETS)
+    assert snapshot["target_digest"] == canonical_digest(identity_data.LIVE_TARGETS)
     assert set(snapshot["policies"]) == {"discovery", "exact"}
     assert len(snapshot["identities"]) == len(snapshot["session_digests"]) == 2
     assert len(set(snapshot["session_digests"])) == 2

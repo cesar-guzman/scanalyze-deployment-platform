@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from tooling import platform_authority_plan_permission_repair_aws as runtime
+from tooling import platform_authority_plan_permission_repair_broker_seed as broker_seed
 from tooling.platform_authority_plan_permission_repair import (
     LAMBDA_ENVIRONMENT_LIMIT_BYTES,
     MAX_PUBLISHED_FUNCTION_VERSION_BYTES,
@@ -57,7 +58,6 @@ DYNAMODB_WRITES = {
     "dynamodb:PartiQLInsert",
     "dynamodb:PartiQLUpdate",
     "dynamodb:PutItem",
-    "dynamodb:TransactWriteItems",
     "dynamodb:UpdateItem",
 }
 FUNCTIONS = {
@@ -193,7 +193,16 @@ def _by_sid(policy: dict[str, Any], sid: str) -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def authority() -> dict[str, Any]:
-    return _load_template(AUTHORITY_TEMPLATE)
+    rendered = broker_seed.render_pep_template_from_source(
+        source=AUTHORITY_TEMPLATE.read_bytes(),
+        protection_enabled=True,
+    )
+    loaded = yaml.load(
+        rendered.decode("utf-8"),
+        Loader=_CloudFormationLoader,
+    )
+    assert isinstance(loaded, dict)
+    return loaded
 
 
 @pytest.fixture(scope="module")
@@ -571,7 +580,6 @@ def test_function_environments_are_closed_and_version_chained(
     )
     assert authority["Parameters"]["ExpectedPermissionSetDescription"] == {
         "Type": "String",
-        "NoEcho": True,
         "MinLength": 1,
         "MaxLength": 700,
         "AllowedPattern": "^[ -~]{1,700}$",
@@ -713,13 +721,57 @@ def test_ledger_is_retained_encrypted_protected_and_stage_writer_bound(
     }
     statements = properties["ResourcePolicy"]["PolicyDocument"]["Statement"]
     by_sid = {statement["Sid"]: statement for statement in statements}
-    assert _actions(by_sid["DenyPlanCreationOutsidePlanExecution"]) == {
+    assert _actions(by_sid["DenyItemCreationOutsideExactWriters"]) == {
         "dynamodb:PutItem"
     }
-    assert by_sid["DenyPlanCreationOutsidePlanExecution"]["Condition"] == {
+    assert by_sid["DenyItemCreationOutsideExactWriters"]["Condition"] == {
         "ArnNotEquals": {
-            "aws:PrincipalArn": {"Fn::GetAtt": "PlanExecutionRole.Arn"}
+            "aws:PrincipalArn": [
+                {"Fn::GetAtt": "PlanExecutionRole.Arn"},
+                {"Fn::GetAtt": "ReconcileExecutionRole.Arn"},
+            ]
         }
+    }
+    assert by_sid["DenyPlanWritesOutsideBaseKey"]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {"Fn::GetAtt": "PlanExecutionRole.Arn"}
+        },
+        "ForAllValues:StringNotEquals": {
+            "dynamodb:LeadingKeys": [{"Ref": "RepairId"}]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    assert by_sid["DenyPlanWritesWithoutBaseKey"]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {"Fn::GetAtt": "PlanExecutionRole.Arn"}
+        },
+        "Null": {"dynamodb:LeadingKeys": "true"},
+    }
+    assert by_sid[
+        "DenyReconcileWritesOutsideAttestationKey"
+    ]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {
+                "Fn::GetAtt": "ReconcileExecutionRole.Arn"
+            }
+        },
+        "ForAllValues:StringNotEquals": {
+            "dynamodb:LeadingKeys": [
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    assert by_sid[
+        "DenyReconcileWritesWithoutAttestationKey"
+    ]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {
+                "Fn::GetAtt": "ReconcileExecutionRole.Arn"
+            }
+        },
+        "Null": {"dynamodb:LeadingKeys": "true"},
     }
     assert _actions(by_sid["DenyPlanConsumptionOutsideRepairExecution"]) == {
         "dynamodb:UpdateItem"
@@ -729,9 +781,143 @@ def test_ledger_is_retained_encrypted_protected_and_stage_writer_bound(
             "aws:PrincipalArn": {"Fn::GetAtt": "RepairExecutionRole.Arn"}
         }
     }
+    assert by_sid["DenyRepairWritesOutsideBaseKey"]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {"Fn::GetAtt": "RepairExecutionRole.Arn"}
+        },
+        "ForAllValues:StringNotEquals": {
+            "dynamodb:LeadingKeys": [{"Ref": "RepairId"}]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    assert by_sid["DenyRepairWritesWithoutBaseKey"]["Condition"] == {
+        "ArnEquals": {
+            "aws:PrincipalArn": {"Fn::GetAtt": "RepairExecutionRole.Arn"}
+        },
+        "Null": {"dynamodb:LeadingKeys": "true"},
+    }
     assert _actions(by_sid["DenyEveryUnsupportedLedgerMutation"]) == (
         DYNAMODB_WRITES - {"dynamodb:PutItem", "dynamodb:UpdateItem"}
     )
+
+
+def test_runtime_expected_ledger_policy_is_exactly_the_resolved_template_policy(
+    authority: dict[str, Any],
+) -> None:
+    repair_id = "gug376-plan-permission-repair-" + "1" * 64
+    table_arn = (
+        "arn:aws:dynamodb:us-east-1:042360977644:table/"
+        "scanalyze-platform-authority-plan-policy-repair-ledger"
+    )
+    roles = {
+        "PlanExecutionRole.Arn": (
+            "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairPlan"
+        ),
+        "RepairExecutionRole.Arn": (
+            "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairExecution"
+        ),
+        "ReconcileExecutionRole.Arn": (
+            "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairReconcile"
+        ),
+    }
+
+    def resolve(value: Any) -> Any:
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if set(value) == {"Ref"} and value["Ref"] == "RepairId":
+            return repair_id
+        if set(value) == {"Fn::GetAtt"}:
+            return roles[value["Fn::GetAtt"]]
+        if set(value) == {"Fn::Sub"}:
+            return (
+                value["Fn::Sub"]
+                .replace("${AWS::Partition}", "aws")
+                .replace("${AuthorityAccountId}", AUTHORITY_ACCOUNT)
+                .replace("${RepairId}", repair_id)
+            )
+        return {key: resolve(item) for key, item in value.items()}
+
+    rendered = resolve(
+        authority["Resources"]["RepairLedger"]["Properties"]["ResourcePolicy"][
+            "PolicyDocument"
+        ]
+    )
+    expected = runtime._expected_ledger_resource_policy(table_arn, repair_id)
+    assert runtime.canonical_json(rendered) == runtime.canonical_json(expected)
+    for drifted in (
+        {**rendered, "Statement": rendered["Statement"][:-1]},
+        {
+            **rendered,
+            "Statement": [
+                {
+                    **rendered["Statement"][0],
+                    "Resource": table_arn + "-foreign",
+                },
+                *rendered["Statement"][1:],
+            ],
+        },
+    ):
+        assert runtime.canonical_json(drifted) != runtime.canonical_json(expected)
+
+
+@pytest.mark.parametrize(
+    ("outside_sid", "missing_sid", "role", "exact_keys"),
+    [
+        (
+            "DenyPlanWritesOutsideBaseKey",
+            "DenyPlanWritesWithoutBaseKey",
+            "PlanExecutionRole",
+            [{"Ref": "RepairId"}],
+        ),
+        (
+            "DenyRepairWritesOutsideBaseKey",
+            "DenyRepairWritesWithoutBaseKey",
+            "RepairExecutionRole",
+            [{"Ref": "RepairId"}],
+        ),
+        (
+            "DenyReconcileWritesOutsideAttestationKey",
+            "DenyReconcileWritesWithoutAttestationKey",
+            "ReconcileExecutionRole",
+            [
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ],
+        ),
+    ],
+)
+def test_external_ledger_grant_cannot_bypass_exact_writer_key(
+    authority: dict[str, Any],
+    outside_sid: str,
+    missing_sid: str,
+    role: str,
+    exact_keys: list[dict[str, str]],
+) -> None:
+    statements = authority["Resources"]["RepairLedger"]["Properties"][
+        "ResourcePolicy"
+    ]["PolicyDocument"]["Statement"]
+    by_sid = {statement["Sid"]: statement for statement in statements}
+    expected_principal = {"Fn::GetAtt": f"{role}.Arn"}
+    outside = by_sid[outside_sid]
+    missing = by_sid[missing_sid]
+    assert outside["Effect"] == missing["Effect"] == "Deny"
+    assert outside["Condition"]["ArnEquals"]["aws:PrincipalArn"] == (
+        expected_principal
+    )
+    assert missing["Condition"]["ArnEquals"]["aws:PrincipalArn"] == (
+        expected_principal
+    )
+    assert outside["Condition"]["ForAllValues:StringNotEquals"] == {
+        "dynamodb:LeadingKeys": exact_keys
+    }
+    assert outside["Condition"]["Null"] == {
+        "dynamodb:LeadingKeys": "false"
+    }
+    assert missing["Condition"]["Null"] == {
+        "dynamodb:LeadingKeys": "true"
+    }
 
 
 def test_execution_roles_preserve_plan_repair_reconcile_separation(
@@ -751,7 +937,30 @@ def test_execution_roles_preserve_plan_repair_reconcile_separation(
     assert "dynamodb:UpdateItem" not in plan_allowed
     assert "dynamodb:UpdateItem" in repair_allowed
     assert "dynamodb:PutItem" not in repair_allowed
-    assert not DYNAMODB_WRITES.intersection(reconcile_allowed)
+    assert DYNAMODB_WRITES.intersection(reconcile_allowed) == {
+        "dynamodb:PutItem"
+    }
+    reconcile_write = _by_sid(reconcile, "WriteExactReconcileAttestation")
+    assert reconcile_write["Condition"] == {
+        "ForAllValues:StringEquals": {
+            "dynamodb:LeadingKeys": [
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    reconcile_read = _by_sid(reconcile, "ReadExactRepairLedgerItem")
+    assert reconcile_read["Condition"] == {
+        "ForAllValues:StringEquals": {
+            "dynamodb:LeadingKeys": [
+                {"Ref": "RepairId"},
+                {"Fn::Sub": "${RepairId}#reconcile-v1"},
+                {"Fn::Sub": "${RepairId}#reconcile-attempt-v1"},
+            ]
+        },
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
     assert not any(action.startswith("sso:") for action in plan_allowed)
     assert not any(action.startswith("sso:") for action in repair_allowed)
     assert not any(action.startswith("sso:") for action in reconcile_allowed)
@@ -760,6 +969,9 @@ def test_execution_roles_preserve_plan_repair_reconcile_separation(
     assert "ScanalyzeBootstrapPlanRepairMutation" not in json.dumps(reconcile)
     assert "ScanalyzeBootstrapPlanRepairReadback" in json.dumps(plan)
     assert "ScanalyzeBootstrapPlanRepairReadback" in json.dumps(reconcile)
+    assert "#reconcile-attempt-v1" not in json.dumps(plan)
+    assert "#reconcile-attempt-v1" not in json.dumps(repair)
+    assert "#reconcile-attempt-v1" in json.dumps(reconcile)
     for policy, sid, function_name in (
         (
             plan,
@@ -848,14 +1060,18 @@ def test_invocation_inspector_is_read_only_and_cannot_chain(
     }
 
 
-def test_sensitive_and_dynamic_bindings_are_parameters_not_outputs(
+def test_causal_and_dynamic_bindings_are_exact_readback_parameters_not_outputs(
     authority: dict[str, Any], management: dict[str, Any]
 ) -> None:
-    assert authority["Parameters"]["PrincipalId"]["NoEcho"] is True
-    assert authority["Parameters"]["ExpectedPlanPermissionSetTagsJson"]["NoEcho"] is True
-    assert authority["Parameters"]["ArtifactVersion"]["NoEcho"] is True
-    assert management["Parameters"]["RepairPrincipalId"]["NoEcho"] is True
-    assert management["Parameters"]["RepairPrincipalUserArn"]["NoEcho"] is True
+    for key in (
+        "PrincipalId",
+        "ExpectedPermissionSetDescription",
+        "ExpectedPlanPermissionSetTagsJson",
+        "ArtifactVersion",
+    ):
+        assert "NoEcho" not in authority["Parameters"][key]
+    for key in ("RepairPrincipalId", "RepairPrincipalUserArn"):
+        assert "NoEcho" not in management["Parameters"][key]
     assert management["Parameters"]["RepairPrincipalId"]["AllowedPattern"]
     for template in (authority, management):
         output_values = json.dumps(

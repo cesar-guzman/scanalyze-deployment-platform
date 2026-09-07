@@ -136,7 +136,7 @@ def _source_contract() -> discovery.DerivedSourceContract:
     identity_plan = identity_data._live_plan()  # noqa: SLF001
     body: dict[str, Any] = {
         "record_type": discovery.SOURCE_CONTRACT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": discovery.IMPLEMENTATION_ISSUE,
         "parent_issue": discovery.PARENT_ISSUE,
         "live_issue": discovery.LIVE_ISSUE,
@@ -152,6 +152,18 @@ def _source_contract() -> discovery.DerivedSourceContract:
         "authority_targets": copy.deepcopy(authority_plan["targets"]),
         "identity_center_private_targets": copy.deepcopy(
             identity_plan["private_targets"]
+        ),
+        "identity_center_kms_binding_digest": canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": identity_data.INSTANCE,
+                "mode": identity_plan["private_targets"][
+                    "identity_center_kms_mode"
+                ],
+                "key_arn": identity_plan["private_targets"][
+                    "identity_center_kms_key_arn"
+                ],
+            }
         ),
         "identity_center_source_expectations": {
             "instance_arn": identity_data.INSTANCE,
@@ -355,6 +367,25 @@ class _ObservedDiscoverySession:
     def _invoke(self, **kwargs: Any) -> dict[str, Any]:
         operation = kwargs["operation"]
         request = kwargs["request"]
+        if operation == "sso:DescribeInstance":
+            assert request == {"InstanceArn": identity_data.INSTANCE}
+            value = {
+                "InstanceArn": identity_data.INSTANCE,
+                "IdentityStoreId": identity_data.PRIVATE["identity_store_id"],
+                "OwnerAccountId": identity_data.MGMT,
+                "Status": "ACTIVE",
+                "EncryptionConfigurationDetails": {
+                    "KeyType": identity_data.LIVE_PRIVATE[
+                        "identity_center_kms_mode"
+                    ],
+                    "KmsKeyArn": identity_data.LIVE_PRIVATE[
+                        "identity_center_kms_key_arn"
+                    ],
+                    "EncryptionStatus": "ENABLED",
+                },
+            }
+            self._record(operation, request, value)
+            return value
         assert operation == "sso:DescribePermissionSet"
         arn = request["PermissionSetArn"]
         name = (
@@ -386,6 +417,7 @@ def _transition_attestation(
     )
     reader = provider_module._IdentityDiscoveryReader(session)  # noqa: SLF001
     instances = reader.list_instances(None)["items"]
+    described = reader.describe_instance(identity_data.INSTANCE)["value"]
     applications = reader.list_applications(
         identity_data.INSTANCE,
         identity_data.PRIVATE["application_name"],
@@ -402,7 +434,9 @@ def _transition_attestation(
         "permission_sets": permission_sets,
     }
     assert observed == identity_data.DISCOVERY
-    return reader.attest_transition(canonical_digest(observed))
+    return reader.attest_transition(
+        canonical_digest({"discovery": observed, "instance": described})
+    )
 
 
 def _reseal(value: dict[str, Any], field: str) -> None:
@@ -735,7 +769,7 @@ def test_provider_session_gate_requires_claim_and_exact_bound_policy(
             capability,
             capture_index=1,
             provisional_plan=identity_plan,
-            targets=identity_data.TARGETS,
+            targets=identity_data.LIVE_TARGETS,
             transition_attestation=object(),
         )
 
@@ -784,7 +818,7 @@ def test_exact_policy_requires_one_concrete_attested_discovery(
         capture_index=1,
         policy_digest=identity_plan["expected_discovery_policy_digest"],
     )
-    attacker_targets = copy.deepcopy(identity_data.TARGETS)
+    attacker_targets = copy.deepcopy(identity_data.LIVE_TARGETS)
     attacker_targets["retire_approve_permission_set_arn"] = (
         "arn:aws:sso:::permissionSet/ssoins-1234567890abcdef/ps-foreign"
     )
@@ -815,7 +849,7 @@ def test_exact_policy_requires_one_concrete_attested_discovery(
         capability,
         capture_index=2,
         provisional_plan=identity_plan,
-        targets=identity_data.TARGETS,
+        targets=identity_data.LIVE_TARGETS,
         transition_attestation=second_attestation,
     )
     gate.authorize_session(

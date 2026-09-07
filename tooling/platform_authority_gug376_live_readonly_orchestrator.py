@@ -96,7 +96,12 @@ def live_closed_policy() -> dict[str, Any]:
         raise OrchestratorError("CLOSED_POLICY_INVALID") from exc
     if (
         sha256(raw).hexdigest() != LIVE_DISCOVERY_SUPPLEMENT_SHA256
-        or actions != {"kms:Decrypt", "sso:DescribePermissionSet"}
+        or actions
+        != {
+            "kms:Decrypt",
+            "sso:DescribeInstance",
+            "sso:DescribePermissionSet",
+        }
     ):
         _fail("CLOSED_POLICY_INVALID")
     result["record_type"] = "scanalyze.platform_authority.gug376_live_readonly_policy.v2"

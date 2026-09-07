@@ -93,7 +93,9 @@ def _budget_document() -> dict[str, Any]:
     }
 
 
-def _owner_inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _owner_inputs(
+    *, kms_mode: str = "CUSTOMER_MANAGED_KEY"
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     authority, identity = gug392_data._plan_inputs(exact=True)  # noqa: SLF001
     targets = authority["targets"]
     replacements = {
@@ -123,6 +125,35 @@ def _owner_inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     )
 
     exact_state = gug392_data._exact_expected_state()  # noqa: SLF001
+    kms_key_arn = (
+        identity["private_targets"]["identity_center_kms_key_arn"]
+        if kms_mode == "CUSTOMER_MANAGED_KEY"
+        else None
+    )
+    identity["private_targets"]["identity_center_kms_mode"] = kms_mode
+    identity["private_targets"]["identity_center_kms_key_arn"] = kms_key_arn
+    identity["private_targets"]["identity_center_kms_binding_digest"] = (
+        canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": gug392_data.IDENTITY_INSTANCE,
+                "mode": kms_mode,
+                "key_arn": kms_key_arn,
+            }
+        )
+    )
+    identity["expected_state"]["instance"]["encryption"] = {
+        "key_type": kms_mode,
+        "kms_key_arn": kms_key_arn,
+        "status": "ENABLED",
+    }
+    exact_state["targets"]["identity_center_kms_mode"] = kms_mode
+    exact_state["targets"]["identity_center_kms_key_arn"] = kms_key_arn
+    exact_state["facts"]["instance"]["encryption"] = {
+        "key_type": kms_mode,
+        "kms_key_arn": kms_key_arn,
+        "status": "ENABLED",
+    }
     exact_state["facts"]["discovery"]["applications"][0]["name"] = (
         identity["private_targets"]["application_name"]
     )
@@ -153,7 +184,7 @@ def _source_contract(
     authority_targets = copy.deepcopy(authority["targets"])
     body: dict[str, Any] = {
         "record_type": discovery.SOURCE_CONTRACT_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "implementation_issue": discovery.IMPLEMENTATION_ISSUE,
         "parent_issue": discovery.PARENT_ISSUE,
         "live_issue": discovery.LIVE_ISSUE,
@@ -169,6 +200,16 @@ def _source_contract(
         "authority_targets": authority_targets,
         "identity_center_private_targets": copy.deepcopy(
             identity["private_targets"]
+        ),
+        "identity_center_kms_binding_digest": canonical_digest(
+            {
+                "binding_name": "identity_center_kms_key_arn",
+                "identity_center_instance_arn": gug392_data.IDENTITY_INSTANCE,
+                "mode": identity["private_targets"]["identity_center_kms_mode"],
+                "key_arn": identity["private_targets"][
+                    "identity_center_kms_key_arn"
+                ],
+            }
         ),
         "identity_center_source_expectations": {
             "instance_arn": gug392_data.IDENTITY_INSTANCE,
@@ -333,7 +374,12 @@ class _BudgetedActor(collector_harness._Actor):  # noqa: SLF001
 class _IdentityReader(gug392_data._LiveIdentityReader):  # noqa: SLF001
     def attest_transition(self, discovery_digest: str) -> object:
         discovered = copy.deepcopy(self._discovery())  # noqa: SLF001
-        assert canonical_digest(discovered) == discovery_digest
+        assert canonical_digest(
+            {
+                "discovery": discovered,
+                "instance": copy.deepcopy(self._instance()),  # noqa: SLF001
+            }
+        ) == discovery_digest
         return _TransitionAttestation(
             capability=self.actor.owner.capability,
             capture_index=self.actor.capture,
@@ -557,18 +603,24 @@ def test_executor_rejects_preexisting_downstream_output_before_claim_or_calls(
     ("classification", "exact"),
     (("ABSENT_READY", False), ("EXACT_PRESENT_NO_TOUCH", True)),
 )
+@pytest.mark.parametrize(
+    "kms_mode", ("AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY")
+)
 def test_private_discovery_runs_through_approved_gug392_inputs_offline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     classification: str,
     exact: bool,
+    kms_mode: str,
 ) -> None:
     monkeypatch.setattr(
         socket,
         "socket",
         lambda *_args, **_kwargs: pytest.fail("network access attempted"),
     )
-    authority_input, identity_input, exact_state = _owner_inputs()
+    authority_input, identity_input, exact_state = _owner_inputs(
+        kms_mode=kms_mode
+    )
     root = _root(tmp_path)
     sdk_root = _sdk_root(tmp_path)
     materialized_request = discovery.materialize_discovery_request(

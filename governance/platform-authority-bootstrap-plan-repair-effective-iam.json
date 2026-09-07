@@ -12,8 +12,8 @@
       "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
       "inline_policy_name": "Gug376ReadOnlyPlanAndLedgerCreation",
       "normalized_inline_policy_digests": {
-        "AWS_OWNED_KMS_KEY": "sha256:bdfe16b3f70da0fd8ace75c352143ec9ad89b0f60586170bc0bb9093e0fa4ea4",
-        "CUSTOMER_MANAGED_KEY": "sha256:bdfe16b3f70da0fd8ace75c352143ec9ad89b0f60586170bc0bb9093e0fa4ea4"
+        "AWS_OWNED_KMS_KEY": "sha256:d95aa2267e43ec6acb4b97cd187a2ea83b4387e9b46b7ac4fe27d6d66b36a696",
+        "CUSTOMER_MANAGED_KEY": "sha256:d95aa2267e43ec6acb4b97cd187a2ea83b4387e9b46b7ac4fe27d6d66b36a696"
       }
     },
     {
@@ -26,8 +26,8 @@
       "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
       "inline_policy_name": "Gug376OneShotPlanPolicyRepair",
       "normalized_inline_policy_digests": {
-        "AWS_OWNED_KMS_KEY": "sha256:6961c18f6d7d66a1ccfa5a2a553e62beaf0aef240f4ee6eaf56810e4d5300c9d",
-        "CUSTOMER_MANAGED_KEY": "sha256:6961c18f6d7d66a1ccfa5a2a553e62beaf0aef240f4ee6eaf56810e4d5300c9d"
+        "AWS_OWNED_KMS_KEY": "sha256:b05cd2aff79f24743b7cb3b367db0b5e17739e457a30eff799d9390503367e14",
+        "CUSTOMER_MANAGED_KEY": "sha256:b05cd2aff79f24743b7cb3b367db0b5e17739e457a30eff799d9390503367e14"
       }
     },
     {
@@ -38,10 +38,10 @@
       "arn": "arn:aws:iam::042360977644:role/ScanalyzeBootstrapPlanRepairReconcile",
       "max_session_duration": 3600,
       "trust_policy_digest": "sha256:49ba5998b29fbcf32b70e93f75e139ca1a38f10cb4ba13db1cdda46a716f6954",
-      "inline_policy_name": "Gug376ReadOnlyPlanPolicyReconciliation",
+      "inline_policy_name": "Gug376ReconcileAndAttest",
       "normalized_inline_policy_digests": {
-        "AWS_OWNED_KMS_KEY": "sha256:de6d47210f3d16b9e2920e1d019b8433c1ab115cbe6be861f164d2fb1333581d",
-        "CUSTOMER_MANAGED_KEY": "sha256:de6d47210f3d16b9e2920e1d019b8433c1ab115cbe6be861f164d2fb1333581d"
+        "AWS_OWNED_KMS_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7",
+        "CUSTOMER_MANAGED_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7"
       }
     },
     {

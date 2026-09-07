@@ -179,7 +179,7 @@ _IMPLEMENTATION_SOURCE_PATHS = (
 
 _PINNED_DEPENDENCY_DIGESTS = {
     "tooling/platform_authority_gug365_upstream_prerequisites.py": (
-        "sha256:83a0bad74847c636aa37c0526983e607d54809f9597b2833b182efff594d39b5"
+        "sha256:73c335c17515548145cbe950f54c765f9c886f9172b82ebf7de7483f3b7d7945"
     ),
     "tooling/platform_authority_gug365_phase_execution_ledger.py": (
         "sha256:ade2d98d3ace73fc41b45e713e762520801c52d4a20703523e6e1db92a32edbc"

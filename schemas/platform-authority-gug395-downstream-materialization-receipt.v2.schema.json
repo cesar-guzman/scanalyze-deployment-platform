@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-gug395-downstream-materialization-receipt.v2.schema.json",
+  "title": "GUG-395 sanitized downstream materialization receipt v2",
+  "description": "Digest-only shape for a blocked synthetic example or a capability-gated certified checkpoint. Version 2 binds the complete Identity Center KMS mode/key tuple by digest without publishing the mode, instance ARN, or nullable customer-managed key ARN. Schema validity alone never certifies a live run or authorizes a GUG-365 plan, deployment, or production.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_type",
+    "schema_version",
+    "implementation_issue",
+    "parent_issue",
+    "discovery_issue",
+    "upstream_plan_issue",
+    "downstream_consumer_issue",
+    "status",
+    "evidence_scope",
+    "checkpoint_builder_status",
+    "certified_terminal_capability_present",
+    "source_commit_sha",
+    "source_tree_sha",
+    "preplan_seed_digest",
+    "terminal_verification_digest",
+    "mutation_plan_digest",
+    "terminal_handoff_digest",
+    "execution_ledger_digest",
+    "phase_count",
+    "operation_count",
+    "phase_certification_digests",
+    "operation_receipt_digests",
+    "provider_slot_binding_set_digest",
+    "identity_center_kms_binding_digest",
+    "broker_package_manifest_digest",
+    "broker_signing_contract_digest",
+    "ledger_factory_package_manifest_digest",
+    "ledger_factory_signing_contract_digest",
+    "gug363_intent_digest",
+    "gug363_plan_digest",
+    "gug365_plan_status",
+    "gug365_plan_materialized",
+    "consumer_fresh_checkpoint_required",
+    "private_manifest_digest",
+    "aws_calls",
+    "aws_mutations",
+    "deployment_authorized",
+    "production",
+    "two_human_status",
+    "independent_approval_present",
+    "production_status",
+    "created_at",
+    "receipt_digest"
+  ],
+  "properties": {
+    "record_type": {
+      "const": "scanalyze.platform_authority.gug395_downstream_materialization_receipt.v2"
+    },
+    "schema_version": { "const": 2 },
+    "implementation_issue": { "const": "GUG-395" },
+    "parent_issue": { "const": "GUG-376" },
+    "discovery_issue": { "const": "GUG-393" },
+    "upstream_plan_issue": { "const": "GUG-363" },
+    "downstream_consumer_issue": { "const": "GUG-365" },
+    "status": {
+      "enum": [
+        "SYNTHETIC_CONTRACT_ONLY_BLOCKED",
+        "READY_FOR_GUG365_FRESH_CHECKPOINT"
+      ]
+    },
+    "evidence_scope": {
+      "enum": [
+        "SYNTHETIC_SCHEMA_EXAMPLE",
+        "CERTIFIED_PRIVATE_HANDOFF_DIGEST_ONLY"
+      ]
+    },
+    "checkpoint_builder_status": {
+      "enum": [
+        "BLOCKED_LIVE_EXECUTION_NOT_IMPLEMENTED",
+        "MATERIALIZED_FROM_VERIFIED_TERMINAL_HANDOFF"
+      ]
+    },
+    "certified_terminal_capability_present": { "type": "boolean" },
+    "source_commit_sha": { "$ref": "#/$defs/gitSha" },
+    "source_tree_sha": { "$ref": "#/$defs/gitSha" },
+    "preplan_seed_digest": { "$ref": "#/$defs/digest" },
+    "terminal_verification_digest": { "$ref": "#/$defs/digest" },
+    "mutation_plan_digest": { "$ref": "#/$defs/digest" },
+    "terminal_handoff_digest": { "$ref": "#/$defs/digest" },
+    "execution_ledger_digest": { "$ref": "#/$defs/digest" },
+    "phase_count": { "const": 9 },
+    "operation_count": { "const": 30 },
+    "phase_certification_digests": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/digest" }
+    },
+    "operation_receipt_digests": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/digest" }
+    },
+    "provider_slot_binding_set_digest": { "$ref": "#/$defs/digest" },
+    "identity_center_kms_binding_digest": { "$ref": "#/$defs/digest" },
+    "broker_package_manifest_digest": { "$ref": "#/$defs/digest" },
+    "broker_signing_contract_digest": { "$ref": "#/$defs/digest" },
+    "ledger_factory_package_manifest_digest": { "$ref": "#/$defs/digest" },
+    "ledger_factory_signing_contract_digest": { "$ref": "#/$defs/digest" },
+    "gug363_intent_digest": { "$ref": "#/$defs/digest" },
+    "gug363_plan_digest": { "$ref": "#/$defs/digest" },
+    "gug365_plan_status": { "const": "PENDING_FRESH_PROVIDER_CHECKPOINT" },
+    "gug365_plan_materialized": { "const": false },
+    "consumer_fresh_checkpoint_required": { "const": true },
+    "private_manifest_digest": { "$ref": "#/$defs/digest" },
+    "aws_calls": { "const": 0 },
+    "aws_mutations": { "const": 0 },
+    "deployment_authorized": { "const": false },
+    "production": { "const": false },
+    "two_human_status": { "const": "NOT_PROVEN" },
+    "independent_approval_present": { "const": false },
+    "production_status": { "const": "NO-GO" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "receipt_digest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "SYNTHETIC_CONTRACT_ONLY_BLOCKED" }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_scope": { "const": "SYNTHETIC_SCHEMA_EXAMPLE" },
+          "checkpoint_builder_status": {
+            "const": "BLOCKED_LIVE_EXECUTION_NOT_IMPLEMENTED"
+          },
+          "certified_terminal_capability_present": { "const": false }
+        }
+      },
+      "else": {
+        "properties": {
+          "evidence_scope": {
+            "const": "CERTIFIED_PRIVATE_HANDOFF_DIGEST_ONLY"
+          },
+          "checkpoint_builder_status": {
+            "const": "MATERIALIZED_FROM_VERIFIED_TERMINAL_HANDOFF"
+          },
+          "certified_terminal_capability_present": { "const": true }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  }
+}

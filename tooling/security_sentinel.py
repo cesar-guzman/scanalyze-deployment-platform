@@ -56,6 +56,7 @@ SKIP_DIRS = {
     ".venv",
     ".work",
     "__pycache__",
+    "build",
     "node_modules",
     "venv",
 }

@@ -3687,7 +3687,7 @@ def _validate_gug393_discovery_receipt(instance: dict) -> list[str]:
 
 
 def _validate_gug395_public_receipt(
-    instance: dict, *, downstream: bool
+    instance: dict, *, downstream: bool, downstream_version: int = 2
 ) -> list[str]:
     """Apply the exact GUG-395 digest-only receipt seal and invariants."""
 
@@ -3695,13 +3695,22 @@ def _validate_gug395_public_receipt(
         from tooling.platform_authority_gug395_preplan_seed import (
             PreplanSeedError,
             validate_downstream_materialization_receipt_shape,
+            validate_downstream_materialization_receipt_v1_shape,
             validate_preplan_seed_receipt_shape,
         )
     except ImportError as exc:
         return [f"GUG-395 receipt validator unavailable: {exc}"]
     try:
         if downstream:
-            validate_downstream_materialization_receipt_shape(instance)
+            if downstream_version == 1:
+                validate_downstream_materialization_receipt_v1_shape(instance)
+            elif downstream_version == 2:
+                validate_downstream_materialization_receipt_shape(instance)
+            else:
+                return [
+                    "GUG-395 receipt contract invalid: "
+                    "DOWNSTREAM_RECEIPT_VERSION_INVALID"
+                ]
             if instance.get("status") != "SYNTHETIC_CONTRACT_ONLY_BLOCKED":
                 return [
                     "GUG-395 receipt contract invalid: "
@@ -3767,7 +3776,8 @@ def _validate_plan_permission_repair_contract(
             PlanPermissionRepairError,
             validate_private_intent,
             validate_private_ledger,
-            validate_public_receipt,
+            validate_public_receipt_v1,
+            validate_public_receipt_v2,
         )
     except ImportError as exc:
         return [f"GUG-376 Plan repair validator unavailable: {exc}"]
@@ -3775,11 +3785,17 @@ def _validate_plan_permission_repair_contract(
         "platform-authority-plan-permission-repair-intent.v1.schema.json": (
             validate_private_intent
         ),
+        "platform-authority-plan-permission-repair-intent.v2.schema.json": (
+            validate_private_intent
+        ),
         "platform-authority-plan-permission-repair-ledger.v1.schema.json": (
             validate_private_ledger
         ),
         "platform-authority-plan-permission-repair-receipt.v1.schema.json": (
-            validate_public_receipt
+            validate_public_receipt_v1
+        ),
+        "platform-authority-plan-permission-repair-receipt.v2.schema.json": (
+            validate_public_receipt_v2
         ),
     }[schema_name]
     try:
@@ -4225,8 +4241,10 @@ def validate_semantics(
 
     if schema_name in {
         "platform-authority-plan-permission-repair-intent.v1.schema.json",
+        "platform-authority-plan-permission-repair-intent.v2.schema.json",
         "platform-authority-plan-permission-repair-ledger.v1.schema.json",
         "platform-authority-plan-permission-repair-receipt.v1.schema.json",
+        "platform-authority-plan-permission-repair-receipt.v2.schema.json",
     }:
         errors.extend(
             _validate_plan_permission_repair_contract(
@@ -4295,10 +4313,18 @@ def validate_semantics(
     if schema_name == "platform-authority-gug395-preplan-seed-receipt.v1.schema.json":
         errors.extend(_validate_gug395_public_receipt(instance, downstream=False))
 
-    if schema_name == (
-        "platform-authority-gug395-downstream-materialization-receipt.v1.schema.json"
-    ):
-        errors.extend(_validate_gug395_public_receipt(instance, downstream=True))
+    if schema_name in {
+        "platform-authority-gug395-downstream-materialization-receipt.v1.schema.json",
+        "platform-authority-gug395-downstream-materialization-receipt.v2.schema.json",
+    }:
+        downstream_version = 1 if ".v1.schema.json" in schema_name else 2
+        errors.extend(
+            _validate_gug395_public_receipt(
+                instance,
+                downstream=True,
+                downstream_version=downstream_version,
+            )
+        )
 
     if schema_name == (
         "platform-authority-gug395-preplan-collision-probe-receipt.v1.schema.json"

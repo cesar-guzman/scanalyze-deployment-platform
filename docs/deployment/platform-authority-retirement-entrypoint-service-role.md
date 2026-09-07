@@ -265,15 +265,19 @@ acceptance or production deployment follows from that implementation or from
 a later collision receipt.
 
 The collision action surface is closed to STS plus read-only S3, KMS, Signer,
-Lambda and Identity Center List/Get/Describe calls. `s3:HeadBucket` is required
-because bucket names are global: absence from `ListAllMyBuckets` is not proof
-that the name is globally available. Success or a non-followed `301` means
-collision. AWS returns generic `400`, `403` or `404` for either a missing bucket
-or missing permission, so none of those responses proves absence. They are all
-`UNCERTAIN_RECONCILE_ONLY`. Consequently this read-only implementation can
-detect a global-name collision but cannot certify global-name absence or emit a
-truthful seven-target absent-ready result without a future, separately reviewed
-evidence mechanism.
+Lambda and Identity Center List/Get/Describe calls. The artifact target uses
+the account-regional S3 bucket namespace in `us-east-1`. The probe performs a
+complete paginated `ListBuckets` stream through `s3:ListAllMyBuckets`, bound to
+the exact prefix, `BucketRegion=us-east-1`, bounded `MaxBuckets`, expected
+authority account `042360977644` and the account-regional namespace. It never
+calls `s3:HeadBucket`; `HeadBucket` is prohibited because an ambiguous global
+response cannot establish whether the reserved account-and-region name is
+absent. An exact name-and-Region match is a collision. Complete zero matches
+may yield `ABSENT_READY_FOR_PROVIDER_IMPLEMENTATION` only when both domain
+snapshots are stable and every identity, target, pagination, evidence and
+budget binding is complete. Partial pagination, wrong account or Region,
+malformed evidence, substituted `HeadBucket` requests and any other incomplete
+boundary remain `UNCERTAIN_RECONCILE_ONLY`.
 
 Signer listing covers the complete retained status set (`Active`, `Canceled`
 and `Revoked`); a retained profile cannot become false absence merely because

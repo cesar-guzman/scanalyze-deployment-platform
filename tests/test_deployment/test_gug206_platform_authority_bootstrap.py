@@ -1198,8 +1198,12 @@ def test_aws_cli_disables_provider_retries_for_one_shot_requests(
 ) -> None:
     module = _load_bootstrap_cli("gug210_single_attempt_aws_cli")
     captured_environment: dict[str, str] = {}
+    captured_command: list[str] = []
+    captured_timeout: list[int] = []
 
-    def fake_run(*_: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured_command.extend(command)
+        captured_timeout.append(kwargs["timeout"])  # type: ignore[arg-type]
         captured_environment.update(kwargs["env"])  # type: ignore[arg-type]
         return subprocess.CompletedProcess(args=[], returncode=0, stdout="{}", stderr="")
 
@@ -1209,6 +1213,55 @@ def test_aws_cli_disables_provider_retries_for_one_shot_requests(
     module.AwsCli(region="us-east-1").run("cloudformation", "execute-change-set")
 
     assert captured_environment["AWS_MAX_ATTEMPTS"] == "1"
+    assert captured_environment["AWS_RETRY_MODE"] == "standard"
+    assert captured_timeout == [module.AwsCli.SUBPROCESS_TIMEOUT_SECONDS]
+    assert captured_command[-4:] == [
+        "--cli-connect-timeout",
+        "5",
+        "--cli-read-timeout",
+        "30",
+    ]
+
+
+def test_aws_cli_timeout_is_bounded_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_bootstrap_cli("gug274_bounded_aws_cli_timeout")
+
+    def timed_out(*_args: object, **_kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd=["aws"], timeout=45)
+
+    monkeypatch.setattr(module.subprocess, "run", timed_out)
+    with pytest.raises(module.AwsCliError, match="AWS operation timed out"):
+        module.AwsCli(region="us-east-1").run(
+            "cloudformation", "list-change-sets"
+        )
+
+
+def test_aws_cli_waiter_has_separate_bounded_long_poll_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_bootstrap_cli("gug274_bounded_aws_cli_waiter")
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured["timeout"] = kwargs["timeout"]
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    module.AwsCli(region="us-east-1").wait(
+        "cloudformation", "wait", "change-set-create-complete"
+    )
+    assert captured["timeout"] == 930
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[-4:] == [
+        "--cli-connect-timeout",
+        "5",
+        "--cli-read-timeout",
+        "900",
+    ]
 
 
 def test_private_output_is_exclusive_non_symlink_and_mode_0600(tmp_path: Path) -> None:

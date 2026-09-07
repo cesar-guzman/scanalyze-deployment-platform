@@ -211,6 +211,7 @@ def test_plan_and_invoker_tag_contracts_are_independent_and_closed() -> None:
 
     assert adapter._expected_plan_tags == {"managed_by": "existing-plan"}
     assert adapter._expected_invoker_tags == {
+        "component": "plan-repair-delegation",
         "environment": "non-production",
         "managed_by": "cloudformation",
         "production": "false",

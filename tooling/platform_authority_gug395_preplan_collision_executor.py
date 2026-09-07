@@ -200,8 +200,9 @@ def _identity_snapshot(
     ledger: CollisionCallLedger,
     capture_index: int,
 ) -> dict[str, Any]:
+    identity_profile = request["profiles"]["identity_center"]
     factory = provider_factory.build_identity(
-        profile=request["profiles"]["identity_center"]["name"],
+        profile=identity_profile["name"],
         ledger=ledger,
         capture_index=capture_index,
         retries=0,
@@ -218,6 +219,12 @@ def _identity_snapshot(
         request["targets"],
         max_applications=MAX_APPLICATIONS,
         max_permission_sets=MAX_PERMISSION_SETS,
+        expected_identity_center_kms_mode=identity_profile[
+            "identity_center_kms_mode"
+        ],
+        expected_identity_center_kms_key_arn=identity_profile[
+            "identity_center_kms_key_arn"
+        ],
     )
     return _snapshot(
         domain="identity_center",
