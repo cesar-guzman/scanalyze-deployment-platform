@@ -18,6 +18,14 @@ mutations. It admits verified omission of encryption metadata only through
 the [no-Identity-Center-KMS path](platform-authority-no-kms-bootstrap.md),
 without changing the historical evidence above or certifying deployment.
 
+If the reader lacks the closed inventory permissions or the actual Plan policy,
+tags and GROUP assignment do not match the USER-only predecessor contract, stop
+this repair. Prepare the separate [offline permission and Plan migration
+review](platform-authority-permission-plan-migration.md). That local draft
+preserves shared-reader statements and proposes an explicitly reviewed
+assignment transition; it does not widen this repair, replace live evidence,
+authorize an administrative update, or change the connected admission contract.
+
 The reviewed AWS wrapper now binds the concrete zero-retry Identity Center,
 effective-IAM, durable-ledger and route-collision adapters in a deterministic
 source-closed package. The repair materializer remains intentionally

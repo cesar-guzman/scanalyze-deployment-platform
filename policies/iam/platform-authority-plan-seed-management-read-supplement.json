@@ -1,0 +1,178 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PlanSeedDiscoverIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": "sso:ListInstances",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactIdentityCenterInstance",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeInstance",
+        "sso:ListPermissionSets"
+      ],
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedDescribePermissionSetCandidates",
+      "Effect": "Allow",
+      "Action": "sso:DescribePermissionSet",
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "arn:aws:sso:::permissionSet/${identity_center_instance_id}/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactPermissionSet",
+      "Effect": "Allow",
+      "Action": [
+        "sso:GetInlinePolicyForPermissionSet",
+        "sso:GetPermissionsBoundaryForPermissionSet",
+        "sso:ListAccountsForProvisionedPermissionSet",
+        "sso:ListCustomerManagedPolicyReferencesInPermissionSet",
+        "sso:ListManagedPoliciesInPermissionSet"
+      ],
+      "Resource": [
+        "${identity_center_instance_arn}",
+        "${plan_permission_set_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactPermissionSetTags",
+      "Effect": "Allow",
+      "Action": "sso:ListTagsForResource",
+      "Resource": "${plan_permission_set_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactAuthorityAssignment",
+      "Effect": "Allow",
+      "Action": "sso:ListAccountAssignments",
+      "Resource": [
+        "arn:aws:sso:::account/${authority_account_id}",
+        "${identity_center_instance_arn}",
+        "${plan_permission_set_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactPendingOperations",
+      "Effect": "Allow",
+      "Action": [
+        "sso:DescribeAccountAssignmentCreationStatus",
+        "sso:DescribeAccountAssignmentDeletionStatus",
+        "sso:DescribePermissionSetProvisioningStatus",
+        "sso:ListAccountAssignmentCreationStatus",
+        "sso:ListAccountAssignmentDeletionStatus",
+        "sso:ListPermissionSetProvisioningStatus"
+      ],
+      "Resource": "${identity_center_instance_arn}",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "PlanSeedReadExactPrincipal",
+      "Effect": "Allow",
+      "Action": "identitystore:DescribeUser",
+      "Resource": [
+        "${identity_store_arn}",
+        "${principal_user_arn}"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalAccount": "${management_account_id}",
+          "aws:RequestedRegion": "${region}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${not_before}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${not_after}"
+        }
+      }
+    }
+  ]
+}
