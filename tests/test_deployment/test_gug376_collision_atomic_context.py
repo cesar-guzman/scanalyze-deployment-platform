@@ -47,9 +47,13 @@ def _root(tmp_path: Path, name: str) -> Path:
     return value.resolve(strict=True)
 
 
-def _persist_gug395(root: Path) -> dict[str, Any]:
-    request, claim = gug395_data._write_result_custody(root)  # noqa: SLF001
-    result = gug395_data._build_success_result(request=request)  # noqa: SLF001
+def _persist_gug395(root: Path, *, encryption_absent: bool = False) -> dict[str, Any]:
+    request, claim = gug395_data._write_result_custody(  # noqa: SLF001
+        root, encryption_absent=encryption_absent
+    )
+    result = gug395_data._build_success_result(  # noqa: SLF001
+        request=request, encryption_absent=encryption_absent
+    )
     gug395.persist_collision_probe_result(
         private_root=root,
         result=result,
@@ -84,12 +88,13 @@ def _materialized_roots(
     authorized_at: str = NOT_BEFORE,
     expires_at: str = EXPIRES_AT,
     now: datetime = NOW,
+    encryption_absent: bool = False,
 ) -> tuple[Path, Path, Path, dict[str, Any]]:
     admission_root = _root(tmp_path, f"admission{suffix}")
     effect_root = _root(tmp_path, f"effect{suffix}")
     if gug395_root is None:
         gug395_root = _root(tmp_path, "gug395")
-        _persist_gug395(gug395_root)
+        _persist_gug395(gug395_root, encryption_absent=encryption_absent)
     context = subject.materialize_atomic_collision_context(
         admission_private_root=admission_root,
         effect_private_root=effect_root,
@@ -274,15 +279,17 @@ def test_context_rejects_inline_broker_only_operation_for_local_cli(
         )
 
 
+@pytest.mark.parametrize("encryption_absent", [False, True])
 def test_context_reopens_both_custodies_and_derives_canonical_kms_binding(
     tmp_path: Path,
+    encryption_absent: bool,
 ) -> None:
     (
         admission_root,
         effect_root,
         gug395_root,
         context,
-    ) = _materialized_roots(tmp_path)
+    ) = _materialized_roots(tmp_path, encryption_absent=encryption_absent)
     checked = subject.read_atomic_collision_context(
         admission_private_root=admission_root,
         effect_private_root=effect_root,
@@ -301,10 +308,13 @@ def test_context_reopens_both_custodies_and_derives_canonical_kms_binding(
             "identity_center_instance_arn": bindings[
                 "identity_center_instance_arn"
             ],
-            "mode": "CUSTOMER_MANAGED_KEY",
+            "mode": "NOT_OBSERVED" if encryption_absent else "CUSTOMER_MANAGED_KEY",
             "key_arn": bindings["identity_center_kms_key_arn"],
         }
     )
+    if encryption_absent:
+        assert bindings["identity_center_kms_mode"] == "NOT_OBSERVED"
+        assert bindings["identity_center_kms_key_arn"] is None
     assert context["effect_private_root_digest"] != context[
         "admission_private_root_digest"
     ]
@@ -315,21 +325,27 @@ def test_context_reopens_both_custodies_and_derives_canonical_kms_binding(
     assert context["approval_reference_digest"] == APPROVAL_REFERENCE_DIGEST
 
 
+@pytest.mark.parametrize("encryption_absent", [False, True])
 def test_context_rejects_gug395_kms_observation_drift(
     tmp_path: Path,
+    encryption_absent: bool,
 ) -> None:
     gug395_root = _root(tmp_path, "gug395")
-    _persist_gug395(gug395_root)
+    _persist_gug395(gug395_root, encryption_absent=encryption_absent)
     request, receipt, bundle = subject._gug395_evidence(  # noqa: SLF001
         gug395_root
     )
     changed = copy.deepcopy(bundle)
     changed["private_evidence"]["identity_center_snapshots"][0]["facts"][
         "described_instance"
-    ]["EncryptionConfigurationDetails"]["KmsKeyArn"] = (
-        "arn:aws:kms:us-east-1:839393571433:key/"
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    )
+    ]["EncryptionConfigurationDetails"] = {
+        "KeyType": "CUSTOMER_MANAGED_KEY",
+        "KmsKeyArn": (
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        ),
+        "EncryptionStatus": "ENABLED",
+    }
 
     with pytest.raises(
         subject.AtomicCollisionContextError,

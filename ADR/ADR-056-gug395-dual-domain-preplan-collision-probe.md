@@ -138,7 +138,14 @@ private binding fields `identity_center_kms_mode` and
 authoritative state is the pair of stable live `DescribeInstance` responses.
 `AWS_OWNED_KMS_KEY` requires a null key ARN; `CUSTOMER_MANAGED_KEY` requires the
 exact private `us-east-1` key ARN owned by the expected management account.
-Any mismatch, missing description, disabled encryption or instability is
+The 2026-09-08 extension also accepts `NOT_OBSERVED` with a null key ARN when
+both verified responses omit the encryption block. Its normalized projection
+is null, not an AWS-owned or enabled-encryption claim, and it selects zero
+Identity Center KMS authority. The full instance description and identity
+checks remain mandatory. A present null/malformed block is not omission, and
+later explicit encryption metadata changes the exact binding. See the
+[no-KMS observation runbook](../docs/operations/platform-authority-no-kms-bootstrap.md).
+Any mismatch, missing description, malformed or disabled encryption, or instability is
 `UNCERTAIN_RECONCILE_ONLY`.
 
 ### 4. Bound pages, resources, responses, network attempts and modeled cost

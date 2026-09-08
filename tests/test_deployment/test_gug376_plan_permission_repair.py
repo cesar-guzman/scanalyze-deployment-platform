@@ -480,6 +480,93 @@ def test_private_intent_v1_reader_does_not_backport_mrk_semantics() -> None:
     assert exc_info.value.code == "INVALID_KMS_BINDING"
 
 
+def test_private_intent_v1_reader_does_not_backport_unobserved_mode() -> None:
+    legacy = json.loads(
+        (
+            REPO_ROOT
+            / "fixtures/valid/"
+            "platform-authority-plan-permission-repair-intent-v1-synthetic.json"
+        ).read_text(encoding="utf-8")
+    )
+    legacy["identity_center_kms_mode"] = "NOT_OBSERVED"
+    legacy = _reseal(legacy, "intent_digest")
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        validate_private_intent(legacy)
+    assert exc_info.value.code == "INVALID_KMS_MODE"
+
+
+def test_private_intent_v1_retains_its_historical_key_case_semantics() -> None:
+    legacy = json.loads(
+        (
+            REPO_ROOT
+            / "fixtures/valid/"
+            "platform-authority-plan-permission-repair-intent-v1-synthetic.json"
+        ).read_text(encoding="utf-8")
+    )
+    legacy.update(
+        identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        identity_center_kms_key_arn=(
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        ),
+    )
+    validate_private_intent(_reseal(legacy, "intent_digest"))
+
+
+def test_private_intent_v2_binds_unobserved_without_policy_escalation(
+    intent: dict[str, Any],
+) -> None:
+    record = _binding_record()
+    record["identity_center_kms_mode"] = "NOT_OBSERVED"
+    candidate = build_private_intent(
+        RepairBinding.from_mapping(record), repo_root=REPO_ROOT
+    )
+
+    validate_private_intent(candidate)
+    assert candidate["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert candidate["identity_center_kms_key_arn"] is None
+    assert candidate["production_authorized"] is False
+    assert candidate["intent_digest"] != intent["intent_digest"]
+    assert immutable_configuration_digest_from_intent(candidate) != (
+        immutable_configuration_digest_from_intent(intent)
+    )
+    for field in (
+        "authorized_mutations",
+        "predecessor_policy_digest",
+        "target_policy_digest",
+        "policy_delta_digest",
+    ):
+        assert candidate[field] == intent[field]
+    target = render_target_policy(str(candidate["change_set_name"]))
+    assert not any(
+        action.lower().startswith("kms:")
+        for statement in target["Statement"]
+        if statement["Effect"] == "Allow"
+        for action in (
+            [statement["Action"]]
+            if isinstance(statement["Action"], str)
+            else statement["Action"]
+        )
+    )
+
+
+@pytest.mark.parametrize("key_arn", ("", False, 0, [], {}, "not-a-key"))
+@pytest.mark.parametrize("kms_mode", ("NOT_OBSERVED", "AWS_OWNED_KMS_KEY"))
+def test_no_key_modes_do_not_coerce_falsey_or_malformed_key_bindings(
+    key_arn: Any,
+    kms_mode: str,
+) -> None:
+    record = _binding_record()
+    record.update(
+        identity_center_kms_mode=kms_mode,
+        identity_center_kms_key_arn=key_arn,
+    )
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        RepairBinding.from_mapping(record)
+    assert exc_info.value.code == "INVALID_KMS_BINDING"
+
+
 @pytest.mark.parametrize(
     "key_arn",
     (
@@ -634,9 +721,53 @@ def test_snapshot_requires_the_exact_predecessor_and_no_foreign_authority(
     assert exc_info.value.code == "FOREIGN_AUTHORITY"
 
 
+@pytest.mark.parametrize(
+    ("kms_mode", "key_arn"),
+    (
+        ("AWS_OWNED_KMS_KEY", None),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ),
+    ),
+)
+@pytest.mark.parametrize(
+    "stage", ("BEFORE_PUT_INLINE_POLICY", "BEFORE_PROVISION_PERMISSION_SET", "FINAL")
+)
+def test_unobserved_intent_rejects_live_encryption_transition_at_every_boundary(
+    intent: dict[str, Any],
+    kms_mode: str,
+    key_arn: str | None,
+    stage: str,
+) -> None:
+    intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+    intent = _reseal(intent, "intent_digest")
+    target = render_target_policy(str(intent["change_set_name"]))
+    predecessor = render_predecessor_policy(target)
+    snapshot = _snapshot(
+        intent,
+        permission_policy=predecessor if stage == "BEFORE_PUT_INLINE_POLICY" else target,
+        role_policy=target if stage == "FINAL" else predecessor,
+    )
+    validate_snapshot(intent, snapshot, stage)
+    drifted = replace(
+        snapshot,
+        identity_center_kms_mode=kms_mode,
+        identity_center_kms_key_arn=key_arn,
+    )
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        validate_snapshot(intent, drifted, stage)
+    assert exc_info.value.code == "LIVE_BINDING_MISMATCH"
+
+
+@pytest.mark.parametrize("kms_mode", ("AWS_OWNED_KMS_KEY", "NOT_OBSERVED"))
 def test_complete_two_effect_state_machine_is_at_most_once(
     intent: dict[str, Any],
+    kms_mode: str,
 ) -> None:
+    intent["identity_center_kms_mode"] = kms_mode
+    intent = _reseal(intent, "intent_digest")
     timeline: list[str] = []
     provider = MemoryProvider(intent, timeline)
     ledger = MemoryLedger(timeline)
@@ -983,9 +1114,13 @@ def test_reconcile_attestation_rejects_nonterminal_or_tampered_evidence(
     )
 
 
+@pytest.mark.parametrize("kms_mode", ("AWS_OWNED_KMS_KEY", "NOT_OBSERVED"))
 def test_ambiguous_first_effect_is_terminal_and_never_retried(
     intent: dict[str, Any],
+    kms_mode: str,
 ) -> None:
+    intent["identity_center_kms_mode"] = kms_mode
+    intent = _reseal(intent, "intent_digest")
     timeline: list[str] = []
     provider = MemoryProvider(intent, timeline, fail_put=True)
     ledger = MemoryLedger(timeline)
@@ -1008,6 +1143,62 @@ def test_ambiguous_first_effect_is_terminal_and_never_retried(
         runtime.repair()
     assert exc_info.value.code == "REPLAY_BLOCKED"
     assert provider.put_calls == 1
+
+
+@pytest.mark.parametrize("failure", ("access_denied", "terminal_failed"))
+def test_unobserved_provision_failure_preserves_partial_state_for_reconciliation(
+    intent: dict[str, Any],
+    failure: str,
+) -> None:
+    intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+    intent = _reseal(intent, "intent_digest")
+    timeline: list[str] = []
+
+    class DeniedProvisionProvider(MemoryProvider):
+        def provision_permission_set(
+            self, candidate: Mapping[str, Any]
+        ) -> OperationResult:
+            if failure == "terminal_failed":
+                return super().provision_permission_set(candidate)
+            self.timeline.append("provider:provision")
+            self.provision_calls += 1
+            raise PermissionError("synthetic ungranted capability")
+
+    provider = DeniedProvisionProvider(
+        intent, timeline, provision_statuses=("FAILED",)
+    )
+    ledger = MemoryLedger(timeline)
+    runtime = PlanPermissionRepair(
+        intent=intent,
+        provider=provider,
+        ledger=ledger,
+        now=lambda: NOW,
+        sleep=lambda _: None,
+    )
+    runtime.plan()
+    receipt = runtime.repair()
+
+    assert receipt["status"] == "UNCERTAIN_RECONCILE_ONLY"
+    assert receipt["effects_attempted"] == 2
+    assert receipt["effects_completed"] == 1
+    assert receipt["required_next_action"] == "INVOKE_RECONCILE_ALIAS"
+    assert ledger.item is not None
+    assert ledger.item["stage"] == "UNCERTAIN_PROVISION_PERMISSION_SET"
+    assert provider.permission_policy == provider.target
+    assert provider.role_policy == provider.predecessor
+    assert provider.put_calls == provider.provision_calls == 1
+
+    reconciled = runtime.reconcile()
+    assert reconciled["status"] == "UNCERTAIN_RECONCILE_ONLY"
+    assert reconciled["required_next_action"] == "REVIEW_BLOCKER"
+    assert ledger.attestation is None
+    with pytest.raises(PlanPermissionRepairError):
+        runtime.repair()
+    assert provider.put_calls == provider.provision_calls == 1
+    assert provider.intent["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert provider.intent["identity_center_kms_key_arn"] is None
+    validate_public_receipt(receipt)
+    validate_public_receipt(reconciled)
 
 
 def test_uncertain_effect_without_durable_seal_emits_no_invalid_receipt(

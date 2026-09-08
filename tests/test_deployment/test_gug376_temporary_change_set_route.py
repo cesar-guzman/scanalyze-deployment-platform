@@ -522,6 +522,7 @@ def test_management_collision_reader_grants_only_bound_identity_center_cmk(
     assert parameters["IdentityCenterKmsMode"]["AllowedValues"] == [
         "AWS_OWNED_KMS_KEY",
         "CUSTOMER_MANAGED_KEY",
+        "NOT_OBSERVED",
     ]
     assert re.fullmatch(
         parameters["IdentityCenterKmsKeyArn"]["AllowedPattern"], key_arn
@@ -565,14 +566,54 @@ def test_management_collision_reader_grants_only_bound_identity_center_cmk(
     assert "kms:Decrypt" in deny_boundary["NotAction"]
 
 
-def test_management_collision_reader_aws_owned_mode_has_zero_kms_authority(
+@pytest.mark.parametrize("mode", ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"])
+def test_management_collision_reader_no_kms_modes_have_zero_kms_authority(
     route: dict[str, Any],
+    mode: str,
 ) -> None:
     policy = _resolve(
         _policy(route, "ManagementCollisionReaderRole"),
-        identity_center_kms_mode="AWS_OWNED_KMS_KEY",
+        identity_center_kms_mode=mode,
     )
     assert "kms:" not in json.dumps(policy, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn", "expected"),
+    [
+        ("NOT_OBSERVED", "", True),
+        ("NOT_OBSERVED", "nonempty", False),
+        ("AWS_OWNED_KMS_KEY", "", True),
+        ("AWS_OWNED_KMS_KEY", "nonempty", False),
+        ("CUSTOMER_MANAGED_KEY", "", False),
+        ("CUSTOMER_MANAGED_KEY", "nonempty", True),
+        ("UNKNOWN", "", False),
+    ],
+)
+def test_route_kms_rule_requires_explicit_mode_and_matching_key_presence(
+    route: dict[str, Any], mode: str, key_arn: str, expected: bool,
+) -> None:
+    references = {"IdentityCenterKmsMode": mode, "IdentityCenterKmsKeyArn": key_arn}
+
+    def evaluate(value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        assert len(value) == 1
+        operator, items = next(iter(value.items()))
+        if operator == "Ref":
+            return references[items]
+        resolved = [evaluate(item) for item in items]
+        if operator == "Fn::Equals":
+            return resolved[0] == resolved[1]
+        if operator == "Fn::And":
+            return all(resolved)
+        if operator == "Fn::Or":
+            return any(resolved)
+        assert operator == "Fn::Not"
+        return not resolved[0]
+
+    assertion = route["Rules"]["IdentityCenterKmsBindingMustMatch"]["Assertions"][0]
+    assert evaluate(assertion["Assert"]) is expected
 
 
 def test_management_roles_trust_only_exact_authority_broker_roles(

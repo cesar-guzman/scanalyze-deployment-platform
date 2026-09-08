@@ -1726,6 +1726,62 @@ def _config_with_identity_center_kms_key(key_arn: str) -> broker.BrokerConfig:
     )
 
 
+def _config_with_identity_center_mode(mode: str, key_arn: str = "") -> dict[str, Any]:
+    value = _config_value()
+    values = {
+        "IdentityCenterKmsMode": mode,
+        "IdentityCenterKmsKeyArn": key_arn,
+        "ArtifactBucket": "scanalyze-g376-art-aaaaaaaaaaaa-"
+        "042360977644-us-east-1-an",
+    }
+    for parameter in value["requests"]["pep-create-v1"]["Parameters"]:
+        if parameter["ParameterKey"] in values:
+            parameter["ParameterValue"] = values[parameter["ParameterKey"]]
+    value.pop("config_digest")
+    return broker.seal(value, "config_digest")
+
+
+def test_not_observed_collision_binding_stays_distinct_and_digest_bound() -> None:
+    missing_value = _config_with_identity_center_mode("NOT_OBSERVED")
+    owned_value = _config_with_identity_center_mode("AWS_OWNED_KMS_KEY")
+    missing = broker._collision_parameter_bindings(  # noqa: SLF001
+        broker.BrokerConfig.from_mapping(missing_value)
+    )
+    owned = broker._collision_parameter_bindings(  # noqa: SLF001
+        broker.BrokerConfig.from_mapping(owned_value)
+    )
+    assert missing["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert missing["identity_center_kms_key_arn"] is None
+    assert missing["identity_center_kms_binding_digest"] != (
+        owned["identity_center_kms_binding_digest"]
+    )
+    assert missing_value["config_digest"] != owned_value["config_digest"]
+    for parameter in missing_value["requests"]["pep-create-v1"]["Parameters"]:
+        if parameter["ParameterKey"] == "IdentityCenterKmsMode":
+            parameter["ParameterValue"] = "AWS_OWNED_KMS_KEY"
+    with pytest.raises(broker.RouteBrokerError, match="CONFIG_DIGEST_INVALID"):
+        broker.BrokerConfig.from_mapping(missing_value)
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn"),
+    [
+        ("NOT_OBSERVED", "arn:aws:kms:us-east-1:839393571433:key/"
+         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        ("UNKNOWN", ""),
+        ("", ""),
+    ],
+)
+def test_collision_bindings_reject_unknown_or_key_bearing_unobserved_mode(
+    mode: str, key_arn: str,
+) -> None:
+    config = broker.BrokerConfig.from_mapping(
+        _config_with_identity_center_mode(mode, key_arn)
+    )
+    with pytest.raises(broker.RouteBrokerError, match="COLLISION_CONFIG_INVALID"):
+        broker._collision_parameter_bindings(config)  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     "key_arn",
     (

@@ -92,6 +92,7 @@ PEP_LIFECYCLE_RESOURCE_IDS = (
 PACKAGE_SOURCE_PATHS = (
     Path("tooling/__init__.py"),
     Path("tooling/platform_authority_bootstrap.py"),
+    Path("tooling/platform_authority_identity_center_encryption.py"),
     Path("tooling/platform_authority_gug365_upstream_inventory.py"),
     Path("tooling/platform_authority_gug376_authority_inventory_collector.py"),
     Path("tooling/platform_authority_gug376_collision_catalog.py"),

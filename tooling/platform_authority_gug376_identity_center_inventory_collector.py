@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta; from hashlib import sha256; import json, os, re
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
+from tooling import platform_authority_identity_center_encryption as encryption_contract
 from tooling.platform_authority_gug365_upstream_inventory import canonical_digest, canonical_json, canonical_snapshot
 from tooling.platform_authority_gug376_authority_inventory_collector import AuthorityAccessDenied, CollectorError, IDENTITY_FIELDS, _identity, _stamp, _time, private_target_absent, read_private_json, write_private_json
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,11 +54,6 @@ _DIGEST, _ARN = re.compile(r"^sha256:[0-9a-f]{64}$"), re.compile(r"^arn:aws:[a-z
 _INSTANCE_ARN = re.compile(
     r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9-]+$"
 )
-_KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:(?P<account>[0-9]{12}):key/"
-    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
-)
-_KMS_MODES = {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
 def _fail(code: str) -> None: raise CollectorError(code)
 def _parse(value: object) -> datetime:
     try: result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -126,12 +122,11 @@ def _valid_kms_binding(
 ) -> bool:
     mode = value.get("identity_center_kms_mode") if live else "CUSTOMER_MANAGED_KEY"
     key_arn = value.get("identity_center_kms_key_arn")
-    if mode not in _KMS_MODES:
+    try:
+        encryption_contract.validate_binding(mode, key_arn, owner_account_id=account)
+    except ValueError:
         return False
-    if mode == "AWS_OWNED_KMS_KEY":
-        return key_arn is None
-    match = _KMS_ARN.fullmatch(str(key_arn))
-    return match is not None and match.group("account") == account
+    return True
 
 
 def _valid_policy_targets(value: object, *, account: str, live: bool) -> bool:
@@ -238,7 +233,7 @@ def _render(
         if live
         else "CUSTOMER_MANAGED_KEY"
     )
-    if kms_mode == "AWS_OWNED_KMS_KEY":
+    if kms_mode in {"AWS_OWNED_KMS_KEY", encryption_contract.NOT_OBSERVED}:
         policy["Statement"] = [
             item
             for item in policy["Statement"]
@@ -400,23 +395,22 @@ def _valid_live_instance_binding(
         "encryption",
     }:
         return False
-    encryption = instance.get("encryption")
-    if not isinstance(encryption, Mapping) or set(encryption) != {
-        "key_type",
-        "kms_key_arn",
-        "status",
-    }:
-        return False
     account = str(binding.get("expected_account_id", ""))
+    try:
+        observed_mode, observed_key = encryption_contract.collector_binding(
+            instance["encryption"], owner_account_id=account
+        )
+    except ValueError:
+        return False
     observed_kms = {
-        "identity_center_kms_mode": encryption.get("key_type"),
-        "identity_center_kms_key_arn": encryption.get("kms_key_arn"),
+        "identity_center_kms_mode": observed_mode,
+        "identity_center_kms_key_arn": observed_key,
     }
     atomic_binding = {
         "binding_name": "identity_center_kms_key_arn",
         "identity_center_instance_arn": instance.get("instance_arn"),
-        "mode": encryption.get("key_type"),
-        "key_arn": encryption.get("kms_key_arn"),
+        "mode": observed_mode,
+        "key_arn": observed_key,
     }
     return (
         instance.get("instance_arn")
@@ -425,7 +419,6 @@ def _valid_live_instance_binding(
         and instance.get("status") == "ACTIVE"
         and canonical_digest(instance.get("identity_store_id"))
         == binding.get("identity_store_id_digest")
-        and encryption.get("status") == "ENABLED"
         and _valid_kms_binding(observed_kms, account=account, live=True)
         and canonical_digest(atomic_binding)
         == binding.get("identity_center_kms_binding_digest")
@@ -664,9 +657,6 @@ def _valid_live_exact_shape(
             "status",
             "encryption",
         }
-        or not isinstance(instance["encryption"], Mapping)
-        or set(instance["encryption"])
-        != {"key_type", "kms_key_arn", "status"}
         or not isinstance(application, Mapping)
         or set(application)
         != {
@@ -704,11 +694,11 @@ def _valid_live_exact_shape(
             live=True,
         )
         or instance["encryption"]
-        != {
-            "key_type": targets["identity_center_kms_mode"],
-            "kms_key_arn": targets["identity_center_kms_key_arn"],
-            "status": "ENABLED",
-        }
+        != encryption_contract.expected_collector_projection(
+            targets["identity_center_kms_mode"],
+            targets["identity_center_kms_key_arn"],
+            owner_account_id=str(targets["management_account_id"]),
+        )
         or application["application_arn"]
         != targets["identity_center_application_arn"]
         or not _valid_live_application_description(

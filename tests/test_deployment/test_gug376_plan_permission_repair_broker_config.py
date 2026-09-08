@@ -477,6 +477,72 @@ def test_customer_managed_key_has_exact_snapshot_config_and_collision_parity(
     )
 
 
+def test_not_observed_has_distinct_sealed_config_without_identity_center_kms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _materialize(monkeypatch, _input(kms_mode="NOT_OBSERVED"))
+    owned = _materialize(monkeypatch, _input())
+    config = result["broker_config"]
+    parsed = broker.BrokerConfig.from_mapping(config)
+    delegation = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in config["requests"]["delegation-create-v1"]["Parameters"]
+    }
+    pep = {
+        item["ParameterKey"]: item["ParameterValue"]
+        for item in config["requests"]["pep-create-v1"]["Parameters"]
+    }
+    assert delegation["UseIdentityCenterCustomerManagedKms"] == "false"
+    assert delegation["IdentityCenterKmsKeyArn"] == ""
+    assert pep["IdentityCenterKmsMode"] == "NOT_OBSERVED"
+    assert pep["IdentityCenterKmsKeyArn"] == ""
+    collision = broker._collision_parameter_bindings(parsed)  # noqa: SLF001
+    assert collision["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert collision["identity_center_kms_key_arn"] is None
+    owned_binding = broker._collision_parameter_bindings(  # noqa: SLF001
+        broker.BrokerConfig.from_mapping(owned["broker_config"])
+    )
+    assert collision["identity_center_kms_binding_digest"] != (
+        owned_binding["identity_center_kms_binding_digest"]
+    )
+    assert config["config_digest"] != owned["broker_config"]["config_digest"]
+    envelope = broker.encode_runtime_config(config)
+    assert len(broker.canonical_json(envelope).encode("utf-8")) <= 3_500
+    assert broker.decode_runtime_config(envelope) == config
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn", "code"),
+    [
+        ("NOT_OBSERVED", "", "PLAN_SNAPSHOT_KMS_INVALID"),
+        ("NOT_OBSERVED", "arn:aws:kms:us-east-1:839393571433:key/"
+         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "PLAN_SNAPSHOT_KMS_INVALID"),
+        ("UNKNOWN", None, "PLAN_SNAPSHOT_INVALID"),
+        (None, None, "PLAN_SNAPSHOT_INVALID"),
+        ([], None, "PLAN_SNAPSHOT_INVALID"),
+    ],
+)
+def test_snapshot_unknown_modes_and_not_observed_keys_fail_closed(
+    mode: Any, key_arn: Any, code: str,
+) -> None:
+    with pytest.raises(subject.BrokerConfigMaterializationError, match=code):
+        subject.validate_plan_snapshot(
+            _snapshot(kms_mode=mode, kms_key_arn=key_arn),
+            source_commit=SOURCE_COMMIT,
+            now=NOW,
+        )
+
+
+def test_snapshot_mode_cannot_change_without_invalidating_its_seal() -> None:
+    snapshot = _snapshot(kms_mode="NOT_OBSERVED")
+    snapshot["identity_center_kms_mode"] = "AWS_OWNED_KMS_KEY"
+    with pytest.raises(
+        subject.BrokerConfigMaterializationError,
+        match="PLAN_SNAPSHOT_DIGEST_INVALID",
+    ):
+        subject.validate_plan_snapshot(snapshot, source_commit=SOURCE_COMMIT, now=NOW)
+
+
 @pytest.mark.parametrize(
     "key_arn",
     (

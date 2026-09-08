@@ -12,6 +12,7 @@ contain all three KMS binding fields:
 
 | `identity_center_kms_mode` | `identity_center_kms_key_arn` | Result |
 | --- | --- | --- |
+| `NOT_OBSERVED` | `null` | Allowed only for attested omission; zero Identity Center KMS authority |
 | `AWS_OWNED_KMS_KEY` | `null` | Allowed |
 | `CUSTOMER_MANAGED_KEY` | Exact `arn:aws:kms:us-east-1:839393571433:key/<uuid-or-mrk-id>` | Allowed |
 | Any other pairing | Any value | Reject |
@@ -19,6 +20,12 @@ contain all three KMS binding fields:
 Empty strings, aliases, wrong accounts, wrong Regions, broad key identifiers
 and the historical `AWS_OWNED_KEY` spelling are invalid. Do not coerce an empty
 string to `null` or infer a mode from the key value.
+
+The 2026-09-08 extension preserves a genuinely omitted encryption block as
+`NOT_OBSERVED`; it does not assert an AWS-owned key or enabled encryption.
+Present null, empty, malformed or unsuccessful configuration remains invalid.
+See the [no-KMS observation runbook](platform-authority-no-kms-bootstrap.md)
+for the producer/consumer boundary and unchanged identity checks.
 
 ## Full binding digest
 
@@ -39,6 +46,11 @@ attested values. The instance ARN comes from the same certified GUG-365 plan;
 it is not a new operator input. Canonicalization uses sorted keys, compact JSON,
 ASCII escaping, and includes JSON `null`. Hashing only the key ARN, only the
 mode, or a display string is not equivalent.
+
+For attested omission, bind `NOT_OBSERVED` and JSON `null` instead. Its digest
+must remain distinct from the AWS-owned binding even though neither selects
+Identity Center KMS authority. Newly observed metadata requires reconciliation
+and fresh materialization, not an automatic mode substitution.
 
 The checked-in
 [`platform-authority-gug393-source-bundle.example.json`](platform-authority-gug393-source-bundle.example.json)

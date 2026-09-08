@@ -82,7 +82,7 @@ Parameters:
     AllowedPattern: '^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$'
   IdentityCenterKmsMode:
     Type: String
-    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY]
+    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY, NOT_OBSERVED]
   IdentityCenterKmsKeyArn:
     Type: String
     Default: ''
@@ -134,6 +134,11 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref IdentityCenterKmsKeyArn, '']
         AssertDescription: AWS-owned Identity Center encryption must not carry a CMK ARN.
+  UnobservedEncryptionMustNotCarryKeyArn:
+    RuleCondition: !Equals [!Ref IdentityCenterKmsMode, NOT_OBSERVED]
+    Assertions:
+      - Assert: !Equals [!Ref IdentityCenterKmsKeyArn, '']
+        AssertDescription: Unobserved Identity Center encryption must not carry a CMK ARN.
   CustomerManagedKmsRequiresExactKeyArn:
     RuleCondition: !Equals [!Ref IdentityCenterKmsMode, CUSTOMER_MANAGED_KEY]
     Assertions:

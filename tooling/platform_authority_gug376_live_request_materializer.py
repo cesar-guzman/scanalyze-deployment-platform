@@ -30,6 +30,7 @@ import subprocess
 import threading
 from typing import Any, Callable, Mapping
 
+from tooling import platform_authority_identity_center_encryption as encryption_contract
 from tooling.platform_authority_gug365_upstream_inventory import (
     canonical_digest,
     canonical_json,
@@ -835,11 +836,10 @@ def materialize_live_plans(
             or expected_instance.get("instance_arn")
             != kms_binding["identity_center_instance_arn"]
             or expected_instance.get("encryption")
-            != {
-                "key_type": kms_binding["mode"],
-                "kms_key_arn": kms_binding["key_arn"],
-                "status": "ENABLED",
-            }
+            != encryption_contract.expected_collector_projection(
+                kms_binding["mode"], kms_binding["key_arn"],
+                owner_account_id=identity_seed["expected_account_id"],
+            )
             or re.fullmatch(
                 r"arn:aws:sso:::instance/ssoins-[A-Za-z0-9-]+",
                 str(expected_instance.get("instance_arn")),

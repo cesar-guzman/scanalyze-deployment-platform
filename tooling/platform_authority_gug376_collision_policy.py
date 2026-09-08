@@ -27,6 +27,7 @@ import re
 from typing import Any
 
 from tooling import platform_authority_gug376_collision_catalog as catalog_contract
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 SCHEMA_VERSION = 1
@@ -218,9 +219,13 @@ def _identity_center_kms_binding(
         if key_arn is not None:
             _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
         return None, None
-    if mode == "AWS_OWNED_KMS_KEY":
-        if key_arn is not None:
-            _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+    try:
+        mode, key_arn = identity_encryption.validate_binding(
+            mode, key_arn, owner_account_id=catalog_contract.MANAGEMENT_ACCOUNT_ID
+        )
+    except ValueError:
+        _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
+    if mode in {"AWS_OWNED_KMS_KEY", identity_encryption.NOT_OBSERVED}:
         return mode, None
     if (
         mode != "CUSTOMER_MANAGED_KEY"
@@ -903,7 +908,7 @@ def _candidate_from_discovery_item(
             or _DIGEST.fullmatch(normalized["PrivateBindingDigest"]) is None
         ):
             _fail("COLLISION_POLICY_DISCOVERY_SELECTOR_INVALID")
-        if mode == "AWS_OWNED_KMS_KEY":
+        if mode in {"AWS_OWNED_KMS_KEY", identity_encryption.NOT_OBSERVED}:
             return normalized, selector_id, None
         if mode != "CUSTOMER_MANAGED_KEY":
             _fail("COLLISION_POLICY_DISCOVERY_ITEM_INVALID")
@@ -1486,7 +1491,7 @@ def _build_policy_set(
         observed_kms_mode = kms_item.get("Mode")
         observed_kms_key_arn = kms_item.get("KeyArn")
         if (
-            observed_kms_mode == "AWS_OWNED_KMS_KEY"
+            observed_kms_mode in {"AWS_OWNED_KMS_KEY", identity_encryption.NOT_OBSERVED}
             and kms_candidates != []
         ) or (
             observed_kms_mode == "CUSTOMER_MANAGED_KEY"
@@ -1497,6 +1502,7 @@ def _build_policy_set(
         ) or observed_kms_mode not in {
             "AWS_OWNED_KMS_KEY",
             "CUSTOMER_MANAGED_KEY",
+            identity_encryption.NOT_OBSERVED,
         }:
             _fail("COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID")
         if identity_center_kms_mode is None:

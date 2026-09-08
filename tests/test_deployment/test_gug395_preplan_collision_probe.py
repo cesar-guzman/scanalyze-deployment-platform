@@ -855,11 +855,23 @@ def _build_success_result(
     credential_vends: int = 0,
     authority_collisions: list[str] | None = None,
     request: dict[str, Any] | None = None,
+    encryption_absent: bool = False,
 ) -> subject.CollisionProbeResult:
     checked_request = _request() if request is None else request
     authority, identity = _pairs(
         authority_collisions=authority_collisions
     )
+    if encryption_absent:
+        for snapshot in identity:
+            snapshot["facts"]["described_instance"]["EncryptionConfigurationDetails"] = None
+            snapshot["facts_digest"] = subject.canonical_digest({
+                key: snapshot[key]
+                for key in (
+                    "complete", "prerequisites_ready", "collisions",
+                    "collision_count", "resource_counts", "facts",
+                )
+            })
+            _reseal(snapshot, "snapshot_digest")
     provider, transcript, budget, budget_events = (
         _successful_provider_and_budget_evidence(
             checked_request,
@@ -898,8 +910,16 @@ def _claim(request: dict[str, Any]) -> dict[str, Any]:
 
 def _write_result_custody(
     private_root: Path,
+    *,
+    encryption_absent: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     request = _request()
+    if encryption_absent:
+        request["profiles"]["identity_center"].update({
+            "identity_center_kms_mode": "NOT_OBSERVED",
+            "identity_center_kms_key_arn": None,
+        })
+        request["profile_binding_digest"] = subject.canonical_digest(request["profiles"])
     request["private_custody_digest"] = subject.private_root_digest(
         private_root
     )
@@ -1445,10 +1465,11 @@ def test_profile_and_account_bindings_fail_closed(mutate: Any) -> None:
         subject.validate_collision_probe_request(request)
 
 
-def test_aws_owned_identity_kms_profile_binding_requires_a_null_key() -> None:
+@pytest.mark.parametrize("mode", ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"])
+def test_no_kms_identity_profile_binding_requires_a_null_key(mode: str) -> None:
     request = _request()
     identity = request["profiles"]["identity_center"]
-    identity["identity_center_kms_mode"] = "AWS_OWNED_KMS_KEY"
+    identity["identity_center_kms_mode"] = mode
     identity["identity_center_kms_key_arn"] = None
     request["profile_binding_digest"] = subject.canonical_digest(
         request["profiles"]
@@ -1477,6 +1498,9 @@ def test_customer_managed_identity_kms_profile_accepts_exact_mrk_arn() -> None:
     ("mode", "key_arn"),
     [
         ("AWS_OWNED_KMS_KEY", IDENTITY_KMS_KEY_ARN),
+        ("NOT_OBSERVED", IDENTITY_KMS_KEY_ARN),
+        ("NOT_OBSERVED", ""),
+        ("NOT_OBSERVED", False),
         ("CUSTOMER_MANAGED_KEY", None),
         (
             "CUSTOMER_MANAGED_KEY",
@@ -1997,10 +2021,11 @@ def test_describe_instance_transcript_binds_exact_request_and_response(
         )
 
 
-def test_aws_owned_describe_instance_uses_the_canonical_enum() -> None:
+@pytest.mark.parametrize("mode", ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"])
+def test_no_kms_describe_instance_preserves_observed_or_absent_facts(mode: str) -> None:
     request = _request()
     identity_profile = request["profiles"]["identity_center"]
-    identity_profile["identity_center_kms_mode"] = "AWS_OWNED_KMS_KEY"
+    identity_profile["identity_center_kms_mode"] = mode
     identity_profile["identity_center_kms_key_arn"] = None
     request["profile_binding_digest"] = subject.canonical_digest(
         request["profiles"]
@@ -2010,8 +2035,8 @@ def test_aws_owned_describe_instance_uses_the_canonical_enum() -> None:
     for snapshot in identity:
         snapshot["facts"]["described_instance"][
             "EncryptionConfigurationDetails"
-        ] = {
-            "KeyType": "AWS_OWNED_KMS_KEY",
+        ] = None if mode == "NOT_OBSERVED" else {
+            "KeyType": mode,
             "KmsKeyArn": None,
             "EncryptionStatus": "ENABLED",
         }
@@ -2050,6 +2075,10 @@ def test_aws_owned_describe_instance_uses_the_canonical_enum() -> None:
     assert result.private_evidence["classification"]["classification"] == (
         subject.ABSENT_READY
     )
+    assert result.public_receipt["production_status"] == subject.PRODUCTION_STATUS
+    if mode == "NOT_OBSERVED":
+        for snapshot in result.private_evidence["identity_center_snapshots"]:
+            assert snapshot["facts"]["described_instance"]["EncryptionConfigurationDetails"] is None
     describe_events = [
         event
         for event in transcript
@@ -2061,6 +2090,22 @@ def test_aws_owned_describe_instance_uses_the_canonical_enum() -> None:
     } == {
         subject.canonical_digest(identity[0]["facts"]["described_instance"])
     }
+
+
+def test_not_observed_expectation_rejects_newly_observed_snapshot() -> None:
+    request = _request()
+    identity = request["profiles"]["identity_center"]
+    identity["identity_center_kms_mode"] = "NOT_OBSERVED"
+    identity["identity_center_kms_key_arn"] = None
+    request["profile_binding_digest"] = subject.canonical_digest(request["profiles"])
+    _reseal(request, "request_digest")
+    with pytest.raises(
+        subject.CollisionProbeError,
+        match="^COLLISION_SNAPSHOT_SEMANTICS_INVALID$",
+    ):
+        subject._validate_snapshot_target_bindings(
+            request, _snapshot("identity_center", 1), "identity_center"
+        )
 
 
 @pytest.mark.parametrize(

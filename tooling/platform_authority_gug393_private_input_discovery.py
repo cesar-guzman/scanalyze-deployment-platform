@@ -21,6 +21,7 @@ import platform
 import re
 import threading
 from typing import Any, Callable, Mapping, Sequence
+from tooling import platform_authority_identity_center_encryption as encryption_contract
 
 from tooling import platform_authority_retirement_entrypoint_materializer as gug363
 from tooling import (
@@ -201,11 +202,6 @@ _STS_ARN = re.compile(
     r"^arn:aws:sts::(?P<account>[0-9]{12}):"
     r"assumed-role/[A-Za-z0-9+=,.@_/-]+/[A-Za-z0-9+=,.@_-]+$"
 )
-_KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:(?P<account>[0-9]{12}):key/"
-    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
-)
-_KMS_MODES = {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
 _APPLICATION_ARN = re.compile(
     r"^arn:aws:sso::(?P<account>[0-9]{12}):application/"
     r"(?P<instance>ssoins-[A-Za-z0-9.-]{16})/[A-Za-z0-9-]+$"
@@ -928,15 +924,10 @@ def _identity_center_kms_binding(
 ) -> dict[str, Any]:
     if not isinstance(instance_arn, str) or _INSTANCE_ARN.fullmatch(instance_arn) is None:
         _fail("SOURCE_SELECTOR_MISSING")
-    if mode not in _KMS_MODES:
+    try:
+        encryption_contract.validate_binding(mode, key_arn, owner_account_id=account)
+    except ValueError:
         _fail("SOURCE_SELECTOR_MISSING")
-    if mode == "AWS_OWNED_KMS_KEY":
-        if key_arn is not None:
-            _fail("SOURCE_SELECTOR_MISSING")
-    else:
-        match = _KMS_ARN.fullmatch(str(key_arn))
-        if match is None or match.group("account") != account:
-            _fail("SOURCE_SELECTOR_MISSING")
     return {
         "binding_name": "identity_center_kms_key_arn",
         "identity_center_instance_arn": instance_arn,
@@ -987,24 +978,23 @@ def _validated_observed_identity_instance(
         "encryption",
     }:
         _fail("IDENTITY_STATE_DRIFT")
-    encryption = instance.get("encryption")
-    if not isinstance(encryption, Mapping) or set(encryption) != {
-        "key_type",
-        "kms_key_arn",
-        "status",
-    }:
+    try:
+        mode, key_arn = encryption_contract.collector_binding(
+            instance["encryption"],
+            owner_account_id=str(contract["identity_center_account_id"]),
+        )
+    except ValueError:
         _fail("IDENTITY_STATE_DRIFT")
     observed = _identity_center_kms_binding(
         instance_arn=instance.get("instance_arn"),
-        mode=encryption.get("key_type"),
-        key_arn=encryption.get("kms_key_arn"),
+        mode=mode,
+        key_arn=key_arn,
         account=str(contract["identity_center_account_id"]),
     )
     if (
         canonical_digest(observed)
         != contract.get("identity_center_kms_binding_digest")
         or observed != expected
-        or encryption.get("status") != "ENABLED"
         or instance.get("status") != "ACTIVE"
         or instance.get("owner_account_id")
         != contract.get("identity_center_account_id")

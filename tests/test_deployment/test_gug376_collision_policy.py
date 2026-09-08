@@ -857,7 +857,9 @@ def test_cloudformation_owned_csc_permissions_match_transcript_contract() -> Non
     assert detail_statement["Action"] == ["lambda:ListTags"]
 
 
-def test_aws_owned_identity_center_kms_is_explicit_and_has_no_candidate_arn(
+@pytest.mark.parametrize("mode", ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"])
+def test_no_kms_identity_center_binding_is_explicit_and_has_no_candidate_arn(
+    mode: str,
 ) -> None:
     catalog = _catalog()
     evidence = _discovery_evidence(catalog)
@@ -867,7 +869,7 @@ def test_aws_owned_identity_center_kms_is_explicit_and_has_no_candidate_arn(
     items[:] = [
         {
             "BindingName": "identity_center_kms_key_arn",
-            "Mode": "AWS_OWNED_KMS_KEY",
+            "Mode": mode,
             "PrivateBindingDigest": PRIVATE_KMS_BINDING_DIGEST,
         }
     ]
@@ -883,6 +885,23 @@ def test_aws_owned_identity_center_kms_is_explicit_and_has_no_candidate_arn(
     assert "kms:" not in subject.canonical_json(
         value["policies"]["management"]
     )
+    # The independent authority artifact/ledger KMS policy is not removed.
+    assert "kms:" in subject.canonical_json(value["policies"]["authority"])
+
+
+@pytest.mark.parametrize("key_arn", ["", False, _candidates()["management"]["identity_center_kms_key"][0]])
+def test_not_observed_policy_rejects_every_non_null_key_binding(key_arn: object) -> None:
+    with pytest.raises(
+        subject.CollisionPolicyError,
+        match="^COLLISION_POLICY_IDENTITY_CENTER_BINDING_INVALID$",
+    ):
+        subject._build_policy_set(
+            _catalog(),
+            discovery_evidence=None,
+            identity_center_instance_arn=_candidates()["management"]["sso_instance"][0],
+            identity_center_kms_mode="NOT_OBSERVED",
+            identity_center_kms_key_arn=key_arn,
+        )
 
 
 def test_discovery_contract_binds_catalog_operation_selector_and_pagination() -> None:

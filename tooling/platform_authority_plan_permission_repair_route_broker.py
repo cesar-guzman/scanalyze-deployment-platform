@@ -29,6 +29,11 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib.parse import parse_qs, urlsplit
 import zlib
 
+try:  # Support package-style Lambda imports and direct tooling imports.
+    from . import platform_authority_identity_center_encryption as encryption
+except ImportError:  # pragma: no cover - deployment entrypoint compatibility.
+    import platform_authority_identity_center_encryption as encryption  # type: ignore
+
 
 AUTHORITY_ACCOUNT_ID = "042360977644"
 MANAGEMENT_ACCOUNT_ID = "839393571433"
@@ -224,11 +229,6 @@ _AUTHORITY_KMS_KEY_ARN_RE = re.compile(
     rf"^arn:aws[a-z-]*:kms:{REGION}:{AUTHORITY_ACCOUNT_ID}:key/"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-)
-_IDENTITY_CENTER_KMS_KEY_ARN_RE = re.compile(
-    rf"^arn:aws:kms:{REGION}:{MANAGEMENT_ACCOUNT_ID}:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
@@ -5353,16 +5353,15 @@ def _collision_parameter_bindings(config: BrokerConfig) -> dict[str, Any]:
         values.get("IdentityCenterInstanceArn")
         != config.identity_center_instance_arn
         or values.get("ArtifactBucket") != artifact_bucket
-        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
         or not isinstance(raw_key_arn, str)
-        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-        or (
-            mode == "CUSTOMER_MANAGED_KEY"
-            and _IDENTITY_CENTER_KMS_KEY_ARN_RE.fullmatch(str(key_arn))
-            is None
-        )
     ):
         raise RouteBrokerError("COLLISION_CONFIG_INVALID")
+    try:
+        mode, key_arn = encryption.validate_binding(
+            mode, key_arn, owner_account_id=MANAGEMENT_ACCOUNT_ID
+        )
+    except ValueError as exc:
+        raise RouteBrokerError("COLLISION_CONFIG_INVALID") from exc
     return {
         "artifact_bucket_name": artifact_bucket,
         "identity_center_kms_mode": mode,

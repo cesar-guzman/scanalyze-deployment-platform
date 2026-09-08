@@ -32,6 +32,7 @@ from tooling.platform_authority_gug395_preplan_collision_probe import (
     DEFAULT_RESULT_FILE as GUG395_RESULT_FILE,
     read_collision_probe_result,
 )
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 CONTEXT_FILE = "gug376-route-collision-atomic-context.json"
@@ -45,11 +46,6 @@ PRIVATE_BINDINGS_SOURCE = "GUG395_ATTESTED_PREPLAN_COLLISION_RESULT"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INSTANCE = re.compile(r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$")
 _STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
-_KMS = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
-)
 _TIME = re.compile(
     r"^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T"
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
@@ -149,6 +145,12 @@ def _validate_bindings(value: object) -> dict[str, Any]:
         _fail("ATOMIC_COLLISION_PRIVATE_BINDINGS_INVALID")
     mode = value.get("identity_center_kms_mode")
     key = value.get("identity_center_kms_key_arn")
+    try:
+        identity_encryption.validate_binding(
+            mode, key, owner_account_id="839393571433"
+        )
+    except ValueError:
+        _fail("ATOMIC_COLLISION_PRIVATE_BINDINGS_INVALID")
     if (
         value.get("record_type") != PRIVATE_BINDINGS_TYPE
         or value.get("schema_version") != 2
@@ -157,9 +159,6 @@ def _validate_bindings(value: object) -> dict[str, Any]:
             str(value.get("identity_center_instance_arn"))
         )
         is None
-        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-        or (mode == "AWS_OWNED_KMS_KEY" and key is not None)
-        or (mode == "CUSTOMER_MANAGED_KEY" and _KMS.fullmatch(str(key)) is None)
         or _DIGEST.fullmatch(
             str(value.get("identity_center_kms_binding_digest"))
         )
@@ -310,13 +309,16 @@ def _derive_gug395_bindings(
         if isinstance(identity_profile, Mapping)
         else None
     )
+    try:
+        identity_encryption.validate_binding(
+            mode, key_arn, owner_account_id="839393571433"
+        )
+    except ValueError:
+        _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
     if (
         not isinstance(identity_profile, Mapping)
         or _INSTANCE.fullmatch(str(instance_arn)) is None
         or selector_instances != {instance_arn}
-        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-        or (mode == "CUSTOMER_MANAGED_KEY" and _KMS.fullmatch(str(key_arn)) is None)
         or _DIGEST.fullmatch(str(verification_digest)) is None
         or not isinstance(snapshots, list)
         or len(snapshots) != 2
@@ -333,15 +335,17 @@ def _derive_gug395_bindings(
             if isinstance(described, Mapping)
             else None
         )
-        observed_mode = (
-            encryption.get("KeyType") if isinstance(encryption, Mapping) else None
-        )
-        normalized_mode = observed_mode
-        observed_key = (
-            encryption.get("KmsKeyArn")
-            if isinstance(encryption, Mapping)
-            else None
-        )
+        if (
+            not isinstance(described, Mapping)
+            or "EncryptionConfigurationDetails" not in described
+        ):
+            _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
+        try:
+            observed_binding = identity_encryption.validate_projection(
+                encryption, owner_account_id="839393571433"
+            )
+        except ValueError:
+            _fail("ATOMIC_COLLISION_GUG395_KMS_BINDING_INVALID")
         snapshot_digest = (
             snapshot.get("snapshot_digest")
             if isinstance(snapshot, Mapping)
@@ -355,10 +359,7 @@ def _derive_gug395_bindings(
             or described.get("OwnerAccountId")
             != identity_profile.get("expected_account_id")
             or described.get("Status") != "ACTIVE"
-            or not isinstance(encryption, Mapping)
-            or encryption.get("EncryptionStatus") != "ENABLED"
-            or normalized_mode != mode
-            or observed_key != key_arn
+            or observed_binding != (mode, key_arn)
             or _DIGEST.fullmatch(str(snapshot_digest)) is None
             or not isinstance(identity, Mapping)
             or identity.get("authority_verification_digest")

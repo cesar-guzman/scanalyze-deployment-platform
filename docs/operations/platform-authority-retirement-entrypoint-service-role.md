@@ -377,6 +377,13 @@ assert the instance state. The authority for the encryption state is the two
 stable live `sso:DescribeInstance` observations made by the probe. A mismatch
 between either observation and either selector is reconciliation-only.
 
+The active v2 path also accepts `NOT_OBSERVED` with a null key ARN for genuine
+omission of the encryption block in both verified responses. This state keeps
+zero Identity Center KMS authority and does not assert enabled encryption or
+an AWS-owned key. Present malformed metadata and later explicit modes do not
+match that absence binding. See the
+[no-KMS observation runbook](platform-authority-no-kms-bootstrap.md).
+
 Before materialization, record the exact merged commit and tree:
 
 ```console

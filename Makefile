@@ -705,6 +705,9 @@ platform-authority-gug395-preplan-collision-check:
 platform-authority-bootstrap-plan-repair-check:
 	@echo "=== GUG-376 Bootstrap Plan Permission Repair PEP Check (AWS-free) ==="
 	@env -u PYTHONPATH -u PYTHONHOME PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q \
+		$(TESTS_DIR)/test_deployment/test_identity_center_encryption.py \
+		$(TESTS_DIR)/test_deployment/test_no_kms_identity_read_path.py \
+		$(TESTS_DIR)/test_deployment/test_no_kms_bootstrap_integration.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_plan_permission_repair.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_artifact_bridge_recovery_iam.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_artifact_cleanup_retire_cli.py \
@@ -729,6 +732,7 @@ platform-authority-bootstrap-plan-repair-check:
 		$(TESTS_DIR)/test_deployment/test_gug376_temporary_change_set_route.py \
 		$(TESTS_DIR)/test_deployment/test_gug376_collision_*.py
 	@env -u PYTHONPATH -u PYTHONHOME $(PYTHON) -m py_compile \
+		$(TOOLING_DIR)/platform_authority_identity_center_encryption.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_artifact_bootstrap.py \
 		$(TOOLING_DIR)/platform_authority_plan_permission_repair_artifact_bootstrap_aws.py \

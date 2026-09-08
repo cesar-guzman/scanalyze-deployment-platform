@@ -24,6 +24,7 @@ from tooling.platform_authority_bootstrap import (
     render_bootstrap_iam_policy,
     validate_bootstrap_change_set_name,
 )
+from tooling import platform_authority_identity_center_encryption as encryption
 
 
 AUTHORITY_ACCOUNT_ID = "042360977644"
@@ -283,11 +284,6 @@ _IDENTITY_CENTER_KMS_ARN_V1 = re.compile(
     r"^arn:aws:kms:us-east-1:839393571433:key/"
     r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
 )
-_IDENTITY_CENTER_KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
-)
 _CODE_SHA256 = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 _CODE_SIGNING_CONFIG_ARN = re.compile(
     r"^arn:aws:lambda:us-east-1:042360977644:"
@@ -516,17 +512,17 @@ def immutable_configuration_projection_from_environment(
         )
     kms_mode = values["IDENTITY_CENTER_KMS_MODE"]
     kms_key = values["IDENTITY_CENTER_KMS_KEY_ARN"]
-    if (
-        kms_mode == "AWS_OWNED_KMS_KEY"
-        and kms_key != ""
-    ) or (
-        kms_mode == "CUSTOMER_MANAGED_KEY"
-        and _IDENTITY_CENTER_KMS_ARN.fullmatch(kms_key) is None
-    ) or kms_mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}:
+    try:
+        encryption.validate_binding(
+            kms_mode,
+            None if kms_key == "" else kms_key,
+            owner_account_id=MANAGEMENT_ACCOUNT_ID,
+        )
+    except ValueError as exc:
         raise PlanPermissionRepairError(
             "IMMUTABLE_CONFIGURATION_INVALID",
             "immutable Identity Center KMS binding is invalid",
-        )
+        ) from exc
     return {
         "schema_version": 1,
         "authority_account_id": AUTHORITY_ACCOUNT_ID,
@@ -1037,30 +1033,24 @@ class RepairBinding:
             raise PlanPermissionRepairError(
                 "INVALID_SAML_PROVIDER", "Plan SAML provider ARN is malformed"
             )
-        if self.identity_center_kms_mode not in {
-            "AWS_OWNED_KMS_KEY",
-            "CUSTOMER_MANAGED_KEY",
-        }:
+        if (
+            not isinstance(self.identity_center_kms_mode, str)
+            or self.identity_center_kms_mode not in encryption.KMS_MODES
+        ):
             raise PlanPermissionRepairError(
                 "INVALID_KMS_MODE", "Identity Center KMS mode is unsupported"
             )
-        if self.identity_center_kms_mode == "AWS_OWNED_KMS_KEY":
-            if self.identity_center_kms_key_arn is not None:
-                raise PlanPermissionRepairError(
-                    "INVALID_KMS_BINDING",
-                    "AWS-owned KMS mode cannot carry a key ARN",
-                )
-        elif (
-            self.identity_center_kms_key_arn is None
-            or _IDENTITY_CENTER_KMS_ARN.fullmatch(
-                self.identity_center_kms_key_arn
+        try:
+            encryption.validate_binding(
+                self.identity_center_kms_mode,
+                self.identity_center_kms_key_arn,
+                owner_account_id=MANAGEMENT_ACCOUNT_ID,
             )
-            is None
-        ):
+        except ValueError as exc:
             raise PlanPermissionRepairError(
                 "INVALID_KMS_BINDING",
-                "customer-managed KMS mode requires the exact management key",
-            )
+                "Identity Center KMS binding is invalid",
+            ) from exc
         try:
             validate_bootstrap_change_set_name(self.change_set_name)
         except BootstrapAuthorizationError as exc:
@@ -1170,11 +1160,7 @@ class RepairBinding:
                 identity_center_kms_mode=str(
                     value["identity_center_kms_mode"]
                 ),
-                identity_center_kms_key_arn=(
-                    str(value["identity_center_kms_key_arn"])
-                    if value.get("identity_center_kms_key_arn")
-                    else None
-                ),
+                identity_center_kms_key_arn=value["identity_center_kms_key_arn"],
                 invocation_authority_graph_digest=str(
                     value["invocation_authority_graph_digest"]
                 ),
@@ -1398,28 +1384,36 @@ def validate_private_intent(
         )
     kms_mode = intent.get("identity_center_kms_mode")
     kms_key = intent.get("identity_center_kms_key_arn")
-    kms_pattern = (
-        _IDENTITY_CENTER_KMS_ARN_V1
+    allowed_modes = (
+        frozenset({"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"})
         if contract == (1, INTENT_RECORD_TYPE_V1)
-        else _IDENTITY_CENTER_KMS_ARN
+        else encryption.KMS_MODES
     )
-    if (
-        kms_mode == "AWS_OWNED_KMS_KEY"
-        and kms_key is not None
-    ) or (
-        kms_mode == "CUSTOMER_MANAGED_KEY"
-        and (
-            not isinstance(kms_key, str)
-            or kms_pattern.fullmatch(kms_key) is None
-        )
-    ):
-        raise PlanPermissionRepairError(
-            "INVALID_KMS_BINDING", "Identity Center KMS binding differs"
-        )
-    if kms_mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}:
+    if not isinstance(kms_mode, str) or kms_mode not in allowed_modes:
         raise PlanPermissionRepairError(
             "INVALID_KMS_MODE", "Identity Center KMS mode is unsupported"
         )
+    try:
+        if contract == (1, INTENT_RECORD_TYPE_V1):
+            if (
+                kms_mode == "AWS_OWNED_KMS_KEY"
+                and kms_key is not None
+            ) or (
+                kms_mode == "CUSTOMER_MANAGED_KEY"
+                and (
+                    not isinstance(kms_key, str)
+                    or _IDENTITY_CENTER_KMS_ARN_V1.fullmatch(kms_key) is None
+                )
+            ):
+                raise ValueError("legacy key binding is invalid")
+        else:
+            encryption.validate_binding(
+                kms_mode, kms_key, owner_account_id=MANAGEMENT_ACCOUNT_ID
+            )
+    except ValueError as exc:
+        raise PlanPermissionRepairError(
+            "INVALID_KMS_BINDING", "Identity Center KMS binding differs"
+        ) from exc
     if intent.get("authorized_mutations") != list(AUTHORIZED_MUTATIONS):
         raise PlanPermissionRepairError(
             "MUTATION_SET_MISMATCH", "authorized mutations are not exact"

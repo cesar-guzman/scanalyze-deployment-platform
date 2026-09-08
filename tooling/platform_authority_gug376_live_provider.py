@@ -48,6 +48,7 @@ from tooling.platform_authority_gug395_preplan_seed import (
     ARTIFACT_BUCKET_NAMESPACE,
     AUTHORITY_ACCOUNT_ID,
 )
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 REGION = "us-east-1"
@@ -107,11 +108,6 @@ _ACCOUNT = re.compile(r"^[0-9]{12}$")
 _IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
 _INSTANCE_ARN = re.compile(
     r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$"
-)
-_KMS_KEY_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PRINCIPAL = re.compile(
@@ -1271,14 +1267,36 @@ def _project_sso_describe_instance(
     result = _selected(
         value, ("InstanceArn", "IdentityStoreId", "OwnerAccountId", "Status")
     )
-    encryption = value.get("EncryptionConfigurationDetails")
-    if isinstance(encryption, Mapping):
-        result["EncryptionConfigurationDetails"] = {
-            "KeyType": encryption.get("KeyType"),
-            "KmsKeyArn": encryption.get("KmsKeyArn"),
-            "EncryptionStatus": encryption.get("EncryptionStatus"),
-        }
+    try:
+        result["EncryptionConfigurationDetails"] = identity_encryption.project(
+            value, owner_account_id=value.get("OwnerAccountId")
+        )
+    except ValueError:
+        _fail("PROVIDER_RESPONSE_INVALID")
     return result
+
+
+def _identity_instance_encryption(
+    value: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Keep normalized absence distinct from an observed encryption setting."""
+
+    if "EncryptionConfigurationDetails" not in value:
+        _fail("PROVIDER_RESPONSE_INVALID")
+    encryption = value["EncryptionConfigurationDetails"]
+    try:
+        identity_encryption.validate_projection(
+            encryption, owner_account_id=value.get("OwnerAccountId")
+        )
+    except ValueError:
+        _fail("PROVIDER_RESPONSE_INVALID")
+    if encryption is None:
+        return None
+    return {
+        "key_type": encryption["KeyType"],
+        "kms_key_arn": encryption["KmsKeyArn"],
+        "status": encryption["EncryptionStatus"],
+    }
 
 
 def _project_sso_access_scope(
@@ -4708,19 +4726,13 @@ class _IdentityDiscoveryReader:
             method="describe_instance",
             request={"InstanceArn": instance_arn},
         )
-        encryption = value.get("EncryptionConfigurationDetails")
-        if not isinstance(encryption, Mapping):
-            _fail("PROVIDER_RESPONSE_INVALID")
+        encryption = _identity_instance_encryption(value)
         self._instance = {
             "instance_arn": value.get("InstanceArn"),
             "identity_store_id": value.get("IdentityStoreId"),
             "owner_account_id": value.get("OwnerAccountId"),
             "status": value.get("Status"),
-            "encryption": {
-                "key_type": encryption.get("KeyType"),
-                "kms_key_arn": encryption.get("KmsKeyArn"),
-                "status": encryption.get("EncryptionStatus"),
-            },
+            "encryption": encryption,
         }
         return _one(self._instance)
 
@@ -4867,20 +4879,14 @@ class _IdentityExactReader:
             method="describe_instance",
             request={"InstanceArn": instance_arn},
         )
-        encryption = value.get("EncryptionConfigurationDetails")
-        if not isinstance(encryption, Mapping):
-            _fail("PROVIDER_RESPONSE_INVALID")
+        encryption = _identity_instance_encryption(value)
         return _one(
             {
                 "instance_arn": value.get("InstanceArn"),
                 "identity_store_id": value.get("IdentityStoreId"),
                 "owner_account_id": value.get("OwnerAccountId"),
                 "status": value.get("Status"),
-                "encryption": {
-                    "key_type": encryption.get("KeyType"),
-                    "kms_key_arn": encryption.get("KmsKeyArn"),
-                    "status": encryption.get("EncryptionStatus"),
-                },
+                "encryption": encryption,
             }
         )
 
@@ -5208,24 +5214,12 @@ def _collision_identity_kms_binding(
 ) -> tuple[str, str | None]:
     """Validate the owner-sealed Identity Center encryption expectation."""
 
-    key_match = (
-        _KMS_KEY_ARN.fullmatch(key_arn)
-        if isinstance(key_arn, str)
-        else None
-    )
-    if (
-        mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-        or (
-            mode == "CUSTOMER_MANAGED_KEY"
-            and (
-                key_match is None
-                or key_match.group(1) != account_id
-            )
+    try:
+        return identity_encryption.validate_binding(
+            mode, key_arn, owner_account_id=account_id
         )
-    ):
+    except ValueError:
         _fail("COLLISION_IDENTITY_KMS_BINDING_INVALID")
-    return str(mode), key_arn if isinstance(key_arn, str) else None
 
 
 class _CollisionAuthorityReader:
@@ -5841,19 +5835,21 @@ class _CollisionIdentityReader:
             method="describe_instance",
             request={"InstanceArn": instance_arn},
         )
-        encryption = described.get("EncryptionConfigurationDetails")
-        if not isinstance(encryption, Mapping):
+        if "EncryptionConfigurationDetails" not in described:
+            _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
+        encryption = described["EncryptionConfigurationDetails"]
+        try:
+            observed_binding = identity_encryption.validate_projection(
+                encryption, owner_account_id=self._session._account_id
+            )
+        except ValueError:
             _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
         described_instance = {
             "InstanceArn": described.get("InstanceArn"),
             "IdentityStoreId": described.get("IdentityStoreId"),
             "OwnerAccountId": described.get("OwnerAccountId"),
             "Status": described.get("Status"),
-            "EncryptionConfigurationDetails": {
-                "KeyType": encryption.get("KeyType"),
-                "KmsKeyArn": encryption.get("KmsKeyArn"),
-                "EncryptionStatus": encryption.get("EncryptionStatus"),
-            },
+            "EncryptionConfigurationDetails": encryption,
         }
         if (
             {
@@ -5861,12 +5857,7 @@ class _CollisionIdentityReader:
                 for key in summary_fields
             }
             != instance_summary
-            or described_instance["EncryptionConfigurationDetails"]
-            != {
-                "KeyType": expected_kms_mode,
-                "KmsKeyArn": expected_kms_key_arn,
-                "EncryptionStatus": "ENABLED",
-            }
+            or observed_binding != (expected_kms_mode, expected_kms_key_arn)
         ):
             _fail("COLLISION_IDENTITY_KMS_BINDING_MISMATCH")
         applications: list[Any] = []

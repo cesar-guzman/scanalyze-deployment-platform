@@ -1017,33 +1017,50 @@ def test_pure_source_renderer_does_not_rescan_encoded_replacement_bytes(
     monkeypatch.setattr(sys.modules[__name__], "datetime", FrozenDateTime)
     source_commit = "a" * 40
     value = _input(REPO_ROOT, source_commit, source_tree_sha="b" * 40)
-    config = value["broker_config"]
-    value["route_not_before"] = config[
-        "route_not_before"
-    ] = "2026-09-03T06:42:05Z"
-    value["route_not_after"] = config[
-        "route_not_after"
-    ] = "2026-09-03T07:57:05Z"
-    config["recovery_not_after"] = "2026-09-04T07:57:05Z"
-    config["config_digest"] = broker.digest_value(
-        {key: item for key, item in config.items() if key != "config_digest"}
-    )
-    _, encoded_envelope = seed._validate_config(
-        config,
-        source_commit=source_commit,
-        repair_id=value["repair_id"],
-        route_not_before=value["route_not_before"],
-        route_not_after=value["route_not_after"],
-    )
-    collision = seed._PLACEHOLDER_RE.search(encoded_envelope.encode("utf-8"))
-    assert collision is not None
-    assert collision.group(0) == b"@@9@@"
+    validate_config = seed._validate_config
+    validated_configs: list[dict[str, Any]] = []
 
+    def validated_config_with_collision(
+        *args: Any, **kwargs: Any
+    ) -> tuple[dict[str, Any], str]:
+        config, encoded_envelope = validate_config(*args, **kwargs)
+        envelope = json.loads(encoded_envelope)
+        assert broker.decode_runtime_config(envelope) == config
+        validated_configs.append(config)
+        # This is a renderer regression, not a codec audit. Preserve real
+        # input validation/round-trip, then inject deterministic token-shaped
+        # replacement bytes at the encoding boundary. Real compressed bytes
+        # depend on source/package hashes and need not contain this sequence.
+        envelope["payload"] = "@@9@@"
+        encoded_replacement = seed.canonical_json(envelope)
+        collision = seed._PLACEHOLDER_RE.search(
+            encoded_replacement.encode("utf-8")
+        )
+        assert collision is not None
+        assert collision.group(0) == b"@@9@@"
+        return config, encoded_replacement
+
+    monkeypatch.setattr(seed, "_validate_config", validated_config_with_collision)
+
+    source = (REPO_ROOT / seed.SOURCE_TEMPLATE_PATH).read_bytes()
     rendered = seed.render_template_from_source(
-        source=(REPO_ROOT / seed.SOURCE_TEMPLATE_PATH).read_bytes(),
+        source=source,
         private_input=value,
     )
+    assert validated_configs
+    assert all(config == value["broker_config"] for config in validated_configs)
     assert b"@@9@@" in rendered
+    document = yaml.load(rendered, Loader=_Loader)
+    for logical_id in ("CreatorFunction", "ExecutorFunction"):
+        runtime_json = document["Resources"][logical_id]["Properties"][
+            "Environment"
+        ]["Variables"]["BROKER_CONFIG_JSON"]
+        assert json.loads(runtime_json)["payload"] == "@@9@@"
+
+    invalid = copy.deepcopy(value)
+    invalid["broker_config"]["config_digest"] = "sha256:" + "0" * 64
+    with pytest.raises(seed.BrokerSeedError, match="BROKER_CONFIG_INVALID"):
+        seed.render_template_from_source(source=source, private_input=invalid)
 
 
 def test_policy_projection_is_semantic_order_stable_and_resolves_partition() -> None:

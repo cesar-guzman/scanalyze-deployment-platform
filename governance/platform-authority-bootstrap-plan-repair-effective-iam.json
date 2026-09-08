@@ -13,6 +13,7 @@
       "inline_policy_name": "Gug376ReadOnlyPlanAndLedgerCreation",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:d95aa2267e43ec6acb4b97cd187a2ea83b4387e9b46b7ac4fe27d6d66b36a696",
+        "NOT_OBSERVED": "sha256:d95aa2267e43ec6acb4b97cd187a2ea83b4387e9b46b7ac4fe27d6d66b36a696",
         "CUSTOMER_MANAGED_KEY": "sha256:d95aa2267e43ec6acb4b97cd187a2ea83b4387e9b46b7ac4fe27d6d66b36a696"
       }
     },
@@ -27,6 +28,7 @@
       "inline_policy_name": "Gug376OneShotPlanPolicyRepair",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:b05cd2aff79f24743b7cb3b367db0b5e17739e457a30eff799d9390503367e14",
+        "NOT_OBSERVED": "sha256:b05cd2aff79f24743b7cb3b367db0b5e17739e457a30eff799d9390503367e14",
         "CUSTOMER_MANAGED_KEY": "sha256:b05cd2aff79f24743b7cb3b367db0b5e17739e457a30eff799d9390503367e14"
       }
     },
@@ -41,6 +43,7 @@
       "inline_policy_name": "Gug376ReconcileAndAttest",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7",
+        "NOT_OBSERVED": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7",
         "CUSTOMER_MANAGED_KEY": "sha256:6cf5408fffad7a258ca4e09f8c236b7eb501ae1bba1b66fca0cabbdba7d584c7"
       }
     },
@@ -55,6 +58,7 @@
       "inline_policy_name": "Gug376ReadOnlyInvocationAuthorityInventory",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:c21f4de257b7846f15e6b1efcafd8810dfe2131799097195fd9bb9a6079fc9ab",
+        "NOT_OBSERVED": "sha256:c21f4de257b7846f15e6b1efcafd8810dfe2131799097195fd9bb9a6079fc9ab",
         "CUSTOMER_MANAGED_KEY": "sha256:c21f4de257b7846f15e6b1efcafd8810dfe2131799097195fd9bb9a6079fc9ab"
       }
     }
@@ -71,6 +75,7 @@
       "inline_policy_name": "Gug376ExactPlanPolicyRepairMutations",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:c092d688946bfd580b0dba4f08b912fb3f213075218cb8f2d36eecab58ef834e",
+        "NOT_OBSERVED": "sha256:c092d688946bfd580b0dba4f08b912fb3f213075218cb8f2d36eecab58ef834e",
         "CUSTOMER_MANAGED_KEY": "sha256:4b3334f12d7a5e39e59b7fe2dec8465c5dd8a36fac3adab2442e4e5fb360f8fe"
       }
     },
@@ -85,6 +90,7 @@
       "inline_policy_name": "Gug376ExactPlanPolicyRepairReadback",
       "normalized_inline_policy_digests": {
         "AWS_OWNED_KMS_KEY": "sha256:15f5f0343ab1992a0e4aea65dfea08974f841d12f4fad2cdee42a39567ad5a2e",
+        "NOT_OBSERVED": "sha256:15f5f0343ab1992a0e4aea65dfea08974f841d12f4fad2cdee42a39567ad5a2e",
         "CUSTOMER_MANAGED_KEY": "sha256:4e71f3706d74a1998681caaadc1702704aa20d70d46a1e020950406380302eae"
       }
     }

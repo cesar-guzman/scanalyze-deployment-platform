@@ -34,12 +34,16 @@ class _SessionFactory:
         return session
 
 
-def _root(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+def _root(tmp_path: Path, *, encryption_absent: bool = False) -> tuple[Path, dict[str, Any]]:
     root = tmp_path / "admission"
     root.mkdir(mode=0o700)
     root.chmod(0o700)
-    request, claim = gug395_data._write_result_custody(root)  # noqa: SLF001
-    result = gug395_data._build_success_result(request=request)  # noqa: SLF001
+    request, claim = gug395_data._write_result_custody(  # noqa: SLF001
+        root, encryption_absent=encryption_absent
+    )
+    result = gug395_data._build_success_result(  # noqa: SLF001
+        request=request, encryption_absent=encryption_absent
+    )
     gug395.persist_collision_probe_result(
         private_root=root,
         result=result,
@@ -128,31 +132,33 @@ def _install_sdk_fakes(
     )
 
 
-def _kms_binding(request: dict[str, Any]) -> tuple[str, str]:
+def _kms_binding(request: dict[str, Any]) -> tuple[str | None, str]:
     instance_arn = request["targets"]["identity_center_application"][
         "instance_arn"
     ]
-    key_arn = (
-        "arn:aws:kms:us-east-1:839393571433:key/"
-        "12345678-abcd-1234-abcd-1234567890ab"
-    )
+    # The opener must consume the attested source binding, not a synthetic
+    # replacement key even when its ARN would be structurally valid.
+    identity = request["profiles"]["identity_center"]
+    key_arn = identity["identity_center_kms_key_arn"]
     return key_arn, canonical_digest(
         {
             "binding_name": "identity_center_kms_key_arn",
             "identity_center_instance_arn": instance_arn,
-            "mode": "CUSTOMER_MANAGED_KEY",
+            "mode": identity["identity_center_kms_mode"],
             "key_arn": key_arn,
         }
     )
 
 
 @pytest.mark.parametrize("vend", (False, True))
+@pytest.mark.parametrize("encryption_absent", (False, True))
 def test_pre_reader_mode_uses_two_source_bindings_for_ten_fresh_sdk_sessions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     vend: bool,
+    encryption_absent: bool,
 ) -> None:
-    root, request = _root(tmp_path)
+    root, request = _root(tmp_path, encryption_absent=encryption_absent)
     catalog = _catalog(request)
     factory = _SessionFactory()
     _install_sdk_fakes(monkeypatch, factory, vend=vend)
@@ -172,14 +178,20 @@ def test_pre_reader_mode_uses_two_source_bindings_for_ten_fresh_sdk_sessions(
         identity_center_instance_arn=request["targets"][
             "identity_center_application"
         ]["instance_arn"],
-        identity_center_kms_mode="CUSTOMER_MANAGED_KEY",
+        identity_center_kms_mode=request["profiles"]["identity_center"]["identity_center_kms_mode"],
         identity_center_kms_key_arn=key_arn,
         identity_center_kms_binding_digest=kms_binding_digest,
     )
     inventory = policy.materialize_route_collision_policy_set(catalog)
+    candidate_evidence = policy_data._discovery_evidence(catalog)  # noqa: SLF001
+    if encryption_absent:
+        kms_item = candidate_evidence["domains"]["management"]["identity_center_kms_key"]["pages"][0]["items"][0]
+        kms_item["Mode"] = "NOT_OBSERVED"
+        kms_item.pop("KeyArn")
+        kms_item["PrivateBindingDigest"] = kms_binding_digest
     candidate = policy_data._structural_candidate_policy(  # noqa: SLF001
         catalog,
-        policy_data._discovery_evidence(catalog),  # noqa: SLF001
+        candidate_evidence,
     )
     opened = []
     for policy_set, purposes in (
@@ -226,6 +238,11 @@ def test_pre_reader_mode_uses_two_source_bindings_for_ten_fresh_sdk_sessions(
     assert {item.chain_depth for item in opened} == {0}
     assert all(item.role_arn is None for item in opened)
     assert all(item.session_policy_digest is None for item in opened)
+    assert all(
+        item.identity_center_kms_mode == request["profiles"]["identity_center"]["identity_center_kms_mode"]
+        and item.identity_center_kms_key_arn == key_arn
+        for item in opened if item.identity_center_instance_arn is not None
+    )
     assert len(factory.source_sessions) == 2
     assert len(factory.read_sessions) == 10
     summary = budget.complete(transcript_events=[])
@@ -244,6 +261,68 @@ def test_pre_reader_mode_uses_two_source_bindings_for_ten_fresh_sdk_sessions(
             if item["kind"] == "SOURCE_CREDENTIAL_BINDING"
         ]
     ) == 2
+
+
+def test_direct_sso_rejects_caller_downgrade_of_attested_encryption_before_sdk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request = _root(tmp_path)
+    factory = _SessionFactory()
+    _install_sdk_fakes(monkeypatch, factory, vend=False)
+    instance_arn = request["targets"]["identity_center_application"]["instance_arn"]
+    forged_digest = canonical_digest({
+        "binding_name": "identity_center_kms_key_arn",
+        "identity_center_instance_arn": instance_arn,
+        "mode": "NOT_OBSERVED",
+        "key_arn": None,
+    })
+    with pytest.raises(
+        subject.DirectSsoCollisionAdapterError,
+        match="^COLLISION_DIRECT_SSO_KMS_BINDING_INVALID$",
+    ):
+        subject.build_direct_sso_policy_session_opener_factory(
+            private_root=root, **_lineage(root), catalog=_catalog(request),
+            environment={}, clock=lambda: datetime(2026, 8, 28, 1, 10, tzinfo=UTC),
+            expires_at=request["expires_at"], identity_center_instance_arn=instance_arn,
+            identity_center_kms_mode="NOT_OBSERVED", identity_center_kms_key_arn=None,
+            identity_center_kms_binding_digest=forged_digest,
+        )
+    assert factory.source_sessions == []
+    assert factory.read_sessions == []
+
+
+def test_not_observed_direct_sso_rejects_management_policy_with_kms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, request = _root(tmp_path, encryption_absent=True)
+    catalog = _catalog(request)
+    factory = _SessionFactory()
+    _install_sdk_fakes(monkeypatch, factory, vend=False)
+    key_arn, binding_digest = _kms_binding(request)
+    opener_factory = subject.build_direct_sso_policy_session_opener_factory(
+        private_root=root, **_lineage(root), catalog=catalog, environment={},
+        clock=lambda: datetime(2026, 8, 28, 1, 10, tzinfo=UTC),
+        expires_at=request["expires_at"],
+        identity_center_instance_arn=request["targets"]["identity_center_application"]["instance_arn"],
+        identity_center_kms_mode="NOT_OBSERVED", identity_center_kms_key_arn=key_arn,
+        identity_center_kms_binding_digest=binding_digest,
+    )
+    cmk_policy = policy_data._structural_candidate_policy(  # noqa: SLF001
+        catalog, policy_data._discovery_evidence(catalog)  # noqa: SLF001
+    )
+    with pytest.raises(
+        subject.DirectSsoCollisionAdapterError, match="^COLLISION_DIRECT_SSO_POLICY_INVALID$"
+    ):
+        opener_factory(
+            cmk_policy,
+            budget_contract.build_collision_budget(
+                session_mode=budget_contract.LOCAL_DIRECT_SSO,
+                operation="route:create-change-set",
+            ),
+            subject.LOCAL_DIRECT_SSO,
+        )
+    assert factory.source_sessions == []
+    assert factory.read_sessions == []
 
 
 def test_direct_sso_adapter_cannot_self_select_post_reader_runtime(
