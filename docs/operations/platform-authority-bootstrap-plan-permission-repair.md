@@ -13,6 +13,11 @@ identity and inventory; it made zero AWS mutations and executed no live route.
 The Signer inventory call was denied, so absence of a signing profile is not
 claimed. Production remains **NO-GO**.
 
+The subsequent 2026-09-08 local contract extension made no AWS calls or
+mutations. It admits verified omission of encryption metadata only through
+the [no-Identity-Center-KMS path](platform-authority-no-kms-bootstrap.md),
+without changing the historical evidence above or certifying deployment.
+
 The reviewed AWS wrapper now binds the concrete zero-retry Identity Center,
 effective-IAM, durable-ledger and route-collision adapters in a deterministic
 source-closed package. The repair materializer remains intentionally
@@ -606,8 +611,9 @@ action-time GUG-376 collision snapshots (`independent-snapshot-1`,
 before `ListApplications` or `ListPermissionSets`, and requires the result to
 match that GUG-395 binding.
 
-Do not translate between KMS modes. `AWS_OWNED_KMS_KEY` requires an empty key
-ARN and zero KMS authority in both the attached management collision-reader
+Do not translate between KMS modes. `AWS_OWNED_KMS_KEY` and `NOT_OBSERVED`
+require a null private key ARN (empty only in CloudFormation parameters)
+and zero KMS authority in both the attached management collision-reader
 role and the STS session policy, including `NotAction`. A customer-managed
 binding requires `CUSTOMER_MANAGED_KEY` plus one canonical lowercase
 `us-east-1` management-account key ARN ending in either a UUID or
@@ -619,6 +625,11 @@ with exact `StringEquals` constraints for `aws:PrincipalAccount`,
 context, plus the sealed time window. The checked-in GUG-395 IAM JSON is
 attested source custody; validate the freshly rendered `policy_set` actually
 consumed by the broker before every effect.
+
+`NOT_OBSERVED` binds genuine omission in each verified `DescribeInstance`
+response; it is not an enabled-encryption assertion. Present invalid metadata
+or a transition to an explicit mode fails the exact binding check before the
+effect. Artifact and ledger KMS requirements remain independent and unchanged.
 
 Run the complete GUG-395 seed, materialization, connected read-only probe and
 receipt validation sequence once, before the foundation resources exist.

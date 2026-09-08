@@ -41,6 +41,7 @@ from tooling.platform_authority_gug395_preplan_seed import (
     validate_preplan_seed,
 )
 from tooling import platform_authority_repository_source_verifier as source_verifier
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 IMPLEMENTATION_ISSUE = "GUG-376"
@@ -178,6 +179,7 @@ _SOURCE_PATHS = (
     "tooling/platform_authority_gug395_preplan_collision_probe.py",
     "tooling/platform_authority_gug395_preplan_collision_executor.py",
     "tooling/platform_authority_gug376_live_provider.py",
+    "tooling/platform_authority_identity_center_encryption.py",
     "scripts/deployment/platform-authority-gug395-preplan-collision-probe.py",
     "policies/iam/platform-authority-gug395-preplan-collision-authority-read-only.json",
     "policies/iam/platform-authority-gug395-preplan-collision-identity-read-only.json",
@@ -190,11 +192,6 @@ _ACCOUNT = re.compile(r"^[0-9]{12}$")
 _IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
 _INSTANCE_ARN = re.compile(
     r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$"
-)
-_KMS_KEY_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _TOKEN = re.compile(r"^[A-Z][A-Z0-9_]{2,95}$")
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -564,22 +561,11 @@ def _profile_bindings_v2(
         if domain == "identity_center":
             mode = raw.get("identity_center_kms_mode")
             key_arn = raw.get("identity_center_kms_key_arn")
-            key_match = (
-                _KMS_KEY_ARN.fullmatch(key_arn)
-                if isinstance(key_arn, str)
-                else None
-            )
-            if (
-                mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-                or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-                or (
-                    mode == "CUSTOMER_MANAGED_KEY"
-                    and (
-                        key_match is None
-                        or key_match.group(1) != account
-                    )
+            try:
+                identity_encryption.validate_binding(
+                    mode, key_arn, owner_account_id=account
                 )
-            ):
+            except ValueError:
                 _fail("COLLISION_PROFILE_BINDINGS_INVALID")
     if (
         result["authority"]["name"].casefold()
@@ -2139,35 +2125,16 @@ def _identity_described_instance(facts: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != fields:
         _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     encryption = value.get("EncryptionConfigurationDetails")
-    if not isinstance(encryption, Mapping) or set(encryption) != {
-        "KeyType",
-        "KmsKeyArn",
-        "EncryptionStatus",
-    }:
-        _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     owner = value.get("OwnerAccountId")
-    mode = encryption.get("KeyType")
-    key_arn = encryption.get("KmsKeyArn")
-    key_match = (
-        _KMS_KEY_ARN.fullmatch(key_arn)
-        if isinstance(key_arn, str)
-        else None
-    )
+    try:
+        identity_encryption.validate_projection(encryption, owner_account_id=owner)
+    except ValueError:
+        _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     if (
         _INSTANCE_ARN.fullmatch(str(value.get("InstanceArn"))) is None
         or _IDENTITY_STORE.fullmatch(str(value.get("IdentityStoreId"))) is None
         or _ACCOUNT.fullmatch(str(owner)) is None
         or value.get("Status") != "ACTIVE"
-        or encryption.get("EncryptionStatus") != "ENABLED"
-        or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-        or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-        or (
-            mode == "CUSTOMER_MANAGED_KEY"
-            and (
-                key_match is None
-                or key_match.group(1) != owner
-            )
-        )
     ):
         _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     return dict(value)
@@ -2366,11 +2333,10 @@ def _validate_snapshot_target_bindings(
             "Status",
         )
     }
-    expected_encryption = {
-        "KeyType": identity_profile["identity_center_kms_mode"],
-        "KmsKeyArn": identity_profile["identity_center_kms_key_arn"],
-        "EncryptionStatus": "ENABLED",
-    }
+    observed_binding = identity_encryption.validate_projection(
+        described_instance["EncryptionConfigurationDetails"],
+        owner_account_id=described_instance["OwnerAccountId"],
+    )
     if (
         len(instances) != 1
         or len(derived_instance_matches) != 1
@@ -2380,8 +2346,10 @@ def _validate_snapshot_target_bindings(
         != application_target["instance_arn"]
         or described_instance["OwnerAccountId"]
         != identity_profile["expected_account_id"]
-        or described_instance["EncryptionConfigurationDetails"]
-        != expected_encryption
+        or observed_binding != (
+            identity_profile["identity_center_kms_mode"],
+            identity_profile["identity_center_kms_key_arn"],
+        )
     ):
         _fail("COLLISION_SNAPSHOT_SEMANTICS_INVALID")
     derived_application_matches: list[Mapping[str, Any]] = []

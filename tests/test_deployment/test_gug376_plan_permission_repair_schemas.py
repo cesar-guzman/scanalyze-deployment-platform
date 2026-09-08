@@ -192,6 +192,28 @@ def test_intent_v2_kms_key_schema_matrix(
     assert (not errors) is accepted
 
 
+@pytest.mark.parametrize("schema_version", (1, 2))
+@pytest.mark.parametrize("key_arn", (None, "", False, "not-a-key"))
+def test_intent_schema_unobserved_requires_v2_and_null_key(
+    schema_version: int,
+    key_arn: object,
+) -> None:
+    schema = json.loads(
+        (SCHEMAS / SCHEMA_NAMES[schema_version - 1]).read_text(encoding="utf-8")
+    )
+    candidate = json.loads(
+        (VALID / VALID_FIXTURES[schema_version - 1]).read_text(encoding="utf-8")
+    )
+    candidate["identity_center_kms_mode"] = "NOT_OBSERVED"
+    candidate["identity_center_kms_key_arn"] = key_arn
+    errors = list(
+        Draft202012Validator(
+            schema, format_checker=FormatChecker()
+        ).iter_errors(candidate)
+    )
+    assert (not errors) is (schema_version == 2 and key_arn is None)
+
+
 def test_public_receipt_schema_rejects_raw_private_values() -> None:
     schema = json.loads(
         (SCHEMAS / RECEIPT_V2_SCHEMA).read_text(encoding="utf-8")

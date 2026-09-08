@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import unquote
 
 from tooling.platform_authority_bootstrap import canonical_digest
+from tooling import platform_authority_identity_center_encryption as encryption
 from tooling.platform_authority_lambda_audit_repair_invocation_authority import (
     RepairInvocationAuthorityBinding,
     collect_provider_invocation_snapshots,
@@ -532,19 +533,21 @@ class AwsIdentityCenterAdapter:
                 "INSTANCE_READBACK_MISMATCH",
                 "Identity Center instance binding differs",
             )
-        details = response.get("EncryptionConfigurationDetails")
-        if not isinstance(details, Mapping):
+        try:
+            observed = encryption.observe(
+                response, owner_account_id=MANAGEMENT_ACCOUNT_ID
+            )
+            expected = encryption.validate_binding(
+                intent_seed["identity_center_kms_mode"],
+                intent_seed["identity_center_kms_key_arn"],
+                owner_account_id=MANAGEMENT_ACCOUNT_ID,
+            )
+        except ValueError as exc:
             raise PlanPermissionRepairError(
                 "KMS_READBACK_MALFORMED",
                 "Identity Center encryption readback is malformed",
-            )
-        if (
-            details.get("EncryptionStatus") != "ENABLED"
-            or details.get("KeyType")
-            != intent_seed["identity_center_kms_mode"]
-            or details.get("KmsKeyArn")
-            != intent_seed["identity_center_kms_key_arn"]
-        ):
+            ) from exc
+        if observed != expected:
             raise PlanPermissionRepairError(
                 "KMS_READBACK_MISMATCH",
                 "Identity Center encryption binding differs",

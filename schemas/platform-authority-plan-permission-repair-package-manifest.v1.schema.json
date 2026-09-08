@@ -90,8 +90,8 @@
     },
     "entries": {
       "type": "array",
-      "minItems": 11,
-      "maxItems": 11,
+      "minItems": 12,
+      "maxItems": 12,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -106,6 +106,7 @@
               "policies/iam/platform-authority-bootstrap-plan-role.json",
               "tooling/__init__.py",
               "tooling/platform_authority_bootstrap.py",
+              "tooling/platform_authority_identity_center_encryption.py",
               "tooling/platform_authority_lambda_audit_repair_invocation_authority.py",
               "tooling/platform_authority_lambda_invocation_authority.py",
               "tooling/platform_authority_plan_permission_repair.py",
@@ -118,6 +119,16 @@
         }
       },
       "allOf": [
+        {
+          "contains": {
+            "properties": {
+              "path": { "const": "tooling/platform_authority_identity_center_encryption.py" }
+            },
+            "required": ["path"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
         {
           "contains": {
             "properties": {

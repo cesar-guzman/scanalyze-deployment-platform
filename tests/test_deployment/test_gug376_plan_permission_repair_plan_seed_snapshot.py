@@ -510,6 +510,101 @@ def test_snapshot_preserves_canonical_customer_managed_key(
     ) == snapshot
 
 
+def test_snapshot_preserves_absent_encryption_as_unobserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    world = World(tmp_path)
+    describe = world.sso.describe_instance
+
+    def without_encryption(**request: Any) -> dict[str, Any]:
+        response = describe(**request)
+        response.pop("EncryptionConfigurationDetails")
+        return response
+
+    monkeypatch.setattr(world.sso, "describe_instance", without_encryption)
+    snapshot = world.capture(tmp_path)
+
+    assert snapshot["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert snapshot["identity_center_kms_key_arn"] is None
+    assert snapshot["aws_mutations"] == 0
+    assert snapshot["production_status"] == "NO-GO"
+    assert config.validate_plan_snapshot(
+        snapshot, source_commit=SOURCE_COMMIT, now=NOW
+    ) == snapshot
+    assert not any(":kms:" in item for item in world.timeline)
+
+
+@pytest.mark.parametrize(
+    "details",
+    (
+        None,
+        {},
+        [],
+        "absent",
+        {"KeyType": "AWS_OWNED_KMS_KEY"},
+        {"EncryptionStatus": "ENABLED"},
+        {"KeyType": "NOT_OBSERVED", "EncryptionStatus": "ENABLED"},
+        {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "UPDATING"},
+        {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "UPDATE_FAILED"},
+        {
+            "KeyType": "AWS_OWNED_KMS_KEY",
+            "EncryptionStatus": "ENABLED",
+            "KmsKeyArn": "",
+        },
+    ),
+)
+def test_snapshot_does_not_convert_present_invalid_encryption_to_unobserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    details: Any,
+) -> None:
+    world = World(tmp_path)
+    describe = world.sso.describe_instance
+
+    def invalid_encryption(**request: Any) -> dict[str, Any]:
+        response = describe(**request)
+        response["EncryptionConfigurationDetails"] = details
+        return response
+
+    monkeypatch.setattr(world.sso, "describe_instance", invalid_encryption)
+
+    with pytest.raises(subject.PlanSeedSnapshotError) as captured:
+        world.capture(tmp_path)
+    assert captured.value.code == "IDENTITY_CENTER_KMS_INVALID"
+    assert not any("ListPermissionSets" in item for item in world.timeline)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("OwnerAccountId", route.AUTHORITY_ACCOUNT_ID),
+        ("InstanceArn", INSTANCE_ARN + "x"),
+        ("IdentityStoreId", STORE_ID + "x"),
+        ("Status", "CREATE_IN_PROGRESS"),
+    ),
+)
+def test_unobserved_snapshot_retains_exact_instance_identity_gates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    world = World(tmp_path)
+    describe = world.sso.describe_instance
+
+    def drifted_instance(**request: Any) -> dict[str, Any]:
+        response = describe(**request)
+        response.pop("EncryptionConfigurationDetails")
+        response[field] = value
+        return response
+
+    monkeypatch.setattr(world.sso, "describe_instance", drifted_instance)
+    with pytest.raises(subject.PlanSeedSnapshotError) as captured:
+        world.capture(tmp_path)
+    assert captured.value.code == "IDENTITY_CENTER_INSTANCE_INVALID"
+
+
 @pytest.mark.parametrize(
     "key_arn",
     (

@@ -25,6 +25,7 @@ import sys
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
+from tooling import platform_authority_identity_center_encryption as encryption_contract
 from tooling import platform_authority_gug393_private_input_discovery as discovery
 from tooling import platform_authority_change_set_retirement_package as broker_package
 from tooling import platform_authority_retirement_ledger_factory_package as factory_package
@@ -105,11 +106,6 @@ _USER_ID = re.compile(
 _PROVIDER_ARN = re.compile(
     r"^arn:aws:sso::aws:applicationProvider/[A-Za-z0-9/-]{1,256}$"
 )
-_KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:([0-9]{12}):key/"
-    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
-)
-_KMS_MODES = {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
 _ARTIFACT_BUCKET = re.compile(
     r"^scanalyze-g376-art-[a-f0-9]{12}-"
     rf"{AUTHORITY_ACCOUNT_ID}-{REGION}-an$"
@@ -154,6 +150,7 @@ DERIVED_BINDING_KEYS = REQUIRED_DECISION_KEYS[14:]
 
 ARTIFACT_PACKAGES = ("broker", "ledger_factory")
 SOURCE_BINDING_IMPLEMENTATION_PATHS = (
+    "tooling/platform_authority_identity_center_encryption.py",
     "tooling/platform_authority_gug395_preplan_seed.py",
     "scripts/deployment/platform-authority-gug395-preplan-seed.py",
     "tooling/platform_authority_repository_source_verifier.py",
@@ -2452,15 +2449,12 @@ def _identity_center_kms_binding(
 ) -> dict[str, Any]:
     if not isinstance(instance_arn, str) or _INSTANCE_ARN.fullmatch(instance_arn) is None:
         _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
-    if mode not in _KMS_MODES:
+    try:
+        encryption_contract.validate_binding(
+            mode, key_arn, owner_account_id=IDENTITY_CENTER_ACCOUNT_ID
+        )
+    except ValueError:
         _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
-    if mode == "AWS_OWNED_KMS_KEY":
-        if key_arn is not None:
-            _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
-    else:
-        match = _KMS_ARN.fullmatch(str(key_arn))
-        if match is None or match.group(1) != IDENTITY_CENTER_ACCOUNT_ID:
-            _fail("DOWNSTREAM_IDENTITY_SELECTOR_INVALID")
     return {
         "binding_name": "identity_center_kms_key_arn",
         "identity_center_instance_arn": instance_arn,

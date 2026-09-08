@@ -17,11 +17,13 @@ from typing import Any, Mapping
 from urllib.parse import unquote
 
 try:  # Support package-style Lambda imports and direct tooling imports.
+    from . import platform_authority_identity_center_encryption as encryption
     from .platform_authority_plan_permission_repair import (
         PlanPermissionRepairError,
         digest_value,
     )
 except ImportError:  # pragma: no cover - deployment entrypoint compatibility.
+    import platform_authority_identity_center_encryption as encryption  # type: ignore
     from platform_authority_plan_permission_repair import (  # type: ignore
         PlanPermissionRepairError,
         digest_value,
@@ -36,7 +38,7 @@ CONTROL_PATH = Path(
 CONTROL_ID = (
     "scanalyze.platform_authority.bootstrap_plan_repair_effective_iam.v1"
 )
-KMS_MODES = frozenset({"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"})
+KMS_MODES = encryption.KMS_MODES
 MAX_IAM_PAGES = 100
 MAX_IAM_ITEMS = 1_000
 
@@ -56,11 +58,6 @@ _PRINCIPAL_ID = re.compile(
 _LEDGER_KMS_ARN = re.compile(
     r"^arn:aws:kms:us-east-1:042360977644:key/"
     r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
-)
-_IDENTITY_CENTER_KMS_ARN = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _CODE_SIGNING_CONFIG_ARN = re.compile(
     r"^arn:aws:lambda:us-east-1:042360977644:"
@@ -149,28 +146,17 @@ class PlanRepairIamBindings:
                 "IAM_BINDING_COLLISION",
                 "effective-IAM permission-set bindings collide",
             )
-        if self.identity_center_kms_mode not in KMS_MODES:
+        try:
+            encryption.validate_binding(
+                self.identity_center_kms_mode,
+                self.identity_center_kms_key_arn,
+                owner_account_id=MANAGEMENT_ACCOUNT_ID,
+            )
+        except ValueError as exc:
             raise PlanPermissionRepairError(
                 "IAM_BINDING_MALFORMED",
-                "effective-IAM KMS mode is malformed",
-            )
-        if self.identity_center_kms_mode == "AWS_OWNED_KMS_KEY":
-            if self.identity_center_kms_key_arn is not None:
-                raise PlanPermissionRepairError(
-                    "IAM_BINDING_MALFORMED",
-                    "AWS-owned KMS mode cannot carry a key ARN",
-                )
-        elif (
-            self.identity_center_kms_key_arn is None
-            or _IDENTITY_CENTER_KMS_ARN.fullmatch(
-                self.identity_center_kms_key_arn
-            )
-            is None
-        ):
-            raise PlanPermissionRepairError(
-                "IAM_BINDING_MALFORMED",
-                "customer-managed KMS mode requires the exact key ARN",
-            )
+                "effective-IAM Identity Center encryption binding is malformed",
+            ) from exc
         if any("${" in value for value in self._replacement_values()):
             raise PlanPermissionRepairError(
                 "IAM_BINDING_MALFORMED",

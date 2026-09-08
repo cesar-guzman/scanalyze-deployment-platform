@@ -222,6 +222,7 @@ def test_runtime_source_selectors_are_provenanced_to_gug365(
 @pytest.mark.parametrize(
     "mode,key_arn",
     [
+        ("NOT_OBSERVED", None),
         ("AWS_OWNED_KMS_KEY", None),
         (
             "CUSTOMER_MANAGED_KEY",

@@ -10,6 +10,7 @@ cannot be expressed by this module.
 """
 
 from __future__ import annotations
+from tooling import platform_authority_identity_center_encryption as encryption_contract
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -1060,9 +1061,9 @@ def _identity_center_kms_route_parameters(
     mode = values.get("IdentityCenterKmsMode")
     key_arn = values.get("IdentityCenterKmsKeyArn")
     if (
-        mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        mode not in encryption_contract.KMS_MODES
         or not isinstance(key_arn, str)
-        or (mode == "AWS_OWNED_KMS_KEY" and key_arn != "")
+        or (mode in {"AWS_OWNED_KMS_KEY", encryption_contract.NOT_OBSERVED} and key_arn != "")
         or (
             mode == "CUSTOMER_MANAGED_KEY"
             and _IDENTITY_CENTER_KMS_KEY_RE.fullmatch(key_arn) is None
@@ -1691,10 +1692,10 @@ def validate_seed_intent(value: Mapping[str, Any]) -> dict[str, Any]:
                 or parameter_map["IdentityCenterInstanceArn"]
                 != value["identity_center_instance_arn"]
                 or parameter_map["IdentityCenterKmsMode"]
-                not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+                not in encryption_contract.KMS_MODES
                 or (
                     parameter_map["IdentityCenterKmsMode"]
-                    == "AWS_OWNED_KMS_KEY"
+                    in {"AWS_OWNED_KMS_KEY", encryption_contract.NOT_OBSERVED}
                     and parameter_map["IdentityCenterKmsKeyArn"] != ""
                 )
                 or (

@@ -600,6 +600,47 @@ def test_identity_exact_reader_preserves_private_instance_encryption() -> None:
     }
 
 
+def test_identity_exact_reader_preserves_projected_absence_without_overclaim() -> None:
+    raw = {
+        "InstanceArn": "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+        "IdentityStoreId": "d-1234567890",
+        "OwnerAccountId": OTHER_ACCOUNT,
+        "Status": "ACTIVE",
+    }
+    projected = _RESPONSE_PROJECTORS["sso:DescribeInstance"](raw, {})
+    session = SimpleNamespace(_invoke=lambda **_kwargs: projected)
+
+    result = _IdentityExactReader(session).describe_instance(raw["InstanceArn"])
+
+    assert projected == {**raw, "EncryptionConfigurationDetails": None}
+    assert result["value"]["encryption"] is None
+    assert "AWS_OWNED" not in canonical_json(result)
+    assert "ENABLED" not in canonical_json(result)
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        None,
+        False,
+        [],
+        {},
+        {"KeyType": "AWS_OWNED_KMS_KEY"},
+        {"EncryptionStatus": "ENABLED"},
+        {"KeyType": "NOT_OBSERVED", "EncryptionStatus": "ENABLED"},
+        {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "DISABLED"},
+        {"KeyType": "CUSTOMER_MANAGED_KEY", "EncryptionStatus": "ENABLED"},
+    ],
+)
+def test_instance_projector_never_converts_invalid_present_details_to_absence(
+    details: object,
+) -> None:
+    with pytest.raises(LiveProviderError, match="^PROVIDER_RESPONSE_INVALID$"):
+        _RESPONSE_PROJECTORS["sso:DescribeInstance"](
+            {"EncryptionConfigurationDetails": details}, {}
+        )
+
+
 def test_sdk_loader_uses_closed_no_site_source_and_data_runtime(
     tmp_path: Path,
 ) -> None:

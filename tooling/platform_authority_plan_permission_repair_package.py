@@ -68,6 +68,7 @@ SOURCE_PATHS = (
     ),
     Path("tooling/__init__.py"),
     Path("tooling/platform_authority_bootstrap.py"),
+    Path("tooling/platform_authority_identity_center_encryption.py"),
     Path(
         "tooling/"
         "platform_authority_lambda_audit_repair_invocation_authority.py"

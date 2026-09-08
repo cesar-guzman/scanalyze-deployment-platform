@@ -296,6 +296,161 @@ def test_static_environment_preserves_canonical_customer_managed_key(
     assert intent["identity_center_kms_key_arn"] == key_arn
 
 
+def test_static_environment_preserves_unobserved_without_a_key() -> None:
+    env, _ = _environment()
+    env["IDENTITY_CENTER_KMS_MODE"] = "NOT_OBSERVED"
+    env["IMMU_CONFIG_DIGEST"] = (
+        immutable_configuration_digest_from_environment(env)
+    )
+
+    seed = runtime._static_seed(env)  # noqa: SLF001
+    runtime._validate_static_seed(seed, repo_root=REPO_ROOT)  # noqa: SLF001
+
+    assert seed["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert seed["identity_center_kms_key_arn"] is None
+
+
+def _instance_readback_adapter(
+    response: Mapping[str, Any],
+) -> tuple[runtime.AwsIdentityCenterAdapter, list[Mapping[str, Any]]]:
+    calls: list[Mapping[str, Any]] = []
+
+    class ReadOnlyIdentityCenter:
+        @staticmethod
+        def describe_instance(**request: Any) -> Mapping[str, Any]:
+            calls.append(request)
+            return response
+
+    adapter = runtime.AwsIdentityCenterAdapter(
+        sso_admin=ReadOnlyIdentityCenter(),
+        identitystore=object(),
+        authority_iam=object(),
+        graph_supplier=lambda _stage, _seed: "sha256:" + "d" * 64,
+        expected_description="Synthetic reviewed Plan policy",
+        expected_plan_tags={"work_package": "GUG-376"},
+        source_commit="a" * 40,
+        remaining_time_ms=lambda: 600_000,
+    )
+    return adapter, calls
+
+
+def _instance_response(intent: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "InstanceArn": intent["instance_arn"],
+        "IdentityStoreId": intent["identity_store_id"],
+        "OwnerAccountId": runtime.MANAGEMENT_ACCOUNT_ID,
+        "Status": "ACTIVE",
+    }
+
+
+def test_instance_readback_accepts_only_absence_for_unobserved_seed() -> None:
+    intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
+    intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+    adapter, calls = _instance_readback_adapter(_instance_response(intent))
+
+    adapter._instance(intent)  # noqa: SLF001
+
+    assert calls == [{"InstanceArn": intent["instance_arn"]}]
+    assert intent["identity_center_kms_mode"] == "NOT_OBSERVED"
+    assert intent["identity_center_kms_key_arn"] is None
+
+
+@pytest.mark.parametrize(
+    "details",
+    (
+        None,
+        {},
+        [],
+        "invalid",
+        {"KeyType": "AWS_OWNED_KMS_KEY"},
+        {"EncryptionStatus": "ENABLED"},
+        {"KeyType": "NOT_OBSERVED", "EncryptionStatus": "ENABLED"},
+        {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "UPDATING"},
+        {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "UPDATE_FAILED"},
+        {
+            "KeyType": "CUSTOMER_MANAGED_KEY",
+            "EncryptionStatus": "ENABLED",
+            "KmsKeyArn": "",
+        },
+    ),
+)
+def test_instance_readback_rejects_present_invalid_details_before_other_calls(
+    details: Any,
+) -> None:
+    intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
+    intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+    response = _instance_response(intent)
+    response["EncryptionConfigurationDetails"] = details
+    adapter, calls = _instance_readback_adapter(response)
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        adapter._capture(intent)  # noqa: SLF001
+    assert exc_info.value.code == "KMS_READBACK_MALFORMED"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("kms_mode", "key_arn"),
+    (
+        ("AWS_OWNED_KMS_KEY", None),
+        (
+            "CUSTOMER_MANAGED_KEY",
+            "arn:aws:kms:us-east-1:839393571433:key/"
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ),
+    ),
+)
+@pytest.mark.parametrize("observed_after_materialization", (False, True))
+def test_instance_readback_does_not_upgrade_or_downgrade_encryption_binding(
+    kms_mode: str,
+    key_arn: str | None,
+    observed_after_materialization: bool,
+) -> None:
+    intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
+    response = _instance_response(intent)
+    if observed_after_materialization:
+        intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+        response["EncryptionConfigurationDetails"] = {
+            "KeyType": kms_mode,
+            "KmsKeyArn": key_arn,
+            "EncryptionStatus": "ENABLED",
+        }
+    else:
+        intent["identity_center_kms_mode"] = kms_mode
+        intent["identity_center_kms_key_arn"] = key_arn
+    adapter, calls = _instance_readback_adapter(response)
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        adapter._capture(intent)  # noqa: SLF001
+    assert exc_info.value.code == "KMS_READBACK_MISMATCH"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("OwnerAccountId", runtime.AUTHORITY_ACCOUNT_ID),
+        ("InstanceArn", "different-instance"),
+        ("IdentityStoreId", "different-store"),
+        ("Status", "CREATE_IN_PROGRESS"),
+    ),
+)
+def test_unobserved_instance_readback_retains_identity_and_active_checks(
+    field: str,
+    value: str,
+) -> None:
+    intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
+    intent["identity_center_kms_mode"] = "NOT_OBSERVED"
+    response = _instance_response(intent)
+    response[field] = value
+    adapter, calls = _instance_readback_adapter(response)
+
+    with pytest.raises(PlanPermissionRepairError) as exc_info:
+        adapter._capture(intent)  # noqa: SLF001
+    assert exc_info.value.code == "INSTANCE_READBACK_MISMATCH"
+    assert len(calls) == 1
+
+
 def test_dynamo_cas_conditions_bind_every_expected_ledger_field() -> None:
     intent = build_private_intent(_binding(), repo_root=REPO_ROOT)
     expected = build_plan_ledger(

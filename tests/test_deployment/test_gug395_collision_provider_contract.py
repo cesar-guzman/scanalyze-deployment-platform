@@ -99,6 +99,68 @@ def test_describe_instance_projector_preserves_canonical_aws_owned_shape() -> No
     )
 
 
+def test_collision_reader_accepts_only_projected_absence_for_not_observed() -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    projected = provider._RESPONSE_PROJECTORS["sso:DescribeInstance"](
+        _instance_summary(instance_arn), {"InstanceArn": instance_arn}
+    )
+    session = _ScriptedCollisionSession(
+        pages={
+            "sso:ListInstances": [_instance_summary(instance_arn)],
+            "sso:ListApplications": [],
+            "sso:ListPermissionSets": [],
+        },
+        values={"sso:DescribeInstance": projected},
+    )
+    facts = provider._CollisionIdentityReader(session)._read_explicit_facts(
+        instance_arn=instance_arn,
+        expected_identity_center_kms_mode="NOT_OBSERVED",
+        expected_identity_center_kms_key_arn=None,
+        application_name="ScanalyzeAuthorityRetirement",
+        classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+        approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+        tag_contract=contract.IDENTITY_TAG_CONTRACT,
+        max_applications=1,
+        max_permission_sets=1,
+    )
+    assert facts["described_instance"] == {
+        **_instance_summary(instance_arn), "EncryptionConfigurationDetails": None
+    }
+    assert "ENABLED" not in provider.canonical_json(facts)
+
+
+@pytest.mark.parametrize("observed_mode", ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"])
+def test_collision_reader_rejects_new_observation_against_absent_expectation(
+    observed_mode: str,
+) -> None:
+    instance_arn = "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+    session = _ScriptedCollisionSession(
+        pages={"sso:ListInstances": [_instance_summary(instance_arn)]},
+        values={"sso:DescribeInstance": _described_instance(
+            instance_arn, key_type=observed_mode,
+            kms_key_arn=None if observed_mode == "AWS_OWNED_KMS_KEY" else IDENTITY_KMS_KEY_ARN,
+        )},
+    )
+    with pytest.raises(
+        provider.LiveProviderError,
+        match="^COLLISION_IDENTITY_KMS_BINDING_MISMATCH$",
+    ):
+        provider._CollisionIdentityReader(session)._read_explicit_facts(
+            instance_arn=instance_arn,
+            expected_identity_center_kms_mode="NOT_OBSERVED",
+            expected_identity_center_kms_key_arn=None,
+            application_name="ScanalyzeAuthorityRetirement",
+            classifier_permission_set_name="ScanalyzeAuthorityRetireClass",
+            approver_permission_set_name="ScanalyzeAuthorityRetireApprove",
+            tag_contract=contract.IDENTITY_TAG_CONTRACT,
+            max_applications=1,
+            max_permission_sets=1,
+        )
+    assert [operation for _kind, operation, _request in session.calls] == [
+        "sso:ListInstances", "sso:DescribeInstance"
+    ]
+
+
 class _BuilderBudget:
     def __init__(self) -> None:
         self.budget_digest = _digest("collision-budget")

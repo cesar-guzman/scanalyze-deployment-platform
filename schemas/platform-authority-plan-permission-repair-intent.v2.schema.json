@@ -63,7 +63,7 @@
       "pattern": "^arn:aws:iam::042360977644:saml-provider/AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$"
     },
     "identity_center_kms_mode": {
-      "enum": ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"]
+      "enum": ["AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY", "NOT_OBSERVED"]
     },
     "identity_center_kms_key_arn": {
       "oneOf": [
@@ -136,7 +136,7 @@
   "allOf": [
     {
       "if": {
-        "properties": { "identity_center_kms_mode": { "const": "AWS_OWNED_KMS_KEY" } },
+        "properties": { "identity_center_kms_mode": { "enum": ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"] } },
         "required": ["identity_center_kms_mode"]
       },
       "then": { "properties": { "identity_center_kms_key_arn": { "type": "null" } } },

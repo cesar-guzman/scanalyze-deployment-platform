@@ -210,7 +210,7 @@ class FakeClient:
         if method == "get_signing_profile":
             raise FakeAwsError("ResourceNotFoundException")
         if method == "describe_instance":
-            return {
+            result = {
                 "InstanceArn": INSTANCE_ARN,
                 "IdentityStoreId": "d-1234567890",
                 "OwnerAccountId": MANAGEMENT,
@@ -221,6 +221,9 @@ class FakeClient:
                     "EncryptionStatus": "ENABLED",
                 },
             }
+            if self.sdk.kms_mode == "NOT_OBSERVED":
+                result.pop("EncryptionConfigurationDetails")
+            return result
         empty = {
             "list_stacks": {"StackSummaries": []},
             "list_aliases": {"Aliases": [], "Truncated": False},
@@ -462,13 +465,15 @@ def test_discovery_capability_requires_two_independent_scans_and_is_one_shot(
     assert rebound.value.code == "COLLISION_PROVIDER_DISCOVERY_BINDING_INVALID"
 
 
-def test_discovery_models_aws_owned_identity_center_kms_without_inventing_arn(
+@pytest.mark.parametrize("mode", ["AWS_OWNED_KMS_KEY", "NOT_OBSERVED"])
+def test_discovery_models_no_kms_binding_without_inventing_arn(
+    mode: str,
 ) -> None:
     catalog = _catalog()
     inventory = _policy(catalog)
     harness = Harness(
         inventory,
-        kms_mode="AWS_OWNED_KMS_KEY",
+        kms_mode=mode,
         kms_key_arn=None,
     )
 
@@ -486,10 +491,46 @@ def test_discovery_models_aws_owned_identity_center_kms_without_inventing_arn(
     assert items == [
         {
             "BindingName": "identity_center_kms_key_arn",
-            "Mode": "AWS_OWNED_KMS_KEY",
+            "Mode": mode,
             "PrivateBindingDigest": harness.kms_binding_digest,
         }
     ]
+    assert "kms:" not in policy_contract.canonical_json(candidate_policy["policies"]["management"])
+    assert all(
+        service != "kms"
+        for session in harness.sessions.values()
+        if session.domain == "management"
+        for service, _method, _request in session.calls
+    )
+
+
+@pytest.mark.parametrize(
+    "details",
+    [None, False, [], {}, {"KeyType": "AWS_OWNED_KMS_KEY"},
+     {"KeyType": "AWS_OWNED_KMS_KEY", "EncryptionStatus": "DISABLED"},
+     {"KeyType": "NOT_OBSERVED", "EncryptionStatus": "ENABLED"}],
+)
+def test_not_observed_discovery_rejects_present_invalid_encryption(details: object) -> None:
+    def setup(_capture: int, domain: str, session: FakeSdkSession) -> None:
+        if domain == "management":
+            session.scripts[("sso-admin", "describe_instance")] = [{
+                "InstanceArn": INSTANCE_ARN,
+                "IdentityStoreId": "d-1234567890",
+                "OwnerAccountId": MANAGEMENT,
+                "Status": "ACTIVE",
+                "EncryptionConfigurationDetails": details,
+            }]
+
+    catalog = _catalog()
+    harness = Harness(
+        _policy(catalog), kms_mode="NOT_OBSERVED", kms_key_arn=None,
+        session_setup=setup,
+    )
+    with pytest.raises(
+        subject.CollisionAwsProviderError,
+        match="^COLLISION_DISCOVERY_KMS_BINDING_INVALID$",
+    ):
+        _discover_candidate_policy(harness, catalog)
 
 
 def test_discovery_accepts_exact_multiregion_identity_center_kms_key() -> None:
@@ -714,10 +755,13 @@ def test_each_candidate_snapshot_re_describes_exact_instance_before_sso_reads(
         assert describe_event.target_ids == expected_target_ids
 
 
+@pytest.mark.parametrize("initial_mode", ["CUSTOMER_MANAGED_KEY", "NOT_OBSERVED"])
 def test_pre_effect_instance_kms_drift_stops_before_candidate_sso_inventory(
+    initial_mode: str,
 ) -> None:
     catalog = _catalog()
-    discovery = Harness(_policy(catalog))
+    initial_key = None if initial_mode == "NOT_OBSERVED" else IDENTITY_CENTER_KMS_KEY_ARN
+    discovery = Harness(_policy(catalog), kms_mode=initial_mode, kms_key_arn=initial_key)
     capability, candidate_policy = _discover_candidate_policy(
         discovery,
         catalog,
@@ -747,6 +791,8 @@ def test_pre_effect_instance_kms_drift_stops_before_candidate_sso_inventory(
         discovery_capability=capability,
         session_setup=setup,
         permission_set_name_by_arn={},
+        kms_mode=initial_mode,
+        kms_key_arn=initial_key,
     )
     request = _request(catalog, candidate_policy)
     target = next(
@@ -775,6 +821,27 @@ def test_pre_effect_instance_kms_drift_stops_before_candidate_sso_inventory(
     assert drift.value.code == "COLLISION_DISCOVERY_KMS_BINDING_INVALID"
     calls = harness.sessions[(3, "management")].calls
     assert [method for service, method, _kwargs in calls if service == "sso-admin"] == [
+        "describe_instance"
+    ]
+
+
+def test_absent_encryption_must_remain_absent_in_both_discovery_sessions() -> None:
+    def setup(capture: int, domain: str, session: FakeSdkSession) -> None:
+        if capture == 2 and domain == "management":
+            session.kms_mode = "AWS_OWNED_KMS_KEY"
+
+    catalog = _catalog()
+    harness = Harness(
+        _policy(catalog), kms_mode="NOT_OBSERVED", kms_key_arn=None,
+        session_setup=setup,
+    )
+    with pytest.raises(
+        subject.CollisionAwsProviderError,
+        match="^COLLISION_DISCOVERY_KMS_BINDING_INVALID$",
+    ):
+        _discover_candidate_policy(harness, catalog)
+    second = harness.sessions[(2, "management")]
+    assert [method for service, method, _request in second.calls if service == "sso-admin"] == [
         "describe_instance"
     ]
 

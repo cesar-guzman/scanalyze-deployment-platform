@@ -11,7 +11,7 @@ Parameters:
     AllowedPattern: '^arn:aws[a-z-]*:sso:::instance/ssoins-[A-Za-z0-9]{16}$'
   IdentityCenterKmsMode:
     Type: String
-    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY]
+    AllowedValues: [AWS_OWNED_KMS_KEY, CUSTOMER_MANAGED_KEY, NOT_OBSERVED]
   IdentityCenterKmsKeyArn:
     Type: String
     AllowedPattern: '^(?:|arn:aws:kms:us-east-1:839393571433:key/(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|mrk-[0-9a-f]{32}))$'
@@ -83,6 +83,9 @@ Rules:
       - Assert: !Or
           - !And
             - !Equals [!Ref IdentityCenterKmsMode, AWS_OWNED_KMS_KEY]
+            - !Equals [!Ref IdentityCenterKmsKeyArn, '']
+          - !And
+            - !Equals [!Ref IdentityCenterKmsMode, NOT_OBSERVED]
             - !Equals [!Ref IdentityCenterKmsKeyArn, '']
           - !And
             - !Equals [!Ref IdentityCenterKmsMode, CUSTOMER_MANAGED_KEY]

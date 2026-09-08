@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
 
+from tooling import platform_authority_identity_center_encryption as encryption
 from tooling import platform_authority_plan_permission_repair as repair
 from tooling import platform_authority_plan_permission_repair_artifact_bootstrap as artifact_bootstrap
 from tooling import platform_authority_plan_permission_repair_broker_seed as seed
@@ -111,11 +112,6 @@ _ROLE_RE = re.compile(
 _SAML_RE = re.compile(
     r"^arn:aws:iam::042360977644:saml-provider/"
     r"AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$"
-)
-_IDENTITY_CENTER_KMS_RE = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _TIME_RE = re.compile(
     r"^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:[0-2][0-9]|3[01])T"
@@ -247,8 +243,9 @@ def validate_plan_snapshot(
             "/" + str(snapshot.get("generated_role_name", ""))
         )
         or _SAML_RE.fullmatch(str(snapshot.get("saml_provider_arn", ""))) is None
+        or not isinstance(snapshot.get("identity_center_kms_mode"), str)
         or snapshot.get("identity_center_kms_mode")
-        not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
+        not in encryption.KMS_MODES
         or not isinstance(authority, Mapping)
         or set(authority) != _VERIFIER_FIELDS
         or not isinstance(identity, Mapping)
@@ -276,18 +273,14 @@ def validate_plan_snapshot(
         or snapshot.get("production_status") != "NO-GO"
     ):
         _fail("PLAN_SNAPSHOT_INVALID")
-    kms_key = snapshot.get("identity_center_kms_key_arn")
-    if (
-        snapshot["identity_center_kms_mode"] == "AWS_OWNED_KMS_KEY"
-        and kms_key is not None
-    ) or (
-        snapshot["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
-        and (
-            not isinstance(kms_key, str)
-            or _IDENTITY_CENTER_KMS_RE.fullmatch(kms_key) is None
+    try:
+        encryption.validate_binding(
+            snapshot["identity_center_kms_mode"],
+            snapshot["identity_center_kms_key_arn"],
+            owner_account_id=route.MANAGEMENT_ACCOUNT_ID,
         )
-    ):
-        _fail("PLAN_SNAPSHOT_KMS_INVALID")
+    except ValueError as exc:
+        raise BrokerConfigMaterializationError("PLAN_SNAPSHOT_KMS_INVALID") from exc
     evaluated = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(
         microsecond=0
     )
@@ -823,11 +816,11 @@ def materialize_broker_seed_input(
         "RepairPrincipalUserArn": snapshot["principal_user_arn"],
         "RepairInvokerAssignmentEnabled": "true",
         "PlanPermissionSetArn": snapshot["permission_set_arn"],
-        "UseIdentityCenterCustomerManagedKms": (
-            "true"
-            if snapshot["identity_center_kms_mode"] == "CUSTOMER_MANAGED_KEY"
-            else "false"
-        ),
+        "UseIdentityCenterCustomerManagedKms": {
+            "AWS_OWNED_KMS_KEY": "false",
+            "NOT_OBSERVED": "false",
+            "CUSTOMER_MANAGED_KEY": "true",
+        }[snapshot["identity_center_kms_mode"]],
         "IdentityCenterKmsKeyArn": snapshot["identity_center_kms_key_arn"] or "",
     }
     signed_parameters = {

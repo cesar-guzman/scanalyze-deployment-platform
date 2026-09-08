@@ -35,6 +35,7 @@ from tooling.platform_authority_gug395_preplan_collision_probe import (
     ABSENT_READY as GUG395_ABSENT_READY,
 )
 from tooling import platform_authority_gug376_live_provider as live
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 class DirectSsoCollisionAdapterError(RuntimeError):
@@ -50,11 +51,6 @@ Clock = Callable[[], datetime]
 _PROFILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _INSTANCE = re.compile(r"^arn:aws:sso:::instance/ssoins-[A-Za-z0-9.-]{16}$")
-_KMS = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
-)
 LOCAL_DIRECT_SSO = admission.LOCAL_DIRECT_SSO
 
 _SESSION_PURPOSES = {
@@ -316,6 +312,14 @@ class _Adapter:
             == checked_profiles["identity_center"]["name"].casefold()
         ):
             _fail("COLLISION_DIRECT_SSO_PROFILE_INVALID")
+        identity_profile = profiles["identity_center"]
+        if (
+            identity_center_kms_mode
+            != identity_profile.get("identity_center_kms_mode")
+            or identity_center_kms_key_arn
+            != identity_profile.get("identity_center_kms_key_arn")
+        ):
+            _fail("COLLISION_DIRECT_SSO_KMS_BINDING_INVALID")
         try:
             live._ambient_gate(environment)  # noqa: SLF001
             loaded = live._load_sdk(Path(sdk_runtime_root))  # noqa: SLF001
@@ -323,18 +327,16 @@ class _Adapter:
             raise DirectSsoCollisionAdapterError(
                 "COLLISION_DIRECT_SSO_SDK_INVALID"
             ) from None
+        try:
+            identity_encryption.validate_binding(
+                identity_center_kms_mode,
+                identity_center_kms_key_arn,
+                owner_account_id="839393571433",
+            )
+        except ValueError:
+            _fail("COLLISION_DIRECT_SSO_KMS_BINDING_INVALID")
         if (
-            identity_center_kms_mode
-            not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-            or (
-                identity_center_kms_mode == "AWS_OWNED_KMS_KEY"
-                and identity_center_kms_key_arn is not None
-            )
-            or (
-                identity_center_kms_mode == "CUSTOMER_MANAGED_KEY"
-                and _KMS.fullmatch(str(identity_center_kms_key_arn)) is None
-            )
-            or _DIGEST.fullmatch(identity_center_kms_binding_digest) is None
+            _DIGEST.fullmatch(identity_center_kms_binding_digest) is None
             or identity_center_kms_binding_digest
             != canonical_digest(
                 {
@@ -446,6 +448,12 @@ class _Adapter:
                 catalog=self._catalog,
             )
         except Exception:
+            _fail("COLLISION_DIRECT_SSO_POLICY_INVALID")
+        if self._kms_mode == identity_encryption.NOT_OBSERVED and any(
+            action.casefold().startswith("kms:")
+            for actions in policy_set["allowed_actions"]["management"].values()
+            for action in actions
+        ):
             _fail("COLLISION_DIRECT_SSO_POLICY_INVALID")
         digest = policy_set.get("policy_set_digest")
         if not isinstance(digest, str) or _DIGEST.fullmatch(digest) is None:

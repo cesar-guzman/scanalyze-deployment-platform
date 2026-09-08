@@ -29,6 +29,7 @@ from tooling.platform_authority_gug376_collision_catalog import (
 from tooling import platform_authority_gug376_collision_policy as policy_contract
 from tooling import platform_authority_gug376_collision_budget as collision_budget
 from tooling import platform_authority_gug376_collision_transcript_contract as transcript
+from tooling import platform_authority_identity_center_encryption as identity_encryption
 
 
 REGION = transcript.REGION
@@ -42,10 +43,6 @@ _CAPTURE_PURPOSES = {
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
 _IDENTITY_STORE = re.compile(r"^d-[A-Za-z0-9]{10}$")
-_KMS_KEY_ARN = re.compile(
-    rf"^arn:aws:kms:{REGION}:(?P<account>[0-9]{{12}}):key/"
-    r"(?:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|mrk-[0-9a-f]{32})$"
-)
 _ROLE = re.compile(r"^[A-Za-z0-9+=,.@_/-]{1,128}$")
 _ARN = re.compile(r"^arn:aws[a-z-]*:[a-z0-9-]+:[^:]*:[0-9]{0,12}:.+$")
 _FACTORY_TOKEN = object()
@@ -1285,22 +1282,18 @@ class _SnapshotProvider:
         mode = envelope.identity_center_kms_mode
         key_arn = envelope.identity_center_kms_key_arn
         instance_arn = envelope.identity_center_instance_arn
+        try:
+            mode, key_arn = identity_encryption.validate_binding(
+                mode, key_arn,
+                owner_account_id=self._identities[domain]["account_id"],
+            )
+        except ValueError:
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
         if (
             envelope.identity_center_kms_binding_source
             != _IDENTITY_CENTER_KMS_BINDING_SOURCE
             or envelope.identity_center_kms_private_binding_digest
             != expected_binding
-            or mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}
-            or (mode == "AWS_OWNED_KMS_KEY" and key_arn is not None)
-            or (
-                mode == "CUSTOMER_MANAGED_KEY"
-                and (
-                    not isinstance(key_arn, str)
-                    or (key_match := _KMS_KEY_ARN.fullmatch(key_arn)) is None
-                    or key_match.group("account")
-                    != self._identities[domain]["account_id"]
-                )
-            )
             or not isinstance(instance_arn, str)
             or re.fullmatch(
                 r"arn:aws:sso:::instance/ssoins-[A-Za-z0-9]{16}",
@@ -1333,32 +1326,21 @@ class _SnapshotProvider:
             method="describe_instance",
             request={"InstanceArn": instance_arn},
         )
-        encryption = response.get("EncryptionConfigurationDetails")
-        raw_mode = (
-            encryption.get("KeyType")
-            if isinstance(encryption, Mapping)
-            else None
-        )
-        observed_mode = raw_mode
-        observed_key_arn = (
-            encryption.get("KmsKeyArn")
-            if isinstance(encryption, Mapping)
-            else None
-        )
+        try:
+            encryption = identity_encryption.project(
+                response, owner_account_id=self._identities[domain]["account_id"]
+            )
+            observed_binding = identity_encryption.validate_projection(
+                encryption, owner_account_id=self._identities[domain]["account_id"]
+            )
+        except ValueError:
+            _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
         described_projection = {
             "InstanceArn": response.get("InstanceArn"),
             "IdentityStoreId": response.get("IdentityStoreId"),
             "OwnerAccountId": response.get("OwnerAccountId"),
             "Status": response.get("Status"),
-            "EncryptionConfigurationDetails": {
-                "KeyType": observed_mode,
-                "KmsKeyArn": observed_key_arn,
-                "EncryptionStatus": (
-                    encryption.get("EncryptionStatus")
-                    if isinstance(encryption, Mapping)
-                    else None
-                ),
-            },
+            "EncryptionConfigurationDetails": encryption,
         }
         if (
             outcome != "SUCCESS"
@@ -1370,12 +1352,7 @@ class _SnapshotProvider:
             or described_projection["OwnerAccountId"]
             != self._identities[domain]["account_id"]
             or described_projection["Status"] != "ACTIVE"
-            or described_projection["EncryptionConfigurationDetails"]
-            != {
-                "KeyType": mode,
-                "KmsKeyArn": key_arn,
-                "EncryptionStatus": "ENABLED",
-            }
+            or observed_binding != (mode, key_arn)
         ):
             _fail("COLLISION_DISCOVERY_KMS_BINDING_INVALID")
         described_instance_digest = canonical_digest(described_projection)

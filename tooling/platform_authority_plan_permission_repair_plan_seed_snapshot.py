@@ -26,6 +26,7 @@ from typing import Any, Protocol
 from urllib.parse import unquote, urlsplit
 
 from tooling import platform_authority_bootstrap as bootstrap
+from tooling import platform_authority_identity_center_encryption as encryption
 from tooling import platform_authority_plan_permission_repair as repair
 from tooling import platform_authority_plan_permission_repair_broker_config as broker_config
 from tooling import platform_authority_plan_permission_repair_deployment_route as route
@@ -56,11 +57,6 @@ _ROLE_NAME_RE = re.compile(
 _SAML_PROVIDER_RE = re.compile(
     r"^arn:aws:iam::042360977644:saml-provider/"
     r"AWSSSO_[A-Za-z0-9+=,.@_-]+_DO_NOT_DELETE$"
-)
-_KMS_RE = re.compile(
-    r"^arn:aws:kms:us-east-1:839393571433:key/"
-    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|"
-    r"mrk-[0-9a-f]{32})$"
 )
 _OUTPUT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\.json$")
 _CALLER_PATTERNS = {
@@ -586,32 +582,20 @@ def _describe_instance(
     response = ledger.call(
         "describe_instance", sso.describe_instance, InstanceArn=instance_arn
     )
-    details = response.get("EncryptionConfigurationDetails")
     if (
         response.get("InstanceArn") != instance_arn
         or response.get("IdentityStoreId") != store_id
         or response.get("OwnerAccountId") != route.MANAGEMENT_ACCOUNT_ID
         or response.get("Status") != "ACTIVE"
-        or not isinstance(details, Mapping)
-        or details.get("EncryptionStatus") != "ENABLED"
     ):
         _fail("IDENTITY_CENTER_INSTANCE_INVALID")
-    kms_mode = details.get("KeyType")
-    kms_key = details.get("KmsKeyArn")
-    if (
-        kms_mode == "AWS_OWNED_KMS_KEY"
-        and kms_key is not None
-    ) or (
-        kms_mode == "CUSTOMER_MANAGED_KEY"
-        and (
-            not isinstance(kms_key, str)
-            or _KMS_RE.fullmatch(kms_key) is None
+    try:
+        kms_mode, kms_key = encryption.observe(
+            response, owner_account_id=route.MANAGEMENT_ACCOUNT_ID
         )
-    ):
-        _fail("IDENTITY_CENTER_KMS_INVALID")
-    if kms_mode not in {"AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY"}:
-        _fail("IDENTITY_CENTER_KMS_INVALID")
-    return instance_arn, store_id, str(kms_mode), kms_key
+    except ValueError as exc:
+        raise PlanSeedSnapshotError("IDENTITY_CENTER_KMS_INVALID") from exc
+    return instance_arn, store_id, kms_mode, kms_key
 
 
 def _permission_set(

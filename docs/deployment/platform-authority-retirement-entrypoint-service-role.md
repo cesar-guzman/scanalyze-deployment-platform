@@ -313,6 +313,13 @@ and the same window. The adapter never constructs a KMS client or dispatches a
 KMS operation. The effective-authority evidence must nevertheless prove this
 indirect grant; a KMS denial remains uncertainty.
 
+When verified responses genuinely omit the encryption block, the active v2
+path may instead bind `NOT_OBSERVED` and a null key ARN with zero Identity
+Center KMS authority. It never infers a customer-managed key, AWS-owned mode
+or enabled status from omission, and a denial cannot trigger an automatic
+grant. The separate artifact/ledger encryption remains required. See the
+[no-KMS observation runbook](../operations/platform-authority-no-kms-bootstrap.md).
+
 GUG-395 exposes no terminal-capability minter. Its public downstream fixture
 is therefore `SYNTHETIC_CONTRACT_ONLY_BLOCKED`, and schema validity is never
 live evidence. A future separately reviewed minter may unlock the gated

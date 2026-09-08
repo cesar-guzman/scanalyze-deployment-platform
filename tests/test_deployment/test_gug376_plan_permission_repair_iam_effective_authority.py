@@ -242,7 +242,9 @@ def _role_documents(
                         properties["AssumeRolePolicyDocument"],
                         account_id=account_id,
                         bindings=bindings,
-                        customer_managed_kms=True,
+                        customer_managed_kms=(
+                            bindings.identity_center_kms_mode == "CUSTOMER_MANAGED_KEY"
+                        ),
                     ),
                 },
                 "PolicyName": properties["Policies"][0]["PolicyName"],
@@ -250,7 +252,9 @@ def _role_documents(
                     properties["Policies"][0]["PolicyDocument"],
                     account_id=account_id,
                     bindings=bindings,
-                    customer_managed_kms=True,
+                    customer_managed_kms=(
+                        bindings.identity_center_kms_mode == "CUSTOMER_MANAGED_KEY"
+                    ),
                 ),
             }
     return result[AUTHORITY_ACCOUNT_ID], result[MANAGEMENT_ACCOUNT_ID]
@@ -368,6 +372,7 @@ def test_reviewed_control_is_exact_projection_of_both_templates(
             assert digest_value(trust) == spec.trust_policy_digest
             for mode, enabled in (
                 ("AWS_OWNED_KMS_KEY", False),
+                ("NOT_OBSERVED", False),
                 ("CUSTOMER_MANAGED_KEY", True),
             ):
                 policy = _project(
@@ -378,6 +383,98 @@ def test_reviewed_control_is_exact_projection_of_both_templates(
                 )
                 normalized = normalize_policy_bindings(policy, bindings)
                 assert digest_value(normalized) == spec.policy_digest_for(mode)
+
+
+def test_not_observed_template_requires_empty_identity_center_key() -> None:
+    template = _load_template(AUTHORITY_TEMPLATE)
+    assert set(template["Parameters"]["IdentityCenterKmsMode"]["AllowedValues"]) == {
+        "AWS_OWNED_KMS_KEY", "CUSTOMER_MANAGED_KEY", "NOT_OBSERVED"
+    }
+    rule = template["Rules"]["UnobservedEncryptionMustNotCarryKeyArn"]
+    assert rule["RuleCondition"] == {
+        "Fn::Equals": [{"Ref": "IdentityCenterKmsMode"}, "NOT_OBSERVED"]
+    }
+    assert rule["Assertions"][0]["Assert"] == {
+        "Fn::Equals": [{"Ref": "IdentityCenterKmsKeyArn"}, ""]
+    }
+    delegation = _load_template(MANAGEMENT_TEMPLATE)
+    assert delegation["Conditions"]["IdentityCenterCustomerManagedKmsEnabled"] == {
+        "Fn::Equals": [{"Ref": "UseIdentityCenterCustomerManagedKms"}, "true"]
+    }
+
+
+def test_not_observed_effective_iam_retains_ledger_and_excludes_identity_center_kms(
+    bindings: PlanRepairIamBindings,
+) -> None:
+    no_kms = replace(
+        bindings,
+        identity_center_kms_mode="NOT_OBSERVED",
+        identity_center_kms_key_arn=None,
+    )
+    verifier, authority, management = _verifier(no_kms)
+    snapshot = verifier.snapshot(no_kms)
+    assert len(snapshot.authority_roles) == 4
+    assert len(snapshot.management_roles) == 2
+    for role in management.roles.values():
+        assert "kms:" not in json.dumps(role["PolicyDocument"])
+    authority_policies = json.dumps(
+        [role["PolicyDocument"] for role in authority.roles.values()]
+    )
+    assert no_kms.repair_ledger_kms_key_arn in authority_policies
+    assert "kms:DescribeKey" in authority_policies
+    template = _load_template(AUTHORITY_TEMPLATE)
+    ledger_key = template["Resources"]["RepairLedgerKey"]
+    assert "kms:Decrypt" in json.dumps(ledger_key["Properties"]["KeyPolicy"])
+    assert "kms:GenerateDataKey*" in json.dumps(ledger_key["Properties"]["KeyPolicy"])
+    assert template["Resources"]["RepairLedger"]["Properties"]["SSESpecification"] == {
+        "SSEEnabled": True,
+        "SSEType": "KMS",
+        "KMSMasterKeyId": {"Fn::GetAtt": "RepairLedgerKey.Arn"},
+    }
+
+
+def test_not_observed_effective_iam_rejects_identity_center_kms_grant(
+    bindings: PlanRepairIamBindings,
+) -> None:
+    no_kms = replace(
+        bindings,
+        identity_center_kms_mode="NOT_OBSERVED",
+        identity_center_kms_key_arn=None,
+    )
+    verifier, _, management = _verifier(no_kms)
+    role = management.roles["ScanalyzeBootstrapPlanRepairReadback"]
+    role["PolicyDocument"]["Statement"].append(
+        {
+            "Effect": "Allow",
+            "Action": "kms:Decrypt",
+            "Resource": bindings.identity_center_kms_key_arn,
+        }
+    )
+    with pytest.raises(PlanPermissionRepairError) as error:
+        verifier.snapshot(no_kms)
+    assert error.value.code == "IAM_INLINE_POLICY_MISMATCH"
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_arn"),
+    [
+        ("NOT_OBSERVED", ""),
+        ("NOT_OBSERVED", "arn:aws:kms:us-east-1:839393571433:key/"
+         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        ("UNKNOWN", None),
+        (None, None),
+    ],
+)
+def test_no_kms_bindings_reject_unknown_modes_or_nonnull_keys(
+    bindings: PlanRepairIamBindings, mode: Any, key_arn: Any,
+) -> None:
+    with pytest.raises(PlanPermissionRepairError) as error:
+        replace(
+            bindings,
+            identity_center_kms_mode=mode,
+            identity_center_kms_key_arn=key_arn,
+        )
+    assert error.value.code == "IAM_BINDING_MALFORMED"
 
 
 def test_both_templates_share_exact_canonical_kms_allowed_pattern() -> None:
