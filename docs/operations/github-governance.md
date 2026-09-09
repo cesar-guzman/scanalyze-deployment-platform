@@ -89,9 +89,16 @@ negative-test evidence, and rollback design. After an approved merge is
 independently verified on `main`, fresh remote-before readbacks, the rollback
 or forward-fix recovery artifact, deterministic target/recovery digests, and the
 completion-manifest digest form a new remote-write package that requires
-separate authorization. `@Ferrusca08` remains an authorized additional code
-owner. Reviewer unavailability or missing attestation blocks; it does not invoke
-a bypass.
+separate authorization. The current roster retains `@cesar-guzman` as repository
+owner and `guguce-google` as the designated independent-review candidate; do not
+route review to former participants. Reviewer unavailability or missing
+attestation blocks; it does not invoke a bypass.
+
+The roster correction requires publication and merge into the pull request's
+base branch for its `CODEOWNERS` routing to take effect. Local changes do not
+prove base-branch adoption, removal of a pending remote review request, or any
+change to GitHub protection. Review must still cover the final material SHA,
+with the applicable manual P0 two-human requirement and all existing gates.
 
 Capture the authenticated branch-protection GET and derive a strict envelope
 from that same response containing `schema_version`, repository, branch,

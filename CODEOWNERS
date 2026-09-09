@@ -1,45 +1,47 @@
 # Scanalyze Deployment Platform — CODEOWNERS
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
+# Current roster: repository owner and designated independent reviewer.
+# Multiple owners are alternatives; authors cannot approve their own PRs.
 # Default owner
-*                           @cesar-guzman @guguce-google @Ferrusca08
+*                           @cesar-guzman @guguce-google
 
 # Human contribution and review governance
-CONTRIBUTING.md             @cesar-guzman @guguce-google @Ferrusca08
-SECURITY.md                 @cesar-guzman @guguce-google @Ferrusca08
-.github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman @guguce-google @Ferrusca08
-.github/ISSUE_TEMPLATE/     @cesar-guzman @guguce-google @Ferrusca08
-.claude/                    @cesar-guzman @guguce-google @Ferrusca08
-docs/engineering/           @cesar-guzman @guguce-google @Ferrusca08
-docs/governance/            @cesar-guzman @guguce-google @Ferrusca08
-tooling/validate_contributor_contract.py  @cesar-guzman @guguce-google @Ferrusca08
-tests/test_contributor_contract.py  @cesar-guzman @guguce-google @Ferrusca08
+CONTRIBUTING.md             @cesar-guzman @guguce-google
+SECURITY.md                 @cesar-guzman @guguce-google
+.github/PULL_REQUEST_TEMPLATE.md  @cesar-guzman @guguce-google
+.github/ISSUE_TEMPLATE/     @cesar-guzman @guguce-google
+.claude/                    @cesar-guzman @guguce-google
+docs/engineering/           @cesar-guzman @guguce-google
+docs/governance/            @cesar-guzman @guguce-google
+tooling/validate_contributor_contract.py  @cesar-guzman @guguce-google
+tests/test_contributor_contract.py  @cesar-guzman @guguce-google
 
 # Architecture decisions require architecture review
-ADR/                        @cesar-guzman @guguce-google @Ferrusca08
+ADR/                        @cesar-guzman @guguce-google
 
 # CI/CD and governance controls require platform review
-.github/workflows/          @cesar-guzman @guguce-google @Ferrusca08
-governance/                 @cesar-guzman @guguce-google @Ferrusca08
-scripts/governance/         @cesar-guzman @guguce-google @Ferrusca08
-tooling/validate_github_policy.py  @cesar-guzman @guguce-google @Ferrusca08
-tests/test_governance/      @cesar-guzman @guguce-google @Ferrusca08
+.github/workflows/          @cesar-guzman @guguce-google
+governance/                 @cesar-guzman @guguce-google
+scripts/governance/         @cesar-guzman @guguce-google
+tooling/validate_github_policy.py  @cesar-guzman @guguce-google
+tests/test_governance/      @cesar-guzman @guguce-google
 
 # Schemas require platform + architecture review
-schemas/                    @cesar-guzman @guguce-google @Ferrusca08
+schemas/                    @cesar-guzman @guguce-google
 
 # Security policies require security review
-policies/                   @cesar-guzman @guguce-google @Ferrusca08
-session-policies/           @cesar-guzman @guguce-google @Ferrusca08
+policies/                   @cesar-guzman @guguce-google
+session-policies/           @cesar-guzman @guguce-google
 
 # Infrastructure modules require platform review
-modules/                    @cesar-guzman @guguce-google @Ferrusca08
-roots/                      @cesar-guzman @guguce-google @Ferrusca08
+modules/                    @cesar-guzman @guguce-google
+roots/                      @cesar-guzman @guguce-google
 
 # Deployment and supply-chain authority require independent review
-deployment/                 @cesar-guzman @guguce-google @Ferrusca08
-scripts/deployment/         @cesar-guzman @guguce-google @Ferrusca08
-scripts/supply-chain/       @cesar-guzman @guguce-google @Ferrusca08
+deployment/                 @cesar-guzman @guguce-google
+scripts/deployment/         @cesar-guzman @guguce-google
+scripts/supply-chain/       @cesar-guzman @guguce-google
 
 # Acceptance gates require architecture + security review
-ARCHITECTURE_ACCEPTANCE_GATES.md  @cesar-guzman @guguce-google @Ferrusca08
+ARCHITECTURE_ACCEPTANCE_GATES.md  @cesar-guzman @guguce-google

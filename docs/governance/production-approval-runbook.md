@@ -49,7 +49,8 @@ Stop after Phase 1. The human decision record must bind all of the following:
 
 - exact final PR SHA containing the generator and policy;
 - `guguce-google` identity, MFA, independence, and least-privilege attestation;
-- continued ownership authorization for `@Ferrusca08`;
+- `@cesar-guzman` repository ownership and the current reviewer roster in
+  `independent-approval-standard.md`, without substituting former participants;
 - current PR reviews and checks for that SHA;
 - negative-test results, residual risks, and rollback design;
 - confirmation that any later administration package will inspect only existing

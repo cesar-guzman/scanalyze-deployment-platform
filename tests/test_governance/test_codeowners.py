@@ -47,7 +47,32 @@ def test_repository_codeowners_has_effective_independent_human_coverage() -> Non
 
     assert set(effective) == set(SENSITIVE_PATHS)
     for path, owners in effective.items():
-        assert REQUIRED_HUMANS <= set(owners), path
+        assert REQUIRED_HUMANS == set(owners), path
+
+
+def test_every_repository_rule_uses_only_the_current_owner_roster() -> None:
+    validate_codeowners(CODEOWNERS_PATH, sensitive_paths=SENSITIVE_PATHS)
+    rules = [
+        line.split()
+        for line in CODEOWNERS_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+    assert rules
+    for pattern, *owners in rules:
+        assert {owner.casefold() for owner in owners} == REQUIRED_HUMANS, pattern
+
+
+def test_pr_template_routes_review_to_the_designated_independent_human() -> None:
+    template = (REPO_ROOT / ".github/PULL_REQUEST_TEMPLATE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "`guguce-google` human attestation" in template
+    assert "@Ferrusca08" not in template
+    assert "Review covers the final material SHA" in template
+    assert "Self-approval excluded" in template
+    assert "P0 second-human approval" in template
 
 
 def test_single_owner_rule_is_rejected(tmp_path: Path) -> None:
@@ -66,7 +91,7 @@ def test_later_override_cannot_remove_independent_reviewer(tmp_path: Path) -> No
         tmp_path,
         "* @cesar-guzman @guguce-google\n"
         "governance/ @cesar-guzman @guguce-google\n"
-        "governance/github-policy.json @cesar-guzman @Ferrusca08\n",
+        "governance/github-policy.json @cesar-guzman @former-reviewer\n",
     )
 
     with pytest.raises(GitHubPolicyError, match="must include @guguce-google"):

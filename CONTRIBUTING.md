@@ -88,8 +88,9 @@ The following evidence states MUST remain distinct:
 - Rechecks material fixes after the last push.
 - For the GUG-119 technical floor, `guguce-google` is the required independent
   reviewer candidate after a human attests that account's MFA, independence,
-  and least-privilege access. `@Ferrusca08` remains an authorized additional
-  code owner. Neither identity may approve its own change.
+  and least-privilege access. `@cesar-guzman` remains the repository owner.
+  Neither identity may approve its own change. Route independent review only
+  to the designated candidate, not to former roster members.
 
 ### Code owner
 

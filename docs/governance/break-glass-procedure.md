@@ -10,10 +10,11 @@ separately approved qualified human may help contain an unrelated incident,
 but cannot substitute for the required candidate or advance this governance
 package.
 
-`@Ferrusca08` remains an authorized additional code owner, but must not be
-treated as the required candidate and sole break-glass approver at the same
-time. Administrator access, CI success, urgency, or an AI recommendation does
-not substitute for an independent human.
+`@cesar-guzman` remains the repository owner and `guguce-google` the designated
+independent-review candidate, subject to identity, MFA, independence, and
+least-privilege attestation. Former roster members are not backup approvers.
+Administrator access, CI success, urgency, or an AI recommendation does not
+substitute for an independent human.
 
 ## Controls that break-glass cannot waive
 
