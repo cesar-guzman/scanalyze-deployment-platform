@@ -100,8 +100,9 @@ claiming that the remote repository already enforces it:
 
 1. designate `guguce-google` as the required independent-review candidate,
    subject to human attestation of MFA, independence, and least privilege;
-2. retain `@Ferrusca08` as an authorized additional owner and update every
-   `CODEOWNERS` rule with the candidate;
+2. retain `@cesar-guzman` as repository owner and `@guguce-google` as the
+   designated independent-review candidate in every `CODEOWNERS` rule, with
+   former participants removed from the current roster;
 3. require one current CODEOWNER approval as the technical branch-protection
    floor, while preserving the manual P0 requirement for two humans;
 4. require CODEOWNER review;
@@ -120,6 +121,9 @@ claiming that the remote repository already enforces it:
     reviewer and prevent self-review, and block rather than create a missing
     Environment; and
 14. preserve exactly the six application-bound required checks recorded above.
+
+The current roster correction does not rewrite the historical observations
+above.
 
 The normative target and negative tests are in
 [`docs/governance/independent-approval-standard.md`](../governance/independent-approval-standard.md).

@@ -40,6 +40,15 @@ provider proof. A generic `ResourceNotFoundException` without exact causal
 attribution remains inconclusive. A missing role policy is represented by
 `plan_role_inline_policy: null` and cannot establish SSO/IAM policy equality.
 
+Each supplied inline policy may contain one `Statement` object or a nonempty
+list of statements, as permitted by the [IAM Statement contract](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_statement.html).
+Only a separate working copy converts the singleton object to a list for
+merging, statement deltas, Deny detection and structural SSO/IAM comparison.
+The request, `supplied_input`, `input_digest` and rollback before-image retain
+the original representation. Equivalent singleton/list inputs therefore retain
+distinct input digests. A structural match still does not prove live parity.
+Malformed statements and duplicate statement IDs remain rejected.
+
 The JSON object has an exact field set. The following is a **SYNTHETIC SHAPE
 EXAMPLE ONLY**, not a real baseline, approved target, valid cloud authorization,
 or a request to execute. All resource/principal coordinates are synthetic; the
@@ -158,6 +167,15 @@ before-state and review the exact proposed additions, replacements and removals.
 Tags supplied to this planner neither prove live ownership nor permit adopting
 an existing resource. Do not rename or recreate either permission set, or edit
 its generated `AWSReservedSSO` role directly.
+
+Proposed and supplied existing tags use the [Identity Center Tag contract](https://docs.aws.amazon.com/singlesignon/latest/APIReference/API_Tag.html):
+keys contain 1–128 characters; values contain 0–256 characters, including an
+empty string. Both admit Unicode letters, separators and numbers plus
+`_.:/=+-@`. Other characters, including asterisks, quotes, backslashes, control
+characters and combining marks, are rejected. Text is preserved without
+trimming or Unicode normalization. The existing limit of 50 entries,
+case-insensitive rejection of reserved `aws:` keys and requirement for a
+nonempty target tag map remain unchanged; an empty baseline tag map is valid.
 
 The snapshot implementation fixes its reader profile and `AWSReadOnlyAccess`
 SSO role bindings. Another permission set is not an alias-only substitute; using
@@ -332,3 +350,26 @@ transition, artifact upload or deployment was performed for this implementation.
 The user authorized local preparation only. Real input materialization and cloud
 effects still require the decisions and evidence above. Linear was not accessed.
 The production goal remains incomplete: **NOT_DEPLOYED / PRODUCTION_NO_GO**.
+
+## PR #104 review follow-up — local correction
+
+The two P2 review findings were reproduced before correction: valid empty tag
+values were rejected while unsupported tag characters were accepted, and valid
+singleton policy statements were rejected. Regression tests now cover both tag
+maps, character categories and length limits, all three supplied policy slots,
+preserved Deny/Condition/Id content, input immutability and original digests,
+statement-ID collisions, malformed containers and the real private CLI.
+
+Local validation of the correction: 243 focused tests passed; the full Python
+suite passed 7,646 tests with one skip and two dependency deprecation warnings;
+the separately run Sentinel gate passed with eight tests. The bootstrap repair
+gate passed 1,774 tests plus schema, fixture, policy and compilation checks;
+the governance gate passed 387 tests. Lint and documentation checks passed,
+and independent local review found no outstanding confirmed P0/P1/P2 findings.
+
+These fixes do not alter IAM policy templates, the connected snapshot contract,
+cloud permissions or execution gates. Local validation does not resolve GitHub
+review conversations or constitute final-head CI or reviewer approval. Publish
+the reviewed correction, verify CI, and address both review threads before
+merge. Repository rollback is a reviewed revert of the correction; no cloud
+rollback is required because the correction performs no AWS action.

@@ -18,6 +18,7 @@ import re
 import stat
 from string import Template
 from typing import Any, NoReturn
+import unicodedata
 
 from tooling import platform_authority_plan_permission_repair as repair
 
@@ -90,14 +91,20 @@ def _match(value: Any, pattern: str, code: str) -> str:
     return value
 
 
+def _valid_tag_text(value: Any, minimum: int, maximum: int) -> bool:
+    # Identity Center Tag pattern: Unicode letters, separators, numbers and
+    # exactly _.:/=+-@. Do not trim or normalize supplied ownership evidence.
+    return (isinstance(value, str) and minimum <= len(value) <= maximum
+            and all(char in "_.:/=+-@" or unicodedata.category(char)[0] in "LZN"
+                    for char in value))
+
+
 def _tags(value: Any, *, required: bool) -> None:
     if not isinstance(value, dict) or len(value) > 50 or (required and not value):
         _fail("TAGS_INVALID")
     for key, item in value.items():
-        if (not isinstance(key, str) or not 1 <= len(key) <= 128
-                or key.lower().startswith("aws:") or not isinstance(item, str)
-                or not 1 <= len(item) <= 256
-                or any(ord(char) < 32 for char in key + item)):
+        if (not _valid_tag_text(key, 1, 128) or key.lower().startswith("aws:")
+                or not _valid_tag_text(item, 0, 256)):
             _fail("TAGS_INVALID")
 
 
@@ -105,12 +112,15 @@ def _policy(value: Any, *, nullable: bool = False) -> dict[str, Any] | None:
     if nullable and value is None:
         return None
     if (not isinstance(value, dict) or value.get("Version") != "2012-10-17"
-            or not set(value).issubset({"Version", "Id", "Statement"})
-            or not isinstance(value.get("Statement"), list)
-            or not value["Statement"]):
+            or not set(value).issubset({"Version", "Id", "Statement"})):
+        _fail("BASELINE_POLICY_INVALID")
+    statements = value.get("Statement")
+    if isinstance(statements, dict):
+        statements = [statements]
+    if not isinstance(statements, list) or not statements:
         _fail("BASELINE_POLICY_INVALID")
     sids = set()
-    for statement in value["Statement"]:
+    for statement in statements:
         if (not isinstance(statement, dict) or not isinstance(statement.get("Effect"), str)
                 or statement["Effect"] not in {"Allow", "Deny"}
                 or not set(statement).issubset({"Sid", "Effect", "Action", "NotAction", "Resource", "NotResource", "Condition"})
@@ -128,7 +138,9 @@ def _policy(value: Any, *, nullable: bool = False) -> dict[str, Any] | None:
             if sid in sids:
                 _fail("BASELINE_POLICY_INVALID")
             sids.add(sid)
-    return deepcopy(value)
+    normalized = deepcopy(value)
+    normalized["Statement"] = deepcopy(statements)
+    return normalized
 
 
 def _accounts(value: Any) -> None:
@@ -243,7 +255,11 @@ def _statement_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str,
 def build_review_draft(request: Any, *, repo_root: Path = ROOT) -> dict[str, Any]:
     """Return private proposed documents; never create an executable intent."""
     supplied = _validate(request)
-    baseline = supplied["baseline"]
+    # Normalize only the working view: input digest and rollback before-image
+    # retain the exact supplied singleton/list representation.
+    baseline = deepcopy(supplied["baseline"])
+    for field in ("reader_inline_policy", "plan_inline_policy", "plan_role_inline_policy"):
+        baseline[field] = _policy(baseline[field], nullable=field != "plan_inline_policy")
     supplement = _supplement(supplied, repo_root)
     try:
         target = repair.render_target_policy(supplied["change_set_name"], repo_root=repo_root)

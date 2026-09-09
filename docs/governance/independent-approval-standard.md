@@ -33,9 +33,9 @@ publish or merge the repository PR.
 - **Required independent-review candidate:** `guguce-google`. The candidate is
   not an approved independent reviewer until a human has attested the account,
   MFA, independence from the author, and least-privilege repository role.
-- **Additional authorized code owner:** Emiliano Díaz (`@Ferrusca08`). Retaining
-  this owner does not make one person both the required candidate and the sole
-  exception actor.
+
+This is the current roster and supersedes earlier additional-owner guidance.
+Former participants are not independent-review or backup-approval candidates.
 
 No shared account, bot, AI identity, author, or administrator capability counts
 as an independent human approval. If the required candidate is unavailable,

@@ -85,7 +85,6 @@ unavailability blocks; it is not a waiver. -->
 - Author GitHub identity:
 - Independent reviewer identity:
 - `guguce-google` human attestation (MFA, independence, least privilege): yes / no / blocked / not applicable
-- `@Ferrusca08` additional-owner review: yes / no / not applicable
 - Review covers the final material SHA: yes / no / blocked
 - Self-approval excluded: yes / no
 - P0 second-human approval: yes / no / not applicable

@@ -133,6 +133,86 @@ def test_sid_collision_is_not_overwrite_or_automatic_retry():
         subject.build_review_draft(request)
 
 
+@pytest.mark.parametrize("field", ["reader_inline_policy", "plan_inline_policy", "plan_role_inline_policy"])
+def test_singleton_policy_normalizes_only_the_working_copy(field):
+    request = _request()
+    statement = {"Sid": "ExistingDeny", "Effect": "Deny", "Action": "sso:ListInstances",
+                 "Resource": "*", "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}}}
+    original = {"Version": "2012-10-17", "Id": "SyntheticBaseline", "Statement": statement}
+    request["baseline"][field] = original
+    before = deepcopy(request)
+    list_request = deepcopy(request)
+    list_request["baseline"][field]["Statement"] = [deepcopy(statement)]
+
+    draft = subject.build_review_draft(request)
+    list_draft = subject.build_review_draft(list_request)
+
+    assert request == before
+    assert draft["supplied_input"] == before
+    expected_input_digest = "sha256:" + hashlib.sha256(
+        json.dumps(before, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    assert draft["input_digest"] == expected_input_digest
+    assert draft["input_digest"] != list_draft["input_digest"]
+    assert draft["draft_digest"] != list_draft["draft_digest"]
+    for key in ("reader_proposed_inline_policy", "plan_policy_delta", "required_reviews"):
+        assert draft[key] == list_draft[key]
+    if field == "reader_inline_policy":
+        merged = draft["reader_proposed_inline_policy"]
+        assert merged["Id"] == original["Id"]
+        assert merged["Statement"] == [statement] + draft["reader_supplement_policy"]["Statement"]
+        assert "EXISTING_READER_DENIES_PRESERVED_REQUIRE_EVALUATION" in draft["required_reviews"]
+    if field == "plan_inline_policy":
+        assert len(draft["plan_policy_delta"]["removed_statement_digests"]) == 1
+    draft["supplied_input"]["baseline"][field]["Statement"]["Condition"].clear()
+    assert request == before
+    assert draft["baseline_verified"] is False
+    assert draft["execution_authorized"] is False
+
+
+@pytest.mark.parametrize("sso_singleton,iam_singleton", [(True, True), (True, False), (False, True)])
+def test_singleton_and_list_policy_parity_remains_unattested(sso_singleton, iam_singleton):
+    request = _request()
+    request["baseline"]["plan_role_inline_policy"] = deepcopy(request["baseline"]["plan_inline_policy"])
+    for field, singleton in (("plan_inline_policy", sso_singleton), ("plan_role_inline_policy", iam_singleton)):
+        if singleton:
+            request["baseline"][field]["Statement"] = request["baseline"][field]["Statement"][0]
+
+    draft = subject.build_review_draft(request)
+
+    assert "PLAN_SSO_IAM_EQUALITY_NOT_ESTABLISHED" not in draft["required_reviews"]
+    assert "FRESH_ATTESTED_BASELINE_REQUIRED" in draft["required_reviews"]
+    assert draft["baseline_verified"] is False
+    assert draft["execution_authorized"] is False
+    role_statements = request["baseline"]["plan_role_inline_policy"]["Statement"]
+    role_statement = role_statements if iam_singleton else role_statements[0]
+    role_statement["Effect"] = "Deny"
+    changed = subject.build_review_draft(request)
+    assert "PLAN_SSO_IAM_EQUALITY_NOT_ESTABLISHED" in changed["required_reviews"]
+
+
+def test_singleton_reader_sid_collision_is_rejected_without_mutation():
+    request = _request()
+    supplement = subject.build_review_draft(request)["reader_supplement_policy"]
+    request["baseline"]["reader_inline_policy"] = {
+        "Version": "2012-10-17", "Statement": deepcopy(supplement["Statement"][0])}
+    before = deepcopy(request)
+
+    with pytest.raises(subject.MigrationDraftError, match="^READER_STATEMENT_SID_COLLISION$"):
+        subject.build_review_draft(request)
+    assert request == before
+
+
+@pytest.mark.parametrize("field", ["reader_inline_policy", "plan_inline_policy", "plan_role_inline_policy"])
+@pytest.mark.parametrize("statements", [{}, [], None, "invalid", 1, True, [None], [[]]])
+def test_malformed_statement_containers_remain_rejected(field, statements):
+    request = _request()
+    request["baseline"][field] = {"Version": "2012-10-17", "Statement": statements}
+
+    with pytest.raises(subject.MigrationDraftError, match="^BASELINE_POLICY_INVALID$"):
+        subject.build_review_draft(request)
+
+
 def test_partial_baseline_is_never_promoted_to_execution():
     request = _request()
     draft = subject.build_review_draft(request)
@@ -165,6 +245,71 @@ def test_session_safety_and_no_zero_assignment_stage_order():
     assert draft["rollback"]["automatic"] is False
 
 
+@pytest.mark.parametrize("field", ["target_plan_tags", "plan_tags"])
+@pytest.mark.parametrize("key,value", [
+    ("purpose", ""),
+    ("k" * 128, "v" * 256),
+    ("Léǅʰ界N١Ⅳ²Z \u00a0\u2028\u2029_.:/=+-@", "Unicode and punctuation _.:/=+-@"),
+    (" leading and trailing ", " preserved "),
+])
+def test_identity_center_valid_tags_are_preserved(field, key, value):
+    request = _request()
+    tags = {key: value}
+    container = request if field == "target_plan_tags" else request["baseline"]
+    container[field] = tags
+    before = deepcopy(request)
+
+    draft = subject.build_review_draft(request)
+
+    assert request == before
+    assert draft["supplied_input"] == before
+    if field == "target_plan_tags":
+        assert draft["plan_proposed_tags"] == tags
+    assert draft["execution_authorized"] is False
+
+
+@pytest.mark.parametrize("field", ["target_plan_tags", "plan_tags"])
+@pytest.mark.parametrize("component", ["key", "value"])
+@pytest.mark.parametrize("character", [
+    "*", '"', "'", "\\", "?", "#", "%", "[", "]", ";",
+    "\n", "\t", "\x00", "\x7f", "\u0301", "\u200b", "\ud800", "😀",
+])
+def test_identity_center_disallowed_tag_characters_fail(field, component, character):
+    request = _request()
+    key, value = ("prefix" + character, "valid") if component == "key" else ("purpose", "prefix" + character)
+    container = request if field == "target_plan_tags" else request["baseline"]
+    container[field] = {key: value}
+
+    with pytest.raises(subject.MigrationDraftError, match="^TAGS_INVALID$"):
+        subject.build_review_draft(request)
+
+
+@pytest.mark.parametrize("field", ["target_plan_tags", "plan_tags"])
+@pytest.mark.parametrize("tags", [
+    {"": "value"}, {"k" * 129: "value"}, {"key": "v" * 257},
+    {"AWS:reserved": "value"}, {"aWs:reserved": "value"},
+    {1: "value"}, {"key": None}, {"key": False}, {"key": 1},
+    {f"key{i}": "" for i in range(51)},
+])
+def test_identity_center_tag_bounds_types_and_reserved_keys_fail(field, tags):
+    request = _request()
+    container = request if field == "target_plan_tags" else request["baseline"]
+    container[field] = tags
+
+    with pytest.raises(subject.MigrationDraftError, match="^TAGS_INVALID$"):
+        subject.build_review_draft(request)
+
+
+def test_identity_center_fifty_tags_and_empty_baseline_remain_valid():
+    request = _request()
+    request["target_plan_tags"] = {f"key{i}": "" for i in range(50)}
+
+    draft = subject.build_review_draft(request)
+
+    assert draft["plan_proposed_tags"] == request["target_plan_tags"]
+    assert draft["supplied_input"]["baseline"]["plan_tags"] == {}
+
+
 @pytest.mark.parametrize("field,value", [
     ("schema_version", True), ("schema_version", 2),
     ("management_account_id", "111122223333"), ("authority_account_id", "839393571433"),
@@ -175,7 +320,7 @@ def test_session_safety_and_no_zero_assignment_stage_order():
     ("not_before", "2030-01-01T00:00:00"), ("not_after", "2030-01-01T01:00:01Z"),
     ("not_after", "2030-01-01T00:00:00Z"), ("not_before", "2030-99-01T00:00:00Z"),
     ("target_plan_tags", {}), ("target_plan_tags", {"aws:managed": "no"}),
-    ("target_plan_tags", {"purpose": ""}), ("target_plan_tags", {"purpose": "unsafe\nvalue"}),
+    ("target_plan_tags", {"purpose": "unsafe\nvalue"}),
 ])
 def test_invalid_explicit_selections_fail_without_defaults(field, value):
     request = _request()
@@ -220,11 +365,25 @@ def test_baseline_scope_and_unknowns_are_explicit(field, value):
 
 @pytest.mark.parametrize("field,value", [("Effect", []), ("Condition", "bad"), ("Action", []),
                                         ("Sid", "bad-sid"), ("Principal", "*")])
-def test_malformed_policy_never_leaks_provider_style_error(field, value):
+@pytest.mark.parametrize("singleton", [False, True])
+def test_malformed_policy_never_leaks_provider_style_error(field, value, singleton):
     request = _request()
     request["baseline"]["plan_inline_policy"]["Statement"][0][field] = value
+    if singleton:
+        request["baseline"]["plan_inline_policy"]["Statement"] = request["baseline"]["plan_inline_policy"]["Statement"][0]
     with pytest.raises(subject.MigrationDraftError, match="BASELINE_POLICY_INVALID"):
         subject.build_review_draft(request)
+
+
+def test_duplicate_statement_sids_remain_rejected():
+    request = _request()
+    statements = request["baseline"]["plan_inline_policy"]["Statement"]
+    statements.append(deepcopy(statements[0]))
+    before = deepcopy(request)
+
+    with pytest.raises(subject.MigrationDraftError, match="^BASELINE_POLICY_INVALID$"):
+        subject.build_review_draft(request)
+    assert request == before
 
 
 def test_public_summary_omits_private_coordinates_and_documents():
@@ -251,6 +410,60 @@ def _cli(source, output, *extra):
     return subprocess.run([sys.executable, "-I", "-B", str(CLI), "--input", str(source),
                            "--output", str(output), *extra], capture_output=True, text=True,
                           timeout=20, cwd=source.parent)
+
+
+def test_real_cli_accepts_all_singletons_and_empty_tag_values(tmp_path):
+    source, output = _private_input(tmp_path)
+    request = _request()
+    singleton = deepcopy(request["baseline"]["plan_inline_policy"])
+    singleton["Statement"] = singleton["Statement"][0]
+    for field in ("reader_inline_policy", "plan_inline_policy", "plan_role_inline_policy"):
+        request["baseline"][field] = deepcopy(singleton)
+    request["baseline"]["reader_inline_policy"]["Statement"]["Effect"] = "Deny"
+    request["target_plan_tags"] = {"empty": ""}
+    request["baseline"]["plan_tags"] = {"empty": ""}
+    source.write_text(json.dumps(request))
+    before = source.read_bytes()
+
+    result = _cli(source, output)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert source.read_bytes() == before
+    draft = json.loads(output.read_text())
+    summary = json.loads(result.stdout)
+    assert draft["supplied_input"] == request
+    assert summary == subject.public_summary(draft)
+    assert summary["status"] == "DRAFT_REVIEW_ONLY"
+    assert summary["execution_authorized"] is False
+    assert summary["aws_calls"] == summary["aws_mutations"] == 0
+    assert "PLAN_SSO_IAM_EQUALITY_NOT_ESTABLISHED" not in summary["required_reviews"]
+    assert "EXISTING_READER_DENIES_PRESERVED_REQUIRE_EVALUATION" in summary["required_reviews"]
+    assert "Statement" not in result.stdout
+    assert "target_plan_tags" not in result.stdout
+    assert request["target_user_id"] not in result.stdout
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    output_before = output.read_bytes()
+    repeated = _cli(source, output)
+    assert repeated.returncode == 2
+    assert json.loads(repeated.stderr) == {"error": "PRIVATE_OUTPUT_CREATE_FAILED"}
+    assert output.read_bytes() == output_before
+
+
+@pytest.mark.parametrize("field", ["target_plan_tags", "plan_tags"])
+def test_real_cli_invalid_tag_is_sanitized_and_creates_no_draft(tmp_path, field):
+    source, output = _private_input(tmp_path)
+    request = _request()
+    container = request if field == "target_plan_tags" else request["baseline"]
+    container[field] = {"purpose": "synthetic-invalid*value"}
+    source.write_text(json.dumps(request))
+
+    result = _cli(source, output)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == {"error": "TAGS_INVALID"}
+    assert not output.exists()
 
 
 def test_real_cli_is_private_create_only_and_sanitized(tmp_path):
