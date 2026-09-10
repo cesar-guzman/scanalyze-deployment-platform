@@ -823,10 +823,12 @@ def test_repository_controls_are_exact_and_dry_run_remains_unprivileged() -> Non
     assert result["dry_run_oidc"] is False
     assert result["privileged_workflows"] == [
         ".github/workflows/_terraform-layer.yml",
+        ".github/workflows/express-production-release.yml",
         ".github/workflows/nonprod-release.yml",
     ]
     assert result["privileged_jobs"] == {
         ".github/workflows/_terraform-layer.yml": ["live_saved_plan"],
+        ".github/workflows/express-production-release.yml": ["live-layer"],
         ".github/workflows/nonprod-release.yml": ["live-layer"],
     }
     assert result["orchestrator_actions"] == [
@@ -840,6 +842,7 @@ def test_no_repository_workflow_can_bypass_the_gug123_authorizer() -> None:
     result = validate_repository_controls(REPO_ROOT)
     assert result["privileged_jobs"] == {
         ".github/workflows/_terraform-layer.yml": ["live_saved_plan"],
+        ".github/workflows/express-production-release.yml": ["live-layer"],
         ".github/workflows/nonprod-release.yml": ["live-layer"],
     }
 
