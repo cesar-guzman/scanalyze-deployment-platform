@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const testPort = process.env.SCANALYZE_E2E_PORT ?? '5173';
+if (!/^\d+$/.test(testPort) || Number(testPort) < 1024 || Number(testPort) > 65535) {
+  throw new Error('SCANALYZE_E2E_PORT must be a port between 1024 and 65535');
+}
+const testOrigin = `http://localhost:${testPort}`;
+
 /**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
@@ -28,7 +34,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'http://localhost:5173',
+    baseURL: testOrigin,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -44,8 +50,8 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+    command: `npm run dev -- --host localhost --port ${testPort} --strictPort`,
+    url: testOrigin,
     reuseExistingServer: !process.env.CI,
   },
 });

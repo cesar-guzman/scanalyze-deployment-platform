@@ -3,12 +3,19 @@ import { useDocumentJourney } from '../hooks/useDocumentJourney';
 import { useState, useEffect } from 'react';
 import { documentApi } from '../api/documentApi';
 import type { DocumentResultResponse } from '../domain/documents';
+import type { BankStatementWarningCode } from '../contracts/documentJourney.v1';
 import { 
   CheckCircleIcon, 
   ExclamationCircleIcon, 
   ArrowPathIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
+
+const RESULT_WARNING_LABELS: Record<BankStatementWarningCode, string> = {
+  BALANCE_RECONCILIATION_WARNING: 'Los saldos no coinciden con las transacciones extraídas.',
+  INCOMPLETE_EXTRACTION: 'La extracción está incompleta; revisa los datos disponibles.',
+  LOW_CONFIDENCE: 'La extracción tiene baja confianza; revisa los datos.',
+};
 
 export default function DocumentPage() {
   const { id } = useParams<{ id: string }>();
@@ -115,7 +122,7 @@ export default function DocumentPage() {
           <h2 className="text-2xl font-bold text-teal-400">Resultados de Extracción</h2>
           {result.quality && (
             <div className="text-sm bg-teal-500/20 text-teal-300 px-3 py-1 rounded-full border border-teal-500/30">
-              Confianza: {(result.quality.overall_confidence * 100).toFixed(0)}%
+              Confianza: {result.quality.overallConfidence.toFixed(0)}%
             </div>
           )}
         </div>
@@ -123,19 +130,19 @@ export default function DocumentPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="space-y-2">
             <p className="text-sm text-slate-400">Titular</p>
-            <p className="text-lg font-medium text-white">{result.data.account_holder_name || 'No encontrado'}</p>
+            <p className="text-lg font-medium text-white">{result.data.account.holder || 'No encontrado'}</p>
           </div>
           <div className="space-y-2">
             <p className="text-sm text-slate-400">Banco</p>
-            <p className="text-lg font-medium text-white">{result.data.bank_name || 'No encontrado'}</p>
+            <p className="text-lg font-medium text-white">{result.data.bank.name || 'No encontrado'}</p>
           </div>
           <div className="space-y-2">
             <p className="text-sm text-slate-400">Cuenta</p>
-            <p className="font-mono text-lg text-white">{result.data.account_number_mask || '****'}</p>
+            <p className="font-mono text-lg text-white">{result.data.account.numberMasked || 'No encontrada'}</p>
           </div>
           <div className="space-y-2">
-            <p className="text-sm text-slate-400">Fecha de Corte</p>
-            <p className="text-lg text-white">{result.data.statement_date || 'No encontrada'}</p>
+            <p className="text-sm text-slate-400">Periodo</p>
+            <p className="text-lg text-white">{result.data.statement.periodStart || '—'} → {result.data.statement.periodEnd || '—'}</p>
           </div>
         </div>
 
@@ -143,7 +150,7 @@ export default function DocumentPage() {
           <div className="mb-6 p-4 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
             <h4 className="font-semibold text-yellow-400 mb-2">Advertencias</h4>
             <ul className="list-disc pl-5 text-yellow-200 text-sm space-y-1">
-              {result.warnings.map((w, i) => <li key={i}>{w.message}</li>)}
+              {result.warnings.map((w, i) => <li key={i}>{RESULT_WARNING_LABELS[w.code]}</li>)}
             </ul>
           </div>
         )}
@@ -163,10 +170,10 @@ export default function DocumentPage() {
                 <tbody className="divide-y divide-slate-700/50">
                   {result.data.transactions.map((tx, i) => (
                     <tr key={i} className="hover:bg-slate-700/20">
-                      <td className="px-4 py-3 text-slate-300">{tx.date}</td>
-                      <td className="px-4 py-3 text-white">{tx.description}</td>
-                      <td className={`px-4 py-3 text-right font-mono ${tx.type === 'CREDIT' ? 'text-green-400' : 'text-slate-300'}`}>
-                        {tx.type === 'CREDIT' ? '+' : '-'}${tx.amount.toFixed(2)}
+                      <td className="px-4 py-3 text-slate-300">{tx.date || '—'}</td>
+                      <td className="px-4 py-3 text-white">{tx.description || '—'}</td>
+                      <td className={`px-4 py-3 text-right font-mono ${tx.direction === 'credit' ? 'text-green-400' : 'text-slate-300'}`}>
+                        {tx.amount === null ? '—' : `${tx.direction === 'credit' ? '+' : '-'}${tx.amount.toFixed(2)} ${result.data.account.currency || ''}`}
                       </td>
                     </tr>
                   ))}
@@ -174,6 +181,10 @@ export default function DocumentPage() {
               </table>
             </div>
           </div>
+        )}
+
+        {result.data.transactions.length === 0 && (
+          <p className="text-slate-400">No se encontraron transacciones en este resultado.</p>
         )}
         
         <div className="mt-8 flex gap-4">

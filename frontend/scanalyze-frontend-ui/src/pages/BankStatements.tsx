@@ -6,7 +6,8 @@ import { batchApi } from '../api/batchApi';
 import type { BatchResponse } from '../api/batchApi';
 import { uploadFileToPresignedUrl } from '../api/uploadApi';
 import { getApiClient } from '../api/client';
-import { requireHttpsUrl, safeDownloadFilename } from '../security/browserBoundaries.js';
+import { safeDownloadFilename } from '../security/browserBoundaries.js';
+import type { BankStatementData } from '../contracts/documentJourney.v1';
 
 /* ────────────────────────── Types ────────────────────────── */
 interface UploadTask {
@@ -28,35 +29,8 @@ interface BankDoc {
   classificationRoute?: string;
 }
 
-interface BankTransaction {
-  date?: string;
-  description?: string;
-  reference?: string;
-  direction: string;
-  amount?: number;
-  balanceAfter?: number;
-  category?: string;
-}
-
-interface BankResult {
-  bank?: { name?: string };
-  account?: { holder?: string; numberMasked?: string; clabeMasked?: string; currency?: string };
-  statement?: { periodStart?: string; periodEnd?: string };
-  balances?: { opening?: number; closing?: number; totalCredits?: number; totalDebits?: number };
-  transactions: BankTransaction[];
-  accountType?: string;
-  bankCountry?: string;
-  fees?: { totalFees?: number; ivaOnFees?: number };
-  interestEarned?: number;
-  interestCharged?: number;
-  summaryText?: string;
-}
-
 const MAX_CONCURRENT = 3;
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-const isRecord = (value: unknown): value is Record<string, unknown> => (
-  value !== null && typeof value === 'object' && !Array.isArray(value)
-);
 
 /* ────────────────────────── Page ────────────────────────── */
 export const BankStatements: React.FC = () => {
@@ -77,7 +51,7 @@ export const BankStatements: React.FC = () => {
   const [bankDocs, setBankDocs] = useState<BankDoc[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<BankDoc | null>(null);
-  const [resultData, setResultData] = useState<BankResult | null>(null);
+  const [resultData, setResultData] = useState<BankStatementData | null>(null);
   const [loadingResult, setLoadingResult] = useState(false);
   const [txnFilter, setTxnFilter] = useState<'all' | 'credit' | 'debit'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -179,32 +153,7 @@ export const BankStatements: React.FC = () => {
     setSearchTerm('');
     try {
       const data = await documentApi.getDocumentResult(doc.documentId);
-      const downloadUrl = typeof data.downloadUrl === 'string' ? data.downloadUrl : null;
-      let raw: unknown = null;
-      if (downloadUrl) {
-        const jsonResp = await fetch(requireHttpsUrl(downloadUrl), {
-          credentials: 'omit',
-          referrerPolicy: 'no-referrer',
-        });
-        if (!jsonResp.ok) throw new Error('RESULT_DOWNLOAD_FAILED');
-        raw = await jsonResp.json();
-      } else {
-        raw = data;
-      }
-      if (!isRecord(raw)) throw new Error('RESULT_INVALID');
-      const transactions = Array.isArray(raw.transactions) ? raw.transactions : [];
-      const normalizedTransactions: BankTransaction[] = transactions
-        .filter(isRecord)
-        .map((transaction) => ({
-          date: typeof transaction.date === 'string' ? transaction.date : undefined,
-          description: typeof transaction.description === 'string' ? transaction.description : '',
-          reference: typeof transaction.reference === 'string' ? transaction.reference : undefined,
-          direction: typeof transaction.direction === 'string' ? transaction.direction : 'unknown',
-          amount: Number(transaction.amount) || 0,
-          balanceAfter: transaction.balanceAfter == null ? undefined : Number(transaction.balanceAfter),
-          category: typeof transaction.category === 'string' ? transaction.category : undefined,
-        }));
-      setResultData({ ...(raw as Partial<BankResult>), transactions: normalizedTransactions });
+      setResultData(data.data);
     } catch {
       setResultData(null);
     }
@@ -259,7 +208,7 @@ export const BankStatements: React.FC = () => {
     setDownloadingCsv(false);
   };
 
-  const fmtMoney = (v?: number | null, cur?: string) =>
+  const fmtMoney = (v?: number | null, cur?: string | null) =>
     v != null ? `${cur === 'USD' ? '$' : cur === 'MXN' ? '$' : ''}${v.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${cur || ''}` : '—';
 
   /* ────────────────────────── RENDER ────────────────────────── */
@@ -570,7 +519,7 @@ export const BankStatements: React.FC = () => {
                     {filteredTxns.map((t, i) => (
                       <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                         <td className="p-3 text-slate-300 whitespace-nowrap font-mono text-xs">{t.date || '—'}</td>
-                        <td className="p-3 text-slate-200 max-w-xs truncate" title={t.description}>{t.description || '—'}</td>
+                        <td className="p-3 text-slate-200 max-w-xs truncate" title={t.description ?? undefined}>{t.description || '—'}</td>
                         <td className="p-3">
                           {t.category ? (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-300 border border-slate-600/30">{t.category}</span>

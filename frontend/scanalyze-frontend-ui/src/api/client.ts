@@ -9,7 +9,7 @@ class AuthSessionError extends Error {
   }
 }
 
-export const getApiClient = () => {
+export const getApiClient = (expectedSubject?: string) => {
   const config = getConfig();
 
   const client = axios.create({
@@ -27,6 +27,7 @@ export const getApiClient = () => {
       if (!userStr) throw new AuthSessionError();
       const user = User.fromStorageString(userStr);
       if (!user.access_token || user.expired) throw new AuthSessionError();
+      if (expectedSubject !== undefined && user.profile.sub !== expectedSubject) throw new AuthSessionError();
       req.headers.Authorization = `Bearer ${user.access_token}`;
     } catch {
       throw new AuthSessionError();

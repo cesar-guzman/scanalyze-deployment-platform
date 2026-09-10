@@ -1,6 +1,7 @@
 mock_provider "aws" {}
 
 variables {
+  alb_service_routes      = {}
   deployment_id           = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
   customer_id             = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
   account_id              = "000000000000"

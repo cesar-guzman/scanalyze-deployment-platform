@@ -13,8 +13,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
 });
 
-test('Recovery UX: Handle network failures during create and upload', async ({ page }) => {
-  // Mocks explicitly failing the first attempts
+test('Recovery UX: An uncertain create offers recovery without creating again', async ({ page }) => {
   let createAttempt = 0;
   await page.route('**/api/v2/documents', async route => {
     createAttempt++;
@@ -41,8 +40,9 @@ test('Recovery UX: Handle network failures during create and upload', async ({ p
   // Verify UI Shows Error
   await expect(page.locator('text=Error de carga')).toBeVisible();
 
-  // Retry Button exists
-  await expect(page.locator('button:has-text("Subir Documento")')).not.toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Recuperar carga', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Subir Documento', exact: true })).toHaveCount(0);
+  expect(createAttempt).toBe(1);
 });
 
 test('Recovery UX: Handle backend terminal FAILED state gracefully', async ({ page }) => {

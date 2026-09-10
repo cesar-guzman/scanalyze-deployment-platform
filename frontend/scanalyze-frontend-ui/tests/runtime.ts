@@ -1,3 +1,5 @@
+export const syntheticTestOrigin = `http://localhost:${process.env.SCANALYZE_E2E_PORT ?? '5173'}`;
+
 export const syntheticRuntimeConfig = {
   schema_version: '3',
   customer_id: 'cust_01ARZ3NDEKTSV4RRFFQ69G5FAV',
@@ -5,15 +7,15 @@ export const syntheticRuntimeConfig = {
   account_id: '123456789012',
   region: 'us-east-1',
   environment: 'sandbox',
-  api_endpoint: 'http://localhost:5173/api',
+  api_endpoint: `${syntheticTestOrigin}/api`,
   cognito: {
     user_pool_id: 'us-east-1_SYNTHETIC01',
     spa_client_id: 'syntheticspaclient000000000001',
     issuer_url: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_SYNTHETIC01',
     region: 'us-east-1',
     hosted_ui_domain: 'https://dep-01arz3ndektsv4rrffq69g5fav-identity.auth.us-east-1.amazoncognito.com',
-    redirect_uri: 'http://localhost:5173/callback',
-    post_logout_redirect_uri: 'http://localhost:5173/',
+    redirect_uri: `${syntheticTestOrigin}/callback`,
+    post_logout_redirect_uri: `${syntheticTestOrigin}/`,
     allowed_oauth_flows: ['code'],
     pkce_required: true,
     client_secret_embedded: false,
@@ -42,7 +44,7 @@ export const syntheticRuntimeConfig = {
 } as const;
 
 export const syntheticAuthState = {
-  profile: { email: 'synthetic-user@example.invalid' },
+  profile: { sub: 'synthetic-user-a', email: 'synthetic-user@example.invalid' },
   access_token: 'synthetic-access-token',
   token_type: 'Bearer',
   scope: 'openid scanalyze.api.v1/read scanalyze.api.v1/write scanalyze.api.v1/admin',

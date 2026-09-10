@@ -140,6 +140,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--catalog-schema", type=Path, default=DEFAULT_CATALOG_SCHEMA)
     parser.add_argument("--dag", type=Path, default=DEFAULT_DAG)
     parser.add_argument("--materialize-out", type=Path, required=True)
+    parser.add_argument("--static-routing", type=Path, help="Path to static routing config")
     return parser.parse_args(argv)
 
 
@@ -230,6 +231,33 @@ def main(argv: list[str] | None = None) -> int:
             required_contracts=requirements,
             expected_account_ready_digest=args.expected_account_ready_digest,
         )
+
+        if args.static_routing:
+            static_routing = load_json(args.static_routing, "static routing config")
+            
+            # Retrieve release manifest for dynamic image digests
+            release_manifest = next(
+                (c for c in evidence if c.get("output_schema_version", c.get("contract_id")) == "release-manifest/v1"),
+                None
+            )
+            
+            if "service_definitions" in static_routing and release_manifest:
+                digests = release_manifest.get("outputs", {}).get("service_image_digests", {})
+                if digests:
+                    for svc in static_routing["service_definitions"]:
+                        svc_name = svc["name"]
+                        if svc_name in digests:
+                            image = svc["image"].replace("{digest}", digests[svc_name])
+                            image = image.replace("{account_id}", args.account_id)
+                            image = image.replace("{region}", args.region)
+                            image = image.replace("{deployment_id}", args.deployment_id.replace("_", "-").lower())
+                            svc["image"] = image
+
+            for key, val in static_routing.items():
+                if key in variables:
+                    raise ValidationError(f"static routing config cannot override verified contract variable: {key}")
+                variables[key] = val
+
         _write_exclusive(args.materialize_out, variables)
     except (ValidationError, ContractProjectionError, FileNotFoundError) as exc:
         message = (

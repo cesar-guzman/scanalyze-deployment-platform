@@ -13,6 +13,7 @@ module "edge_identity" {
   vpc_id                   = var.network_contract.vpc_id
   private_subnet_ids       = var.network_contract.private_subnet_ids
   alb_listener_arn         = var.platform_contract.alb_listener_arn
+  alb_tls_server_name      = var.alb_tls_server_name
   alb_security_group_id    = var.platform_contract.alb_security_group_id
   api_access_log_group_arn = var.api_access_log_group_arn
 

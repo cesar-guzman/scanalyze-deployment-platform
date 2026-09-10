@@ -1,0 +1,79 @@
+{
+  "alb_tls_server_name": "api.production.scanalyze.dev",
+  "alb_service_routes": {
+    "scanalyze-ingest-api": {
+      "priority": 100,
+      "path_patterns": ["/api/v1/*", "/api/v2/*"]
+    }
+  },
+  "service_definitions": [
+    {
+      "name": "scanalyze-ingest-api",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/ingest-api@{digest}",
+      "cpu": 512,
+      "memory": 1024,
+      "port": 8080,
+      "desired_count": 3,
+      "health_check_path": "/api/v2/health",
+      "extra_environment": [
+        { "name": "GUNICORN_WORKERS", "value": "4" }
+      ]
+    },
+    {
+      "name": "scanalyze-bank-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/bank-worker@{digest}",
+      "cpu": 256,
+      "memory": 512,
+      "desired_count": 1,
+      "health_check_path": "/health",
+      "extra_environment": []
+    },
+    {
+      "name": "scanalyze-personal-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/personal-worker@{digest}",
+      "cpu": 256,
+      "memory": 512,
+      "desired_count": 1,
+      "health_check_path": "/health",
+      "extra_environment": []
+    },
+    {
+      "name": "scanalyze-gov-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/gov-worker@{digest}",
+      "cpu": 256,
+      "memory": 512,
+      "desired_count": 1,
+      "health_check_path": "/health",
+      "extra_environment": []
+    },
+    {
+      "name": "scanalyze-classifier-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/classifier-worker@{digest}",
+      "cpu": 512,
+      "memory": 1024,
+      "desired_count": 1,
+      "health_check_path": "/health",
+      "extra_environment": [
+        { "name": "FEATURES_BEDROCK_CLASSIFICATION_ENABLED", "value": "true" }
+      ]
+    },
+    {
+      "name": "scanalyze-ocr-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/ocr-worker@{digest}",
+      "cpu": 512,
+      "memory": 2048,
+      "desired_count": 2,
+      "health_check_path": "/health",
+      "extra_environment": []
+    },
+    {
+      "name": "scanalyze-postprocess-worker",
+      "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/postprocess-worker@{digest}",
+      "cpu": 256,
+      "memory": 512,
+      "desired_count": 1,
+      "health_check_path": "/health",
+      "extra_environment": []
+    }
+  ]
+}

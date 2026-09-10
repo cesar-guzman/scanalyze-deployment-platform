@@ -5,14 +5,16 @@ import type {
   DocumentArtifactsResponse,
   DocumentResultResponse
 } from '../domain/documents';
+import type { ReconciliationResponse, UploadCapabilityResponse } from '../contracts/documentJourney.v1';
 
 export const documentApi = {
   createDocument: async (
     file: File,
     idempotencyKey?: string,
-    batchId?: string
+    batchId?: string,
+    expectedSubject?: string,
   ): Promise<DocumentCreateResponse> => {
-    const client = getApiClient();
+    const client = getApiClient(expectedSubject);
     const headers: Record<string, string> = {
       'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1'
     };
@@ -31,22 +33,43 @@ export const documentApi = {
       payload.batchId = batchId;
     }
 
-    const response = await client.post<DocumentCreateResponse>('/api/v2/documents', payload, { headers });
+    const response = await client.post<DocumentCreateResponse>('/v2/documents', payload, { headers });
     return response.data;
   },
 
-  submitDocument: async (id: string): Promise<void> => {
-    const client = getApiClient();
+  submitDocument: async (id: string, expectedSubject?: string): Promise<void> => {
+    const client = getApiClient(expectedSubject);
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
-    await client.post(`/api/v2/documents/${id}/submit`, { stage: 'ingest' }, { headers });
+    await client.post(`/v2/documents/${id}/submit`, { stage: 'ingest' }, { headers });
   },
 
-  getDocumentStatus: async (id: string): Promise<DocumentStatusResponse> => {
-    const client = getApiClient();
+  reconcileCreate: async (idempotencyKey: string, expectedSubject?: string): Promise<ReconciliationResponse> => {
+    const response = await getApiClient(expectedSubject).post<ReconciliationResponse>(
+      '/v2/operations/documents.create/reconciliation',
+      undefined,
+      { headers: {
+        'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1',
+        'Idempotency-Key': idempotencyKey,
+      } },
+    );
+    return response.data;
+  },
+
+  refreshUploadCapability: async (id: string, expectedSubject?: string): Promise<UploadCapabilityResponse> => {
+    const response = await getApiClient(expectedSubject).post<UploadCapabilityResponse>(
+      `/v2/documents/${id}/upload-capabilities`,
+      undefined,
+      { headers: { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' } },
+    );
+    return response.data;
+  },
+
+  getDocumentStatus: async (id: string, expectedSubject?: string): Promise<DocumentStatusResponse> => {
+    const client = getApiClient(expectedSubject);
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
-    const response = await client.get<DocumentStatusResponse>(`/api/v2/documents/${id}`, { headers });
+    const response = await client.get<DocumentStatusResponse>(`/v2/documents/${id}`, { headers });
     return response.data;
   },
 
@@ -54,7 +77,7 @@ export const documentApi = {
     const client = getApiClient();
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
-    const response = await client.get<DocumentResultResponse>(`/api/v2/documents/${id}/result`, { headers });
+    const response = await client.get<DocumentResultResponse>(`/v2/documents/${id}/result`, { headers });
     return response.data;
   },
 

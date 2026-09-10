@@ -1,6 +1,7 @@
 mock_provider "aws" {}
 
 variables {
+  alb_tls_server_name     = "ingest.synthetic.example"
   deployment_id           = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
   customer_id             = "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
   account_id              = "000000000000"
@@ -333,4 +334,80 @@ run "publishes_the_exact_edge_identity_v2_contract" {
     ])
     error_message = "edge-identity/v2 must preserve exact identity binding, access tokens, audiences, and no-secret constraints"
   }
+}
+
+run "uses_verified_tls_and_preserves_the_canonical_backend_path" {
+  command = apply
+  assert {
+    condition = (
+      aws_apigatewayv2_integration.alb.integration_uri == var.alb_listener_arn &&
+      aws_apigatewayv2_integration.alb.connection_type == "VPC_LINK" &&
+      aws_apigatewayv2_integration.alb.tls_config[0].server_name_to_verify == "ingest.synthetic.example" &&
+      aws_apigatewayv2_integration.alb.request_parameters == tomap({ "overwrite:path" = "$request.path" })
+    )
+    error_message = "the private integration must verify the explicit ALB certificate hostname and forward the path without its stage"
+  }
+}
+
+run "plans_a_new_reviewed_deployment_when_the_tls_hostname_changes" {
+  command = plan
+  variables { alb_tls_server_name = "alternate.synthetic.example" }
+  assert {
+    condition     = aws_apigatewayv2_integration.alb.tls_config[0].server_name_to_verify == "alternate.synthetic.example"
+    error_message = "the replacement TLS configuration must use the newly reviewed hostname"
+  }
+}
+
+run "rejects_empty_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_wildcard_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "*.synthetic.example" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_url_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "https://ingest.synthetic.example" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_port_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "ingest.synthetic.example:443" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_ip_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "192.0.2.1" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_single_label_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "localhost" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_uppercase_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "Ingest.synthetic.example" }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_trailing_dot_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "ingest.synthetic.example." }
+  expect_failures = [var.alb_tls_server_name]
+}
+
+run "rejects_overlong_tls_hostname" {
+  command = plan
+  variables { alb_tls_server_name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  expect_failures = [var.alb_tls_server_name]
 }

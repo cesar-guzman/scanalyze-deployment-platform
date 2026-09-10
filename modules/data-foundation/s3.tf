@@ -5,7 +5,9 @@
 # This is the APPLICATION document bucket, NOT the state/evidence/contracts bucket.
 
 resource "aws_s3_bucket" "documents" {
-  bucket = "${var.deployment_id}-documents"
+  # S3 requires lowercase DNS-compatible names; preserve the full canonical ULID.
+  # This is a physical-name change and would replace an existing bucket.
+  bucket = "${lower(replace(var.deployment_id, "_", "-"))}-documents"
 
   tags = {
     deployment_id = var.deployment_id

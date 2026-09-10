@@ -175,6 +175,15 @@ variable "alb_security_group_id" {
   description = "ALB security group ID from platform contract"
 }
 
+variable "alb_service_routes" {
+  type = map(object({
+    priority      = number
+    path_patterns = list(string)
+  }))
+  description = "Explicit reviewed routing for every service with a port; module validates exact coverage, priorities and API paths"
+  nullable    = false
+}
+
 variable "service_definitions" {
   type = list(object({
     name              = string

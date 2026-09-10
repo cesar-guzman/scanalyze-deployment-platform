@@ -4,8 +4,8 @@ Description: Scanalyze external destination-account ACCOUNT_READY v2 baseline. C
   template. It creates no workloads, legacy lock table, or log groups.
 Metadata:
   Scanalyze: {Contract: account-ready/v2, BaselineVersion: v2.1.0, Ownership: external-account-baseline,
-    TerminalRolesPolicyBundleSha256: 'sha256:79634f20c3dafcdd861d853f7f193e28ad3a1016af13886b3d5eb957907c022c',
-    TerminalRolesTemplateSha256: 'sha256:7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2'}
+    TerminalRolesPolicyBundleSha256: 'sha256:9277138911e4354b727552f7637d784ee448fbcba7494aa02e5ce40a97bec140',
+    TerminalRolesTemplateSha256: 'sha256:dc8f913e0fce7ed6278fcd9c0c555f9881964fbe8f585b7ac3e5154e3fa3204e'}
 Parameters:
   CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
   DeploymentId: {Type: String, AllowedPattern: '^dep_[0-9A-HJKMNP-TV-Z]{26}$'}
@@ -14,7 +14,7 @@ Parameters:
     Type: String
     Default: sandbox
     AllowedValues: [sandbox, dev, staging, production]
-  TerminalRolesTemplateUrl: {Type: String, MaxLength: 1024, AllowedPattern: '^https://scanalyze-shared-releases\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/terminal-roles/sha256/7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2/cfn-terminal-roles\.yaml\?versionId=(?![Nn][Uu][Ll][Ll]$)[A-Za-z0-9._~+/=-]+$',
+  TerminalRolesTemplateUrl: {Type: String, MaxLength: 1024, AllowedPattern: '^https://scanalyze-shared-releases\.s3(?:\.[a-z0-9-]+)?\.amazonaws\.com(?:\.cn)?/terminal-roles/sha256/dc8f913e0fce7ed6278fcd9c0c555f9881964fbe8f585b7ac3e5154e3fa3204e/cfn-terminal-roles\.yaml\?versionId=(?![Nn][Uu][Ll][Ll]$)[A-Za-z0-9._~+/=-]+$',
     ConstraintDescription: 'must be the non-null version-pinned shared-releases URL whose content-addressed
       path matches terminal template sha256:7b02ca9667074b316230308be3f6a0e6ea42dd088551fe327ae8ba2af058d3a2'}
 Rules:
