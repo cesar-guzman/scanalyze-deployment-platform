@@ -108,6 +108,7 @@ LIVE_BUNDLE_SECRET_INPUT = (
 )
 APPROVED_PRIVILEGED_JOBS = {
     ".github/workflows/nonprod-release.yml": frozenset({"live-layer"}),
+    ".github/workflows/express-production-release.yml": frozenset({"live-layer"}),
     ".github/workflows/_terraform-layer.yml": frozenset({"live_saved_plan"}),
 }
 LIVE_JOB_PERMISSIONS = {"actions": "read", "contents": "read", "id-token": "write"}

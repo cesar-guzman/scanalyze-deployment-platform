@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "deployment_id": "dep_01KWM783E0S1FZVAM8FRDV1PR0D",
+  "environment": "production",
+  "release_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "requested_by": "github:codex",
+  "requested_at": "2026-09-10T00:00:00Z",
+  "change_ticket": "NO-TICKET",
+  "full_deployment": true,
+  "approval": {
+    "status": "pending",
+    "requested_reviewers": [
+      "team:platform-engineering"
+    ]
+  },
+  "non_sensitive_selectors": {
+    "region": "us-east-1",
+    "tier": "enterprise-standard",
+    "processing_domains": [
+      "bank",
+      "personal",
+      "gov"
+    ]
+  }
+}

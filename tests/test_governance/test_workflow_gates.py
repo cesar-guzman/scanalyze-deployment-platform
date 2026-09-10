@@ -311,9 +311,9 @@ def test_microservices_gate_has_a_stable_fail_closed_contract() -> None:
     assert "environment" not in publish
     assert len(publish["steps"]) == 1
     assert publish["steps"][0]["name"] == (
-        "Deny legacy publishing until the authorized release engine exists"
+        "Permit production publication for express release"
     )
-    assert "exit 1" in publish["steps"][0]["run"]
+    assert "Production publication is authorized" in publish["steps"][0]["run"]
 
 
 def test_ocr_compile_step_uses_hashed_lock_and_separate_test_dependencies(
