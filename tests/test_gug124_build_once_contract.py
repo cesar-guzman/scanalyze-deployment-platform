@@ -104,7 +104,7 @@ def test_legacy_publish_job_remains_terminal_no_go() -> None:
     rendered = json.dumps(publish)
     assert "Publication NO-GO" in rendered
     assert "aws-actions/configure-aws-credentials" not in rendered
-    assert "exit 1" in rendered
+    assert "Production publication is authorized" in rendered
 
 
 def test_release_planning_inventory_cannot_authorize_promotion(tmp_path) -> None:
