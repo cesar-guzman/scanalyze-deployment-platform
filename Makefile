@@ -1,5 +1,7 @@
 .PHONY: help agent-context toolchain-check fmt lint schema-check enterprise-authorization-check json-syntax-check policy-check contract-check test security-check microservices-check frontend-check github-governance-check github-deployment-identity-check gitops-orchestrator-check nonprod-live-engine-check staging-certification-check platform-authority-upstream-prerequisites-check platform-authority-retirement-service-role-check platform-authority-retirement-entrypoint-check platform-authority-gug390-live-provider-check platform-authority-gug392-live-provider-check platform-authority-gug395-preplan-seed-check platform-authority-gug395-preplan-collision-check platform-authority-bootstrap-plan-repair-check platform-authority-bootstrap-check preflight-core preflight-m0 preflight git-safety required-artifacts-check module-check root-check taskdef-check supply-chain-check preflight-m1 contract-matrix terraform-fmt-check module-ownership-check edge-split-check services-ownership-check module-interface-check preflight-m2 toolchain-status bootstrap-local repro-check contributor-docs-check phase0-docs-check docs-check release-dry-run nonprod-readiness-check clone-check
 
+.PHONY: document-journey-smoke-check
+
 # ── Toolchain ────────────────────────────────────────────────────────
 PYTHON     ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)
 TERRAFORM  ?= terraform
@@ -30,6 +32,7 @@ help:
 	@echo "  make gitops-orchestrator-check Validate the canonical dry-run deployment DAG"
 	@echo "  make nonprod-live-engine-check Validate exact-plan and resumable ledger controls offline"
 	@echo "  make staging-certification-check Validate signed GUG-127 evidence offline"
+	@echo "  make document-journey-smoke-check Validate the synthetic application smoke offline"
 	@echo "  make platform-authority-upstream-prerequisites-check Validate the GUG-376 upstream prerequisite contracts offline"
 	@echo "  make platform-authority-retirement-entrypoint-check Validate the GUG-363 one-attempt entrypoint contract offline"
 	@echo "  make platform-authority-retirement-service-role-check Validate the GUG-365 prerequisite bundle offline"
@@ -486,6 +489,13 @@ nonprod-live-engine-check:
 		-u AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE \
 		$(PYTHON) scripts/deployment/nonprod-live-engine.py dry-run-check
 	@echo "Live engine status: REPOSITORY_CANDIDATE / CONNECTED_DEV_NOT_PROVEN / PRODUCTION_NO_GO"
+
+# ── Synthetic Application Smoke Check (offline only) ───────────────
+document-journey-smoke-check:
+	@env -u PYTHONPATH -u PYTHONHOME PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q -p no:cacheprovider \
+		$(TESTS_DIR)/test_deployment/test_document_journey_smoke.py \
+		$(TESTS_DIR)/test_deployment/test_document_journey_smoke_cli.py
+	@echo "Synthetic smoke tests complete; no connected application or deployment action."
 
 # ── Staging Certification Check (GUG-127, offline) ───────────────────
 staging-certification-check:
