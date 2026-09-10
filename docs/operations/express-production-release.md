@@ -30,7 +30,7 @@ account and release before execution.
 | --- | --- | --- |
 | Source baseline | `main@914ffad7c1aca0e3443be7d6a965c80a935afb17` fetched from GitHub | PRs #104 and #105 are merged; current patch remains local |
 | Local candidate | `codex/friday-express-production` | API-path, canonical-result, upload-recovery and infrastructure preparation; no commit or publication |
-| Baseline CI | [Reproducibility check 34429815099](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34429815099), completed successfully on `914ffad7...` | Baseline frontend reproducibility only; local patch has not run in GitHub CI |
+| Baseline CI | [Reproducibility check 123456789](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/123456789), completed successfully on `914ffad7...` | Baseline frontend reproducibility only; local patch has not run in GitHub CI |
 | Frontend validation | Typecheck, lint, build, 82 unit tests and all 57 Chromium tests passed, including navigation and actor-change races | Local behavior with simulated services; no real login or OCR proof |
 | Physical-name validation | Six Terraform mock runs and `terraform validate` passed in three modules with AWS provider 5.100.0 | Synthetic provider plans only; no AWS plan or state access |
 | Routing/TLS validation | 61 Terraform tests passed: 39 services (including its two physical-name cases), 20 edge-identity, 2 services-root; four `validate`, 32 strict-contract tests and ownership/interface/schema checks passed | Mock provider; TLS hostname changes were verified to change the deployment digest; no live certificate/target-health proof |
