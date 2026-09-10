@@ -10,6 +10,7 @@ from .middleware import RequestContextMiddleware
 from .api.health import router as health_router
 from .api.v1.router import router as v1_router
 from .api.v2.router import router as v2_router
+from .authentication_assurance import router as passkey_router
 
 def create_app() -> FastAPI:
     s = get_settings()
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(v1_router)
     app.include_router(v2_router)
+    app.include_router(passkey_router)
 
     # Error handling
     register_exception_handlers(app)

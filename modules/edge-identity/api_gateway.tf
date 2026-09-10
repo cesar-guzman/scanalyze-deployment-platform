@@ -55,6 +55,15 @@ resource "aws_apigatewayv2_integration" "alb" {
   integration_method = "ANY"
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.alb.id
+
+  tls_config {
+    server_name_to_verify = var.alb_tls_server_name
+  }
+
+  # Private integrations otherwise prepend the stage to the backend path.
+  request_parameters = {
+    "overwrite:path" = "$request.path"
+  }
 }
 
 resource "aws_apigatewayv2_route" "protected" {
@@ -90,8 +99,10 @@ resource "aws_apigatewayv2_deployment" "reviewed" {
         expose_headers = ["Retry-After", "X-Correlation-ID", "X-Request-ID", "X-Trace-ID"]
       }
       integration = {
-        listener_arn = var.alb_listener_arn
-        vpc_link_id  = aws_apigatewayv2_vpc_link.alb.id
+        listener_arn       = var.alb_listener_arn
+        vpc_link_id        = aws_apigatewayv2_vpc_link.alb.id
+        tls_server_name    = aws_apigatewayv2_integration.alb.tls_config[0].server_name_to_verify
+        request_parameters = aws_apigatewayv2_integration.alb.request_parameters
       }
     }))
   }

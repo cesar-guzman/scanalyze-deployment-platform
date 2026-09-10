@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Scanalyze content-addressed terminal-role companion for the ACCOUNT_READY v2 destination
   baseline.
 Metadata:
-  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:79634f20c3dafcdd861d853f7f193e28ad3a1016af13886b3d5eb957907c022c',
+  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:9277138911e4354b727552f7637d784ee448fbcba7494aa02e5ce40a97bec140',
     Ownership: external-account-baseline}
 Parameters:
   CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
@@ -705,8 +705,9 @@ Resources:
           Effect: Allow
           Action: ['ec2:AuthorizeSecurityGroupEgress', 'ec2:AuthorizeSecurityGroupIngress', 'ec2:CreateSecurityGroup',
             'ec2:CreateTags', 'ec2:RevokeSecurityGroupEgress', 'ec2:RevokeSecurityGroupIngress', 'ecs:CreateService',
-            'ecs:RegisterTaskDefinition', 'ecs:TagResource', 'ecs:UpdateService', 'elasticloadbalancing:AddTags',
-            'elasticloadbalancing:CreateTargetGroup', 'elasticloadbalancing:ModifyTargetGroup', 'elasticloadbalancing:ModifyTargetGroupAttributes']
+            'ecs:RegisterTaskDefinition', 'ecs:TagResource', 'ecs:UpdateService', 'elasticloadbalancing:*Rule',
+            'elasticloadbalancing:AddTags', 'elasticloadbalancing:CreateTargetGroup', 'elasticloadbalancing:ModifyTargetGroup',
+            'elasticloadbalancing:ModifyTargetGroupAttributes']
           Resource: '*'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': services}
@@ -984,9 +985,9 @@ Resources:
             'ecr:PutImageScanningConfiguration', 'ecr:PutImageTagMutability', 'ecr:PutLifecyclePolicy',
             'ecr:SetRepositoryPolicy', 'ecr:TagResource', 'ecs:CreateCluster', 'ecs:CreateService', 'ecs:Describe*',
             'ecs:List*', 'ecs:PutClusterCapacityProviders', 'ecs:RegisterTaskDefinition', 'ecs:TagResource',
-            'ecs:UpdateCluster', 'ecs:UpdateService', 'elasticloadbalancing:AddTags', 'elasticloadbalancing:CreateListener',
-            'elasticloadbalancing:CreateLoadBalancer', 'elasticloadbalancing:CreateTargetGroup', 'elasticloadbalancing:Describe*',
-            'elasticloadbalancing:ModifyListener', 'elasticloadbalancing:ModifyLoadBalancerAttributes',
+            'ecs:UpdateCluster', 'ecs:UpdateService', 'elasticloadbalancing:*Rule', 'elasticloadbalancing:AddTags',
+            'elasticloadbalancing:CreateListener', 'elasticloadbalancing:CreateLoadBalancer', 'elasticloadbalancing:CreateTargetGroup',
+            'elasticloadbalancing:Describe*', 'elasticloadbalancing:ModifyListener', 'elasticloadbalancing:ModifyLoadBalancerAttributes',
             'elasticloadbalancing:ModifyTargetGroup', 'elasticloadbalancing:ModifyTargetGroupAttributes',
             'iam:Get*', 'iam:List*', 'kms:CreateAlias', 'kms:CreateGrant', 'kms:Decrypt',
             'kms:Describe*', 'kms:EnableKeyRotation', 'kms:Encrypt', 'kms:GenerateDataKey',

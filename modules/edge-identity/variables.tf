@@ -134,6 +134,21 @@ variable "alb_security_group_id" {
   }
 }
 
+variable "alb_tls_server_name" {
+  type        = string
+  description = "Exact certificate hostname for ALB TLS verification/SNI; deployment preflight must verify it against the configured listener certificate"
+  nullable    = false
+
+  validation {
+    condition = (
+      length(var.alb_tls_server_name) <= 253 &&
+      can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.alb_tls_server_name)) &&
+      !can(cidrhost("${var.alb_tls_server_name}/32", 0))
+    )
+    error_message = "alb_tls_server_name must be an exact lowercase FQDN, not an IP, URL, wildcard or hostname with a port"
+  }
+}
+
 variable "api_access_log_group_arn" {
   type        = string
   description = "Dedicated encrypted API Gateway access-log group ARN."

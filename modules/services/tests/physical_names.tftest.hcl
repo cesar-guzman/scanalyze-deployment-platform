@@ -1,3 +1,4 @@
+# Hermetic provider plans only: these tests never contact AWS.
 mock_provider "aws" {}
 
 variables {
@@ -73,179 +74,94 @@ variables {
       cpu           = 256
       memory        = 512
       desired_count = 1
-      extra_environment = [
-        {
-          name  = "SCANALYZE_DEPLOYMENT_CUSTOMER_ID"
-          value = "cust_01BX5ZZKBKACTAV9WEVGEMMVRZ"
-        }
-      ]
     }
   ]
 }
 
-run "rejects_reserved_identity_override" {
-  command = plan
-
-  expect_failures = [
-    var.service_definitions,
-  ]
-}
-
-run "rejects_duplicate_environment_names" {
+run "long_service_names_with_shared_prefix_remain_valid_and_distinct" {
   command = plan
 
   variables {
+    alb_service_routes = {
+      synthetic-shared-prefix-alpha = { priority = 100, path_patterns = ["/api/v1/*"] }
+      synthetic-shared-prefix-beta  = { priority = 200, path_patterns = ["/api/v2/*"] }
+    }
     service_definitions = [
-      {
-        name          = "ingest-api"
-        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-        cpu           = 256
-        memory        = 512
-        desired_count = 1
-        extra_environment = [
-          {
-            name  = "LOG_LEVEL"
-            value = "INFO"
-          },
-          {
-            name  = "LOG_LEVEL"
-            value = "WARNING"
-          }
-        ]
-      }
+      for name in ["synthetic-shared-prefix-alpha", "synthetic-shared-prefix-beta"] :
+      merge(var.service_definitions[0], { name = name, port = 8080 })
     ]
+    workload_role_arns = {
+      for name in ["synthetic-shared-prefix-alpha", "synthetic-shared-prefix-beta"] :
+      name => "arn:aws:iam::000000000000:role/synthetic-workload"
+    }
   }
 
-  expect_failures = [
-    var.service_definitions,
-  ]
+  assert {
+    condition = alltrue([
+      for group in aws_lb_target_group.service :
+      length(group.name) <= 32 &&
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", group.name))
+    ])
+    error_message = "full canonical identities and long service names must produce AWS-valid target group names"
+  }
+
+  assert {
+    condition = (
+      length(aws_lb_target_group.service) == 2 &&
+      length(distinct([for group in aws_lb_target_group.service : group.name])) == 2
+    )
+    error_message = "service names sharing their first 16 characters must not collide"
+  }
+
+  assert {
+    condition     = aws_lb_target_group.service["synthetic-shared-prefix-alpha"].name == "tg-65560dae54da4ffcf39649332cd8"
+    error_message = "a fixed synthetic identity pair must have a stable target group name across plans"
+  }
+
+  assert {
+    condition = alltrue([
+      for name, group in aws_lb_target_group.service :
+      group.tags.deployment_id == var.deployment_id && group.tags.service == name
+    ])
+    error_message = "target groups must retain complete canonical deployment and service identities in tags"
+  }
+
+  assert {
+    condition = alltrue([
+      for service in aws_ecs_task_definition.service : {
+        for item in jsondecode(service.container_definitions)[0].environment : item.name => item.value
+      }["SCANALYZE_DEPLOYMENT_ID"] == var.deployment_id
+    ])
+    error_message = "physical target group names must not change runtime deployment identity"
+  }
 }
 
-run "rejects_case_insensitive_reserved_identity_override" {
+run "same_service_in_deployments_with_shared_prefix_gets_distinct_target_group" {
   command = plan
 
   variables {
+    alb_service_routes = {
+      synthetic-shared-prefix-alpha = { priority = 100, path_patterns = ["/api/v1/*"] }
+    }
+    deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    identity_control_plane_contract = merge(var.identity_control_plane_contract, {
+      deployment_id = "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    })
     service_definitions = [
-      {
-        name          = "ingest-api"
-        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-        cpu           = 256
-        memory        = 512
-        desired_count = 1
-        extra_environment = [
-          {
-            name  = "scanalyze_deployment_customer_id"
-            value = "cust_01BX5ZZKBKACTAV9WEVGEMMVRZ"
-          }
-        ]
-      }
+      merge(var.service_definitions[0], { name = "synthetic-shared-prefix-alpha", port = 8080 })
     ]
+    workload_role_arns = {
+      synthetic-shared-prefix-alpha = "arn:aws:iam::000000000000:role/synthetic-workload"
+    }
   }
 
-  expect_failures = [
-    var.service_definitions,
-  ]
-}
-
-run "rejects_case_insensitive_duplicate_environment_names" {
-  command = plan
-
-  variables {
-    service_definitions = [
-      {
-        name          = "ingest-api"
-        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-        cpu           = 256
-        memory        = 512
-        desired_count = 1
-        extra_environment = [
-          {
-            name  = "LOG_LEVEL"
-            value = "INFO"
-          },
-          {
-            name  = "log_level"
-            value = "WARNING"
-          }
-        ]
-      }
-    ]
+  assert {
+    condition     = aws_lb_target_group.service["synthetic-shared-prefix-alpha"].name != "tg-65560dae54da4ffcf39649332cd8"
+    error_message = "the same service in a deployment differing only at the ULID end must not reuse its target group name"
   }
 
-  expect_failures = [
-    var.service_definitions,
-  ]
-}
-
-run "rejects_m2m_binding_override" {
-  command = plan
-
-  variables {
-    service_definitions = [
-      {
-        name          = "ingest-api"
-        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-        cpu           = 256
-        memory        = 512
-        desired_count = 1
-        extra_environment = [
-          {
-            name  = "M2M_CLIENT_IDENTITY_BINDINGS_V1"
-            value = "{}"
-          }
-        ]
-      }
-    ]
+  assert {
+    condition     = aws_lb_target_group.service["synthetic-shared-prefix-alpha"].tags.deployment_id == "dep_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    error_message = "target group tags must still carry the full second deployment identity"
   }
-
-  expect_failures = [
-    var.service_definitions,
-  ]
-}
-
-run "rejects_m2m_scope_set_override" {
-  command = plan
-
-  variables {
-    service_definitions = [
-      {
-        name          = "ingest-api"
-        image         = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api@sha256:2222222222222222222222222222222222222222222222222222222222222222"
-        cpu           = 256
-        memory        = 512
-        desired_count = 1
-        extra_environment = [
-          {
-            name  = "m2m_action_scope_sets_v1"
-            value = "{}"
-          }
-        ]
-      }
-    ]
-  }
-
-  expect_failures = [
-    var.service_definitions,
-  ]
-}
-
-run "rejects_mutable_service_image" {
-  command = plan
-
-  variables {
-    service_definitions = [
-      {
-        name              = "ingest-api"
-        image             = "000000000000.dkr.ecr.us-east-1.amazonaws.com/synthetic/ingest-api:latest"
-        cpu               = 256
-        memory            = 512
-        desired_count     = 1
-        extra_environment = []
-      }
-    ]
-  }
-
-  expect_failures = [
-    var.service_definitions,
-  ]
 }

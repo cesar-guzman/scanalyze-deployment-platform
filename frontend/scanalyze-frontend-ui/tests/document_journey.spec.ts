@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { BANK_STATEMENT_RESULT_FIXTURE } from '../src/contracts/documentJourney.v1.fixtures';
+import { syntheticTestOrigin } from './runtime';
 
 test.describe('Document Journey (GUG-103)', () => {
   test('should allow a user to upload a document and track its progress', async ({ page }) => {
@@ -15,15 +17,15 @@ test.describe('Document Journey (GUG-103)', () => {
           account_id: "123456789012",
           region: "us-east-1",
           environment: "sandbox",
-          api_endpoint: "http://localhost:5173/api",
+          api_endpoint: `${syntheticTestOrigin}/api`,
           cognito: {
             user_pool_id: "us-east-1_000000000",
             spa_client_id: "abcdef1234567890",
             issuer_url: "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_000000000",
             region: "us-east-1",
             hosted_ui_domain: "https://dep-00000000000000000000000000-identity.auth.us-east-1.amazoncognito.com",
-            redirect_uri: "http://localhost:5173/callback",
-            post_logout_redirect_uri: "http://localhost:5173/",
+            redirect_uri: `${syntheticTestOrigin}/callback`,
+            post_logout_redirect_uri: `${syntheticTestOrigin}/`,
             allowed_oauth_flows: ["code"],
             pkce_required: true,
             client_secret_embedded: false
@@ -48,7 +50,7 @@ test.describe('Document Journey (GUG-103)', () => {
     });
 
     // Mock API calls
-    await page.route('**/api/v2/documents', async route => {
+    await page.route(url => url.pathname === '/api/v2/documents', async route => {
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -60,7 +62,7 @@ test.describe('Document Journey (GUG-103)', () => {
             schemaVersion: 'scanalyze.document-create-result.v1',
             contractVersion: 'scanalyze.document-journey.v1',
             operation: 'documents.create',
-            documentId: 'fake-doc-123',
+            documentId: '22222222222222222222222222222222',
             status: 'UPLOAD_PENDING',
             contentType: 'application/pdf',
             createdAt: new Date().toISOString()
@@ -75,18 +77,19 @@ test.describe('Document Journey (GUG-103)', () => {
       });
     });
 
-    await page.route('**/api/v2/documents/fake-doc-123/submit', async route => {
+    await page.route(url => url.pathname === '/api/v2/documents/22222222222222222222222222222222/submit', async route => {
+      expect(route.request().postDataJSON()).toEqual({ stage: 'ingest' });
       await route.fulfill({ status: 202, body: '{}' });
     });
 
-    await page.route('**/api/v2/documents/fake-doc-123', async route => {
+    await page.route(url => url.pathname === '/api/v2/documents/22222222222222222222222222222222', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           schemaVersion: 'scanalyze.document-status.v1',
           contractVersion: 'scanalyze.document-journey.v1',
-          documentId: 'fake-doc-123',
+          documentId: '22222222222222222222222222222222',
           lifecycle: 'COMPLETED',
           currentStage: 'TERMINAL',
           stageState: 'SUCCEEDED',
@@ -98,31 +101,22 @@ test.describe('Document Journey (GUG-103)', () => {
       });
     });
     
-    await page.route('**/api/v2/documents/fake-doc-123/result', async route => {
+    await page.route(url => url.pathname === '/api/v2/documents/22222222222222222222222222222222/result', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          schemaVersion: 'scanalyze.document-result.v1',
-          contractVersion: 'scanalyze.document-journey.v1',
-          documentType: 'bank_statement',
-          resultType: 'bank_statement',
-          documentId: 'fake-doc-123',
-          resultId: 'result_fake-doc-123_v1',
-          resultVersion: '1.0',
-          provenance: { processor: { engine: 'test', model: 'test' }, producerSchemaVersion: '1.0', promptVersion: '1.0', generatedAt: new Date().toISOString() },
-          data: {
-             bank_name: 'Test Bank',
-             transactions: [{ date: '2026-08-10', description: 'Test', amount: 100, type: 'CREDIT' }]
-          },
-          warnings: [],
-          quality: { overall_confidence: 0.99, legibility_score: 0.99 }
+          ...BANK_STATEMENT_RESULT_FIXTURE,
+          documentId: '22222222222222222222222222222222',
+          resultId: 'result_22222222222222222222222222222222_v1',
         })
       });
     });
 
     // Prevent real S3 upload
     await page.route('https://fake-s3-url.com/upload', async route => {
+      expect(route.request().method()).toBe('PUT');
+      expect(route.request().headers().authorization).toBeUndefined();
       await route.fulfill({ status: 200 });
     });
 
@@ -164,13 +158,11 @@ test.describe('Document Journey (GUG-103)', () => {
     await expect(page.locator('text=bank_statement_mock.pdf')).toBeVisible();
     await expect(page.locator('button:has-text("Subir Documento")')).toBeEnabled();
 
-    // 5. Submit the upload
-    // Set up a route mock so we don't hit the real backend during E2E if we are running locally without it.
-    // Or assume there is a mock server. We'll just click and assert navigation.
+    // Browser-only contract test: API, authentication and processing are simulated.
     await page.locator('button:has-text("Subir Documento")').click();
 
     // 6. Wait for redirect to document tracking page
-    await page.waitForURL(/\/document\/[a-f0-9-]+/);
+    await expect(page).toHaveURL('/document/22222222222222222222222222222222');
 
     // 7. Verify tracking page is rendered
     await expect(page.getByRole('heading', { name: 'Rastreo de Documento' })).toBeVisible();
@@ -178,5 +170,12 @@ test.describe('Document Journey (GUG-103)', () => {
     // Verify stages are listed
     await expect(page.locator('text=Ingestión')).toBeVisible();
     await expect(page.locator('text=Extracción Bancaria')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Resultados de Extracción' })).toBeVisible();
+    await expect(page.getByText('Synthetic Bank', { exact: true })).toBeVisible();
+    await expect(page.getByText('Synthetic Account Holder', { exact: true })).toBeVisible();
+    await expect(page.getByText('****0001', { exact: true })).toBeVisible();
+    await expect(page.getByText('Confianza: 95%', { exact: true })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Synthetic credit' })).toContainText('+500.00 MXN');
+    await expect(page.getByRole('row').filter({ hasText: 'Synthetic debit' })).toContainText('-250.00 MXN');
   });
 });

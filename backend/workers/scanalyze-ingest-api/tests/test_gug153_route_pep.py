@@ -291,6 +291,8 @@ def test_only_public_health_routes_are_outside_the_operation_pep() -> None:
     assert public == {
         ("GET", "/health"),
         ("GET", "/api/v1/health"),
+            ("POST", "/auth/passkey/initiate"),
+            ("POST", "/auth/passkey/respond"),
     }
 
 

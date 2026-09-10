@@ -497,6 +497,11 @@ PY
   export AWS_REGION="$REGION"
   export AWS_DEFAULT_REGION="$REGION"
 
+  static_routing_args=()
+  if [[ "$ENVIRONMENT" == "production" ]] && [[ -f "${REPO_ROOT}/deployment/express-production-routing.json" ]]; then
+    static_routing_args=(--static-routing "${REPO_ROOT}/deployment/express-production-routing.json")
+  fi
+
   python3 "${SCRIPT_DIR}/validate-contract-resolution.py" \
     --resolution "$RESOLVED_INPUT" \
     --layer "$LAYER" \
@@ -508,6 +513,7 @@ PY
     --release-digest "$RELEASE_DIGEST" \
     --expected-account-ready-digest "$AUTHORIZED_ACCOUNT_READY_DIGEST" \
     --materialize-out "$MATERIALIZED_VARS" \
+    "${static_routing_args[@]}" \
     || die "Verified contract resolution is required before Terraform plan"
 
   terraform_variables=(

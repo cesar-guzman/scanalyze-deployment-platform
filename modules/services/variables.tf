@@ -76,6 +76,53 @@ variable "alb_security_group_id" {
   description = "ALB security group ID from platform contract"
 }
 
+variable "alb_service_routes" {
+  type = map(object({
+    priority      = number
+    path_patterns = list(string)
+  }))
+  description = "Explicit HTTP service to listener route mapping; workers must not have a route"
+  nullable    = false
+
+  validation {
+    condition = (
+      length(var.alb_service_routes) == length([for svc in var.service_definitions : svc.name if svc.port != null]) &&
+      alltrue([
+        for name in keys(var.alb_service_routes) :
+        contains([for svc in var.service_definitions : svc.name if svc.port != null], name)
+      ])
+    )
+    error_message = "alb_service_routes must name exactly every service with a port, and no worker or unknown service"
+  }
+
+  validation {
+    condition = (
+      length(distinct([for route in values(var.alb_service_routes) : route.priority])) == length(var.alb_service_routes) &&
+      alltrue([
+        for route in values(var.alb_service_routes) :
+        route.priority >= 1 && route.priority <= 50000 && floor(route.priority) == route.priority
+      ])
+    )
+    error_message = "ALB route priorities must be distinct integers from 1 through 50000"
+  }
+
+  validation {
+    condition = alltrue([
+      for route in values(var.alb_service_routes) :
+      length(route.path_patterns) >= 1 && length(route.path_patterns) <= 3 &&
+      length(distinct(route.path_patterns)) == length(route.path_patterns) &&
+      sum(concat([0], [for path in route.path_patterns : length(regexall("\\*", path))])) <= 5 &&
+      alltrue([
+        for path in route.path_patterns :
+        length(path) <= 128 &&
+        can(regex("^/api/v[12]/([A-Za-z0-9._~-]+|\\*)(/([A-Za-z0-9._~-]+|\\*))*$", path)) &&
+        !contains(split("/", path), ".") && !contains(split("/", path), "..")
+      ])
+    ])
+    error_message = "each ALB route needs 1-3 distinct /api/v1 or /api/v2 path patterns, at most 128 characters each and 5 wildcards total; catch-all, query and traversal paths are forbidden"
+  }
+}
+
 variable "service_definitions" {
   type = list(object({
     name              = string

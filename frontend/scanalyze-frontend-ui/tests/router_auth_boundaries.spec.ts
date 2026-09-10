@@ -67,7 +67,7 @@ test('login preserves the reviewed OIDC authorization boundary', async ({ page }
     syntheticRuntimeConfig.cognito.spa_client_id,
   );
   expect(authorizationUrl.searchParams.get('redirect_uri')).toBe(
-    'http://localhost:5173/callback',
+    syntheticRuntimeConfig.cognito.redirect_uri,
   );
   expect(authorizationUrl.searchParams.get('response_type')).toBe('code');
   expect(authorizationUrl.searchParams.get('scope')).toContain(
@@ -314,7 +314,7 @@ test('logout preserves the reviewed post-logout redirect', async ({ page }) => {
     syntheticRuntimeConfig.cognito.spa_client_id,
   );
   expect(logoutUrl.searchParams.get('logout_uri')).toBe(
-    'http://localhost:5173/',
+    syntheticRuntimeConfig.cognito.post_logout_redirect_uri,
   );
   expect(logoutUrl.searchParams.has('post_logout_redirect_uri')).toBe(false);
   expect(logoutUrl.searchParams.has('id_token_hint')).toBe(false);

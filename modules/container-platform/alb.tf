@@ -3,7 +3,9 @@
 # Status: authored_not_provider_validated
 
 resource "aws_lb" "internal" {
-  name               = "${var.deployment_id}-alb"
+  # Keep the full canonical ULID within ELB's 32-character physical-name limit.
+  # Identity tags retain deployment_id unchanged; renaming an existing ALB replaces it.
+  name               = "alb-${lower(trimprefix(var.deployment_id, "dep_"))}"
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]

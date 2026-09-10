@@ -26,6 +26,7 @@ module "services" {
   private_subnet_ids          = var.private_subnet_ids
   alb_listener_arn            = var.alb_listener_arn
   alb_security_group_id       = var.alb_security_group_id
+  alb_service_routes          = var.alb_service_routes
   service_definitions         = var.service_definitions
 
   identity_control_plane_contract                 = var.identity_control_plane_contract

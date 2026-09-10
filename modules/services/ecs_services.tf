@@ -110,6 +110,9 @@ resource "aws_ecs_service" "service" {
     rollback = true
   }
 
+  # ECS requires its target group to be associated with the ALB before creation.
+  depends_on = [aws_lb_listener_rule.service]
+
   tags = {
     deployment_id = var.deployment_id
     managed_by    = "terraform"
@@ -121,7 +124,9 @@ resource "aws_ecs_service" "service" {
 resource "aws_lb_target_group" "service" {
   for_each = { for svc in var.service_definitions : svc.name => svc if svc.port != null }
 
-  name        = "${substr(var.deployment_id, 0, 16)}-${substr(each.key, 0, 16)}"
+  # Hash both full identifiers so shared prefixes cannot collapse distinct services
+  # or deployments. The 31-character physical name leaves canonical tags unchanged.
+  name        = "tg-${substr(sha256(jsonencode([var.deployment_id, each.key])), 0, 28)}"
   port        = each.value.port
   protocol    = "HTTP"
   vpc_id      = var.vpc_id

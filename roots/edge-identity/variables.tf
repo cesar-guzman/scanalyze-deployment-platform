@@ -236,6 +236,21 @@ variable "domain_name" {
   }
 }
 
+variable "alb_tls_server_name" {
+  type        = string
+  description = "Required ALB certificate hostname from the reviewed deployment inputs; verify certificate binding before plan/execution"
+  nullable    = false
+
+  validation {
+    condition = (
+      length(var.alb_tls_server_name) <= 253 &&
+      can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", var.alb_tls_server_name)) &&
+      !can(cidrhost("${var.alb_tls_server_name}/32", 0))
+    )
+    error_message = "alb_tls_server_name must be an exact lowercase FQDN, not an IP, URL, wildcard or hostname with a port"
+  }
+}
+
 variable "cors_allowed_origins" {
   type        = list(string)
   description = "Exact deployment HTTPS origins allowed by CORS."
