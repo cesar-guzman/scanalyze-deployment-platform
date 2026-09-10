@@ -49,7 +49,7 @@ class RespondToAuthChallengeResponse(BaseModel):
     challenge_name: Optional[str] = None
     session: Optional[str] = None
 
-router = APIRouter(prefix="/auth/passkey", tags=["auth"])
+router = APIRouter(prefix="/api/v1/auth/passkey", tags=["auth"])
 
 @router.post("/initiate", response_model=InitiateAuthResponse)
 def initiate_passkey_auth(

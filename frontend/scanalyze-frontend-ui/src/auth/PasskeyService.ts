@@ -20,12 +20,12 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer) {
   return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-export async function stepUpWithPasskey(username: string): Promise<string> {
+export async function stepUpWithPasskey(username: string): Promise<{ access_token: string; id_token?: string; refresh_token?: string }> {
   const config = getConfig();
   const baseUrl = config.apiBaseUrl;
 
   // 1. Initiate passkey auth
-  const initResponse = await fetch(`${baseUrl}/auth/passkey/initiate`, {
+  const initResponse = await fetch(`${baseUrl}/v1/auth/passkey/initiate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username })
@@ -83,7 +83,7 @@ export async function stepUpWithPasskey(username: string): Promise<string> {
   };
 
   // 4. Respond to challenge
-  const respondResponse = await fetch(`${baseUrl}/auth/passkey/respond`, {
+  const respondResponse = await fetch(`${baseUrl}/v1/auth/passkey/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -102,5 +102,5 @@ export async function stepUpWithPasskey(username: string): Promise<string> {
     throw new Error('Failed to get access token from passkey response');
   }
 
-  return respondData.access_token;
+  return respondData; // Returns access_token, id_token, refresh_token
 }

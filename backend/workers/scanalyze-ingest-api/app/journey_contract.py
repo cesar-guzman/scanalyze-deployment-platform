@@ -1201,6 +1201,7 @@ class ErrorDetails(ContractModel):
     field: ErrorField | None = None
     operation: OperationKind | None = None
     retry_after_seconds: StrictInt | None = Field(default=None, ge=1, le=3600)
+    step_up_required: bool | None = None
 
 
 class ErrorEnvelope(ContractModel):

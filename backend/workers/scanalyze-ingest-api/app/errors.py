@@ -101,6 +101,7 @@ def _v2_response(request: Request, exc: AppError) -> JSONResponse:
                 field=parsed_field,
                 operation=parsed_operation,
                 retry_after_seconds=parsed_retry,
+                step_up_required=raw_details.get("step_up_required"),
             )
         status_code, envelope = public_error(
             resolved_code,

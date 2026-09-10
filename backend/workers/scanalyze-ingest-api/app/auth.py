@@ -830,7 +830,7 @@ def _resolve_human_authorization_snapshot(
                         assurance = Assurance.PHISHING_RESISTANT_MFA
                         assurance_source = AssuranceSource(item.get("assurance_source"))
                         assurance_version = AssuranceVersion(item.get("assurance_version"))
-                        authentication_event_reference = jti
+                        authentication_event_reference = f"ref_{jti.replace('-', '').lower()}"
             except Exception as e:
                 logger.error("durable_audit_read_failed", error=str(e))
                 # Fail-closed for assurance, but do not crash normal login

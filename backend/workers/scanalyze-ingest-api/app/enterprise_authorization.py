@@ -771,11 +771,14 @@ def _constant_time_equal(actual: Any, expected: str) -> bool:
 
 def _deny(reason: str) -> None:
     logger.warning("enterprise_authorization_denied", reason=reason)
+    details = {}
+    if reason == "insufficient_assurance":
+        details["step_up_required"] = True
     error = AppError(
         code="FORBIDDEN",
         message="Principal is not authorized for this operation",
         status_code=403,
-        details={},
+        details=details,
     )
     setattr(error, "authorization_reason", reason)
     raise error

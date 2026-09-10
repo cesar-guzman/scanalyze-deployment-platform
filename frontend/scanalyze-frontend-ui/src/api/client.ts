@@ -43,7 +43,8 @@ export const getApiClient = (expectedSubject?: string) => {
     async (error) => {
       if (error.response && error.response.status === 403) {
         // Simple heuristic: if we get a 403 and the error message implies missing assurance or unauthorized scope
-        const isAssuranceError = error.response.data?.code === 'FORBIDDEN' || error.response.data?.message?.includes('assurance');
+        // Explicit, machine-readable step-up challenge signal
+        const isAssuranceError = error.response.data?.details?.step_up_required === true;
         
         if (isAssuranceError) {
           const key = getUserStorageKey();
@@ -54,10 +55,21 @@ export const getApiClient = (expectedSubject?: string) => {
             if (username) {
               try {
                 // Trigger native WebAuthn
-                const newAccessToken = await stepUpWithPasskey(username as string);
+                const tokenData = await stepUpWithPasskey(username as string);
+                const newAccessToken = tokenData.access_token;
                 
-                // Update existing user session in storage
+                // Update existing user session in storage and refresh expiration
                 user.access_token = newAccessToken;
+                if (tokenData.id_token) user.id_token = tokenData.id_token;
+                if (tokenData.refresh_token) user.refresh_token = tokenData.refresh_token;
+                
+                // Decode payload to set new expires_at
+                const payloadStr = newAccessToken.split('.')[1];
+                if (payloadStr) {
+                    const payload = JSON.parse(window.atob(payloadStr.replace(/-/g, '+').replace(/_/g, '/')));
+                    if (payload.exp) user.expires_at = payload.exp;
+                }
+                
                 sessionStorage.setItem(key, user.toStorageString());
                 
                 // Retry the original request with the new token
