@@ -497,7 +497,7 @@ PY
   export AWS_REGION="$REGION"
   export AWS_DEFAULT_REGION="$REGION"
 
-  local static_routing_args=()
+  static_routing_args=()
   if [[ -f "${REPO_ROOT}/deployment/express-production-routing.json" ]]; then
     static_routing_args=(--static-routing "${REPO_ROOT}/deployment/express-production-routing.json")
   fi
