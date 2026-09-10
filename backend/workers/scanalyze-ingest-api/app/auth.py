@@ -44,6 +44,9 @@ from .enterprise_authorization import (
     AuthorizationPath,
     HumanAuthorizationSnapshot,
     HumanRole,
+    Assurance,
+    AssuranceSource,
+    AssuranceVersion,
     is_valid_subject_reference,
     is_valid_version_reference,
 )
@@ -800,6 +803,39 @@ def _resolve_human_authorization_snapshot(
     if authenticated_at > issued_at or authenticated_at > now_epoch:
         _deny_human_authorization("conflicting_authentication_time")
 
+    jti = claims.get("jti")
+    assurance = None
+    assurance_source = None
+    assurance_version = None
+    authentication_event_reference = None
+    
+    if jti:
+        ledger_table_name = getattr(settings, "operation_ledger_table_name", None)
+        if ledger_table_name:
+            try:
+                from .aws_clients import dynamodb_resource
+                table = dynamodb_resource().Table(ledger_table_name)
+                response = table.get_item(
+                    Key={
+                        "pk": f"AUTH_EVENT#{jti}",
+                        "sk": "META"
+                    },
+                    ConsistentRead=True,
+                )
+                item = response.get("Item")
+                if item and item.get("assurance") == "phishing_resistant_mfa":
+                    event_auth_time = int(item.get("auth_time", 0))
+                    # Token and event auth_time must match exactly for continuity
+                    if event_auth_time == authenticated_at and (now_epoch - event_auth_time) <= 300:
+                        assurance = Assurance.PHISHING_RESISTANT_MFA
+                        assurance_source = AssuranceSource(item.get("assurance_source"))
+                        assurance_version = AssuranceVersion(item.get("assurance_version"))
+                        authentication_event_reference = f"ref_{jti.replace('-', '').lower()}"
+            except Exception as e:
+                logger.error("durable_audit_read_failed", error=str(e))
+                # Fail-closed for assurance, but do not crash normal login
+                pass
+
     return HumanAuthorizationSnapshot(
         schema_version=AUTHORIZATION_CONTEXT_SCHEMA_VERSION,
         authorization_path=AuthorizationPath.MEMBERSHIP,
@@ -823,12 +859,12 @@ def _resolve_human_authorization_snapshot(
         policy_version=POLICY_VERSION,
         policy_digest=POLICY_DIGEST,
         issued_at_epoch=issued_at,
-        assurance=None,
+        assurance=assurance,
         authenticated_at_epoch=authenticated_at,
         grant_issued_at_epoch=None,
-        assurance_source=None,
-        assurance_version=None,
-        authentication_event_reference=None,
+        assurance_source=assurance_source,
+        assurance_version=assurance_version,
+        authentication_event_reference=authentication_event_reference,
     )
 
 
