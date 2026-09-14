@@ -28,13 +28,17 @@ from typing import Any, Mapping
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 
-ARTIFACT_TYPE = "scanalyze.platform_authority.bootstrap_artifact_authority_package.v1"
-SCHEMA_VERSION = 1
+from tooling.platform_authority_bootstrap_sdk_lock import (
+    EXPECTED_BOTO3_VERSION, EXPECTED_BOTOCORE_VERSION, SDK_DISTRIBUTION_LOCKS,
+    SDK_MODE, MAX_PACKAGE_BYTES, MAX_ENTRY_BYTES, MAX_PACKAGE_ENTRIES,
+    sdk_entries, validate_sdk_entries, VendoredSDKError,
+)
+
+ARTIFACT_TYPE = "scanalyze.platform_authority.bootstrap_artifact_authority_package.v2"
+SCHEMA_VERSION = 2
 WORK_PACKAGE = "GUG-274"
 TRUST_ROOT_GENERATION = 1
 PRODUCTION_STATUS = "NO-GO"
-EXPECTED_BOTO3_VERSION = "1.42.57"
-EXPECTED_BOTOCORE_VERSION = "1.42.97"
 ARCHIVE_NAME = "scanalyze-gug274-bootstrap-artifact-authority.zip"
 MANIFEST_NAME = "scanalyze-gug274-bootstrap-artifact-authority.manifest.json"
 FIXED_ZIP_TIMESTAMP = (2026, 8, 2, 0, 0, 0)
@@ -48,6 +52,7 @@ SOURCE_PATHS = (
     Path("policies/iam/aws-managed-identity-context-allowlist-v12.snapshot.json"),
     Path("tooling/__init__.py"),
     Path("tooling/platform_authority_bootstrap.py"),
+    Path("tooling/platform_authority_bootstrap_sdk_lock.py"),
     Path("tooling/platform_authority_bootstrap_artifact_authority.py"),
     Path("tooling/platform_authority_bootstrap_identity_proof.py"),
     Path("tooling/platform_authority_identity_context_compatibility.py"),
@@ -58,6 +63,8 @@ PACKAGE_PATHS = tuple(
     sorted((*SOURCE_PATHS, RUNTIME_LOCK_PATH), key=lambda item: item.as_posix())
 )
 PROVENANCE_PATHS = (
+    Path("tooling/platform_authority_bootstrap_identity_grant.py"),
+    Path("scripts/deployment/platform-authority-bootstrap-identity-grant.py"),
     Path("bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json"),
     Path("tooling/platform_authority_source_only_import.py"),
     Path("tooling/platform_authority_bootstrap_artifact_package.py"),
@@ -95,79 +102,6 @@ REVIEWED_NON_ROOT_EXECUTABLE_SHA256: Mapping[str, frozenset[str]] = {
         }
     ),
     "git": frozenset(),
-}
-SDK_DISTRIBUTION_LOCKS: Mapping[str, Mapping[str, Any]] = {
-    "boto3": {
-        "version": EXPECTED_BOTO3_VERSION,
-        "wheel_filename": "boto3-1.42.57-py3-none-any.whl",
-        "wheel_sha256": "74f47051e3b741a0c1e64d57b891076c2c68f8d7b98aee36b044fab1849b4823",
-        "installed_manifest_sha256": "f0d9b76bbf089116a6f1b405c2b1333588d127c0c1b11faf45d0d1c6362187cc",
-        "dist_info_name": "boto3-1.42.57.dist-info",
-        "module_name": "boto3",
-        "module_path": "boto3/__init__.py",
-        "package_paths": ("boto3",),
-    },
-    "botocore": {
-        "version": EXPECTED_BOTOCORE_VERSION,
-        "wheel_filename": "botocore-1.42.97-py3-none-any.whl",
-        "wheel_sha256": "77d2c8ce1bc592d3fbd7c01c35836f4a5b0cac2ca03ccdf6ffc60faa16b5fadc",
-        "installed_manifest_sha256": "e177844a0d475cb94915ed4b09716fe04e839048d6405c735a1d9258719f0466",
-        "dist_info_name": "botocore-1.42.97.dist-info",
-        "module_name": "botocore",
-        "module_path": "botocore/__init__.py",
-        "package_paths": ("botocore",),
-    },
-    "s3transfer": {
-        "version": "0.16.1",
-        "wheel_filename": "s3transfer-0.16.1-py3-none-any.whl",
-        "wheel_sha256": "61bcd00ccb83b21a0fe7e91a553fff9729d46c83b4e0106e7c314a733891f7c2",
-        "installed_manifest_sha256": "5dba59df038e6bc746b7045795855b095d69092f8040fd43600e6af556298d33",
-        "dist_info_name": "s3transfer-0.16.1.dist-info",
-        "module_name": "s3transfer",
-        "module_path": "s3transfer/__init__.py",
-        "package_paths": ("s3transfer",),
-    },
-    "jmespath": {
-        "version": "1.1.0",
-        "wheel_filename": "jmespath-1.1.0-py3-none-any.whl",
-        "wheel_sha256": "a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64",
-        "installed_manifest_sha256": "066b28b473bcd8fc8102ebdda36a3b3302689d8abd2df9f48f0ff6d70675178c",
-        "dist_info_name": "jmespath-1.1.0.dist-info",
-        "module_name": "jmespath",
-        "module_path": "jmespath/__init__.py",
-        "package_paths": ("jmespath",),
-        "ignored_install_paths": ("../../../bin/jp.py",),
-    },
-    "python-dateutil": {
-        "version": "2.9.0.post0",
-        "wheel_filename": "python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
-        "wheel_sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427",
-        "installed_manifest_sha256": "3c1c51c7f434c3377efcba7522f8d3e8dcbc24245b21d23cf32d6e4014f95a64",
-        "dist_info_name": "python_dateutil-2.9.0.post0.dist-info",
-        "module_name": "dateutil",
-        "module_path": "dateutil/__init__.py",
-        "package_paths": ("dateutil",),
-    },
-    "urllib3": {
-        "version": "2.7.0",
-        "wheel_filename": "urllib3-2.7.0-py3-none-any.whl",
-        "wheel_sha256": "9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897",
-        "installed_manifest_sha256": "c5d9a45cce25d90428a3d17b5db01b583586ee76f024f74ad53d1a56ef97ae7d",
-        "dist_info_name": "urllib3-2.7.0.dist-info",
-        "module_name": "urllib3",
-        "module_path": "urllib3/__init__.py",
-        "package_paths": ("urllib3",),
-    },
-    "six": {
-        "version": "1.17.0",
-        "wheel_filename": "six-1.17.0-py2.py3-none-any.whl",
-        "wheel_sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
-        "installed_manifest_sha256": "3e9786be496e9d8cfc228cc2df025009a38811ac4b8cfe10f2437f28c4f9faf2",
-        "dist_info_name": "six-1.17.0.dist-info",
-        "module_name": "six",
-        "module_path": "six.py",
-        "package_paths": ("six.py",),
-    },
 }
 SDK_RUNTIME_ROOT_ENV = "SCANALYZE_GUG274_SDK_RUNTIME_ROOT"
 SDK_RUNTIME_SITE_PATH = Path("site-packages")
@@ -439,7 +373,7 @@ def _sdk_manifest_digest(entries: list[Mapping[str, Any]]) -> str:
 
 
 def _validate_locked_sdk_distributions(
-    *, source_root: Path, runtime_site: Path
+    *, source_root: Path, runtime_site: Path, check_module_origins: bool = True
 ) -> ValidatedSDKRuntime:
     """Authenticate the exact wheel-derived SDK closure before importing it."""
 
@@ -636,7 +570,7 @@ def _validate_locked_sdk_distributions(
         )
 
     importlib.invalidate_caches()
-    for module_name, expected_origin in recorded_module_origins.items():
+    for module_name, expected_origin in (recorded_module_origins.items() if check_module_origins else ()):
         try:
             specification = importlib.util.find_spec(module_name)
             actual_origin = Path(str(specification.origin)).resolve(strict=True)
@@ -697,6 +631,8 @@ def import_reviewed_aws_sdk(
 ) -> tuple[ModuleType, ModuleType, type[Any]]:
     """Import exact SDK wheels from one dedicated external runtime."""
 
+    if "BOTOCORE_EXPERIMENTAL__PLUGINS" in os.environ:
+        raise BootstrapArtifactPackageError("SDK_PLUGIN_OVERRIDE_FORBIDDEN")
     if sys.pycache_prefix is not None:
         raise BootstrapArtifactPackageError("PYTHON_BYTECODE_PREFIX_FORBIDDEN")
     root = source_root.resolve(strict=True)
@@ -827,6 +763,34 @@ def _read_source(source_root: Path, relative_path: Path) -> bytes:
     return payload
 
 
+def snapshot_reviewed_sdk(*, source_root: Path, sdk_runtime_root: Path) -> dict[str, bytes]:
+    """Export only authenticated distribution bytes, without importing the SDK."""
+    root = source_root.resolve(strict=True)
+    runtime_root = sdk_runtime_root.resolve(strict=True)
+    if not sdk_runtime_root.is_absolute() or sdk_runtime_root != runtime_root or not runtime_root.is_dir():
+        raise BootstrapArtifactPackageError("SDK_RUNTIME_ROOT_INVALID")
+    if runtime_root == root or root in runtime_root.parents:
+        raise BootstrapArtifactPackageError("SDK_RUNTIME_INSIDE_SOURCE_ROOT")
+    site = runtime_root / SDK_RUNTIME_SITE_PATH
+    if site.resolve(strict=True) != site:
+        raise BootstrapArtifactPackageError("SDK_RUNTIME_SITE_UNAVAILABLE")
+    _require_closed_sdk_runtime_permissions(runtime_root=runtime_root, runtime_site=site)
+    verified = _validate_locked_sdk_distributions(source_root=root, runtime_site=site, check_module_origins=False)
+    # Capture once and reauthenticate this snapshot; packing never rereads it.
+    snapshot = {}
+    for path in verified.authenticated_files:
+        with path.open("rb") as stream:
+            payload = stream.read(MAX_ENTRY_BYTES + 1)
+        if len(payload) > MAX_ENTRY_BYTES:
+            raise BootstrapArtifactPackageError("SDK_DISTRIBUTION_FILE_TOO_LARGE")
+        snapshot[path.relative_to(site).as_posix()] = payload
+    try:
+        sdk_entries(snapshot)
+    except VendoredSDKError as exc:
+        raise BootstrapArtifactPackageError(str(exc)) from None
+    return snapshot
+
+
 def _entry(path: Path, payload: bytes) -> tuple[ZipInfo, bytes]:
     info = ZipInfo(path.as_posix(), FIXED_ZIP_TIMESTAMP)
     info.compress_type = ZIP_STORED
@@ -844,6 +808,7 @@ def _build_bootstrap_artifact_package(
     expected_boto3_version: str,
     expected_botocore_version: str,
     committed_sources: Mapping[Path, bytes],
+    sdk_sources: Mapping[str, bytes],
 ) -> BuiltBootstrapArtifactPackage:
     """Pure builder used only after the public Git-provenance check."""
 
@@ -862,17 +827,24 @@ def _build_bootstrap_artifact_package(
         for path, payload in sources.items()
     ):
         raise BootstrapArtifactPackageError("PACKAGE_SOURCE_EMPTY")
+    sdk_snapshot = {path: bytes(payload) for path, payload in sdk_sources.items()}
+    try:
+        sdk_manifest = sdk_entries(sdk_snapshot)
+    except VendoredSDKError as exc:
+        raise BootstrapArtifactPackageError(str(exc)) from None
     runtime_lock = {
         "record_type": (
-            "scanalyze.platform_authority.bootstrap_artifact_authority_runtime_lock.v1"
+            "scanalyze.platform_authority.bootstrap_artifact_authority_runtime_lock.v2"
         ),
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": WORK_PACKAGE,
         "trust_root_generation": TRUST_ROOT_GENERATION,
         "source_commit": source_commit,
         "expected_boto3_version": expected_boto3_version,
         "expected_botocore_version": expected_botocore_version,
     }
+    runtime_lock["sdk_entries"] = sdk_manifest
+    sources.update({Path(path): payload for path, payload in sdk_snapshot.items()})
     sources[RUNTIME_LOCK_PATH] = (canonical_json(runtime_lock) + "\n").encode()
     sources = dict(sorted(sources.items(), key=lambda item: item[0].as_posix()))
 
@@ -901,7 +873,8 @@ def _build_bootstrap_artifact_package(
             "runtime_lock_path": RUNTIME_LOCK_PATH.as_posix(),
             "expected_boto3_version": expected_boto3_version,
             "expected_botocore_version": expected_botocore_version,
-            "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
+            "aws_sdk": SDK_MODE,
+            "sdk_entries": sdk_manifest,
         },
         "entries": [
             {
@@ -999,10 +972,15 @@ def validate_bootstrap_artifact_package(
         )
         if isinstance(manifest.get("runtime_dependencies"), Mapping)
         else None,
-        "aws_sdk": "AWS_MANAGED_PINNED_BY_RUNTIME_VERSION_GUARD",
+        "aws_sdk": SDK_MODE,
+        "sdk_entries": manifest.get("runtime_dependencies", {}).get("sdk_entries"),
     }:
         raise BootstrapArtifactPackageError("PACKAGE_RUNTIME_CONTRACT_INVALID")
     runtime_dependencies = manifest["runtime_dependencies"]
+    try:
+        validate_sdk_entries(runtime_dependencies["sdk_entries"])
+    except (VendoredSDKError, KeyError) as exc:
+        raise BootstrapArtifactPackageError("PACKAGE_SDK_MANIFEST_INVALID") from exc
     assert isinstance(runtime_dependencies, Mapping)
     if any(
         _SDK_VERSION_RE.fullmatch(str(runtime_dependencies.get(field, ""))) is None
@@ -1034,9 +1012,10 @@ def validate_bootstrap_artifact_package(
         raise BootstrapArtifactPackageError("PACKAGE_ACTIVATION_CONTRACT_INVALID")
 
     entries = manifest.get("entries")
-    if not isinstance(entries, list) or len(entries) != len(PACKAGE_PATHS):
+    expected_sdk = {entry["path"]: entry for entry in runtime_dependencies["sdk_entries"]}
+    expected_paths = sorted([path.as_posix() for path in PACKAGE_PATHS] + list(expected_sdk))
+    if not isinstance(entries, list) or len(entries) != len(expected_paths) or len(entries) > MAX_PACKAGE_ENTRIES or len(archive) > MAX_PACKAGE_BYTES:
         raise BootstrapArtifactPackageError("PACKAGE_ENTRY_SET_INVALID")
-    expected_paths = [path.as_posix() for path in PACKAGE_PATHS]
     if [entry.get("path") for entry in entries if isinstance(entry, Mapping)] != expected_paths:
         raise BootstrapArtifactPackageError("PACKAGE_ENTRY_SET_INVALID")
     try:
@@ -1051,6 +1030,15 @@ def validate_bootstrap_artifact_package(
                 }:
                     raise BootstrapArtifactPackageError("PACKAGE_ENTRY_INVALID")
                 path = str(entry["path"])
+                info = zipped.getinfo(path)
+                if (type(entry["size_bytes"]) is not int or not 0 <= entry["size_bytes"] <= MAX_ENTRY_BYTES
+                    or info.file_size != entry["size_bytes"] or info.compress_size != info.file_size
+                    or info.compress_type != ZIP_STORED or info.flag_bits & 1
+                    or info.external_attr >> 16 != 0o100644 or info.date_time != FIXED_ZIP_TIMESTAMP
+                    or info.extra or info.comment):
+                    raise BootstrapArtifactPackageError("PACKAGE_ENTRY_INVALID")
+                if path in expected_sdk and dict(entry) != expected_sdk[path]:
+                    raise BootstrapArtifactPackageError("PACKAGE_SDK_ENTRY_INVALID")
                 contents = zipped.read(path)
                 if (
                     _DIGEST_RE.fullmatch(str(entry["sha256"])) is None
@@ -1068,11 +1056,12 @@ def validate_bootstrap_artifact_package(
             if runtime_lock != {
                 "record_type": (
                     "scanalyze.platform_authority."
-                    "bootstrap_artifact_authority_runtime_lock.v1"
+                    "bootstrap_artifact_authority_runtime_lock.v2"
                 ),
-                "schema_version": 1,
+                "schema_version": 2,
                 "work_package": WORK_PACKAGE,
                 "trust_root_generation": TRUST_ROOT_GENERATION,
+                "sdk_entries": runtime_dependencies["sdk_entries"],
                 "source_commit": expected_source_commit,
                 "expected_boto3_version": runtime_dependencies[
                     "expected_boto3_version"
@@ -1172,6 +1161,7 @@ def build_bootstrap_artifact_package(
     source_commit: str,
     expected_boto3_version: str,
     expected_botocore_version: str,
+    sdk_runtime_root: Path | None = None,
 ) -> BuiltBootstrapArtifactPackage:
     """Build only from the exact clean commit proven by Git object bytes."""
 
@@ -1190,6 +1180,7 @@ def build_bootstrap_artifact_package(
         expected_boto3_version=expected_boto3_version,
         expected_botocore_version=expected_botocore_version,
         committed_sources=committed_sources,
+        sdk_sources=snapshot_reviewed_sdk(source_root=source_root, sdk_runtime_root=sdk_runtime_root or sdk_runtime_root_from_environment()),
     )
 
 
@@ -1200,6 +1191,7 @@ def write_bootstrap_artifact_package(
     expected_boto3_version: str,
     expected_botocore_version: str,
     output_directory: Path,
+    sdk_runtime_root: Path | None = None,
 ) -> tuple[Path, Path, Mapping[str, Any]]:
     """Write one owner-only evidence directory outside the source tree."""
 
@@ -1208,6 +1200,7 @@ def write_bootstrap_artifact_package(
         source_commit=source_commit,
         expected_boto3_version=expected_boto3_version,
         expected_botocore_version=expected_botocore_version,
+        sdk_runtime_root=sdk_runtime_root,
     )
     root = source_root.resolve(strict=True)
     requested_output = output_directory.resolve(strict=False)

@@ -3520,6 +3520,44 @@ GUG274_PACKAGE_PATHS = (
 )
 
 
+def _validate_gug274_artifact_package_v2(instance: dict) -> list[str]:
+    # The SDK manifest is checked against committed distribution pins, never
+    # accepted because the input hashes itself consistently.
+    from tooling.platform_authority_bootstrap_sdk_lock import validate_sdk_entries
+    runtime = instance.get("runtime_dependencies", {})
+    sdk = runtime.get("sdk_entries")
+    try:
+        validate_sdk_entries(sdk)
+    except (ValueError, TypeError):
+        return ["vendored SDK entries must match the committed distribution pins"]
+    entries = instance.get("entries", [])
+    expected_paths = sorted((*GUG274_PACKAGE_PATHS, "tooling/platform_authority_bootstrap_sdk_lock.py", *(entry["path"] for entry in sdk)))
+    if [entry.get("path") for entry in entries] != expected_paths:
+        return ["package entries must match the complete source and vendored SDK closure"]
+    indexed = {entry["path"]: entry for entry in entries}
+    if any(indexed[entry["path"]] != entry for entry in sdk):
+        return ["package SDK entries differ from the pinned SDK manifest"]
+    runtime_lock = {
+        "record_type": "scanalyze.platform_authority.bootstrap_artifact_authority_runtime_lock.v2",
+        "schema_version": 2, "work_package": "GUG-274", "trust_root_generation": 1,
+        "source_commit": instance.get("source_commit"),
+        "expected_boto3_version": runtime.get("expected_boto3_version"),
+        "expected_botocore_version": runtime.get("expected_botocore_version"),
+        "sdk_entries": sdk,
+    }
+    lock_bytes = (json.dumps(runtime_lock, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+    lock = indexed["gug274_runtime_lock.json"]
+    if lock.get("sha256") != hashlib.sha256(lock_bytes).hexdigest() or lock.get("size_bytes") != len(lock_bytes):
+        return ["runtime lock must bind source and complete SDK closure"]
+    expected_size = sum(entry["size_bytes"] + 76 + 2 * len(entry["path"].encode()) for entry in entries) + 22
+    if instance.get("archive_size_bytes") != expected_size:
+        return ["archive size must match ZIP_STORED fixed-metadata entries"]
+    digest = instance.get("archive_sha256", "")
+    if re.fullmatch(r"[a-f0-9]{64}", digest) and instance.get("unsigned_archive_code_sha256") != base64.b64encode(bytes.fromhex(digest)).decode("ascii"):
+        return ["unsigned CodeSha256 must encode the archive digest"]
+    return []
+
+
 def _validate_gug274_artifact_package(instance: dict) -> list[str]:
     errors: list[str] = []
     archive_digest = instance.get("archive_sha256")
@@ -3976,6 +4014,9 @@ def validate_semantics(
         "platform-authority-bootstrap-artifact-package.v1.schema.json"
     ):
         errors.extend(_validate_gug274_artifact_package(instance))
+
+    if schema_name == "platform-authority-bootstrap-artifact-package.v2.schema.json":
+        errors.extend(_validate_gug274_artifact_package_v2(instance))
 
     if schema_name == (
         "platform-authority-bootstrap-artifact-signing-trust-root.v1.schema.json"

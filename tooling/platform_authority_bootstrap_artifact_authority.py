@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
+from tooling.platform_authority_bootstrap_sdk_lock import import_vendored_sdk, validate_sdk_entries, VendoredSDKError
+
 from tooling.platform_authority_bootstrap import (
     PUBLIC_ACCESS_BLOCK,
     BootstrapAuthorizationError,
@@ -2222,11 +2224,12 @@ FORBIDDEN_PROVIDER_ENV = frozenset(
         "AWS_DATA_PATH",
         "REQUESTS_CA_BUNDLE",
         "BOTO_CONFIG",
+        "BOTOCORE_EXPERIMENTAL__PLUGINS",
     }
 )
 RUNTIME_LOCK_RELATIVE_PATH = Path("gug274_runtime_lock.json")
 RUNTIME_LOCK_RECORD_TYPE = (
-    "scanalyze.platform_authority.bootstrap_artifact_authority_runtime_lock.v1"
+    "scanalyze.platform_authority.bootstrap_artifact_authority_runtime_lock.v2"
 )
 SOURCE_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SDK_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -2340,7 +2343,7 @@ class BootstrapArtifactAuthorityRuntimeConfig:
         )
 
 
-def _validate_runtime_lock(config: BootstrapArtifactAuthorityRuntimeConfig) -> None:
+def _validate_runtime_lock(config: BootstrapArtifactAuthorityRuntimeConfig) -> list[dict[str, Any]]:
     """Bind imported SDK behavior and source commit to reviewed package bytes."""
 
     path = Path(__file__).resolve().parents[1] / RUNTIME_LOCK_RELATIVE_PATH
@@ -2362,17 +2365,23 @@ def _validate_runtime_lock(config: BootstrapArtifactAuthorityRuntimeConfig) -> N
         ) from None
     expected = {
         "record_type": RUNTIME_LOCK_RECORD_TYPE,
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": "GUG-274",
         "trust_root_generation": TRUST_ROOT_GENERATION,
         "source_commit": config.source_commit,
         "expected_boto3_version": config.expected_boto3_version,
         "expected_botocore_version": config.expected_botocore_version,
     }
-    if type(lock) is not dict or lock != expected:
+    if type(lock) is not dict or set(lock) != set(expected) | {"sdk_entries"} or {key: lock.get(key) for key in expected} != expected:
         raise BootstrapArtifactAuthorityError(
             "artifact authority runtime lock is invalid"
         )
+
+    try:
+        validate_sdk_entries(lock["sdk_entries"])
+    except VendoredSDKError:
+        raise BootstrapArtifactAuthorityError("artifact authority runtime SDK lock is invalid") from None
+    return lock["sdk_entries"]
 
 
 def _reject_provider_overrides(environment: Mapping[str, str]) -> None:
@@ -2410,11 +2419,11 @@ def _runtime_broker(
     # Imports and provider construction occur only after the complete local
     # contract and immutable function-version check.
     _reject_provider_overrides(os.environ)
-    _validate_runtime_lock(config)
+    sdk_manifest = _validate_runtime_lock(config)
     try:
-        import boto3
-        import botocore
-        from botocore.config import Config
+        boto3, botocore, Config = import_vendored_sdk(
+            package_root=Path(__file__).resolve().parents[1], entries=sdk_manifest
+        )
 
         if (
             boto3.__version__ != config.expected_boto3_version

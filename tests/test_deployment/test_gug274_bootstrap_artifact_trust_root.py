@@ -25,6 +25,7 @@ from yaml.constructor import ConstructorError
 
 import tooling.platform_authority_bootstrap_artifact_authority as authority_module
 import tooling.platform_authority_bootstrap_artifact_package as artifact_package_module
+import tooling.platform_authority_bootstrap_sdk_lock as sdk_lock_module
 import tooling.platform_authority_bootstrap_signed_artifact as signed_artifact_module
 from tooling.platform_authority_bootstrap import (
     PUBLIC_ACCESS_BLOCK,
@@ -126,6 +127,31 @@ TEMPLATE_BODY = "synthetic exact original template"
 TEMPLATE_SHA256 = hashlib.sha256(TEMPLATE_BODY.encode()).hexdigest()
 NOW = datetime(2030, 1, 1, tzinfo=UTC)
 SIGNING_NOW = datetime.now(UTC).replace(microsecond=0)
+
+
+def _unit_sdk_sources() -> dict[str, bytes]:
+    # Tiny, explicitly synthetic distribution bytes keep the existing CAS,
+    # identity, Git and receipt unit matrix independent of a downloaded SDK.
+    # The real pinned closure is exercised separately in test_gug274_vendored_sdk.
+    return {str(lock["module_path"]): ("# synthetic " + name + "\n").encode()
+            for name, lock in SDK_DISTRIBUTION_LOCKS.items()}
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_sdk_for_existing_unit_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    locks = copy.deepcopy(SDK_DISTRIBUTION_LOCKS)
+    for name, lock in locks.items():
+        path = str(lock["module_path"])
+        payload = _unit_sdk_sources()[path]
+        entries = [{"path": path,
+                    "sha256": base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode().rstrip("="),
+                    "size_bytes": len(payload)}]
+        lock["installed_manifest_sha256"] = hashlib.sha256(
+            json.dumps(entries, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        ).hexdigest()
+    monkeypatch.setattr(sdk_lock_module, "SDK_DISTRIBUTION_LOCKS", locks)
+    monkeypatch.setattr(artifact_package_module, "snapshot_reviewed_sdk", lambda **_: _unit_sdk_sources())
+    monkeypatch.setattr(artifact_package_module, "sdk_runtime_root_from_environment", lambda: Path("/synthetic-sdk-unit-fixture"))
 
 
 class _CloudFormationLoader(yaml.SafeLoader):
@@ -1510,6 +1536,7 @@ def test_package_is_reproducible_closed_and_tamper_evident() -> None:
         expected_boto3_version="1.42.57",
         expected_botocore_version="1.42.97",
         committed_sources=committed_sources,
+        sdk_sources=_unit_sdk_sources(),
     )
     second = _build_bootstrap_artifact_package(
         source_root=REPO_ROOT,
@@ -1517,11 +1544,12 @@ def test_package_is_reproducible_closed_and_tamper_evident() -> None:
         expected_boto3_version="1.42.57",
         expected_botocore_version="1.42.97",
         committed_sources=committed_sources,
+        sdk_sources=_unit_sdk_sources(),
     )
     assert first.archive == second.archive
     assert first.manifest == second.manifest
     assert [entry["path"] for entry in first.manifest["entries"]] == [
-        path.as_posix() for path in PACKAGE_PATHS
+        *sorted([path.as_posix() for path in PACKAGE_PATHS] + list(_unit_sdk_sources()))
     ]
     assert first.manifest["signing_contract"] == {
         "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
@@ -1719,7 +1747,9 @@ def test_source_only_repository_importer_ignores_unchecked_bytecode(
 
 def _materialize_locked_sdk_runtime(runtime_site: Path) -> None:
     for distribution_name, contract in SDK_DISTRIBUTION_LOCKS.items():
-        distribution = metadata.distribution(distribution_name)
+        approved_root = os.environ.get("SCANALYZE_GUG274_SDK_RUNTIME_ROOT")
+        distribution = (metadata.Distribution.at(Path(approved_root) / "site-packages" / str(contract["dist_info_name"]))
+                        if approved_root else metadata.distribution(distribution_name))
         distribution_root = Path(distribution.locate_file("")).resolve()
         record_path = Path(distribution._path) / "RECORD"
         rows = [
@@ -2229,6 +2259,7 @@ def _unsigned_authority_package(
         expected_boto3_version=boto3_version,
         expected_botocore_version="1.42.97",
         committed_sources=committed_sources,
+        sdk_sources=_unit_sdk_sources(),
     )
 
 
@@ -2843,15 +2874,16 @@ def test_runtime_configuration_and_package_lock_are_exact(
     exact_lock = {
         "record_type": (
             "scanalyze.platform_authority."
-            "bootstrap_artifact_authority_runtime_lock.v1"
+            "bootstrap_artifact_authority_runtime_lock.v2"
         ),
-        "schema_version": 1,
+        "schema_version": 2,
         "work_package": "GUG-274",
         "trust_root_generation": 1,
         "source_commit": "a" * 40,
         "expected_boto3_version": "1.42.57",
         "expected_botocore_version": "1.42.97",
     }
+    exact_lock["sdk_entries"] = sdk_lock_module.sdk_entries(_unit_sdk_sources())
     lock_path.write_text(json.dumps(exact_lock), encoding="utf-8")
     authority_module._validate_runtime_lock(config)
 

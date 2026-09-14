@@ -83,6 +83,10 @@ bootstrap package was uploaded or signed by its installation.
 
 Build the canonical package from a clean exact commit using
 [the existing package CLI](../../scripts/deployment/platform-authority-bootstrap-artifact-package.py).
+The package now includes the complete pinned SDK; follow the
+[vendored SDK build procedure](gug274-vendored-sdk.md), including its required
+`--sdk-runtime-root` argument. The earlier 103-test checkpoint above predates
+this package-v2 change and is not its integration evidence.
 The later signed-artifact collector independently requires protected-main
 evidence, real signing-job and versioned object readbacks, and its authenticated
 SDK closure. A premerge build is local verification only and must be rebuilt

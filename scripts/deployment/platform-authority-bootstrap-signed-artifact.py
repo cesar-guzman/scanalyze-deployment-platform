@@ -92,6 +92,7 @@ UNSAFE_SDK_ENV_NAMES = frozenset(
         "AWS_CONFIG_FILE",
         "AWS_SHARED_CREDENTIALS_FILE",
         "BOTO_CONFIG",
+        "BOTOCORE_EXPERIMENTAL__PLUGINS",
         "REQUESTS_CA_BUNDLE",
         "CURL_CA_BUNDLE",
         "SSL_CERT_FILE",
@@ -139,12 +140,14 @@ def main() -> int:
     args = parse_args()
     try:
         _require_closed_sdk_environment()
+        sdk_root = sdk_runtime_root_from_environment()
         load_signing_trust_root_contract(
             source_root=ROOT, require_configured=True
         )
         build_bootstrap_artifact_package(
             source_root=ROOT,
             source_commit=args.source_commit,
+            sdk_runtime_root=sdk_root,
             expected_boto3_version=args.expected_boto3_version,
             expected_botocore_version=args.expected_botocore_version,
         )
@@ -155,7 +158,7 @@ def main() -> int:
         boto3, _, Config = import_reviewed_aws_sdk(
             source_root=ROOT,
             isolated_import_paths=ISOLATED_IMPORT_PATHS,
-            sdk_runtime_root=sdk_runtime_root_from_environment(),
+            sdk_runtime_root=sdk_root,
         )
 
         session = boto3.Session(profile_name=args.profile, region_name=args.region)
