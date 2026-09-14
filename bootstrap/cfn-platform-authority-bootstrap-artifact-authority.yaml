@@ -58,6 +58,7 @@ Parameters:
   AuthoritySigningTrustRootContractDigest:
     Type: String
     AllowedPattern: '^sha256:[a-f0-9]{64}$'
+    AllowedValues: ['sha256:2909fb75ecb695b9891062ac4dafcba664128658d2351690557e0708c2de4bef']
     Description: Domain-separated digest of the reviewed generation-1 signer-version contract in Git.
   AuthoritySigningProfileName:
     Type: String
@@ -65,14 +66,15 @@ Parameters:
   AuthoritySigningProfileVersionId:
     Type: String
     AllowedPattern: '^[A-Za-z0-9]{10}$'
+    AllowedValues: ['fo5PB1XOji']
   AuthoritySigningTrustRootConfigured:
     Type: String
-    Default: 'false'
-    AllowedValues: ['false']
+    Default: 'true'
+    AllowedValues: ['true']
     Description: >-
-      Deliberate activation lock. A separately reviewed commit must bind exact
-      AllowedValues for the signer version and contract digest before changing
-      this closed value to true.
+      Source-pinned generation-1 signer version and contract digest. This value
+      permits only the reviewed signer configuration; signed artifact and
+      installation authorization remain separately required.
   SourceCommit:
     Type: String
     AllowedPattern: '^[0-9a-f]{40}$'
@@ -88,8 +90,8 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref AuthoritySigningTrustRootConfigured, 'true']
         AssertDescription: >-
-          GUG-274 signer trust root is NOT_CONFIGURED; this repository template
-          must not create a Change Set until an exact reviewed version is pinned.
+          GUG-274 requires the source-pinned signer version and contract digest;
+          unconfigured or substituted signer authority cannot create a Change Set.
   AuthorityAccountMustMatch:
     Assertions:
       - Assert: !Equals [!Ref AuthorityAccountId, !Ref AWS::AccountId]
@@ -578,9 +580,20 @@ Resources:
                   - dynamodb:PartiQLInsert
                   - dynamodb:PartiQLUpdate
                   - dynamodb:PutItem
-                  - dynamodb:TransactWriteItems
                   - iam:*
                 Resource: '*'
+              - Sid: DenyTransactionalArtifactAuthorityOperations
+                Effect: Deny
+                Action:
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: '*'
+                Condition:
+                  ForAnyValue:StringEquals:
+                    dynamodb:EnclosingOperation: [TransactGetItems, TransactWriteItems]
       Tags: *CommonTags
 
   ArtifactAuthorityTable:
@@ -657,9 +670,20 @@ Resources:
                 - dynamodb:PartiQLUpdate
                 - dynamodb:Query
                 - dynamodb:Scan
-                - dynamodb:TransactGetItems
-                - dynamodb:TransactWriteItems
               Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+            - Sid: DenyTransactionalArtifactAuthorityOperations
+              Effect: Deny
+              Principal: '*'
+              Action:
+                - dynamodb:ConditionCheckItem
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts
+              Condition:
+                ForAnyValue:StringEquals:
+                  dynamodb:EnclosingOperation: [TransactGetItems, TransactWriteItems]
       Tags: *CommonTags
 
   PlanAuthorityFunction:

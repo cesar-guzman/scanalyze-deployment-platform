@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import py_compile
+import runpy
 import subprocess
 import sys
 import threading
@@ -1133,16 +1134,25 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
             / "bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json"
         ).read_text()
     )
-    assert signing_contract["configuration_status"] == "NOT_CONFIGURED"
-    assert signing_contract["profile_version_id"] is None
-    assert signing_contract["profile_version_arn"] is None
+    assert signing_contract["configuration_status"] == "CONFIGURED_REVIEWED"
+    assert signing_contract["profile_version_id"] == "fo5PB1XOji"
+    assert signing_contract["profile_version_arn"] == (
+        "arn:aws:signer:us-east-1:042360977644:/signing-profiles/"
+        "scanalyze_gug274_bootstrap_artifact_authority/fo5PB1XOji"
+    )
+    assert parameters["AuthoritySigningProfileVersionId"]["AllowedValues"] == [
+        signing_contract["profile_version_id"]
+    ]
+    assert parameters["AuthoritySigningTrustRootContractDigest"]["AllowedValues"] == [
+        signing_trust_root_contract_digest(signing_contract)
+    ]
     assert parameters["AuthoritySigningProfileName"]["AllowedValues"] == [
         "scanalyze_gug274_bootstrap_artifact_authority"
     ]
     assert parameters["AuthoritySigningTrustRootConfigured"] == {
         "Type": "String",
-        "Default": "false",
-        "AllowedValues": ["false"],
+        "Default": "true",
+        "AllowedValues": ["true"],
         "Description": parameters["AuthoritySigningTrustRootConfigured"][
             "Description"
         ],
@@ -1188,6 +1198,7 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
         "DenyPlanCreatesOutsideExactPlanAuthority",
         "DenyReadsOutsideExactApprovalAndApplyAuthorities",
         "DenyTransitionsOutsideExactApprovalAndApplyAuthorities",
+        "DenyTransactionalArtifactAuthorityOperations",
         "DenyUnsupportedArtifactAuthorityOperations",
     }
     for role_name, exact_function_name in (
@@ -1225,6 +1236,10 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
             "lambda:SourceFunctionArn"
         ]["Sub"]
         assert source_function.endswith(":function:" + exact_function_name)
+        assert ledger_allows[0]["Condition"]["Null"] == {
+            "dynamodb:EnclosingOperation": "true",
+            "dynamodb:LeadingKeys": "false",
+        }
 
     for proof_role, user_parameter, execution_role in (
         ("PlanIdentityProofRole", "PlanIdentityStoreUserId", "ScanalyzeGug274BootstrapPlanAuthority"),
@@ -1323,6 +1338,150 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
         "GetAtt": "ApplyExecutorVersion.Version"
     }
     assert template["Outputs"]["ProductionAuthorized"]["Value"] == "false"
+
+
+@pytest.mark.parametrize("action", [
+    "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+    "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem",
+])
+@pytest.mark.parametrize("enclosing", [None, "TransactGetItems", "TransactWriteItems"])
+def test_cfn_transaction_denies_use_underlying_iam_actions(
+    action: str, enclosing: str | None,
+) -> None:
+    template = yaml.load(
+        (REPO_ROOT / "bootstrap/cfn-platform-authority-bootstrap-artifact-authority.yaml").read_text(),
+        Loader=_CloudFormationLoader,
+    )
+    resources = template["Resources"]
+    table = resources["ArtifactAuthorityTable"]["Properties"]["ResourcePolicy"]["PolicyDocument"]
+    executor = resources["ApplyExecutorExecutionRole"]["Properties"]["Policies"][0]["PolicyDocument"]
+    for policy in (table, executor):
+        statements = {statement["Sid"]: statement for statement in policy["Statement"]}
+        transactional = statements["DenyTransactionalArtifactAuthorityOperations"]
+        assert transactional["Effect"] == "Deny"
+        assert set(transactional["Action"]) == {
+            "dynamodb:ConditionCheckItem", "dynamodb:DeleteItem", "dynamodb:GetItem",
+            "dynamodb:PutItem", "dynamodb:UpdateItem",
+        }
+        assert transactional["Condition"] == {
+            "ForAnyValue:StringEquals": {
+                "dynamodb:EnclosingOperation": ["TransactGetItems", "TransactWriteItems"],
+            },
+        }
+        # Evaluate this exact set condition for the AWS request context: a normal
+        # single-item request has no enclosing operation; either transaction must
+        # match an explicit Deny even if another policy were to grant the action.
+        context_values = [] if enclosing is None else [enclosing]
+        denied = action in transactional["Action"] and any(
+            value in transactional["Condition"]["ForAnyValue:StringEquals"]["dynamodb:EnclosingOperation"]
+            for value in context_values
+        )
+        assert denied is (enclosing is not None)
+        for statement in policy["Statement"]:
+            actions = statement["Action"]
+            if isinstance(actions, str):
+                actions = [actions]
+            assert not set(actions).intersection({
+                "dynamodb:TransactGetItems", "dynamodb:TransactWriteItems",
+            })
+    assert table["Statement"][-1]["Principal"] == "*"
+    table_deny = next(s for s in table["Statement"] if s["Sid"] == "DenyTransactionalArtifactAuthorityOperations")
+    assert table_deny["Resource"] == {
+        "Sub": "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/scanalyze-platform-authority-bootstrap-artifacts",
+    }
+    assert executor["Statement"][-1]["Resource"] == "*"
+
+
+def test_template_renderer_real_cli_expands_aliases_without_semantic_changes(tmp_path: Path) -> None:
+    script = REPO_ROOT / "scripts/deployment/render-bootstrap-authority-template.py"
+    source = (REPO_ROOT / "bootstrap/cfn-platform-authority-bootstrap-artifact-authority.yaml").read_bytes()
+    expected_sha256 = hashlib.sha256(source).hexdigest()
+    tmp_path.chmod(0o700)
+    outputs = []
+    for name in ("first.json", "second.json"):
+        output = tmp_path / name
+        result = subprocess.run(
+            [sys.executable, "-I", str(script), "--expected-source-sha256", expected_sha256,
+             "--output", str(output)], capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        payload = output.read_bytes()
+        assert output.stat().st_mode & 0o777 == 0o600
+        evidence = json.loads(result.stdout)
+        assert evidence == {
+            "status": "LOCAL_RENDER_ONLY", "source_sha256": expected_sha256,
+            "rendered_sha256": hashlib.sha256(payload).hexdigest(), "output": str(output),
+        }
+        outputs.append(payload)
+    assert outputs[0] == outputs[1]
+
+    def json_intrinsics(value: Any) -> Any:
+        if isinstance(value, list):
+            return [json_intrinsics(item) for item in value]
+        if isinstance(value, dict):
+            if len(value) == 1:
+                tag = next(iter(value))
+                if tag in {"Sub", "GetAtt", "Equals", "Not", "Join"}:
+                    item = value[tag]
+                    if tag == "GetAtt" and isinstance(item, str):
+                        item = item.split(".", 1)
+                    return {"Fn::" + tag: json_intrinsics(item)}
+            return {key: json_intrinsics(item) for key, item in value.items()}
+        return value
+
+    original = yaml.load(source, Loader=_CloudFormationLoader)
+    assert json.loads(outputs[0]) == json_intrinsics(original)
+    # A second invocation cannot replace a reviewed render, even with valid pins.
+    replay = subprocess.run(
+        [sys.executable, "-I", str(script), "--expected-source-sha256", expected_sha256,
+         "--output", str(tmp_path / "first.json")], capture_output=True, text=True,
+    )
+    assert replay.returncode != 0
+    assert (tmp_path / "first.json").read_bytes() == outputs[0]
+
+
+@pytest.mark.parametrize("defect", ["source_pin", "output_symlink", "parent_symlink", "permissions"])
+def test_template_renderer_real_cli_rejects_unreviewed_or_unsafe_output(tmp_path: Path, defect: str) -> None:
+    script = REPO_ROOT / "scripts/deployment/render-bootstrap-authority-template.py"
+    source = (REPO_ROOT / "bootstrap/cfn-platform-authority-bootstrap-artifact-authority.yaml").read_bytes()
+    pin = hashlib.sha256(source).hexdigest()
+    tmp_path.chmod(0o700)
+    output = tmp_path / "candidate.json"
+    protected = tmp_path / "existing.json"
+    protected.write_text("preserve")
+    if defect == "source_pin":
+        pin = "0" * 64
+    elif defect == "output_symlink":
+        output.symlink_to(protected)
+    elif defect == "parent_symlink":
+        alias = tmp_path / "alias"
+        alias.symlink_to(tmp_path, target_is_directory=True)
+        output = alias / "candidate.json"
+    else:
+        tmp_path.chmod(0o755)
+    result = subprocess.run(
+        [sys.executable, "-I", str(script), "--expected-source-sha256", pin,
+         "--output", str(output)], capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert not result.stdout
+    assert protected.read_text() == "preserve"
+    if defect != "output_symlink":
+        assert not output.exists()
+
+
+@pytest.mark.parametrize("source", [
+    b"Resources: {}\nResources: {}\n",
+    b"Resources: {One: !Unreviewed value}\n",
+    b"Resources: {One: !GetAtt MissingDot}\n",
+    b"Resources: {One: &cycle [*cycle]}\n",
+    b"Resources: {One: .nan}\n",
+    b"Resources: {One: !!python/object:builtins.object {}}\n",
+])
+def test_template_renderer_rejects_ambiguous_or_non_json_sources(source: bytes) -> None:
+    namespace = runpy.run_path(str(REPO_ROOT / "scripts/deployment/render-bootstrap-authority-template.py"))
+    with pytest.raises(namespace["TemplateError"]):
+        namespace["render"](source, hashlib.sha256(source).hexdigest())
 
 
 def test_identity_application_actor_policy_is_exact_service_only() -> None:
@@ -2214,23 +2373,29 @@ def _signed_artifact_receipt() -> dict[str, Any]:
     )
 
 
-def test_repository_signing_trust_root_is_deliberately_not_configured() -> None:
+def test_repository_signing_trust_root_pins_reviewed_aws_version_without_production_authority() -> None:
     contract = load_signing_trust_root_contract(
-        source_root=REPO_ROOT, require_configured=False
+        source_root=REPO_ROOT, require_configured=True
     )
-    validate_signing_trust_root_contract(contract, require_configured=False)
-    assert contract["configuration_status"] == "NOT_CONFIGURED"
-    assert signing_trust_root_contract_digest(contract).startswith("sha256:")
-    with pytest.raises(
-        BootstrapSignedArtifactError,
-        match="SIGNING_TRUST_ROOT_NOT_CONFIGURED",
-    ):
-        load_signing_trust_root_contract(
-            source_root=REPO_ROOT, require_configured=True
-        )
+    validate_signing_trust_root_contract(contract, require_configured=True)
+    assert contract["configuration_status"] == "CONFIGURED_REVIEWED"
+    assert contract["profile_version_id"] == "fo5PB1XOji"
+    assert contract["activation_authorized"] is False
+    assert contract["production_status"] == "NO-GO"
+    assert signing_trust_root_contract_digest(contract) == (
+        "sha256:2909fb75ecb695b9891062ac4dafcba664128658d2351690557e0708c2de4bef"
+    )
 
 
-def test_unconfigured_signer_contract_stops_before_any_provider_read() -> None:
+def test_unconfigured_signer_contract_stops_before_any_provider_read(tmp_path: Path) -> None:
+    # Keep the unconfigured fail-closed regression independent of the configured
+    # production source pin. No verifier/provider behavior is mocked.
+    unconfigured = _configured_signing_trust_root()
+    unconfigured.update(configuration_status="NOT_CONFIGURED", profile_version_id=None, profile_version_arn=None)
+    fixture_path = tmp_path / "bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json"
+    fixture_path.parent.mkdir()
+    fixture_path.write_text(json.dumps(unconfigured))
+
     class NoProviderRead:
         def __getattr__(self, _name: str) -> Any:
             raise AssertionError("provider read must not occur")
@@ -2240,7 +2405,7 @@ def test_unconfigured_signer_contract_stops_before_any_provider_read() -> None:
         match="SIGNING_TRUST_ROOT_NOT_CONFIGURED",
     ):
         build_signed_artifact_receipt_from_aws(
-            source_root=REPO_ROOT,
+            source_root=tmp_path,
             source_commit="a" * 40,
             expected_boto3_version="1.42.57",
             expected_botocore_version="1.42.97",
@@ -2251,6 +2416,41 @@ def test_unconfigured_signer_contract_stops_before_any_provider_read() -> None:
             s3_client=NoProviderRead(),
             now=SIGNING_NOW,
         )
+
+
+@pytest.mark.parametrize("profile_version", ["fo5PB1XOji", "ABCDEFGHIJ"])
+def test_repository_signer_pin_reaches_real_receipt_gate(profile_version: str) -> None:
+    unsigned = _unsigned_authority_package()
+    signed = _synthetic_signed_archive(unsigned.archive)
+    contract = load_signing_trust_root_contract(source_root=REPO_ROOT, require_configured=True)
+    arguments = dict(
+        unsigned_manifest=unsigned.manifest,
+        downloaded_unsigned_archive=unsigned.archive,
+        downloaded_signed_archive=signed,
+        signing_job=_signing_job(profile_version=profile_version),
+        signed_object_head=_signed_object_head(signed),
+        signing_trust_root=contract,
+        source_review=_signed_source_review(),
+        verifier_identity=_signing_verifier_identity(),
+        verifier_profile=EXPECTED_VERIFIER_PROFILE,
+        now=SIGNING_NOW,
+    )
+    if profile_version != contract["profile_version_id"]:
+        with pytest.raises(BootstrapSignedArtifactError, match="SIGNING_JOB_NOT_EXACT"):
+            _build_signed_artifact_receipt(**arguments)
+        return
+    receipt = _build_signed_artifact_receipt(**arguments)
+    validate_signed_artifact_receipt(receipt)
+    template = yaml.load(
+        (REPO_ROOT / "bootstrap/cfn-platform-authority-bootstrap-artifact-authority.yaml").read_text(),
+        Loader=_CloudFormationLoader,
+    )
+    actual = {entry["ParameterKey"]: entry["ParameterValue"] for entry in receipt["cloudformation_parameters"]}
+    for name in ("AuthoritySigningProfileVersionId", "AuthoritySigningTrustRootContractDigest"):
+        assert template["Parameters"][name]["AllowedValues"] == [actual[name]]
+    assert "ABCDEFGHIJ" not in template["Parameters"]["AuthoritySigningProfileVersionId"]["AllowedValues"]
+    assert "sha256:" + "0" * 64 not in template["Parameters"]["AuthoritySigningTrustRootContractDigest"]["AllowedValues"]
+    assert receipt["production_status"] == "NO-GO"
 
 
 def test_signed_artifact_receipt_binds_only_signer_destination_bytes_to_cfn() -> None:
